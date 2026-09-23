@@ -100,6 +100,56 @@ def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
     return sorted(unknown)
 
 
+#: Claude Code's own alias names. They name no model, so ``model=`` refuses them.
+_CLAUDE_CODE_ALIAS_WORDS = ("haiku", "sonnet", "opus")
+
+
+def _model_check(repo_root: Path, pairs: tuple[str, ...]) -> tuple[str, str, list[str]] | None:
+    """The ``model=`` value in *pairs*, the provider it runs on, and what that provider serves.
+
+    The provider is a ``provider=`` pair on the same command line, else the
+    profile's own ``provider:``. A bare alias word is refused here, before
+    anything is written, with the ids the provider serves.
+
+    Returns:
+        ``(model, provider, served)``, or ``None`` when *pairs* sets no model or
+        no provider can be named.
+    """
+    import yaml
+
+    from osprey.errors import BuildProfileError
+    from osprey.profiles.providers import load_provider_catalog
+
+    values: dict[str, str] = {}
+    for pair in pairs:
+        key, separator, value = pair.partition("=")
+        if separator and key.strip() in ("model", "provider"):
+            values[key.strip()] = str(yaml.safe_load(value) if value.strip() else "")
+    model = values.get("model")
+    if not model:
+        return None
+    provider = values.get("provider")
+    if not provider:
+        try:
+            profile = yaml.safe_load((repo_root / PROFILE_FILENAME).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            return None
+        provider = (profile or {}).get("provider") if isinstance(profile, dict) else None
+    if not provider:
+        return None
+    try:
+        entry = load_provider_catalog(repo_root).entries.get(str(provider)) or {}
+    except BuildProfileError:
+        entry = {}
+    served = [str(m) for m in entry.get("models") or []]
+    if model in _CLAUDE_CODE_ALIAS_WORDS:
+        raise click.UsageError(
+            f"`model={model}` is not a model id. Provider '{provider}' serves: "
+            f"{', '.join(served) or 'no listed models'}."
+        )
+    return model, str(provider), served
+
+
 @click.command(name="set")
 @click.argument("pairs", nargs=-1, metavar="KEY=VALUE...")
 @repo_option
@@ -113,7 +163,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     a setting through to build/, then `osprey up` to deploy it.
 
     KEY is a top-level profile key (provider, model, tier, channel_finder_mode,
-    connector) or a dotted path. Keys under `config.` address the rendered
+    connector) or a dotted path. `model` is a model id the provider serves. Keys under `config.` address the rendered
     config: `config.control_system.type=epics` writes that literal dotted entry
     into the profile's config: block, replacing the value already there. A
     mapping value states the whole block at that key: `config.approval.tools={…}`
@@ -129,7 +179,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     Examples:
 
     \b
-      $ osprey set model=sonnet
+      $ osprey set model=claude-sonnet-5
       $ osprey set connector=epics
       $ osprey set tier=1 channel_finder_mode=in_context
       $ osprey set config.facility.name='Storage Ring'
@@ -143,7 +193,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
 
     if not pairs:
         raise click.UsageError(
-            "Nothing to set. Name at least one KEY=VALUE, e.g. `osprey set model=sonnet`.\n\n"
+            "Nothing to set. Name at least one KEY=VALUE, e.g. `osprey set model=claude-sonnet-5`.\n\n"
             "To see what the profile currently says, run `osprey config`."
         )
 
@@ -154,6 +204,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     profile_path = repo_root / PROFILE_FILENAME
 
     _refuse_retired_shorthands(pairs)
+    model_check = _model_check(repo_root, pairs)
 
     try:
         # Every pair is merged into one layer before any of it is written, so a
@@ -165,6 +216,12 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     report(f"✓ Wrote {len(written)} setting(s) into {profile_path}", style=Styles.SUCCESS)
     for key in written:
         note(key)
+    if model_check is not None:
+        model, provider, served = model_check
+        if served and model not in served:
+            note(
+                f"{model} is not in provider '{provider}''s served list; the build trusts the gateway."
+            )
 
     unrecognized = _unrecognized_top_level_keys(pairs)
     # The retired app-template key is unknown for a REASON the generic advice

@@ -240,7 +240,7 @@ def _control_assistant_persona_deltas() -> tuple[Delta, ...]:
     """
     return (
         # knowledge persona runs with `claude_code.servers.ariel.enabled: false`,
-        # and the framework template gates these three on that flag. Their only readers
+        # and the framework template gates these two on that flag. Their only readers
         # are the ARIEL surfaces, which are off for this persona, so dropping them
         # changes nothing it does.
         Delta(
@@ -253,12 +253,6 @@ def _control_assistant_persona_deltas() -> tuple[Delta, ...]:
             document="knowledge",
             path="ariel.enhancement_modules.semantic_processor.provider",
             fixture="anthropic",
-            live=ABSENT,
-        ),
-        Delta(
-            document="knowledge",
-            path="ariel.enhancement_modules.semantic_processor.model.model_id",
-            fixture="haiku",
             live=ABSENT,
         ),
         # logbook persona: the app template wrote `pipeline_mode: {{ default_pipeline }}`

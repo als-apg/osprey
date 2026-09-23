@@ -177,7 +177,9 @@ def test_drift_names_what_moved_and_that_the_start_verbs_refuse(lifecycle_repo):
     """The same verdict ``up`` refuses on, so a refusal is never a surprise here."""
     render_build(lifecycle_repo)
     profile = lifecycle_repo / "profile.yml"
-    profile.write_text(profile.read_text(encoding="utf-8") + "\nmodel: opus\n", encoding="utf-8")
+    profile.write_text(
+        profile.read_text(encoding="utf-8") + "\nmodel: claude-opus-5\n", encoding="utf-8"
+    )
 
     text = report(lifecycle_repo)
 

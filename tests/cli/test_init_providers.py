@@ -63,6 +63,8 @@ def _add_gateway(repo: Path, name: str = "house-gateway") -> str:
             f"  {name}:\n"
             f"    api_key: ${{{variable}}}\n"
             f"    base_url: https://gateway.example.invalid/v1\n"
+            f"    default_model: rack-model\n"
+            f"    models: [rack-model]\n"
         )
     return variable
 

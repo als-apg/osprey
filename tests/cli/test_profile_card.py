@@ -286,6 +286,24 @@ def test_the_agent_group_names_servers_and_counts_its_toolkit(
     assert re.search(r"\d+ agents", toolkit)
 
 
+def test_the_model_row_names_the_provider_default_when_the_profile_names_none(
+    exemplar_lines: list[str],
+) -> None:
+    """The preset names no model, so the card says which one answers and why."""
+    model = line_with(exemplar_lines, "model ")
+    assert "anthropic" in model
+    assert "(provider default) claude-sonnet-5" in model
+
+
+def test_the_model_row_shows_a_named_model_without_its_vendor_prefix() -> None:
+    lines = format_profile_card(
+        BuildProfile(name="named", provider="als-apg", model="claude-haiku-4-5-20251001"), {}
+    )
+    model = line_with(lines, "model ")
+    assert "Haiku 4.5 (claude-haiku-4-5-20251001)" in model
+    assert "Claude" not in model
+
+
 def test_the_machine_group_reads_connector_archiver_and_channels(
     exemplar_lines: list[str],
 ) -> None:

@@ -275,7 +275,7 @@ their own, so they need no arguments. `--repo PATH` points them somewhere else.
 
 ## Changing something
 
-Edit `profile.yml` (or run `osprey set model=sonnet` to change one setting),
+Edit `profile.yml` (or run `osprey set model=claude-sonnet-5` to change one setting),
 then:
 
 ```bash

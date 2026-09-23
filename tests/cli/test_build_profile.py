@@ -792,7 +792,7 @@ def test_the_mixed_spelling_refusal_names_every_dotted_key() -> None:
                 {
                     "claude_code.provider": "anthropic",
                     "claude_code.permissions.deny": [SETUP_PATCH],
-                    "claude_code": {"default_model": "opus"},
+                    "claude_code": {"default_model": "claude-opus-5"},
                 }
             )
         )

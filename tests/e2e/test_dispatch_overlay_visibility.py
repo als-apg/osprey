@@ -319,8 +319,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             f"provider={e2e_provider()}",
             "--set",
-            "model=haiku",
-            "--set",
             f"port_base={PORT_BASE}",
         ],
         cwd=base,

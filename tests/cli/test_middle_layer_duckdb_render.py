@@ -41,7 +41,7 @@ def _middle_layer_repo(tmp_path: Path, *, with_duckdb: bool, data_dir: str = "da
         "name": "Middle Layer DuckDB",
         "data": data_dir,
         "provider": "cborg",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         "channel_finder_mode": "middle_layer",
         "config": dict(_POSTURE_CONFIG),
     }

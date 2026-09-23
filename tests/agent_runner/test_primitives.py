@@ -28,7 +28,7 @@ from osprey.agent_runner.primitives import provider_env_for_project
 def _write_config(project_dir: Path, provider: str) -> None:
     """Write a minimal config.yml selecting *provider* for the claude_code path."""
     (project_dir / "config.yml").write_text(
-        f"claude_code:\n  provider: {provider}\n  model: haiku\n"
+        f"claude_code:\n  provider: {provider}\n  model: claude-haiku-4-5\n"
     )
 
 
@@ -258,7 +258,7 @@ def test_native_provider_env_block_unchanged(
     monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-secret")
 
     env = provider_env_for_project(tmp_path)
-    direct = ClaudeCodeModelResolver.resolve({"provider": "cborg", "model": "haiku"}, {})
+    direct = ClaudeCodeModelResolver.resolve({"provider": "cborg", "model": "claude-haiku-4-5"}, {})
 
     for key, value in direct.env_block.items():
         assert env[key] == value

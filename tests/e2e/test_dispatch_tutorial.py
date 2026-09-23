@@ -190,8 +190,6 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--no-git",
             "--set",
             f"provider={e2e_provider()}",
-            "--set",
-            "model=haiku",
         ],
         cwd=base,
     )

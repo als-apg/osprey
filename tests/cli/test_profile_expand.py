@@ -722,7 +722,9 @@ def test_providers_refreshes_packaged_entries_and_keeps_yours(
         "  # Our own gateway.\n"
         "  site-gateway:\n"
         "    base_url: https://gw.example.org/v1\n"
-        "    api_key: ${SITE_GATEWAY_KEY}\n",
+        "    api_key: ${SITE_GATEWAY_KEY}\n"
+        "    default_model: site-model\n"
+        "    models: [site-model]\n",
         encoding="utf-8",
     )
 
@@ -747,7 +749,8 @@ def test_providers_restamps_the_catalog_hash(runner: CliRunner, tmp_path: Path) 
     catalog = repo / PROVIDERS_FILENAME
     catalog.write_text(
         catalog.read_text(encoding="utf-8")
-        + "  site-gateway:\n    base_url: https://gw.example.org/v1\n",
+        + "  site-gateway:\n    base_url: https://gw.example.org/v1\n"
+        + "    default_model: site-model\n    models: [site-model]\n",
         encoding="utf-8",
     )
 
@@ -768,7 +771,8 @@ def test_expand_without_providers_stamps_the_catalog_already_there(
     catalog = repo / PROVIDERS_FILENAME
     catalog.write_text(
         catalog.read_text(encoding="utf-8")
-        + "  site-gateway:\n    base_url: https://gw.example.org/v1\n",
+        + "  site-gateway:\n    base_url: https://gw.example.org/v1\n"
+        + "    default_model: site-model\n    models: [site-model]\n",
         encoding="utf-8",
     )
     before = catalog.read_bytes()

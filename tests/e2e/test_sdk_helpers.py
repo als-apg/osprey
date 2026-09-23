@@ -77,7 +77,7 @@ def test_override_noop_for_non_ariel_project(tmp_path, monkeypatch):
     to redirect, so the override must not fail the build.
     """
     (tmp_path / "config.yml").write_text(
-        "ariel: {enabled: false}\nmodel: haiku\n", encoding="utf-8"
+        "ariel: {enabled: false}\nmodel: claude-haiku-4-5\n", encoding="utf-8"
     )
     monkeypatch.setenv("OSPREY_ARIEL_DB_URI", _PER_CELL_URI)
 

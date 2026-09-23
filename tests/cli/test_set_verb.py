@@ -88,18 +88,17 @@ def _stamp_build(repo: Path) -> Path:
 
 
 def test_top_level_key_written_in_place_with_comments_intact(runner, lifecycle_repo):
-    """A shorthand key is replaced where it sits, comment and all."""
+    """A shorthand key is replaced where it sits, comments and all."""
     before = _profile_text(lifecycle_repo)
-    assert "model: haiku" in before
+    assert "\nprovider: anthropic\n" in before
 
-    result = _invoke(runner, lifecycle_repo, "model=sonnet")
+    result = _invoke(runner, lifecycle_repo, "provider=cborg")
 
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo)
-    assert "model: sonnet" in after
-    assert "model: haiku" not in after
-    # The inline comment on that very line, and the block comment above it.
-    assert "# tier (haiku/sonnet/opus)" in after
+    assert "\nprovider: cborg\n" in after
+    assert "\nprovider: anthropic\n" not in after
+    # The block comment above the key.
     assert "# Which model answers." in after
     # Every other line of prose survives the round trip. Counted rather than
     # sampled: a writer that drops the file's comments would still pass any
@@ -118,7 +117,7 @@ def test_one_key_produces_a_one_line_diff(runner, lifecycle_repo):
     """
     before = _profile_text(lifecycle_repo).splitlines()
 
-    result = _invoke(runner, lifecycle_repo, "model=sonnet")
+    result = _invoke(runner, lifecycle_repo, "provider=cborg")
 
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo).splitlines()
@@ -131,10 +130,50 @@ def test_one_key_produces_a_one_line_diff(runner, lifecycle_repo):
     # must hold is "one line out, one line in", whatever that line says.
     assert len(changed) == 2, "\n".join(changed)
     removed, added = changed
-    assert removed.startswith("-model: ")
-    assert added.startswith("+model: sonnet")
-    # The trailing comment rides along on the same line it started on.
+    assert removed.startswith("-provider: ")
+    assert added.startswith("+provider: cborg")
+    # A trailing comment rides along on the same line it started on.
     assert removed.partition("#")[2] == added.partition("#")[2]
+
+
+# --- the model is a model id ---------------------------------------------------
+
+
+@pytest.mark.parametrize("word", ["haiku", "sonnet", "opus"])
+def test_a_bare_alias_word_is_refused_naming_the_served_ids(runner, lifecycle_repo, word):
+    """Claude Code's alias names are not model ids; nothing is written."""
+    before = _profile_text(lifecycle_repo)
+
+    result = runner.invoke(set_command, ["--repo", str(lifecycle_repo), f"model={word}"])
+
+    assert result.exit_code != 0
+    assert f"`model={word}` is not a model id" in result.output
+    assert "claude-sonnet-5" in result.output
+    assert _profile_text(lifecycle_repo) == before
+
+
+def test_a_served_id_is_written_without_a_note(runner, lifecycle_repo):
+    result = _invoke(runner, lifecycle_repo, "model=claude-opus-5")
+
+    assert result.exit_code == 0, result.output
+    assert "model: claude-opus-5" in _profile_text(lifecycle_repo)
+    assert "served list" not in result.output
+
+
+def test_an_unserved_id_is_written_with_a_note(runner, lifecycle_repo):
+    """The build trusts the gateway with an id the catalog does not list; so does set."""
+    result = _invoke(runner, lifecycle_repo, "model=claude-opus-4-8-preview")
+
+    assert result.exit_code == 0, result.output
+    assert "model: claude-opus-4-8-preview" in _profile_text(lifecycle_repo)
+    assert "not in provider 'anthropic''s served list" in result.output
+
+
+def test_the_model_is_judged_against_the_provider_set_beside_it(runner, lifecycle_repo):
+    result = _invoke(runner, lifecycle_repo, "provider=cborg", "model=claude-opus-5-5")
+
+    assert result.exit_code == 0, result.output
+    assert "not in provider 'cborg''s served list" in result.output
 
 
 def test_dotted_config_key_replaces_the_literal_entry(runner, lifecycle_repo):
@@ -284,7 +323,7 @@ def test_recognized_and_config_prefixed_keys_are_never_called_out(runner, lifecy
     nothing) cannot read as a pass in either direction.
     """
     result = _invoke(
-        runner, lifecycle_repo, "model=sonnet", "config.facility.name=Somewhere", "tier=2"
+        runner, lifecycle_repo, "model=claude-sonnet-5", "config.facility.name=Somewhere", "tier=2"
     )
 
     assert result.exit_code == 0, result.output
@@ -312,7 +351,7 @@ def test_outside_a_repo_is_refused(runner, tmp_path, monkeypatch):
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
 
-    result = runner.invoke(set_command, ["model=sonnet"], catch_exceptions=False)
+    result = runner.invoke(set_command, ["model=claude-sonnet-5"], catch_exceptions=False)
 
     assert result.exit_code != 0
     assert "No OSPREY deployment repo found" in result.stderr
@@ -344,7 +383,7 @@ def test_one_bad_pair_writes_none_of_them(runner, lifecycle_repo):
     """All-or-nothing: the merge fails before the document is rewritten."""
     before = _profile_text(lifecycle_repo)
 
-    result = _invoke(runner, lifecycle_repo, "model=sonnet", "connector=nonsense")
+    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5", "connector=nonsense")
 
     assert result.exit_code != 0
     assert _profile_text(lifecycle_repo) == before
@@ -364,15 +403,15 @@ def test_resolves_the_repo_from_a_subdirectory(runner, lifecycle_repo, monkeypat
     """The walk-up rule: any subdirectory is inside the deployment."""
     monkeypatch.chdir(lifecycle_repo / "data" / "channel_databases")
 
-    result = runner.invoke(set_command, ["model=opus"], catch_exceptions=False)
+    result = runner.invoke(set_command, ["model=claude-opus-5"], catch_exceptions=False)
 
     assert result.exit_code == 0, result.output
-    assert "model: opus" in _profile_text(lifecycle_repo)
+    assert "model: claude-opus-5" in _profile_text(lifecycle_repo)
 
 
 def test_drift_hint_reports_no_build(runner, lifecycle_repo):
     """A repo that has never been built says so rather than claiming sync."""
-    result = _invoke(runner, lifecycle_repo, "model=sonnet")
+    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5")
 
     assert result.exit_code == 0, result.output
     assert "build: none" in result.output
@@ -381,14 +420,14 @@ def test_drift_hint_reports_no_build(runner, lifecycle_repo):
 def test_drift_hint_reports_the_build_this_edit_invalidated(runner, lifecycle_repo):
     _stamp_build(lifecycle_repo)
 
-    result = _invoke(runner, lifecycle_repo, "model=sonnet")
+    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5")
 
     assert result.exit_code == 0, result.output
     assert "OUT OF DATE" in result.output
 
 
 def test_written_keys_are_reported(runner, lifecycle_repo):
-    result = _invoke(runner, lifecycle_repo, "model=sonnet", "config.facility.name=Ring")
+    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5", "config.facility.name=Ring")
 
     assert result.exit_code == 0, result.output
     assert str(lifecycle_repo / "profile.yml") in result.output
@@ -438,7 +477,7 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "name: Honesty Table\n"
         "data: data\n"
         "provider: cborg\n"
-        "model: haiku\n"
+        "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
         "tier: 1\n"
         "config:\n"

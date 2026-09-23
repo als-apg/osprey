@@ -61,7 +61,7 @@ def test_every_derived_key_is_refused_nested(dotted_key: str) -> None:
 
 def test_a_mixed_spelling_is_refused_and_named_as_written() -> None:
     """A dotted prefix over a mapping — the split the flat walk would miss."""
-    errors = derived_key_errors({"claude_code": {"default_model": "opus"}})
+    errors = derived_key_errors({"claude_code": {"default_model": "claude-opus-5"}})
 
     assert len(errors) == 1
     assert "claude_code: default_model" in errors[0]

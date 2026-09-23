@@ -129,7 +129,7 @@ def _write_profile(
         "name": "VA Build Step Test",
         "data": "data",
         "provider": "cborg",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         "channel_finder_mode": "hierarchical",
         "config": dict(POSTURE_FLOOR),
     }

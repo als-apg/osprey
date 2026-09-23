@@ -151,8 +151,9 @@ api:
     anthropic:
       api_key: test-key
       base_url: https://api.anthropic.com
+      default_model: claude-haiku-4-5-20251001
       models:
-        haiku: claude-haiku-4-5-20251001
+        - claude-haiku-4-5-20251001
     ollama:
       api_key: ollama
       base_url: http://localhost:11434
@@ -211,7 +212,13 @@ logbook:
   composition:
     provider: anthropic
     model_id: claude-haiku-4-5-20251001  # RETIRED (P5 #17) — dropped from templates
-    default_tier: haiku
+    default_tier: haiku  # RETIRED — composition names a model id under logbook.composition.model
+
+claude_code:
+  provider: anthropic
+  # RETIRED — renamed claude_code.aliases; it fills Claude Code's alias names
+  models:
+    haiku: claude-haiku-4-5-20251001
 
 artifact_server:
   host: 127.0.0.1

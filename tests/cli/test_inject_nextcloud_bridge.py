@@ -46,7 +46,7 @@ extends: hello-world
 name: NcBridgeTest
 data: data
 provider: anthropic
-model: haiku
+model: claude-haiku-4-5
 dispatch:
   triggers: triggers.yml
 {nextcloud_bridge}
@@ -418,7 +418,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
         "extends: hello-world\nname: NcNoDispatch\ndata: data\nprovider: anthropic\n"
-        "model: haiku\nnextcloud_bridge: {}\n",
+        "model: claude-haiku-4-5\nnextcloud_bridge: {}\n",
         encoding="utf-8",
     )
     with caplog.at_level(logging.ERROR):

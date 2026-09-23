@@ -76,7 +76,6 @@ _AGENT_CONFIG_SECTIONS = [
     "claude_code",
     "channel_finder",
     "ariel",
-    "logbook",
     "facility_knowledge",
     "execution",
     "artifact_server",

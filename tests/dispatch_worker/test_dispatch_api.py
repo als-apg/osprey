@@ -598,10 +598,8 @@ api:
   providers:
     argo:
       base_url: ${ARGO_PROD_URL}
-      models:
-        haiku: claudehaiku45
-        sonnet: claudesonnet45
-        opus: claudeopus41
+      default_model: claudesonnet45
+      models: [claudehaiku45, claudesonnet45, claudeopus41]
 claude_code:
   provider: argo
 """

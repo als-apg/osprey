@@ -175,7 +175,7 @@ def test_persona_delta_edit_names_the_delta(repo):
     _write(repo / "personas" / "readonly.yml", "name: readonly\n")
     _write_manifest(repo)
 
-    _write(repo / "personas" / "readonly.yml", "name: readonly\nmodel: haiku\n")
+    _write(repo / "personas" / "readonly.yml", "name: readonly\nmodel: claude-haiku-4-5\n")
 
     report = staleness.check_drift(repo)
 

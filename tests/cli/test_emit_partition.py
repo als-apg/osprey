@@ -66,10 +66,16 @@ def _active_and_commented(text: str) -> tuple[set[str], set[str]]:
     "Templated" is decided by exact template text rather than by scanning for
     commented key-shaped lines: template prose legitimately mentions other keys
     (``the web_panels list above``), and a line-scanning heuristic reads those
-    as offered keys.
+    as offered keys. The one other offer counted is a preset's own commented
+    top-level key line (``# model: <id>`` at column 0), which the emitter keeps
+    in place of its template.
     """
     active = set(yaml.safe_load(text) or {})
-    templated = {field for field, template in _COMMENTED_TEMPLATES.items() if template in text}
+    templated = {
+        field
+        for field, template in _COMMENTED_TEMPLATES.items()
+        if template in text or f"\n# {field}: " in text
+    }
     return active, templated
 
 
@@ -261,6 +267,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
     _, templated = _active_and_commented(_emit("hello-world", set_pairs=("data=data",)))
 
     assert templated == {
+        "model",
         "channel_finder_mode",
         "tier",
         "default_panel",

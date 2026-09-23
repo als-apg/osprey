@@ -180,9 +180,9 @@ def test_a_set_pair_outranks_the_documents_own_shorthand() -> None:
 
 def test_an_edit_without_the_shorthand_invents_no_config_block() -> None:
     """No ``connector`` anywhere means no ``config:`` block is invented."""
-    edited = apply_cli_edits({"name": "x", "data": "data"}, ("model=sonnet",))
+    edited = apply_cli_edits({"name": "x", "data": "data"}, ("model=claude-sonnet-5",))
 
-    assert edited == {"name": "x", "data": "data", "model": "sonnet"}
+    assert edited == {"name": "x", "data": "data", "model": "claude-sonnet-5"}
 
 
 # ── extends parents and plain file loads ─────────────────────────────────────
@@ -296,7 +296,9 @@ def test_dotted_config_override_is_not_reported() -> None:
 
 def test_reported_keys_keep_shorthand_order() -> None:
     """Model-selection keys still come first, in their declared order."""
-    keys = explicit_model_override_keys(("connector=mock", "model=sonnet", "provider=anthropic"))
+    keys = explicit_model_override_keys(
+        ("connector=mock", "model=claude-sonnet-5", "provider=anthropic")
+    )
 
     assert keys == ["provider", "model", "connector"]
 

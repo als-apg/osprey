@@ -97,7 +97,7 @@ def init_project(
     template: str = "control_assistant",
     *,
     provider: str,
-    model: str = "haiku",
+    model: str | None = None,
 ) -> Path:
     """Create and build a deployment repo at ``tmp_path/name``; return the repo root.
 
@@ -131,12 +131,13 @@ def init_project(
         "--set",
         f"provider={provider}",
         "--set",
-        f"model={model}",
-        "--set",
         "connector=mock",
         "--set",
         "channel_finder_mode=hierarchical",
     ]
+    # No model named: the provider entry's default_model answers.
+    if model is not None:
+        init_args.extend(["--set", f"model={model}"])
     # ``archiver.type`` is written in the literal dotted spelling the preset
     # already uses, so the edit replaces that entry instead of landing beside it.
     init_args.extend(

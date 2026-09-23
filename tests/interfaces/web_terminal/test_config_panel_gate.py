@@ -66,7 +66,7 @@ COSMETIC_KEY = "claude_code.default_model"
 BASE_CONFIG = {
     "project_name": "config-panel-gate",
     "control_system": {"writes_enabled": False},
-    "claude_code": {"default_model": "sonnet"},
+    "claude_code": {"default_model": "claude-sonnet-5"},
 }
 
 

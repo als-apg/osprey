@@ -392,7 +392,7 @@ def built_render(base_venv, tmp_path_factory) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5-20251001",
             *set_pairs(edits),
         ],
     )

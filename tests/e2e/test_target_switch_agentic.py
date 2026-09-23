@@ -611,7 +611,7 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=opus",
+            "model=claude-opus-5",
             *set_pairs(_profile_edits(bench_port=bench_port, va_port=va_port)),
         ],
         timeout=INIT_TIMEOUT_S,
