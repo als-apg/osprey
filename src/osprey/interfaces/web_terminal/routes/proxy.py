@@ -805,12 +805,20 @@ def _panel_rewrite_prefixes(request: Request, panel_id: str) -> tuple[str, ...]:
 
     Only a config-defined panel contributes: a runtime registration's ``path``
     is a free string its caller chooses, and a rewrite prefix is configuration.
+    The panel's declared ``rewrite_prefixes`` follow the one derived from its
+    ``path``, trailing slash kept, since ``/x`` and ``/x/`` are different prefixes.
     """
     for cp in getattr(request.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             if not cp.get("configDefined"):
                 return ()
-            return _path_rewrite_prefix(cp.get("path"))
+            declared = cp.get("rewritePrefixes") or ()
+            if isinstance(declared, (list, tuple)):
+                declared = tuple(str(p) for p in declared if p)
+            else:
+                declared = (str(declared),)
+            derived = _path_rewrite_prefix(cp.get("path"))
+            return tuple(dict.fromkeys((*derived, *declared)))
     return ()
 
 

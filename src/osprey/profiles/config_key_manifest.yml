@@ -2100,6 +2100,15 @@ keys:
   web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
   web.panels.system-health: {covered-by: web.panels, default: n/a}
   web.panels.system-health.enabled: {covered-by: web.panels.system-health, default: derived, default_note: "the system-health panel's registry default; a panel absent from the block is off"}
+  web.panels.my-grafana.rewrite_prefixes:
+    rendered: false
+    evidence: 'spec\.get\("rewrite_prefixes"\)'
+    note: >-
+      Root-absolute prefixes the panel proxy rewrites in this panel's responses,
+      on top of the panel's own `path`. Spelled at the id the preset's commented
+      example uses, because a custom panel's id is the facility's: no shipped
+      configuration writes the key, which is what `rendered: false` records.
+    default: []
   web.default_panel:
     evidence: 'web_config\.get\("default_panel"\)'
     note: >-

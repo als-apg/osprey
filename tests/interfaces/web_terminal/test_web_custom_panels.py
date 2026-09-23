@@ -251,6 +251,27 @@ class TestLoadPanelConfig:
         assert custom[0]["label"] == "GRAFANA"
         assert custom[0]["url"] == "http://grafana.local:3000"
         assert custom[0]["healthEndpoint"] == "/api/health"
+        assert custom[0]["rewritePrefixes"] == []
+
+    def test_custom_panel_rewrite_prefixes_are_threaded(self):
+        """A panel's ``rewrite_prefixes`` reach the proxy as ``rewritePrefixes``."""
+        with patch(
+            "osprey.utils.workspace.load_osprey_config",
+            return_value={
+                "web": {
+                    "panels": {
+                        "pvinfo": {
+                            "label": "PV INFO",
+                            "url": "http://pvinfo.local",
+                            "path": "/pvinfo/",
+                            "rewrite_prefixes": ["/pvinfo", "/pvinfo/"],
+                        }
+                    }
+                }
+            },
+        ):
+            _enabled, custom, _default = _load_panel_config()
+        assert custom[0]["rewritePrefixes"] == ["/pvinfo", "/pvinfo/"]
 
     def test_custom_panel_disabled_is_not_served(self):
         """``enabled: false`` switches a custom panel off exactly as it does a
