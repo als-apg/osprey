@@ -180,11 +180,20 @@ afterEach(() => {
 });
 
 describe('initChat binding', () => {
-  test('a tab with no pointer mints one and stores it', async () => {
+  test('a tab with no pointer, in the Expert view, leaves the pointer to the terminal', async () => {
     await mountChat({ mode: 'expert' });
+    // The terminal's server confirmation is the session this tab is on; a key
+    // minted here would be a key no server has.
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    // Nothing to replay on a key that has never existed.
+    expect(transport.fetchHistory).not.toHaveBeenCalled();
+  });
+
+  test('a tab with no pointer, in the Simple view, mints one and stores it', async () => {
+    await mountChat();
     const stored = localStorage.getItem(STORAGE_KEY);
     expect(stored).toMatch(/^[0-9a-f-]{36}$/);
-    // Nothing to replay on a key that has never existed.
+    expect(notifySessionChange).toHaveBeenCalledWith(stored);
     expect(transport.fetchHistory).not.toHaveBeenCalled();
   });
 
