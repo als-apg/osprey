@@ -93,7 +93,7 @@ Attributing a killed child's outstanding requests
 When the drain deadline expires, the requests still in flight on child A have
 to fail, and they have to say *why*. The proxy fails them with whatever ended
 its read stream, so this module hands it a reader wrapper
-(:class:`_AttributedReader`) that can be told the retirement reason before the
+(:class:`~osprey_connectors.ipc.launch.AttributedReader`) that can be told the retirement reason before the
 kill; the resulting :class:`ConnectionError` then names the switch rather than
 an anonymous end-of-pipe.
 """
@@ -128,12 +128,13 @@ from osprey.mcp_server.control_system.target_eligibility import (
     derive_endpoints,
     effective_writes_for_target,
     endpoint_is_live_standin,
-    verify_child_report,
 )
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
+from osprey_connectors.ipc.launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
+from osprey_connectors.ipc.launch import terminate_host as _terminate_host
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc.verification import verify_host_report
 from osprey_connectors.types import (
     _SIMULATED_TYPES,
     TARGET_LIVE,
@@ -164,17 +165,14 @@ __all__ = [
     "target_display_metadata",
 ]
 
-#: The child is always this module, run with ``-m``. No arguments: everything
-#: the child needs arrives on the wire, so nothing about a deployment shows up
-#: in ``ps``.
-CHILD_MODULE = "osprey_connectors.ipc.host"
+# ``CHILD_MODULE`` is re-exported from :mod:`osprey_connectors.ipc.launch`.
 
 # -- Facts this module imports rather than restates -------------------------
 #
-# ``EPICS_ENV_PREFIXES`` names the environment families scrubbed from what a
-# child is handed. The child scrubs again on its own first line; this
-# parent-side pass is the defense-in-depth half of that one rule, and a rule
-# spelled in two places is a rule its two halves can come to disagree about.
+# ``host_env`` scrubs the ``EPICS_ENV_PREFIXES`` families from what a child is
+# handed. The child scrubs again on its own first line; this parent-side pass
+# is the defense-in-depth half of that one rule, and a rule spelled in two
+# places is a rule its two halves can come to disagree about.
 #
 # ``_SIMULATED_TYPES`` names the connector types that serve a machine nobody
 # has to be careful around. It labels the state file's per-target display
@@ -311,35 +309,6 @@ class NoConnectorHostError(ConnectionError):
         }
 
 
-class _AttributedReader:
-    """A child's stdout, able to say why reading it stopped.
-
-    The proxy fails every outstanding request with whatever ended its read
-    stream. Left to itself that is an anonymous end-of-pipe, which tells an
-    operator nothing about the switch that caused it — so the supervisor names
-    the reason here before it kills the child, and the proxy's
-    :class:`ConnectionError` carries it.
-    """
-
-    def __init__(self, stream: Any) -> None:
-        self._stream = stream
-        self._reason: str | None = None
-
-    def retire(self, reason: str) -> None:
-        """Name the reason the stream is about to end. Call before the kill."""
-        self._reason = reason
-
-    async def read(self, count: int) -> bytes:
-        if self._reason is not None:
-            raise ConnectionError(self._reason)
-        chunk = await self._stream.read(count)
-        # The usual path: the reader was already blocked here when the child was
-        # retired, and the kill it was told about is what ends the read.
-        if not chunk and self._reason is not None:
-            raise ConnectionError(self._reason)
-        return chunk
-
-
 class _LaunchChannel:
     """The launch handshake, spoken on a child's raw pipes.
 
@@ -425,7 +394,7 @@ class _Child:
     probe_channel: str
     process: Any
     proxy: ConnectorHostProxy
-    reader: _AttributedReader
+    reader: AttributedReader
     report: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -902,18 +871,8 @@ class ConnectorHostManager:
         return child.proxy if child is not None else None
 
     def child_env(self) -> dict[str, str]:
-        """The environment a child is launched with: this one's, minus EPICS.
-
-        The child scrubs ``EPICS_CA_*``/``EPICS_PVA_*`` again on its own first
-        line, and that is the scrub the design depends on. This one is the
-        defense-in-depth half: an ambient gateway never reaches the process that
-        could act on it, so no window exists between exec and scrub.
-        """
-        return {
-            name: value
-            for name, value in os.environ.items()
-            if not name.startswith(EPICS_ENV_PREFIXES)
-        }
+        """The environment a child is launched with (see :func:`host_env`)."""
+        return host_env()
 
     def status(self) -> dict[str, Any]:
         """Everything the roster needs about the running host, in one mapping."""
@@ -1787,7 +1746,7 @@ class ConnectorHostManager:
                     f"The connector-host child for target {target!r} answered its init frame "
                     f"with {type(report).__name__}, not the post-connect report.",
                 )
-            verification = _verify(derivation, report)
+            verification = verify_host_report(derivation, report)
             if not verification.ok:
                 raise SwitchError(
                     target,
@@ -1843,7 +1802,7 @@ class ConnectorHostManager:
 
         # One reader object, held by both the proxy and this record: retiring it
         # is how the parent names the reason the proxy's stream ended.
-        reader = _AttributedReader(process.stdout)
+        reader = AttributedReader(process.stdout)
         return _Child(
             target=target,
             connector_type=derivation.connector_type,
@@ -1857,14 +1816,7 @@ class ConnectorHostManager:
     async def _spawn(self, target: str) -> Any:
         env = self.child_env()
         try:
-            return await asyncio.create_subprocess_exec(
-                self._python,
-                "-m",
-                CHILD_MODULE,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                env=env,
-            )
+            return await spawn_host(self._python, env)
         except OSError as exc:
             raise SwitchError(
                 target,
@@ -1946,19 +1898,7 @@ class ConnectorHostManager:
 
     async def _kill_process(self, process: Any) -> None:
         """``SIGTERM``, then ``SIGKILL`` after the grace period."""
-        if process.returncode is not None:
-            return
-        with contextlib.suppress(ProcessLookupError, OSError):
-            process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), self._terminate_grace_s)
-            return
-        except TimeoutError:
-            pass
-        with contextlib.suppress(ProcessLookupError, OSError):
-            process.kill()
-        with contextlib.suppress(Exception):
-            await asyncio.wait_for(process.wait(), self._terminate_grace_s)
+        await _terminate_host(process, self._terminate_grace_s)
 
     # -- config ------------------------------------------------------------
 
@@ -2020,47 +1960,3 @@ def _without_write_gateway(section: dict[str, Any], connector_type: str) -> dict
     if isinstance(gateways, dict):
         gateways.pop(ROLE_WRITE_ACCESS, None)
     return stripped
-
-
-def _verify(derivation: TargetDerivation, report: dict[str, Any]) -> Verification:
-    """Assert the child came up where the derivation said it would.
-
-    :func:`~osprey.mcp_server.control_system.target_eligibility.verify_child_report`
-    answers this for every target whose config names a gateway. A deployment
-    can also select a connector that talks to no gateway at all — the mock is
-    one, and it is the generic template's default — and for that one the
-    derivation has no endpoint and the child reports none. Nothing is verified
-    there because there is no endpoint to get wrong, but the *symmetry* is:
-    a child that configured Channel Access where the config derived nothing has
-    inherited an environment from somewhere, and that is a mismatch as serious
-    as any other.
-
-    The unverified branch is entered only when the derivation has **no endpoint
-    rows at all**. A target with rows whose *selected* role is missing — a
-    write-only gateway table on a deployment that selects ``read_only``, say —
-    is a gateway deployment with a hole in it, not a gatewayless one: its child
-    connects to a real control system over whatever default broadcast address
-    it finds, and that is precisely the unpinned-CA case verification exists to
-    catch. It goes to ``verify_child_report``, which refuses it either for
-    reporting no gateway or for having no derived endpoint to compare against.
-    """
-    if derivation.endpoints:
-        return verify_child_report(derivation, report)
-
-    if report.get("_epics_configured") or report.get("mode") or report.get("host"):
-        return Verification(
-            False,
-            "_epics_configured",
-            False,
-            report.get("_epics_configured"),
-            f"Target {derivation.target!r} derives no gateway on this deployment, but the "
-            f"child reports it configured {report.get('mode')!r} routing to "
-            f"{report.get('host')!r} — an endpoint this config never described.",
-        )
-    return Verification(
-        True,
-        detail=(
-            f"Target {derivation.target!r} derives no gateway (connector type "
-            f"{derivation.connector_type!r}) and the child configured none."
-        ),
-    )

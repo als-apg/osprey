@@ -282,6 +282,20 @@ def test_read_channel_returns_a_channel_value(ready_child):
     assert value.metadata.units == "mA"
 
 
+def test_validate_channel_is_served(ready_child):
+    frame = ready_child.call("validate_channel", channel_address="SR:BEAM:CURRENT")
+
+    assert isinstance(frame, frames.ResultFrame)
+    assert frame.value is True
+
+
+def test_ping_answers_with_the_childs_pid(ready_child):
+    frame = ready_child.call("ping")
+
+    assert isinstance(frame, frames.ResultFrame)
+    assert frame.value == ready_child.proc.pid
+
+
 def test_a_batched_read_of_n_channels_is_one_round_trip(ready_child):
     channels = [f"SR:BPM:{index}:X" for index in range(6)]
 
@@ -772,10 +786,7 @@ def _install_addr_list(monkeypatch, address, port):
 
 def _verify(config, report, writes_enabled):
     """Run the parent's own verification against a child's report."""
-    from osprey.mcp_server.control_system.target_eligibility import (
-        derive_endpoints,
-        verify_child_report,
-    )
+    from osprey_connectors.ipc.verification import derive_endpoints, verify_child_report
 
     derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
     return derivation, verify_child_report(derivation, report)

@@ -30,6 +30,11 @@ import pytest
 
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY
+from osprey_connectors.ipc.verification import (
+    DEFAULT_CA_PORT,
+    DEFAULT_PVA_PORT,
+    verify_child_report,
+)
 
 LIVE = "live"
 VA = "va"
@@ -885,7 +890,7 @@ def test_an_unset_epics_port_falls_back_to_the_ca_default() -> None:
         }
     )
 
-    assert _derive(config, LIVE).endpoints["read_only"].port == te.DEFAULT_CA_PORT
+    assert _derive(config, LIVE).endpoints["read_only"].port == DEFAULT_CA_PORT
 
 
 def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None:
@@ -939,7 +944,7 @@ def test_a_pva_row_appears_only_with_both_globs_and_a_gateway() -> None:
     derivation = _derive(config, LIVE)
 
     assert derivation.endpoints["pva"] == te.Endpoint(
-        "pva.example.org", te.DEFAULT_PVA_PORT, "name_server"
+        "pva.example.org", DEFAULT_PVA_PORT, "name_server"
     )
 
 
@@ -1221,7 +1226,7 @@ def _report(**overrides: Any) -> dict[str, Any]:
 
 
 def test_a_matching_child_report_verifies() -> None:
-    result = te.verify_child_report(_derive(_config(), LIVE), _report())
+    result = verify_child_report(_derive(_config(), LIVE), _report())
 
     assert result.ok is True
     assert result.field is None
@@ -1230,12 +1235,12 @@ def test_a_matching_child_report_verifies() -> None:
 def test_a_matching_child_report_verifies_as_a_tuple_too() -> None:
     report = ("read_only", "addr_list", "gw.example.org", 5064, True)
 
-    assert te.verify_child_report(_derive(_config(), LIVE), report).ok is True
+    assert verify_child_report(_derive(_config(), LIVE), report).ok is True
 
 
 def test_a_port_reported_as_text_still_verifies() -> None:
     """``connect()`` interpolates the port into a string environment value."""
-    result = te.verify_child_report(_derive(_config(), LIVE), _report(port="5064"))
+    result = verify_child_report(_derive(_config(), LIVE), _report(port="5064"))
 
     assert result.ok is True
 
@@ -1252,7 +1257,7 @@ def test_a_port_reported_as_text_still_verifies() -> None:
 def test_each_mismatched_field_fails_and_names_itself(
     field: str, wrong_value: Any, expected: Any
 ) -> None:
-    result = te.verify_child_report(_derive(_config(), LIVE), _report(**{field: wrong_value}))
+    result = verify_child_report(_derive(_config(), LIVE), _report(**{field: wrong_value}))
 
     assert result.ok is False
     assert result.field == field
@@ -1261,7 +1266,7 @@ def test_each_mismatched_field_fails_and_names_itself(
 
 
 def test_a_child_that_configured_no_epics_gateway_fails_verification() -> None:
-    result = te.verify_child_report(_derive(_config(), LIVE), _report(_epics_configured=False))
+    result = verify_child_report(_derive(_config(), LIVE), _report(_epics_configured=False))
 
     assert result.ok is False
     assert result.field == "_epics_configured"
@@ -1272,7 +1277,7 @@ def test_verification_fails_when_the_derivation_has_no_endpoint_for_the_role() -
     config = _config(connector={EPICS_TYPE: _epics_block()})
     derivation = _derive(config, VA)
 
-    result = te.verify_child_report(derivation, _report(host="localhost"))
+    result = verify_child_report(derivation, _report(host="localhost"))
 
     assert result.ok is False
     assert result.field == "endpoints"
@@ -1280,7 +1285,7 @@ def test_verification_fails_when_the_derivation_has_no_endpoint_for_the_role() -
 
 def test_a_report_of_the_wrong_shape_is_a_protocol_error() -> None:
     with pytest.raises(ValueError, match="fields"):
-        te.verify_child_report(_derive(_config(), LIVE), ("read_only", "addr_list"))
+        verify_child_report(_derive(_config(), LIVE), ("read_only", "addr_list"))
 
 
 # ---------------------------------------------------------------------------

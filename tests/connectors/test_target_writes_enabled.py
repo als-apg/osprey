@@ -414,6 +414,35 @@ def test_a_va_baseline_with_no_live_block_still_answers_live_from_the_global_key
     assert target_writes_enabled(section, TARGET_LIVE) is True
 
 
+def test_arming_the_live_block_alone_leaves_the_standin_unarmed():
+    """The stand-in is a machine of its own: arming the live one does not arm it."""
+    # Arrange
+    section = _section(
+        EPICS,
+        writes_enabled=False,
+        connector={"epics": {"writes_enabled": True}, LIVE_STANDIN: {"port": 5074}},
+    )
+
+    # Act / Assert
+    assert type_writes_enabled(section, EPICS) is True
+    assert type_writes_enabled(section, LIVE_STANDIN) is False
+    assert target_writes_enabled(section, TARGET_LIVE) is True
+    assert target_writes_enabled(section, TARGET_STANDIN) is False
+
+
+def test_a_live_block_that_says_false_stays_off_while_the_global_key_arms_the_standin():
+    # Arrange
+    section = _section(
+        EPICS,
+        writes_enabled=True,
+        connector={"epics": {"writes_enabled": False}, LIVE_STANDIN: {"port": 5074}},
+    )
+
+    # Act / Assert
+    assert target_writes_enabled(section, TARGET_LIVE) is False
+    assert target_writes_enabled(section, TARGET_STANDIN) is True
+
+
 @pytest.mark.parametrize("global_value", [True, False], ids=["global-true", "global-false"])
 def test_live_on_a_mock_deployment_answers_the_deployment_wide_key(global_value: bool):
     """Parity: a mock deployment never had a second target, so it keeps the flag."""

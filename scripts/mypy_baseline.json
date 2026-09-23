@@ -1,5 +1,5 @@
 {
-  "total": 394,
+  "total": 393,
   "errors": [
     {
       "path": "packages/osprey-connectors/src/osprey_connectors/archiver/doocs_archiver_connector.py",
@@ -845,12 +845,6 @@
       "path": "src/osprey/mcp_server/channel_finder_in_context/tools/ask_channels.py",
       "code": "typeddict-item",
       "message": "Incompatible types (expression has type \"str | BaseModel | list[Any]\", TypedDict item \"text\" has type \"str\")",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/mcp_server/control_system/connector_host_manager.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"bytes\"",
       "count": 1
     },
     {

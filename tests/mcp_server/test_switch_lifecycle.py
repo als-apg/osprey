@@ -49,6 +49,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc.verification import verify_host_report
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import state_dir_under
 from tests.fixtures.control_context import context_for
@@ -1547,7 +1548,7 @@ class TestVerificationRule:
         )
 
     def test_a_gatewayless_target_passes_when_the_child_configured_nothing(self):
-        verification = connector_host_manager._verify(self._derivation(), self.NOTHING_CONFIGURED)
+        verification = verify_host_report(self._derivation(), self.NOTHING_CONFIGURED)
 
         assert verification.ok is True
         assert "derives no gateway" in verification.detail
@@ -1563,7 +1564,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = connector_host_manager._verify(self._derivation(), report)
+        verification = verify_host_report(self._derivation(), report)
 
         assert verification.ok is False
         assert verification.field == "_epics_configured"
@@ -1586,7 +1587,7 @@ class TestVerificationRule:
             selected_role="read_only",
         )
 
-        verification = connector_host_manager._verify(derivation, self.NOTHING_CONFIGURED)
+        verification = verify_host_report(derivation, self.NOTHING_CONFIGURED)
 
         assert verification.ok is False
         assert verification.field == "_epics_configured"
@@ -1608,7 +1609,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = connector_host_manager._verify(derivation, report)
+        verification = verify_host_report(derivation, report)
 
         assert verification.ok is False
         assert verification.field == "endpoints"
@@ -1625,7 +1626,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = connector_host_manager._verify(derivation, report)
+        verification = verify_host_report(derivation, report)
 
         assert verification.ok is False
         assert verification.field == "host"
