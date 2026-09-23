@@ -536,7 +536,7 @@ keys:
     rendered: false
     evidence: '\(services\.openobserve \| default\(\{\}\)\)\.image'
     note: Upstream pin (openobserve). Same three-layer chain as the rest.
-    default: public.ecr.aws/zinclabs/openobserve:v0.14.4
+    default: public.ecr.aws/zinclabs/openobserve:v0.92.2
   services.mongodb.image:
     rendered: false
     evidence: '\(services\.mongodb \| default\(\{\}\)\)\.image'

@@ -128,7 +128,7 @@ concurrency:
 # be re-run whenever the pin in
 # src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
 env:
-  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
+  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.92.2
   # ALS-APG endpoint. The probes address the gateway themselves rather than
   # through the provider catalog, so every LLM-touching job (probes and pytest
   # alike) reads its endpoint from here. This line is where a fork's own
