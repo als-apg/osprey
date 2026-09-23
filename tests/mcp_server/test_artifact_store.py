@@ -170,6 +170,124 @@ class TestArtifactStore:
         assert len(results) == 1
         assert results[0].title == "Beam Current Plot"
 
+    def test_page_entries_returns_the_newest_entries_first(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        for i in range(7):
+            store.save_object(f"# {i}", title=f"Entry {i}")
+
+        page = store.page_entries(limit=3)
+
+        newest = sorted(store.list_entries(), key=lambda e: (e.timestamp, e.id), reverse=True)
+        assert [e.id for e in page.entries] == [e.id for e in newest[:3]]
+        stamps = [e.timestamp for e in page.entries]
+        assert stamps == sorted(stamps, reverse=True)
+        assert page.total == 7
+
+    def test_page_entries_walks_every_entry_exactly_once(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        for i in range(7):
+            store.save_object(f"# {i}", title=f"Entry {i}")
+
+        seen: list[str] = []
+        cursor = None
+        while True:
+            page = store.page_entries(limit=2, cursor=cursor)
+            seen.extend(e.id for e in page.entries)
+            if page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+
+        expected = sorted(store.list_entries(), key=lambda e: (e.timestamp, e.id), reverse=True)
+        assert seen == [e.id for e in expected]
+        assert len(set(seen)) == 7
+
+    def test_a_final_exact_page_reports_no_next_cursor(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        for i in range(6):
+            store.save_object(f"# {i}", title=f"Entry {i}")
+
+        first = store.page_entries(limit=3)
+        assert first.next_cursor is not None
+        second = store.page_entries(limit=3, cursor=first.next_cursor)
+        assert len(second.entries) == 3
+        assert second.next_cursor is None
+
+    def test_an_entry_saved_between_pages_does_not_shift_the_next_page(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        for i in range(6):
+            store.save_object(f"# {i}", title=f"Entry {i}")
+        ordered = sorted(store.list_entries(), key=lambda e: (e.timestamp, e.id), reverse=True)
+
+        first = store.page_entries(limit=3)
+        store.save_object("# new", title="Newest")
+        second = store.page_entries(limit=3, cursor=first.next_cursor)
+
+        assert [e.id for e in second.entries] == [e.id for e in ordered[3:6]]
+
+    def test_a_deleted_cursor_entry_still_yields_the_rest(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        for i in range(5):
+            store.save_object(f"# {i}", title=f"Entry {i}")
+        ordered = sorted(store.list_entries(), key=lambda e: (e.timestamp, e.id), reverse=True)
+
+        first = store.page_entries(limit=2)
+        store.delete_entry(first.entries[-1].id)
+        second = store.page_entries(limit=10, cursor=first.next_cursor)
+
+        assert [e.id for e in second.entries] == [e.id for e in ordered[2:]]
+        assert second.next_cursor is None
+
+    def test_page_entries_applies_the_filters_it_is_given(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        for i in range(3):
+            store.save_object(f"# {i}", title=f"Markdown {i}")
+        for i in range(4):
+            store.save_object({"x": i}, title=f"JSON {i}")
+
+        page = store.page_entries(limit=2, type_filter="markdown")
+
+        assert len(page.entries) == 2
+        assert all(e.artifact_type == "markdown" for e in page.entries)
+        assert page.total == 3
+
+    def test_a_malformed_cursor_is_refused(self, tmp_path):
+        import base64
+        import json as _json
+
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        store.save_object("# A", title="A")
+
+        not_json = base64.urlsafe_b64encode(b"not json").decode()
+        missing_id = base64.urlsafe_b64encode(
+            _json.dumps({"timestamp": "2026-01-01T00:00:00+00:00"}).encode()
+        ).decode()
+        for token in ("%%%not-base64%%%", not_json, missing_id):
+            with pytest.raises(ValueError):
+                store.page_entries(limit=2, cursor=token)
+
+    def test_list_entries_keeps_its_index_order(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        saved = [store.save_object(f"# {i}", title=f"Entry {i}") for i in range(4)]
+
+        assert [e.id for e in store.list_entries()] == [e.id for e in saved]
+        assert [e.id for e in store.list_entries(last_n=2)] == [e.id for e in saved[-2:]]
+
     def test_get_entry(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore
 
