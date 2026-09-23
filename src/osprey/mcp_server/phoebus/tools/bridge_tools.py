@@ -8,6 +8,7 @@ product):
 Tool                        Bridge endpoint
 ==========================  =================================================
 phoebus_open_panel          POST /open
+phoebus_panel_lookup        (none — reads the panel registry)
 phoebus_list_displays       GET  /displays
 phoebus_perceive            GET  /perceive
 phoebus_perceive_region     GET  /perceive/region
@@ -58,6 +59,11 @@ Panel name registry
 2. An optional framework built-in registry (empty by default; a framework
    built-in, if ever added, is resolved relative to the osprey repository root
    in a development checkout).
+
+``phoebus_panel_lookup`` answers the same registry in the other direction: given
+a display path it returns the name that opens it on this terminal, so a server
+that indexes the facility's display tree can hand back paths and let the
+framework judge them under the caller's own registry.
 """
 
 import asyncio
@@ -244,6 +250,82 @@ _OSPREY_REPO_ROOT: Path = Path(__file__).resolve().parents[5]
 _OPEN_READY_TIMEOUT = 30  # seconds to wait for ready=True after /open
 
 
+def _panel_resource(name: str, panels: dict) -> str | None:
+    """Bridge-ready resource for *name*, or ``None`` when no source registers it.
+
+    The resolution order of :func:`_resolve_panel_resource` without its
+    refusal, so the lookup tool answers about exactly the resource an open
+    would forward rather than about a second reading of the registry.
+    """
+    resource: str | None = panels.get(name)
+
+    if resource is None:
+        builtin_relative = _BUILTIN_PANELS.get(name)
+        if builtin_relative is not None:
+            # Prefer the development-checkout repo root; fall back to config dir.
+            candidate = (_OSPREY_REPO_ROOT / builtin_relative).resolve()
+            if candidate.exists():
+                resource = str(candidate)
+            else:
+                config_path = resolve_config_path()
+                if config_path.exists():
+                    resource = str((config_path.parent / builtin_relative).resolve())
+                else:
+                    resource = builtin_relative  # pass through; bridge will report missing
+
+    if resource is None:
+        return None
+
+    # Resolve relative non-URL config paths against the config file's directory.
+    if not resource.startswith("file:") and not Path(resource).is_absolute():
+        config_path = resolve_config_path()
+        if config_path.exists():
+            resource = str((config_path.parent / resource).resolve())
+
+    return resource
+
+
+def _display_key(value: str) -> str:
+    """One comparison form for a display resource: an absolute real path.
+
+    A registration and a caller's path name the same file in different
+    spellings — a ``file:`` URL, a path relative to the config file, a
+    symlinked display mount — so both sides are reduced to one form before
+    they are compared. Only the comparison uses it: what an open forwards to
+    the bridge stays as the deployment spelled it.
+    """
+    text = value
+    if text.startswith("file:"):
+        text = urllib.request.url2pathname(urllib.parse.urlparse(text).path)
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        path = resolve_config_path().parent / path
+    return str(path.resolve())
+
+
+def _panel_index() -> dict[str, str]:
+    """Comparison key → panel name for every panel this terminal registers.
+
+    Built over the whole registry rather than one entry, so a single
+    malformed registration (a value that is not a path) is skipped instead of
+    being allowed to break every lookup. Names are walked in sorted order and
+    the first one wins, so two names on one file answer with one of them
+    deterministically.
+    """
+    config = load_osprey_config()
+    panels = config.get("phoebus", {}).get("panels", {})
+    if not isinstance(panels, dict):
+        panels = {}
+    registered = {name for name, value in panels.items() if isinstance(value, str)}
+    index: dict[str, str] = {}
+    for name in sorted(registered | set(_BUILTIN_PANELS)):
+        resource = _panel_resource(name, panels)
+        if resource is None:
+            continue
+        index.setdefault(_display_key(resource), name)
+    return index
+
+
 def _resolve_panel_resource(name: str) -> str:
     """Map a logical panel name to a bridge-ready resource string.
 
@@ -265,21 +347,7 @@ def _resolve_panel_resource(name: str) -> str:
     """
     config = load_osprey_config()
     panels: dict = config.get("phoebus", {}).get("panels", {})
-    resource: str | None = panels.get(name)
-
-    if resource is None:
-        builtin_relative = _BUILTIN_PANELS.get(name)
-        if builtin_relative is not None:
-            # Prefer the development-checkout repo root; fall back to config dir.
-            candidate = (_OSPREY_REPO_ROOT / builtin_relative).resolve()
-            if candidate.exists():
-                resource = str(candidate)
-            else:
-                config_path = resolve_config_path()
-                if config_path.exists():
-                    resource = str((config_path.parent / builtin_relative).resolve())
-                else:
-                    resource = builtin_relative  # pass through; bridge will report missing
+    resource = _panel_resource(name, panels)
 
     if resource is None:
         known = sorted(set(panels) | set(_BUILTIN_PANELS))
@@ -292,13 +360,7 @@ def _resolve_panel_resource(name: str) -> str:
                 "Paths may be absolute or relative to the config.yml directory.",
             ],
         )
-
-    # Resolve relative non-URL config paths against the config file's directory.
     assert resource is not None  # make_error above raises; assertion satisfies type checker
-    if not resource.startswith("file:") and not Path(resource).is_absolute():
-        config_path = resolve_config_path()
-        if config_path.exists():
-            resource = str((config_path.parent / resource).resolve())
 
     return resource
 
@@ -415,6 +477,43 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
             "focused": focused,
         }
     )
+
+
+@mcp.tool()
+async def phoebus_panel_lookup(path: str) -> str:
+    """Answer whether this terminal may open the display file at *path*.
+
+    A server that indexes the facility's display tree knows the file it
+    found; whether that file is openable here is a fact about this terminal's
+    own panel registry (``phoebus.panels`` in config.yml), which only the
+    framework reads. Pass the path and this tool answers with the panel name
+    ``phoebus_open_panel`` takes, or says the path is not registered here.
+
+    A registered file matches however the path is spelled: through a
+    symlinked display mount, with ``.`` or ``..`` segments, relative to the
+    config file's directory, or as a ``file:`` URL. Registration is the whole
+    answer — a registered path whose file is missing is still openable here,
+    and the bridge reports the missing file at open time.
+
+    Args:
+        path: Filesystem path or ``file:`` URL of a display file, e.g.
+            ``"/opt/displays/sr/overview.bob"``. A panel name is not a path.
+
+    Returns:
+        JSON ``{"status": "success", "openable": true, "name": "<panel>",
+        "path": "<resolved path>"}`` when this terminal registers the file,
+        and ``{"status": "success", "openable": false, "path": "<resolved
+        path>"}`` when it does not.
+    """
+    if not path.strip():
+        return make_error("validation_error", "path must not be empty.")
+
+    key = _display_key(path)
+    name = _panel_index().get(key)
+    answer: dict = {"status": "success", "openable": name is not None, "path": key}
+    if name is not None:
+        answer["name"] = name
+    return json.dumps(answer)
 
 
 # ---------------------------------------------------------------------------
