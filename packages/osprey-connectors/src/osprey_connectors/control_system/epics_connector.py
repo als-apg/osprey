@@ -312,6 +312,8 @@ class EPICSConnector(ControlSystemConnector):
         # connector that has not connected — the fallback is the same number
         # the block's default resolves to.
         self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_SECONDS
+        # Whether every Channel Access read goes to the wire; see connect().
+        self._fresh_reads = False
         self._subscriptions: dict[str, Any] = {}
         self._pv_cache: dict[str, Any] = {}
         self._pv_cache_lock = threading.Lock()  # Thread safety for PV cache
@@ -329,6 +331,10 @@ class EPICSConnector(ControlSystemConnector):
         Args:
             config: Configuration with keys:
                 - timeout: Default timeout in seconds (default: 5.0)
+                - fresh_reads: (optional) Read every Channel Access channel
+                  from the IOC (``use_monitor=False``) instead of pyepics'
+                  monitor cache. For IOCs that compute readbacks on get and
+                  post no monitor event. Default: False
                 - gateways: Gateway configuration dict with:
                     - read_only: {address, port, use_name_server} for read operations
                     - write_access: {address, port, use_name_server} for write operations
@@ -464,6 +470,11 @@ class EPICSConnector(ControlSystemConnector):
         # the write — raising it buys a slow channel more room, never a
         # weaker check.
         self._step_read_timeout = step_read_timeout_seconds(config, self._connector_type)
+        # An ordinary read answers from pyepics' monitor cache, which only moves
+        # when the IOC posts an event. An IOC that computes a readback on get
+        # posts none, so a cached read of it never changes. `fresh_reads` makes
+        # every Channel Access read ask the IOC instead, at one round trip each.
+        self._fresh_reads = bool(config.get("fresh_reads", False))
 
         # Configure PVAccess routing. Addresses matching one of these globs are
         # served by the p4p client; every other address keeps using Channel
@@ -625,9 +636,9 @@ class EPICSConnector(ControlSystemConnector):
         if self._is_pva_channel(channel_address):
             return await asyncio.to_thread(self._read_channel_pva, channel_address, timeout)
 
-        pv_result = await asyncio.to_thread(self._read_channel_sync, channel_address, timeout)
-
-        return pv_result
+        return await asyncio.to_thread(
+            self._read_channel_sync, channel_address, timeout, use_monitor=not self._fresh_reads
+        )
 
     def _read_channel_sync(
         self, pv_address: str, timeout: float, use_monitor: bool = True

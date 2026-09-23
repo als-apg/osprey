@@ -92,6 +92,26 @@ Pick a control system
                  write_access: { address: cagw.facility.edu, port: 5084 }
                timeout: 5.0
 
+      .. rubric:: Fresh reads
+
+      An ordinary Channel Access read answers from pyepics' monitor cache,
+      which moves only when the IOC posts an update. An IOC that computes a
+      readback when it is read -- a caproto getter, for example -- posts none,
+      so a cached read of it keeps returning the first value it saw. Set
+      ``fresh_reads: true`` on the connector block and every Channel Access
+      read asks the IOC instead, at one network round trip per read:
+
+      .. code-block:: yaml
+
+         control_system:
+           connector:
+             epics:
+               fresh_reads: true
+
+      The option is per block, so a stand-in simulator can have it while the
+      live machine does not. Write confirmation and the ``max_step`` check
+      already read fresh whatever it says, and pvAccess reads are never cached.
+
       .. rubric:: PVAccess channels (PVA)
 
       The ``epics`` connector speaks Channel Access by default. Some data --

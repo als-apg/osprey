@@ -530,6 +530,27 @@ class TestConfirmingRead:
         assert pv.get.call_args.kwargs.get("use_monitor", True) is True
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_fresh_reads_sends_every_read_to_the_ioc(self, monkeypatch):
+        """An IOC that computes a readback on get posts no monitor event, so a
+        cached read of it never moves; ``fresh_reads`` asks the IOC each time,
+        batched reads included."""
+        _patch_writes_enabled(monkeypatch, False)
+        _fake_pyepics(monkeypatch)
+        connector = EPICSConnector()
+        await connector.connect(
+            {"fresh_reads": True, "gateways": {"read_only": {"address": "ro", "port": 5064}}}
+        )
+        pv = _readback_pv(5.0)
+        connector._epics = MagicMock()
+        connector._epics.PV.return_value = pv
+
+        await connector.read_channel("SR:CH", timeout=1.0)
+        assert pv.get.call_args.kwargs["use_monitor"] is False
+        await connector.read_multiple_channels(["SR:A", "SR:B"], timeout=1.0)
+        assert [c.kwargs["use_monitor"] for c in pv.get.call_args_list] == [False] * 3
+
+    @pytest.mark.asyncio
     async def test_a_confirming_put_waits_for_the_ioc_callback(self):
         """Put-callback is the protocol's acknowledgement that the put landed."""
         connector = _write_connector(observed=5.0)

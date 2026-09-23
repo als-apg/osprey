@@ -148,6 +148,9 @@ def _control_system(machine_port: int, *, arm: str) -> dict:
             },
             "live_standin": {
                 "timeout": CA_TIMEOUT_S,
+                # A simulator's readbacks are often computed on get; see the
+                # EPICS connector's `fresh_reads`.
+                "fresh_reads": True,
                 "gateways": _gateways("127.0.0.1", "${EPICS_TESTING_PORT}"),
             },
         },
