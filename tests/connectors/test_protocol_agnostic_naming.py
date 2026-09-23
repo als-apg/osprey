@@ -21,6 +21,7 @@ from osprey.connectors.archiver.doocs_archiver_connector import DOOCSArchiverCon
 from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+from osprey.connectors.archiver.mya_archiver_connector import MYAArchiverConnector
 from osprey.connectors.control_system.base import ChannelMetadata
 from osprey.errors import ChannelWriteFailedError
 
@@ -31,6 +32,7 @@ ARCHIVERS = [
     MockArchiverConnector,
     MongoDBArchiverConnector,
     DOOCSArchiverConnector,
+    MYAArchiverConnector,
 ]
 
 

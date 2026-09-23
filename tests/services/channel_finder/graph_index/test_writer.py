@@ -17,7 +17,6 @@ import os
 import subprocess
 import sys
 import textwrap
-import time
 from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -542,23 +541,20 @@ class TestDemoCorpus:
         with as_file(resource) as path:
             return parse_corpus(path.read_text(encoding="utf-8"))
 
-    def test_the_shipped_corpus_writes_its_rows_well_inside_the_budget(
-        self, demo: ParsedCorpus, tmp_path: Path
-    ):
+    def test_the_shipped_corpus_writes_every_row(self, demo: ParsedCorpus, tmp_path: Path):
+        """Row counts only. The build's time budget is asserted in test_scale.py
+        (``DEMO_BUILD_SECONDS``), which runs alone on the scale lane; here the
+        test shares a runner with three other workers, and a wall clock read
+        under that contention measures the scheduler, not the writer.
+        """
         path = tmp_path / "graph.duckdb"
-        started = time.perf_counter()
         report = _build(demo, path, corpus_filename="demo_machine.ttl")
-        elapsed = time.perf_counter() - started
 
         assert report.binding_count == 2908
         assert report.class_count == 19
         assert _read(path, "SELECT count(*) FROM bindings") == [(2908,)]
         assert _read(path, "SELECT count(*) FROM classes") == [(19,)]
         assert _read(path, "SELECT count(*) FROM channels") == [(report.channel_count,)]
-        # The whole build (parse included) is budgeted at 5 s; the write alone
-        # is a fraction of that, and a regression that made it the larger half
-        # would show here first.
-        assert elapsed < 5.0, f"writing the demo index took {elapsed:.2f} s"
 
     def test_every_binding_row_survives_with_its_lists(self, demo: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"

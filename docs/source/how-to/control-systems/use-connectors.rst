@@ -361,6 +361,65 @@ independently of the control system:
       connector's MongoDB client ships with OSPREY, so there is nothing extra
       to install.
 
+   .. tab-item:: MYA
+      :sync: mya
+
+      MYA, Jefferson Lab's archiver, read over its ``myquery`` HTTP service.
+      Every key is optional -- the ``jlab-archiver-client`` library carries its
+      own server and protocol -- so a deployment inside the facility's network
+      needs only the type:
+
+      .. code-block:: yaml
+
+         archiver:
+           type: mya_archiver
+
+      To name a different myquery host, a non-production MYA deployment, or the
+      zone it reads query bounds in:
+
+      .. code-block:: yaml
+
+         archiver:
+           type: mya_archiver
+           mya_archiver:
+             myquery_server: myquery.facility.edu
+             deployment: ops        # MYA deployment to query
+             timeout: 60            # seconds per request
+             timezone: America/New_York   # default: system.timezone
+
+      ``timezone`` spells a UTC query window in the server's own local time,
+      which is the one place myquery has no offset to read. It does not affect
+      the samples that come back: those carry epoch milliseconds, which name an
+      instant outright and so survive the autumn fall-back hour, when every
+      wall-clock time occurs twice.
+
+      The client library is not installed with OSPREY. Add it to the profile's
+      top-level ``dependencies:`` so the image carries it::
+
+         dependencies:
+           - jlab-archiver-client>=4.0.1
+
+      .. important::
+
+         4.0.1 is a floor, not a preference. Earlier releases accept the
+         request for epoch timestamps and then parse them as nanoseconds,
+         dating every sample to January 1970 with no error. The connector
+         checks for that and refuses rather than serving it.
+
+      Aggregates (``mean``, ``min``, ``max``, ``std``...) are computed by
+      myquery's ``mystats`` endpoint. ``median`` is the exception -- MYA does
+      not compute one -- so that mode alone fetches raw events and bins them
+      client-side.
+
+      ``mystats`` is asked for a number of bins rather than a bin width, so a
+      width that does not divide the window evenly costs one extra request:
+      the whole bins, then the ragged remainder as a final partial bin.
+
+      MYA records changes, not samples -- a value stays in effect until the
+      next update. Reads therefore ask for the prior point, so a channel whose
+      last change predates the window still reports that change, at the time
+      it was recorded, instead of answering with nothing at all.
+
 Contracts and Custom Connectors
 -------------------------------
 

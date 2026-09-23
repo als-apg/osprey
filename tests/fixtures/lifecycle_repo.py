@@ -540,7 +540,8 @@ config:
   # The store's coordinates (`archiver.mongodb_archiver.*`) are derived from
   # that block, so they are not written here. The alternatives are
   # "mock_archiver" (synthesized history), "epics_archiver" (an Archiver
-  # Appliance, configured below) and "doocs_archiver" (DOOCS local history).
+  # Appliance, configured below), "doocs_archiver" (DOOCS local history) and
+  # "mya_archiver" (MYA over the myquery HTTP service).
   archiver.type: mongodb_archiver
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.
@@ -574,6 +575,17 @@ config:
   # moving average over this many seconds, and the read budget.
   # archiver.doocs_archiver.avg_window: 20
   # archiver.doocs_archiver.timeout: 60
+
+  # MYA, read over the myquery HTTP service: every key is optional, because the
+  # client library carries its own server and protocol. A deployment inside the
+  # facility's network needs only `archiver.type: mya_archiver`, plus
+  # `jlab-archiver-client>=4.0.1` in its top-level `dependencies:`.
+  # archiver.mya_archiver.myquery_server: your-myquery.example.com
+  # archiver.mya_archiver.protocol: https
+  # archiver.mya_archiver.deployment: ops
+  # archiver.mya_archiver.timeout: 60
+  # The zone myquery reads query bounds in -- samples carry their own instant.
+  # archiver.mya_archiver.timezone: America/New_York
 
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can

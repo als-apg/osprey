@@ -1383,7 +1383,7 @@ keys:
     default: required
     default_note: >-
       The shipped archivers are `mock_archiver`, `epics_archiver`,
-      `mongodb_archiver` and `doocs_archiver`.
+      `mongodb_archiver`, `doocs_archiver` and `mya_archiver`.
   # Point budget behind archiver_read's span-derived default bin (issue #117).
   archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points', default: 10000}
   archiver.epics_archiver:
@@ -1417,6 +1417,41 @@ keys:
       returns. Unset returns the raw samples.
     default: null
   archiver.doocs_archiver.timeout: {rendered: false, covered-by: archiver.doocs_archiver, default: 60}
+  archiver.mya_archiver:
+    rendered: false
+    evidence: 'mya_archiver'
+    note: >-
+      MYA, read over the myquery HTTP service by `jlab-archiver-client`. Every
+      key below is optional: the client library carries its own server and
+      protocol, so a deployment inside the facility's network needs only
+      `type: mya_archiver`. Commented in every preset — a facility that does
+      not run MYA has no use for the block.
+    default: {}
+  archiver.mya_archiver.myquery_server:
+    rendered: false
+    covered-by: archiver.mya_archiver
+    note: >-
+      myquery host. Unset keeps the client library's own default, which is the
+      facility's production server.
+    default: 'library default'
+  archiver.mya_archiver.protocol: {rendered: false, covered-by: archiver.mya_archiver, default: 'library default'}
+  archiver.mya_archiver.deployment:
+    rendered: false
+    covered-by: archiver.mya_archiver
+    note: >-
+      Which MYA deployment answers. `ops` is the production archive; a site may
+      serve others alongside it.
+    default: 'ops'
+  archiver.mya_archiver.timeout: {rendered: false, covered-by: archiver.mya_archiver, default: 60}
+  archiver.mya_archiver.timezone:
+    rendered: false
+    covered-by: archiver.mya_archiver
+    note: >-
+      IANA zone the myquery server reads query bounds in. Samples come back as
+      epoch milliseconds and carry their own instant, so this only spells a UTC
+      window in the server's local time. Unset uses the deployment's own
+      `system.timezone`.
+    default: 'system.timezone'
   # The stored archive's connection block, rendered by the control_assistant
   # template and written from the profile's `va_archiver:` block at build time.
   # The mongodb_archiver connection block is `rendered: false` as a set: the
