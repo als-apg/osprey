@@ -82,8 +82,8 @@ providers:
     base_url: https://llm.als.lbl.gov/v1
     models:
       haiku: claude-haiku-4-5-20251001
-      sonnet: claude-sonnet-4-6
-      opus: claude-opus-4-6
+      sonnet: claude-sonnet-5
+      opus: claude-opus-5
   # DwarfStar (ds4) — local DeepSeek V4 server (https://github.com/antirez/ds4)
   # No API key required. If the server runs on a remote host, forward the port:
   #   ssh -L 8000:127.0.0.1:8000 <host>

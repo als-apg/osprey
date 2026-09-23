@@ -157,8 +157,8 @@ class TestAlsApgProvider:
     def test_model_tiers(self):
         spec = self._spec()
         assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
-        assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
-        assert spec.tier_to_model["opus"] == "claude-opus-4-6"
+        assert spec.tier_to_model["sonnet"] == "claude-sonnet-5"
+        assert spec.tier_to_model["opus"] == "claude-opus-5"
 
     def test_default_model_tier_is_haiku(self):
         spec = self._spec()

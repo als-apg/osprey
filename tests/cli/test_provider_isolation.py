@@ -449,8 +449,8 @@ class TestResolveEnvBlockRegression:
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": GATEWAY_ORIGIN,
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
             "ANTHROPIC_MODEL": "claude-haiku-4-5-20251001",
         }
 

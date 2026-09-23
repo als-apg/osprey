@@ -35,9 +35,11 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     base_url_env_var = "ALS_APG_BASE_URL"
     default_model_id = "claude-haiku-4-5-20251001"
     health_check_model_id = "claude-haiku-4-5-20251001"
+    # What the gateway serves; every id but Fable backs a tier.
     available_models = [
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
+        "claude-fable-5-1",
+        "claude-opus-5",
+        "claude-sonnet-5",
         "claude-haiku-4-5-20251001",
     ]
 
