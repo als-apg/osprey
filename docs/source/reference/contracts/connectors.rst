@@ -354,6 +354,10 @@ applied independently to each channel's own samples:
 - A bin width your backend cannot express must raise ``ValueError``, never
   round to one it can (the Archiver Appliance connector rejects a positive
   ``precision_ms`` that is not a multiple of 1000).
+- Bins are anchored on ``start_date``: one request cuts one lattice, the same
+  for every channel in it and every processing mode. A backend that bins on a
+  grid of its own is the documented exception -- the Archiver Appliance's
+  operators are epoch-anchored, and the window merely clips them.
 
 The shared helpers in ``osprey.connectors.archiver._timerange`` (``to_utc``,
 ``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,

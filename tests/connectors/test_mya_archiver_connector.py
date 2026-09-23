@@ -651,3 +651,42 @@ async def test_check_availability_bounds_each_channel_not_the_whole_sweep():
 
     channels = [f"TEST:PV{n}" for n in range(10)]
     assert await connector.check_availability(channels) == dict.fromkeys(channels, True)
+
+
+@pytest.mark.asyncio
+async def test_server_side_and_client_side_bins_share_one_grid():
+    """`mean` goes to mystats, `median` bins locally — both cut from the window.
+
+    mystats is handed the window start and cuts from there. `resample` used to
+    cut from midnight of the first sample's day, so one connector answered the
+    same window on two grids depending on the processing mode, visible whenever
+    the window opened off the midnight lattice.
+    """
+    start = datetime(2026, 1, 1, 0, 17, tzinfo=UTC)
+    end = datetime(2026, 1, 1, 2, 17, tzinfo=UTC)
+    hour_ms = 60 * 60 * 1000
+
+    client = _fake_client()
+    client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"], at=start)
+    connector = _connected(client)
+    await connector.get_data(["TEST:PV"], start, end, precision_ms=hour_ms, processing="mean")
+
+    # The server is told to cut from the window start.
+    assert client.query.MyStatsQuery.call_args_list[0][1]["start"] == datetime(2026, 1, 1, 0, 17)
+
+    client = _fake_client()
+    client.interval.Interval.return_value.data = pd.Series(
+        [1.0, 2.0],
+        index=[
+            _millis(datetime(2026, 1, 1, 0, 30, tzinfo=UTC)),
+            _millis(datetime(2026, 1, 1, 1, 30, tzinfo=UTC)),
+        ],
+        name="TEST:PV",
+    )
+    connector = _connected(client)
+    data = await connector.get_data(
+        ["TEST:PV"], start, end, precision_ms=hour_ms, processing="median"
+    )
+
+    # And the local binning cuts from the same instant, not from midnight.
+    assert [str(t)[11:16] for t in data["timestamp"]] == ["00:17", "01:17"]

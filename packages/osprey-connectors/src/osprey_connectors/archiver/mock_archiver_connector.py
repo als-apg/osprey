@@ -233,7 +233,7 @@ class MockArchiverConnector(ArchiverConnector):
             # seeded from the same generator is the failure this path replaced.
             raise ValueError(f"Cannot derive epoch seconds for the {start_date} to {end_date} grid")
 
-        resolved = resolve_processing(processing, precision_ms)
+        resolved = resolve_processing(processing, precision_ms, start_date)
         series = {}
         for channel in channels:
             if engine_serves(self._sim_engine, channel):

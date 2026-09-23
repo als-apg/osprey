@@ -843,10 +843,11 @@ class TestSubSecondPrecision:
         """
         monkeypatch.setattr(
             "osprey.connectors.archiver.epics_archiver_connector.resolve_processing",
-            lambda processing, precision_ms: Processing(
+            lambda processing, precision_ms, window_start: Processing(
                 mode=processing,
                 precision_ms=precision_ms,
                 epics_operator=None,
+                origin=pd.Timestamp(window_start),
             ),
         )
 
