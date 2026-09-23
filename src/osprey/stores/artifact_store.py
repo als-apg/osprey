@@ -776,6 +776,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         EXAMPLE_ORIGIN``). Every listing the agent reads passes it: the
         example is for the person at the gallery, never something the agent
         produced or may cite.
+
+        ``search`` is a case-insensitive substring match on the title, file
+        name, description and artifact type.
         """
         self._refresh_if_stale()
         entries = list(self._entries)
@@ -806,8 +809,18 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:
+            # These are the four fields the gallery's filter box offers; the box
+            # and this clause must admit the same artifacts, or a paged listing
+            # hides matches the box promises.
             q = search.lower()
-            entries = [e for e in entries if q in e.title.lower() or q in e.description.lower()]
+            entries = [
+                e
+                for e in entries
+                if q in e.title.lower()
+                or q in e.filename.lower()
+                or q in e.description.lower()
+                or q in e.artifact_type.lower()
+            ]
         if last_n is not None:
             entries = entries[-last_n:]
         return entries
