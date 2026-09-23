@@ -90,7 +90,7 @@ def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """The environment a sidecar launch reads, and a root to keep it all under.
 
     This module's own records land in the zone ``_isolate_module_audit_zone``
-    (tests/interfaces/conftest.py) holds open for the whole module. It is
+    (tests/conftest.py) holds open for the whole module. It is
     module-scoped, so the ledger's seam is already redirected before this
     fixture is built — which is the window that matters here, the one in which
     ``proxied`` enters the app's lifespan and ``started_session`` posts a
