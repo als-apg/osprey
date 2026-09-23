@@ -26,7 +26,8 @@ A child is keyed by ``(target, execution_mode)``: ``live`` and ``live`` in
 and returns a :class:`PooledConnector` bound to the *key*, not to the process —
 so a handle a caller keeps goes on working across a replacement child. Calls to
 different keys never wait on each other; the only lock is per key, around
-bringing a child up.
+bringing a child up and around :meth:`PooledConnector.disconnect`, which waits
+for a start in progress and stops the child it produced.
 
 Bringing a child up
 -------------------
@@ -36,6 +37,24 @@ The ``control_system`` section is resolved against the environment
 is the one a fresh child dials. A placeholder that stays unresolved in the
 target's connector block refuses the spawn: a child sent the literal text
 ``${EPICS_TESTING_PORT}`` as a port would configure an endpoint nobody meant.
+
+Two more refusals come from the resolved section alone, before anything is
+spawned — the pool's share of the eligibility gates the controls MCP server's
+target switch runs:
+
+* a Channel Access type (``epics``, ``virtual_accelerator``, ``live_standin``)
+  whose block has no gateway for the role this run selects. Its child would set
+  no ``EPICS_CA_*`` variable at all and search by broadcast, which the real
+  machine can answer — and the post-connect check below would pass it, since a
+  gatewayless derivation expects a child that configured nothing;
+* a simulated or stand-in target (``standin``, ``va``) whose selected endpoint
+  is one the ``live`` target derives — its read-only or write-access gateway:
+  the same address string, stripped and case-folded, and the same port as
+  verification compares ports — such as a stand-in port variable set to the
+  live gateway's port, or a live block copied into ``live_standin``. That is
+  all it requires: unlike the switch, the pool asks for no loopback host (a
+  stand-in may be a compose service such as ``tuning-epics-ioc:5064``) and
+  resolves no name.
 
 The child's post-connect report is then verified against what this process
 derives the child should have done
@@ -80,6 +99,11 @@ is a :class:`ConnectionError`, so a generic connection-error handler treats it a
   ping** within ``ping_timeout_s``. It is killed, and every other call in flight
   on it fails the same way. A ``TimeoutError`` because that is what the call
   would have raised in-process: the write may or may not have landed.
+* :class:`ConnectorHostWriteTimeoutError` — a ``ConnectorHostLostError`` that is
+  also a :class:`TimeoutError` (``cause="write_timeout"``), from a pool built
+  with ``kill_on_write_timeout=True`` only: a *write* missed its deadline, and
+  its child was killed **without** being pinged. Any other call in flight on
+  that child fails as a ``ConnectorHostLostError`` with the same cause.
 
 A failed call is **never retried**: a write may already have reached the IOC,
 and only the caller can decide whether to send it again.
@@ -87,7 +111,18 @@ and only the caller can decide whether to send it again.
 A child that misses a call's deadline but **does** answer the ping is alive and
 merely slow — a batched or confirmed write can legitimately take several of its
 call's timeouts — so it is left running, and the call raises a plain
-:class:`TimeoutError`; it may still complete in the child. An error the
+:class:`TimeoutError`; it may still complete in the child.
+
+That has an ordering hazard for writes. The child serves each request as a task
+of its own, so a write that timed out here may still reach the machine **after
+a newer write to the same channel** that the caller sent and saw complete:
+``SP=1`` times out, ``SP=2`` completes, then ``SP=1`` lands. A caller for whom
+that matters builds the pool with ``kill_on_write_timeout=True``, which kills
+the child of any write that misses its deadline, answering or not, so nothing
+left in it can send the stale write later. The write itself still may or may
+not have landed; reads keep the ping rule either way.
+
+An error the
 *connector* raised in a healthy child — a :class:`ConnectionError` for a channel
 that cannot be reached, say — is passed through unchanged and leaves the child
 in place. The two are told apart by origin
@@ -149,8 +184,22 @@ from osprey_connectors.ipc.proxy import (
     ConnectorHostProxy,
     raised_by_child,
 )
-from osprey_connectors.ipc.verification import derive_endpoints, verify_host_report
-from osprey_connectors.types import resolve_target
+from osprey_connectors.ipc.verification import (
+    ROLE_READ_ONLY,
+    ROLE_WRITE_ACCESS,
+    TargetDerivation,
+    derive_endpoints,
+    same_endpoint,
+    verify_host_report,
+)
+from osprey_connectors.types import (
+    CHANNEL_ACCESS_TYPES,
+    MOCK,
+    STANDIN_TYPES,
+    TARGET_LIVE,
+    VIRTUAL_ACCELERATOR,
+    resolve_target,
+)
 
 __all__ = [
     "READONLY",
@@ -159,6 +208,7 @@ __all__ = [
     "ConnectorHostPool",
     "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
+    "ConnectorHostWriteTimeoutError",
     "PooledConnector",
 ]
 
@@ -196,6 +246,16 @@ STAGE_VERIFY = "verify"
 CAUSE_EXITED = "exited"
 CAUSE_UNRESPONSIVE = "unresponsive"
 CAUSE_STOPPED = "stopped"
+CAUSE_WRITE_TIMEOUT = "write_timeout"
+
+#: The calls that can move the machine, as :class:`PooledConnector` names them
+#: to :meth:`ConnectorHostPool._invoke`. ``write_channel_checked`` is composed
+#: in the proxy from ``write_channel``, so its deadline is that write's.
+_WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_channel_checked"})
+
+#: Types that are never the facility's own machine, so an endpoint one of them
+#: selects must never be an endpoint ``live`` derives.
+_NEVER_LIVE_TYPES = (MOCK, VIRTUAL_ACCELERATOR, *STANDIN_TYPES)
 
 _Key = tuple[str, str | None]
 
@@ -227,7 +287,9 @@ class ConnectorHostStartError(ConnectorHostError):
     """A child could not be brought up. Nothing was left running.
 
     Attributes:
-        stage: ``"config"`` (unresolved placeholder), ``"spawn"`` (the
+        stage: ``"config"`` (an unresolved placeholder, a Channel Access
+            type with no gateway to pin it to, or a simulated or stand-in
+            target that would dial an endpoint ``live`` derives), ``"spawn"`` (the
             interpreter could not be started), ``"init"`` (no answer within the
             start timeout, an exit before answering, or an unusable answer) or
             ``"verify"`` (the report did not match the derivation).
@@ -251,8 +313,11 @@ class ConnectorHostLostError(ConnectorHostError):
 
     Attributes:
         cause: ``"exited"`` (the child died), ``"stopped"`` (the pool was closed
-            or the key disconnected) or ``"unresponsive"`` (see
-            :class:`ConnectorHostUnresponsiveError`).
+            or the key disconnected), ``"unresponsive"`` (see
+            :class:`ConnectorHostUnresponsiveError`) or ``"write_timeout"``
+            (a write on the child missed its deadline and the pool, built with
+            ``kill_on_write_timeout``, killed it; see
+            :class:`ConnectorHostWriteTimeoutError`).
         returncode: The child's exit status once reaped, when known.
     """
 
@@ -273,6 +338,19 @@ class ConnectorHostLostError(ConnectorHostError):
 
 class ConnectorHostUnresponsiveError(ConnectorHostLostError, TimeoutError):
     """The child missed a call's deadline and then a ping, and was killed."""
+
+
+class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
+    """A write missed its deadline and its child was killed for it.
+
+    Raised only by a pool built with ``kill_on_write_timeout=True``, only to
+    the write whose deadline passed, and whether or not the child would have
+    answered a ping (``cause="write_timeout"``). A :class:`TimeoutError` like
+    :class:`ConnectorHostUnresponsiveError`, because that is what the write
+    would have raised in-process: it may or may not have landed. What the kill
+    buys is that it cannot be *sent* later — nothing is left in a child that
+    could put it on the wire after a newer write to the same target.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +385,11 @@ class _PoolChild:
 def _label(key: _Key) -> str:
     target, mode = key
     return f"target {target!r}" + (f" ({mode})" if mode else "")
+
+
+def _landing(method: str) -> str:
+    """What a lost call's message says about a write that may have been sent."""
+    return " The write may or may not have landed." if method in _WRITE_METHODS else ""
 
 
 def _unresolved(block: Any) -> list[str]:
@@ -346,6 +429,11 @@ class ConnectorHostPool:
         ping_timeout_s: How long a child that missed a deadline gets to answer
             a ping before it is judged wedged and killed.
         terminate_grace_s: Time between ``SIGTERM`` and ``SIGKILL``.
+        kill_on_write_timeout: Kill a child whose *write* misses its deadline,
+            even one that still answers a ping, and fail the write with
+            :class:`ConnectorHostWriteTimeoutError`. Off, a timed-out write's
+            child is kept when it answers, and the write may still land after
+            a newer one (see the module docstring). Reads are never affected.
     """
 
     def __init__(
@@ -359,6 +447,7 @@ class ConnectorHostPool:
         timeout_grace_s: float = 1.0,
         ping_timeout_s: float = DEFAULT_PING_TIMEOUT_S,
         terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
+        kill_on_write_timeout: bool = False,
     ) -> None:
         self._section = copy.deepcopy(dict(control_system))
         self._config_file = str(Path(config_file).resolve()) if config_file else None
@@ -368,6 +457,7 @@ class ConnectorHostPool:
         self._timeout_grace_s = timeout_grace_s
         self._ping_timeout_s = ping_timeout_s
         self._terminate_grace_s = terminate_grace_s
+        self._kill_on_write_timeout = kill_on_write_timeout
         self._teardowns: set[asyncio.Task[None]] = set()
         self._children: dict[_Key, _PoolChild] = {}
         self._locks: dict[_Key, asyncio.Lock] = {}
@@ -441,10 +531,22 @@ class ConnectorHostPool:
                 reason = (
                     f"The connector-host child (pid {child.pid}) serving {_label(key)} was "
                     f"retired ({child.retired}) while {method!r} was in flight; the call was "
-                    "not retried."
+                    f"not retried.{_landing(method)}"
                 )
                 await self._discard(child, reason, child.retired)
-                raise self._lost(child, reason, child.retired) from exc
+                raise self._lost(child, reason, child.retired, method) from exc
+            if self._kill_on_write_timeout and method in _WRITE_METHODS:
+                # Not pinged: a child that answers is exactly the one that could
+                # still send this write after a newer one to the same target, and
+                # the caller asked for that ordering hazard to be closed.
+                reason = (
+                    f"The connector-host child (pid {child.pid}) serving {_label(key)} did not "
+                    f"answer {method!r} in time ({exc}) and was killed, as this pool kills a "
+                    "child on any write timeout. The write may or may not have landed; it was "
+                    "not retried, and the next call starts a fresh child."
+                )
+                await self._discard(child, reason, CAUSE_WRITE_TIMEOUT)
+                raise self._lost(child, reason, CAUSE_WRITE_TIMEOUT, method) from exc
             if await self._answers_ping(child):
                 raise TimeoutError(
                     f"The connector-host child (pid {child.pid}) serving {_label(key)} did not "
@@ -457,7 +559,7 @@ class ConnectorHostPool:
                 "was not retried, and the next call starts a fresh child."
             )
             await self._discard(child, reason, CAUSE_UNRESPONSIVE)
-            raise self._lost(child, reason, CAUSE_UNRESPONSIVE) from exc
+            raise self._lost(child, reason, CAUSE_UNRESPONSIVE, method) from exc
         except ConnectionError as exc:
             if raised_by_child(exc):
                 # The connector's own error, sent by a child that answered.
@@ -471,6 +573,13 @@ class ConnectorHostPool:
                     f"stopped — the pool was closed, or the target disconnected — while "
                     f"{method!r} was in flight; the call was not retried."
                 )
+            elif cause == CAUSE_WRITE_TIMEOUT:
+                reason = (
+                    f"The connector-host child (pid {child.pid}) serving {_label(key)} was "
+                    f"killed because another write on it missed its deadline, while "
+                    f"{method!r} was in flight; the call was not retried, and the next call "
+                    f"starts a fresh child.{_landing(method)}"
+                )
             else:
                 reason = (
                     f"The connector-host child (pid {child.pid}) serving {_label(key)} was lost "
@@ -478,7 +587,7 @@ class ConnectorHostPool:
                     "the next call starts a fresh child."
                 )
             await self._discard(child, reason, CAUSE_EXITED)
-            raise self._lost(child, reason, cause) from exc
+            raise self._lost(child, reason, cause, method) from exc
 
     async def _answers_ping(self, child: _PoolChild) -> bool:
         """Whether a child that missed a deadline is still alive enough to answer."""
@@ -490,13 +599,17 @@ class ConnectorHostPool:
             return False
         return True
 
-    def _lost(self, child: _PoolChild, detail: str, cause: str) -> ConnectorHostLostError:
+    def _lost(
+        self, child: _PoolChild, detail: str, cause: str, method: str
+    ) -> ConnectorHostLostError:
         target, mode = child.key
-        error_class = (
-            ConnectorHostUnresponsiveError
-            if cause == CAUSE_UNRESPONSIVE
-            else ConnectorHostLostError
-        )
+        error_class: type[ConnectorHostLostError] = ConnectorHostLostError
+        if cause == CAUSE_UNRESPONSIVE:
+            error_class = ConnectorHostUnresponsiveError
+        elif cause == CAUSE_WRITE_TIMEOUT and method in _WRITE_METHODS:
+            # Only a write is a write timeout: a read that was in flight on the
+            # child a write timeout killed was simply lost with it.
+            error_class = ConnectorHostWriteTimeoutError
         return error_class(
             detail,
             target=target,
@@ -507,11 +620,21 @@ class ConnectorHostPool:
         )
 
     async def _retire_key(self, key: _Key) -> None:
-        """Stop *key*'s child in an orderly way; the next call starts another."""
+        """Stop *key*'s child in an orderly way; the next call starts another.
+
+        Taken under the key's lock, so a disconnect that lands while the key's
+        child is still starting waits for that start and then stops the child
+        it produced: the in-flight :meth:`connector` call returns its handle,
+        and the child behind it is gone by the time this returns. Without the
+        lock the disconnect would find no child yet, return at once, and the
+        child would come up anyway behind a caller that believes the key is
+        disconnected. Nothing that already holds a key's lock reaches this.
+        """
         self._check_loop()
-        child = self._children.pop(key, None)
-        if child is not None:
-            await self._stop(child)
+        async with self._locks.setdefault(key, asyncio.Lock()):
+            child = self._children.pop(key, None)
+            if child is not None:
+                await self._stop(child)
 
     # -- children ------------------------------------------------------------
 
@@ -570,6 +693,15 @@ class ConnectorHostPool:
                 f"'control_system.connector.{connector_type}' still carries "
                 f"{', '.join(sorted(set(unresolved)))} after environment resolution. "
                 "Set the variable before the first call to this target.",
+                target=target,
+                execution_mode=mode,
+                pid=None,
+                stage=STAGE_CONFIG,
+            )
+        refusal = self._config_refusal(key, section, connector_type)
+        if refusal is not None:
+            raise ConnectorHostStartError(
+                f"Refusing to start a connector-host child for {_label(key)}: {refusal}",
                 target=target,
                 execution_mode=mode,
                 pid=None,
@@ -654,6 +786,91 @@ class ConnectorHostPool:
         )
         return child
 
+    def _posture(self, key: _Key, section: dict[str, Any]) -> tuple[bool, bool]:
+        """``(readonly_run, writes)`` for *key*: what its child will select on."""
+        target, mode = key
+        readonly_run = mode == READONLY or is_readonly_run()
+        writes = False if readonly_run else posture_store.effective_writes(section, target)
+        return readonly_run, writes
+
+    def _derive(self, key: _Key, section: dict[str, Any]) -> TargetDerivation:
+        readonly_run, writes = self._posture(key, section)
+        return derive_endpoints(
+            {"control_system": section},
+            key[0],
+            writes_enabled=writes,
+            readonly_run=readonly_run,
+        )
+
+    def _config_refusal(
+        self, key: _Key, section: dict[str, Any], connector_type: str
+    ) -> str | None:
+        """Why *key* must not be spawned at all, from config alone, or ``None``.
+
+        The two eligibility gates the controls MCP server's target switch runs
+        before it spawns, restated for what the pool can see — the
+        ``control_system`` section, not the full project config:
+
+        * A Channel Access type must select a gateway. ``connect()`` configures
+          the process only ``if gateway_config:``, so a block with no gateway
+          for the role this run selects sets no ``EPICS_CA_*`` variable at all
+          — not even ``EPICS_CA_AUTO_ADDR_LIST=NO`` — and libca broadcasts its
+          searches on the subnet, where the real machine may answer. The
+          post-connect check cannot catch it: with no rows derived, a child
+          that configured nothing is exactly what it expects.
+        * A simulated or stand-in type must not select an endpoint the ``live``
+          target derives from the same section — read-only or write-access
+          alike — or its writes reach the real machine under a soft label. The
+          switch proves a stand-in positively (the co-deployed port on
+          loopback); that needs ``virtual_accelerator.live_standin`` from the
+          full config, which the pool is never handed, and a stand-in the pool
+          serves may legitimately sit on a named, non-loopback host. So here
+          the refusal is the negative half — whatever the stand-in is, it is
+          not the machine — with addresses compared as written, never resolved.
+
+        Types that talk to no gateway — the mock, and the test suite's mock
+        subclasses — derive no rows and are not Channel Access, so neither gate
+        applies to them.
+        """
+        target, _ = key
+        derivation = self._derive(key, section)
+        selected = derivation.selected_endpoint()
+        block_key = f"control_system.connector.{connector_type}"
+
+        if connector_type in CHANNEL_ACCESS_TYPES and selected is None:
+            configured = sorted(derivation.endpoints) or "none"
+            return (
+                f"it resolves to {connector_type!r}, which speaks Channel Access, and "
+                f"'{block_key}.gateways.{derivation.selected_role}' — the gateway this run "
+                f"selects — is missing or empty (configured roles: {configured}). A child "
+                "with no gateway to pin it to would broadcast its channel searches on the "
+                "local network, and any IOC that answers — the real machine included — "
+                f"would serve it. Configure '{block_key}.gateways.{derivation.selected_role}'."
+            )
+
+        if selected is None or connector_type not in _NEVER_LIVE_TYPES:
+            return None
+        try:
+            live = derive_endpoints(
+                {"control_system": section}, TARGET_LIVE, writes_enabled=False, readonly_run=True
+            )
+        except ValueError:
+            # No live machine on this deployment, so no endpoint to collide with.
+            return None
+        for role in (ROLE_READ_ONLY, ROLE_WRITE_ACCESS):
+            row = live.endpoints.get(role)
+            if row is not None and same_endpoint(selected, row):
+                return (
+                    f"'{block_key}.gateways.{derivation.selected_role}' selects "
+                    f"{selected.host}:{selected.port}, which is the {role!r} gateway the "
+                    f"live machine derives ('control_system.connector.{live.connector_type}'"
+                    f".gateways.{role} at {row.host}:{row.port}). Target {target!r} is "
+                    f"{connector_type!r}, never the real machine, so its reads and writes "
+                    "must not reach that endpoint. Point its gateways at its own server — "
+                    "check any port variable it takes, such as EPICS_TESTING_PORT."
+                )
+        return None
+
     def _verify(
         self,
         key: _Key,
@@ -670,8 +887,7 @@ class ConnectorHostPool:
                     STAGE_VERIFY,
                     f"reports {field} {report.get(field)!r} where {expected!r} was asked for.",
                 )
-        readonly_run = mode == READONLY or is_readonly_run()
-        writes = False if readonly_run else posture_store.effective_writes(section, target)
+        readonly_run, writes = self._posture(key, section)
 
         # Posture first, for every connector type: the endpoint check below
         # only sees posture through the gateway role, which a connector with no
@@ -694,13 +910,7 @@ class ConnectorHostPool:
                     "section; the two must agree.",
                 )
 
-        derivation = derive_endpoints(
-            {"control_system": section},
-            target,
-            writes_enabled=writes,
-            readonly_run=readonly_run,
-        )
-        verification = verify_host_report(derivation, report)
+        verification = verify_host_report(self._derive(key, section), report)
         if not verification.ok:
             raise failure(
                 STAGE_VERIFY,
@@ -844,5 +1054,9 @@ class PooledConnector:
         return result
 
     async def disconnect(self) -> None:
-        """Stop this key's child. A later call on this handle starts a fresh one."""
+        """Stop this key's child. A later call on this handle starts a fresh one.
+
+        A child still starting is waited for and then stopped, so no child for
+        this key is running when this returns.
+        """
         await self._pool._retire_key(self._key)

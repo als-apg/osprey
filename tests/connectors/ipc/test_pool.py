@@ -33,6 +33,8 @@ from osprey_connectors.ipc.pool import (
     ConnectorHostPool,
     ConnectorHostStartError,
     ConnectorHostUnresponsiveError,
+    ConnectorHostWriteTimeoutError,
+    PooledConnector,
 )
 from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
 
@@ -329,6 +331,47 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
     assert len(log.read_text().splitlines()) == 1
 
 
+async def test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills_its_child(
+    pools, writable
+):
+    section, config_file, log = writable
+    pool = pools(section, config_file=config_file, timeout_grace_s=0.2, kill_on_write_timeout=True)
+    live = await pool.connector("live")
+    pid = live.pid
+
+    # The same slow write the test above keeps its child for. This child would
+    # answer a ping, and is killed anyway: kept, it could still send SP=1 after
+    # a newer write to SP had completed.
+    with pytest.raises(ConnectorHostWriteTimeoutError) as caught:
+        await live.write_channel("SLOW:SP", 1.0, timeout=0.3)
+
+    timed_out = caught.value
+    assert isinstance(timed_out, TimeoutError)
+    assert isinstance(timed_out, ConnectorHostLostError)
+    assert (timed_out.target, timed_out.pid, timed_out.cause) == ("live", pid, "write_timeout")
+    assert "may or may not have landed" in str(timed_out)
+    assert not _alive(pid)
+    assert pool.pids() == {}
+
+    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert live.pid not in (None, pid)
+    # The timed-out write reached the connector once and was not sent again.
+    assert [line.split() for line in log.read_text().splitlines()] == [["SLOW:SP", "1.0"]]
+
+
+async def test_kill_on_write_timeout_leaves_a_read_that_times_out_on_the_ping_rule(pools):
+    pool = pools(_section(SLOW), timeout_grace_s=0.2, kill_on_write_timeout=True)
+    live = await pool.connector("live")
+    pid = live.pid
+
+    with pytest.raises(TimeoutError) as caught:
+        await live.read_channel("SLOW:X", timeout=0.3)
+
+    assert not isinstance(caught.value, ConnectorHostLostError)
+    assert "still answers a ping" in str(caught.value)
+    assert live.pid == pid and _alive(pid)
+
+
 async def test_a_wedged_child_is_caught_by_the_call_deadline_too(pools):
     pool = pools(_section(SLOW), call_deadline_s=0.5, ping_timeout_s=0.5, terminate_grace_s=0.5)
     live = await pool.connector("live")
@@ -447,6 +490,110 @@ async def test_an_unknown_target_is_refused_in_this_process(pools):
     assert pool.pids() == {}
 
 
+def _ca_gateways(address: str, read_port, write_port=None) -> dict:
+    return {
+        "read_only": {"address": address, "port": read_port},
+        "write_access": {"address": address, "port": write_port or read_port},
+    }
+
+
+@pytest.mark.parametrize(
+    ("target", "connector_type", "block"),
+    [
+        ("live", "epics", {}),
+        ("live", "epics", {"gateways": {}}),
+        # A write-only table on a run that selects read_only: rows exist, but
+        # none for the role connect() will look up, so it configures nothing.
+        ("live", "epics", {"gateways": {"write_access": {"address": "10.0.0.1", "port": 5064}}}),
+        ("standin", "live_standin", {}),
+        ("va", "virtual_accelerator", {}),
+    ],
+)
+async def test_a_channel_access_block_with_no_gateway_to_select_is_refused_before_any_spawn(
+    pools, spawns, target, connector_type, block
+):
+    # Spawned, this child would set no EPICS_CA_* at all and search by
+    # broadcast. Refused on config alone, so nothing here touches a network.
+    section = {"type": connector_type, "connector": {connector_type: {"timeout": 1.0, **block}}}
+    pool = pools(section)
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector(target)
+
+    assert caught.value.stage == "config"
+    assert caught.value.pid is None
+    assert "Channel Access" in str(caught.value) and "broadcast" in str(caught.value)
+    assert f"control_system.connector.{connector_type}.gateways.read_only" in str(caught.value)
+    assert spawns == []
+    assert pool.pids() == {}
+
+
+@pytest.mark.parametrize(
+    ("live_gateways", "standin_gateways", "role"),
+    [
+        # The stand-in's port variable set to the live gateway's port.
+        (
+            _ca_gateways("127.0.0.1", 5064),
+            _ca_gateways("127.0.0.1", "${OSPREY_POOL_TEST_STANDIN_PORT}"),
+            "read_only",
+        ),
+        # A live block copied into live_standin, the address case aside.
+        (
+            _ca_gateways("IOC.example.org", 5064),
+            _ca_gateways(" ioc.example.org", "5064"),
+            "read_only",
+        ),
+        # Only the live write gateway matches.
+        (_ca_gateways("10.0.0.1", 5064, 5065), _ca_gateways("10.0.0.1", 5065), "write_access"),
+    ],
+)
+async def test_a_standin_that_would_dial_the_live_machine_is_refused_before_any_spawn(
+    pools, spawns, monkeypatch, live_gateways, standin_gateways, role
+):
+    monkeypatch.setenv("OSPREY_POOL_TEST_STANDIN_PORT", "5064")
+    section = {
+        "type": "epics",
+        "connector": {
+            "epics": {"gateways": live_gateways},
+            "live_standin": {"gateways": standin_gateways},
+        },
+    }
+    pool = pools(section)
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("standin")
+
+    assert caught.value.stage == "config"
+    assert caught.value.pid is None
+    assert f"the {role!r} gateway the live machine derives" in str(caught.value)
+    assert spawns == []
+    assert pool.pids() == {}
+
+
+async def test_a_standin_on_a_named_host_apart_from_the_live_machine_passes_the_config_stage(
+    pools, monkeypatch
+):
+    # The consumer's compose shape: the stand-in is a service name, neither
+    # loopback nor resolvable here, on the same port number as the live
+    # gateway but on another host. Spawning is made to fail, so reaching the
+    # spawn stage is the proof the config stage let it through, and no child
+    # ever dials anything.
+    async def no_spawn(*args, **kwargs):
+        raise OSError("pool test: spawning is disabled")
+
+    monkeypatch.setattr(pool_module, "spawn_host", no_spawn)
+    section = {
+        "type": "epics",
+        "connector": {
+            "epics": {"gateways": _ca_gateways("127.0.0.1", 5064)},
+            "live_standin": {"gateways": _ca_gateways("tuning-epics-ioc", 5064)},
+        },
+    }
+    pool = pools(section)
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("standin")
+
+    assert caught.value.stage == "spawn"
+
+
 # ------------------------------------------------------------ lifetime
 
 
@@ -476,6 +623,26 @@ async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
     process = spawns[0][1]
     assert process.returncode is not None
     assert pool.pids() == {}
+
+
+async def test_disconnect_during_a_start_waits_for_it_and_leaves_no_child_running(pools, spawns):
+    pool = pools(_section(SLOW_START))
+    starting = asyncio.create_task(pool.connector("live"))
+    await _wait_for(lambda: spawns)
+
+    # A handle on the key, from before the start has handed one out.
+    await PooledConnector(pool, ("live", None)).disconnect()
+
+    # The disconnect waited for the start and stopped the child it produced ...
+    process = spawns[0][1]
+    assert process.returncode is not None
+    assert not _alive(process.pid)
+    assert pool.pids() == {}
+    # ... and the start itself completed, handing back a handle whose child is
+    # already gone; its next call would start a fresh one.
+    handle = await starting
+    assert handle.pid is None
+    assert len(spawns) == 1
 
 
 async def test_close_with_a_call_in_flight_fails_it_as_stopped(pools):

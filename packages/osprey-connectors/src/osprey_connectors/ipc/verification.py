@@ -42,6 +42,7 @@ __all__ = [
     "Verification",
     "connector_block",
     "derive_endpoints",
+    "same_endpoint",
     "verify_child_report",
     "verify_host_report",
 ]
@@ -315,6 +316,30 @@ def _ports_equal(expected: Any, got: Any) -> bool:
         return int(expected) == int(got)
     except (TypeError, ValueError):
         return str(expected) == str(got)
+
+
+def _host_key(host: Any) -> str:
+    """*host* as two rows must both spell it to name the same machine.
+
+    Stripped and case-folded, and nothing more: no name is resolved, and no two
+    spellings of one address — ``localhost`` and ``127.0.0.1``, say — are
+    folded together. A compose service name that resolves only inside its own
+    network is a host this process may be unable to resolve at all, and a
+    comparison that needed to would answer differently on every machine.
+    """
+    return str(host).strip().lower() if host is not None else ""
+
+
+def same_endpoint(first: Endpoint, second: Endpoint) -> bool:
+    """Whether two derived rows name the same address and port, as written.
+
+    The CA/PVA *mode* is deliberately not compared: a name server and an
+    address-list entry on one host and port reach the same server. Ports are
+    compared as verification compares them (``'5064'`` is ``5064``); hosts as
+    :func:`_host_key` spells them, so two different spellings of one machine
+    are not caught here.
+    """
+    return _host_key(first.host) == _host_key(second.host) and _ports_equal(first.port, second.port)
 
 
 def verify_child_report(derivation: TargetDerivation, report: Mapping[str, Any]) -> Verification:
