@@ -297,13 +297,16 @@ export function initChat(containerId = 'operator-container') {
   const adopted = getPointer();
 
   /**
-   * The session key this console is showing. Adopted from the pointer at boot
-   * and minted only for a tab that has none — the Expert view resumes the same
-   * slot, so a second key here would be a second conversation.
+   * The session key this console is showing. Adopted from the pointer at boot,
+   * or minted for a tab that has none — the Expert view resumes the same slot,
+   * so a second key here would be a second conversation. A minted key is not
+   * written to the pointer here: the pointer names the session the tab is on,
+   * and in the Expert view that is the id the terminal's server confirms. The
+   * console claims the pointer only where it is the surface running the
+   * session — the Simple-mode branch at the end of this function.
    * @type {string}
    */
   let boundKey = adopted ?? uuid4();
-  if (!adopted) setPointer(boundKey);
 
   /** Which hand-off attempt is current; a retry supersedes the one before it. */
   let handoffGeneration = 0;
@@ -719,12 +722,17 @@ export function initChat(containerId = 'operator-container') {
   enterFromExpertBinding = ({ interrupt: cutRunningTurn = false } = {}) =>
     runHandoff(cutRunningTurn);
 
-  // A page that opens in Simple mode never went through a flip, so nothing
-  // else replays the key it adopted above — and nothing else tells the panels
-  // which session they are on, because the terminal does not connect here.
+  // A page that opens in Simple mode never went through a flip: the terminal
+  // does not connect here, so this console is the surface running the
+  // session. That makes it the one to name the session the tab is on — it
+  // claims the pointer for a key it minted, replays a key it adopted, and
+  // either way is what tells the panels which session they are on.
   if (isSimpleMode()) {
     if (adopted) void bindTo(adopted);
-    else notifySessionChange(boundKey);
+    else {
+      setPointer(boundKey);
+      notifySessionChange(boundKey);
+    }
   }
 }
 
