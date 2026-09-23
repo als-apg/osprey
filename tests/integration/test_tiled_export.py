@@ -6,7 +6,7 @@ answer, and structurally unable to say anything about what the catalog actually
 does: a fake serializes whatever it is asked to, and a fake stream hands back a
 tidy all-scalar table with one shared dimension. This module is the other half —
 the only place in the suite where the answers come from
-``ghcr.io/bluesky/tiled:0.2.12`` itself, written by the same `TiledWriter` the
+``ghcr.io/bluesky/tiled:0.2.18`` itself, written by the same `TiledWriter` the
 queueserver worker subscribes.
 
 The tag is pinned, deliberately and exactly, to the one
@@ -57,7 +57,7 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # and not read from the template: this module's assertions are statements about
 # THIS image's serializers, so it has to fail loudly if it is ever pointed at
 # another one rather than quietly re-verify a different server.
-TILED_IMAGE = "ghcr.io/bluesky/tiled:0.2.12"
+TILED_IMAGE = "ghcr.io/bluesky/tiled:0.2.18"
 
 # Tiled refuses a non-alphanumeric single-user API key at startup, with the
 # failure surfacing only as "application startup failed" in the container log.

@@ -174,7 +174,7 @@ fails at ``up`` on the image it forgot:
      openobserve:
        image: registry.example.org/mirror/openobserve:v0.92.2
      bluesky:
-       tiled_image: registry.example.org/mirror/tiled:0.2.12
+       tiled_image: registry.example.org/mirror/tiled:0.2.18
        redis_image: registry.example.org/mirror/redis:7.4-alpine
 
    modules:

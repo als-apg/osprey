@@ -615,7 +615,7 @@ keys:
     rendered: false
     evidence: 'services\.bluesky\.tiled_image'
     note: Upstream pin for the Tiled sidecar the Bluesky stack runs beside the bridge.
-    default: ghcr.io/bluesky/tiled:0.2.12
+    default: ghcr.io/bluesky/tiled:0.2.18
   services.bluesky.redis_image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_REDIS_IMAGE:-\{\{ svc\.redis_image'
