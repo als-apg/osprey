@@ -470,8 +470,7 @@ class TestChannelFinderAgent:
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "name: channel-finder" in content
         assert "description:" in content
-        # Model is either canonical tier or provider-resolved ID
-        assert "model: haiku" in content or "model: anthropic/claude-haiku" in content
+        assert "model: claude-sonnet-5" in content
         assert "maxTurns: 30" in content
         assert "disallowedTools:" in content
         assert "Bash" in content  # Bash is disallowed
@@ -743,7 +742,7 @@ class TestLogbookSearchAgent:
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
-        assert "model: sonnet" in content or "model: anthropic/claude-sonnet" in content
+        assert "model: claude-sonnet-5" in content or "model: anthropic/claude-sonnet" in content
         assert "description:" in content
         assert "disallowedTools:" in content
         assert "mcpServers" not in content  # project-level, not inline
@@ -828,7 +827,7 @@ class TestLogbookDeepResearchAgent:
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
-        assert "model: opus" in content or "model: anthropic/claude-opus" in content
+        assert "model: claude-sonnet-5" in content
         assert "maxTurns: 100" in content
         assert "description:" in content
         assert "disallowedTools:" in content

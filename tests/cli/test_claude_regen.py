@@ -328,7 +328,7 @@ class TestManifestPresetStamp:
                     "name": "Hand Written",
                     "data": "data",
                     "provider": "cborg",
-                    "model": "haiku",
+                    "model": "claude-haiku-4-5",
                     "channel_finder_mode": "in_context",
                     "config": {
                         "control_system.type": "mock",

@@ -57,7 +57,7 @@ extends: hello-world
 name: TeamsBridgeTest
 data: data
 provider: anthropic
-model: haiku
+model: claude-haiku-4-5
 dispatch:
   triggers: triggers.yml
 {teams_bridge}
@@ -578,7 +578,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
         "extends: hello-world\nname: TeamsNoDispatch\ndata: data\nprovider: anthropic\n"
-        "model: haiku\nteams_bridge: {}\n",
+        "model: claude-haiku-4-5\nteams_bridge: {}\n",
         encoding="utf-8",
     )
     with caplog.at_level(logging.ERROR):

@@ -118,29 +118,33 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # staleness advisory firing on already-deployed projects is the correct
     # signal. The six `extends` children inherit it; ariel-standalone,
     # channel-finder-standalone and hello-world stand still.
-    "ariel-standalone": ("sha256:389fad6bd826efc4b53ea263800110585867aab31c92d9931206897c75548643"),
+    # The thirteenth move, and every preset: none sets `model:`, so the
+    # provider's default_model answers, and none names a composition tier. A
+    # rebuilt project may run a different main model, so the staleness advisory
+    # firing on already-deployed projects is the correct signal.
+    "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
     "channel-finder-standalone": (
-        "sha256:2dfc06f64433fcb1d8393931dccf76550e75ac76dc12f5011029010e02aa9448"
+        "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
     ),
     "control-assistant": (
-        "sha256:fa6b61b95fe39144b3664fb7db721b4a18b8ef8a03eb6149b867e1442a1192e8"
+        "sha256:450f1462f1d30ec2b97d7771d529fdda9da5041abff9a1a3bbd41744a9134ac6"
     ),
     "control-assistant-admin": (
-        "sha256:0460e4fbad7592bb3b9af88c8f6ce967438ee77603bd8480ceabb18164e02e97"
+        "sha256:b295db97fbf8a2afddba9718a377666d713d682c51ac9f5587744ca1971ab086"
     ),
     "control-assistant-knowledge": (
-        "sha256:5d86c2284a4c000d5affe4e09295ea3fdf947f2b7de251020064a12d9853c964"
+        "sha256:e966dfc014140b0060371bbc9a97b494f41c8c73ece4aa57c4db18671928e84e"
     ),
     "control-assistant-logbook": (
-        "sha256:22904edccc889f0b50ae6aaea90e3811c6f5d6d8243bf7f07a29af2bef49eb52"
+        "sha256:c5cba294dd1d00dec60fe86c78893a738f601edfb0688f1536bf22dda75ad1a4"
     ),
     "control-assistant-readonly": (
-        "sha256:6ffe906edc5e9b071e072b1b8a45b4e5eef0b464e6a3a86498e7824a4563a960"
+        "sha256:903aa8f763ce3001bbcf5fbb96c9e3175c80ed6db6dba1fb725b5988a807f9d3"
     ),
     "control-assistant-readwrite": (
-        "sha256:d2892d48a53e998f990230a03baf9ee1dec00d97b70b1deb53bbfa5f43d650a6"
+        "sha256:f8aa7cb501b3857c12739d6b726c6871cf7306b34a53f38c950de07dea03ac30"
     ),
-    "hello-world": ("sha256:3ce9623f1874a11a5500eb0a2b5a29bbfc324cf0e6ed95678ea13feadfefecb4"),
+    "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }
 
 
@@ -172,6 +176,6 @@ def test_hashing_does_not_mutate_the_callers_dict(tmp_path):
     to build what it digests, and every caller keeps using the dict it passed
     in afterwards.
     """
-    raw = {"name": "Demo", "provider": "anthropic", "model": "haiku"}
+    raw = {"name": "Demo", "provider": "anthropic", "model": "claude-haiku-4-5"}
     _hash_resolved_profile(raw, tmp_path / "profile.yml")
-    assert raw == {"name": "Demo", "provider": "anthropic", "model": "haiku"}
+    assert raw == {"name": "Demo", "provider": "anthropic", "model": "claude-haiku-4-5"}

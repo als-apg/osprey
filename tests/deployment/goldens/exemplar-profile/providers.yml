@@ -7,9 +7,25 @@
 #
 # Each entry carries:
 #   base_url       required — the OpenAI-compatible endpoint
+#   default_model  required — the model id a deployment runs when its profile
+#                  names none; one of `models`
+#   models         required — a list of the model ids the gateway serves,
+#                  spelled exactly as the gateway spells them
 #   api_key        optional — usually an ${ENV_VAR} reference, expanded at runtime
-#   models         optional — this provider's own IDs for the haiku/sonnet/opus tiers
-#   api_protocol   optional — set to `anthropic` for an Anthropic-native endpoint
+#   health_model   optional — the cheapest served id, used by the health check;
+#                  absent, the provider adapter's own health model answers
+#   claude_code_aliases
+#                  optional — a partial or full {haiku, sonnet, opus} map of
+#                  served ids. These are Claude Code's own alias names; only a
+#                  gateway that serves Claude models can fill them honestly,
+#                  and only when it wants to pin them rather than let the
+#                  build derive them from `models`.
+#   api_protocol   optional — `anthropic` or `openai`, the only two values it
+#                  takes. `anthropic` names an endpoint that speaks the
+#                  Anthropic API directly and so skips the translation proxy;
+#                  an absent key means `openai`. Anything else, a capitalised
+#                  `Anthropic` included, is refused when the provider is
+#                  resolved rather than silently routed through the proxy.
 #
 # Add your own gateway by appending an entry; the keys above are the whole
 # contract. A copy of this file beside profile.yml replaces the packaged
@@ -22,77 +38,93 @@ providers:
   cborg:
     api_key: ${CBORG_API_KEY}
     base_url: https://api.cborg.lbl.gov/v1
-    models:                        # Model IDs as named by this provider
-      haiku: claude-haiku-4-5
-      sonnet: claude-sonnet-5
-      opus: claude-opus-5
+    default_model: claude-haiku-4-5
+    health_model: claude-haiku-4-5
+    models:
+      - claude-opus-5
+      - claude-sonnet-5
+      - claude-haiku-4-5
   amsc-i2:
     api_key: ${AMSC_I2_API_KEY}
     base_url: https://api.i2-core.american-science-cloud.org/v1
-    models:                        # Model IDs as named by this provider
-      haiku: claude-haiku
-      sonnet: claude-sonnet
-      opus: claude-opus
+    default_model: claude-sonnet
+    models:
+      - claude-haiku
+      - claude-sonnet
+      - claude-opus
   stanford:
     api_key: ${STANFORD_API_KEY}
     base_url: https://aiapi-prod.stanford.edu/v1
-    models:                        # Gateway serves no Opus-class model; o3-mini is the strongest
-      haiku: gpt-4o-mini
-      sonnet: gpt-4o
-      opus: o3-mini
+    default_model: gpt-4o
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+      - o3-mini
   openai:
     api_key: ${OPENAI_API_KEY}
     base_url: https://api.openai.com/v1
-    models:                        # GPT-5.6 sizes mapped onto the standard tiers
-      haiku: gpt-5.6-luna
-      sonnet: gpt-5.6-terra
-      opus: gpt-5.6-sol
+    default_model: gpt-6-sol
+    health_model: gpt-5.6-luna
+    models:
+      - gpt-6-astra
+      - gpt-6-sol
+      - gpt-6-luna
+      - gpt-5.6-luna
   anthropic:
     api_key: ${ANTHROPIC_API_KEY}
     base_url: https://api.anthropic.com
+    default_model: claude-sonnet-5
     models:
-      haiku: claude-haiku-4-5
-      sonnet: claude-sonnet-5
-      opus: claude-opus-5
+      - claude-fable-5-1
+      - claude-opus-5-5
+      - claude-opus-5
+      - claude-sonnet-5
+      - claude-haiku-4-5
   google:
     api_key: ${GOOGLE_API_KEY}
     base_url: https://generativelanguage.googleapis.com/v1beta
-    models:                        # Current stable Gemini sizes on the standard tiers
-      haiku: gemini-3.5-flash-lite
-      sonnet: gemini-3.8-flash
-      opus: gemini-2.5-pro
+    default_model: gemini-3.8-flash
+    models:
+      - gemini-3.8-flash
+      - gemini-3.5-flash-lite
+      - gemini-2.5-pro
   ollama:
     api_key: ollama
     base_url: ${OLLAMA_HOST:-http://localhost:11434}
+    default_model: gpt-oss:20b
     models:                        # Local models — `ollama pull` each one before use
-      haiku: mistral:7b
-      sonnet: gpt-oss:20b
-      opus: gpt-oss:120b
+      - mistral:7b
+      - gpt-oss:20b
+      - gpt-oss:120b
   argo:
     api_key: ${ARGO_API_KEY}
     base_url: ${ARGO_BASE_URL:-https://apps.inside.anl.gov/argoapi/v1}
+    default_model: claudesonnet45
     models:                        # Argo spells its model IDs without punctuation
-      haiku: claudehaiku45
-      sonnet: claudesonnet45
-      opus: claudeopus41
+      - claudehaiku45
+      - claudesonnet45
+      - claudeopus41
   als-apg:
     api_key: ${ALS_APG_API_KEY}
-    # The gateway this provider fronts. Export ALS_APG_BASE_URL to reach it
-    # at another host, or replace this line with that endpoint's /v1 URL.
+    # The gateway this provider fronts. A site whose gateway is elsewhere
+    # exports ALS_APG_BASE_URL, which beats this value, or replaces the line
+    # below with that endpoint's /v1 URL in its own copy of the catalog.
     base_url: https://llm.als.lbl.gov/v1
+    default_model: claude-haiku-4-5-20251001
+    health_model: claude-haiku-4-5-20251001
     models:
-      haiku: claude-haiku-4-5-20251001
-      sonnet: claude-sonnet-5
-      opus: claude-opus-5
+      - claude-fable-5-1
+      - claude-opus-5-5
+      - claude-opus-5
+      - claude-sonnet-5
+      - claude-haiku-4-5-20251001
   # DwarfStar (ds4) — local DeepSeek V4 server (https://github.com/antirez/ds4)
   # No API key required. If the server runs on a remote host, forward the port:
   #   ssh -L 8000:127.0.0.1:8000 <host>
   ds4:
     api_key: EMPTY                  # ds4 ignores auth; any non-empty string works
     base_url: http://127.0.0.1:8000/v1
-    # ds4 serves two model sizes; mapped onto the standard tiers so ds4 is a
-    # drop-in (flash = fast/cheap tier, pro = capable tiers).
+    default_model: deepseek-v4-flash
     models:
-      haiku: deepseek-v4-flash
-      sonnet: deepseek-v4-pro
-      opus: deepseek-v4-pro
+      - deepseek-v4-flash
+      - deepseek-v4-pro

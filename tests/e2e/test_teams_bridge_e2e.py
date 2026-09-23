@@ -499,7 +499,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5-20251001",
         ]
     )
     if init.returncode != 0:

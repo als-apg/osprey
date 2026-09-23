@@ -25,11 +25,13 @@ app_template: hello_world
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+# model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
+#                          # default_model from providers.yml answers
 
 # `provider:` names an entry in providers.yml, the provider catalog beside this
-# file. To use a gateway of your own, add its entry there (api_key, base_url and
-# a models tier map) and name it here; the key goes in this repo's .env under the
+# file. To use a gateway of your own, add its entry there (api_key, base_url,
+# default_model and the models it serves) and name it here; the key goes in this
+# repo's .env under the
 # variable the entry's `api_key` references. A `config: api.providers.*` key is
 # refused: the catalog is the one home for provider endpoints.
 

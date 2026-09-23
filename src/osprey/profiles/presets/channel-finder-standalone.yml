@@ -16,11 +16,13 @@ app_template: channel_finder_standalone
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+# model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
+#                          # default_model from providers.yml answers
 
 # `provider:` names an entry in providers.yml, the provider catalog beside this
-# file. To use a gateway of your own, add its entry there (api_key, base_url and
-# a models tier map) and name it here; the key goes in this repo's .env under the
+# file. To use a gateway of your own, add its entry there (api_key, base_url,
+# default_model and the models it serves) and name it here; the key goes in this
+# repo's .env under the
 # variable the entry's `api_key` references. A `config: api.providers.*` key is
 # refused: the catalog is the one home for provider endpoints.
 
@@ -124,9 +126,10 @@ config:
   # Descriptive names for channels that belong to no device family, generated
   # offline by `osprey channel-finder build-database --use-llm`. That flag
   # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # tier or a model ID the provider serves. Build-time only.
+  # model id the provider serves; omitted, the deployment's main model.
+  # Build-time only.
   # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: haiku
+  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
   # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
   # channel_finder.channel_name_generation.llm_batch_size: 10
   # No benchmark query set ships here. `osprey channel-finder benchmark` still

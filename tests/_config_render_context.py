@@ -33,7 +33,8 @@ PROVIDER_CATALOG: dict[str, Any] = {
     "house": {
         "api_key": "${HOUSE_API_KEY}",
         "base_url": "https://gateway.example.org/v1",
-        "models": {"haiku": "small", "sonnet": "mid", "opus": "large"},
+        "default_model": "mid",
+        "models": ["small", "mid", "large"],
     },
     "bare": {"base_url": "http://127.0.0.1:8000/v1", "timeout": 30},
 }
@@ -46,7 +47,7 @@ MINIMAL_CONFIG_CONTEXT: dict[str, Any] = {
     "project_name": "demo",
     "project_root": "/repos/demo",
     "default_provider": "anthropic",
-    "default_model": "haiku",
+    "default_model": "claude-haiku-4-5",
     "port_base": DEFAULT_PORT_BASE,
     "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     "provider_catalog": PROVIDER_CATALOG,

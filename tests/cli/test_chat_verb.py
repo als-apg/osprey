@@ -333,7 +333,7 @@ class TestDriftWarning:
         stub_build(lifecycle_repo)
         profile = lifecycle_repo / "profile.yml"
         profile.write_text(
-            profile.read_text(encoding="utf-8").replace("model: haiku", "model: sonnet"),
+            profile.read_text(encoding="utf-8") + "\nmodel: claude-sonnet-5\n",
             encoding="utf-8",
         )
 

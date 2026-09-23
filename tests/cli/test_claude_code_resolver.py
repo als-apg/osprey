@@ -44,7 +44,7 @@ def _gateway(default: str = "s", models: tuple[str, ...] = ("h", "s", "o"), **ex
     }
 
 
-#: What the ALS-APG gateway serves, in the catalog's spelling.
+#: What the als-apg entry lists as served, in the catalog's spelling.
 ALS_APG_SERVED = [
     "claude-fable-5-1",
     "claude-opus-5-5",

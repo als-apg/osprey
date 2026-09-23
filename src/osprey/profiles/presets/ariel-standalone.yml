@@ -15,11 +15,13 @@ app_template: ariel_standalone
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+# model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
+#                          # default_model from providers.yml answers
 
 # `provider:` names an entry in providers.yml, the provider catalog beside this
-# file. To use a gateway of your own, add its entry there (api_key, base_url and
-# a models tier map) and name it here; the key goes in this repo's .env under the
+# file. To use a gateway of your own, add its entry there (api_key, base_url,
+# default_model and the models it serves) and name it here; the key goes in this
+# repo's .env under the
 # variable the entry's `api_key` references. A `config: api.providers.*` key is
 # refused: the catalog is the one home for provider endpoints.
 
@@ -344,9 +346,9 @@ config:
 
   # ── Logbook composition ────────────────────────────────────────────────────
   # The compose panel in the artifact gallery. Its provider follows
-  # `provider:` above; this is the tier used when the operator picks none
-  # (haiku | sonnet | opus), mapped to a model ID through providers.yml.
-  logbook.composition.default_tier: haiku
+  # `provider:` above; this is the model the compose panel uses when the
+  # operator picks none; omitted, the deployment's main model.
+  # logbook.composition.model: claude-haiku-4-5
 
   # ── Agent servers ──────────────────────────────────────────────────────────
   # An ARIEL-only deployment: the control-system and Python-executor servers
@@ -354,9 +356,10 @@ config:
   # skill needs the workspace server for artifact handoff).
   claude_code.servers.controls.enabled: false
   claude_code.servers.python.enabled: false
-  # Override model IDs per tier, or the tier one agent runs at.
-  # claude_code.models.haiku: anthropic/claude-haiku-alt
-  # claude_code.agent_models.logbook-deep-research: sonnet
+  # Pin one of Claude Code's alias names, or the model one agent runs, to a
+  # model id the provider serves.
+  # claude_code.aliases.haiku: claude-haiku-4-5
+  # claude_code.agent_models.logbook-search: claude-sonnet-5
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
   # The agent emits OTLP logs and metrics to the OpenObserve store this

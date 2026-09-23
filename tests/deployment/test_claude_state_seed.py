@@ -179,7 +179,8 @@ def test_token_auth_provider_seeds_no_key_approval(config_dir, tmp_path):
         "api:\n"
         "  providers:\n"
         "    cborg:\n"
-        "      models: {haiku: anthropic/claude-haiku}\n"
+        "      default_model: claude-haiku-4-5\n"
+        "      models: [claude-haiku-4-5]\n"
     )
 
     _seed(render, config_dir, CBORG_API_KEY="cborg-secret", ANTHROPIC_AUTH_TOKEN="cborg-secret")

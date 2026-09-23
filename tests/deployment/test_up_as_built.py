@@ -464,7 +464,9 @@ def test_drift_refuses_and_names_what_changed(lifecycle_repo, started):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
     profile = lifecycle_repo / "profile.yml"
-    profile.write_text(profile.read_text(encoding="utf-8") + "\nmodel: opus\n", encoding="utf-8")
+    profile.write_text(
+        profile.read_text(encoding="utf-8") + "\nmodel: claude-opus-5\n", encoding="utf-8"
+    )
 
     result = run_up(lifecycle_repo, "-d")
 
@@ -485,7 +487,9 @@ def test_as_built_starts_the_drifted_build_and_says_so(lifecycle_repo, started):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
     profile = lifecycle_repo / "profile.yml"
-    profile.write_text(profile.read_text(encoding="utf-8") + "\nmodel: opus\n", encoding="utf-8")
+    profile.write_text(
+        profile.read_text(encoding="utf-8") + "\nmodel: claude-opus-5\n", encoding="utf-8"
+    )
 
     result = run_up(lifecycle_repo, "-d", "--as-built")
 

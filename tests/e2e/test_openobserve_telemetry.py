@@ -722,7 +722,7 @@ def test_live_agent_metric_lands(deployed_openobserve: Path) -> None:
     config_path = repo / "build" / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["claude_code"]["provider"] = "als-apg"
-    config["claude_code"]["default_model"] = "haiku"
+    config["claude_code"]["default_model"] = "claude-haiku-4-5-20251001"
     config["claude_code"]["telemetry"] = {
         "enabled": True,
         "backend": "openobserve",

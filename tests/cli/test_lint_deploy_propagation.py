@@ -243,7 +243,7 @@ def _write_profile(
         "name": "Demo Facility",
         "data": "data",
         "provider": "anthropic",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         "channel_finder_mode": "hierarchical",
         "hooks": ["memory-guard"],
         "config": {**POSTURE_FLOOR, **config},

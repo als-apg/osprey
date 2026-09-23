@@ -49,7 +49,7 @@ OWN_IDENTITY = "alice"
 BASE_CONFIG = {
     "project_name": "audit-routes",
     "control_system": {"writes_enabled": False},
-    "claude_code": {"default_model": "sonnet"},
+    "claude_code": {"default_model": "claude-sonnet-5"},
 }
 
 

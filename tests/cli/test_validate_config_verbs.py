@@ -47,7 +47,7 @@ WEB_TERMINALS: dict[str, Any] = {
 PROFILE_WITH_COMMENTS = """\
 # The facility this deployment serves.
 name: Demo Facility
-model: haiku  # tier, or any model ID the provider serves
+model: claude-haiku-4-5  # tier, or any model ID the provider serves
 data: data
 """
 

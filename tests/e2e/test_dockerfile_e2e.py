@@ -150,7 +150,7 @@ def _init_and_build_repo(out_dir: Path) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5-20251001",
             "--no-git",
         ],
     )

@@ -261,7 +261,7 @@ def init_project(
     template: str = "control_assistant",
     *,
     provider: str,
-    model: str = "haiku",
+    model: str | None = None,
     channel_finder_mode: str | None = None,
     tier: int | None = None,
     connector: str = "mock",
@@ -382,10 +382,11 @@ def init_project(
         "--set",
         f"provider={provider}",
         "--set",
-        f"model={model}",
-        "--set",
         f"connector={connector}",
     ]
+    # No model named: the provider entry's default_model answers.
+    if model is not None:
+        init_args.extend(["--set", f"model={model}"])
     # ``archiver.type`` is written in the literal dotted spelling the preset
     # already uses, so the edit replaces that entry instead of landing beside
     # it. The stand-in pin rides along where the preset declares a VA.
@@ -719,7 +720,7 @@ def _default_opus_model(repo: Path) -> str:
     """
     spec = _resolve_project_spec(render_dir(repo))
     if spec is not None:
-        return spec.tier_to_model.get("opus", "claude-opus-5")
+        return spec.alias_models.get("opus", spec.default_model_id)
     return "claude-opus-5"
 
 

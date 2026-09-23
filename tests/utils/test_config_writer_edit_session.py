@@ -46,7 +46,7 @@ SAMPLE = """\
 # ============================================================
 claude_code:
   provider: 'anthropic'   # quoted on purpose
-  default_model: haiku
+  default_model: claude-haiku-4-5
   timeout: 300
 
 # ============================================================
@@ -107,7 +107,7 @@ def _recorded_edits(path: Path) -> list[Any]:
         config_update_fields(
             path,
             {
-                "claude_code.default_model": "sonnet",
+                "claude_code.default_model": "claude-sonnet-5",
                 "web.panels.ariel.enabled": False,
                 "web.panels.events.url": "http://localhost:9091",
                 "web.panels.events.enabled": True,
@@ -190,7 +190,7 @@ class TestByteIdentity:
         assert batched_results == plain_results
         # And the edits landed: this is not two untouched copies agreeing.
         text = batched.read_text(encoding="utf-8")
-        assert "default_model: sonnet" in text
+        assert "default_model: claude-sonnet-5" in text
         assert "# Host port" not in text  # deleted with its key
         assert "Execution backend" in text
         assert text != SAMPLE
@@ -347,7 +347,7 @@ class TestDiskReaders:
 
         with pytest.raises(ConfigEditConflict, match=str(path)):
             with config_edit_session(path):
-                config_update_fields(path, {"claude_code.default_model": "sonnet"})
+                config_update_fields(path, {"claude_code.default_model": "claude-sonnet-5"})
                 path.write_text(outside, encoding="utf-8")  # nobody flushed first
                 config_add_to_list(path, ["scaffold", "user_owned"], "rules/new")
 
@@ -361,7 +361,7 @@ class TestDiskReaders:
 
         with pytest.raises(ConfigEditConflict):
             with config_edit_session(path):
-                config_update_fields(path, {"claude_code.default_model": "sonnet"})
+                config_update_fields(path, {"claude_code.default_model": "claude-sonnet-5"})
                 path.write_text(outside, encoding="utf-8")
 
         assert path.read_text(encoding="utf-8") == outside
@@ -394,7 +394,7 @@ class TestFailureInsideTheBlock:
 def test_a_session_survives_the_file_being_replaced_wholesale(tmp_path: Path):
     """Copying a fresh render over the file is an outside write like any other."""
     path = _write(tmp_path / "config.yml")
-    fresh = _write(tmp_path / "fresh.yml", SAMPLE.replace("haiku", "opus"))
+    fresh = _write(tmp_path / "fresh.yml", SAMPLE.replace("claude-haiku-4-5", "claude-opus-5"))
 
     with config_edit_session(path):
         config_update_fields(path, {"claude_code.timeout": 1})
@@ -403,7 +403,7 @@ def test_a_session_survives_the_file_being_replaced_wholesale(tmp_path: Path):
         config_update_fields(path, {"claude_code.timeout": 2})
 
     text = path.read_text(encoding="utf-8")
-    assert "default_model: opus" in text
+    assert "default_model: claude-opus-5" in text
     assert "timeout: 2" in text
 
 
@@ -437,13 +437,13 @@ class TestDocumentApi:
             save_config_document(path, doc)
             assert path.read_text(encoding="utf-8") == SAMPLE  # nothing on disk yet
             # The dotted-key writers edit the very same object.
-            config_update_fields(path, {"claude_code.default_model": "sonnet"})
+            config_update_fields(path, {"claude_code.default_model": "claude-sonnet-5"})
             assert load_config_document(path) is doc
-            assert doc["claude_code"]["default_model"] == "sonnet"
+            assert doc["claude_code"]["default_model"] == "claude-sonnet-5"
 
         text = path.read_text(encoding="utf-8")
         assert "timeout: 7" in text
-        assert "default_model: sonnet" in text
+        assert "default_model: claude-sonnet-5" in text
         assert counters == {"load": 1, "dump": 1}
 
     def test_the_pair_writes_in_the_same_style_as_every_other_writer(self, tmp_path: Path):

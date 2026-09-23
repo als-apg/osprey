@@ -322,7 +322,7 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
                 "extends": "control-assistant",
                 "data": "data",
                 "provider": "anthropic",
-                "model": "haiku",
+                "model": "claude-haiku-4-5",
                 "channel_finder_mode": "hierarchical",
                 # The preset deploys a virtual accelerator, which serves the
                 # project's own channels and refuses a build whose data tree

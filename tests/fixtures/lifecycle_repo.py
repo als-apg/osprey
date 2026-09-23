@@ -148,11 +148,13 @@ name: Als Exemplar
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+# model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
+#                          # default_model from providers.yml answers
 
 # `provider:` names an entry in providers.yml, the provider catalog beside this
-# file. To use a gateway of your own, add its entry there (api_key, base_url and
-# a models tier map) and name it here; the key goes in this repo's .env under the
+# file. To use a gateway of your own, add its entry there (api_key, base_url,
+# default_model and the models it serves) and name it here; the key goes in this
+# repo's .env under the
 # variable the entry's `api_key` references. A `config: api.providers.*` key is
 # refused: the catalog is the one home for provider endpoints.
 
@@ -628,9 +630,10 @@ config:
   # Descriptive names for channels that belong to no device family, generated
   # offline by `osprey channel-finder build-database --use-llm`. That flag
   # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # tier or a model ID the provider serves. Build-time only.
+  # model id the provider serves; omitted, the deployment's main model.
+  # Build-time only.
   # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: haiku
+  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
   # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
   # channel_finder.channel_name_generation.llm_batch_size: 10
 
@@ -799,9 +802,9 @@ config:
 
   # ── Logbook composition ────────────────────────────────────────────────────
   # The compose panel in the artifact gallery. Its provider follows
-  # `provider:` above; this is the tier used when the operator picks none
-  # (haiku | sonnet | opus), mapped to a model ID through providers.yml.
-  logbook.composition.default_tier: haiku
+  # `provider:` above; this is the model the compose panel uses when the
+  # operator picks none; omitted, the deployment's main model.
+  # logbook.composition.model: claude-haiku-4-5
 
   # ── Facility knowledge ─────────────────────────────────────────────────────
   # OKF bundle (subsystems, devices, procedures, physics notes) behind the
@@ -844,10 +847,15 @@ config:
   # skill library is ordinary work. What this turns off is writing to it: the
   # gallery's edit, create and delete surfaces are shared deployment state.
   web.scaffold_gallery.write_enabled: false
-  # Override model IDs per tier, or the tier one agent runs at.
-  # claude_code.models.haiku: anthropic/claude-haiku-alt
-  # claude_code.agent_models.logbook-search: haiku
-  # claude_code.agent_models.logbook-deep-research: sonnet
+  # The models the helper agents run; every other agent runs the main model.
+  # Ids served by direct Anthropic and by the als-apg gateway.
+  claude_code.agent_models.channel-finder: claude-sonnet-5
+  claude_code.agent_models.facility-knowledge-graph: claude-sonnet-5
+  claude_code.agent_models.logbook-deep-research: claude-opus-5-5
+  # Pin one of Claude Code's alias names, or the model one agent runs, to a
+  # model id the provider serves.
+  # claude_code.aliases.haiku: claude-haiku-4-5
+  # claude_code.agent_models.logbook-search: claude-sonnet-5
   # Switch a framework server or subagent off, or add an MCP server of your
   # own (the `mcp_servers:` field above is the usual home for one).
   # claude_code.servers.python.enabled: false
@@ -2267,7 +2275,7 @@ their own, so they need no arguments. `--repo PATH` points them somewhere else.
 
 ## Changing something
 
-Edit `profile.yml` (or run `osprey set model=sonnet` to change one setting),
+Edit `profile.yml` (or run `osprey set model=claude-sonnet-5` to change one setting),
 then:
 
 ```bash

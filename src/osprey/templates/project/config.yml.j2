@@ -111,11 +111,13 @@ artifact_server:
 
 # ── Which model answers ─────────────────────────────────────
 # From the profile's `provider:` and `model:` fields. `provider` names an entry
-# of `api.providers` below; `default_model` is a tier (haiku | sonnet | opus)
-# resolved through that entry's `models` map.
+# of `api.providers` below; `default_model` is a model id the provider serves;
+# absent, the provider entry's default_model.
 claude_code:
   provider: {{ default_provider }}
-  default_model: {{ default_model | default("haiku") }}
+{%- if default_model is defined and default_model %}
+  default_model: {{ default_model }}
+{%- endif %}
 {% if default_pipeline is defined and default_pipeline %}
 # ── Channel finder ──────────────────────────────────────────
 # From the profile's `channel_finder_mode:` field. The mode selects the
@@ -179,21 +181,25 @@ channel_finder:
 {%- if ariel_server_on | default(false) %}
 
 # ── Logbook composition ─────────────────────────────────────
-# From the profile's `provider:` field. The compose panel resolves its tier
-# through api.providers[provider].models.
+# From the profile's `provider:` field. The compose panel offers the models
+# api.providers[provider] lists; with none picked, it runs
+# logbook.composition.model, else the deployment's main model.
 logbook:
   composition:
     provider: {{ default_provider }}
 
 # ── ARIEL semantic processor ────────────────────────────────
 # From the profile's `provider:` and `model:` fields. The module has no
-# fallback to claude_code.provider, so the build states it here.
+# fallback to claude_code.provider, so the build states it here; with no
+# `model:`, it runs the deployment's main model.
 ariel:
   enhancement_modules:
     semantic_processor:
       provider: {{ default_provider }}
+{%- if default_model is defined and default_model %}
       model:
         model_id: {{ default_model }}
+{%- endif %}
 {%- endif %}
 {#- The registry and the selection, never defaults: `builtin_panels` and
     `selected_web_panels` are both set on every render context the manager
@@ -242,9 +248,9 @@ web:
 # ── Provider catalog ────────────────────────────────────────
 # `providers.yml` beside profile.yml, rendered verbatim. Add or re-point a
 # gateway there, not here. `claude_code.provider` above names one of these
-# entries; each entry's `models` map resolves the haiku/sonnet/opus tiers to
-# that provider's own model IDs. API keys are ${ENV_VAR} references expanded
-# from the project .env at run time.
+# entries; each entry lists the models its gateway serves and names its
+# default. API keys are ${ENV_VAR} references expanded from the project .env at
+# run time.
 api:
   providers:
 {{- yaml_block(provider_catalog, "    ") }}

@@ -143,10 +143,12 @@ def test_preset_hello_world_creates_project(runner: CliRunner, tmp_path: Path) -
 
 
 def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "--set", "model=sonnet")
+    result = _materialize(
+        runner, str(tmp_path), "smoke", "hello-world", "--set", "model=claude-sonnet-5"
+    )
     assert result.exit_code == 0, result.output
     config = _config_yaml(_project(tmp_path, "smoke"))
-    assert config["claude_code"]["default_model"] == "sonnet"
+    assert config["claude_code"]["default_model"] == "claude-sonnet-5"
 
 
 def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_path: Path) -> None:
@@ -301,10 +303,11 @@ def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
     assert r_under.exit_code == 0, r_under.output
     cfg_a = _config_yaml(_project(out_a, "smoke"))
     cfg_b = _config_yaml(_project(out_b, "smoke"))
-    # Same preset → same default_model in rendered config.
-    # NB: the rendered key lives at claude_code.default_model, NOT top-level
+    # Same preset → same provider and model in rendered config.
+    # NB: the rendered keys live under claude_code, NOT top-level
     # (a top-level lookup would make this assertion vacuous).
-    assert cfg_a["claude_code"]["default_model"] == cfg_b["claude_code"]["default_model"]
+    assert cfg_a["claude_code"]["provider"] == "anthropic"
+    assert cfg_a["claude_code"] == cfg_b["claude_code"]
 
 
 def test_preset_drift_guard() -> None:
@@ -525,7 +528,7 @@ def test_set_path_through_scalar_aborts(runner: CliRunner, tmp_path: Path) -> No
         "smoke",
         "hello-world",
         "--set",
-        "model=haiku",
+        "model=claude-haiku-4-5",
         "--set",
         "model.flavor=fast",
     )
@@ -968,7 +971,7 @@ class TestMirroredLogbookSeedNotMutated:
         profile = profile_dir / "profile.yml"
         profile.write_text(
             "extends: hello-world\nname: SeedVerbatim\ndata: data\n"
-            "provider: anthropic\nmodel: haiku\n"
+            "provider: anthropic\nmodel: claude-haiku-4-5\n"
         )
 
         result = _render_from(runner, str(profile))
@@ -1006,7 +1009,7 @@ class TestDeployServicesKnob:
         "data: data\n"
         "va_archiver: null\n"
         "provider: anthropic\n"
-        "model: haiku\n"
+        "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
         "bluesky:\n"
         "  port: 10080\n"
@@ -1143,9 +1146,9 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     )
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: sonnet\ndata: data\n"
+        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
     )
-    (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: haiku\n")
+    (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
 
     result = _render_from(runner, str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
@@ -1155,10 +1158,10 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     assert _config_yaml(project)["claude_code"]["provider"] == "anthropic"
     assert (project / "data" / "FACILITY_MARKER.txt").is_file()
     # ...and the delta's own override still wins.
-    assert _config_yaml(project)["claude_code"]["default_model"] == "haiku"
+    assert _config_yaml(project)["claude_code"]["default_model"] == "claude-haiku-4-5"
     # The deployment's own render is beside it and keeps the root's model, so
     # the assertion above cannot pass by reading the wrong directory.
-    assert _config_yaml(root / "build")["claude_code"]["default_model"] == "sonnet"
+    assert _config_yaml(root / "build")["claude_code"]["default_model"] == "claude-sonnet-5"
 
 
 def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
@@ -1201,7 +1204,7 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
         "---\ndescription: profile-shipped namespaced command\n---\n\nBody.\n"
     )
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: sonnet\ndata: data\n"
+        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
     )
     (root / "personas" / "narrow.yml").write_text(
         "name: Narrow\n"
@@ -1262,7 +1265,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
         "name: RootProfile\n"
         "data: data\n"
         "provider: anthropic\n"
-        "model: haiku\n"
+        "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
         "hooks: [memory-guard]\n"
         "web_panels: [okf, lattice, grafana]\n"

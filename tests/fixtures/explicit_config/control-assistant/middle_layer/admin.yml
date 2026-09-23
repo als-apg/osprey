@@ -47,7 +47,6 @@ ariel:
       enabled: false
       model:
         max_tokens: 256
-        model_id: haiku
       provider: anthropic
     text_embedding:
       enabled: true
@@ -94,7 +93,10 @@ channel_finder:
         path: data/channel_databases/middle_layer.json
         type: middle_layer
 claude_code:
-  default_model: haiku
+  agent_models:
+    channel-finder: claude-sonnet-5
+    facility-knowledge-graph: claude-sonnet-5
+    logbook-deep-research: claude-opus-5-5
   permissions:
     deny:
     - mcp__osprey_workspace__setup_patch
@@ -188,7 +190,6 @@ hooks:
   debug: true
 logbook:
   composition:
-    default_tier: haiku
     provider: anthropic
 modules:
   web_terminals:

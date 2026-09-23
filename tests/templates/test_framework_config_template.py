@@ -236,18 +236,19 @@ def test_environment_block_defaults_to_an_undeclared_environment():
 
 
 def test_provider_and_model_come_from_the_profile_fields():
-    config = _config(default_provider="cborg", default_model="opus")
-    assert config["claude_code"] == {"provider": "cborg", "default_model": "opus"}
+    config = _config(default_provider="cborg", default_model="claude-opus-5")
+    assert config["claude_code"] == {"provider": "cborg", "default_model": "claude-opus-5"}
 
 
-def test_model_falls_back_to_the_haiku_tier():
+def test_no_model_renders_no_default_model():
+    """The resolver takes the provider entry's default_model; the render names none."""
     context = {
         key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "default_model"
     }
     config = yaml.safe_load(
         TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
     )
-    assert config["claude_code"]["default_model"] == "haiku"
+    assert config["claude_code"] == {"provider": "anthropic"}
 
 
 def test_claude_code_carries_no_other_key():
@@ -411,12 +412,26 @@ def test_a_render_without_the_builtin_panel_registry_refuses():
 
 
 def test_ariel_blocks_render_when_the_server_is_on():
-    config = _config(ariel_server_on=True, default_provider="cborg", default_model="opus")
+    config = _config(ariel_server_on=True, default_provider="cborg", default_model="claude-opus-5")
     assert config["logbook"] == {"composition": {"provider": "cborg"}}
     assert config["ariel"] == {
         "enhancement_modules": {
-            "semantic_processor": {"provider": "cborg", "model": {"model_id": "opus"}}
+            "semantic_processor": {"provider": "cborg", "model": {"model_id": "claude-opus-5"}}
         }
+    }
+
+
+def test_the_semantic_processor_names_no_model_when_the_profile_names_none():
+    context = {
+        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "default_model"
+    }
+    config = yaml.safe_load(
+        TemplateManager()
+        .jinja_env.get_template(CONFIG_TEMPLATE)
+        .render(**{**context, "ariel_server_on": True})
+    )
+    assert config["ariel"] == {
+        "enhancement_modules": {"semantic_processor": {"provider": "anthropic"}}
     }
 
 

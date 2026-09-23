@@ -90,8 +90,8 @@ _EXPLICIT_KEYS: frozenset[str] = frozenset(
 _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
     {
         "data",  # profile-carried data tree; active once `osprey init` writes one
-        "provider",  # every bundled preset sets these two, so they emit active
-        "model",  # today; the template only covers a preset that omits them
+        "provider",  # every bundled preset sets this one, so it emits active
+        "model",  # the bundled presets carry it as a commented example
         "channel_finder_mode",
         "tier",  # pinning it would break mode-edit parity — see PROPOSAL D-notes
         "default_panel",
@@ -316,12 +316,13 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #       # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM
 #       # proxy in Anthropic mode), so the local translation proxy is skipped:
 #       api_protocol: anthropic
-#       # Optional tier map, model IDs as the gateway names them. Unmapped
-#       # tiers fall back to `model:`, with a build-time warning:
+#       # The model a deployment runs when `model:` names none, and the ids
+#       # the gateway serves, spelled as it spells them:
+#       default_model: claude-sonnet-5
 #       models:
-#         haiku: claude-haiku-4-5
-#         sonnet: claude-sonnet-5
-#         opus: claude-opus-5
+#         - claude-opus-5
+#         - claude-sonnet-5
+#         - claude-haiku-4-5
 #
 # then name it here. Its key goes in this repo's .env under the variable the
 # entry's `api_key:` references.
@@ -330,9 +331,9 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 """,
     "model": """
 # --- Default model -----------------------------------------------------------
-# A tier (haiku/sonnet/opus) or any model ID the provider serves.
+# A model id the provider serves. Omitted: the provider's default_model.
 #
-# model: sonnet
+# model: claude-sonnet-5
 """,
     "channel_finder_mode": f"""
 # --- Channel-finder paradigm -------------------------------------------------
@@ -1457,8 +1458,10 @@ def emit_standalone_profile_yaml(
     text = _insert_artifact_menus(text)
 
     # Opt-in knobs the resolved profile does not carry appear as documented
-    # commented templates, so no configurable surface is invisible.
+    # commented templates, so no configurable surface is invisible. A preset
+    # whose own comments already carry the commented key keeps that one, so
+    # uncommenting either can never produce a duplicate key.
     for field in _COMMENTED_TEMPLATE_ORDER:
-        if field not in resolved:
+        if field not in resolved and f"\n# {field}:" not in text:
             text += _COMMENTED_TEMPLATES[field]
     return text

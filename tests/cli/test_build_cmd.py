@@ -94,7 +94,7 @@ def minimal_profile_yaml(profile_dir: Path) -> Path:
         "name": "Test Profile",
         "data": "data",
         "provider": "cborg",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         "config": {
             "control_system.type": "mock",
         },
@@ -130,7 +130,7 @@ class TestProfileLoading:
         assert profile.name == "Test Profile"
         assert profile.data == "data"
         assert profile.provider == "cborg"
-        assert profile.model == "haiku"
+        assert profile.model == "claude-haiku-4-5"
 
     def test_load_profile_not_found(self, tmp_path: Path):
         with pytest.raises(BuildProfileError, match="Profile not found"):
@@ -1483,7 +1483,7 @@ class TestProfileExtends:
                 "name": "Base Profile",
                 "data": "data",
                 "provider": "cborg",
-                "model": "opus",
+                "model": "claude-opus-5",
                 "hooks": ["hook-a", "hook-b"],
                 "rules": ["rule-x"],
                 "config": {
@@ -1524,11 +1524,11 @@ class TestProfileExtends:
         self._make_base(tmp_path)
         child_path = _write_yaml(
             tmp_path / "child.yml",
-            {"extends": "base.yml", "name": "Child", "model": "haiku"},
+            {"extends": "base.yml", "name": "Child", "model": "claude-haiku-4-5"},
         )
 
         profile = load_profile(child_path)
-        assert profile.model == "haiku"
+        assert profile.model == "claude-haiku-4-5"
         assert profile.provider == "cborg"  # inherited
 
     def test_dict_deep_merge(self, tmp_path: Path):
@@ -1668,7 +1668,7 @@ class TestProfileExtends:
                 "name": "Grandparent",
                 "data": "data",
                 "provider": "cborg",
-                "model": "opus",
+                "model": "claude-opus-5",
                 "hooks": ["hook-a"],
                 "config": {"control_system.type": "mock"},
                 "mcp_servers": {
@@ -1704,7 +1704,7 @@ class TestProfileExtends:
         """A profile without extends loads its own values verbatim."""
         profile = load_profile(minimal_profile_yaml)
         assert profile.name == "Test Profile"
-        assert profile.model == "haiku"
+        assert profile.model == "claude-haiku-4-5"
 
     def test_lifecycle_concatenation(self, tmp_path: Path):
         """Lifecycle step lists are concatenated (base first, child appended)."""
@@ -1796,7 +1796,7 @@ def _build_for_web_panels(
         "name": "Panels Test",
         "data": "data",
         "provider": "cborg",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         # Ship the memory-guard hook the real control_assistant preset ships:
         # without it the built profile leaves Write/MultiEdit/NotebookEdit
         # ungated and the build-time write-tool lint (correctly) refuses it.
@@ -1971,7 +1971,7 @@ def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
         "name": "Tier Test",
         "data": "data",
         "provider": "cborg",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         "channel_finder_mode": paradigm,
         "config": dict(POSTURE_CONFIG),
     }
@@ -2279,7 +2279,7 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path, caplog) -> Non
         "name": "no mode",
         "data": "data",
         "provider": "cborg",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         "agents": ["channel-finder"],
         # NOTE: channel_finder_mode intentionally omitted.
     }

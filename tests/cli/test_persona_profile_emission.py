@@ -348,7 +348,7 @@ def test_baked_model_selection_reaches_every_persona_by_inheritance(
         "--set",
         "provider=cborg",
         "--set",
-        "model=opus",
+        "model=claude-opus-5",
         "--set",
         "channel_finder_mode=in_context",
         "--set",
@@ -357,10 +357,10 @@ def test_baked_model_selection_reaches_every_persona_by_inheritance(
 
     assert result.exit_code == 0, result.output
     host = yaml.safe_load((target / "profile.yml").read_text())
-    assert (host["provider"], host["model"]) == ("cborg", "opus")
+    assert (host["provider"], host["model"]) == ("cborg", "claude-opus-5")
     assert host["tier"] == 1
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert (resolved.provider, resolved.model) == ("cborg", "opus")
+    assert (resolved.provider, resolved.model) == ("cborg", "claude-opus-5")
     assert resolved.channel_finder_mode == "in_context"
     assert resolved.tier == 1
     persona_files = sorted((target / "personas").iterdir())

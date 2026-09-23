@@ -154,7 +154,7 @@ async def test_corrector_limit_honest_refusal(tmp_path: Path) -> None:
         "honest_refusal_demo",
         template="control_assistant",
         provider="als-apg",
-        model="opus",
+        model="claude-opus-5",
     )
     _patch_corrector_limit(repo, CORRECTOR_CHANNEL, CORRECTOR_LIMIT)
 
