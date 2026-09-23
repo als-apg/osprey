@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.mcp_server.workspace.tools.setup import _Masking, _masking_for_key
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
@@ -476,6 +477,11 @@ async def test_patch_file_not_found(project_dir):
         await fn(file=".mcp.json", key_path="foo", value="bar")
 
 
+# ---------------------------------------------------------------------------
+# Document masking
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
     """No resolved ``${VAR}`` value reaches the payload — the placeholder does."""
@@ -572,3 +578,44 @@ async def test_inspect_masks_secrets_in_the_mcp_servers_blob(project_dir):
     assert "tok-typed-straight-in" not in payload
     assert env["SOME_TOKEN"] == "***"
     assert env["OSPREY_CONFIG"] == "/app/config.yml"
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        # A separator or a camel-case hump is enough to find the word.
+        ("api_key", _Masking.STRINGS),
+        ("API_KEY", _Masking.STRINGS),
+        ("apiKey", _Masking.STRINGS),
+        ("GCHAT_SA_KEY", _Masking.STRINGS),
+        ("BLUESKY_ZMQ_CURVE_CLIENT_PUBLIC_KEYS", _Masking.STRINGS),
+        ("QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER", _Masking.STRINGS),
+        ("SOME_TOKEN", _Masking.STRINGS),
+        # No separator at all: the word is the head of the compound.
+        ("APIKEY", _Masking.STRINGS),
+        ("apitoken", _Masking.STRINGS),
+        # A credential word masks a number or a flag as well as a string.
+        ("password", _Masking.EVERY_SCALAR),
+        ("MONGO_INITDB_ROOT_PASSWORD", _Masking.EVERY_SCALAR),
+        ("OSPREY_TERMINAL_SECRET", _Masking.EVERY_SCALAR),
+        ("BLUESKY_ZMQ_CURVE_SECRET_KEY", _Masking.EVERY_SCALAR),
+        ("adminpassword", _Masking.EVERY_SCALAR),
+        # Shipped keys that carry a secret word and hold a quantity or a flag.
+        ("max_tokens", _Masking.STRINGS),
+        ("claims_in_id_token", _Masking.STRINGS),
+        # The word is a prefix modifying another noun, so it names no secret.
+        ("keyword", _Masking.NOTHING),
+        ("keywords", _Masking.NOTHING),
+        ("keystore", _Masking.NOTHING),
+        ("keyfile", _Masking.NOTHING),
+        ("tokenizer", _Masking.NOTHING),
+        # Ordinary keys.
+        ("base_url", _Masking.NOTHING),
+        ("type", _Masking.NOTHING),
+        ("port", _Masking.NOTHING),
+        ("uri", _Masking.NOTHING),
+    ],
+)
+def test_a_key_name_is_read_for_secrets_by_its_words(key, expected):
+    """`keyword` is a shipped mapping and `max_tokens` a shipped number."""
+    assert _masking_for_key(key) is expected

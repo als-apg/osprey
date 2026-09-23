@@ -4,6 +4,7 @@ Diagnostic tools for inspecting and modifying OSPREY agent configuration.
 Used by the /setup-mode skill to help operators troubleshoot setup issues.
 """
 
+import enum
 import json
 import logging
 import os
@@ -30,6 +31,24 @@ logger = logging.getLogger("osprey.mcp_server.tools.setup")
 
 # Keys whose values should be masked in environment output
 _SENSITIVE_PATTERNS = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD)", re.IGNORECASE)
+
+# How a key name is read for secrets: split on separators and on camel-case
+# boundaries, then match a component against the vocabularies below. A
+# component counts when it IS one of the words or ENDS with one, so `APIKEY`
+# and `adminpassword` name their secret while `keyword`, `keystore` and
+# `keyfile` do not --- there the word is a prefix modifying another noun.
+_KEY_WORD_SPLIT = re.compile(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])")
+
+# Words that name a credential and nothing else. A value under one of these is
+# never a quantity or a flag, so a number or a boolean there is masked too.
+_CREDENTIAL_WORDS = frozenset({"password", "passwords", "secret", "secrets"})
+
+# Words that name a credential in most keys and a quantity in some
+# (`max_tokens`, `claims_in_id_token`), so only a string under one is masked.
+_SECRET_BEARING_WORDS = frozenset({"key", "keys", "token", "tokens"})
+
+# What a masked value reads as.
+_MASK = "***"
 
 # Files that setup_patch is allowed to modify
 _PATCHABLE_FILES = {"config.yml", ".mcp.json"}
@@ -100,8 +119,54 @@ _COLD_CHANGE_NOTES = {
 }
 
 
+class _Masking(enum.IntEnum):
+    """How much of a value a key name makes secret.
+
+    Ordered, and compared with ``max``: a node inherits the strongest level any
+    key above it carries, so a subtree can only become more masked as the walk
+    descends into it.
+    """
+
+    NOTHING = 0
+    STRINGS = 1
+    EVERY_SCALAR = 2
+
+
+def _names_one_of(word: str, vocabulary: frozenset[str]) -> bool:
+    """Whether *word* is one of *vocabulary* or is a compound ending in one."""
+    return word in vocabulary or any(word.endswith(entry) for entry in vocabulary)
+
+
+def _masking_for_key(key: str) -> _Masking:
+    """How much a value found under *key* is masked, by the key's own name.
+
+    Args:
+        key: A mapping key from the document being walked.
+
+    Returns:
+        The level *key* carries on its own, before anything it inherits.
+    """
+    level = _Masking.NOTHING
+    for raw in _KEY_WORD_SPLIT.split(key):
+        if not raw:
+            continue
+        word = raw.lower()
+        if _names_one_of(word, _CREDENTIAL_WORDS):
+            return _Masking.EVERY_SCALAR
+        if _names_one_of(word, _SECRET_BEARING_WORDS):
+            level = _Masking.STRINGS
+    return level
+
+
 def _mask_env(env: dict[str, str]) -> dict[str, str]:
-    """Return a copy of env vars with sensitive values replaced by '***'."""
+    """Return a copy of env vars with sensitive values replaced by '***'.
+
+    Keyed on the substring rule rather than on :func:`_masking_for_key`,
+    because here the key IS the variable: a name that mentions a secret at all
+    names a value that holds one. A document key can instead name the variable
+    (``password_env``) or name a module (``keyword``), which is the distinction
+    the word rule draws.
+    """
     masked = {}
     for key, value in env.items():
         if _SENSITIVE_PATTERNS.search(key):
@@ -140,10 +205,10 @@ def _mask_document(value: object, key: str | None = None) -> object:
         key is not None
         and isinstance(value, str)
         and value
-        and _SENSITIVE_PATTERNS.search(key)
+        and _masking_for_key(key) is not _Masking.NOTHING
         and "${" not in value
     ):
-        return "***"
+        return _MASK
     return value
 
 
