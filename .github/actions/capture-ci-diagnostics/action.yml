@@ -3,6 +3,10 @@ description: >-
   Snapshot container logs, container state, and runner health into an uploaded
   artifact. Intended to run on failure, BEFORE any teardown step — the deploy
   lanes' cleanup blocks delete the very containers that hold the explanation.
+  A failing test's own stack is removed by its module's fixtures before this
+  runs, so tests/ci_diagnostics.py snapshots it at the failure into
+  ci-diag/containers/at-failure/, and this action uploads that snapshot with
+  the rest.
 
 inputs:
   name:
