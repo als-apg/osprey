@@ -12,7 +12,11 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.mcp_server.workspace.tools.setup import _Masking, _masking_for_key
+from osprey.mcp_server.workspace.tools.setup import (
+    _mask_document,
+    _Masking,
+    _masking_for_key,
+)
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
@@ -619,3 +623,79 @@ async def test_inspect_masks_secrets_in_the_mcp_servers_blob(project_dir):
 def test_a_key_name_is_read_for_secrets_by_its_words(key, expected):
     """`keyword` is a shipped mapping and `max_tokens` a shipped number."""
     assert _masking_for_key(key) is expected
+
+
+@pytest.mark.parametrize(
+    ("document", "expected"),
+    [
+        # A string directly under a sensitive key: the case that already worked.
+        ({"api_key": "sk-flat"}, {"api_key": "***"}),
+        ({"api_keys": ["sk-a", "sk-b"]}, {"api_keys": ["***", "***"]}),
+        # Nesting, which is what this walk now follows.
+        ({"api_key": {"primary": "sk-nested"}}, {"api_key": {"primary": "***"}}),
+        ({"secret": {"a": {"b": "sk-deep"}}}, {"secret": {"a": {"b": "***"}}}),
+        ({"tokens": [{"value": "sk-in-list"}]}, {"tokens": [{"value": "***"}]}),
+        # A plain child name under a sensitive parent is masked by the parent.
+        ({"secret": {"base_url": "https://x"}}, {"secret": {"base_url": "***"}}),
+        # A credential word masks a number; an overloaded word does not.
+        ({"password": 12345678}, {"password": "***"}),
+        ({"api_token": True}, {"api_token": True}),
+        ({"max_tokens": 256}, {"max_tokens": 256}),
+        ({"api_key": {"rotation_days": 30}}, {"api_key": {"rotation_days": 30}}),
+        # A placeholder names its variable at any depth.
+        ({"api_key": "${A}"}, {"api_key": "${A}"}),
+        ({"api_key": {"primary": "${A}"}}, {"api_key": {"primary": "${A}"}}),
+        # Unset says so.
+        ({"api_key": ""}, {"api_key": ""}),
+        ({"password": None}, {"password": None}),
+        # A sensitive key inside a plain sequence still masks.
+        ({"servers": [{"api_key": "sk-s"}]}, {"servers": [{"api_key": "***"}]}),
+        # The ARIEL keyword block two shipped presets carry, reported as it is.
+        (
+            {"keyword": {"enabled": True, "settings": {"patterns_enabled": True}}},
+            {"keyword": {"enabled": True, "settings": {"patterns_enabled": True}}},
+        ),
+        ({"keyword": {"label": "phrase-match"}}, {"keyword": {"label": "phrase-match"}}),
+    ],
+)
+def test_the_document_mask_follows_a_sensitive_key_into_its_value(document, expected):
+    """A key that names a secret makes its whole value secret."""
+    assert _mask_document(document) == expected
+
+
+@pytest.mark.asyncio
+async def test_inspect_masks_a_secret_typed_into_a_nested_block(project_dir):
+    """A secret one level below its key is masked, and the block around it is not."""
+    fn = _get_setup_inspect()
+    (project_dir / "config.yml").write_text(
+        "control_system:\n"
+        "  type: mock\n"
+        "ariel:\n"
+        "  search_modules:\n"
+        "    keyword:\n"
+        "      enabled: true\n"
+        "      settings:\n"
+        "        patterns_enabled: true\n"
+        "archiver:\n"
+        "  mongodb_archiver:\n"
+        "    api_key:\n"
+        "      primary: sk-typed-into-a-nested-block\n"
+        "      endpoint: https://archiver.example.org\n"
+    )
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+
+    with _patch_config_path(project_dir), _patch_load_config(config):
+        payload = await fn()
+
+    result = json.loads(payload)
+
+    assert "sk-typed-into-a-nested-block" not in payload
+    assert result["config"]["archiver"]["mongodb_archiver"]["api_key"] == {
+        "primary": "***",
+        "endpoint": "***",
+    }
+    # A word that only contains `key` is not a secret: the block reads as itself.
+    assert result["config"]["ariel"]["search_modules"]["keyword"] == {
+        "enabled": True,
+        "settings": {"patterns_enabled": True},
+    }
