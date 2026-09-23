@@ -804,14 +804,20 @@ describe('empty states assert knowledge, not counts', () => {
   });
 
   test('history claims nothing until a fetch has actually landed', () => {
-    const never = historyEmptyState([], false);
+    const never = historyEmptyState([], [], false);
     expect(never.hidden).toBe(false);
     expect(never.message).toBe('Completed runs could not be loaded.');
 
-    const loaded = historyEmptyState([], true);
+    const loaded = historyEmptyState([], [], true);
     expect(loaded.message).toBe('No completed runs yet.');
 
-    expect(historyEmptyState([{ id: 'r1' }], true).hidden).toBe(true);
+    expect(historyEmptyState([{ id: 'r1' }], [], true).hidden).toBe(true);
+  });
+
+  test('withdrawal rows alone hide the history empty line, whatever the runs fetch did', () => {
+    const WITHDRAWAL = { at: '2026-09-19T21:05:00+00:00', time: '21:05', text: 'anna removed orm' };
+    expect(historyEmptyState([], [WITHDRAWAL], true)).toEqual({ hidden: true, message: '' });
+    expect(historyEmptyState([], [WITHDRAWAL], false)).toEqual({ hidden: true, message: '' });
   });
 });
 
@@ -2830,6 +2836,41 @@ describe('booting the shipped bundle', () => {
     const [url, init] = fetchMock.mock.calls[before];
     expect(String(url)).toMatch(/\/history$/);
     expect(init.method).toBe('DELETE');
+  });
+
+  test('withdrawals alone hide the history empty line', async () => {
+    const fetchMock = vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+      const method = init?.method || 'GET';
+      if (method === 'GET' && String(url).endsWith('/runs')) {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      if (method === 'GET' && String(url).endsWith('/queue/removals')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { at: '2026-09-19T21:05:00+00:00', action: 'remove', owner: 'anna', name: 'orm' },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    boot();
+    await import(`${BUNDLE}panel.js`);
+    const items = /** @type {any} */ (document.getElementById('history-items'));
+
+    await vi.waitFor(() => expect(items.querySelectorAll('.queue-row.removal').length).toBe(1));
+    expect(/** @type {any} */ (document.getElementById('history-empty')).hidden).toBe(true);
+  });
+
+  test('a truly empty history says so', async () => {
+    boot();
+    await import(`${BUNDLE}panel.js`);
+    const empty = /** @type {any} */ (document.getElementById('history-empty'));
+
+    await vi.waitFor(() => expect(empty.textContent).toBe('No completed runs yet.'));
+    expect(empty.hidden).toBe(false);
   });
 
   test('the withdrawal takes two clicks and the plain stop takes one', async () => {
