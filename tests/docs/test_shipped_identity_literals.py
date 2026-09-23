@@ -165,6 +165,8 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/services/channel_finder/benchmarks/evaluation.py",
                 # A case that asserts the literal's absence has to spell it.
                 "tests/integration/test_preset_static.py",
+                # A case that asserts the literal is ignored has to spell it.
+                "tests/docs/test_linkcheck_ignore.py",
                 # The named gateway the shipped adapter fronts. Each of these
                 # asserts a value the packaged provider catalog supplies, so a
                 # rewrite here would pin an address no deployment renders.
