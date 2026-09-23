@@ -86,8 +86,8 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         # Fallback model IDs (used when api.providers.als-apg.models is absent)
         "models": {
             "haiku": "claude-haiku-4-5-20251001",
-            "sonnet": "claude-sonnet-4-6",
-            "opus": "claude-opus-4-6",
+            "sonnet": "claude-sonnet-5",
+            "opus": "claude-opus-5",
         },
     },
 }
