@@ -35,6 +35,8 @@ import {
   hostElement,
   hydrate,
   isLive,
+  onItemDetach,
+  parkShell,
   poolElement,
   reconcile,
   registerBarPopover,
@@ -513,6 +515,91 @@ describe('popovers close before their item moves', () => {
     closeBarPopovers();
 
     expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('parking tells the detach listeners', () => {
+  test('a shell the reconcile parks is reported, once, already in the pool', () => {
+    seedDom(
+      `<div class="bar-item" data-bar-item="clock"></div>` +
+        `<div class="bar-item" data-bar-item="docs"></div>`
+    );
+    const docsShell = shellForKey('docs');
+    /** @type {HTMLElement[]} */
+    const reported = [];
+    /** @type {boolean[]} */
+    const inPool = [];
+    cleanups.push(
+      onItemDetach((shell) => {
+        reported.push(shell);
+        inPool.push(poolElement(document)?.contains(shell) ?? false);
+      })
+    );
+
+    reconcile(layoutOf(['clock'], []));
+
+    expect(reported).toEqual([docsShell]);
+    expect(inPool).toEqual([true]);
+  });
+
+  test('a shell that only moves between hosts is not a detach, either way', () => {
+    seedDom(`<div class="bar-item" data-bar-item="clock"></div>`);
+    const listener = vi.fn();
+    cleanups.push(onItemDetach(listener));
+
+    // The header is placed first, so a header-to-status move parks the shell
+    // until the status bar claims it.
+    reconcile(layoutOf([], ['clock']));
+    reconcile(layoutOf(['clock'], []));
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  test('parkShell reports the shell it parks', () => {
+    seedDom(`<div class="bar-item" data-bar-item="clock"></div>`);
+    const shell = /** @type {HTMLElement} */ (shellForKey('clock'));
+    const listener = vi.fn();
+    cleanups.push(onItemDetach(listener));
+
+    parkShell(shell);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(shell);
+  });
+
+  test('an unsubscribed listener hears nothing more', () => {
+    seedDom(`<div class="bar-item" data-bar-item="clock"></div>`);
+    const listener = vi.fn();
+    const stop = onItemDetach(listener);
+    cleanups.push(stop);
+
+    stop();
+    reconcile(layoutOf([], []));
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  test('a throwing listener neither stops the park nor the next listener', () => {
+    seedDom(`<div class="bar-item" data-bar-item="clock"></div>`);
+    const shell = /** @type {HTMLElement} */ (shellForKey('clock'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const next = vi.fn();
+    cleanups.push(
+      onItemDetach(() => {
+        throw new Error('listener failed');
+      })
+    );
+    cleanups.push(onItemDetach(next));
+
+    try {
+      reconcile(layoutOf([], []));
+
+      expect(poolElement(document)?.contains(shell)).toBe(true);
+      expect(next).toHaveBeenCalledWith(shell);
+      expect(error).toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 

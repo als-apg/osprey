@@ -543,17 +543,32 @@ describe('clock item: the host lifecycle around the interval', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  test('parking disposes on its own, without a caller running the pass', async () => {
+  test('parking disposes on its own, in the same call as the move', () => {
+    freezeAt(AT);
     seedDom('', shellMarkup('clock'));
     host.hydrate();
+    expect(vi.getTimerCount()).toBe(1);
     expect(shellOf('clock').dataset.barBuilt).toBeTruthy();
 
+    // No syncBarItems() call and no await: the host's detach hook is the
+    // production path, and it runs before reconcile() returns.
     host.reconcile(layoutOf([], []));
-    // No syncBarItems() call: the pool observer is the production path.
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
+    expect(vi.getTimerCount()).toBe(0);
     expect(shellOf('clock').dataset.barBuilt).toBeUndefined();
+  });
+
+  test('a fold parks through the same hook — parkShell alone disposes', () => {
+    freezeAt(AT);
+    seedDom('', shellMarkup('clock', { zone: 'utc', seconds: true }));
+    host.hydrate();
+    const parked = clockTime();
+
+    host.parkShell(shellOf('clock'));
+
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60 * 60 * 1000);
+    expect(parked.textContent).toBe('14:32:07');
   });
 
   test('a body removed from the document entirely is disposed as well', () => {
