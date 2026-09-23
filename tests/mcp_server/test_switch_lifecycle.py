@@ -43,13 +43,16 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
-    Endpoint,
-    TargetDerivation,
 )
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.ipc.launch import host_env
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.ipc.verification import verify_host_report
+from osprey_connectors.ipc.verification import (
+    Endpoint,
+    TargetDerivation,
+    verify_host_report,
+)
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import state_dir_under
 from tests.fixtures.control_context import context_for
@@ -1681,14 +1684,12 @@ class TestConfigDerivedFacts:
             == DEFAULT_DRAIN_TIMEOUT_S
         )
 
-    async def test_the_child_environment_drops_every_epics_variable(
-        self, make_manager, monkeypatch
-    ):
+    async def test_the_child_environment_drops_every_epics_variable(self, monkeypatch):
         monkeypatch.setenv("EPICS_CA_ADDR_LIST", "ambient.example.org")
         monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", "ambient.example.org:5075")
         monkeypatch.setenv("PYEPICS_LIBCA", "/opt/libca.dylib")
 
-        env = make_manager().child_env()
+        env = host_env()
 
         assert "EPICS_CA_ADDR_LIST" not in env
         assert "EPICS_PVA_NAME_SERVERS" not in env

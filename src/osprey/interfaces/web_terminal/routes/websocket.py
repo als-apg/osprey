@@ -2518,7 +2518,7 @@ def _row_selected_role(config: Any, target: str, writes_enabled: bool) -> str | 
     """The gateway role a connector would select for *target* under this posture.
 
     The reachability collapse keys on it, so it is derived through
-    :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
+    :func:`~osprey_connectors.ipc.verification.derive_endpoints`
     — the function the connector-host child's own selection is verified against
     — with the recorded effective posture rather than the configured one. A
     role derived from config alone would name the write gateway for a target the
@@ -2531,7 +2531,7 @@ def _row_selected_role(config: Any, target: str, writes_enabled: bool) -> str | 
     if config is _UNREADABLE_SECTION:
         return None
     try:
-        from osprey.mcp_server.control_system.target_eligibility import derive_endpoints
+        from osprey_connectors.ipc.verification import derive_endpoints
 
         return derive_endpoints(config, target, writes_enabled=writes_enabled).selected_role
     except Exception:  # noqa: BLE001 — an underivable target selects no role

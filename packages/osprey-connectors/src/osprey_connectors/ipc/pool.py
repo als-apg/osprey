@@ -58,8 +58,8 @@ caller hands the pool and ``config_file`` must agree.
 Failure
 -------
 Every error the pool raises of its own is a :class:`ConnectorHostError`, which
-is a :class:`ConnectionError`, so a handler that already reads that as "the
-connector is gone" keeps doing so. Its message is the operator-facing sentence.
+is a :class:`ConnectionError`, so a generic connection-error handler treats it as
+"the connector is gone". Its message is the operator-facing sentence.
 
 * :class:`ConnectorHostStartError` — the child could not be brought up, and
   nothing was left running: unresolved config, spawn failure, no answer to its

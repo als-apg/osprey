@@ -119,13 +119,6 @@ from osprey.mcp_server.control_system.target_eligibility import (
     PROBE_CHANNEL_KEY,
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
-    ROLE_READ_ONLY,
-    ROLE_WRITE_ACCESS,
-    Endpoint,
-    TargetDerivation,
-    Verification,
-    connector_block,
-    derive_endpoints,
     effective_writes_for_target,
     endpoint_is_live_standin,
 )
@@ -134,7 +127,16 @@ from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
 from osprey_connectors.ipc.launch import terminate_host as _terminate_host
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.ipc.verification import verify_host_report
+from osprey_connectors.ipc.verification import (
+    ROLE_READ_ONLY,
+    ROLE_WRITE_ACCESS,
+    Endpoint,
+    TargetDerivation,
+    Verification,
+    connector_block,
+    derive_endpoints,
+    verify_host_report,
+)
 from osprey_connectors.types import (
     _SIMULATED_TYPES,
     TARGET_LIVE,
@@ -150,7 +152,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger("osprey.mcp_server.control_system.connector_host_manager")
 
 __all__ = [
-    "CHILD_MODULE",
     "DEFAULT_DRAIN_TIMEOUT_S",
     "DEFAULT_PROBE_TIMEOUT_S",
     "DEFAULT_SPAWN_TIMEOUT_S",
@@ -164,8 +165,6 @@ __all__ = [
     "switch_capable",
     "target_display_metadata",
 ]
-
-# ``CHILD_MODULE`` is re-exported from :mod:`osprey_connectors.ipc.launch`.
 
 # -- Facts this module imports rather than restates -------------------------
 #
@@ -869,10 +868,6 @@ class ConnectorHostManager:
         """The live child's connector-shaped handle, or ``None`` if there is none."""
         child = self._live_child()
         return child.proxy if child is not None else None
-
-    def child_env(self) -> dict[str, str]:
-        """The environment a child is launched with (see :func:`host_env`)."""
-        return host_env()
 
     def status(self) -> dict[str, Any]:
         """Everything the roster needs about the running host, in one mapping."""
@@ -1814,7 +1809,7 @@ class ConnectorHostManager:
         )
 
     async def _spawn(self, target: str) -> Any:
-        env = self.child_env()
+        env = host_env()
         try:
             return await spawn_host(self._python, env)
         except OSError as exc:

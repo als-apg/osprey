@@ -116,22 +116,15 @@ from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
-
-# Derivation and verification live in the connectors package, where every
-# supervisor of a connector-host child reads them; the names this module and
-# the switch, the roster and the web terminal read are re-exported here so this
-# module stays the one door they already use.
-from osprey_connectors.ipc.verification import MODE_NAME_SERVER as MODE_NAME_SERVER
-from osprey_connectors.ipc.verification import ROLE_READ_ONLY as ROLE_READ_ONLY
-from osprey_connectors.ipc.verification import ROLE_WRITE_ACCESS as ROLE_WRITE_ACCESS
-from osprey_connectors.ipc.verification import Endpoint as Endpoint
-from osprey_connectors.ipc.verification import TargetDerivation as TargetDerivation
-from osprey_connectors.ipc.verification import Verification as Verification
-from osprey_connectors.ipc.verification import _config_writes_enabled as _config_writes_enabled
-from osprey_connectors.ipc.verification import _section as _section
-from osprey_connectors.ipc.verification import _sub as _sub
-from osprey_connectors.ipc.verification import connector_block as connector_block
-from osprey_connectors.ipc.verification import derive_endpoints as derive_endpoints
+from osprey_connectors.ipc.verification import (
+    Endpoint,
+    TargetDerivation,
+    _config_writes_enabled,
+    _section,
+    _sub,
+    connector_block,
+    derive_endpoints,
+)
 from osprey_connectors.standin import (
     ARCHIVER_RECORDER_SERVICE,
     LIVE_STANDIN_PORT_KEY,

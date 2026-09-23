@@ -22,6 +22,7 @@ Nothing here imports a control-system client library.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,7 +34,6 @@ __all__ = [
     "DEFAULT_PVA_PORT",
     "MODE_ADDR_LIST",
     "MODE_NAME_SERVER",
-    "REPORT_FIELDS",
     "ROLE_PVA",
     "ROLE_READ_ONLY",
     "ROLE_WRITE_ACCESS",
@@ -243,8 +243,9 @@ def derive_endpoints(
         ValueError: Propagated from
             :func:`~osprey_connectors.types.resolve_target` when the target is
             unknown, or is ``live`` on a deployment that has never named its real
-            machine. :func:`evaluate_eligibility` is where that becomes a reason
-            rather than an exception.
+            machine.
+            :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_eligibility`
+            is where that becomes a reason rather than an exception.
     """
     control_system = _section(config, "control_system")
     connector_type = resolve_target(control_system, target)
@@ -301,23 +302,6 @@ def derive_endpoints(
 # (c) VERIFICATION
 # ---------------------------------------------------------------------------
 
-#: The fields a connector-host child reports after connecting, in the order it
-#: sends them when it reports a tuple.
-REPORT_FIELDS = ("selected_role", "mode", "host", "port", "_epics_configured")
-
-
-def _report_mapping(report: Any) -> dict[str, Any]:
-    """The child's report as a mapping, from either shape it may arrive in."""
-    if isinstance(report, dict):
-        return report
-    values = list(report)
-    if len(values) != len(REPORT_FIELDS):
-        raise ValueError(
-            f"A child report carries {len(REPORT_FIELDS)} fields "
-            f"{REPORT_FIELDS}; got {len(values)}."
-        )
-    return dict(zip(REPORT_FIELDS, values, strict=True))
-
 
 def _ports_equal(expected: Any, got: Any) -> bool:
     """Whether two ports name the same port.
@@ -333,7 +317,7 @@ def _ports_equal(expected: Any, got: Any) -> bool:
         return str(expected) == str(got)
 
 
-def verify_child_report(derivation: TargetDerivation, report: Any) -> Verification:
+def verify_child_report(derivation: TargetDerivation, report: Mapping[str, Any]) -> Verification:
     """Assert a child came up exactly where the derivation said it would.
 
     Positive and role-aware: every field of the selected role's endpoint is
@@ -344,33 +328,28 @@ def verify_child_report(derivation: TargetDerivation, report: Any) -> Verificati
     Args:
         derivation: The derivation for the target being switched to, from
             :func:`derive_endpoints`.
-        report: The child's post-connect report, either the mapping or the
-            5-tuple ``(selected_role, mode, host, port, _epics_configured)``.
+        report: The child's post-connect report: ``selected_role``, ``mode``,
+            ``host``, ``port`` and ``_epics_configured``.
 
     Returns:
         A passing :class:`Verification`, or a failing one naming the field, the
         expected value and the value the child reported. The switch aborts on a
         failure and leaves the previous target active.
-
-    Raises:
-        ValueError: If *report* is a sequence of the wrong length — a malformed
-            report is a protocol error, not a verification failure.
     """
-    values = _report_mapping(report)
 
-    if not values.get("_epics_configured"):
+    if not report.get("_epics_configured"):
         return Verification(
             False,
             "_epics_configured",
             True,
-            values.get("_epics_configured"),
+            report.get("_epics_configured"),
             "The child reports it never configured an EPICS gateway, so its "
             "environment is whatever the process already carried rather than this "
             "target's.",
         )
 
     expected_role = derivation.selected_role
-    got_role = values.get("selected_role")
+    got_role = report.get("selected_role")
     if got_role != expected_role:
         return Verification(
             False,
@@ -393,7 +372,7 @@ def verify_child_report(derivation: TargetDerivation, report: Any) -> Verificati
         )
 
     for field_name, expected in (("mode", endpoint.mode), ("host", endpoint.host)):
-        got = values.get(field_name)
+        got = report.get(field_name)
         if got != expected:
             return Verification(
                 False,
@@ -405,13 +384,13 @@ def verify_child_report(derivation: TargetDerivation, report: Any) -> Verificati
                 f"{expected_role!r} gateway.",
             )
 
-    if not _ports_equal(endpoint.port, values.get("port")):
+    if not _ports_equal(endpoint.port, report.get("port")):
         return Verification(
             False,
             "port",
             endpoint.port,
-            values.get("port"),
-            f"The child's port is {values.get('port')!r} where target "
+            report.get("port"),
+            f"The child's port is {report.get('port')!r} where target "
             f"{derivation.target!r} derives {endpoint.port!r} for its "
             f"{expected_role!r} gateway.",
         )

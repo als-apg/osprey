@@ -78,7 +78,7 @@ async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
     )
 
 
-async def terminate_host(process: Any, grace_s: float = DEFAULT_TERMINATE_GRACE_S) -> None:
+async def terminate_host(process: Any, grace_s: float) -> None:
     """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises."""
     if process.returncode is not None:
         return

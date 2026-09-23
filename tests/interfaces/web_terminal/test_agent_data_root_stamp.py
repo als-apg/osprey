@@ -23,8 +23,8 @@ two mean anything:
   the hook's fail-closed rules are written on the assumption that the halves
   arrive together.
 * **Survival.** The stamp has to reach the processes that read it, which sit
-  behind two deliberate scrubs: ``ConnectorHostManager.child_env()`` (drops the
-  EPICS family) and ``scrub_sandbox_child_env`` (drops credentials and the
+  behind two deliberate scrubs: ``osprey_connectors.ipc.launch.host_env()`` (drops
+  the EPICS family) and ``scrub_sandbox_child_env`` (drops credentials and the
   web-terminal address book). Both are allow-by-default, so this is a
   regression pin rather than a new guarantee: the day one of them grows a
   prefix rule, the connector-host child or the execution sandbox silently
@@ -58,11 +58,10 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_state
-from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
-from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.ipc.launch import host_env
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -336,12 +335,7 @@ class TestTheStampSurvivesEveryScrub:
         EPICS family taken away from it — this asserts the scrub stayed as
         narrow as its docstring says.
         """
-        manager = ConnectorHostManager(
-            MCPServerConfig(
-                raw={"control_system": {"connector": {"type": "mock"}}}, config_path=None
-            )
-        )
-        child = manager.child_env()
+        child = host_env()
 
         assert child[OSPREY_AGENT_DATA_ROOT] == stamped_env[OSPREY_AGENT_DATA_ROOT]
         assert child[POSTURE_SESSION_ENV] == SESSION_A

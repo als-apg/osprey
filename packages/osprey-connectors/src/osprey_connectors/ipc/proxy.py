@@ -63,8 +63,9 @@ is how a supervisor tells a dead child from a ``ConnectionError`` the connector
 itself raised and the child relayed.
 
 A call the child does not answer in time fails with
-:class:`ChildUnresponsiveError` — a :class:`TimeoutError`, so existing handlers
-still catch it — and leaves the proxy usable. The deadline is the call's own
+:class:`ChildUnresponsiveError` — a :class:`TimeoutError`, because that is what
+it is, so a generic timeout handler such as the MCP tool error mapping treats it
+as one — and leaves the proxy usable. The deadline is the call's own
 ``timeout`` plus ``timeout_grace_s``, or ``deadline_s`` for a call that named
 no timeout. That the child may be wedged is the supervisor's call to make.
 

@@ -108,7 +108,6 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_EXECUTION_IN_FLIGHT,
     REASON_READONLY_RUN,
     GateVerdict,
-    derive_endpoints,
     effective_writes_for_target,
     evaluate_switch,
     target_availability,
@@ -126,6 +125,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors import control_context
+from osprey_connectors.ipc.verification import derive_endpoints
 from osprey_connectors.types import configured_targets, target_limits_posture
 
 logger = logging.getLogger("osprey.mcp_server.tools.control_target")
@@ -390,7 +390,7 @@ def _writes_permitted(config: Any, target: str) -> bool:
     the header chip. All three are combined by
     :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
     which is also the value the roster hands
-    :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
+    :func:`~osprey_connectors.ipc.verification.derive_endpoints`
     — so the flag a row reports and the gateway that row names are the same
     answer rather than two readings that could drift apart.
     """
