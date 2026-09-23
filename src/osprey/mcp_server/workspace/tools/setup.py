@@ -176,13 +176,22 @@ def _mask_env(env: dict[str, str]) -> dict[str, str]:
     return masked
 
 
-def _mask_document(value: object, key: str | None = None) -> object:
+def _mask_document(
+    value: object, key: str | None = None, masking: _Masking = _Masking.NOTHING
+) -> object:
     """Return *value* with literal secrets under sensitive key names masked.
 
-    Walks a parsed document — the config, the ``.mcp.json`` blob — and replaces
-    the value of any key matching :data:`_SENSITIVE_PATTERNS` with ``***``.
+    Walks a parsed document --- the config, the ``.mcp.json`` blob --- and
+    masks the literals a key name makes secret. A key that names a secret makes
+    its whole value secret: the level is inherited by everything beneath it, so
+    a literal nested under ``api_key`` is masked by that key however deep it
+    sits, through mappings and sequences alike. A masked subtree keeps its
+    shape and loses only its leaves, because the names inside it say what is
+    configured while the values are the secret.
+
     A ``${VAR}`` placeholder survives: it names the variable a secret comes
-    from, which is the diagnostic, not the secret.
+    from, which is the diagnostic, not the secret. So does ``None``, which says
+    the key is unset, and an empty string, which says the same.
 
     This is the second line, not the first. The document reported here is the
     UNEXPANDED one, so a well-formed deployment has nothing but placeholders
@@ -192,22 +201,22 @@ def _mask_document(value: object, key: str | None = None) -> object:
     Args:
         value: The node being walked.
         key: The mapping key *value* was found under, or None at the root and
-            inside sequences.
+            for sequence elements, whose level comes from *masking*.
+        masking: The level inherited from the keys above *value*.
 
     Returns:
         The masked copy.
     """
+    here: _Masking = masking if key is None else max(masking, _masking_for_key(key))
     if isinstance(value, dict):
-        return {k: _mask_document(v, str(k)) for k, v in value.items()}
+        return {k: _mask_document(v, str(k), here) for k, v in value.items()}
     if isinstance(value, list):
-        return [_mask_document(item, key) for item in value]
-    if (
-        key is not None
-        and isinstance(value, str)
-        and value
-        and _masking_for_key(key) is not _Masking.NOTHING
-        and "${" not in value
-    ):
+        return [_mask_document(item, None, here) for item in value]
+    if isinstance(value, str):
+        if here >= _Masking.STRINGS and value and "${" not in value:
+            return _MASK
+        return value
+    if here >= _Masking.EVERY_SCALAR and value is not None:
         return _MASK
     return value
 
@@ -288,9 +297,10 @@ async def setup_inspect() -> str:
     environment variables, and workspace structure.
 
     The config is reported UNEXPANDED --- ``${VAR}`` placeholders intact ---
-    so a resolved secret never reaches the transcript. Environment variables
-    and any literal value in the config or ``.mcp.json`` whose key contains
-    KEY, TOKEN, SECRET or PASSWORD are masked on top of that.
+    so a resolved secret never reaches the transcript. On top of that, a key
+    that names a secret --- key, token, secret or password --- masks every
+    literal beneath it in the config and in ``.mcp.json``. Environment
+    variables are masked by the same names.
 
     Returns:
         JSON object with all configuration sections.
