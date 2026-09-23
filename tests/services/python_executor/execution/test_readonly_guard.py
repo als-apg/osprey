@@ -74,6 +74,12 @@ def _restore_patched_targets():
     Snapshotting happens before the fake ``epics``/``p4p`` modules are injected,
     so it captures the real objects; restoring writes back to those same objects
     and is therefore unaffected by whatever ``sys.modules`` held in between.
+
+    The guard's import-hook finder is dropped from ``sys.meta_path`` as well.
+    Exec'd in the test process, it outlives the test, and a finder left behind
+    would patch a write in a module a *later* test imports for the first time —
+    which the snapshot above cannot restore, because that module was not
+    imported when it ran.
     """
     saved = []
     for dotted, attrs in _READONLY_WRITE_TARGETS:
@@ -98,6 +104,7 @@ def _restore_patched_targets():
     yield
     for target, attr, value in saved:
         setattr(target, attr, value)
+    sys.meta_path[:] = [f for f in sys.meta_path if not getattr(f, "_osprey_readonly_guard", False)]
 
 
 class _RecordingContext:
