@@ -97,10 +97,12 @@ class SemanticProcessorModule(BaseEnhancementModule):
     def configure(self, config: dict[str, Any]) -> None:
         """Configure the module with settings from config.yml.
 
-        The module-level ``provider`` selects the LLM: it resolves any model tier
-        alias and sources the credentials for the completion call.  It has no
-        default — ``ariel.embedding.provider`` names an embedding endpoint and is
-        not a stand-in for it.
+        The module-level ``provider`` selects the LLM and sources the credentials
+        for the completion call.  It has no default — ``ariel.embedding.provider``
+        names an embedding endpoint and is not a stand-in for it.  ``model.model_id``
+        is a model id the provider serves, taken verbatim; omitted, the
+        deployment's main model answers (looked up at the first call, see
+        :meth:`_completion_model_config`).
 
         ``max_input_chars`` bounds how much of an entry reaches the model. It is
         a facility's to set: how long a logbook entry runs, and how big a
@@ -121,12 +123,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
                 "provider declared under api.providers."
             )
 
-        model = {**config.get("model", {}), "provider": provider}
-        if model.get("model_id"):
-            from osprey.models.tiers import resolve_model_id
-
-            model["model_id"] = resolve_model_id(provider, model["model_id"])
-        self._model_config = model
+        self._model_config = {**config.get("model", {}), "provider": provider}
         if config.get("prompt_template"):
             self._prompt_template = config["prompt_template"]
 
@@ -179,6 +176,25 @@ class SemanticProcessorModule(BaseEnhancementModule):
         except Exception as e:
             logger.warning(f"Failed to process entry {entry.get('entry_id')}: {e}")
 
+    def _completion_model_config(self) -> dict[str, Any] | None:
+        """The model config for a completion call, the main model filled in.
+
+        A module that names no ``model_id`` runs on the deployment's main model
+        (:func:`osprey.models.config.main_model_id`), read from ``config.yml``
+        at the first call so configuring the module never needs the file.
+        """
+        if not self._model_config:
+            return None
+        if not self._model_config.get("model_id"):
+            from osprey.models.config import main_model_id
+            from osprey.utils.config import load_config
+
+            self._model_config = {
+                **self._model_config,
+                "model_id": main_model_id(load_config(), self._model_config["provider"]),
+            }
+        return self._model_config
+
     async def _process_text(
         self, text: str, entry_id: Any = None
     ) -> SemanticProcessorResult | None:
@@ -212,7 +228,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
 
             response = get_chat_completion(
                 message=prompt,
-                model_config=self._model_config if self._model_config else None,
+                model_config=self._completion_model_config(),
             )
 
             if isinstance(response, str):
@@ -295,7 +311,7 @@ class SemanticProcessorModule(BaseEnhancementModule):
 
             response = get_chat_completion(
                 message="Say OK",
-                model_config=self._model_config if self._model_config else None,
+                model_config=self._completion_model_config(),
             )
 
             if response:

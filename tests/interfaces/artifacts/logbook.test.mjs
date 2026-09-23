@@ -115,8 +115,8 @@ describe('getSteeringValues', () => {
       </div>
       <input type="text" id="logbook-nudge" value="  focus on SR current  ">
       <select id="logbook-model">
-        <option value="haiku">Haiku</option>
-        <option value="opus" selected>Opus</option>
+        <option value="claude-haiku-4-5">Haiku 4.5</option>
+        <option value="claude-opus-5" selected>Opus 5</option>
       </select>
     `;
   }
@@ -127,7 +127,7 @@ describe('getSteeringValues', () => {
       purpose: 'anomaly',
       detail_level: 'detailed',
       nudge: 'focus on SR current',
-      model: 'opus',
+      model: 'claude-opus-5',
     });
   });
 
@@ -137,7 +137,7 @@ describe('getSteeringValues', () => {
       purpose: 'general',
       detail_level: 'standard',
       nudge: '',
-      model: 'haiku',
+      model: '',
     });
   });
 

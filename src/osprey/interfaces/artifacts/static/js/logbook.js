@@ -28,6 +28,7 @@ let currentPhase = "steering";
 let currentOpts = {};          // {artifact_id}
 /** @type {any[]} */
 let allArtifacts = [];         // cached from /api/artifacts for "Choose…" picker
+let defaultModel = "";         // the composition model, from /api/logbook/models
 
 // ---- Modal DOM ----
 
@@ -73,7 +74,35 @@ function createLogbookModal() {
     });
   });
 
+  loadModelOptions();
+
   return modal;
+}
+
+// ---- Model selector ----
+
+/**
+ * Fill the model selector with the ids the composition provider serves. Until
+ * the list arrives (or when it cannot be read) the one "Default model" option
+ * stays, and the server picks the composition model.
+ */
+function loadModelOptions() {
+  fetch("/api/logbook/models")
+    .then(function (resp) { return resp.ok ? resp.json() : null; })
+    .then(function (data) {
+      const select = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-model"));
+      if (!data || !select || !Array.isArray(data.models)) return;
+      select.innerHTML = "";
+      data.models.forEach(function (/** @type {{id: string, name: string}} */ m) {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.name === m.id ? m.id : m.name + " (" + m.id + ")";
+        select.appendChild(opt);
+      });
+      defaultModel = data.default || "";
+      select.value = defaultModel;
+    })
+    .catch(function () { /* keep the "Default model" option */ });
 }
 
 // ---- Artifact picker ----
@@ -213,7 +242,7 @@ function getSteeringValues() {
     purpose: purpose ? purpose.value : "general",
     detail_level: activeDetail ? activeDetail.dataset.level : "standard",
     nudge: nudge ? nudge.value.trim() : "",
-    model: model ? model.value : "haiku",
+    model: model ? model.value : "",
   };
 }
 
@@ -313,8 +342,8 @@ async function onCreateDraft() {
     if (steering.nudge) body.nudge = steering.nudge;
   }
 
-  // Model selection
-  body.model = steering.model;
+  // Model selection: empty means the server's composition model
+  if (steering.model) body.model = steering.model;
 
   // NOW switch to composing spinner
   showPhase("composing");
@@ -392,7 +421,7 @@ function resetModal() {
   if (picker) picker.style.display = "none";
   // Reset model
   const model = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-model"));
-  if (model) model.value = "haiku";
+  if (model) model.value = defaultModel;
   // Clear editor/preview/review
   const promptText = document.getElementById("logbook-prompt-text");
   if (promptText) promptText.textContent = "";

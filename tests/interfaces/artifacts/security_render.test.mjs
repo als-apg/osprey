@@ -619,6 +619,11 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
     const logbookBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-action-btn'));
     expect(logbookBtn).not.toBeNull();
     if (logbookBtn === null) throw new Error('unreachable: logbookBtn asserted non-null above');
+    // Opening the modal fills its model selector from /api/logbook/models.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ provider: 'anthropic', default: '', models: [] }),
+    }));
     logbookBtn.click(); // opens the compose modal, phase = steering
 
     const chooseRadio = /** @type {HTMLInputElement | null} */ (document.querySelector('input[name="logbook-artifact-scope"][value="choose"]'));
