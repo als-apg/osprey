@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.utils import workspace
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, resolve_project_root
 
 HOOKS_DIR = (
@@ -325,8 +326,9 @@ class TestConfigDirectoryOutranksTheWalk:
 class TestProfileMarkerWalkUp:
     """Rule 3: the marker on disk, found the way every OSPREY verb finds it.
 
-    Reached when the config named no root *and* does not exist — the point at
-    which the framework has nothing left to consult either.
+    Reached when the config named no root *and* does not exist. The framework
+    takes the same walk at the same point; see
+    :class:`TestTheFrameworkTakesTheSameLadder`.
     """
 
     def test_walks_up_from_the_render(self, tmp_path, monkeypatch, hook_module):
@@ -488,6 +490,86 @@ class TestTheAuditLedgerFollowsTheAnchor:
         ledger = module.audit_ledger_path("writes-check", {"cwd": str(build)}, identity="alice")
 
         assert ledger == repo / module.AUDIT_DIR_RELPATH / "alice" / "hook_writes_check.jsonl"
+
+
+# -- 6b. The framework takes the same ladder -----------------------------------
+
+
+class TestTheFrameworkTakesTheSameLadder:
+    """Given the same directory and environment, both resolvers name one repo.
+
+    The hook and the framework read and write the same stores, so a layout on
+    which they disagree is a split-brain, not a preference. Each row stands in
+    one directory, hands the hook that same directory as its payload ``cwd``
+    and no ``CLAUDE_PROJECT_DIR`` (the one input only a hook has), and asks
+    both. The expected answer is spelled too, so the two cannot agree on a
+    wrong one.
+    """
+
+    @pytest.mark.parametrize(
+        ("config", "cwd_rel", "named_config", "expected"),
+        [
+            pytest.param("rendered", "build", "render", "repo", id="the-launch-a-deployment-makes"),
+            pytest.param("rendered", ".", None, "repo", id="a-rendered-repo-entered-at-its-root"),
+            pytest.param(
+                "rendered", "build", None, "repo", id="a-render-entered-without-a-named-config"
+            ),
+            pytest.param("rendered", "sub/dir", None, "repo", id="a-subdirectory-of-a-built-repo"),
+            pytest.param("none", "build", None, "repo", id="a-render-not-yet-built"),
+            pytest.param("none", "sub", "absent", "repo", id="a-named-config-that-is-gone"),
+            pytest.param(
+                "recorded-elsewhere",
+                "build",
+                "render",
+                "repo",
+                id="a-runtime-root-recorded-for-another-machine",
+            ),
+            pytest.param("no-marker", "build", None, "cwd", id="no-marker-and-no-config"),
+        ],
+    )
+    def test_the_hook_and_the_framework_name_the_same_root(
+        self, tmp_path, monkeypatch, hook_module, config, cwd_rel, named_config, expected
+    ):
+        repo = tmp_path / "deployment"
+        (repo / "build").mkdir(parents=True)
+        if config != "no-marker":
+            (repo / "profile.yml").write_text("name: anchor-fixture\n")
+        if config == "rendered":
+            (repo / "build" / "config.yml").write_text("hooks:\n  debug: false\n")
+        elif config == "recorded-elsewhere":
+            (repo / "build" / "config.yml").write_text(
+                "project_root: /runtime/root/elsewhere\nhooks:\n  debug: false\n"
+            )
+        if named_config == "render":
+            monkeypatch.setenv("OSPREY_CONFIG", str(repo / "build" / "config.yml"))
+        elif named_config == "absent":
+            monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "absent" / "config.yml"))
+        cwd = repo / cwd_rel
+        cwd.mkdir(parents=True, exist_ok=True)
+        monkeypatch.chdir(cwd)
+
+        hook = _repo_root(hook_module, {"cwd": str(cwd)})
+        workspace.reset_config_cache()
+        framework = workspace.resolve_project_root(workspace.load_osprey_config())
+
+        assert hook == str(framework)
+        assert framework == (repo if expected == "repo" else cwd)
+
+    def test_the_innermost_marker_wins_on_both_sides(self, tmp_path, monkeypatch, hook_module):
+        outer = tmp_path / "outer"
+        inner = outer / "inner"
+        (inner / "build").mkdir(parents=True)
+        (outer / "profile.yml").write_text("name: outer\n")
+        (inner / "profile.yml").write_text("name: inner\n")
+        cwd = inner / "build"
+        monkeypatch.chdir(cwd)
+
+        hook = _repo_root(hook_module, {"cwd": str(cwd)})
+        workspace.reset_config_cache()
+        framework = workspace.resolve_project_root(workspace.load_osprey_config())
+
+        assert hook == str(framework)
+        assert framework == inner
 
 
 # -- 7. The stdlib-only constraint ---------------------------------------------
