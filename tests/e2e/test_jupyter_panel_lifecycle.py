@@ -534,21 +534,23 @@ def _wait_for_ready(terminal: Terminal, timeout: float) -> None:
 def _fleet_settled(posture: dict[str, Any], target: str) -> bool:
     """Whether every live controls server has landed *target* at the record's generation.
 
-    The kernel's cell gate refuses a cell while any server reports ``applying``
-    at the record's generation. A server holding no connector when the record
-    moves launches one on the record's target, and it publishes ``applying``
-    only once its reconciler tick notices the move; until then the roster says
-    nothing about it, so a wait that passes over childless servers, as the
-    header chip does, returns inside the window before that server blocks the
-    gate. Every server in this deployment lands on a record move, so the
-    condition is that every one of them has: a row still ``applying``, or
-    bound anywhere but the record's ``(target, generation)``, is not settled,
-    whether or not it has children yet.
+    A row that states ``children: []`` is passed over, as the header chip
+    passes over it; every other row has to carry no ``applying`` block at the
+    record's generation and be bound at ``(target, generation)``. That is
+    enough for a cell: the kernel's session owns no report, so the only rule
+    that can refuse it is the fleet-wide one, and that rule names only a
+    server holding a connector — exactly the set this wait waits for. A
+    childless server cannot become a holding one mid-launch, because its
+    children and its binding are published in the same write once its child
+    has answered.
     """
     generation = posture.get("generation")
     if posture.get("control_target") != target or generation is None:
         return False
     for row in posture.get("servers", []):
+        children = row.get("children")
+        if isinstance(children, list) and not children:
+            continue
         block = row.get("last_switch") or {}
         if block.get("generation") == generation and block.get("status") == "applying":
             return False
