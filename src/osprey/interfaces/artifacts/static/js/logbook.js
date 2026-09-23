@@ -11,10 +11,10 @@
  *   P2d — Composing (spinner)
  *   P3  — Review Form (subject, details, tags → submit)
  *
- * Depends on: state.js (for getSelectedArtifact)
+ * Depends on: state.js (for getSelectedArtifact and getArtifacts)
  */
 
-import { getSelectedArtifact } from "./state.js";
+import { getArtifacts, getSelectedArtifact } from "./state.js";
 import { escapeHtml } from "/design-system/js/dom.js";
 import { LOGBOOK_MODAL_HTML } from "./logbook-template.js";
 
@@ -26,8 +26,6 @@ let modal = null;
 let currentPhase = "steering";
 /** @type {any} */
 let currentOpts = {};          // {artifact_id}
-/** @type {any[]} */
-let allArtifacts = [];         // cached from /api/artifacts for "Choose…" picker
 let defaultModel = "";         // the composition model, from /api/logbook/models
 
 // ---- Modal DOM ----
@@ -107,37 +105,26 @@ function loadModelOptions() {
 
 // ---- Artifact picker ----
 
+// The picker offers the artifacts the gallery has loaded, so the two lists
+// cannot disagree.
 function loadArtifactPicker() {
   const list = document.getElementById("logbook-artifact-picker-list");
   if (!list) return;
-  const el = list;
-
-  // If already loaded, don't reload
-  if (allArtifacts.length > 0) {
-    renderArtifactPicker(el);
-    return;
-  }
-
-  fetch("/api/artifacts")
-    .then(function (resp) { return resp.json(); })
-    .then(function (data) {
-      allArtifacts = data.artifacts || [];
-      renderArtifactPicker(el);
-    })
-    .catch(function () {
-      el.innerHTML = '<span style="color:var(--color-error); font-size:var(--art-text-xs);">Failed to load artifacts</span>';
-    });
+  renderArtifactPicker(list, getArtifacts());
 }
 
-/** @param {HTMLElement} list */
-function renderArtifactPicker(list) {
-  if (allArtifacts.length === 0) {
+/**
+ * @param {HTMLElement} list
+ * @param {any[]} artifacts
+ */
+function renderArtifactPicker(list, artifacts) {
+  if (artifacts.length === 0) {
     list.innerHTML = '<span style="color:var(--text-muted); font-size:var(--art-text-xs);">No artifacts available</span>';
     return;
   }
 
   list.innerHTML = "";
-  allArtifacts.forEach(function (art) {
+  artifacts.forEach(function (art) {
     const isCurrentArtifact = (art.id === currentOpts.artifact_id);
     const label = document.createElement("label");
     label.className = "logbook-checkbox-label logbook-artifact-pick-item";
@@ -433,8 +420,6 @@ function resetModal() {
   if (details) details.value = "";
   const tags = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-tags"));
   if (tags) tags.value = "";
-  // Clear cached artifacts so picker refreshes next open
-  allArtifacts = [];
 }
 
 /** @param {string} msg */
@@ -598,4 +583,4 @@ function injectLogbookButtons() {
   }
 }
 
-export { injectLogbookButtons, makeBtn, updateHeaderTitle, getSteeringValues, getContextValues, hideModal };
+export { injectLogbookButtons, makeBtn, updateHeaderTitle, getSteeringValues, getContextValues, hideModal, loadArtifactPicker };

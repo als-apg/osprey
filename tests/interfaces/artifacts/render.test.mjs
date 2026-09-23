@@ -29,6 +29,7 @@ import {
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import {
   createSidebarRenderer,
+  isNearListEnd,
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs, byId } from '../_support/dom.mjs';
@@ -397,5 +398,25 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     // The serialized markup is also byte-identical for benign values —
     // escaping must introduce no stray entities.
     expect(visSection.outerHTML).toContain('data-type="visualization"');
+  });
+});
+
+describe('isNearListEnd', () => {
+  test('is true at the exact bottom', () => {
+    expect(isNearListEnd({ scrollHeight: 1000, scrollTop: 600, clientHeight: 400 })).toBe(true);
+  });
+
+  test('is true within the threshold', () => {
+    expect(isNearListEnd({ scrollHeight: 1000, scrollTop: 450, clientHeight: 400 })).toBe(true);
+  });
+
+  test('is false above the threshold', () => {
+    expect(isNearListEnd({ scrollHeight: 1000, scrollTop: 399, clientHeight: 400 })).toBe(false);
+  });
+
+  test('honours a caller-supplied threshold', () => {
+    const el = { scrollHeight: 1000, scrollTop: 450, clientHeight: 400 };
+    expect(isNearListEnd(el, 100)).toBe(false);
+    expect(isNearListEnd(el, 150)).toBe(true);
   });
 });

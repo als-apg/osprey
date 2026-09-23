@@ -21,7 +21,7 @@
  * deliberately NOT re-tested here.
  */
 
-import { test, expect, describe, afterEach } from 'vitest';
+import { test, expect, describe, afterEach, vi } from 'vitest';
 
 import {
   makeBtn,
@@ -29,7 +29,9 @@ import {
   getSteeringValues,
   getContextValues,
   hideModal,
+  loadArtifactPicker,
 } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
+import { setArtifacts } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import { qs, byId } from '../_support/dom.mjs';
 
 afterEach(() => {
@@ -270,5 +272,43 @@ describe('hideModal', () => {
 
   test('is safe to call with no overlay present', () => {
     expect(() => hideModal()).not.toThrow();
+  });
+});
+
+// =========================================================================
+// loadArtifactPicker
+// =========================================================================
+
+describe('loadArtifactPicker', () => {
+  afterEach(() => {
+    setArtifacts([]);
+    vi.unstubAllGlobals();
+  });
+
+  test('draws one checkbox per loaded artifact from the gallery list, with no request', () => {
+    document.body.innerHTML = '<div id="logbook-artifact-picker-list"></div>';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    setArtifacts([
+      { id: 'art-1', title: 'First', artifact_type: 'json' },
+      { id: 'art-2', title: 'Second', artifact_type: 'markdown' },
+    ]);
+
+    loadArtifactPicker();
+
+    const boxes = /** @type {NodeListOf<HTMLInputElement>} */ (
+      byId('logbook-artifact-picker-list').querySelectorAll('input[type=checkbox]')
+    );
+    expect(Array.from(boxes).map((b) => b.value)).toEqual(['art-1', 'art-2']);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('draws the empty line when the gallery has loaded nothing', () => {
+    document.body.innerHTML = '<div id="logbook-artifact-picker-list"></div>';
+    setArtifacts([]);
+
+    loadArtifactPicker();
+
+    expect(byId('logbook-artifact-picker-list').textContent).toBe('No artifacts available');
   });
 });

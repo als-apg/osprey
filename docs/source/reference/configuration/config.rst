@@ -755,7 +755,7 @@ to set rather than a fixed bound: how big an export gets is a property of your
 archiver, and how much memory the gallery host has is a property of your site.
 
 ``artifact_server.page_size`` (default 20) is how many artifacts the gallery
-asks for at a time. It fetches the next batch as the list is scrolled, so a
+asks for at a time. It fetches the next page as the list is scrolled, so a
 store with thousands of entries opens as fast as one with twenty. The same
 number bounds any other reader of the listing; a request may name its own size
 up to 200, and a configured value above 200 is capped there.

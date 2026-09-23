@@ -20,8 +20,11 @@ import {
   getShowAllSessions,
   setShowAllSessions,
   getRecentArtifacts,
+  getArtifactTotal, addArtifact, removeArtifact, hasMoreArtifacts, inCurrentScope,
   fileUrl,
   fetchArtifacts as fetchArtifactsData,
+  getListSearch,
+  fetchMoreArtifacts as fetchMoreArtifactsData,
   fetchFocus,
 } from "./state.js";
 import {
@@ -33,7 +36,7 @@ import {
   openUrl,
   escapeHtml,
 } from "./types.js";
-import { createSidebarRenderer } from "./render.js";
+import { createSidebarRenderer, isNearListEnd } from "./render.js";
 import { initBrowseLayout } from "./browse-layout.js";
 import { initSidebarMenu } from "./sidebar-menu.js";
 import { createPreviewRenderer } from "./preview.js";
@@ -274,8 +277,9 @@ function renderSimple() {
     }
   }
 
-  if (simpleListCount) simpleListCount.textContent = String(recent.length);
-  if (simpleShowAll) simpleShowAll.hidden = recent.length <= SIMPLE_LIST_LIMIT;
+  const resultCount = getArtifactTotal();
+  if (simpleListCount) simpleListCount.textContent = String(resultCount);
+  if (simpleShowAll) simpleShowAll.hidden = resultCount <= SIMPLE_LIST_LIMIT;
   const shown = simpleShowAllResults ? recent : recent.slice(0, SIMPLE_LIST_LIMIT);
   const selId = latest?.id;
   simpleListBody.innerHTML = shown
@@ -292,27 +296,56 @@ function renderSimple() {
 }
 
 // ---- API ----
-// showErrorBanner/hideErrorBanner/fetchArtifacts/fetchFocus now live in
-// state.js. fetchArtifacts() no longer triggers render effects itself
-// (state.js has no access to this module's DOM-rendering functions) — this
-// wrapper supplies them via the callbacks state.js's fetchArtifacts()
-// accepts, so every call site below can keep calling one local function.
+// state.js owns showErrorBanner/hideErrorBanner/fetchArtifacts/fetchFocus, and its
+// fetchArtifacts() renders nothing: the wrapper below supplies the render effects.
+
+/**
+ * Fetch the next page while the drawn list is too short to scroll to its
+ * end, so a tall sidebar still reaches older artifacts. A hidden sidebar
+ * (Simple mode) has no height and fetches nothing.
+ */
+function fillSidebar() {
+  if (sidebarBody.clientHeight > 0) loadMoreIfNearEnd();
+}
+
+const listCallbacks = {
+  onHealthChange: updateHealth,
+  onArtifactsUpdated: () => {
+    sidebarRenderer.renderSidebar();
+    renderSimple();
+    fillSidebar();
+  },
+};
+
+/**
+ * The search the held list should be fetched with. The filter box is an
+ * Expert-only control, so Simple mode fetches without it and keeps the text
+ * for the switch back.
+ * @returns {string}
+ */
+function listSearch() {
+  if (document.documentElement.dataset.uiMode === "simple" || !searchInput) return "";
+  return searchInput.value.trim().toLowerCase();
+}
 
 function fetchArtifacts() {
-  return fetchArtifactsData({
-    onHealthChange: updateHealth,
-    onArtifactsUpdated: () => {
-      sidebarRenderer.renderSidebar();
-      renderSimple();
-    },
-  });
+  return fetchArtifactsData({ ...listCallbacks, search: listSearch() });
+}
+
+function loadMoreIfNearEnd() {
+  if (hasMoreArtifacts() && isNearListEnd(sidebarBody)) fetchMoreArtifactsData(listCallbacks);
 }
 
 // ---- Events ----
 
 if (searchInput) {
-  searchInput.addEventListener("input", debounce(() => sidebarRenderer.renderSidebar(), 200));
+  const onSearch = () => { sidebarRenderer.renderSidebar(); fetchArtifacts(); };
+  searchInput.addEventListener("input", debounce(onSearch, 200));
 }
+
+// The listener sits on the container, which renderSidebar() never replaces.
+// No throttle: fetchMoreArtifacts() is a no-op while a page is in flight.
+sidebarBody.addEventListener("scroll", loadMoreIfNearEnd);
 
 /**
  * Apply a filter string that did not come from typing in #search — today the
@@ -325,6 +358,7 @@ function applyFilter(text) {
   if (!searchInput || searchInput.value === text) return;
   searchInput.value = text;
   sidebarRenderer.renderSidebar();
+  fetchArtifacts();
 }
 
 /**
@@ -377,6 +411,7 @@ document.addEventListener("keydown", (e) => {
     searchInput.blur();
     searchInput.value = "";
     sidebarRenderer.renderSidebar();
+    fetchArtifacts();
     return;
   }
 
@@ -467,18 +502,24 @@ function connectSSE() {
             if (sel) sel.scrollIntoView({ behavior: "smooth", block: "nearest" });
           });
         } else {
-          // Artifact not yet in local list — refresh and retry
-          fetchArtifacts().then(() => {
-            const retry = getArtifacts().find((x) => x.id === focusId);
-            if (retry) applyFocus(retry, wantFullscreen);
-          });
+          // Not in the loaded pages — fetch that one artifact. An entry outside
+          // the current scope is not focused; one inside it is focused even
+          // while a search keeps it out of the list.
+          fetch(`/api/artifacts/${encodeURIComponent(focusId)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((entry) => {
+              if (!entry || !inCurrentScope(entry)) return;
+              addArtifact(entry, { counted: true });
+              applyFocus(getArtifacts().find((x) => x.id === focusId) || entry, wantFullscreen);
+            })
+            .catch(() => {});
         }
       }
       return;
     }
 
     if (eventType === "artifact_deleted") {
-      setArtifacts(getArtifacts().filter((a) => a.id !== eventData.id));
+      removeArtifact(eventData.id);
       if (getFocusedArtifact()?.id === eventData.id) setFocusedArtifact(null);
       if (getSelectedArtifact()?.id === eventData.id) { setSelectedArtifact(null); previewRenderer.renderPreview(); }
       sidebarRenderer.renderSidebar();
@@ -505,6 +546,14 @@ function connectSSE() {
 
     if (eventType === "artifact" || !eventType) {
       if (previewRenderer.isFullscreen()) previewRenderer.noteNewArtifactArrival();
+      const entry = { ...eventData };
+      delete entry.type;
+      if (eventType && entry.id && addArtifact(entry)) {
+        sidebarRenderer.renderSidebar();
+        renderSimple();
+        if (previewRenderer.isFullscreen()) previewRenderer.updateNewArtifactBadge();
+        return;
+      }
       fetchArtifacts().then(() => {
         if (previewRenderer.isFullscreen()) previewRenderer.updateNewArtifactBadge();
       }).catch(() => {});
@@ -607,9 +656,13 @@ window.addEventListener("message", (e) => {
 
 // Live Expert<->Simple switch broadcast by the hub — the shared receive-side
 // helper stamps data-ui-mode; re-render Simple so its content is fresh on
-// arrival, and re-publish since the filter is an Expert-only bar item.
+// arrival, fill the sidebar the switch to Expert makes visible (it fetched
+// nothing while hidden), refetch when the filter applies in one mode and not
+// the other, and re-publish since the filter is an Expert-only bar item.
 onModeChange(() => {
   renderSimple();
+  fillSidebar();
+  if (listSearch() !== getListSearch()) fetchArtifacts();
   publishHeaderContribution();
 });
 
