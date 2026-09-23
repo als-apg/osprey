@@ -112,8 +112,8 @@ are genuinely different agents, not one agent with a UI toggle.
      - Yes, and only here: the ``setup-mode`` skill, the ``setup_patch``
        tool, the web Config panel, and the gallery's edit, create and delete
        surfaces
-     - Full ``expert`` workspace, with the Config panel and without the
-       EVENTS and BLUESKY panels
+     - Full ``expert`` workspace with the EVENTS and BLUESKY panels, plus
+       the Config panel
    * - **ariel**
      - No control system behind it at all, so there is no write posture to
        compare
@@ -126,12 +126,11 @@ person holding it: which teammates get a write-capable login is your roster's
 call, and the point is that the framework provisions genuinely different
 postures out of one deployment.
 
-That the admin login has no EVENTS or BLUESKY panels looks like an oversight
-and is not one. Those two panels are declared only in the read-write delta
-(``personas/readwrite.yml``), so they reach that tier and no other — the admin
-delta never inherits them in the first place. It also suits what the admin
-card is for: queueing plans and watching the event dispatcher is operator
-work, done from an operator card.
+Only the read-only login is built without the EVENTS and BLUESKY panels. The
+base profile declares neither, and the two write-capable deltas,
+``personas/readwrite.yml`` and ``personas/admin.yml``, each add both:
+queueing a plan and watching its results belong on a card that can arm a
+write. The admin card is the read-write operator desk plus deployment editing.
 
 **The default stays on the safe side.** ``default_persona`` is ``readonly``,
 so a roster entry added in a hurry with no ``persona`` of its own gets the
