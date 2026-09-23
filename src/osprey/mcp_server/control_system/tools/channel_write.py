@@ -65,7 +65,9 @@ server's ``OSPREY_POSTURE_SESSION`` and the reports of the servers that are
 still running. It refuses in two shapes, and the difference is deliberate:
 
 * a swap **in flight** anywhere in the fleet refuses every session, because the
-  server holding the connector is between two targets;
+  server holding the connector is between two targets. A server that holds no
+  connector yet is acquiring its first rather than swapping one, and refuses
+  only its own session;
 * a swap this session's own server **failed** to follow, or one it is still
   behind on, refuses this session and nothing else. FR-8: a failed swap strands
   the one window whose server could not follow it, and leaves every other
