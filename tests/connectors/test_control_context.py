@@ -847,6 +847,27 @@ def _applying(pid, *, generation=7, expires_in=300.0, session="sess-1", **overri
     return _report(pid, **fields)
 
 
+def _launching(pid, *, generation=7, expires_in=300.0, session="sess-1", **overrides):
+    """A server acquiring its FIRST connector: nothing bound, ``applying`` at *generation*.
+
+    The three axes that could state a connector all state none, which is what
+    a server whose report has never carried a binding looks like for the whole
+    of its first launch.
+    """
+    block = {"generation": generation, "status": "applying", "at": _stamp(-1)}
+    if expires_in is not None:
+        block["expires_at"] = _stamp(expires_in)
+    fields = {
+        "session": session,
+        "applied_target": None,
+        "applied_generation": None,
+        "children": (),
+        "last_switch": block,
+    }
+    fields.update(overrides)
+    return _report(pid, **fields)
+
+
 def test_an_empty_fleet_is_converged():
     """No live server: the record alone routes, and nothing is mid-swap."""
     record = _context()
@@ -900,6 +921,49 @@ def test_an_expired_applying_report_leaves_only_its_own_session_unconverged():
     assert control_context.blocking_pids(record, reports, "sess-1") == (4321,)
     for session in (None, "sess-other", "kernel:abc"):
         assert control_context.converged(record, reports, session) is True
+
+
+def test_a_first_launch_holds_only_its_own_session():
+    """A server holding no connector is not between two targets."""
+    record = _context()
+    reports = [_launching(4321, session="sess-1")]
+
+    assert control_context.blocking_pids(record, reports, "sess-1") == (4321,)
+    assert control_context.converged(record, reports, "sess-1") is False
+    for session in (None, "", "sess-other", "kernel:abcd1234"):
+        assert control_context.blocking_pids(record, reports, session) == ()
+        assert control_context.converged(record, reports, session) is True
+
+
+@pytest.mark.parametrize(
+    "stated",
+    [{"applied_target": "live"}, {"applied_generation": 6}, {"children": (5001,)}],
+)
+def test_a_report_stating_a_connector_on_any_axis_holds_every_session(stated):
+    record = _context()
+    reports = [_launching(4321, **stated)]
+
+    assert control_context.converged(record, reports, "sess-other") is False
+    assert control_context.blocking_pids(record, reports, "sess-other") == (4321,)
+
+
+@pytest.mark.parametrize("expires_in", [-1.0, None])
+def test_a_first_launch_past_its_bound_still_holds_only_its_own_session(expires_in):
+    """The bound decides nothing for a server that holds no connector."""
+    record = _context()
+    reports = [_launching(4321, expires_in=expires_in)]
+
+    assert control_context.blocking_pids(record, reports, "sess-1") == (4321,)
+    assert control_context.blocking_pids(record, reports, "sess-other") == ()
+
+
+def test_a_first_launch_and_a_swap_in_flight_are_both_named():
+    record = _context()
+    reports = [_launching(4320, session="sess-1"), _applying(4321, session="sess-other")]
+
+    assert control_context.blocking_pids(record, reports, "sess-1") == (4320, 4321)
+    assert control_context.blocking_pids(record, reports, "sess-other") == (4321,)
+    assert control_context.blocking_pids(record, reports, None) == (4321,)
 
 
 def test_an_applying_report_is_unconverged_up_to_its_bound_inclusive():
