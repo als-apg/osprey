@@ -1105,17 +1105,33 @@ print(
 )
 """
 
-#: Appended AFTER the guard source, in a cold interpreter. Bluesky's import
-#: chain reads ``platform.uname().processor``, which CPython answers by
-#: shelling out on first read — under a guard that refuses spawning and forgot
+#: Appended AFTER the guard source, in a cold interpreter. The guard must load
+#: neither acquisition framework itself, must still have loaded every client,
+#: and must refuse a framework's write the moment the script imports it. Bluesky's
+#: import chain also reads ``platform.uname().processor``, which CPython answers
+#: by shelling out on first read — under a guard that refuses spawning and forgot
 #: to pre-warm it, importing Bluesky at all would fail. So this checks the
 #: import the guard has to leave working, in the one ordering where it breaks.
 _COLD_IMPORT_PROBE = """
 import importlib
+import sys
 
+assert "bluesky" not in sys.modules and "ophyd_async" not in sys.modules, (
+    "the guard must not load an acquisition framework the script never imports"
+)
+assert {"epics", "aioca", "epicscorelibs", "p4p"} <= set(sys.modules), (
+    "the client rows must be resolved before the script runs"
+)
 run_engine = importlib.import_module("bluesky.run_engine")
 assert run_engine.RunEngine.__call__.__name__ == "_osprey_readonly_refuse", (
     "a framework imported after the guard must still refuse its write"
+)
+signal_rw = importlib.import_module("ophyd_async.core").SignalRW
+assert signal_rw.set.__name__ == "_osprey_readonly_refuse", (
+    "a framework imported after the guard must still refuse its write"
+)
+assert importlib.import_module("bluesky.plans").count is not None, (
+    "importing a framework under the guard must still work"
 )
 print("@@COLD-OK@@")
 """
@@ -1216,3 +1232,116 @@ def test_guard_holds_against_installed_libraries(tmp_path):
     assert cold_stdout.strip() == "@@COLD-OK@@", (
         f"importing Bluesky under the guard is not clean:\n{cold_stdout}"
     )
+
+
+# ---------------------------------------------------------------------------
+# The frameworks' refusals arrive on import
+#
+# The acquisition-framework rows are the ones a readonly script may import, so
+# the guard waits for that import instead of paying for it up front. These
+# prove when the refusal lands: never for a framework the script does not
+# import, on import for one it does, and at installation for one already
+# loaded. Each writes a real package to disk, because a fake placed in
+# ``sys.modules`` is already imported and can only exercise the installation
+# pass.
+# ---------------------------------------------------------------------------
+
+_FRAMEWORK_INIT = """
+from ._engine import RunEngine
+
+def read_catalog():
+    return 1.0
+"""
+
+_FRAMEWORK_ENGINE = """
+runs = []
+
+
+class RunEngine:
+    def __call__(self, plan):
+        runs.append(plan)
+        return "ran"
+"""
+
+
+def _write_framework(tmp_path, monkeypatch, name):
+    """Write a two-module framework package and make it the deferred table."""
+    package = tmp_path / name
+    package.mkdir()
+    (package / "__init__.py").write_text(_FRAMEWORK_INIT)
+    (package / "_engine.py").write_text(_FRAMEWORK_ENGINE)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(
+        wrapper_module, "_FRAMEWORK_WRITE_TARGETS", ((f"{name}.RunEngine", ("__call__",)),)
+    )
+
+
+def _import_framework(monkeypatch, name):
+    """Import the written package, leaving ``sys.modules`` as it was found."""
+    for entry in (name, f"{name}._engine"):
+        # Registered while absent, so teardown removes what the import adds.
+        monkeypatch.setitem(sys.modules, entry, None)
+        del sys.modules[entry]
+    return importlib.import_module(name)
+
+
+def test_a_framework_the_script_never_imports_is_never_loaded(tmp_path, monkeypatch):
+    name = "osprey_fake_framework_unused"
+    _write_framework(tmp_path, monkeypatch, name)
+
+    _run_guard("readonly")
+
+    assert name not in sys.modules
+
+
+def test_a_framework_imported_after_the_guard_refuses_its_write(tmp_path, monkeypatch):
+    name = "osprey_fake_framework_late"
+    _write_framework(tmp_path, monkeypatch, name)
+
+    _run_guard("readonly")
+    assert name not in sys.modules
+    module = _import_framework(monkeypatch, name)
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        module.RunEngine()([])
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        # The defining module's spelling, reached from inside the hook.
+        sys.modules[f"{name}._engine"].RunEngine()([])
+    assert module.read_catalog() == 1.0
+    assert sys.modules[f"{name}._engine"].runs == []
+
+
+def test_a_framework_already_imported_is_patched_at_installation(tmp_path, monkeypatch):
+    name = "osprey_fake_framework_early"
+    _write_framework(tmp_path, monkeypatch, name)
+    module = _import_framework(monkeypatch, name)
+
+    _run_guard("readonly")
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        module.RunEngine()([])
+    assert sys.modules[f"{name}._engine"].runs == []
+
+
+def test_two_guards_in_one_process_delegate_without_recursing(tmp_path, monkeypatch):
+    name = "osprey_fake_framework_twice"
+    _write_framework(tmp_path, monkeypatch, name)
+
+    _run_guard("readonly")
+    _run_guard("readonly")
+    module = _import_framework(monkeypatch, name)
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        module.RunEngine()([])
+    assert sys.modules[f"{name}._engine"].runs == []
+
+
+def test_the_client_rows_are_resolved_before_the_script_runs():
+    """The counterpart to the framework tests: the client half does not wait."""
+    for library in ("epics", "aioca", "p4p"):
+        pytest.importorskip(library, reason=f"{library} is not installed in this environment")
+
+    _run_guard("readonly")
+
+    assert subprocess.run.__name__ == "_osprey_readonly_refuse"
+    assert {"epics", "aioca", "p4p.client.thread"} <= set(sys.modules)
