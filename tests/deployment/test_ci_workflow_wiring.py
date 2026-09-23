@@ -7754,3 +7754,62 @@ def test_ci_check_reports_twines_own_verdict__mutation_restores_the_grep() -> No
     )
     assert mutated != source, "the twine invocation moved; this mutation is stale"
     assert _twine_verdict_missing(mutated) != []
+
+
+# ---------------------------------------------------------------------------
+# a broken documentation link fails the local run, and names itself
+# ---------------------------------------------------------------------------
+#
+# The same rule the package step above it follows, for the other checker in
+# this script whose verdict was read through a grep. Two clauses, because a
+# check can fail open in two independent ways: the status a pipeline reports
+# is its LAST command's, and a step that records nothing in FAILED_CHECKS
+# cannot reach the summary that decides the script's exit code.
+
+LINKCHECK_COMMAND = "uv run make linkcheck"
+LINKCHECK_FAILURE_RECORD = 'FAILED_CHECKS+=("docs-linkcheck")'
+
+
+def _linkcheck_verdict_missing(source: str) -> list[str]:
+    """What the link check is missing (empty = sphinx's own status blocks a push)."""
+    lines = _command_lines(source)
+    checks = [i for i, line in enumerate(lines) if LINKCHECK_COMMAND in line]
+    if not checks:
+        return ["a link check"]
+    missing = [
+        f"the checker's own status on {lines[i].strip()!r}" for i in checks if "|" in lines[i]
+    ]
+    branch = lines[checks[0] + 1 :]
+    end = next((j for j, line in enumerate(branch) if line.strip() in {"else", "fi"}), len(branch))
+    if not any(LINKCHECK_FAILURE_RECORD in line for line in branch[:end]):
+        missing.append("a recorded failure")
+    return missing
+
+
+def test_ci_check_blocks_on_a_broken_documentation_link() -> None:
+    """The documentation step's two checks answer to the same rule. A build failure
+    is recorded and fails the run; a link the docs publish and no reader can follow
+    must be too, by the checker's own status and in words that name the link."""
+    assert _linkcheck_verdict_missing(_script_source(CI_CHECK_SCRIPT)) == [], (
+        f"{CI_CHECK_SCRIPT}'s link check cannot fail the run: "
+        f"{_linkcheck_verdict_missing(_script_source(CI_CHECK_SCRIPT))}"
+    )
+
+
+def test_ci_check_blocks_on_a_broken_documentation_link__mutation_restores_the_grep() -> None:
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = source.replace(
+        f"{LINKCHECK_COMMAND};", f'{LINKCHECK_COMMAND} 2>&1 | grep -q "build succeeded";'
+    )
+    assert mutated != source, "the linkcheck invocation moved; this mutation is stale"
+    assert _linkcheck_verdict_missing(mutated) != []
+
+
+def test_ci_check_blocks_on_a_broken_documentation_link__mutation_drops_the_record() -> None:
+    """A step that only prints its verdict is advisory, whatever the verdict says."""
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = "\n".join(
+        line for line in source.splitlines() if LINKCHECK_FAILURE_RECORD not in line
+    )
+    assert mutated != source, f"no linkcheck failure record in {CI_CHECK_SCRIPT}; mutation is stale"
+    assert _linkcheck_verdict_missing(mutated) == ["a recorded failure"]
