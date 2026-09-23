@@ -204,3 +204,14 @@ class TestFacilityKnowledgeAgentTemplate:
         lines = rendered.splitlines()
         tools_line = next((line for line in lines if line.startswith("tools:")), "")
         assert "draft_concept" not in tools_line
+
+    def test_tells_the_agent_to_cite_a_concept_as_a_link(self, template_manager):
+        ctx = self._full_ctx(enabled=True)
+        rendered = self._render(template_manager, ctx)
+        assert "Cite each concept as a link" in rendered
+        assert "[<title>](<url>)" in rendered
+
+    def test_tells_the_agent_to_link_concepts_in_its_reply_to_the_parent(self, template_manager):
+        ctx = self._full_ctx(enabled=True)
+        rendered = self._render(template_manager, ctx)
+        assert "name it as its markdown link" in rendered
