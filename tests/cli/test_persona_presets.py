@@ -129,6 +129,11 @@ WRITES_KEY = "control_system.writes_enabled"
 # to write to keep an inherited per-type `true` from arming one over its head.
 VA_WRITES_KEY = "control_system.connector.virtual_accelerator.writes_enabled"
 EPICS_WRITES_KEY = "control_system.connector.epics.writes_enabled"
+#: The reference deployment's persona deltas, hand-kept copies of the persona
+#: presets' ``config:`` layers that other suites validate and parse.
+EXEMPLAR_PERSONAS_DIR = (
+    Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exemplar-profile" / "personas"
+)
 UI_MODE_KEY = "web.ui_mode"
 # The agent's deployment-editing tool: denied by the base for every tier, and
 # subtracted back by the admin tier alone. A deny rather than an ask because
@@ -1380,6 +1385,26 @@ class TestWritePostureMatrix:
                 target: target_writes_enabled(section, target) for target in CONTROL_TARGETS
             }
             assert resolved == {"live": False, "va": True, "standin": False}, preset
+
+    @pytest.mark.parametrize("persona", ["readonly", "readwrite"])
+    def test_the_reference_deployments_persona_deltas_carry_their_presets_posture(
+        self, persona: str
+    ) -> None:
+        """A hand-kept persona delta states the posture its preset ships.
+
+        Nothing renders these deltas, so no build notices when a preset's
+        posture moves and the copy does not: this is the one place that holds
+        the copy to its source."""
+        preset = f"control-assistant-{persona}"
+        text = (EXEMPLAR_PERSONAS_DIR / f"{persona}.yml").read_text(encoding="utf-8")
+        assert f"source preset: {preset}" in text
+
+        delta = yaml.safe_load(text)["config"]
+        shipped = resolve_preset(preset).config
+        posture_keys = (WRITES_KEY, EPICS_WRITES_KEY, VA_WRITES_KEY)
+        assert {key: delta.get(key) for key in posture_keys} == {
+            key: shipped.get(key) for key in posture_keys
+        }
 
 
 # ---------------------------------------------------------------------------
