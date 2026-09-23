@@ -570,6 +570,7 @@ _PHOEBUS_ALLOW = [
     "phoebus_snapshot",
     "phoebus_open_panel",
     "phoebus_open_databrowser",
+    "phoebus_panel_lookup",
 ]
 
 # Only drive actuates hardware-facing controls; open_panel touches no PVs
