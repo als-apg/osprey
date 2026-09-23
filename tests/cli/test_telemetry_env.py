@@ -513,6 +513,7 @@ def test_no_conflict_on_preexisting_otel():
     """A differing shell OTEL_* export is NOT flagged as a conflict."""
     spec = ClaudeCodeModelSpec(
         provider="test",
+        default_model_id="m",
         env_block={
             "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:5080/api/default",
             "CLAUDE_CODE_ENABLE_TELEMETRY": "1",

@@ -200,10 +200,10 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     expect(nameInput.value).toBe('my-agent');
   });
 
-  test('the model field renders as a select populated with AGENT_MODEL_OPTIONS, current value selected', async () => {
+  test('the model field is a free id field carrying the current model id', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: true,
-      json: () => Promise.resolve({ content: '---\nname: a\nmodel: sonnet\n---\nBody.', language: 'markdown' }),
+      json: () => Promise.resolve({ content: '---\nname: a\nmodel: claude-sonnet-5\n---\nBody.', language: 'markdown' }),
     })));
 
     const gallery = makeEditFormGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
@@ -213,10 +213,37 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
     const modelField = [...fields].find((f) => (f.textContent ?? '').startsWith('model'));
     if (modelField === undefined) throw new Error('model field not found');
-    const select = qs(modelField, 'select', HTMLSelectElement);
-    expect(select).toBeTruthy();
-    expect(select.value).toBe('sonnet');
-    expect(select.options.length).toBeGreaterThan(1);
+    const input = qs(modelField, 'input', HTMLInputElement);
+    expect(input.type).toBe('text');
+    expect(input.value).toBe('claude-sonnet-5');
+    expect(modelField.querySelector('select')).toBeNull();
+    expect(modelField.querySelector('datalist')).toBeNull();
+  });
+
+  test('the served models are offered as suggestions with their display names', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ content: '---\nname: a\nmodel: claude-sonnet-5\n---\nBody.', language: 'markdown' }),
+    })));
+
+    const gallery = makeEditFormGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
+    gallery.servedModels = [
+      { id: 'claude-sonnet-5', name: 'Sonnet 5' },
+      { id: 'claude-haiku-4-5', name: 'Haiku 4.5' },
+    ];
+    const form = createScaffoldGalleryEditForm(gallery);
+    await form.renderEdit();
+
+    const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
+    const modelField = [...fields].find((f) => (f.textContent ?? '').startsWith('model'));
+    if (modelField === undefined) throw new Error('model field not found');
+    const input = qs(modelField, 'input', HTMLInputElement);
+    const list = modelField.querySelector('datalist');
+    if (list === null) throw new Error('datalist not found');
+    expect(input.getAttribute('list')).toBe(list.id);
+    const options = [...list.querySelectorAll('option')];
+    expect(options.map((o) => o.value)).toEqual(['claude-sonnet-5', 'claude-haiku-4-5']);
+    expect(options.map((o) => o.label)).toEqual(['Sonnet 5', 'Haiku 4.5']);
   });
 
   test('maxTurns renders as a bounded number input', async () => {
@@ -242,10 +269,10 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     expect(input.value).toBe('5');
   });
 
-  test('changing a select field (not just text inputs) marks the gallery dirty', async () => {
+  test('choosing a suggested model (a change, not typed input) marks the gallery dirty', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: true,
-      json: () => Promise.resolve({ content: '---\nname: a\nmodel: sonnet\n---\nBody.', language: 'markdown' }),
+      json: () => Promise.resolve({ content: '---\nname: a\nmodel: claude-sonnet-5\n---\nBody.', language: 'markdown' }),
     })));
 
     const gallery = makeEditFormGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
@@ -255,9 +282,9 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     const modelField2 = [...gallery.detailContentEl.querySelectorAll('.prompts-fm-field')]
       .find((f) => (f.textContent ?? '').startsWith('model'));
     if (modelField2 === undefined) throw new Error('model field not found');
-    const select = qs(modelField2, 'select');
+    const input = qs(modelField2, 'input');
 
-    select.dispatchEvent(new Event('change'));
+    input.dispatchEvent(new Event('change'));
     expect(gallery.editDirty).toBe(true);
   });
 });

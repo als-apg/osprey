@@ -109,8 +109,8 @@ class ChannelFinderICContext:
         # When no override is given, fall through to the same resolver that
         # `osprey build` uses for the outer Claude Code config so the in-context
         # server agrees with what the rest of the toolchain considers "the
-        # configured model" — that's `claude_code.default_model` (a tier) +
-        # `claude_code.models` / `api.providers[name].models` (tier→model map).
+        # configured model" — that's `claude_code.default_model` (a model id),
+        # else the provider entry's `default_model`.
         cc_config = self._raw_config.get("claude_code", {})
         ic_model = ic_config.get("subagent_model")
         ic_provider = ic_config.get("subagent_provider")
@@ -122,7 +122,7 @@ class ChannelFinderICContext:
             from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
             api_providers = self._raw_config.get("api", {}).get("providers", {})
-            # Model-id reader only (consumes tier_to_model); a telemetry
+            # Model-id reader only (consumes default_model_id); a telemetry
             # misconfig must not crash subagent model resolution.
             spec = ClaudeCodeModelResolver.resolve(
                 cc_config, api_providers, include_telemetry=False
@@ -131,15 +131,12 @@ class ChannelFinderICContext:
                 raise RuntimeError(
                     "No subagent model configured. Set either "
                     "'channel_finder.pipelines.in_context.subagent_model' or "
-                    "'claude_code.provider' (with 'default_model' tier) in the "
+                    "'claude_code.provider' (and optionally 'claude_code.default_model', "
+                    "a model id) in the "
                     "build profile (profile.yml on the host), then rebuild and "
                     "redeploy."
                 )
-            # Free-form default_model IDs pass through verbatim (they are what
-            # ANTHROPIC_MODEL carries); otherwise the default tier's mapped ID.
-            self._subagent_model_id = (
-                spec.default_model_id or spec.tier_to_model[spec.default_model_tier]
-            )
+            self._subagent_model_id = spec.default_model_id
             self._subagent_provider = ic_provider if ic_provider else spec.provider
 
         # Arm rate limiter for providers with a known RPM cap

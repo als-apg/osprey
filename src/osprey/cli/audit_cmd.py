@@ -220,7 +220,7 @@ def _display_report(report, json_output: bool, verbose: bool, cost=None, turns=N
 @click.option(
     "--model",
     default=None,
-    help="Model for the reviewer (default: the project's sonnet tier)",
+    help="Model for the reviewer (default: the project's main model)",
 )
 @click.option("--budget", default=5.0, type=float, help="Max budget in USD")
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
@@ -344,9 +344,9 @@ def audit(
         try:
             from osprey.agent_runner.primitives import resolve_default_model
 
-            # The deployment's own sonnet tier, not a bare vendor id: a
+            # The deployment's own main model, not a bare vendor id: a
             # gateway-fronted deployment serves its own model names.
-            resolved_model = model or resolve_default_model(audit_root, tier="sonnet")
+            resolved_model = model or resolve_default_model(audit_root)
 
             if not json_output:
                 output.section(

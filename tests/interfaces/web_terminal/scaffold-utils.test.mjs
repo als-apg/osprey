@@ -18,7 +18,6 @@ import { test, expect, describe } from 'vitest';
 import { qs } from '../_support/dom.mjs';
 
 import {
-  AGENT_MODEL_OPTIONS,
   CATEGORY_HELP,
   BEHAVIOR_CATEGORIES,
   BEHAVIOR_NAMES,
@@ -156,10 +155,9 @@ describe('category-routing set membership', () => {
     expect(CONFIG_NAMES.has('claude-md')).toBe(false);
   });
 
-  test('CATEGORY_HELP and AGENT_MODEL_OPTIONS are populated, non-empty', () => {
+  test('CATEGORY_HELP is populated, non-empty', () => {
     expect(Object.keys(CATEGORY_HELP).length).toBeGreaterThan(0);
     expect(CATEGORY_HELP.hooks).toMatch(/PreToolUse hook can block a tool call/i);
-    expect(AGENT_MODEL_OPTIONS).toContain('sonnet');
   });
 
   test('every display category a gallery can render has help text', () => {

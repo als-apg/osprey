@@ -156,7 +156,7 @@ def _load_persisted_runs() -> None:
 
 
 def _inject_provider_env_once() -> None:
-    """Inject OSPREY provider env vars (auth, base URL, model tiers) into os.environ.
+    """Inject OSPREY provider env vars (auth, base URL, Claude Code alias models) into os.environ.
 
     Replicates what the OSPREY web server does at startup so the dispatch
     worker's SDK sessions use the same auth and model configuration.

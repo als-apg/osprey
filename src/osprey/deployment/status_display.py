@@ -1037,7 +1037,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """Print how the agent in this deployment is configured, and whether it is in sync.
 
     Reports the provider, the environment block its settings carry, whether the
-    credential those need can actually be found, the tier-to-model mapping, and
+    credential those need can actually be found, Claude Code's alias models, and
     whether the rendered agent artifacts still match the config they came from.
 
     The per-agent model assignments are behind *show_agents* rather than
@@ -1051,8 +1051,9 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """
     import os
 
-    from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS, load_provider_spec
+    from osprey.build.claude_code_resolver import load_provider_spec
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+    from osprey.models.display import display_model_name
     from osprey.registry.mcp import FRAMEWORK_AGENTS
     from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
 
@@ -1134,34 +1135,31 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 )
 
             if spec.env_block:
-                rows.append(("environment", "rendered into settings.json"))
+                rows.append(("environment", "process environment at launch"))
                 rows.extend(
                     (key, _display_env_value(key, value)) for key, value in spec.env_block.items()
                 )
 
-            rows.append(("model tiers", ""))
-            model_overrides = claude_code.get("models") or {}
-            for tier in ("haiku", "sonnet", "opus"):
-                suffix = " (override)" if tier in model_overrides else ""
-                rows.append((tier, f"{spec.tier_to_model.get(tier, '?')}{suffix}"))
+            rows.append(("Claude Code aliases", ""))
+            for alias, model_id in spec.alias_models.items():
+                rows.append((alias, f"{model_id} ({spec.alias_origin.get(alias, '?')})"))
 
             if show_agents:
                 rows.append(("agent models", ""))
-                agent_overrides = claude_code.get("agent_models") or {}
-                # Every agent this deployment could run, not only the ones the
-                # tier map happens to name: an agent missing from the map takes
-                # the resolver's sonnet fallback, and a status report that left
-                # it out would be the only place that went unsaid. `deployment`
-                # may import the registry; `osprey.build` may not, which is why
-                # the map lives there and the catalog here.
-                for agent_name in sorted(set(FRAMEWORK_AGENTS) | set(agent_overrides)):
-                    if agent_name in agent_overrides:
-                        origin = f"(override: {agent_overrides[agent_name]})"
-                    elif agent_name in AGENT_DEFAULT_TIERS:
-                        origin = f"({AGENT_DEFAULT_TIERS[agent_name]})"
-                    else:
-                        origin = f"(default {spec.agent_tier(agent_name)})"
-                    rows.append((agent_name, f"{spec.agent_model(agent_name)} {origin}"))
+                # Every agent this deployment could run, not only the ones
+                # claude_code.agent_models names: an agent it leaves out runs
+                # the main model, and a status report that left it out would be
+                # the only place that went unsaid.
+                for agent_name in sorted(set(FRAMEWORK_AGENTS) | set(spec.agent_models)):
+                    model_id = spec.agent_model(agent_name)
+                    origin = (
+                        "claude_code.agent_models"
+                        if agent_name in spec.agent_models
+                        else "main model"
+                    )
+                    rows.append(
+                        (agent_name, f"{display_model_name(model_id)}  {model_id}  ({origin})")
+                    )
 
             conflicts = spec.detect_env_conflicts(dict(os.environ))
             if conflicts:
