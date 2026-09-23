@@ -2325,10 +2325,9 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
 #
 # Shared constants that must match the telemetry resolver stream: compose service
 # (and in-network DNS host) ``openobserve``, port ``5080``, root-cred env vars
-# ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. The pinned image tag
-# (``v0.14.4``) is a to-confirm pin — kept overridable via
-# ``OSPREY_OPENOBSERVE_IMAGE`` — so these gates assert the image *reference and
-# override var*, not a specific tag.
+# ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. These gates assert the
+# image *reference and override var*, never a specific tag; where a gate needs
+# the tag it reads it out of the template with ``_pinned_openobserve_tag``.
 # ---------------------------------------------------------------------------
 
 _OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
