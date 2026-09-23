@@ -148,6 +148,13 @@ env:
   # has not set the variable would get an empty value and refuse every e2e lane
   # rather than run them.
   OSPREY_E2E_PROVIDER: als-apg
+  # Every pytest step writes its diagnostics here (tests/ci_diagnostics.py): the
+  # per-worker event log, the stack samples, and the container snapshot a test's
+  # first failure in a module takes while its stack is still up. The capture
+  # step uploads this directory; it cannot take that snapshot itself, because a
+  # lane's module fixtures remove their containers inside the pytest step.
+  # Stated once here so a new container lane cannot forget it.
+  OSPREY_CI_DIAG_DIR: ci-diag
 
 jobs:
   test:

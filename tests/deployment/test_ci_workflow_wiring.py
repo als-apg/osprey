@@ -3983,6 +3983,11 @@ def test_all_checks_passed_needs_archiver_world__mutation_drops_check_pr_lane_li
 # option costs no test failure of its own. Hence these pins.
 
 CAPTURE_ACTION = "./.github/actions/capture-ci-diagnostics"
+CAPTURE_ACTION_YML = REPO_ROOT / ".github" / "actions" / "capture-ci-diagnostics" / "action.yml"
+DIAG_DIR_ENV = "OSPREY_CI_DIAG_DIR"
+#: A step that runs pytest. Plain ``\bpytest\b`` would also match the shell
+#: comments in the skip-gate steps.
+_PYTEST_RUN = re.compile(r"\b(?:uv run(?: --no-sync)?|python3? -m) pytest\b")
 CAPTURE_STEP = "Capture failure diagnostics"
 WRITEBACK_JOB = "deploy-writeback-e2e"
 PODMAN_LIFECYCLE_JOB = "multi-user-deploy-lifecycle-e2e-podman"
@@ -4123,6 +4128,70 @@ def test_podman_lane_captures_with_podman__mutation_asks_for_docker() -> None:
     job["steps"][_capture_step_index(job)]["with"]["engine"] = "docker"
     with pytest.raises(AssertionError):
         test_podman_lane_captures_with_podman(mutated)
+
+
+def _capture_upload_dir() -> str:
+    """The directory the capture action uploads, read from the action itself."""
+    for step in _load_action_yml(CAPTURE_ACTION_YML)["runs"]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/upload-artifact"):
+            return str(step["with"]["path"]).rstrip("/")
+    raise AssertionError(f"{CAPTURE_ACTION_YML} has no upload-artifact step")
+
+
+def _resolved_env(
+    wf: dict[str, Any], job: dict[str, Any], step: dict[str, Any], key: str
+) -> str | None:
+    """``key`` as Actions resolves it for ``step``: step, then job, then workflow."""
+    for scope in (step, job, wf):
+        env = scope.get("env") or {}
+        if key in env:
+            return None if env[key] is None else str(env[key])
+    return None
+
+
+def test_container_lanes_write_diagnostics_where_the_capture_uploads(
+    workflow: dict[str, Any],
+) -> None:
+    """Every pytest step in a container lane arms the failure-time snapshot.
+
+    That snapshot is the only record of a failing test's containers: the
+    module's fixtures remove them inside the pytest step, before any step after
+    it runs, so the capture step can only upload what pytest wrote.
+    """
+    expected = _capture_upload_dir()
+    offenders = [
+        (name, step.get("name"), _resolved_env(workflow, job, step, DIAG_DIR_ENV))
+        for name, job in _jobs(workflow).items()
+        if name in _container_jobs(workflow)
+        for step in job.get("steps") or []
+        if _PYTEST_RUN.search(str(step.get("run", "")))
+        and _resolved_env(workflow, job, step, DIAG_DIR_ENV) != expected
+    ]
+    assert not offenders, (
+        f"pytest steps whose {DIAG_DIR_ENV} is not {expected!r}: {offenders}. "
+        "Such a step leaves no failure-time container snapshot for the capture "
+        "step to upload."
+    )
+
+
+def test_container_lanes_write_diagnostics_where_the_capture_uploads__mutation_drops_the_workflow_default() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["env"].pop(DIAG_DIR_ENV, None)
+    with pytest.raises(AssertionError):
+        test_container_lanes_write_diagnostics_where_the_capture_uploads(mutated)
+
+
+def test_container_lanes_write_diagnostics_where_the_capture_uploads__mutation_points_a_lane_elsewhere() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, TILED_JOB, "Run Tiled roundtrip E2E").setdefault("env", {})[
+        DIAG_DIR_ENV
+    ] = "elsewhere"
+    with pytest.raises(AssertionError):
+        test_container_lanes_write_diagnostics_where_the_capture_uploads(mutated)
 
 
 # ---------------------------------------------------------------------------
