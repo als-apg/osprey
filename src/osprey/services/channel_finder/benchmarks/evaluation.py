@@ -5,8 +5,8 @@ matching to determine which expected PVs appear anywhere in the agent's
 response text. Returns ``(found, missing)``. Cheap, deterministic, no API
 call.
 
-Stage 2 (opt-in via ``use_llm_judge=True``) — LLM coverage judge: uses a
-small LLM (Haiku via LiteLLM) with structured output to decide which
+Stage 2 (opt-in via ``use_llm_judge=True``) — LLM coverage judge: uses the
+judge provider's default model (via LiteLLM) with structured output to decide which
 expected channels the agent's FINAL answer covers — counting both literal
 mentions AND unambiguous shorthand (e.g. "all 96 BPMs", "BPM:01 through
 BPM:96"). Also returns any channels the agent recommended outside the
@@ -73,10 +73,12 @@ class ChannelExtractionResult(BaseModel):
     reasoning: str
 
 
-def llm_judge_coverage(response_text: str, expected: list[str]) -> tuple[list[str], list[str]]:
+def llm_judge_coverage(
+    response_text: str, expected: list[str], *, judge_model: str | None = None
+) -> tuple[list[str], list[str]]:
     """Judge which expected channels the agent's final answer covers.
 
-    Calls Haiku via OSPREY's LiteLLM adapter with structured output. The
+    Calls the judge model via OSPREY's LiteLLM adapter with structured output. The
     judge decides coverage based on the agent's FINAL answer only — both
     literal enumeration and unambiguous shorthand ("all 96 BPMs",
     "BPM:01 through BPM:96") count as coverage. It also returns any
@@ -87,6 +89,8 @@ def llm_judge_coverage(response_text: str, expected: list[str]) -> tuple[list[st
         response_text: Full agent response text.
         expected: Expected channel names — the canonical naming the judge
             scores coverage against.
+        judge_model: A model id the judge's provider serves. Omitted, the
+            provider's ``default_model`` from the packaged catalog.
 
     Returns:
         Tuple of (covered_expected, extra_recommended). ``covered_expected``
@@ -121,7 +125,6 @@ def llm_judge_coverage(response_text: str, expected: list[str]) -> tuple[list[st
     # candidate only when its URL is exported alongside its key.
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     provider = "anthropic"
-    model_id = "claude-haiku-4-5-20251001"
     base_url = None
 
     if not api_key:
@@ -130,7 +133,6 @@ def llm_judge_coverage(response_text: str, expected: list[str]) -> tuple[list[st
         if als_apg_key and als_apg_base_url:
             provider = "als-apg"
             api_key = als_apg_key
-            model_id = "claude-haiku-4-5-20251001"
             base_url = als_apg_base_url
         else:
             cborg_key = os.environ.get("CBORG_API_KEY")
@@ -138,8 +140,16 @@ def llm_judge_coverage(response_text: str, expected: list[str]) -> tuple[list[st
             if cborg_key or auth_token:
                 provider = "cborg"
                 api_key = cborg_key or auth_token
-                model_id = "anthropic/claude-haiku"
                 base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.cborg.lbl.gov/v1")
+
+    if judge_model:
+        model_id = judge_model
+    else:
+        from osprey.models.config import main_model_id
+        from osprey.profiles.providers import load_provider_catalog
+
+        catalog = load_provider_catalog(None).entries
+        model_id = main_model_id({"api": {"providers": catalog}}, provider)
 
     result = execute_litellm_completion(
         provider=provider,
@@ -169,6 +179,7 @@ def evaluate_response(
     expected: list[str],
     *,
     use_llm_judge: bool = False,
+    judge_model: str | None = None,
 ) -> tuple[list[str], dict]:
     """Evaluate a channel finder response.
 
@@ -186,6 +197,7 @@ def evaluate_response(
         expected: List of expected channel names.
         use_llm_judge: When True, run the Stage 2 LLM judge. Default False —
             pure programmatic evaluation, no upstream LLM call.
+        judge_model: The judge's model id; omitted, its provider's default.
 
     Returns:
         Tuple of (predicted_channels, metadata_dict). ``predicted_channels``
@@ -211,7 +223,7 @@ def evaluate_response(
     # shorthand-only answers ("all 96 BPMs") can still earn coverage.
     meta["stage"] = 2
     try:
-        covered, extras = llm_judge_coverage(response_text, expected)
+        covered, extras = llm_judge_coverage(response_text, expected, judge_model=judge_model)
         predicted = covered + extras
         meta["evaluation"] = "llm_judge"
         meta["llm_covered"] = covered

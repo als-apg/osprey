@@ -733,52 +733,37 @@ class TestGetEnhancementModuleConfigDetails:
 
 
 class TestSemanticProcessorConfigureModelResolution:
-    """Tests for SemanticProcessorModule.configure tier resolution."""
+    """Tests for SemanticProcessorModule.configure model handling."""
 
-    def test_configure_resolves_model_id_when_provider_given(self, monkeypatch):
-        """A provider plus a model_id routes the id through resolve_model_id."""
-        calls = []
-
-        def fake_resolve(provider, model_id):
-            calls.append((provider, model_id))
-            return f"{provider}/{model_id}-resolved"
-
-        monkeypatch.setattr("osprey.models.tiers.resolve_model_id", fake_resolve)
-
+    def test_configure_takes_the_model_id_verbatim(self):
+        """A provider plus a model_id reaches the model config unchanged."""
         module = SemanticProcessorModule()
         module.configure(
             {
                 "provider": "ollama",
-                "model": {"model_id": "fast", "temperature": 0.1},
+                "model": {"model_id": "gpt-oss:20b", "temperature": 0.1},
             }
         )
 
-        assert calls == [("ollama", "fast")]
         assert module._model_config == {
             "provider": "ollama",
-            "model_id": "ollama/fast-resolved",
+            "model_id": "gpt-oss:20b",
             "temperature": 0.1,
         }
 
-    def test_configure_without_provider_raises_before_resolution(self, monkeypatch):
+    def test_configure_without_provider_raises(self):
         """No provider is an error, not a silent fall-through to a default."""
-
-        def boom(_provider, _model_id):
-            raise AssertionError("resolve_model_id must not run without a provider")
-
-        monkeypatch.setattr("osprey.models.tiers.resolve_model_id", boom)
-
         module = SemanticProcessorModule()
         with pytest.raises(ValueError, match="semantic_processor.provider"):
             module.configure({"model": {"model_id": "llama3"}})
 
-    def test_configure_with_provider_but_no_model_id_skips_resolution(self, monkeypatch):
-        """A provider alone is not enough — resolution needs a model_id too."""
+    def test_configure_with_provider_but_no_model_id_reads_no_config(self, monkeypatch):
+        """The main model is looked up at the first call, never at configure time."""
 
-        def boom(_provider, _model_id):
-            raise AssertionError("resolve_model_id must not run without a model_id")
+        def boom(*_args, **_kwargs):
+            raise AssertionError("configure must not load config.yml")
 
-        monkeypatch.setattr("osprey.models.tiers.resolve_model_id", boom)
+        monkeypatch.setattr("osprey.utils.config.load_config", boom)
 
         module = SemanticProcessorModule()
         module.configure({"provider": "ollama", "model": {"temperature": 0.2}})
@@ -791,7 +776,7 @@ class TestSemanticProcessorProcessText:
 
     @pytest.fixture
     def module(self):
-        """Module configured with a model config (no tier resolution)."""
+        """Module configured with a model config."""
         m = SemanticProcessorModule()
         m.configure({"provider": "ollama", "model": {"model_id": "llama3"}})
         return m

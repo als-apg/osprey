@@ -155,6 +155,7 @@ class BenchmarkRunner:
         backend: str = "auto",
         repeat_idx: int = 0,
         use_llm_judge: bool = False,
+        judge_model: str | None = None,
     ) -> None:
         if "/" not in model:
             raise ValueError(f"model must be in LiteLLM ``provider/wire_id`` form, got {model!r}")
@@ -168,6 +169,7 @@ class BenchmarkRunner:
         self.queries_override = queries_override
         self.repeat_idx = repeat_idx
         self.use_llm_judge = use_llm_judge
+        self.judge_model = judge_model
         self._backend = create_backend(
             backend,
             self.project_dir,
@@ -403,6 +405,7 @@ class BenchmarkRunner:
                     output.response_text,
                     expected,
                     use_llm_judge=self.use_llm_judge,
+                    judge_model=self.judge_model,
                 )
                 precision, recall, f1 = compute_f1(predicted, expected)
 

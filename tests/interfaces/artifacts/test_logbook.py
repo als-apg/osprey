@@ -14,7 +14,8 @@ Covers:
   - Compose with custom_prompt
   - Compose backward compatibility (no steering fields)
   - Assemble-prompt endpoint
-  - Model tier routing (haiku/sonnet/opus)
+  - Model routing: the panel's id, refused unless served; the composition model
+  - Served-models endpoint for the panel's selector
 """
 
 import json
@@ -57,18 +58,14 @@ def _llm_json_response(subject="Test Subject", details="Test details.", tags=Non
 _MOCK_PROVIDER_CONFIG = {
     "api_key": "test-key",
     "base_url": "https://api.example.com/v1",
-    "models": {
-        "haiku": "anthropic/claude-haiku",
-        "sonnet": "anthropic/claude-sonnet",
-        "opus": "anthropic/claude-opus",
-    },
+    "default_model": "claude-sonnet-5",
+    "models": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
 }
 
 # Default logbook.composition config returned by get_config_value
 _MOCK_COMPOSITION_CONFIG = {
     "provider": "anthropic",
-    "model_id": "anthropic/claude-haiku",
-    "default_tier": "haiku",
+    "model": "claude-haiku-4-5",
 }
 
 
@@ -572,8 +569,8 @@ class TestComposeWithSteering:
         assert "Alpha" in user_msg
         assert "Beta" in user_msg
 
-    def test_compose_model_tier_routing(self, app_client):
-        """model="sonnet" resolves to provider's sonnet model_id."""
+    def test_compose_routes_the_panel_choice(self, app_client):
+        """model= names a served id; it is sent as is."""
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store)
 
@@ -583,16 +580,17 @@ class TestComposeWithSteering:
         with p1, p2, patch("osprey.models.completion.aget_chat_completion", mock_llm):
             resp = app_client.post(
                 "/api/logbook/compose",
-                json={"artifact_id": entry.id, "model": "sonnet"},
+                json={"artifact_id": entry.id, "model": "claude-opus-5"},
             )
 
         assert resp.status_code == 200
         call_args = mock_llm.call_args
         assert call_args.kwargs["provider"] == "anthropic"
-        assert call_args.kwargs["model_id"] == "anthropic/claude-sonnet"
+        assert call_args.kwargs["model_id"] == "claude-opus-5"
 
-    def test_compose_model_opus_routing(self, app_client):
-        """model="opus" resolves to provider's opus model_id."""
+    @pytest.mark.parametrize("picked", ["gpt-6-sol", "sonnet"])
+    def test_compose_refuses_an_id_the_provider_does_not_serve(self, app_client, picked):
+        """A browser-sent id outside the served list is a 400 naming the list."""
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store)
 
@@ -602,15 +600,17 @@ class TestComposeWithSteering:
         with p1, p2, patch("osprey.models.completion.aget_chat_completion", mock_llm):
             resp = app_client.post(
                 "/api/logbook/compose",
-                json={"artifact_id": entry.id, "model": "opus"},
+                json={"artifact_id": entry.id, "model": picked},
             )
 
-        assert resp.status_code == 200
-        call_args = mock_llm.call_args
-        assert call_args.kwargs["model_id"] == "anthropic/claude-opus"
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert picked in detail
+        assert "claude-opus-5, claude-sonnet-5, claude-haiku-4-5" in detail
+        mock_llm.assert_not_called()
 
-    def test_compose_default_tier_from_config(self, app_client):
-        """No model= uses default_tier from logbook.composition config."""
+    def test_compose_default_is_the_composition_model(self, app_client):
+        """No model= uses logbook.composition.model."""
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store)
 
@@ -624,9 +624,68 @@ class TestComposeWithSteering:
             )
 
         assert resp.status_code == 200
-        call_args = mock_llm.call_args
-        # Default tier is "haiku" per _MOCK_COMPOSITION_CONFIG
-        assert call_args.kwargs["model_id"] == "anthropic/claude-haiku"
+        assert mock_llm.call_args.kwargs["model_id"] == "claude-haiku-4-5"
+
+    def test_compose_default_falls_back_to_the_main_model(self, app_client):
+        """No composition model: the deployment's main model answers."""
+        store = app_client.app.state.artifact_store
+        entry = _make_artifact(store)
+
+        values = {
+            "logbook.composition": {},
+            "claude_code.provider": "anthropic",
+            "claude_code.default_model": "claude-opus-5",
+        }
+        mock_llm = AsyncMock(return_value=_llm_json_response())
+
+        with (
+            patch(
+                "osprey.utils.config.get_config_value",
+                side_effect=lambda path, default=None: values.get(path, default),
+            ),
+            patch("osprey.models.config.get_provider_config", return_value=_MOCK_PROVIDER_CONFIG),
+            patch("osprey.models.completion.aget_chat_completion", mock_llm),
+        ):
+            resp = app_client.post("/api/logbook/compose", json={"artifact_id": entry.id})
+
+        assert resp.status_code == 200
+        assert mock_llm.call_args.kwargs["model_id"] == "claude-opus-5"
+
+
+class TestLogbookModels:
+    """GET /api/logbook/models fills the compose panel's selector."""
+
+    @pytest.fixture
+    def app_client(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.artifacts.app import create_app
+
+        return TestClient(create_app(workspace_root=tmp_path))
+
+    def test_lists_the_served_models_with_display_names(self, app_client):
+        p1, p2 = _patch_model_resolution()
+        with p1, p2:
+            resp = app_client.get("/api/logbook/models")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["provider"] == "anthropic"
+        assert body["default"] == "claude-haiku-4-5"
+        assert body["models"] == [
+            {"id": "claude-opus-5", "name": "Opus 5"},
+            {"id": "claude-sonnet-5", "name": "Sonnet 5"},
+            {"id": "claude-haiku-4-5", "name": "Haiku 4.5"},
+        ]
+
+    def test_no_provider_is_a_503(self, app_client):
+        with (
+            patch("osprey.utils.config.get_config_value", return_value={}),
+            patch("osprey.models.config.get_provider_config", return_value={}),
+        ):
+            resp = app_client.get("/api/logbook/models")
+
+        assert resp.status_code == 503
 
 
 class TestUserPromptContent:
