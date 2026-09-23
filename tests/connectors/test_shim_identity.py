@@ -123,15 +123,18 @@ def test_errors_shim_preserves_module_identity():
 def test_utils_shims_preserve_module_identity():
     import osprey.utils.config
     import osprey.utils.dotenv
+    import osprey.utils.identity
     import osprey.utils.logger
     import osprey.utils.relative_time
     import osprey_connectors.config
     import osprey_connectors.dotenv
+    import osprey_connectors.identity
     import osprey_connectors.logger
     import osprey_connectors.relative_time
 
     assert osprey.utils.config is osprey_connectors.config
     assert osprey.utils.dotenv is osprey_connectors.dotenv
+    assert osprey.utils.identity is osprey_connectors.identity
     assert osprey.utils.logger is osprey_connectors.logger
     assert osprey.utils.relative_time is osprey_connectors.relative_time
 
@@ -141,6 +144,14 @@ def test_patching_through_shim_reaches_real_module(monkeypatch):
 
     monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: "patched")
     assert real_config.get_config_value("anything") == "patched"
+
+
+def test_patching_the_identity_shim_reaches_the_ladder(monkeypatch):
+    import osprey_connectors.identity as ladder
+
+    monkeypatch.setattr("osprey.utils.identity.IDENTITY_ENV_LADDER", ("OSPREY_SHIM_PROBE_USER",))
+    monkeypatch.setenv("OSPREY_SHIM_PROBE_USER", "shim-probe")
+    assert ladder.acting_identity() == "shim-probe"
 
 
 def test_simulation_core_shims_preserve_module_identity():
