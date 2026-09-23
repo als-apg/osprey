@@ -2040,6 +2040,16 @@ keys:
       two parsed formats refuse with a 413 and the raw download is unaffected.
       A value that is not a positive integer is logged and the default kept.
     default: 200
+  artifact_server.page_size:
+    rendered: false
+    evidence: 'get_config_value\(\s*"artifact_server\.page_size"'
+    note: >-
+      How many artifacts one listing request answers with, and so how many the
+      gallery draws before it fetches the next page. Commented in all four
+      presets, because the right number depends on a site's store size and
+      link. A value that is not a positive integer is logged and the default
+      kept; a value above 200 is logged and capped at 200.
+    default: 20
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
     default: false

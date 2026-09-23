@@ -1015,6 +1015,10 @@ config:
   # memory on the machine serving the gallery. Over the cap the browser views
   # refuse with a 413; the file itself stays downloadable either way.
   # artifact_server.max_timeseries_file_mb: 200
+  # How many artifacts the gallery loads at a time.
+  # It fetches more as the list is scrolled.
+  # Lowering it suits a slow link; raising it suits a small store.
+  # artifact_server.page_size: 20
   # Extra artifact categories on top of the ones the gallery ships, so a badge
   # reads in this facility's own vocabulary. One dotted line per category, each
   # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
