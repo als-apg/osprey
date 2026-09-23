@@ -165,6 +165,7 @@ atexit hooks.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -290,8 +291,27 @@ def _exit_now(code: int) -> None:
     """Flush the diagnostics and leave, without running interpreter shutdown."""
     try:
         sys.stderr.flush()
+        _save_coverage()
     finally:
         os._exit(code)
+
+
+def _save_coverage() -> None:
+    """Write coverage data a measured run collected in this child, if any.
+
+    ``os._exit`` skips the atexit hook coverage.py saves from, so without this a
+    test run that measures subprocesses sees none of the code a child ran. Only
+    a run that already imported coverage has anything to save; everywhere else
+    this is a dictionary lookup.
+    """
+    coverage = sys.modules.get("coverage")
+    if coverage is None:
+        return
+    with contextlib.suppress(Exception):
+        current = coverage.Coverage.current()
+        if current is not None:
+            current.stop()
+            current.save()
 
 
 # --------------------------------------------------------------------------
