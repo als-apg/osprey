@@ -472,7 +472,8 @@ async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
 
     with pytest.raises(RuntimeError, match="closed"):
         await starting
-    ((_, process),) = spawns
+    assert len(spawns) == 1
+    process = spawns[0][1]
     assert process.returncode is not None
     assert pool.pids() == {}
 

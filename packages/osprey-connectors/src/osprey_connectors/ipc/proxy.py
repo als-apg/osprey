@@ -460,8 +460,13 @@ class ConnectorHostProxy:
             # its stream ended — the supervisor's reader does exactly that when
             # it kills a child for a target switch. That sentence is better than
             # anything this layer could write about it, so it is passed through
-            # verbatim rather than wrapped in a description of the stream.
-            await self._fail_all(str(exc) or f"the {CHILD} closed its output stream")
+            # verbatim rather than wrapped in a description of the stream. An
+            # OS-level failure (errno set, e.g. ECONNRESET) names no one, so it
+            # is attributed to the child here.
+            if exc.errno is None and str(exc):
+                await self._fail_all(str(exc))
+            else:
+                await self._fail_all(f"the {CHILD}'s output stream failed: {exc}")
         except Exception as exc:
             await self._fail_all(f"the {CHILD} sent an unreadable reply stream: {exc}")
 

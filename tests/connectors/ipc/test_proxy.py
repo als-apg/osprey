@@ -658,6 +658,27 @@ async def test_a_dead_pipe_sets_dead_reason_and_is_not_the_childs_error(teardown
     assert proxy.dead_reason and CHILD in proxy.dead_reason
 
 
+async def test_a_reset_pipe_is_attributed_to_the_child():
+    """Linux reports a socketpair peer that closed mid-stream as ECONNRESET,
+    whose message names no one; the proxy must still say whose stream it was."""
+
+    class _Resetting:
+        async def read(self, _n):
+            raise ConnectionResetError(104, "Connection reset by peer")
+
+    parent_sock, child_sock = socket.socketpair()
+    _, parent_writer = await asyncio.open_connection(sock=parent_sock)
+    proxy = ConnectorHostProxy(_Resetting(), parent_writer)
+    try:
+        with pytest.raises(ConnectionError) as caught:
+            await proxy.read_channel("SR:DCCT", timeout=2.0)
+    finally:
+        await proxy.disconnect(ack_timeout=0.05)
+        child_sock.close()
+    assert not raised_by_child(caught.value)
+    assert CHILD in str(caught.value) and "Connection reset by peer" in str(caught.value)
+
+
 # ------------------------------------------------------- drain / refuse (3.1)
 
 
