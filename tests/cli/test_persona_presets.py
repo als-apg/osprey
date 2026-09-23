@@ -629,6 +629,47 @@ def _own_config(name: str) -> dict:
     return raw.get("config") or {}
 
 
+#: The page that tells a deployer what each tier's screen looks like.
+TIERS_PAGE = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "source"
+    / "how-to"
+    / "web-terminal"
+    / "multi-user"
+    / "tiers.rst"
+)
+#: The anchor above the page's tier table. Rows are read from it to the next anchor
+#: or, when the page has none, to its end.
+TIERS_TABLE_ANCHOR = ".. _multi-user-tiers:"
+#: A tier row's first cell, ``* - **<tier>** (<login>)``.
+_TIER_ROW = re.compile(r"^\s*\* - \*\*(\w+)\*\*")
+#: A later cell of the same row, written ``- `` at the row's indent.
+_ROW_CELL = re.compile(r"^\s*- (.*)$")
+#: What a screen cell says about the write-oriented panels, by their tab labels.
+_PANEL_CLAIM = re.compile(r"\b(with|without) the EVENTS and BLUESKY panels\b")
+
+
+def _tier_screen_cells() -> dict[str, str]:
+    """Each tier row's last cell in the tiers page's table, whitespace-collapsed."""
+    lines = TIERS_PAGE.read_text(encoding="utf-8").splitlines()
+    assert TIERS_TABLE_ANCHOR in lines, f"{TIERS_PAGE} lost its {TIERS_TABLE_ANCHOR} anchor"
+    cells: dict[str, list[str]] = {}
+    tier = None
+    for line in lines[lines.index(TIERS_TABLE_ANCHOR) + 1 :]:
+        if line.startswith(".. _"):
+            break
+        row = _TIER_ROW.match(line)
+        if row is not None:
+            tier = row.group(1)
+            cells[tier] = [""]
+        elif tier is not None and (cell := _ROW_CELL.match(line)) is not None:
+            cells[tier].append(cell.group(1))
+        elif tier is not None and line.strip():
+            cells[tier][-1] += " " + line.strip()
+    return {name: " ".join(parts[-1].split()) for name, parts in cells.items()}
+
+
 class TestControlAssistantPersonas:
     """The three tiers: identical projects except for the tier contract.
 
@@ -847,6 +888,23 @@ class TestControlAssistantPersonas:
         assert readonly.web_panels == base.web_panels
         for tier in (readwrite, admin):
             assert set(tier.web_panels) == set(base.web_panels) | {"events", "bluesky"}
+
+    @pytest.mark.parametrize("tier", ["readonly", "readwrite", "admin"])
+    def test_tiers_page_names_the_panels_each_tier_declares(self, tier: str) -> None:
+        """The tiers page's "What the screen looks like" column says, per tier,
+        whether the write-oriented panels are there, and the preset decides it.
+
+        The page is what a deployer reads to choose a login for a teammate. A
+        preset that gains or drops the panels changes that answer, so the row
+        has to move with it. Read by tab label, because that is what the
+        page names."""
+        profile = resolve_preset(f"control-assistant-{tier}")
+        declared = set(WRITE_TIER_PANELS) <= set(profile.web_panels)
+        cell = _tier_screen_cells()[tier]
+        assert _PANEL_CLAIM.findall(cell) == (["with"] if declared else ["without"]), (
+            f"the tiers page's {tier} row says {cell!r}, but control-assistant-{tier} "
+            f"{'declares' if declared else 'does not declare'} the EVENTS and BLUESKY panels"
+        )
 
     def test_safety_chain_hooks_are_shipped(self) -> None:
         """The write-capable tier is supervised, not unguarded: the hooks that
