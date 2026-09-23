@@ -323,11 +323,13 @@ class TestReadChannel:
         await conn.read_channel("sr/power_supply/ps01/Voltage")
         assert list(conn._proxies) == ["sr/power_supply/ps01"]
 
-    async def test_read_propagates_exception(self, connector):
+    async def test_a_device_failure_on_read_is_a_connection_error(self, connector):
         conn, proxy = connector
         proxy.read_attribute.side_effect = RuntimeError("device down")
-        with pytest.raises(RuntimeError, match="device down"):
+        with pytest.raises(ConnectionError, match="device down") as raised:
             await conn.read_channel(_ADDRESS)
+        assert _ADDRESS in str(raised.value)
+        assert isinstance(raised.value.__cause__, RuntimeError)
 
     async def test_malformed_address_raises_before_any_device_call(self, connector):
         conn, proxy = connector
@@ -686,16 +688,16 @@ class TestUnreachableDevice:
     """A ``DeviceProxy`` that cannot be built, on each path that builds one.
 
     Creating a proxy is itself a database round trip, so a device that is
-    down, or a name no database knows, fails there rather than at the read or
-    the write. The connector does not translate what PyTango raised — the
-    transport's own error is the answer — so a read hands it to the caller
-    unchanged, while a write turns it into the word the write contract owns.
+    down, or a name no database knows, fails there rather than at the read
+    or the write. A read reports that as a connection error naming the
+    attribute and keeps PyTango's own error as its cause; a write turns it
+    into the word the write contract owns.
     """
 
-    async def test_read_hands_the_proxy_failure_to_the_caller(self, connector):
+    async def test_a_proxy_that_cannot_be_built_is_a_connection_error(self, connector):
         conn, _ = connector
         conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
-        with pytest.raises(RuntimeError, match="not exported"):
+        with pytest.raises(ConnectionError, match="not exported"):
             await conn.read_channel(_ADDRESS)
 
     async def test_a_proxy_that_could_not_be_built_is_not_cached(self, connector):
@@ -703,7 +705,7 @@ class TestUnreachableDevice:
         conn, proxy = connector
         conn._tango.DeviceProxy.side_effect = [RuntimeError("device is not exported"), proxy]
 
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ConnectionError):
             await conn.read_channel(_ADDRESS)
         assert not conn._proxies
 
