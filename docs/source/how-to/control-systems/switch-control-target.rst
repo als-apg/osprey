@@ -479,7 +479,9 @@ not usable right now".
      - An earlier switch has not yet reached every control-system server. The
        refusal names the servers still working. Wait for the chip to settle and
        ask again; the request is refused rather than queued, so nothing lands
-       later without you.
+       later without you. A server that has not launched a connector yet is
+       not one of them — it has nothing to move off, so it holds up nobody
+       else.
    * - **Already there**
      - The deployment is on that target already. The active target always
        answers this, whatever else would also be true of it.
