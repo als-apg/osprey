@@ -320,8 +320,8 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #       # tiers fall back to `model:`, with a build-time warning:
 #       models:
 #         haiku: claude-haiku-4-5
-#         sonnet: claude-sonnet-4-6
-#         opus: claude-opus-4-6
+#         sonnet: claude-sonnet-5
+#         opus: claude-opus-5
 #
 # then name it here. Its key goes in this repo's .env under the variable the
 # entry's `api_key:` references.

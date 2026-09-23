@@ -3,7 +3,7 @@
 ``setdefault``-ing every unmapped tier to the built-in Anthropic direct model
 IDs, so the env block can always be built, costs a silent lie: selecting a
 provider that ships no ``models`` map would launch the agent asking *that*
-provider for ``claude-opus-4-6`` — a 404 from a strict proxy, and a silently
+provider for ``claude-opus-5`` — a 404 from a strict proxy, and a silently
 different model from a permissive one.
 
 So a missing tier is never filled with another provider's IDs. It falls back
