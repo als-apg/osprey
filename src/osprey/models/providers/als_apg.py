@@ -33,7 +33,7 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     # default above, so a deployment with a baked-in URL can be pointed at
     # another gateway at runtime (accepts the URL with or without /v1).
     base_url_env_var = "ALS_APG_BASE_URL"
-    default_model_id = "claude-haiku-4-5-20251001"
+    default_model_id = "claude-sonnet-5"
     health_check_model_id = "claude-haiku-4-5-20251001"
 
     # API key acquisition information

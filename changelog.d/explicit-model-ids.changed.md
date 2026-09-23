@@ -7,4 +7,5 @@ from a gateway's optional `claude_code_aliases`). `claude_code.models` is now
 `logbook.composition.model`. Model names shown to people drop the vendor
 prefix: Sonnet 5, Haiku 4.5, Fable 5.1.
 A deployment on anthropic that names no model now runs Sonnet 5 where it ran
-Haiku 4.5.
+Haiku 4.5. A deployment on als-apg that names no model now runs Sonnet 5 too,
+and its health check still probes Haiku 4.5.
