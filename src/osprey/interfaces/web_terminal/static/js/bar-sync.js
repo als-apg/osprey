@@ -10,10 +10,9 @@
  * FIRST PAINT NEVER WAITS. The boot `GET` is started at import time and
  * awaited by nobody. A fetch that hangs, 500s or never resolves leaves the
  * server-rendered bars exactly as they are — the reconcile it feeds is a
- * CORRECTION, not the render. That is also what makes the GET worth doing at
- * all: the server-side render drops `data-bar-options` (it emits only type,
- * adopted and follows), so a deployment that configured a UTC clock paints a
- * local one until this reconcile arrives with the options attached.
+ * CORRECTION, not the render. The server's paint already carries each item's
+ * options, so what the GET adds is the document itself: the revision every
+ * later PUT carries, and `normalize()`'s verdict on the document.
  *
  * A PUT ONLY EVER FOLLOWS AN EXPLICIT EDIT. Boot does not write. A visibility
  * re-GET does not write. A document this build repaired on the way in — a

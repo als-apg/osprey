@@ -50,6 +50,9 @@ Coverage (one test each):
   (m) a hidden header comes back from the terminal tile header's right-click
       menu -- the header has no surface of its own to right-click once hidden,
       so the tile headers carry the way back, and the restore is stored.
+  (n) a configured option is on the first paint: with the boot ``GET`` aborted,
+      a UTC clock still hydrates showing its zone, because the server's shell
+      carries the options the item was placed with.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -943,5 +946,35 @@ def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, chromi
         page.reload(wait_until="domcontentloaded")
         page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
         expect(page.locator("html")).not_to_have_attribute("data-header-bar", "hidden")
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (n) a configured option is on the first paint
+# ---------------------------------------------------------------------------
+
+
+def test_a_configured_option_is_on_the_first_paint(tmp_path, chromium_browser):
+    """The server's paint carries each item's options, so the first reconcile
+    renders the configured item rather than the type's defaults.
+
+    The boot ``GET /api/bar-items`` is aborted, which leaves the server's shells
+    as the only source of options: a UTC clock that shows its zone label here
+    got it from the paint, not from a later correction.
+    """
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=[{"type": "clock", "options": {"zone": "utc"}}],
+        )
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.route("**/api/bar-items", lambda route: route.abort())
+        with page.expect_request(lambda r: r.url.endswith("/api/bar-items") and r.method == "GET"):
+            page.goto(base_url, wait_until="domcontentloaded")
+        page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
+
+        expect(page.locator(f"{STATUS_HOST} .bar-clock-zone")).to_have_text("UTC")
 
         page.close()

@@ -779,7 +779,8 @@ class BarRenderPlan(NamedTuple):
     """Everything ``index.html`` needs to render both hosts and the pool.
 
     Attributes:
-        header: Ordered header shells, each ``{"type", "adopted", "follows"}``.
+        header: Ordered header shells, each
+            ``{"type", "adopted", "follows", "options"}``.
         status: Ordered status-bar shells, same shape.
         pooled: Adopted types this deployment renders but this layout does not
             place — their nodes go into ``#bar-item-pool``.
@@ -923,6 +924,13 @@ def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
     a shell rendered for it would be an empty box the first reconcile takes
     away again.
 
+    **Options are painted, not deferred.** Each shell carries the options its
+    entry was placed with, so the first reconcile renders the configured item —
+    the zone of a clock, the width of a space. Without them it would render the
+    type's defaults and correct them when the stored document arrives. An entry
+    whose ``options`` is not a mapping paints with none, which is also what the
+    client's normalizer does with it.
+
     ``follows`` chains off the previous EMITTED item rather than the previous
     layout entry, so a skipped item cannot leave the middot stranded on a shell
     that is no longer next to the logo.
@@ -962,7 +970,15 @@ def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
                 if item_type in seen:
                     continue
                 seen.add(item_type)
-            shells.append({"type": item_type, "adopted": adopted, "follows": previous})
+            options = raw.get("options")
+            shells.append(
+                {
+                    "type": item_type,
+                    "adopted": adopted,
+                    "follows": previous,
+                    "options": dict(options) if isinstance(options, dict) else {},
+                }
+            )
             previous = item_type
         runs[host] = shells
 
