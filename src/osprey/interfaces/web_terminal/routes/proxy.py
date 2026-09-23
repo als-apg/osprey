@@ -775,13 +775,58 @@ def _panel_json_rewrite_paths(request: Request, panel_id: str) -> tuple[str, ...
     return ()
 
 
-def _rewrite_content(body: str, panel_id: str, outer_prefix: str = "") -> str:
+def _path_rewrite_prefix(path: object) -> tuple[str, ...]:
+    """The rewrite prefix a panel's configured ``path`` contributes, if any.
+
+    A panel's document is served at ``/panel/<id><path>``, so a literal that
+    begins with ``path`` has exactly one correct destination under the panel's
+    namespace. Two rules keep the derived prefix to that:
+
+    - a path of ``/`` is every literal, so deriving from it would rewrite every
+      quote-delimited ``/…`` in the body — the default path contributes nothing;
+    - a query string and a fragment are not part of a prefix any literal can
+      begin with, so only the path component counts (a noVNC path such as
+      ``/vnc.html?path=…&autoconnect=1`` derives ``/vnc.html``).
+
+    Args:
+        path: The panel's configured ``path``; anything but a string derives
+            nothing.
+    """
+    if not isinstance(path, str):
+        return ()
+    component = urlparse(path).path
+    if not component.startswith("/") or component == "/":
+        return ()
+    return (component,)
+
+
+def _panel_rewrite_prefixes(request: Request, panel_id: str) -> tuple[str, ...]:
+    """The prefixes this panel adds to ``_REWRITE_PREFIXES`` (usually none).
+
+    Only a config-defined panel contributes: a runtime registration's ``path``
+    is a free string its caller chooses, and a rewrite prefix is configuration.
+    """
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") == panel_id:
+            if not cp.get("configDefined"):
+                return ()
+            return _path_rewrite_prefix(cp.get("path"))
+    return ()
+
+
+def _rewrite_content(
+    body: str, panel_id: str, outer_prefix: str = "", extra_prefixes: tuple[str, ...] = ()
+) -> str:
     """Rewrite root-absolute paths inside string delimiters for proxied content.
 
     Only touches known prefixes inside ``"``, ``'``, or backtick delimiters.
     CDN URLs (``https://…``), protocol-relative (``//…``), and data URIs
     are unaffected because the pattern requires a delimiter immediately
     before the ``/``.
+
+    The order of ``_REWRITE_PREFIXES`` and ``extra_prefixes`` does not matter:
+    a rewritten literal no longer starts with ``/`` after its delimiter, so
+    whichever prefix matches first consumes it and no other can match it again.
 
     Args:
         body: The response body to rewrite.
@@ -790,10 +835,12 @@ def _rewrite_content(body: str, panel_id: str, outer_prefix: str = "") -> str:
             ``compute_url_prefix()``). Prepended so a panel's internal
             assets/APIs resolve under the outer prefix too, not just
             ``/panel/<id>``. Empty prefix ⇒ unchanged (pre-refactor) output.
+        extra_prefixes: The root-absolute prefixes this one panel adds to
+            ``_REWRITE_PREFIXES``; none by default.
     """
     prefix = f"{outer_prefix}/panel/{panel_id}"
 
-    for path in _REWRITE_PREFIXES:
+    for path in (*_REWRITE_PREFIXES, *extra_prefixes):
         # Match path inside string delimiters: "/static/..." → "/panel/id/static/..."
         # The lookbehind ensures we only match after a quote character.
         body = re.sub(
@@ -944,6 +991,8 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Re
     # osprey-theme-switcher.js dynamically imports '/design-system/js/
     # theme-manager.js'). Apply the proxy's own rewrite so those resolve back
     # into this panel's namespace — and therefore back to the hub's copy.
+    # The fixed prefixes only: this is the hub's tree, not the panel's upstream,
+    # so nothing derived from the panel's configuration applies to it.
     text = _rewrite_content(candidate.read_text(encoding="utf-8"), panel_id, compute_url_prefix())
     return Response(content=text, headers=headers, media_type=media_type)
 
@@ -1371,7 +1420,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # (large, immutable, no OSPREY paths to rewrite).
     if base_type in _REWRITABLE_TYPES and "/vendor/" not in path:
         text = resp.text
-        text = _rewrite_content(text, panel_id, outer_prefix)
+        text = _rewrite_content(
+            text, panel_id, outer_prefix, _panel_rewrite_prefixes(request, panel_id)
+        )
         # After the rewrite, never before: everything injected here is already
         # fully formed for this deployment, and a second pass over it would
         # aim the bar's own URLs into the panel's namespace.
@@ -1395,7 +1446,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         stripped = path.rstrip("/")
         if any(stripped.endswith(sfx) for sfx in _panel_json_rewrite_paths(request, panel_id)):
             return Response(
-                content=_rewrite_content(resp.text, panel_id, outer_prefix),
+                content=_rewrite_content(
+                    resp.text, panel_id, outer_prefix, _panel_rewrite_prefixes(request, panel_id)
+                ),
                 status_code=resp.status_code,
                 headers=resp_headers,
                 media_type=content_type,
