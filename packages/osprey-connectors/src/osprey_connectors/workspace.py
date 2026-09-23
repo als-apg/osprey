@@ -21,6 +21,11 @@ logger = logging.getLogger("osprey_connectors.workspace")
 BUILD_DIR_NAME = "build"
 STATE_DIR_NAME = "var"
 
+#: The file that makes a directory a deployment repo root — the marker the
+#: CLI's repo walk and the hook library's anchor both look for. Spelled here
+#: because this layer must not import ``cli``.
+PROFILE_FILENAME = "profile.yml"
+
 #: Where the build stages the container-destined copy of a project, under the
 #: render zone. Each is a deployment REPO — ``profile.yml`` and the source zone
 #: at its root, its own render below in ``build/`` — rendered against the
@@ -411,10 +416,19 @@ def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
          parent's parent when the config is in the ``build/`` zone. Filesystem
          truth, and correct in every container layout: the mount target names
          the render, so unwrapping it names the repo.
-      3. The configured value after all, when there is no config file to derive
-         from — a build rendered with ``--runtime-root`` records a path that
-         exists only on the machine it will run on, and has nothing better.
-      4. The current working directory, when there is neither.
+      3. The nearest ancestor of the working directory holding ``profile.yml``,
+         the marker every OSPREY verb walks up to. Reached only when no config
+         file exists, so it can never out-vote one; without it a process started
+         in an unbuilt render would anchor every relative path inside
+         ``build/``.
+      4. The configured value after all, when there is no config file and no
+         marker to derive from — a build rendered with ``--runtime-root``
+         records a path that exists only on the machine it will run on, and has
+         nothing better.
+      5. The current working directory, when there is neither.
+         ``CLAUDE_PROJECT_DIR`` is not an input: this resolver serves processes
+         outside any agent session as well, and a harness variable must not
+         redirect them.
 
     Args:
         config: Loaded ``config.yml`` mapping, or ``None`` to consult only the
@@ -428,7 +442,11 @@ def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
     config_path = resolve_config_path()
     if config_path.exists():
         return repo_root_for_config(config_path)
-    return candidate if candidate is not None else Path.cwd()
+    cwd = Path.cwd()
+    for ancestor in (cwd, *cwd.parents):
+        if (ancestor / PROFILE_FILENAME).is_file():
+            return ancestor
+    return candidate if candidate is not None else cwd
 
 
 def resolve_agent_data_root() -> Path:

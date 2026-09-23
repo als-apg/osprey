@@ -303,13 +303,17 @@ def get_repo_root(hook_input=None):
        service actually runs in.
     3. The nearest ancestor holding ``profile.yml``, found the way every OSPREY
        verb finds a repo. Reached only when the config named no usable root and
-       does not exist, where the framework has nothing left to consult either.
+       does not exist. The framework takes the same walk at the same point,
+       from its working directory.
     4. The recorded ``project_root`` after all, unqualified. A build rendered
        with ``--runtime-root`` records a path that exists only on the machine it
        will run on, and with no config file to unwrap there is nothing better to
        anchor on — the framework keeps the same value as its own late rung.
     5. The project directory itself. A legacy flat layout has no zones to
-       separate, so anchoring on it is the right answer.
+       separate, so anchoring on it is the right answer. The framework's last
+       rung is its working directory instead. It does not read the harness
+       variable, so the two agree whenever that variable is unset or names the
+       working directory.
 
     Returns:
         The repo root as a string, matching :func:`get_project_dir`'s type.

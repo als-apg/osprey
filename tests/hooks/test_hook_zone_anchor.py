@@ -574,10 +574,12 @@ def test_hook_constants_match_the_framework(hook_module):
     """
     from osprey.cli.repo_resolver import PROFILE_FILENAME
     from osprey.utils.workspace import BUILD_DIR_NAME
+    from osprey.utils.workspace import PROFILE_FILENAME as WORKSPACE_PROFILE_FILENAME
 
     hook_log = hook_module("osprey_hook_log")
 
     assert hook_log.PROFILE_MARKER == PROFILE_FILENAME
+    assert WORKSPACE_PROFILE_FILENAME == PROFILE_FILENAME
     assert hook_log.BUILD_DIR_NAME == BUILD_DIR_NAME
 
 
