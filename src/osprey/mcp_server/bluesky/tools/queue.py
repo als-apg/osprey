@@ -1162,14 +1162,27 @@ async def queue_list() -> str:
     Returns:
         JSON ``{"status", "items", "running_item"}``.
 
-        ``status`` carries ``available`` (false when the manager could not be
-        read at all, with ``reason``), ``manager_state``,
+        ``status`` carries ``available`` (always true on this read: a manager
+        that cannot be read is a refusal, below), ``manager_state``,
         ``worker_environment_exists``, ``items_in_queue``, ``items_in_history``,
         ``running_item_uid``, ``queue_stop_pending`` and
         ``queue_autostart_enabled``. A ``manager_state`` of ``executing_queue``,
         ``starting_queue``, ``executing_task`` or ``paused`` means the queue is
         already draining toward hardware — adding to it then is an armed
         operation.
+
+        ``plan_queue_uid`` and ``plan_history_uid`` are the manager's change
+        tokens for the pending queue and the history: opaque, and different
+        whenever that list has changed since the last read.
+
+        Two keys are OSPREY's own rather than the manager's. ``runs_removed``
+        is how many completed runs have been removed from OSPREY's history
+        view: they still count in ``items_in_history``, but ``get_run`` no
+        longer finds them. ``queue_removals`` is how many withdrawals the
+        removal record holds — pending plans removed or cleared, running
+        plans aborted — and the human's History panel lists them beside the
+        completed runs. The record keeps only the most recent withdrawals, so
+        this is a recent count, not a lifetime total.
 
         ``items`` are the pending items in execution order, each with its
         ``item_uid``, plan ``name`` and ``kwargs``. ``running_item`` is the item

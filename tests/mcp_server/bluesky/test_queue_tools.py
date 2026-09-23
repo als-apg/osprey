@@ -1080,6 +1080,28 @@ def test_every_refusal_code_this_module_handles_is_documented_for_the_agent():
     assert not undocumented, f"refusal codes handled but never explained: {undocumented}"
 
 
+def test_every_status_key_the_queue_read_returns_is_documented_for_the_agent(monkeypatch):
+    """``queue_list`` relays ``GET /queue``'s ``status`` verbatim, so every
+    key the bridge's summary writes is one the agent will see — and a key
+    its tool description never names is one it cannot interpret.
+
+    The key set is read off ``_status_summary`` itself rather than spelled
+    here, so a key the bridge adds tomorrow fails this test until the
+    docstring explains it. The two removal stores are stubbed empty: only
+    the keys matter, and the real stores would touch the bridge's writable
+    directory.
+    """
+    from osprey.services.bluesky_bridge import queue as bridge_queue
+
+    monkeypatch.setattr(bridge_queue, "removed_runs", tuple)
+    monkeypatch.setattr(bridge_queue, "removal_log", tuple)
+    keys = set(bridge_queue._status_summary({}))
+
+    doc = get_tool_fn(queue.queue_list).__doc__ or ""
+    undocumented = sorted(key for key in keys if f"``{key}``" not in doc)
+    assert not undocumented, f"status keys returned but never explained: {undocumented}"
+
+
 # =========================================================================
 # queue_remove — drop one pending item; the interrupted-item way out
 # =========================================================================
