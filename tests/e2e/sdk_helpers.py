@@ -912,9 +912,9 @@ async def run_sdk_query(
         prompt: The user prompt to send.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
-        model: Model to use. Defaults to the project's haiku-tier model
-            resolved from ``config.yml`` (e.g. ``claude-haiku-4-5`` for
-            cborg, ``claude-haiku-4-5-20251001`` for direct anthropic).
+        model: Model to use. Defaults to the project's main model resolved
+            from ``config.yml``: ``claude_code.default_model``, else the
+            provider entry's ``default_model``.
         disallowed_tools: Optional list of tool names to forbid at the SDK
             level. Forwarded to the Claude Code CLI as ``--disallowedTools``,
             which takes precedence over ``permission_mode=bypassPermissions``
@@ -1107,8 +1107,8 @@ async def run_sdk_query_with_hooks(
         approval_policy: How to handle "ask" decisions from hooks.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
-        model: Model to use. Defaults to the project's haiku-tier model
-            resolved from ``config.yml``.
+        model: Model to use. Defaults to the project's main model resolved
+            from ``config.yml``.
         disallowed_tools: Optional list of tool names to forbid at the SDK level.
             Forwarded to the Claude Code CLI as ``--disallowedTools``. Use this to
             force a specific route when a test must *prove* one path works: the

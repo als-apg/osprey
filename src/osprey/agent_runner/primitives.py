@@ -577,7 +577,7 @@ def build_agent_options(
             ``--disallowedTools``; the architectural read-only guard).
         max_turns: Maximum agentic turns before the SDK stops a response.
         max_budget_usd: Budget ceiling passed to the SDK (literal, not scaled).
-        model: Model id; when ``None``, resolved from the project's haiku tier.
+        model: Model id; when ``None``, the project's main model.
         permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
             read-only headless path; ``"default"`` when an approval callback
             should mediate tool use.
