@@ -492,7 +492,9 @@ def _settled_chip(
         (page, session_id) — the id ``terminal.js`` settled on, which is
         ``None`` in a view whose terminal never connects. Nothing the chip does
         needs it; case (b) uses it to name the PTY it asserts was not
-        respawned.
+        respawned. The id is the one the owning surface settled on, which is
+        the terminal's confirmation in the Expert view and the console's key
+        in the Simple one.
     """
     page = browser.new_page()
     if init_script:
@@ -501,6 +503,14 @@ def _settled_chip(
 
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
     expect(page.locator(CHIP)).to_have_attribute("data-enforceable", "true", timeout=TIMEOUT)
+
+    # The pointer is written by the surface that owns the session — the
+    # terminal's own confirmation in the Expert view, the console's key in the
+    # Simple one — and the chip settles on two local reads, ahead of either. A
+    # single read here would be a read of whatever had happened by then.
+    page.wait_for_function(
+        "() => Boolean(localStorage.getItem('osprey-pty-session'))", timeout=TIMEOUT
+    )
 
     session_id = page.evaluate("() => localStorage.getItem('osprey-pty-session')")
     return page, session_id
