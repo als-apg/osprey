@@ -110,7 +110,7 @@ providers:
     # exports ALS_APG_BASE_URL, which beats this value, or replaces the line
     # below with that endpoint's /v1 URL in its own copy of the catalog.
     base_url: https://llm.als.lbl.gov/v1
-    default_model: claude-haiku-4-5-20251001
+    default_model: claude-sonnet-5
     health_model: claude-haiku-4-5-20251001
     models:
       - claude-fable-5-1

@@ -196,7 +196,7 @@ class TestAlsApgProvider:
         assert spec.alias_origin == dict.fromkeys(TIER_MODEL_ENV_VARS, "derived")
 
     def test_main_model_is_the_catalog_default(self):
-        assert self._spec().default_model_id == "claude-haiku-4-5-20251001"
+        assert self._spec().default_model_id == "claude-sonnet-5"
 
 
 class TestUnrecognisedApiProtocol:
