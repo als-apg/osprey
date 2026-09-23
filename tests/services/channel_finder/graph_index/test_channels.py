@@ -170,6 +170,66 @@ class TestBindingUnderTwoDevices:
         )
 
 
+#: A device states a ``Setpoint``/``Monitor`` pair whose monitor address a
+#: binding under a second device also writes. The pair is stated between
+#: bindings, so the device grouping still names it; the address it names votes
+#: both ways, so it is not readable. The addresses carry no ``:SP``/``:RB``
+#: grammar, so nothing but the grouping could have paired them.
+_MONITOR_WRITTEN_ELSEWHERE = (
+    corpora.PREFIXES
+    + corpora.SHARED_ONTOLOGY
+    + """
+<https://narad.example.org/device/demo_SR_QF8> a narad_sem:Quadrupole ;
+    narad_p:hasBinding <https://narad.example.org/binding/QF8_SP>,
+        <https://narad.example.org/binding/QF8_MON> ;
+    narad_p:sectionCode "SR" ;
+    narad_p:sourceName "QF8" ;
+    narad_p:system "MAG" .
+
+<https://narad.example.org/device/demo_SR_QF9> a narad_sem:Quadrupole ;
+    narad_p:hasBinding <https://narad.example.org/binding/QF9_TRIM> ;
+    narad_p:sectionCode "SR" ;
+    narad_p:sourceName "QF9" ;
+    narad_p:system "MAG" .
+
+<https://narad.example.org/binding/QF8_SP> a narad_sem:ChannelBinding ;
+    narad_p:bindingId "narad:binding:demo:SR:QF8:Setpoint" ;
+    narad_p:fullPv "SR:MAG:QF8:CURRENT:SETPT" ;
+    narad_p:writesSignal narad_sem:quad_current_sp .
+
+<https://narad.example.org/binding/QF8_MON> a narad_sem:ChannelBinding ;
+    narad_p:bindingId "narad:binding:demo:SR:QF8:Monitor" ;
+    narad_p:fullPv "SR:MAG:QF8:CURRENT:MON" ;
+    narad_p:readsSignal narad_sem:quad_current_rb .
+
+<https://narad.example.org/binding/QF9_TRIM> a narad_sem:ChannelBinding ;
+    narad_p:fullPv "SR:MAG:QF8:CURRENT:MON" ;
+    narad_p:writesSignal narad_sem:quad_current_sp .
+"""
+)
+
+
+class TestMonitorWrittenElsewhere:
+    @pytest.fixture(scope="class")
+    def parsed(self) -> ParsedCorpus:
+        return parse_corpus(_MONITOR_WRITTEN_ELSEWHERE)
+
+    def test_a_monitor_whose_address_is_also_written_elsewhere_is_not_a_readback(
+        self, parsed, tmp_path
+    ):
+        """The pair is stated between bindings; the readback must resolve
+        readable as an ADDRESS, or the setpoint would echo into a channel the
+        corpus also calls settable."""
+        stated = _corpus_readbacks(parsed.graph, parsed.writes, parsed.reads, parsed.bindings)
+        rows = channels_from_corpus(parsed, _source(tmp_path / "echo.ttl"))
+
+        assert stated == {"SR:MAG:QF8:CURRENT:SETPT": "SR:MAG:QF8:CURRENT:MON"}
+        assert _triples(rows) == [
+            ("SR:MAG:QF8:CURRENT:MON", None, None),
+            ("SR:MAG:QF8:CURRENT:SETPT", DIRECTION_WRITE, None),
+        ]
+
+
 class TestUntypedTargets:
     """The two shapes where the row vote and the roster legitimately differ.
 
