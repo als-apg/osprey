@@ -2394,6 +2394,74 @@ def test_ci_openobserve_pinned_to_ghcr_mirror() -> None:
         )
 
 
+_BLUESKY_TEMPLATE = _OPENOBSERVE_TEMPLATE.parents[1] / "bluesky" / "docker-compose.yml.j2"
+_CONFIG_KEY_MANIFEST = _REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
+_PYPROJECT = _REPO_ROOT / "pyproject.toml"
+
+
+def _compose_default_image(template: Path, image_ref: str) -> str:
+    """The ``<ref>:<tag>`` a compose template spells in its Jinja ``default('…')``."""
+    match = re.search(
+        r"default\('(" + re.escape(image_ref) + r":[^')\s]+)'\)",
+        template.read_text(encoding="utf-8"),
+    )
+    assert match, f"{template.relative_to(_REPO_ROOT)} no longer pins {image_ref} as default('…')"
+    return match.group(1)
+
+
+def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
+    """The Tiled server the stack ships is no older than the client it installs.
+
+    The framework requires ``tiled[client]>=<floor>``, and the queueserver worker
+    and the bridge talk to the ``tiled`` sidecar with that client. A server tag
+    below the floor pairs the client with a release it was never required to
+    work against.
+    """
+    from packaging.version import Version
+
+    image = _compose_default_image(_BLUESKY_TEMPLATE, "ghcr.io/bluesky/tiled")
+    server = image.rsplit(":", 1)[1]
+    floor_match = re.search(
+        r'"tiled\[client\]>=([^",\s]+)"', _PYPROJECT.read_text(encoding="utf-8")
+    )
+    assert floor_match, "pyproject.toml no longer declares a tiled[client]>= floor"
+    floor = floor_match.group(1)
+    assert Version(server) >= Version(floor), (
+        f"{_BLUESKY_TEMPLATE.relative_to(_REPO_ROOT)} pins ghcr.io/bluesky/tiled:{server}, "
+        f"older than the tiled[client]>={floor} floor in pyproject.toml."
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "template", "image_ref"),
+    [
+        ("services.openobserve.image", _OPENOBSERVE_TEMPLATE, _OPENOBSERVE_IMAGE_REF),
+        (
+            "services.bluesky.tiled_image",
+            _BLUESKY_TEMPLATE,
+            "ghcr.io/bluesky/tiled",
+        ),
+    ],
+    ids=["openobserve", "tiled"],
+)
+def test_the_manifest_default_matches_the_compose_default(
+    key: str, template: Path, image_ref: str
+) -> None:
+    """A pin spelled in two files is the same pin in both.
+
+    The config-key manifest documents the default of the key that overrides the
+    image, and the compose template renders it; a bump that reaches one and not
+    the other documents an image the stack does not run.
+    """
+    manifest = yaml.safe_load(_CONFIG_KEY_MANIFEST.read_text(encoding="utf-8"))
+    documented = manifest["keys"][key]["default"]
+    rendered = _compose_default_image(template, image_ref)
+    assert documented == rendered, (
+        f"config_key_manifest.yml documents {key} = {documented!r}, but "
+        f"{template.relative_to(_REPO_ROOT)} defaults it to {rendered!r}."
+    )
+
+
 def _write_openobserve_config(
     project_path: Path, deployed_services: list[str], retention_days: int | None = None
 ) -> Path:
