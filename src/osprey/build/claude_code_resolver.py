@@ -949,7 +949,7 @@ class ClaudeCodeModelResolver:
         # A tier no source maps falls back to the resolved default model — with
         # a warning that names every substitution. Never fill a missing tier
         # with Anthropic's own direct IDs: a proxy that ships no map would
-        # launch the agent asking it for "claude-opus-4-6" — a 404 if the proxy
+        # launch the agent asking it for "claude-opus-5" — a 404 if the proxy
         # is strict, and silently the wrong model if it is not (#350/#357). The
         # default model is the one ID the operator chose for this provider, so
         # it is the only defensible substitute; the warning keeps the
