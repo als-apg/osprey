@@ -55,6 +55,7 @@ from osprey.utils.workspace import (
     RENDERED_CONFIG_RELPATH,
     STATE_DIR_NAME,
 )
+from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
 
 PROJECT_NAME = "layout-fixture"
 
@@ -278,14 +279,15 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
 # Every test below renders the exemplar for real (seconds, not milliseconds), so
 # each one carries `@pytest.mark.slow`.
 
-#: The exemplar's personas and the ``control_system.writes_enabled`` each delta
-#: pins. That key IS the tier boundary between them, so it is the one field that
-#: proves an image context carries ITS OWN merged config rather than the
+#: The exemplar's personas and the write posture each delta pins for the
+#: simulator, the one target any shipped tier arms. Every persona pins the flat
+#: ``control_system.writes_enabled`` off while the deployment's own render
+#: arms it, and the simulator's posture differs between tiers, so together they
+#: prove an image context carries ITS OWN merged config rather than the
 #: deployment's — the defect that made persona deltas invisible to their own
-#: MCP servers. ``logbook`` is the standalone logbook terminal: not a control tier
-#: at all, and it pins the key off for the same reason the read-only tier does.
-#: ``admin`` is the deployment-editing tier: it pins writes ON because admin is
-#: a superset of readwrite, not a third posture beside it.
+#: MCP servers. ``admin`` carries readwrite's posture exactly: what makes it the
+#: admin tier is deployment editing, not a wider write surface. ``knowledge``
+#: and ``logbook`` are the standalone terminals, with no control surface at all.
 PERSONA_WRITES = {
     "admin": True,
     "knowledge": False,
@@ -413,13 +415,17 @@ def test_a_persona_context_carries_its_own_merged_config(
     """A persona image's config is the delta merged over the root, not the deployment's.
 
     Its ``.mcp.json`` names ``/app/<repo>-<persona>/build/config.yml``, and only
-    this context holds that file — so this is where the persona's own
-    ``control_system.writes_enabled`` has to be, or the servers in its container
-    read a config that never heard of the delta.
+    this context holds that file — so this is where the persona's own write
+    posture has to be, or the servers in its container read a config that never
+    heard of the delta. Read per target, the way every write surface reads it:
+    ``logbook`` writes no per-type block, and its simulator inherits the flat key.
     """
     context = _contexts(built_repo)[f"{built_repo.name}-{persona}"]
     config = yaml.safe_load((context / RENDERED_CONFIG_RELPATH).read_text(encoding="utf-8"))
-    assert config["control_system"]["writes_enabled"] is writes
+    section = config["control_system"]
+    assert section["writes_enabled"] is False
+    resolved = {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
+    assert resolved == {"live": False, "va": writes, "standin": False}
 
 
 @pytest.mark.slow
