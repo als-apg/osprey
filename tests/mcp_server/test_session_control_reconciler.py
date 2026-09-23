@@ -817,6 +817,8 @@ class TestSwitchRequests:
             root(),
             OTHER_PID,
             session="another-session",
+            applied_target="live",
+            applied_generation=0,
             last_switch={
                 "generation": 0,
                 "status": control_context.REPORT_APPLYING,
@@ -841,6 +843,8 @@ class TestSwitchRequests:
             root(),
             OTHER_PID,
             session="another-session",
+            applied_target="live",
+            applied_generation=0,
             last_switch={
                 "generation": 0,
                 "status": control_context.REPORT_APPLYING,

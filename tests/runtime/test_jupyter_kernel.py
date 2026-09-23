@@ -666,11 +666,17 @@ def resolvable(monkeypatch):
 
 
 def applying_report(root, write_server_report, pid, generation):
-    """A live controls server that is mid-switch AT *generation*, unexpired."""
+    """A live controls server that HOLDS a connector and is mid-switch AT *generation*.
+
+    The binding is the half that says it holds one; a report with none is a
+    server that has never launched a child.
+    """
     bound = datetime.now(UTC) + timedelta(minutes=5)
     return write_server_report(
         root,
         pid,
+        applied_target="live",
+        applied_generation=generation - 1,
         last_switch={
             "generation": generation,
             "status": "applying",

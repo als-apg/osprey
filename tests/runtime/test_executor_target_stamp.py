@@ -109,6 +109,24 @@ def write_report(
     return path
 
 
+def write_swapping_report(root: Path, pid: int, *, session: str, generation: int) -> Path:
+    """A server that HOLDS a connector on ``live`` and is applying *generation*.
+
+    The binding is what says it holds one. ``applied_target`` and
+    ``applied_generation`` are null only while a server has never got
+    anywhere, and a server that has never got anywhere holds no connector
+    another session has to be protected from.
+    """
+    return write_report(
+        root,
+        pid,
+        session=session,
+        applied_target="live",
+        applied_generation=generation - 1,
+        last_switch=applying(generation),
+    )
+
+
 def applying(generation: int, *, seconds_left: float = 60.0) -> dict[str, Any]:
     """A switch block saying this server is mid-swap and still within its bound."""
     return {
@@ -449,7 +467,7 @@ class TestConvergenceGate:
         """A swap in flight stops the deployment, not just the session running it."""
         server_a, _ = self._pids()
         write_record(state_root, target="va", generation=4)
-        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
+        write_swapping_report(state_root, server_a, session=self.SESSION_A, generation=4)
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_B)
         env: dict[str, str] = {}
 
@@ -466,8 +484,8 @@ class TestConvergenceGate:
         """An operator has to be told which processes to wait for, not one of them."""
         server_a, server_b = self._pids()
         write_record(state_root, target="va", generation=4)
-        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
-        write_report(state_root, server_b, session=self.SESSION_B, last_switch=applying(4))
+        write_swapping_report(state_root, server_a, session=self.SESSION_A, generation=4)
+        write_swapping_report(state_root, server_b, session=self.SESSION_B, generation=4)
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_B)
 
         with pytest.raises(host_executor._SwitchInProgress) as excinfo:
@@ -536,7 +554,7 @@ class TestConvergenceGate:
         """The other half of the same rule: owning no report is not an exemption."""
         server_a, _ = self._pids()
         write_record(state_root, target="va", generation=4)
-        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
+        write_swapping_report(state_root, server_a, session=self.SESSION_A, generation=4)
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
 
         with pytest.raises(host_executor._SwitchInProgress):
@@ -568,7 +586,7 @@ class TestConvergenceGate:
         into a refusal nobody can clear.
         """
         server_a, _ = self._pids()
-        write_report(state_root, server_a, session=self.SESSION_A, last_switch=applying(4))
+        write_swapping_report(state_root, server_a, session=self.SESSION_A, generation=4)
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", self.SESSION_A)
 
         assert host_executor._apply_target_stamp({}) == host_executor.CONTROL_TARGET_BASELINE
@@ -690,7 +708,7 @@ class TestExecuteViaLocalStamping:
         classed on its own kind and names the server to wait for.
         """
         write_record(state_root, target="va", generation=4)
-        write_report(state_root, os.getpid(), session="session-a", last_switch=applying(4))
+        write_swapping_report(state_root, os.getpid(), session="session-a", generation=4)
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "session-a")
 
         _, result = self._run(tmp_path, monkeypatch, spawn=False)
@@ -953,7 +971,7 @@ class TestWritePin:
         that target at that generation, so the write goes where the stamp says.
         """
         write_record(state_root, target="va", generation=3)
-        write_report(state_root, os.getpid(), session="session-a", last_switch=applying(3))
+        write_swapping_report(state_root, os.getpid(), session="session-a", generation=3)
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "session-a")
         stamp_env(monkeypatch, target="va", generation="3")
 

@@ -956,6 +956,8 @@ class TestTheOwningServerAnswersItself:
         owned_here(record_root, target="live", generation=0)
         our_report(
             record_root,
+            applied_target="live",
+            applied_generation=0,
             last_switch={"generation": 1, "status": target_state.SWITCH_APPLYING},
         )
 
@@ -1009,6 +1011,8 @@ class TestTheOwningServerAnswersItself:
             record_root,
             applying,
             reachability=reachable("va"),
+            applied_target="live",
+            applied_generation=1,
             last_switch={"generation": 2, "status": target_state.SWITCH_APPLYING},
         )
 
@@ -1162,6 +1166,8 @@ class TestAFollowerFilesARequest:
             record_root,
             applying,
             reachability=reachable("va"),
+            applied_target="live",
+            applied_generation=1,
             last_switch={"generation": 2, "status": target_state.SWITCH_APPLYING},
         )
 
