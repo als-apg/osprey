@@ -1253,8 +1253,9 @@ def pytest_collection_modifyitems(items):
 # to read. See tests/ci_diagnostics.py for the file formats and for why
 # faulthandler must target a file rather than a worker's stderr.
 #
-# Entirely gated on OSPREY_CI_DIAG_DIR, which only the CI lanes set: with the
-# variable unset this installs nothing and costs nothing.
+# Entirely gated on OSPREY_CI_DIAG_DIR, which only the CI lanes set, as is the
+# snapshot of a failing test's containers that joins the event log there: with
+# the variable unset this installs nothing and costs nothing.
 
 _CI_DIAGNOSTICS: ci_diagnostics.DiagnosticsRecorder | None = None
 
@@ -1291,6 +1292,10 @@ def pytest_configure(config):
     _CI_DIAGNOSTICS = ci_diagnostics.recorder_from_env()
     if _CI_DIAGNOSTICS is not None:
         _CI_DIAGNOSTICS.start()
+
+    # A failing test's containers are snapshotted before its module's fixtures
+    # remove them. See tests/ci_diagnostics.py.
+    ci_diagnostics.register_container_snapshots(config.pluginmanager)
 
 
 def pytest_runtest_logstart(nodeid):

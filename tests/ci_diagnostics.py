@@ -23,8 +23,19 @@ complete at every instant rather than at exit:
     after the LAST test has finished, which is where a shutdown hang lives, and
     a per-test timer would be cancelled by then and show nothing.
 
-Both are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means this
-module installs nothing at all.
+A third record is written only when a test fails:
+
+``containers/at-failure/<worker>--<module>/``
+    The container engine's ``ps -a``, one ``state.txt`` line per container, a
+    ``<name>.log`` per container and ``<name>.health.json`` where the container
+    has a health check. Written at the first failing report of each test module
+    in each process, from ``pytest_runtest_makereport`` — before that module's
+    fixtures tear its stack down. The workflow's capture step cannot take it:
+    that teardown happens inside the pytest step, so by the time any later step
+    runs, the stack's containers are gone.
+
+All three are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means
+this module installs nothing at all.
 
 Why a file rather than stderr
 -----------------------------
@@ -102,10 +113,16 @@ from __future__ import annotations
 import faulthandler
 import json
 import os
+import re
+import shutil
+import subprocess
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 #: Enables the whole module, and names the directory both records are written
 #: to. The CI job uploads that directory as an artifact.
@@ -114,6 +131,30 @@ ENV_DIR = "OSPREY_CI_DIAG_DIR"
 #: Seconds between whole-process stack snapshots. ``0`` disables stack dumping
 #: while leaving the event log on.
 ENV_STACK_TIMEOUT = "OSPREY_CI_DIAG_STACK_TIMEOUT"
+
+#: The tests' own container-engine switch, so a snapshot reads the engine they
+#: drive. ``docker`` when unset.
+ENV_E2E_RUNTIME = "OSPREY_E2E_RUNTIME"
+
+#: Where failure-time container snapshots go, inside the directory the capture
+#: action writes its own container records to, so a reader finds both in one
+#: place. The action's files there are flat, so a subdirectory cannot collide.
+CONTAINER_SNAPSHOT_SUBDIR = Path("containers") / "at-failure"
+
+#: Upper bound, in seconds, on each engine call a snapshot makes.
+SNAPSHOT_CALL_TIMEOUT = 30.0
+
+#: The name the snapshot plugin is registered under.
+CONTAINER_SNAPSHOT_PLUGIN = "osprey-ci-diag-containers"
+
+#: The capture action's ``state.txt`` format, verbatim, so both files read alike.
+_STATE_FORMAT = (
+    "{{.Name}} image={{.Config.Image}} status={{.State.Status}} "
+    "exit={{.State.ExitCode}} oomkilled={{.State.OOMKilled}} error={{.State.Error}} "
+    "started={{.State.StartedAt}} finished={{.State.FinishedAt}}"
+)
+
+_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 #: The sampling interval, not a deadline: nothing is ever killed on this timer.
 #: Five minutes keeps a healthy half-hour lane down to a handful of dumps while
@@ -253,6 +294,120 @@ class DiagnosticsRecorder:
             self._events.flush()
         except (OSError, ValueError):  # closed handle, full disk
             pass
+
+
+def _safe(name: str) -> str:
+    """``name`` with every character outside ``[A-Za-z0-9._-]`` replaced by ``_``."""
+    return _UNSAFE.sub("_", name)
+
+
+class ContainerSnapshots:
+    """Snapshots the container engine at the first failing report of each module.
+
+    A module fixture that brings a stack up removes it in its own teardown,
+    which runs inside the pytest process right after the module's last test.
+    A failing report is made before that teardown, so a snapshot taken here
+    still sees the stack the failure happened against. Every engine call is
+    read-only — list, inspect, logs — because self-hosted runners are shared.
+
+    Under ``pytest-rerunfailures`` the first failed attempt's report still
+    reads ``failed`` when this hook sees it (the rerun relabel comes later), so
+    the snapshot is taken on that first attempt and the module key stops a
+    second one.
+    """
+
+    def __init__(self, directory: Path | str, worker: str, engine: str) -> None:
+        # Absolute at arming time: a test that chdirs is still in its call
+        # phase when its report is made.
+        self.root = Path(directory).absolute() / CONTAINER_SNAPSHOT_SUBDIR
+        self.worker = worker
+        self.engine = engine
+        self._modules: set[str] = set()
+
+    def _run(self, *args: str) -> tuple[subprocess.CompletedProcess[str] | None, str]:
+        """Run one engine call; a failure is returned as text, never raised."""
+        try:
+            done = subprocess.run(
+                [self.engine, *args],
+                capture_output=True,
+                text=True,
+                timeout=SNAPSHOT_CALL_TIMEOUT,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return None, f"({self.engine} {args[0]} failed: {exc})\n"
+        return done, done.stdout + done.stderr
+
+    def capture(self, nodeid: str, when: str) -> Path | None:
+        """Write one module's snapshot; ``None`` when there is nothing to record."""
+        module = nodeid.split("::", 1)[0]
+        if module in self._modules:
+            return None
+        self._modules.add(module)
+
+        if shutil.which(self.engine) is None:
+            return None
+        listed, _ = self._run("ps", "-aq")
+        if listed is None or listed.returncode != 0:
+            return None
+        ids = listed.stdout.split()
+        if not ids:
+            return None
+
+        target = self.root / f"{self.worker}--{_safe(module)}"
+        target.mkdir(parents=True, exist_ok=True)
+        utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        (target / "failure.txt").write_text(f"nodeid={nodeid}\nphase={when}\nutc={utc}\n")
+        (target / "ps.txt").write_text(self._run("ps", "-a")[1])
+
+        state = []
+        for cid in ids:
+            named, _ = self._run("inspect", "--format", "{{.Name}}", cid)
+            raw = named.stdout.strip() if named is not None and named.returncode == 0 else ""
+            name = _safe(raw.lstrip("/")) or cid
+
+            (target / f"{name}.log").write_text(self._run("logs", "--timestamps", cid)[1])
+            state.append(self._run("inspect", "--format", _STATE_FORMAT, cid)[1])
+
+            health, _ = self._run("inspect", "--format", "{{json .State.Health}}", cid)
+            if health is not None and health.returncode == 0:
+                text = health.stdout.strip()
+                if text and text != "null":
+                    (target / f"{name}.health.json").write_text(text + "\n")
+
+        (target / "state.txt").write_text("".join(state))
+        return target
+
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_makereport(self, item):
+        outcome = yield
+        report = outcome.get_result()
+        if not report.failed:
+            return
+        try:
+            self.capture(item.nodeid, report.when)
+        except Exception:  # a diagnostic must never replace the failure it observes
+            pass
+
+
+def register_container_snapshots(
+    pluginmanager: pytest.PytestPluginManager,
+) -> ContainerSnapshots | None:
+    """Register the failure-time container snapshot plugin when CI diag is on.
+
+    ``None`` when ``OSPREY_CI_DIAG_DIR`` is unset or empty, and when the plugin
+    is already registered, so calling it twice is harmless.
+    """
+    if not os.environ.get(ENV_DIR):
+        return None
+    if pluginmanager.has_plugin(CONTAINER_SNAPSHOT_PLUGIN):
+        return None
+    snapshots = ContainerSnapshots(
+        os.environ[ENV_DIR],
+        worker_id(),
+        os.environ.get(ENV_E2E_RUNTIME) or "docker",
+    )
+    pluginmanager.register(snapshots, CONTAINER_SNAPSHOT_PLUGIN)
+    return snapshots
 
 
 def recorder_from_env() -> DiagnosticsRecorder | None:
