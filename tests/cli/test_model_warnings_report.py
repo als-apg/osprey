@@ -13,8 +13,10 @@ configured ids the provider does not list.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import subprocess
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,10 +26,15 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from osprey.cli import build_cmd
+from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.deployment import status_display
+from tests.cli.conftest import TerminalProbe
 
 SUBSTITUTION = "haiku, sonnet, opus aliases run the main model gpt-6-sol"
 UNLISTED = "'openai' does not list claude-opus-5-5, claude-sonnet-5"
+
+_WITNESS = "MODELWARNINGSWITNESSMARKER"
 
 
 class _Capture(PhaseReporter):
@@ -131,3 +138,46 @@ class TestTheBuildSaysItOnce:
         ]
         assert records
         assert all(r.levelno == logging.INFO for r in records)
+
+
+@pytest.fixture
+def no_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty deployment: ``ps`` finds nothing, and nothing else may run."""
+    monkeypatch.setattr(
+        status_display,
+        "get_ps_command",
+        lambda config, all_containers=False: ["docker", "ps", "-a", "--format", "json"],
+    )
+    monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
+
+    def _run(cmd, **kwargs):
+        argv = list(cmd)
+        if argv[:2] == ["docker", "ps"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps([]), "")
+        if argv[:2] == ["docker", "volume"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        raise AssertionError(f"a read-only verb ran: {argv}")
+
+    monkeypatch.setattr(status_display.subprocess, "run", _run)
+
+
+@pytest.mark.usefixtures("no_runtime")
+def test_status_says_it_once_and_the_log_handler_paints_nothing(
+    openai_build, terminal_probe: TerminalProbe, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+    result = CliRunner().invoke(cli, ["status", "--agents", "--repo", str(openai_build.repo)])
+    assert result.exit_code == 0, result.output
+
+    flowed = _flowed(result.output)
+    assert flowed.count("run the main model") == 1, flowed
+    assert SUBSTITUTION in flowed
+    assert "gpt-6-sol (main model)" in flowed
+
+    assert "run the main model" not in terminal_probe.rendered_text
+    assert any(SUBSTITUTION in m for m in terminal_probe.messages)
+
+    # Armed witness: an ERROR is above the gate on every path, so its absence
+    # would mean the probe console was never reachable.
+    logging.getLogger("tests.model_warnings_report").error(_WITNESS)
+    assert _WITNESS in terminal_probe.rendered_text
