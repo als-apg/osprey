@@ -2,10 +2,11 @@
 
 Every graph lane's store comes from here. What they differ in is not how the
 store is built but what they want back from it, and what an unstartable
-container means for them — and those two differences are the two entry points:
+container means for them — and those two differences are the entry points:
 :func:`graphdb_store` yields a bolt URI and skips when the container will not
-start, :func:`graphdb_store_published_port` yields the published host port and
-fails.
+start, :func:`watched_graphdb_store` yields the same store as a
+:class:`WatchedStore` and skips alike, and
+:func:`graphdb_store_published_port` yields the published host port and fails.
 
 **Why the plugins are mounted rather than downloaded by the server.** The
 shipped compose template sets ``NEO4J_PLUGINS`` and the Neo4j entrypoint honours
@@ -36,7 +37,10 @@ the raw session reports that as its own failure. :class:`WatchedStore` and
 :class:`WatchedSession` make each such read fail as
 :class:`GraphStoreUnavailable`, naming the store. They do not stop later
 reads from contacting it: a stalled store can come back, and a later read
-that gets an answer is a real result.
+that gets an answer is a real result. A store started by
+:func:`watched_graphdb_store` also says what state its container was in when
+the read failed, which is what tells a stalled store on a loaded host from one
+that exited.
 """
 
 from __future__ import annotations
@@ -47,6 +51,7 @@ import os
 import tarfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +60,7 @@ import requests
 from neo4j.exceptions import ServiceUnavailable
 
 from tests._container_support import (
+    container_state,
     is_docker_available,
     is_image_present,
     start_or_fail,
@@ -417,3 +423,38 @@ class WatchedSession:
         """Run *cypher* and return every record of its result."""
         with self._store.reading():
             return list(self._session.run(cypher, dict(params or {})))
+
+
+@contextmanager
+def watched_graphdb_store(
+    plugin_dir: Path,
+    *,
+    label: str = "graphdb (neo4j + n10s)",
+) -> Iterator[WatchedStore]:
+    """Start a throwaway graph store and yield it watched, with its container's state.
+
+    :func:`graphdb_store` for a lane that reads through :class:`WatchedStore`:
+    the same start, skip and teardown, but the store it yields can say what
+    state its container was in when a read got no answer, because this is the
+    one place that holds both the container and the URI.
+
+    Args:
+        plugin_dir: Directory holding n10s + APOC, from :func:`resolve_plugin_dir`.
+        label: Human-readable name for the store, used in skip messages and
+            in the failure.
+
+    Yields:
+        The started store, watched.
+
+    Raises:
+        Skipped: Via ``pytest.skip`` when the container will not start.
+    """
+    container = start_or_skip(lambda: _neo4j_container(plugin_dir), label=label)
+    try:
+        yield WatchedStore(
+            container.get_connection_url(),
+            label=label,
+            inspect=partial(container_state, container),
+        )
+    finally:
+        stop_quietly(container)
