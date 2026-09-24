@@ -278,6 +278,10 @@ config:
   # analyses legitimately run long and lower it to keep a runaway script from
   # holding the sandbox.
   # python_executor.execution_timeout_seconds: 600
+  # Agent Python gets a fixed set of environment variables (paths, locale,
+  # proxies, control-system client settings) and nothing else from the host.
+  # List a name here when an analysis library needs it.
+  # python_executor.child_env_passthrough: []
   # Facility timezone: how operator times are read and every timestamp is
   # rendered. Pinned to UTC for reproducibility; set your real zone in
   # production (e.g. America/Los_Angeles).

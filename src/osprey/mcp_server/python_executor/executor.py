@@ -37,6 +37,7 @@ from osprey.audit import posture
 from osprey.mcp_server.sandbox_env import (
     PERIMETER_DENY_PORTS_ENV,
     PERIMETER_MARKER_ENV,
+    configured_child_env_passthrough,
     scrub_sandbox_child_env,
 )
 from osprey.stores.artifact_manifest import collect_artifacts
@@ -52,9 +53,9 @@ logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 # (imported above), never here. Two processes spawn agent-authored Python — this
 # module and the lighter visualization sandbox in
 # osprey.mcp_server.workspace.execution.sandbox_executor — and both must hand
-# their child the same environment, so the credential scrub, the web-terminal
-# address book and the perimeter-stamp names are defined once, there, and used
-# under that one spelling here.
+# their child the same environment, so the allowlist, the credential scrub, the
+# web-terminal address book and the perimeter-stamp names are defined once,
+# there, and used under that one spelling here.
 
 #: The one marker value that means "open"; anything else leaves the stamp inert.
 #: Local to the reader, not the shared module: this is how the stamp is PARSED,
@@ -842,9 +843,12 @@ async def _execute_via_local(
     project_root = _resolve_project_root()
     osprey_config = load_osprey_config()
 
-    # Credential scrub plus the sandbox-only narrowing, in one shared helper, so
-    # this path and the visualization sandbox cannot drop different sets.
-    sandbox_env = scrub_sandbox_child_env(os.environ)
+    # The child gets the allowlist plus the deployment's passthrough names, with
+    # the credential set and the sandbox-only drop on top, from one shared helper
+    # so this path and the visualization sandbox cannot hand over different sets.
+    sandbox_env = scrub_sandbox_child_env(
+        os.environ, passthrough=configured_child_env_passthrough(osprey_config)
+    )
     # The declared mode becomes a runtime property of the subprocess: the
     # connector base class refuses writes and the EPICS connector stays on
     # the read_only gateway when this says readonly, so a readonly run cannot

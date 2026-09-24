@@ -1182,6 +1182,10 @@ config:
   # analyses legitimately run long and lower it to keep a runaway script from
   # holding the sandbox.
   # python_executor.execution_timeout_seconds: 600
+  # Agent Python gets a fixed set of environment variables (paths, locale,
+  # proxies, control-system client settings) and nothing else from the host.
+  # List a name here when an analysis library needs it.
+  # python_executor.child_env_passthrough: []
   # Console colour theme for the CLI: default | custom. With custom, set the
   # colours (`cli.custom_theme.primary` and friends) and optionally a banner.
   cli.theme: default

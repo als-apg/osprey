@@ -762,8 +762,8 @@ up to 200, and a configured value above 200 is capped there.
 
 .. _config-python-executor:
 
-``python_executor:`` — how long one agent script may run
----------------------------------------------------------
+``python_executor:`` — how long one agent script may run, and what it inherits
+------------------------------------------------------------------------------
 
 ``python_executor.execution_timeout_seconds`` is the wall-clock ceiling on a
 single agent Python run. It defaults to ``600`` — ten minutes — and a run that
@@ -781,6 +781,23 @@ day of archived data, a scan reconstruction — and lower it where a runaway
 script holding the sandbox is the worse outcome. The value is read once in
 the sandbox's MCP server process and held for that process's lifetime, so a
 change lands after ``osprey build`` and a restart of the stack.
+
+Agent Python — the python executor, the visualization tools and plan
+validation — starts with a fixed set of environment variables from the host:
+paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
+control-system client settings (``EPICS_*``, ``PYEPICS_*``, ``TANGO_*``,
+``ENSHOST``) and the osprey names the run itself reads. Nothing else from the
+host reaches it. ``python_executor.child_env_passthrough`` adds names to that
+set, for an analysis library that reads its own variable:
+
+.. code-block:: yaml
+
+   config:
+     python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH, OMP_NUM_THREADS]
+
+The list takes exact names only. It cannot add a credential osprey itself
+holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
+naming one is an error, and the run does not start.
 
 .. _config-deployment:
 

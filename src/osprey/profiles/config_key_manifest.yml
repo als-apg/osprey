@@ -1551,10 +1551,11 @@ keys:
     rendered: false
     evidence: 'config\.get\("python_executor", \{\}\)\.get\(\s*"execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS'
     note: >-
-      The sandbox's own block. One key today, carried commented in all four
+      The sandbox's own block. Two keys, both carried commented in all four
       presets — the ceiling is a facility property (how long a legitimate
       analysis may run) and the shipped number is a starting point, not a
-      value any preset should assert.
+      value any preset should assert; the passthrough list names what a
+      facility's analysis libraries need from the host.
     default: {}
   python_executor.execution_timeout_seconds:
     rendered: false
@@ -1567,6 +1568,17 @@ keys:
       is killed and reported as a timeout rather than as the script's own
       failure.
     default: 600
+  python_executor.child_env_passthrough:
+    rendered: false
+    evidence: '\.get\("child_env_passthrough"\)'
+    note: >-
+      Extra environment variable names the agent-code sandboxes pass through
+      on top of their fixed allowlist; read per run by the python executor,
+      the visualization sandbox and plan validation
+      (`mcp_server/sandbox_env.configured_child_env_passthrough`). It cannot
+      name one of osprey's own endpoint tokens or terminal names: such an
+      entry is an error.
+    default: []
 
   # ── System / paths ──────────────────────────────────────────────────
   system:
