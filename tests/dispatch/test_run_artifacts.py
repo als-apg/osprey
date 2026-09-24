@@ -29,6 +29,12 @@ from osprey.stores.artifact_store import ArtifactStore
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
 PDF_BYTES = b"%PDF-1.4\nfake-pdf-body\n%%EOF"
 HTML_BYTES = b"<html><body><h1>plot</h1></body></html>"
+CSV_BYTES = b"time,state\n2026-09-24T10:00:00,OPEN\n"
+TSV_BYTES = b"time\tstate\n2026-09-24T10:00:00\tOPEN\n"
+TABLES = [
+    pytest.param("text/csv", "t.csv", CSV_BYTES, id="csv"),
+    pytest.param("text/tab-separated-values", "t.tsv", TSV_BYTES, id="tsv"),
+]
 TOKEN = "test-worker-token"
 
 
@@ -558,6 +564,50 @@ class TestConversionFidelity:
         assert r.status_code == 200  # graceful: original bytes, not a 500
         assert r.content == HTML_BYTES
         assert r.headers["content-type"].startswith("text/html")
+
+
+async def _rendering_png(source: Path, output_dir: Path) -> Path:
+    out = output_dir / f"{source.stem}.png"
+    out.write_bytes(PNG_BYTES)
+    return out
+
+
+class TestTablesAreDeliveredAsFiles:
+    @pytest.mark.parametrize("mime", ["text/csv", "text/tab-separated-values"])
+    def test_predicted_as_the_file_itself(self, mime):
+        assert resolve_mod.predict_delivery(mime) == (mime, True)
+
+    @pytest.mark.parametrize("mime,filename,body", TABLES)
+    def test_descriptor_keeps_the_stored_name(self, tmp_path, monkeypatch, mime, filename, body):
+        store = _rooted_store(tmp_path, monkeypatch)
+        _save(store, "run-1", title="table", filename=filename, mime=mime, body=body)
+        [d] = resolve_mod.describe_run_artifacts("run-1")
+        assert d["delivered_mime"] == mime
+        assert d["filename"].endswith(filename)
+
+    @pytest.mark.parametrize("mime,filename,body", TABLES)
+    def test_byte_route_serves_the_original_bytes(self, client, monkeypatch, mime, filename, body):
+        import osprey.mcp_server.ariel.converters as conv
+
+        # A working renderer, so a table that reached it would come back as a PNG.
+        monkeypatch.setattr(conv, "text_to_png", _rendering_png)
+        c, store, _ = client
+        tid = _save(store, "run-1", title="table", filename=filename, mime=mime, body=body)
+        r = c.get(f"/dispatch/run-1/artifacts/{tid}", headers=_auth())
+        assert r.status_code == 200
+        assert r.headers["content-type"].split(";")[0] == mime
+        assert r.content == body
+
+    async def test_a_logbook_attachment_still_renders_a_table(self, tmp_path, monkeypatch):
+        import osprey.mcp_server.ariel.converters as conv
+
+        monkeypatch.setattr(conv, "text_to_png", _rendering_png)
+        store = _rooted_store(tmp_path, monkeypatch)
+        tid = _save(
+            store, "run-1", title="table", filename="t.csv", mime="text/csv", body=CSV_BYTES
+        )
+        path = await resolve_mod.resolve_artifact_path(store, tid, tmp_path)
+        assert path.endswith(".png")
 
 
 class TestAuthMatrix:

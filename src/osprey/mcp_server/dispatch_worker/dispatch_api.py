@@ -937,7 +937,8 @@ async def get_dispatch_artifact(run_id: str, artifact_id: str) -> FileResponse:
     collapse to the same 404 — so a caller holding one run_id can neither read
     nor probe for another run's output. ``artifact_id`` is resolved through the
     store index, never joined into a path. HTML/notebook/etc. artifacts are
-    converted to PNG here (only the requested one); images/PDFs pass through.
+    converted to PNG here (only the requested one); images, PDFs and CSV/TSV
+    tables pass through.
     """
     ref = await resolve_single_run_artifact(run_id, artifact_id)
     if ref is None:
