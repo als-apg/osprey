@@ -234,11 +234,15 @@ def spelled_values(config: Any, dotted_key: str) -> list[tuple[str, Any]]:
     A ``config:`` block may spell one leaf as the whole dotted key
     (``services.bluesky.port``), as a dotted prefix over a mapping
     (``services.bluesky: {port: …}``), fully nested
-    (``services: {bluesky: {port: …}}``), or any mix of the two — every
-    split of the segments is legal YAML that
-    :func:`osprey.cli.build_profile_model._config_lookup` reads, and all of
-    them reach the same rendered leaf. Each spelling found is reported the way
-    it was written, so a refusal can name the line to remove.
+    (``services: {bluesky: {port: …}}``); those three reach the same rendered
+    leaf. Every other split of the segments is legal YAML that
+    :func:`osprey.cli.build_profile_model._config_lookup` reads too, but a
+    dotted key below the top level renders as one key with the dots in its
+    name. It is still read here, because over-reading is the safe direction
+    for a caller that refuses a contradiction; a reader that must match the
+    render exactly, as the panel checks do, splits only the top-level key.
+    Each spelling found is reported the way it was written, so a refusal can
+    name the line to remove.
     """
     return _spellings(config, dotted_key.split("."), [])
 

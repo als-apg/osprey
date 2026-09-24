@@ -158,6 +158,53 @@ def test_panel_presets_url_backed_member_validates(tmp_path: Path) -> None:
     profile.validate(tmp_path)  # must not raise
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(
+            {"web.panels": {"beam.viewer": {"url": "http://beam.local:9000"}}},
+            id="prefix_over_mapping",
+        ),
+        pytest.param(
+            {"web": {"panels": {"beam.viewer": {"url": "http://beam.local:9000"}}}},
+            id="nested",
+        ),
+    ],
+)
+def test_a_dotted_custom_panel_is_backed_by_the_url_its_block_renders(
+    tmp_path: Path, config: dict[str, Any]
+) -> None:
+    """A dotted id is one key under ``web.panels``, and its url there backs it."""
+    profile = _profile(name="x", web_panels=["beam.viewer"], config=config)
+    profile.validate(tmp_path)  # must not raise
+
+
+def test_a_custom_panel_is_backed_by_a_nested_url(tmp_path: Path) -> None:
+    profile = _profile(
+        name="x",
+        web_panels=["grafana"],
+        config={"web": {"panels": {"grafana": {"url": "http://grafana.local:3000"}}}},
+    )
+    profile.validate(tmp_path)  # must not raise
+
+
+def test_a_dotted_custom_panel_spelled_as_one_dotted_key_is_refused(tmp_path: Path) -> None:
+    """The render splits that key at every dot, so it never reaches the dotted block."""
+    profile = _profile(
+        name="x",
+        web_panels=["beam.viewer"],
+        config={"web.panels.beam.viewer.url": "http://beam.local:9000"},
+    )
+    with pytest.raises(BuildProfileError, match="an id with a dot in it is one key under"):
+        profile.validate(tmp_path)
+
+
+def test_a_panels_key_inside_a_web_mapping_fails_validation(tmp_path: Path) -> None:
+    profile = _profile(name="x", config={"web": {"panels.okf.enabled": True}})
+    with pytest.raises(BuildProfileError, match="literally named 'panels.okf.enabled'"):
+        profile.validate(tmp_path)
+
+
 def test_panel_presets_web_panels_member_validates(tmp_path: Path) -> None:
     """A member declared in web_panels is a known id."""
     profile = _profile(name="x", web_panels=["ariel"], panel_presets={"L": ["ariel"]})
