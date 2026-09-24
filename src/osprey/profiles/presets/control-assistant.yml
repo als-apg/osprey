@@ -408,43 +408,48 @@ config:
   # Mock archiver: synthesizes history from the same simulation machine model
   # as the control-system connector, derived from
   # `control_system.connector.<type>.simulation_file`. Set only to override.
-  # archiver.mock_archiver.simulation_file: data/simulation/machine.json
+  # archiver.type: mock_archiver
+  # archiver.settings.simulation_file: data/simulation/machine.json
   # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
   # reason as the `epics` gateways. Authoring it travels with the flip to
   # `archiver.type: epics_archiver`.
-  # archiver.epics_archiver.url: https://your-archiver.example.com:8443
-  # archiver.epics_archiver.timeout: 60
+  # archiver.type: epics_archiver
+  # archiver.settings.url: https://your-archiver.example.com:8443
+  # archiver.settings.timeout: 60
   # Only when a reverse proxy in front of the appliance publishes its
   # `/retrieval` servlet under another prefix; the bare appliance needs no line.
-  # archiver.epics_archiver.retrieval_path: /retrieval
+  # archiver.settings.retrieval_path: /retrieval
   # MongoDB archiver pointed at a store this deployment does NOT run. The
   # coordinates above are derived from `va_archiver:`; spell them here instead
   # to read an archive someone else keeps, and drop the `va_archiver:` block so
   # this deployment does not record a second history beside it.
-  # archiver.mongodb_archiver.host: your-mongo.example.com
-  # archiver.mongodb_archiver.port: 27017
-  # archiver.mongodb_archiver.name: your-archive-database
-  # archiver.mongodb_archiver.collection: your-archive-collection
-  # archiver.mongodb_archiver.auth: your-auth-database
-  # archiver.mongodb_archiver.username: your-readonly-user
-  # archiver.mongodb_archiver.password_env: OSPREY_ARCHIVER_PASSWORD
-  # archiver.mongodb_archiver.timeout: 60
+  # archiver.type: mongodb_archiver
+  # archiver.settings.host: your-mongo.example.com
+  # archiver.settings.port: 27017
+  # archiver.settings.name: your-archive-database
+  # archiver.settings.collection: your-archive-collection
+  # archiver.settings.auth: your-auth-database
+  # archiver.settings.username: your-readonly-user
+  # archiver.settings.password_env: OSPREY_ARCHIVER_PASSWORD
+  # archiver.settings.timeout: 60
   # DOOCS local history: like the DOOCS connector it takes no coordinates and
   # reaches the ENS the environment names. Both knobs are optional — a centered
   # moving average over this many seconds, and the read budget.
-  # archiver.doocs_archiver.avg_window: 20
-  # archiver.doocs_archiver.timeout: 60
+  # archiver.type: doocs_archiver
+  # archiver.settings.avg_window: 20
+  # archiver.settings.timeout: 60
 
   # MYA, read over the myquery HTTP service: every key is optional, because the
   # client library carries its own server and protocol. A deployment inside the
   # facility's network needs only `archiver.type: mya_archiver`, plus
   # `jlab-archiver-client>=4.0.1` in its top-level `dependencies:`.
-  # archiver.mya_archiver.myquery_server: your-myquery.example.com
-  # archiver.mya_archiver.protocol: https
-  # archiver.mya_archiver.deployment: ops
-  # archiver.mya_archiver.timeout: 60
+  # archiver.type: mya_archiver
+  # archiver.settings.myquery_server: your-myquery.example.com
+  # archiver.settings.protocol: https
+  # archiver.settings.deployment: ops
+  # archiver.settings.timeout: 60
   # The zone myquery reads query bounds in -- samples carry their own instant.
-  # archiver.mya_archiver.timezone: America/New_York
+  # archiver.settings.timezone: America/New_York
 
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can

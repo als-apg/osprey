@@ -159,7 +159,7 @@ config:
   # Historical channel data behind the archiver_read tool. "mock_archiver"
   # synthesizes history, so "plot the beam current over the last hour" works
   # out of the box. A real deployment sets "epics_archiver" and adds
-  # `archiver.epics_archiver.url` — the control-assistant preset shows it, and
+  # `archiver.settings.url` — the control-assistant preset shows it, and
   # `osprey config --defaults` lists every shipped archiver type.
   archiver.type: mock_archiver
   # When a read names no bin size, the bin is chosen so a continuously archived

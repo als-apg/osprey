@@ -2632,11 +2632,11 @@ deleted:
 - ariel.enhancement_modules.text_embedding.index_lists
 
 # ---------------------------------------------------------------------------
-# deleted_commented_examples — the two keys above whose COMMENTED example in a
+# deleted_commented_examples — the keys above whose COMMENTED example in a
 # preset is deliberate, with the reason each one is not a resurrection.
 #
-# Both were removed from what OSPREY ships, not from their readers: setting
-# either still works and still wins. Under the app templates that documentation
+# Each was removed from what OSPREY ships, not from its reader: setting it
+# still works and still wins. Under the app templates that documentation
 # lived in a template, which the resurrection check never read for comments;
 # converting the templates into presets moved the same lines onto the surface
 # the check does read, and this section is where that move is recorded rather
@@ -2648,11 +2648,6 @@ deleted:
 # reason, or outliving the preset line it was written for fails the guard.
 # ---------------------------------------------------------------------------
 deleted_commented_examples:
-  archiver.mock_archiver.simulation_file: >-
-    The mock archiver's history is DERIVED from
-    `control_system.connector.<type>.simulation_file`, so nothing ships this
-    leaf. control-assistant documents it commented, on the line under the prose
-    that says the derivation exists and this key overrides it.
   ariel.database.uri: >-
     The ARIEL DSN is derived from `services.postgresql.*`. An explicit uri still
     WINS, which is exactly what the commented line in ariel-standalone and

@@ -272,9 +272,9 @@ def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
 
 
 def test_an_exempt_commented_example_does_not_go_red():
-    """Two deleted keys are documented commented on purpose; see the manifest.
+    """Deleted keys documented commented on purpose; see the manifest.
 
-    Both left what OSPREY SHIPS while staying live in their readers, so the
+    Each left what OSPREY SHIPS while staying live in its reader, so the
     commented line beside that prose documents an override that works. The
     exemption is narrow, which the second half asserts: the same key spelled
     LIVE in a preset is still a resurrection.

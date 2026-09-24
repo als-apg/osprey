@@ -59,7 +59,10 @@ Subclass ``ArchiverConnector`` from ``osprey.connectors.archiver.base``
 (alongside the control-system connectors in
 ``packages/osprey-connectors/src/osprey_connectors/archiver/``) and register it
 the same two ways, with ``ConnectorFactory.register_archiver`` or a
-``ConnectorRegistration`` whose ``connector_type`` is ``archiver``. The return
+``ConnectorRegistration`` whose ``connector_type`` is ``archiver``. A deployment
+can also select one without registering it, by setting ``archiver.type`` to its
+dotted module path. Either way it is configured from ``archiver.settings``, which
+the factory hands to ``connect()``. The return
 shape is a contract of its own --- one row per sample, historical enum values
 as strings rather than indices --- and it is written down under "Archiver
 Connectors" in :doc:`/reference/contracts/connectors`. Pinning test:
