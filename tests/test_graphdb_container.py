@@ -18,6 +18,7 @@ container, so a fake stands in for the driver there.
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -44,9 +45,24 @@ SUPERSEDED_MODULE = "testcontainers.neo4j"
 #: The one module allowed to build a graph container, relative to ``tests/``.
 RECIPE = "_graphdb_container.py"
 
-#: The tie-parity module, relative to ``tests/``, whose store reads must all go
-#: through :class:`tests._graphdb_container.WatchedSession`.
-TIE_PARITY_MODULE = "integration/test_graph_index_parity_ties.py"
+#: Every lane that reads a real graph store, relative to ``tests/``. Each one
+#: reads it only through :class:`tests._graphdb_container.WatchedSession` or
+#: inside :meth:`tests._graphdb_container.WatchedStore.reading`.
+REAL_STORE_LANES = (
+    "integration/test_graph_index_parity_ties.py",
+    "integration/test_graphdb_store.py",
+    "integration/test_graph_mcp.py",
+)
+
+#: The lanes that hand the seeder a session opened in the lane itself, so they
+#: open every such session beside ``store.reading()`` in one ``with``. The
+#: tie-parity module is not one: its seeding does that through its own
+#: ``_session`` helper, and its module-long session is read only through the
+#: watched one.
+SEEDER_SESSION_LANES = (
+    "integration/test_graphdb_store.py",
+    "integration/test_graph_mcp.py",
+)
 
 #: A raw driver read. The watched session's methods are ``single`` and
 #: ``records``, so a module that reads only through it never spells this.
@@ -103,15 +119,67 @@ def test_only_the_shared_recipe_resolves_the_plugins() -> None:
     )
 
 
-def test_the_tie_parity_module_reads_its_store_only_through_the_watch() -> None:
-    """A raw read there would fail a stalled store as a parity result."""
-    texts = [text for rel, text in python_sources(Path(__file__)) if rel == TIE_PARITY_MODULE]
+def _lane_text(lane: str) -> str:
+    """The source of *lane*, a path relative to ``tests/``."""
+    texts = [text for rel, text in python_sources(Path(__file__)) if rel == lane]
 
-    assert len(texts) == 1, f"{TIE_PARITY_MODULE} is not in the tree"
-    assert RAW_DRIVER_READ not in texts[0], (
-        "a store read in the tie-parity module bypasses WatchedSession, so a store "
-        "that stops answering would fail it as a parity result. Read through "
-        "ties_session.single / .records."
+    assert len(texts) == 1, f"{lane} is not in the tree"
+    return texts[0]
+
+
+def _is_call_to(node: ast.AST, attribute: str) -> bool:
+    """Whether *node* calls a method or module attribute named *attribute*."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == attribute
+    )
+
+
+def _seeder_sessions(text: str) -> list[tuple[int, bool]]:
+    """Every ``open_session(...)`` call in *text*, as ``(line, watched)``.
+
+    A call is watched when it is an item of a ``with`` that also enters a
+    ``.reading()``, so everything done on the session, its close included,
+    runs inside the store's watch.
+    """
+    tree = ast.parse(text)
+    watched = {
+        id(item.context_expr)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.With)
+        and any(_is_call_to(item.context_expr, "reading") for item in node.items)
+        for item in node.items
+    }
+    return sorted(
+        (node.lineno, id(node) in watched)
+        for node in ast.walk(tree)
+        if _is_call_to(node, "open_session")
+    )
+
+
+@pytest.mark.parametrize("lane", REAL_STORE_LANES)
+def test_a_real_store_lane_reads_only_through_the_watch(lane: str) -> None:
+    """A raw read there would fail a stalled store as the test's own result."""
+    assert RAW_DRIVER_READ not in _lane_text(lane), (
+        f"a store read in {lane} bypasses WatchedSession, so a store that stops "
+        f"answering would fail it as the test's own result. Read through "
+        f"WatchedSession.single / .records."
+    )
+
+
+@pytest.mark.parametrize("lane", SEEDER_SESSION_LANES)
+def test_a_lane_opens_its_seeder_sessions_inside_the_watch(lane: str) -> None:
+    """The seeder reads a raw session, so the session is opened inside the watch."""
+    sessions = _seeder_sessions(_lane_text(lane))
+
+    assert sessions, f"{lane} opens no seeder session, so this guard proves nothing there"
+    unwatched = [line for line, watched in sessions if not watched]
+    assert not unwatched, (
+        f"{lane} opens a seeder session outside the store's watch at line(s) "
+        f"{unwatched}, so a stalled store would fail a seeder call there as a driver "
+        f"traceback. Open it as ``with store.reading(), "
+        f"graph_seeder.open_session(...) as session:``."
     )
 
 
