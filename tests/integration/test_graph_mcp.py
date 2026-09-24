@@ -57,7 +57,7 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     WatchedStore,
-    graphdb_store,
+    watched_graphdb_store,
 )
 from tests.integration._graph_oracles import (
     GRAPH_DEVICE_COUNT_CYPHER,
@@ -141,17 +141,16 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
     ``_OspreySeed`` bookkeeping node in the store that ``get_schema`` then has
     to hide. The seeder takes a raw driver session, so its calls run inside
     the store's watch: a seeding step that gets no answer fails naming this
-    store.
+    store and the state its container was in.
     """
     store_label = f"graphdb for {label}"
-    with graphdb_store(plugin_dir, label=store_label) as uri:
+    with watched_graphdb_store(plugin_dir, label=store_label) as store:
         from osprey.services.facility_knowledge.seeder import graph_seeder
 
-        store = WatchedStore(uri, label=store_label)
         with (
             store.reading(),
             graph_seeder.open_session(
-                uri,
+                store.uri,
                 GRAPHDB_TEST_USERNAME,
                 GRAPHDB_TEST_PASSWORD,
                 database=GRAPHDB_TEST_DATABASE,

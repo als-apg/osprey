@@ -40,7 +40,7 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_USERNAME,
     WatchedSession,
     WatchedStore,
-    graphdb_store,
+    watched_graphdb_store,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,10 +131,10 @@ def seeder_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
 
     Session-scoped: this module reads the store rather than wiping it, so one
     seeded container serves every test here. A read that gets no answer fails
-    naming this store.
+    naming this store and the state its container was in.
     """
-    with graphdb_store(graphdb_plugin_dir, label=SEEDER_STORE_LABEL) as uri:
-        yield WatchedStore(uri, label=SEEDER_STORE_LABEL)
+    with watched_graphdb_store(graphdb_plugin_dir, label=SEEDER_STORE_LABEL) as store:
+        yield store
 
 
 @pytest.fixture(scope="session")
