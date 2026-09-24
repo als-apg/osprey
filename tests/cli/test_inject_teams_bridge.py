@@ -228,6 +228,7 @@ def test_inject_teams_bridge_writes_service_config(tmp_path: Path) -> None:
     svc = config["services"]["teams_bridge"]
     assert svc["path"] == "./services/teams_bridge"
     assert svc["trigger"] == "teams-question"
+    assert svc["mentions"] is True
     # No pinned image: the template's own `| default` supplies the local build
     # tag, matching the sibling injectors (_inject_gchat_bridge, _inject_bluesky).
     assert "image" not in svc
@@ -235,6 +236,17 @@ def test_inject_teams_bridge_writes_service_config(tmp_path: Path) -> None:
     deployed = [str(s) for s in config["deployed_services"]]
     assert "postgresql" in deployed
     assert "teams_bridge" in deployed
+
+
+def test_inject_teams_bridge_writes_mentions_off(tmp_path: Path) -> None:
+    """``mentions: false`` in the profile reaches the service config."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_teams_bridge(TeamsBridgeProfileConfig(mentions=False), project_path=project_path)
+
+    assert _read_config(project_path)["services"]["teams_bridge"]["mentions"] is False
 
 
 def test_inject_teams_bridge_writes_custom_trigger(tmp_path: Path) -> None:
@@ -395,6 +407,7 @@ def test_full_build_with_bridge_renders_service_dir(runner: CliRunner, tmp_path:
     assert config["services"]["teams_bridge"] == {
         "path": "./services/teams_bridge",
         "trigger": "teams-question",
+        "mentions": True,
     }
     deployed = config["deployed_services"]
     assert "teams_bridge" in deployed

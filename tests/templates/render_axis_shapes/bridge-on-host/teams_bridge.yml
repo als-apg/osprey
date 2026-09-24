@@ -116,6 +116,11 @@ services:
       # here, so a config that lost the key fails at startup with the var named
       # instead of silently firing some other facility's trigger.
       DISPATCH_TRIGGER: ""
+      # Whether an agent's <@ID> becomes a real @mention of a conversation member.
+      # From the profile's teams_bridge.mentions, which the build always writes; a
+      # config without the key (hand-edited or older) renders the default, on.
+      # `sameas false` so that only an explicit false turns mentions off.
+      TEAMS_MENTIONS: "true"
 
       # Co-deployed dispatcher, addressed across the HOST namespace: this
       # bridge shares the host's network stack, where the compose service key

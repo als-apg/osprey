@@ -985,3 +985,9 @@ class TeamsBridgeProfileConfig:
     rather than silently firing a name nobody declared. The value must name a
     trigger declared in the ``dispatch.triggers`` file.
     """
+
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    conversation member, rendered as ``TEAMS_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
+    """

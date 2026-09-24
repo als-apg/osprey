@@ -1148,8 +1148,12 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if teams_bridge_raw is not None:
         if not isinstance(teams_bridge_raw, dict):
             raise BuildProfileError("Profile 'teams_bridge' must be a mapping")
+        mentions = teams_bridge_raw.get("mentions", True)
+        if not isinstance(mentions, bool):
+            raise BuildProfileError("Profile 'teams_bridge.mentions' must be true or false")
         teams_bridge = TeamsBridgeProfileConfig(
             trigger=teams_bridge_raw.get("trigger", "teams-question"),
+            mentions=mentions,
         )
 
     provenance_raw = raw.get("provenance")
