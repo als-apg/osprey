@@ -50,7 +50,6 @@ def _gateway(default: str = "s", models: tuple[str, ...] = ("h", "s", "o"), **ex
 ALS_APG_SERVED = [
     "claude-fable-5-1",
     "claude-opus-5-5",
-    "claude-opus-5",
     "claude-sonnet-5",
     "claude-haiku-4-5-20251001",
 ]
@@ -711,8 +710,8 @@ class TestDefaultModel:
         message = str(excinfo.value)
         assert "`claude_code.default_model: sonnet` is not a model id" in message
         assert (
-            "Provider 'als-apg' serves: claude-fable-5-1, claude-opus-5-5, claude-opus-5, "
-            "claude-sonnet-5, claude-haiku-4-5-20251001." in message
+            "Provider 'als-apg' serves: claude-fable-5-1, claude-opus-5-5, claude-sonnet-5, "
+            "claude-haiku-4-5-20251001." in message
         )
 
     def test_an_unserved_id_is_trusted(self, caplog):

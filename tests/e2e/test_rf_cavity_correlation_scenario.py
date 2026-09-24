@@ -139,7 +139,7 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
         "rf_correlation_demo",
         template="control_assistant",
         provider="als-apg",
-        model="claude-opus-5",
+        model="claude-opus-5-5",
         tier=3,
     )
     # Switch the mock connectors' data substrate to the ``rf-thermal`` scenario

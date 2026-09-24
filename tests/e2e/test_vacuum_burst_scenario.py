@@ -132,7 +132,7 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
         "vacuum_burst_demo",
         template="control_assistant",
         provider="als-apg",
-        model="claude-opus-5",
+        model="claude-opus-5-5",
         tier=3,
     )
     # Switch the mock connectors' data substrate from the flat ``nominal``
