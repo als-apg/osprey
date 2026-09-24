@@ -180,11 +180,7 @@ function optionsFoot(owner, ctrl, place) {
   if (reorder && place.index > 0) {
     foot.append(
       button(owner, 'bar-btn', 'Move left', 'move-left', () => {
-        void editThenFocus(
-          ctrl,
-          () => ctrl.moveItem(place.host, place.index, place.host, place.index - 1),
-          () => ({ host: place.host, index: place.index - 1 })
-        );
+        void moveAndFollow(ctrl, place, place.index - 1, place.index - 1, 'move-left');
       })
     );
   }
@@ -193,11 +189,7 @@ function optionsFoot(owner, ctrl, place) {
       button(owner, 'bar-btn', 'Move right', 'move-right', () => {
         // moveItem reads the target index before it removes the item, so the
         // slot after the right-hand neighbour is two past this one.
-        void editThenFocus(
-          ctrl,
-          () => ctrl.moveItem(place.host, place.index, place.host, place.index + 2),
-          () => ({ host: place.host, index: place.index + 1 })
-        );
+        void moveAndFollow(ctrl, place, place.index + 2, place.index + 1, 'move-right');
       })
     );
   }
@@ -398,6 +390,27 @@ async function editThenFocus(ctrl, edit, landing) {
     !isLive(active) ||
     shell.contains(active);
   if (free) returnPointIn(shell, back, active)?.focus({ preventScroll: true });
+}
+
+/**
+ * Move an item within its bar, then re-open the popover on it at its new place
+ * with the same button focused, so the next press moves it one further. The
+ * key is looked up at the place the item landed: an item that passes another
+ * of its own type takes that one's key.
+ * @param {BarEditController} ctrl
+ * @param {BarItemPlace} place
+ * @param {number} toIndex - the index handed to `moveItem`
+ * @param {number} landsAt - where the item sits once the move is stored
+ * @param {string} action
+ * @returns {Promise<void>}
+ */
+async function moveAndFollow(ctrl, place, toIndex, landsAt, action) {
+  const back = optionsReturn;
+  closeOptions();
+  if (!(await ctrl.moveItem(place.host, place.index, place.host, toIndex))) return;
+  const key = ctrl.keyAt(place.host, landsAt);
+  const shell = key ? shellForKey(key) : null;
+  if (shell && isLive(shell)) openOptions(shell, ctrl, { focus: { action }, returnTo: back });
 }
 
 /**

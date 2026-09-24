@@ -756,6 +756,76 @@ describe('the popover takes the focus and gives it back', () => {
   });
 });
 
+describe('the popover follows an item it moved', () => {
+  test('Move left re-opens it on the moved item with Move left focused', async () => {
+    await editing(doc(['logo', 'clock', 'search'], []));
+    await openOptions('search');
+
+    await press(popover().querySelector('[data-bar-action="move-left"]'));
+
+    expect(rendered('header')).toEqual(['logo', 'search', 'clock']);
+    expect(shell('search').contains(popover())).toBe(true);
+    expect(document.activeElement).toBe(popover().querySelector('[data-bar-action="move-left"]'));
+  });
+
+  test('pressing Move left again moves the item further', async () => {
+    await editing(doc(['logo', 'clock', 'search'], []));
+    await openOptions('search');
+
+    await press(popover().querySelector('[data-bar-action="move-left"]'));
+    await press(document.activeElement);
+
+    expect(putBodies().map((body) => body.header.map((/** @type {any} */ i) => i.type))).toEqual([
+      ['logo', 'search', 'clock'],
+      ['search', 'logo', 'clock'],
+    ]);
+    expect(shell('search').contains(popover())).toBe(true);
+    // At the left end there is no Move left to hold the focus; the first
+    // control takes it.
+    expect(popover().querySelector('[data-bar-action="move-left"]')).toBe(null);
+    expect(document.activeElement).toBe(popover().querySelector('button, input'));
+  });
+
+  test('pressing Move right again moves the item further', async () => {
+    await editing(doc(['logo', 'clock', 'search'], []));
+    await openOptions('logo');
+
+    await press(popover().querySelector('[data-bar-action="move-right"]'));
+    await press(document.activeElement);
+
+    expect(rendered('header')).toEqual(['clock', 'search', 'logo']);
+    expect(shell('logo').contains(popover())).toBe(true);
+  });
+
+  test('an item that passes one of its own type is followed to its new key', async () => {
+    // Keys count a repeated type in document order, so the second clock is
+    // `clock#1` until it moves left of the first, and then it is `clock`.
+    const utc = { type: 'clock', options: { zone: 'utc' } };
+    await editing(doc(['logo', 'clock', utc], []));
+    const second = /** @type {any} */ (document.querySelector('[data-bar-key="clock#1"]'));
+    second.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await settle();
+
+    await press(popover().querySelector('[data-bar-action="move-left"]'));
+
+    const first = document.querySelector('[data-bar-key="clock"]');
+    expect(first?.contains(popover())).toBe(true);
+    expect(row('zone').querySelector('[aria-pressed="true"]').dataset.barValue).toBe('utc');
+  });
+
+  test('closing the followed popover gives the focus back to the item', async () => {
+    await editing(doc(['logo', 'clock', 'stopwatch'], []));
+    await openFromKeyboard('stopwatch');
+
+    await press(popover().querySelector('[data-bar-action="move-left"]'));
+    escape();
+
+    expect(rendered('header')).toEqual(['logo', 'stopwatch', 'clock']);
+    expect(popover()).toBe(null);
+    expect(document.activeElement).toBe(controlOf('stopwatch'));
+  });
+});
+
 describe('the context menu stays on screen', () => {
   test('opened at the far corner it is clamped inside the window', async () => {
     await editing(doc(['logo', 'clock'], []));
