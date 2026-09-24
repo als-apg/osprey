@@ -14,6 +14,7 @@ courtesy message) and the **chunk-2 failure** pair: the raise reaches the engine
 retry re-posts from chunk 1 — duplicate earlier chunks are at-least-once by design.
 """
 
+import time
 from dataclasses import dataclass
 from urllib.parse import parse_qs
 
@@ -32,6 +33,7 @@ from osprey.bridges.nextcloud_talk.ops import (
     NC_MESSAGE_ID,
     NC_ROOM,
     QUEUED_TEXT,
+    RESUMED_TEXT,
     SUPERSEDED_TEXT,
     NextcloudTalkOps,
     _chunk,
@@ -128,12 +130,20 @@ def _calls(ops: NextcloudTalkOps, on_entry=None):
         "post_ack": lambda: ops.post_ack(e),
         "post_answer": lambda: ops.post_answer(e, RESULT_OK),
         "post_queued": lambda: ops.post_queued(e, RESULT_ERROR),
+        "post_resumed": lambda: ops.post_resumed(e, RESULT_OK),
         "post_giveup": lambda: ops.post_giveup(e),
         "post_superseded": lambda: ops.post_superseded(e),
     }
 
 
-POSTING_MEMBERS = ["post_ack", "post_answer", "post_queued", "post_giveup", "post_superseded"]
+POSTING_MEMBERS = [
+    "post_ack",
+    "post_answer",
+    "post_queued",
+    "post_resumed",
+    "post_giveup",
+    "post_superseded",
+]
 
 # The seam's failure contract, as a table. Inverting one entry is the most likely defect
 # in this module, and it is the kind that passes a happy-path test.
@@ -141,6 +151,7 @@ RAISES_ON_FAILURE = {
     "post_ack": False,
     "post_answer": True,
     "post_queued": True,
+    "post_resumed": False,
     "post_giveup": True,
     "post_superseded": False,
 }
@@ -440,6 +451,25 @@ def test_giveup_notice_never_leaks_the_machine_reason():
     assert "worker unreachable" not in posted
     assert "48h" not in posted
     assert "17" not in posted
+
+
+def test_resume_notice_names_the_queue_time_as_a_reply():
+    ops, talk = _ops()
+    ops.post_resumed(
+        entry(first_queued_at=time.time() - 2 * 86400, queued_notified=True), RESULT_OK
+    )
+    (post,) = talk.posts
+    assert post.room == "roomA"
+    assert post.reply_to == 41
+    assert post.text.startswith("Resuming your request queued at ")
+    assert "(2 d ago)" in post.text
+    assert post.text.endswith(RESUMED_TEXT.split("{since}")[1])
+
+
+def test_resume_notice_is_swallowed_when_the_post_fails():
+    ops, talk = _ops(FakeTalk(fail_on={1}))
+    ops.post_resumed(entry(first_queued_at=time.time() - 60), RESULT_OK)
+    assert len(talk.posts) == 1
 
 
 def test_superseded_note_replies_to_the_superseded_message():

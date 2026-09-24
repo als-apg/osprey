@@ -24,6 +24,7 @@ PROTOCOL_MEMBERS = [
     "post_answer",
     "deliver_files",
     "post_queued",
+    "post_resumed",
     "post_giveup",
     "post_superseded",
     "coalesce_key",
@@ -81,6 +82,9 @@ def test_protocol_is_structural_not_inheritance():
             return {}
 
         def post_queued(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+            pass
+
+        def post_resumed(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
             pass
 
         def post_giveup(self, entry: Mapping[str, Any]) -> None:

@@ -113,6 +113,7 @@ from osprey.bridges.core import (
     artifact_descriptors,
     bare_mime,
     fetch_artifact,
+    queued_since,
     safe_label,
 )
 
@@ -167,6 +168,12 @@ QUEUED_TEXT = (
 """First-park notice. A re-park is silent (the engine posts this only once). It claims
 only what the code guarantees: queued, and retried automatically. No notification is
 promised, because nothing is filed to send one."""
+
+RESUMED_TEXT = "▶️ Resuming your request queued {since} — service is restored, answer follows."
+"""Posted right before the delayed answer of a request the user was told was queued.
+``{since}`` is ``at <stamp> (<elapsed> ago)`` from :func:`~osprey.bridges.core.queued_since`,
+or ``earlier`` when the entry carries no usable time. It names which question this answers
+and how long it waited; it promises nothing about the answer itself."""
 
 GIVEUP_TEXT = "⚠️ We couldn't run this automatically — please re-send your question."
 """Abandonment notice. Honest about the outcome and silent about the reason."""
@@ -839,6 +846,33 @@ class GoogleChatOps:
                 the same whatever the cause.
         """
         self._client.create_message(self._require_space(entry), _thread(entry), QUEUED_TEXT)
+
+    def post_resumed(
+        self,
+        entry: Mapping[str, Any],
+        result: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels that word the line by outcome read the result
+    ) -> None:
+        """Post the "resuming your queued request" line, threaded. Never raises.
+
+        The engine calls this right before ``post_answer`` for an entry whose queued
+        notice landed, so the two read in order in the thread. Best-effort: the answer
+        follows whether or not this line did.
+
+        Args:
+            entry: The persisted entry; supplies the space, the thread and the park time.
+            result: The terminal result about to be delivered. Unread — the line reads
+                the same whatever the outcome, and the outcome follows anyway.
+        """
+        since = queued_since(entry)
+        text = RESUMED_TEXT.format(since=f"at {since}" if since else "earlier")
+        try:
+            self._client.create_message(self._require_space(entry), _thread(entry), text)
+        except Exception:
+            logger.warning(
+                "resume notice failed for %s; the answer follows regardless",
+                entry.get(GC_MESSAGE_NAME),
+                exc_info=True,
+            )
 
     def post_giveup(self, entry: Mapping[str, Any]) -> None:
         """Post the honest abandonment notice, threaded. **Raises** on failure.

@@ -411,6 +411,89 @@ def test_deliver_callback_survives_a_raising_file_delivery(tmp_path):
     ]
 
 
+def test_deliver_callback_announces_the_resume_before_the_answer_of_a_parked_entry(tmp_path):
+    """The user was told the request was queued; the delayed answer opens by saying so,
+    and says it BEFORE the answer so the two read in order."""
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "queued", run_id="run-1", first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).deliver("m1", entry, dict(COMPLETED))
+
+    ops.assert_order("post_resumed", "post_answer", "deliver_files")
+    assert ops.count("post_resumed") == 1
+    assert ops.of("post_resumed")[0]["entry"]["first_queued_at"] == 1.0
+
+
+def test_deliver_callback_announces_no_resume_for_an_entry_never_told_it_was_queued(tmp_path):
+    """A re-delivery after a failed post stamps the queue timestamps but posted no queued
+    notice, so there is nothing to resume from."""
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition("m1", "pending", "queued", run_id="run-1", first_queued_at=1.0)
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).deliver("m1", entry, dict(COMPLETED))
+
+    assert ops.count("post_resumed") == 0
+    assert ops.count("post_answer") == 1
+
+
+def test_a_failing_resume_notice_never_blocks_the_answer(tmp_path):
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "queued", run_id="run-1", first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+    ops.fail_next("post_resumed", RuntimeError("chat 503"))
+
+    runtime.build_drain_callbacks(deps).deliver("m1", entry, dict(COMPLETED))
+
+    ops.assert_order("post_resumed", "post_answer")
+    assert [turn["answer"] for turn in deps.history.recent(HISTORY_KEY)] == [
+        COMPLETED["text_output"]
+    ]
+
+
+def test_dispatch_callback_announces_the_resume_before_the_redispatched_answer(tmp_path):
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "in_flight", retried=True, first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).dispatch("m1", entry)
+
+    ops.assert_order("dispatch", "post_resumed", "post_answer")
+    assert deps.dedup.get("m1")["status"] == "completed"
+
+
+def test_dispatch_callback_stays_silent_when_the_redispatch_parks_again(tmp_path):
+    """A re-park is not a resume: the answer is not coming yet."""
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops, dispatcher=None)
+    deps = dataclasses.replace(deps, dispatcher=FakeDispatcher(ops, result=RETRYABLE))
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "in_flight", retried=True, first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).dispatch("m1", entry)
+
+    assert ops.count("post_resumed") == 0
+    assert deps.dedup.get("m1")["status"] == "queued"
+
+
 def test_give_up_callback_posts_the_notice_and_records_the_failed_turn(tmp_path):
     ops = RecordingChannelOps()
     deps = _deps(tmp_path, ops)

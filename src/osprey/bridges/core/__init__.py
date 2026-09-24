@@ -16,6 +16,7 @@ Layers:
     Promoted primitives
         store — lock-guarded JSON file store (persistence substrate)
         config — ``CoreConfig`` and the terminal-status set
+        errors — the one exception adapters raise INTO the engine (``UndeliverableError``)
         dedup — at-least-once claim/CAS-transition store
         history — per-conversation transcript replayed on each dispatch
         retry — pure, fail-closed retry policy
@@ -51,6 +52,7 @@ from .config import TERMINAL_STATUSES, CoreConfig
 from .dedup import DedupStore
 from .dispatch_client import DispatchClient, DispatchPipelineError
 from .drain import DrainCallbacks, DrainDeps, drain_once, ensure_alive, run_drain_thread
+from .errors import UndeliverableError
 from .health_gate import gate_open
 from .history import HistoryStore
 from .pipeline import PipelineDeps, handle_event
@@ -63,7 +65,14 @@ from .ports import (
 )
 from .reconcile import ReconcileDeps, ReconcileReport, deliver_terminal, reconcile_inflight
 from .retry import coalesce_key, give_up_due, is_eligible, is_retryable, may_redispatch
-from .retry_queue import SUPERSEDED_STATUS, give_up, park, supersede_at_enqueue, supersede_note
+from .retry_queue import (
+    SUPERSEDED_STATUS,
+    give_up,
+    park,
+    queued_since,
+    supersede_at_enqueue,
+    supersede_note,
+)
 from .runtime import BridgeRuntime, build_deps, build_drain_deps, run_forever, start
 from .store import JsonFileStore
 
@@ -104,6 +113,7 @@ __all__ = [
     "ReplyContext",
     # engine entry points
     "SUPERSEDED_STATUS",
+    "UndeliverableError",
     "BridgeRuntime",
     "DrainCallbacks",
     "DrainDeps",
@@ -118,6 +128,7 @@ __all__ = [
     "give_up",
     "handle_event",
     "park",
+    "queued_since",
     "reconcile_inflight",
     "run_drain_thread",
     "run_forever",

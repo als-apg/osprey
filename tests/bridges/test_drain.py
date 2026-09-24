@@ -24,6 +24,7 @@ from osprey.bridges.core.drain import (
     ensure_alive,
     run_drain_thread,
 )
+from osprey.bridges.core.errors import UndeliverableError
 
 NOW = 1_000_000.0
 PAST_MIN = 2000.0  # > retry_min_age (1200)
@@ -49,6 +50,8 @@ class FakeCalls:
     gave_up: list = field(default_factory=list)
     deliver_raises: bool = False
     give_up_raises: bool = False
+    deliver_undeliverable: bool = False
+    give_up_undeliverable: bool = False
 
     def as_callbacks(self):
         def dispatch(mid, _entry):
@@ -56,11 +59,15 @@ class FakeCalls:
 
         def deliver(mid, _entry, body):
             self.delivered.append((mid, body.get("status")))
+            if self.deliver_undeliverable:
+                raise UndeliverableError("the app is no longer a member of the space")
             if self.deliver_raises:
                 raise RuntimeError("send failed")
 
         def give_up(mid, _entry):
             self.gave_up.append(mid)
+            if self.give_up_undeliverable:
+                raise UndeliverableError("the app is no longer a member of the space")
             if self.give_up_raises:
                 raise RuntimeError("notice failed")
 
@@ -513,6 +520,46 @@ def test_give_up_notice_failure_leaves_queued(tmp_path):
     calls.give_up_raises = False
     drain_once(deps)  # notice now sends -> terminal
     assert store.get("m1")["status"] == "error"
+
+
+def test_an_undeliverable_give_up_notice_is_terminal_in_one_pass(tmp_path):
+    """The channel permanently refuses the destination: retrying the notice every
+    cycle can never deliver it, so the entry leaves the queue with the refusal on
+    record instead of failing the same post forever."""
+    store = _store(tmp_path)
+    _enqueue(store, "m1", age=604800.0)
+    calls = FakeCalls(give_up_undeliverable=True)
+    deps = _deps(store, calls)
+
+    drain_once(deps)
+
+    assert calls.gave_up == ["m1"]
+    entry = store.get("m1")
+    assert entry["status"] == "error"
+    assert entry["give_up_reason"].startswith("undeliverable: ")
+    assert "no longer a member" in entry["give_up_reason"]
+    assert "lifetime cap" in entry["give_up_reason"]
+    drain_once(deps)  # gone from the queue: nothing is re-attempted
+    assert calls.gave_up == ["m1"]
+
+
+def test_an_undeliverable_answer_is_terminal_in_one_pass(tmp_path):
+    """Same refusal on the re-attach delivery: the computed answer cannot reach this
+    destination on any later cycle either."""
+    store = _store(tmp_path)
+    _enqueue(store, "m1")
+    store.record("m1", run_id="R1", status="queued")
+    dispatcher = FakeDispatcher({"R1": {"status": "completed", "text_output": "hi"}})
+    calls = FakeCalls(deliver_undeliverable=True)
+    deps = _deps(store, calls, dispatcher=dispatcher)
+
+    drain_once(deps)
+
+    entry = store.get("m1")
+    assert entry["status"] == "error"
+    assert entry["give_up_reason"].startswith("undeliverable: ")
+    drain_once(deps)
+    assert calls.delivered == [("m1", "completed")]
 
 
 # --- per-entry isolation ---------------------------------------------------

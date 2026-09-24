@@ -55,6 +55,7 @@ from .pipeline import (
     _append_history,
     _deliver_files,
     _dispatch,
+    _notify_resumed,
     _settle_terminal,
     build_extra,
     handle_event,
@@ -171,16 +172,20 @@ def _drain_deliver(
     """Drain callback: deliver a re-attached run's COMPLETED result.
 
     Only ``completed`` bodies reach here (terminal failures are policy-routed inside the
-    drain), so this is always the final answer. ``post_answer`` raising is NOT swallowed:
-    the raise is what leaves the entry queued for the next cycle to re-attach and
-    re-deliver, instead of dropping the answer. The drain marks the entry terminal only
-    after this returns, so nothing here writes status.
+    drain), so this is always the final answer. It opens with the resume line when the
+    user was told this request was queued (best-effort, exactly as the pipeline's own
+    settlement does). ``post_answer`` raising is NOT swallowed: the raise is what leaves
+    the entry queued for the next cycle to re-attach and re-deliver, instead of dropping
+    the answer — or, for an ``UndeliverableError``, what lets the drain settle it
+    terminal. The drain marks the entry terminal only after this returns, so nothing
+    here writes status.
     """
     current = deps.dedup.get(message_id) or dict(entry)
     # The raw worker status body omits the run id; graft the persisted one on so
     # artifact delivery and the history turn can address the run.
     result = {**result_body, "run_id": current.get("run_id")}
 
+    _notify_resumed(deps, message_id, current, result)
     deps.ops.post_answer(current, result)
     urls = _deliver_files(deps, message_id, current, result)
     _append_history(deps, current, result, urls)
