@@ -42,6 +42,12 @@ headings — plus LaTeX, which nothing in Teams understands.
     heading                ``# x`` … ``###### x``   ``**x**`` (bold line, no hashes)
     table row              ``| H | v |``            ``**H**: v`` labeled lines
     math                   ``$x$`` / ``$$x$$``      ``x`` (delimiters stripped)
+    mention                ``<@29:1>``              ``<at>Name</at>`` + a mention entity,
+                                                    only for a named member of this
+                                                    conversation (:func:`render_mentions`)
+
+:func:`render_mentions` runs per posted message on the placeholder text, after
+:func:`markdown_to_teams`, and never on the stored answer.
 
 Unlike the Google Chat target, every construct here is a **fixpoint**: Teams bold is
 ``**x**``, which is not confusable with an italic ``*x*``, so re-feeding converted
@@ -51,6 +57,56 @@ text changes nothing. The transform is still only ever applied once in the real 
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from typing import Any
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _mention_label(name: str | None) -> str:
+    """A name made safe for an ``<at>`` tag: ``<``/``>`` become spaces and every run
+    of whitespace one space, so the tag stays well-formed and the entity's ``text``
+    is byte-equal to the message text. ``""`` for ``None``."""
+    if not name:
+        return ""
+    return _WHITESPACE_RE.sub(" ", name.replace("<", " ").replace(">", " ")).strip()
+
+
+def render_mentions(
+    text: str,
+    roster: Mapping[str, str | None],
+    *,
+    enabled: bool,
+    placeholder: re.Pattern[str],
+) -> tuple[str, list[dict[str, Any]]]:
+    """Render the agent's mention placeholders in one message for Teams.
+
+    A placeholder whose id is a key of ``roster`` (the members of this conversation)
+    and whose member has a name becomes ``<at>Name</at>`` when ``enabled``, with one
+    mention entity per occurrence, in text order. Anything else becomes plain
+    ``@name`` (or ``@id`` when the roster has no name): a listed member with no name
+    is never tagged, because the tag's label is shown to everyone. Only listed
+    ``29:`` people are roster keys and Teams has no "everyone" mention for bots, so
+    nothing but a listed person can render. ``placeholder`` is passed in (group 1 is
+    the id) so this module stays free of osprey imports.
+
+    Returns:
+        The rendered text and its mention entities.
+    """
+    entities: list[dict[str, Any]] = []
+
+    def one(m: re.Match[str]) -> str:
+        ident = m.group(1)
+        label = _mention_label(roster.get(ident))
+        if enabled and ident in roster and label:
+            tag = f"<at>{label}</at>"
+            entities.append(
+                {"type": "mention", "text": tag, "mentioned": {"id": ident, "name": label}}
+            )
+            return tag
+        return "@" + (label or ident)
+
+    return placeholder.sub(one, text), entities
 
 
 def _make_sentinel(name: str) -> tuple[str, re.Pattern[str]]:

@@ -17,7 +17,8 @@ Pure Python, no network — the module under test imports nothing but ``re``.
 
 import pytest
 
-from osprey.bridges.teams.formatting import markdown_to_teams
+from osprey.bridges.core import MENTION_PLACEHOLDER_RE
+from osprey.bridges.teams.formatting import markdown_to_teams, render_mentions
 
 # (name, markdown_in, expected_teams_out). Grows as converters land.
 GOLDEN: list[tuple[str, str, str]] = [
@@ -240,3 +241,77 @@ def test_a_heading_and_an_inline_bold_are_both_bold_in_one_call():
 def test_a_reference_definition_line_is_kept():
     # Teams resolves reference links itself, so the definition must survive.
     assert markdown_to_teams("body\n[d]: http://x") == "body\n[d]: http://x"
+
+
+# --- render_mentions ----------------------------------------------------------
+
+ROSTER = {"29:111": "Alice", "29:222": "Carol", "29:333": None}
+
+
+def render(text, roster=ROSTER, enabled=True):
+    return render_mentions(text, roster, enabled=enabled, placeholder=MENTION_PLACEHOLDER_RE)
+
+
+def carol(label="Carol", ident="29:222"):
+    return {
+        "type": "mention",
+        "text": f"<at>{label}</at>",
+        "mentioned": {"id": ident, "name": label},
+    }
+
+
+def test_a_roster_mention_renders_as_an_at_tag_with_its_entity():
+    assert render("Carol, see above: <@29:222>") == (
+        "Carol, see above: <at>Carol</at>",
+        [carol()],
+    )
+
+
+def test_the_entity_text_matches_the_tag_in_the_text_exactly():
+    text, entities = render("<@29:111> and <@29:222>")
+    assert [entity["text"] for entity in entities] == ["<at>Alice</at>", "<at>Carol</at>"]
+    assert all(entity["text"] in text for entity in entities)
+    assert text == "<at>Alice</at> and <at>Carol</at>"
+
+
+def test_a_mention_outside_the_roster_is_plain_text():
+    assert render("cc <@29:999>") == ("cc @29:999", [])
+
+
+def test_a_member_without_a_name_is_plain_text():
+    assert render("cc <@29:333>") == ("cc @29:333", [])
+
+
+def test_mentions_off_renders_every_mention_plain():
+    assert render("<@29:111> and <@29:222>", enabled=False) == ("@Alice and @Carol", [])
+
+
+def test_a_name_is_made_safe_for_the_tag():
+    text, entities = render("hi <@29:9>", {"29:9": "A<b>c\nd"})
+    assert text == "hi <at>A b c d</at>"
+    assert entities == [carol("A b c d", "29:9")]
+
+
+def test_two_mentions_of_one_member_carry_one_entity_each():
+    text, entities = render("<@29:222> then <@29:222>")
+    assert text == "<at>Carol</at> then <at>Carol</at>"
+    assert entities == [carol(), carol()]
+
+
+def test_text_without_a_placeholder_is_unchanged_with_no_entities():
+    text = "nothing to see: <at>Carol</at> @Carol 29:222"
+    assert render(text) == (text, [])
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "tell <@29:1GcS4E_yB-oS> now",
+        "**tell <@29:1GcS4E_yB-oS>**",
+        "- item <@29:1GcS4E_yB-oS>",
+        "# head <@29:1GcS4E_yB-oS>",
+        "| v |\n|---|\n| <@29:1GcS4E_yB-oS> |",
+    ],
+)
+def test_the_placeholder_survives_markdown_to_teams(markdown):
+    assert "<@29:1GcS4E_yB-oS>" in markdown_to_teams(markdown)
