@@ -576,6 +576,13 @@ keys:
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.nextcloud_bridge
+  services.nextcloud_bridge.mentions:
+    rendered: false
+    evidence: 'services\.nextcloud_bridge\.mentions is sameas false'
+    note: >-
+      Injected by the build from the profile's `nextcloud_bridge.mentions`, which
+      is the one knob; rendered as NEXTCLOUD_MENTIONS.
+    default: true
   services.gchat_bridge.image:
     rendered: false
     evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'

@@ -1723,7 +1723,8 @@ def _inject_nextcloud_bridge(
     # <project>-nextcloud-bridge image on first ``osprey up`` (the
     # template's own ``| default`` supplies that tag). Override with
     # OSPREY_NEXTCLOUD_BRIDGE_IMAGE, or set ``services.nextcloud_bridge.image``
-    # here, to use a prebuilt/published image.
+    # here, to use a prebuilt/published image. ``mentions`` is written on every
+    # build, so the template always has a value.
     config.setdefault("services", {})
     anchored_put(
         config["services"],
@@ -1734,6 +1735,7 @@ def _inject_nextcloud_bridge(
             {
                 "path": "./services/nextcloud_bridge",
                 "trigger": nextcloud_bridge.trigger,
+                "mentions": nextcloud_bridge.mentions,
             },
         ),
     )

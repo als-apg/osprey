@@ -4734,6 +4734,35 @@ def test_nextcloud_bridge_trigger_comes_from_the_profile_and_has_no_template_def
     )
 
 
+def _nextcloud_services(**block: object) -> dict:
+    return {
+        "nextcloud_bridge": {"trigger": "nextcloud-question", **block},
+        "event_dispatcher": {},
+        "dispatch_worker": {},
+    }
+
+
+def test_nextcloud_bridge_mentions_render_on_by_default() -> None:
+    """The helper's default services carry no key, and render mentions on."""
+    assert _nextcloud_bridge_service()["environment"]["NEXTCLOUD_MENTIONS"] == "true"
+
+
+@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
+def test_nextcloud_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
+    services = _nextcloud_services(mentions=value)
+    environment = _nextcloud_bridge_service(services=services)["environment"]
+    assert environment["NEXTCLOUD_MENTIONS"] == rendered
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_nextcloud_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
+    from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig
+
+    services = _nextcloud_services(mentions=value)
+    environment = _nextcloud_bridge_service(services=services)["environment"]
+    assert NextcloudBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
+
+
 def test_nextcloud_bridge_rendered_env_parses_and_fails_closed_without_secrets() -> None:
     """The rendered env, resolved with nothing set on the host, refuses to boot.
 

@@ -100,6 +100,26 @@ def test_nextcloud_bridge_parse_round_trip() -> None:
     assert profile.nextcloud_bridge.trigger == "desy-question"
 
 
+def test_nextcloud_bridge_mentions_default_on() -> None:
+    """A block without the key keeps @mentions on."""
+    profile = _parse_profile({"name": "x", "nextcloud_bridge": {}})
+    assert profile.nextcloud_bridge is not None
+    assert profile.nextcloud_bridge.mentions is True
+    assert NextcloudBridgeProfileConfig().mentions is True
+
+
+def test_nextcloud_bridge_mentions_false_parses() -> None:
+    profile = _parse_profile({"name": "x", "nextcloud_bridge": {"mentions": False}})
+    assert profile.nextcloud_bridge is not None
+    assert profile.nextcloud_bridge.mentions is False
+
+
+@pytest.mark.parametrize("value", ["no", 0, None])
+def test_nextcloud_bridge_mentions_non_bool_raises(value: object) -> None:
+    with pytest.raises(BuildProfileError, match=r"nextcloud_bridge\.mentions"):
+        _parse_profile({"name": "x", "nextcloud_bridge": {"mentions": value}})
+
+
 def test_no_nextcloud_bridge_parses_to_none() -> None:
     """A profile without the block leaves the field None (opt-in key)."""
     assert _parse_profile({"name": "x"}).nextcloud_bridge is None
