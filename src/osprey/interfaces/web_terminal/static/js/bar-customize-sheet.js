@@ -283,10 +283,40 @@ function buildTile(type, ctrl) {
 }
 
 /**
+ * The tile the focus is on, as what a re-render can find it by again: its
+ * type, and its place in sheet order. Null when the focus is not on a tile.
+ * @param {HTMLElement} groups
+ * @returns {{type: string, index: number} | null}
+ */
+function focusedTile(groups) {
+  const active = groups.ownerDocument.activeElement;
+  const tile = active instanceof HTMLElement ? active.closest('.bar-tile') : null;
+  if (!(tile instanceof HTMLElement) || !groups.contains(tile)) return null;
+  const index = Array.from(groups.querySelectorAll('.bar-tile')).indexOf(tile);
+  return { type: tile.dataset.barTile ?? '', index };
+}
+
+/**
+ * Focus the tile of the same type, or the tile now in its place when that type
+ * is no longer offered.
+ * @param {HTMLElement} groups
+ * @param {{type: string, index: number}} held
+ */
+function refocusTile(groups, held) {
+  const tiles = /** @type {HTMLElement[]} */ (Array.from(groups.querySelectorAll('.bar-tile')));
+  const same = tiles.find((tile) => tile.dataset.barTile === held.type);
+  (same ?? tiles[Math.min(held.index, tiles.length - 1)])?.focus({ preventScroll: true });
+}
+
+/**
  * Re-render the tiles and the status-bar toggle from the current document.
  * Called on every open and after every accepted edit, because a save changes
  * what the next edit may do — a host that just filled up refuses its tiles,
  * and an item that just went in dims its own.
+ *
+ * A focus that was on a tile stays on the tile of the same type: the rebuild
+ * replaces every tile, and a keyboard that just pressed Enter on one must not
+ * fall back to the page. A focus anywhere else is left where it is.
  * @param {ParentNode & {querySelector: Function}} [root]
  */
 export function renderSheet(root = document) {
@@ -296,6 +326,7 @@ export function renderSheet(root = document) {
 
   disposePreviews();
   const groups = /** @type {HTMLElement} */ (sheet.querySelector('.bar-sheet-groups'));
+  const held = focusedTile(groups);
   groups.replaceChildren();
   for (const heading of BAR_GROUPS) {
     const types = BAR_ITEM_TYPES.filter((type) => BAR_CATALOG[type].group === heading);
@@ -307,6 +338,7 @@ export function renderSheet(root = document) {
     group.append(tiles);
     groups.append(group);
   }
+  if (held) refocusTile(groups, held);
 
   for (const host of BAR_HOSTS) {
     const box = /** @type {HTMLInputElement | null} */ (

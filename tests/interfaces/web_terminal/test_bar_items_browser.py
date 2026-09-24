@@ -56,6 +56,9 @@ Coverage (one test each):
   (o) Move left in an item's options reorders it from the keyboard: the
       button is reached by focus and pressed with Enter, and the item swaps
       with its left neighbour the way the in-bar drag would move it.
+  (p) a tile pressed with Enter keeps the keyboard: the accepted edit
+      rebuilds every tile, and the focus lands on the new tile of the same
+      type rather than on the page.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -1033,5 +1036,34 @@ def test_move_left_from_the_popover_works_from_the_keyboard(tmp_path, engine_bro
             timeout=5_000,
         )
         assert _types(page, "status") == ["clock", "feedback", "stopwatch"]
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (p) the sheet keeps the keyboard across an edit
+# ---------------------------------------------------------------------------
+
+
+def test_a_tile_pressed_with_enter_keeps_the_focus(tmp_path, engine_browser):
+    """An item added from the keyboard leaves the focus on its tile.
+
+    The tile is marked before the press, so the assertion is about the NEW
+    tile the re-render built holding the focus, not about a re-render that
+    never happened.
+    """
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(base_url, header=["logo", "space", "display"], status=["clock"])
+        page = _open(engine_browser, base_url)
+        _enter_edit_mode(page)
+
+        tile = _tile(page, "stopwatch")
+        tile.evaluate("(el) => { el.dataset.beforeEdit = 'true'; }")
+        tile.focus()
+        page.keyboard.press("Enter")
+
+        expect(_shell(page, "header", "stopwatch")).to_be_visible(timeout=5_000)
+        expect(page.locator(f'{SHEET} .bar-tile[data-before-edit="true"]')).to_have_count(0)
+        expect(_tile(page, "stopwatch")).to_be_focused()
 
         page.close()
