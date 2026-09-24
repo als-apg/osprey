@@ -74,8 +74,8 @@ echo ">> junit=$XML" >&2
 # B's delegation/retrieval test is mid-way through using ("semantic search
 # module not enabled"). Give each (model,seed) cell its OWN database so a purge
 # can only affect its own cell. The built test projects honor OSPREY_ARIEL_DB_URI
-# via tests/e2e/sdk_helpers._override_ariel_db_uri (rewrites the rendered
-# config.yml so the agent's ARIEL MCP server and apply_scenarios both use it).
+# via tests/e2e/sdk_helpers._ariel_db_pins (pins ariel.database.uri at init, so
+# the agent's ARIEL MCP server and apply_scenarios both use it).
 #
 # Disable with OSPREY_BENCH_SHARED_DB=1 (falls back to the legacy shared DB).
 PG_BIN="${OSPREY_BENCH_PG_BIN:-$HOME/bin/pg16-edb/pgsql/bin}"
