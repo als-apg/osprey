@@ -42,6 +42,8 @@ member                        contract on failure
 ``post_superseded``           best-effort: the coalesce CAS is already committed, so a
                               failed note must never disturb the pass
 ``coalesce_key``              pure function of the entry; never raise
+``room_people`` (RoomRoster)  return ``None``; never fatal — the question goes out with
+                              its asker only
 ============================  =========================================================
 
 One exception cuts across the "MUST raise" rows: ``UndeliverableError`` (in
@@ -67,6 +69,9 @@ __all__ = [
     "InboundEvent",
     "InputDownload",
     "ReplyContext",
+    "RoomMember",
+    "RoomPeople",
+    "RoomRoster",
 ]
 
 # Entry keys the ENGINE writes on the persisted dedup entry. The adapter-owned
@@ -223,6 +228,53 @@ class InputDownload:
     skipped: Sequence[Mapping[str, Any]] = ()
     quoted_files: Sequence[Mapping[str, Any]] = ()
     quoted_skipped: Sequence[Mapping[str, Any]] = ()
+
+
+@dataclass(frozen=True)
+class RoomMember:
+    """One person in the conversation a question was asked in.
+
+    ``id`` is the stable identity the adapter's mention renderer accepts back — the
+    same string the platform puts in ``sender_id``. ``name`` is ``None`` when the
+    adapter has no name for this person, neither from the platform's member listing
+    nor from what it has seen in the room, and must not guess one.
+    """
+
+    id: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class RoomPeople:
+    """Who is in the conversation, as a :class:`RoomRoster` reports it.
+
+    ``mentions`` says whether this deployment renders the agent's mentions;
+    ``more_not_listed`` is ``True`` only when the adapter capped the list.
+    """
+
+    members: Sequence[RoomMember] = ()
+    mentions: bool = False
+    more_not_listed: bool = False
+
+
+@runtime_checkable
+class RoomRoster(Protocol):
+    """The optional port a bridge implements when it can list who is in a conversation.
+
+    Optional: an adapter implements it beside :class:`ChannelOps`, never instead of it;
+    the engine detects it with ``isinstance`` and needs no registration.
+    :meth:`room_people` runs after the claim and the ack, once per dispatch, on the
+    live path and on every re-dispatch (drain retry, startup reconcile), off the
+    persisted entry — never the wire event. It may do I/O and block. It returns
+    ``None`` on any failure and never raises, because the roster is enrichment: the
+    question goes out with its asker only. It must list only members of the entry's
+    own conversation. It is called concurrently from the ingestion and drain threads,
+    so any cache it keeps is lock-guarded and bounded.
+    """
+
+    def room_people(self, entry: Mapping[str, Any]) -> RoomPeople | None:
+        """Who is in the entry's conversation, or ``None`` when that is unknown."""
+        ...
 
 
 @runtime_checkable

@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey.bridges.core.config import CoreConfig
+from osprey.bridges.core.config import CoreConfig, env_flag
 from osprey.port_layout import default_port
 
 
@@ -212,3 +212,34 @@ def test_trust_env_stays_false_for_anything_else(raw):
 
 def test_trust_env_settable_directly():
     assert CoreConfig(trust_env=True).trust_env is True
+
+
+# --- env_flag: the one on/off reader ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "default", "expected"),
+    [
+        (None, True, True),
+        (None, False, False),
+        ("", True, True),
+        ("  ", True, True),
+        ("  ", False, False),
+        ("true", False, True),
+        (" TRUE ", False, True),
+        ("1", False, True),
+        ("yes", False, True),
+        ("on", False, True),
+        ("false", True, False),
+        ("0", True, False),
+        ("ture", True, False),
+    ],
+)
+def test_env_flag_reads_blank_as_the_default_and_the_truthy_set_as_on(raw, default, expected):
+    assert env_flag(raw, default) is expected
+
+
+@pytest.mark.parametrize("raw", [None, "", "1", "true", " On ", "0", "ture"])
+def test_bridge_trust_env_still_reads_through_the_same_rule(raw):
+    env = {} if raw is None else {"BRIDGE_TRUST_ENV": raw}
+    assert CoreConfig.from_env(env).trust_env is env_flag(raw, False)

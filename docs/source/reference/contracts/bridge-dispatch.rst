@@ -25,6 +25,10 @@ token. The body is the question plus whatever context the engine assembled:
    {
      "question": "now plot that over 24 hours",
      "asker": {"id": "users/111", "name": "Alice"},
+     "room": {"members": [{"id": "users/111", "name": "Alice"},
+                          {"id": "users/222", "name": "Carol"},
+                          {"id": "users/333", "name": null}],
+              "mentions": "To @mention a member of this room, write <@ID> ..."},
      "conversation_so_far": [{"question": "...", "answer": "...", "ts": 1757000000.0,
                               "run_id": "run-...", "artifacts": [],
                               "asked_by": {"id": "users/222", "name": "Carol"}}],
@@ -54,6 +58,35 @@ It is what the chat system reports, not a verified identity. The dispatcher
 folds the whole body into the agent's prompt, so the agent reads the name the
 way it reads the question; what the agent may do is set by the trigger's tool
 list, and that list, not the payload, is the security control.
+
+``room``
+========
+
+Who is in the conversation. Present only when the bridge can list the room:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Field
+     - Meaning
+   * - ``members[].id``
+     - The chat system's stable identity for the person, the same kind of
+       string as ``asker.id``.
+   * - ``members[].name``
+     - The name the chat system's member listing gives; else a name the bridge
+       saw in that room (a sender, or someone mentioned in a message to it);
+       ``null`` when it has neither. A name is never guessed.
+   * - ``mentions``
+     - An instruction written for the agent: how to write ``<@ID>`` with an id
+       from ``members``, and that it may do so only when a person in the room
+       asked it to pass something on or to notify someone. When the deployment
+       turned mentions off, it says so and asks for names in plain text.
+   * - ``more_not_listed``
+     - ``true`` when the bridge capped the list; absent otherwise.
+
+The bridge renders ``<@ID>`` into its chat system's own mention only for an id
+in ``members``. A mention of anyone not listed is posted as plain text.
 
 ``conversation_so_far``
 =======================

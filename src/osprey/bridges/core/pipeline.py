@@ -58,8 +58,8 @@ from .dedup import DedupStore
 from .dispatch_client import DispatchClient
 from .errors import UndeliverableError
 from .history import HistoryStore
-from .people import asker_of
-from .ports import RESERVED_ENTRY_KEYS, ChannelOps, InputDownload
+from .people import asker_of, room_payload
+from .ports import RESERVED_ENTRY_KEYS, ChannelOps, InputDownload, RoomRoster
 
 logger = logging.getLogger(__name__)
 
@@ -233,8 +233,8 @@ def build_extra(
     The single payload assembler: :func:`handle_event` calls it on the live path (with
     the just-resolved ``reply_to``) and :func:`osprey.bridges.core.runtime.rebuild_extra`
     calls it for every RE-dispatch (with the persisted one), so a replayed question can
-    never quietly ship less than the live one did. In order: who asked; the
-    conversation-so-far, so follow-ups ("now plot it over 24h") resolve their referents; the reply context, which
+    never quietly ship less than the live one did. In order: who asked; who is in the
+    room; the conversation-so-far, so follow-ups ("now plot it over 24h") resolve their referents; the reply context, which
     the quoted-attachment fold then folds provenance into; this message's attachments;
     and the newest prior image artifacts — the last two off ONE memoized capability
     probe, so a dispatch shipping no bytes never probes at all.
@@ -248,6 +248,9 @@ def build_extra(
     asker = asker_of(entry)
     if asker:
         extra["asker"] = asker
+    room = _room(deps, entry)
+    if room:
+        extra["room"] = room
 
     turns: list[dict[str, Any]] = []
     if deps.history is not None and history_key:
@@ -265,6 +268,28 @@ def build_extra(
     _fold_inputs(deps.ops.download_inputs(entry), extra, probe)
     _reinject_prior_images(deps, extra, turns, probe)
     return extra
+
+
+def _room(deps: PipelineDeps, entry: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Who is in the entry's conversation, as the payload's ``room``, or ``None``.
+
+    Asked only of an adapter that implements the optional
+    :class:`~osprey.bridges.core.ports.RoomRoster` port. A roster that raises breaks its
+    contract; the raise is logged and the question goes out with its asker only, so a
+    misbehaving adapter can never fail the question.
+    """
+    if not isinstance(deps.ops, RoomRoster):
+        return None
+    try:
+        people = deps.ops.room_people(entry)
+    except Exception:
+        logger.warning(
+            "room roster failed for %s; dispatching with the asker only",
+            entry.get("history_key"),
+            exc_info=True,
+        )
+        return None
+    return room_payload(people) if people is not None else None
 
 
 def handle_event(event: Any, deps: PipelineDeps) -> str:
