@@ -567,3 +567,58 @@ def _skip_message(label: str, exc: BaseException, attempt: int) -> str:
         f"{label}: container failed to start after {attempt} attempt(s) — "
         f"{type(exc).__name__}: {exc}"
     )
+
+
+#: Seconds a state read may take. It runs at the moment a store has stopped
+#: answering, which is often a moment the daemon is slow too, so it is bounded
+#: rather than left to the client's default minute.
+CONTAINER_STATE_TIMEOUT = 10.0
+
+#: States that end a container's run, for which the exit code is the fact.
+_STOPPED_STATES = frozenset({"exited", "dead"})
+
+
+def container_state(container: object, *, timeout: float = CONTAINER_STATE_TIMEOUT) -> str:
+    """Say in one line what state a started container is in right now.
+
+    ``running`` or ``paused`` for a live container, ``exited (code N)`` or
+    ``dead (code N)`` for one that stopped, with ``, out of memory`` added when
+    the kernel killed it for memory, and ``gone`` when the daemon no longer
+    knows it. It is read from the daemon on a client of its own, so a slow
+    daemon costs *timeout* seconds at most.
+
+    Never raises: it is called while another failure is being reported, and
+    that failure is the one to report. A state it cannot read comes back as
+    ``unreadable (<error>)``, which is itself a fact about the daemon.
+
+    Args:
+        container: The started testcontainers container.
+        timeout: Seconds the daemon may take to answer.
+
+    Returns:
+        The state line.
+    """
+    try:
+        import docker
+        import docker.errors
+    except ImportError as exc:
+        return f"unreadable ({type(exc).__name__}: {exc})"
+    try:
+        container_id = container.get_wrapped_container().id  # type: ignore[attr-defined]
+        client = docker.from_env(timeout=timeout)
+        try:
+            state = client.containers.get(container_id).attrs.get("State") or {}
+        finally:
+            client.close()
+    except docker.errors.NotFound:
+        return "gone"
+    except Exception as exc:
+        # Reported as the state, never raised over the failure being reported.
+        return f"unreadable ({type(exc).__name__}: {exc})"
+    status = str(state.get("Status") or "unknown")
+    if status not in _STOPPED_STATES:
+        return status
+    line = f"{status} (code {state.get('ExitCode')}"
+    if state.get("OOMKilled"):
+        line += ", out of memory"
+    return line + ")"
