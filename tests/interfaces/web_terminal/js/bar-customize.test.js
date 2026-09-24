@@ -468,6 +468,65 @@ describe('the sheet and the keyboard', () => {
     origin.remove();
     elsewhere.remove();
   });
+
+  test('an item added from a tile keeps the focus on that tile', async () => {
+    await boot({ fetch: endpoint({ get: doc(['logo'], []) }) });
+    customize.enterEditMode();
+
+    const before = tile('clock');
+    before.focus();
+    before.click();
+    await settle();
+
+    expect(putBodies()).toHaveLength(1);
+    // The accepted edit rebuilt every tile, so the focus is on the new node.
+    expect(tile('clock')).not.toBe(before);
+    expect(document.activeElement).toBe(tile('clock'));
+  });
+
+  test('an item removed from a bar leaves the focus on the tile it was on', async () => {
+    await boot({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
+    customize.enterEditMode();
+    tile('stopwatch').focus();
+
+    expect(await customize.removeAt('header', 1)).toBe(true);
+    expect(document.activeElement).toBe(tile('stopwatch'));
+  });
+
+  test('an item moved between the bars leaves the focus on the tile it was on', async () => {
+    await boot({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
+    customize.enterEditMode();
+    tile('stopwatch').focus();
+
+    expect(await customize.moveItem('header', 1, 'status', 0)).toBe(true);
+    expect(document.activeElement).toBe(tile('stopwatch'));
+  });
+
+  test('a tile whose type is gone hands the focus to the tile in its place', async () => {
+    await boot({ fetch: endpoint({ get: doc(['logo'], []) }) });
+    customize.enterEditMode();
+
+    const third = /** @type {HTMLElement} */ (
+      Array.from(document.querySelectorAll('.bar-sheet .bar-tile'))[2]
+    );
+    third.focus();
+    // Every catalog type renders a tile, so a vanished type is staged by renaming the focused
+    // tile to one the next render will not draw.
+    third.dataset.barTile = 'withdrawn';
+
+    expect(await customize.addItem('clock', 'status')).toBe(true);
+    expect(document.activeElement).toBe(document.querySelectorAll('.bar-sheet .bar-tile')[2]);
+  });
+
+  test('an edit leaves alone a focus that is not on a tile', async () => {
+    await boot({ fetch: endpoint({ get: doc(['logo'], []) }) });
+    customize.enterEditMode();
+    const done = /** @type {HTMLElement} */ (document.querySelector('.bar-sheet-done'));
+    done.focus();
+
+    expect(await customize.addItem('clock', 'header')).toBe(true);
+    expect(document.activeElement).toBe(done);
+  });
 });
 
 describe('every edit goes through saveLayout', () => {
