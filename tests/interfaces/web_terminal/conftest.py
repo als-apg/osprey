@@ -33,6 +33,19 @@ request — and those would otherwise land in the developer's or the runner's ow
 ``var/audit/<identity>/`` ledger, indistinguishable from records of things that
 really happened.
 
+The **feedback and bar-items stores** are sited under
+``resolve_shared_data_root()``, which reads ``agent_data.base_dir`` anchored on
+the project root and never consults ``OSPREY_AGENT_DATA_ROOT``.
+``tests/interfaces/conftest.py::_agent_data_root_in_tmp`` stamps that variable
+for every test in this tree, and it moves the control-context record only. A
+test that needs its own stores patches
+``osprey.utils.workspace.resolve_shared_data_root``, the name the lifespan
+imports at call time, as ``test_bar_items_routes.py``'s ``client`` fixture
+does. A lifespan left unpatched resolves the stores to the checkout's
+``var/agent_data``; ``tests/conftest.py::agent_data_never_the_checkout``
+diverts that to one throwaway root per worker session, so the stores are then
+isolated from the checkout but shared with every other test in the worker.
+
 The second autouse fixture here keeps the panel-register route's deploy-host
 check off the real machine, and resets that check's TTL cache between tests. It
 is the same class of leak-guard — machine state reaching into a test that never
@@ -54,9 +67,17 @@ from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
 class StubWorkspaceWatcher:
     """Drop-in for :class:`WorkspaceWatcher` that starts no observer thread.
 
-    Mirrors the real constructor signature and records what the lifespan wired
-    up, so tests can still assert the watcher was pointed at the right
-    directory without an OS-level observer being involved.
+    Accepts exactly the call the lifespan makes (``app.py``'s
+    ``WorkspaceWatcher(workspace_dir, broadcaster, concealed=…)``), not the
+    whole constructor: ``observer_factory`` is a seam for the watcher's own
+    tests, and the lifespan never passes it. This class is the second
+    construction site for :class:`WorkspaceWatcher`, so an argument the
+    lifespan starts passing has to be accepted here too, or every app test in
+    this directory fails at startup with a ``TypeError``.
+
+    It records what the lifespan wired up, so tests can still assert the
+    watcher was pointed at the right directory without an OS-level observer
+    being involved.
     """
 
     def __init__(
