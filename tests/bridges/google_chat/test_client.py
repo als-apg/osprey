@@ -420,3 +420,72 @@ def test_calls_do_not_interleave_across_threads():
         thread.join()
 
     assert timeline == ["enter", "exit"] * 6
+
+
+# --- list_members ----------------------------------------------------------
+
+
+def members_service(*pages):
+    """A service whose ``spaces().members().list(...).execute()`` answers ``pages`` in
+    order (an exception in the list is raised)."""
+    service = MagicMock()
+    execute = service.spaces.return_value.members.return_value.list.return_value.execute
+    execute.side_effect = list(pages)
+    return service
+
+
+def list_calls(service):
+    return [c.kwargs for c in service.spaces.return_value.members.return_value.list.call_args_list]
+
+
+def membership(n):
+    return {"member": {"name": f"users/{n}", "type": "HUMAN"}, "state": "JOINED"}
+
+
+def test_list_members_follows_the_page_token():
+    service = members_service(
+        {"memberships": [membership(1)], "nextPageToken": "t2"},
+        {"memberships": [membership(2)]},
+    )
+    members, more = ChatClient(CFG, service=service).list_members(SPACE, limit=50)
+    assert [m["member"]["name"] for m in members] == ["users/1", "users/2"]
+    assert more is False
+    assert list_calls(service) == [
+        {"parent": SPACE, "pageSize": 50},
+        {"parent": SPACE, "pageSize": 50, "pageToken": "t2"},
+    ]
+
+
+def test_list_members_stops_at_the_limit_and_reports_more():
+    service = members_service(
+        {"memberships": [membership(1), membership(2)], "nextPageToken": "t2"},
+        {"memberships": [membership(3)]},
+    )
+    members, more = ChatClient(CFG, service=service).list_members(SPACE, limit=2)
+    assert len(members) == 2
+    assert more is True
+    assert len(list_calls(service)) == 1
+    assert list_calls(service)[0]["pageSize"] == 2
+
+
+def test_list_members_stops_on_a_repeated_token():
+    service = members_service(
+        {"memberships": [membership(1)], "nextPageToken": "loop"},
+        {"memberships": [membership(2)], "nextPageToken": "loop"},
+        {"memberships": [membership(3)], "nextPageToken": "loop"},
+    )
+    members, more = ChatClient(CFG, service=service).list_members(SPACE, limit=50)
+    assert [m["member"]["name"] for m in members] == ["users/1", "users/2"]
+    assert more is False
+    assert len(list_calls(service)) == 2
+
+
+def test_list_members_raises_on_transport_failure():
+    service = members_service(RuntimeError("chat is down"))
+    with pytest.raises(RuntimeError, match="chat is down"):
+        ChatClient(CFG, service=service).list_members(SPACE, limit=50)
+
+
+def test_list_members_treats_a_non_dict_page_as_empty():
+    service = members_service(["not", "a", "page"])
+    assert ChatClient(CFG, service=service).list_members(SPACE, limit=50) == ([], False)
