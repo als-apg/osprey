@@ -37,7 +37,10 @@ Three fakes, one rule each
     for chosen posts, which is the one Connector status the ops layer routes on
     (``MessageSizeTooBig`` → re-split the answer), and it keeps rejected posts on
     :attr:`FakeConnectorServer.attempts` so a test can see the oversized attempt
-    *and* the pieces that replaced it.
+    *and* the pieces that replaced it. It also serves the paged member listing
+    (``GET /v3/conversations/{id}/pagedmembers``) from members a test seeds with
+    :meth:`FakeConnectorServer.add_member`, paged by ``pageSize`` /
+    ``continuationToken``; with none seeded it answers ``{"members": []}``.
 
 No skips, no Azure
 ------------------
@@ -138,6 +141,7 @@ _TOKEN_ROUTE = re.compile(r"^/(?P<tenant>[^/]+)/oauth2/v2\.0/token$")
 _ACTIVITY_ROUTE = re.compile(
     r"^/v3/conversations/(?P<conversation>[^/]+)/activities(?:/(?P<reply_to>[^/]*))?$"
 )
+_MEMBERS_ROUTE = re.compile(r"^/v3/conversations/(?P<conversation>[^/]+)/pagedmembers$")
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +361,15 @@ class _ConnectorHandler(_FakeHandler):
             self.fake.reject_message,
         )
 
+    def do_GET(self) -> None:  # noqa: N802 - http.server API
+        path, params = self.split_path()
+        match = _MEMBERS_ROUTE.match(path)
+        if match is None:
+            self._connector_error(404, "ResourceNotFound", f"no such route: GET {path}")
+            return
+        conversation = urllib.parse.unquote(match.group("conversation"))
+        self.respond_json(200, self.fake._members_page(conversation, params))
+
     def _connector_error(self, status: int, code: str, message: str) -> None:
         """The Bot Connector's error envelope: ``{"error": {"code", "message"}}``."""
         self.respond_json(status, {"error": {"code": code, "message": message}})
@@ -380,6 +393,7 @@ class FakeConnectorServer(FakeHttpService):
         self._lock = threading.Lock()
         self._attempts: list[PostedActivity] = []
         self._reject: dict[int, int] = {}
+        self._members: dict[str, list[dict[str, str]]] = {}
         self._counter = 0
         super().__init__()
 
@@ -419,11 +433,19 @@ class FakeConnectorServer(FakeHttpService):
         )
 
     def reset(self) -> None:
-        """Drop recorded posts and pending refusals; the port stays bound."""
+        """Drop recorded posts, pending refusals and seeded members; the port stays bound."""
         with self._lock:
             self._attempts.clear()
             self._reject.clear()
+            self._members.clear()
             self._counter = 0
+
+    # -- seeding surface ----------------------------------------------------
+
+    def add_member(self, conversation: str, member_id: str, name: str) -> None:
+        """Seed one member of ``conversation`` for the paged member listing."""
+        with self._lock:
+            self._members.setdefault(conversation, []).append({"id": member_id, "name": name})
 
     # -- failure injection --------------------------------------------------
 
@@ -442,6 +464,21 @@ class FakeConnectorServer(FakeHttpService):
             self._reject[number] = status
 
     # -- internals ----------------------------------------------------------
+
+    def _members_page(self, conversation: str, params: dict[str, str]) -> dict[str, Any]:
+        """One page of the seeded members; the continuation token is the next offset."""
+        with self._lock:
+            members = [dict(m) for m in self._members.get(conversation, [])]
+        try:
+            size = int(params.get("pageSize", "200"))
+            offset = int(params.get("continuationToken", "0"))
+        except ValueError:
+            size, offset = 200, 0
+        size = size if size > 0 else 200
+        page: dict[str, Any] = {"members": members[offset : offset + size]}
+        if offset + size < len(members):
+            page["continuationToken"] = str(offset + size)
+        return page
 
     def _record(
         self, *, conversation_id: str, reply_to: str, body: dict[str, Any], auth: str

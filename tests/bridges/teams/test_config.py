@@ -77,6 +77,7 @@ def test_dataclass_defaults_match_from_env_defaults():
     assert (cfg.app_id, cfg.app_secret, cfg.tenant_id) == ("", "", "")
     assert (cfg.servicebus_connection_string, cfg.servicebus_queue) == ("", "")
     assert cfg.cloud == "commercial"
+    assert cfg.mentions is True
 
 
 def test_from_env_reads_os_environ_when_no_mapping_given(monkeypatch):
@@ -383,3 +384,26 @@ def test_no_field_default_carries_a_credential():
         for f in dataclasses.fields(TeamsBridgeConfig)
         if f.name in credentials and f.default != ""
     ]
+
+
+# --- mentions ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("env", [{}, {"TEAMS_MENTIONS": ""}])
+def test_mentions_default_on_when_unset_or_empty(env):
+    assert TeamsBridgeConfig.from_env(complete(**env)).mentions is True
+
+
+@pytest.mark.parametrize("raw", ["false", "0", "no", "off", "ture"])
+def test_mentions_turn_off_for_a_false_spelling(raw):
+    assert TeamsBridgeConfig.from_env(complete(TEAMS_MENTIONS=raw)).mentions is False
+
+
+@pytest.mark.parametrize("raw", ["true", "1", "yes", "on"])
+def test_mentions_stay_on_for_a_true_spelling(raw):
+    assert TeamsBridgeConfig.from_env(complete(TEAMS_MENTIONS=raw)).mentions is True
+
+
+def test_mentions_are_not_a_startup_requirement():
+    TeamsBridgeConfig.from_env(complete(TEAMS_MENTIONS="false")).require_startup()
+    TeamsBridgeConfig.from_env(complete()).require_startup()  # no raise
