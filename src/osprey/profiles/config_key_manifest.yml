@@ -582,6 +582,13 @@ keys:
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.gchat_bridge
+  services.gchat_bridge.mentions:
+    rendered: false
+    evidence: 'services\.gchat_bridge\.mentions is sameas false'
+    note: >-
+      Injected by the build from the profile's `gchat_bridge.mentions`, which is
+      the one knob; rendered as GCHAT_MENTIONS.
+    default: true
   services.teams_bridge.image:
     rendered: false
     evidence: 'OSPREY_TEAMS_BRIDGE_IMAGE:-\{\{ services\.teams_bridge\.image'

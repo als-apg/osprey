@@ -100,6 +100,11 @@ services:
       # here, so a config that lost the key fails at startup with the var named
       # instead of silently firing some other facility's trigger.
       DISPATCH_TRIGGER: ""
+      # Whether an agent's <@ID> becomes a real @mention of a space member. From
+      # the profile's gchat_bridge.mentions, which the build always writes; a
+      # config without the key (hand-edited or older) renders the default, on.
+      # `sameas false` so that only an explicit false turns mentions off.
+      GCHAT_MENTIONS: "true"
 
       # External dispatcher: supplied by the deploy environment/.env, and
       # REQUIRED (`:?`) rather than a bare reference. Compose resolves an unset

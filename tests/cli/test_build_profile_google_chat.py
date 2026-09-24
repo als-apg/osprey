@@ -101,6 +101,26 @@ def test_gchat_bridge_parse_round_trip() -> None:
     assert profile.gchat_bridge.trigger == "desy-question"
 
 
+def test_gchat_bridge_mentions_default_on() -> None:
+    """A block without the key keeps @mentions on."""
+    profile = _parse_profile({"name": "x", "gchat_bridge": {}})
+    assert profile.gchat_bridge is not None
+    assert profile.gchat_bridge.mentions is True
+    assert GChatBridgeProfileConfig().mentions is True
+
+
+def test_gchat_bridge_mentions_false_parses() -> None:
+    profile = _parse_profile({"name": "x", "gchat_bridge": {"mentions": False}})
+    assert profile.gchat_bridge is not None
+    assert profile.gchat_bridge.mentions is False
+
+
+@pytest.mark.parametrize("value", ["no", 0, None])
+def test_gchat_bridge_mentions_non_bool_raises(value: object) -> None:
+    with pytest.raises(BuildProfileError, match=r"gchat_bridge\.mentions"):
+        _parse_profile({"name": "x", "gchat_bridge": {"mentions": value}})
+
+
 def test_no_gchat_bridge_parses_to_none() -> None:
     """A profile without the block leaves the field None (opt-in key)."""
     assert _parse_profile({"name": "x"}).gchat_bridge is None

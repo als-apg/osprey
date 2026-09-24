@@ -1475,6 +1475,7 @@ panel_presets: {}
 #
 # gchat_bridge:
 #   trigger: gchat-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 
 # --- Microsoft Teams bridge --------------------------------------------------
 # Answers questions asked from a Microsoft Teams channel or chat. The trigger

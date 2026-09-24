@@ -948,6 +948,12 @@ class GChatBridgeProfileConfig:
     trigger declared in the ``dispatch.triggers`` file.
     """
 
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    space member, rendered as ``GCHAT_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
+    """
+
 
 @dataclass
 class TeamsBridgeProfileConfig:

@@ -1821,7 +1821,8 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     # <project>-gchat-bridge image on first ``osprey up`` (the template's
     # own ``| default`` supplies that tag). Override with
     # OSPREY_GCHAT_BRIDGE_IMAGE, or set ``services.gchat_bridge.image`` here, to
-    # use a prebuilt/published image.
+    # use a prebuilt/published image. ``mentions`` is written on every build, so
+    # the template always has a value.
     config.setdefault("services", {})
     config["services"]["gchat_bridge"] = _carry_authored_keys(
         config["services"],
@@ -1829,6 +1830,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         {
             "path": "./services/gchat_bridge",
             "trigger": gchat_bridge.trigger,
+            "mentions": gchat_bridge.mentions,
         },
     )
     deployed = config.get("deployed_services", []) or []
