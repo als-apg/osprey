@@ -724,7 +724,7 @@ config:
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs and metrics to the OpenObserve store this
+  # The agent emits OTLP logs, metrics and traces to the OpenObserve store this
   # deployment runs (`services.openobserve.*` below). On by default: the
   # harness already records every prompt and API body to disk, so this adds no
   # exposure, only a queryable local store you own.
@@ -755,6 +755,12 @@ config:
   claude_code.telemetry.log_tool_details: true
   # Raw provider request and response bodies.
   claude_code.telemetry.log_raw_api_bodies: true
+  # Built-in tool output as trace span events: what Read and Bash returned,
+  # and, with log_tool_details, what Edit and Write changed.
+  claude_code.telemetry.log_tool_content: true
+  # Longest content value one record carries, in UTF-16 code units, before
+  # Claude Code cuts it and marks it truncated. Its own limit is 61440.
+  claude_code.telemetry.content_max_length: 262144
 
   # ── Transcripts ────────────────────────────────────────────────────────────
   # Days Claude Code keeps a session transcript before deleting it at startup
