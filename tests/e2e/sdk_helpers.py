@@ -160,7 +160,21 @@ def has_als_apg_api_key() -> bool:
     return bool(os.environ.get("ALS_APG_API_KEY"))
 
 
+#: The ARIEL database a run uses when it names none: a Postgres on the host's
+#: standard port, the one tests/e2e/README.md tells a developer to run.
 _DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"
+
+
+def e2e_ariel_db_uri() -> str:
+    """The run's one ARIEL database: what the skip guard probes and every ARIEL project names.
+
+    ``OSPREY_ARIEL_DB_URI`` when it is set and non-empty (the model-matrix
+    runner provisions one database per (model, seed) cell and exports it),
+    otherwise :data:`_DEFAULT_ARIEL_DB_URI`. :func:`ariel_db_skip_reason` and
+    :func:`_ariel_db_pins` both read it here, so a guard that passes has checked
+    the database the agent and ``apply_scenarios`` are about to use.
+    """
+    return os.environ.get("OSPREY_ARIEL_DB_URI") or _DEFAULT_ARIEL_DB_URI
 
 
 def ariel_db_skip_reason(uri: str | None = None) -> str | None:
@@ -177,9 +191,12 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
 
     Returns ``None`` when the DB is reachable and has at least one entry,
     otherwise a human-readable reason string suitable for ``pytest.skip``.
-    Override the URI with ``OSPREY_ARIEL_DB_URI``.
+    The database is :func:`e2e_ariel_db_uri`, the one every ARIEL project
+    :func:`init_project` builds names, so a pass here means the agent's
+    database is ready. The reason names that database without its password.
     """
-    uri = uri or os.environ.get("OSPREY_ARIEL_DB_URI", _DEFAULT_ARIEL_DB_URI)
+    uri = uri or e2e_ariel_db_uri()
+    where = uri.rsplit("@", 1)[-1]
     try:
         import psycopg
     except ImportError:
@@ -189,63 +206,62 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
             row = conn.execute("SELECT count(*) FROM enhanced_entries").fetchone()
     except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
         return (
-            f"ARIEL Postgres not reachable ({exc.__class__.__name__}) — scenario "
+            f"ARIEL Postgres at {where} not reachable ({exc.__class__.__name__}) — scenario "
             "tests need a live, seeded ARIEL logbook DB. Bring it up with "
             "`osprey up && osprey ariel migrate && osprey ariel quickstart`."
         )
     count = row[0] if row else 0
     if count == 0:
-        return "ARIEL Postgres is reachable but empty — seed it with `osprey ariel quickstart`."
+        return (
+            f"ARIEL Postgres at {where} is reachable but empty — seed it with "
+            "`osprey ariel quickstart`."
+        )
     return None
 
 
 def _ariel_db_pins(template: str) -> dict[str, str]:
-    """The ``config:`` pin that points a lane's deployment at its own ARIEL database.
+    """The ``config:`` pin that points a lane's deployment at the run's ARIEL database.
 
-    The model-matrix runner provisions one database per (model, seed) cell and
-    exports its URI as ``OSPREY_ARIEL_DB_URI``. Every project a cell builds must
-    name that database, so the agent's ARIEL MCP server and ``apply_scenarios``
-    both reach it: a scenario test purges the logbook and drops the
-    ``text_embeddings_*`` tables, and on a database two cells share that purge
-    lands in the middle of the other cell's logbook test.
+    Every project this module builds with ARIEL names :func:`e2e_ariel_db_uri`,
+    the database :func:`ariel_db_skip_reason` probes, so a guard that passes has
+    checked the database the agent's ARIEL MCP server and ``apply_scenarios``
+    reach. Left to itself a render names no URI: the DSN is derived from
+    ``services.postgresql`` on this worker's port block, a Postgres no project
+    built here ever starts. In a model-matrix cell the database is the cell's
+    own, so a scenario test's logbook purge and its drop of the
+    ``text_embeddings_*`` tables cannot land in another cell's logbook test.
 
     The pin is ``ariel.database.uri``, stated at ``osprey init`` like every other
-    lane pin. A render names no URI of its own — the DSN is derived from
-    ``services.postgresql`` — and an explicit ``uri`` wins over that derivation.
-    A preset that configures no ARIEL gets no pin: an ``ariel:`` block in its
-    render would make ``apply_scenarios`` seed a logbook the deployment does not
-    have.
+    lane pin, and an explicit ``uri`` wins over the derived DSN. A preset that
+    configures no ARIEL gets no pin: an ``ariel:`` block in its render would make
+    ``apply_scenarios`` seed a logbook the deployment does not have.
 
     Returns:
-        ``{"ariel.database.uri": <uri>}`` when the variable is set and the
-        preset configures ARIEL, otherwise an empty mapping.
+        ``{"ariel.database.uri": <uri>}`` when the preset configures ARIEL,
+        otherwise an empty mapping.
     """
-    uri = os.environ.get("OSPREY_ARIEL_DB_URI")
-    if not uri or not _preset_configures_ariel(template):
+    if not _preset_configures_ariel(template):
         return {}
-    return {"ariel.database.uri": uri}
+    return {"ariel.database.uri": e2e_ariel_db_uri()}
 
 
 def _assert_render_names_ariel_db(render: Path) -> None:
-    """Fail when a render that configures ARIEL does not name the exported database.
+    """Fail when a render that configures ARIEL does not name the run's ARIEL database.
 
     Takes the RENDER directory (``<repo>/build``). Its ``config.yml`` is what
     every MCP server is pointed at via ``CONFIG_FILE`` and what
     ``apply_scenarios`` loads, so it is where :func:`_ariel_db_pins` has to have
-    landed. A render with no ``ariel`` section has no database to point
-    anywhere, and a run that exported no ``OSPREY_ARIEL_DB_URI`` asked for none.
+    landed. A render with no ``ariel`` section has no database to point anywhere.
     """
-    uri = os.environ.get("OSPREY_ARIEL_DB_URI")
-    if not uri:
-        return
+    uri = e2e_ariel_db_uri()
     config_path = render / "config.yml"
     ariel = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get("ariel")
     if not ariel:
         return
     rendered = (ariel.get("database") or {}).get("uri")
     assert rendered == uri, (
-        f"ariel.database.uri in {config_path} is {rendered!r}, not the "
-        f"OSPREY_ARIEL_DB_URI this run exported ({uri!r})"
+        f"ariel.database.uri in {config_path} is {rendered!r}, not {uri!r}, "
+        "the ARIEL database ariel_db_skip_reason probes"
     )
 
 
@@ -329,11 +345,11 @@ def init_project(
     accelerator with no channel database to build its namespace from — which
     the build refuses, correctly.
 
-    ``ariel.database.uri`` is pinned when the run exports
-    ``OSPREY_ARIEL_DB_URI`` and the preset configures ARIEL (see
-    :func:`_ariel_db_pins`), and the render is then checked to name it: a pin
-    that stops reaching the render fails here rather than letting the agent
-    talk to some other database.
+    ``ariel.database.uri`` is pinned to :func:`e2e_ariel_db_uri` when the
+    preset configures ARIEL (see :func:`_ariel_db_pins`), so the agent reaches
+    the database :func:`ariel_db_skip_reason` probed, and the render is then
+    checked to name it: a pin that stops reaching the render fails here rather
+    than letting the agent talk to some other database.
 
     ``channel_finder_mode`` is pinned to ``hierarchical`` when the caller names
     no mode and the preset's own is ``graph`` — the same containerless fact a
@@ -414,7 +430,7 @@ def init_project(
     # ``archiver.type`` is written in the literal dotted spelling the preset
     # already uses, so the edit replaces that entry instead of landing beside
     # it. The stand-in pin rides along where the preset declares a VA, and the
-    # ARIEL database pin where the run exported one.
+    # ARIEL database pin where the preset configures ARIEL.
     pins: dict[str, Any] = {"config": {"archiver.type": archiver, **_ariel_db_pins(template)}}
     if _preset_declares_virtual_accelerator(template):
         pins["virtual_accelerator"] = {"live_standin": None}
