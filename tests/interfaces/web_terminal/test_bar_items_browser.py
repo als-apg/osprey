@@ -53,6 +53,9 @@ Coverage (one test each):
   (n) a configured option is on the first paint: with the boot ``GET`` aborted,
       a UTC clock still hydrates showing its zone, because the server's shell
       carries the options the item was placed with.
+  (o) Move left in an item's options reorders it from the keyboard: the
+      button is reached by focus and pressed with Enter, and the item swaps
+      with its left neighbour the way the in-bar drag would move it.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -976,5 +979,41 @@ def test_a_configured_option_is_on_the_first_paint(tmp_path, chromium_browser):
         page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
 
         expect(page.locator(f"{STATUS_HOST} .bar-clock-zone")).to_have_text("UTC")
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (o) a reorder from the keyboard
+# ---------------------------------------------------------------------------
+
+
+def test_move_left_from_the_popover_works_from_the_keyboard(tmp_path, chromium_browser):
+    """The options popover's Move left does from the keyboard what a drag does.
+
+    The popover is opened with a plain click in edit mode; the reorder itself
+    is a focused button pressed with Enter, so no pointer gesture is involved.
+    """
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=["clock", "stopwatch", "feedback"],
+        )
+        page = _open(chromium_browser, base_url)
+        _enter_edit_mode(page)
+        _settled(page, "status", ["clock", "stopwatch", "feedback"])
+
+        _shell(page, "status", "feedback").click()
+        page.locator('.bar-options [data-bar-action="move-left"]').focus()
+        page.keyboard.press("Enter")
+
+        page.wait_for_function(
+            "() => [...document.querySelectorAll("
+            "'[data-bar-host=\"status\"] > .bar-item[data-bar-item]')]"
+            ".map((el) => el.dataset.barItem).join(',') === 'clock,feedback,stopwatch'",
+            timeout=5_000,
+        )
+        assert _types(page, "status") == ["clock", "feedback", "stopwatch"]
 
         page.close()

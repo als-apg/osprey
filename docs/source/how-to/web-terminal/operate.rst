@@ -454,11 +454,12 @@ there is, drawn as it will look in the bar. From there:
 - **Click an item** to open its options — the clock's zone, 24- or 12-hour
   format and seconds, a space's width, what the Bluesky queue shows and which
   of its controls it offers, what the system-health chip says and lists — along
-  with **Move to status bar** (or back to the
-  header) and **Remove**. Every item can go in either bar: the control-target
-  chip, the command palette button and the display menu work from the status
-  bar exactly as they do from the header, drawn smaller, and their cards open
-  upward from there.
+  with **Move left** and **Move right** within its bar, **Move to status bar**
+  (or back to the header) and **Remove**. Every item can go in either bar: the
+  control-target chip, the command palette button and the display menu work
+  from the status bar exactly as they do from the header, drawn smaller, and
+  their cards open upward from there. Move left and Move right do from the
+  keyboard what a drag does inside one bar.
 - **Drag either end of a space** to set its width. A space at width 0 takes
   whatever room is left in the bar; that is what pushes the items after it to
   the right.

@@ -17,6 +17,9 @@
  *   - "Move to the other bar" is offered only where the move would be allowed,
  *     and "Remove" is offered on every item, the wordmark included.
  *
+ *   - "Move left" and "Move right" are offered only where the item has a
+ *     neighbour on that side and the layout is editable.
+ *
  *   - the one preset, Default, is the deployment's own arrangement: applying it
  *     DELETES the operator's document and renders what the server hands back,
  *     because only the server knows what `web.bar_items` configured.
@@ -238,6 +241,82 @@ describe('moving and removing from the popover', () => {
     await openOptions('logo');
 
     expect(popover().querySelector('[data-bar-action="remove"]')).not.toBe(null);
+  });
+
+  test('Move left swaps the item with its left neighbour', async () => {
+    await editing(doc(['logo', 'clock', 'search'], []));
+    await openOptions('search');
+
+    popover().querySelector('[data-bar-action="move-left"]').click();
+    await settle();
+
+    expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual([
+      'logo',
+      'search',
+      'clock',
+    ]);
+    expect(rendered('header')).toEqual(['logo', 'search', 'clock']);
+  });
+
+  test('Move right swaps the item with its right neighbour', async () => {
+    await editing(doc(['logo', 'clock', 'search'], []));
+    await openOptions('logo');
+
+    popover().querySelector('[data-bar-action="move-right"]').click();
+    await settle();
+
+    expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual([
+      'clock',
+      'logo',
+      'search',
+    ]);
+    expect(rendered('header')).toEqual(['clock', 'logo', 'search']);
+  });
+
+  test('the ends of a bar are offered only the inward move', async () => {
+    await editing(doc(['logo', 'clock', 'search'], []));
+
+    await openOptions('logo');
+    expect(popover().querySelector('[data-bar-action="move-right"]')).not.toBe(null);
+    expect(popover().querySelector('[data-bar-action="move-left"]')).toBe(null);
+
+    await openOptions('search');
+    expect(popover().querySelector('[data-bar-action="move-left"]')).not.toBe(null);
+    expect(popover().querySelector('[data-bar-action="move-right"]')).toBe(null);
+  });
+
+  test('an item alone in its bar is offered neither', async () => {
+    await editing(doc(['logo'], ['clock']));
+
+    await openOptions('clock');
+
+    expect(popover().querySelector('[data-bar-action="move-left"]')).toBe(null);
+    expect(popover().querySelector('[data-bar-action="move-right"]')).toBe(null);
+  });
+
+  test('a reorder leaves the other bar alone', async () => {
+    await editing(doc(['logo', 'clock'], ['docs', 'search']));
+    await openOptions('search');
+
+    popover().querySelector('[data-bar-action="move-left"]').click();
+    await settle();
+
+    const body = putBodies()[0];
+    expect(body.status.map((/** @type {any} */ i) => i.type)).toEqual(['search', 'docs']);
+    expect(body.header.map((/** @type {any} */ i) => i.type)).toEqual(['logo', 'clock']);
+  });
+
+  test('a read-only layout is offered neither', async () => {
+    ({ customize, sync } = await boot({
+      fetch: endpoint({ get: doc(['logo', 'clock', 'not-a-type'], []) }),
+    }));
+    customize.enterEditMode();
+    expect(sync.isLayoutReadonly()).toBe(true);
+
+    await openOptions('clock');
+
+    expect(popover().querySelector('[data-bar-action="move-left"]')).toBe(null);
+    expect(popover().querySelector('[data-bar-action="move-right"]')).toBe(null);
   });
 });
 
