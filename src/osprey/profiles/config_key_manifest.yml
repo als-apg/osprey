@@ -1386,6 +1386,16 @@ keys:
       `mongodb_archiver`, `doocs_archiver` and `mya_archiver`.
   # Point budget behind archiver_read's span-derived default bin (issue #117).
   archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points', default: 10000}
+  archiver.settings:
+    rendered: false
+    evidence: 'ARCHIVER_SETTINGS_LEAF = "settings"'
+    note: >-
+      The selected archiver's settings, handed to its `connect()` whole: the one
+      spelling for a built-in and for a connector selected by dotted module path.
+      A short-named archiver's own-name block (`archiver.epics_archiver`) is the
+      older spelling of the same settings and still reads. The build refuses both
+      at once, and any other block under `archiver:` that no archiver reads.
+    default: {}
   archiver.epics_archiver:
     rendered: false
     evidence: 'epics_archiver'

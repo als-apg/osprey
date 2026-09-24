@@ -229,7 +229,9 @@ class ConnectorFactory:
                 - type: Connector type (e.g., 'epics_archiver', 'mock_archiver').
                   Defaults to 'mock_archiver' with a warning when unset, so a
                   config that omits the archiver section stays serviceable.
-                - [type]: Dict with type-specific configs
+                - settings: The selected connector's settings, handed to
+                  connect() whole. A short-named connector's own-name block is
+                  read when settings is absent; both at once raise ValueError.
                 If None, loads from global config
 
         Returns:
@@ -242,7 +244,7 @@ class ConnectorFactory:
         Example:
             >>> config = {
             >>>     'type': 'epics_archiver',
-            >>>     'epics_archiver': {
+            >>>     'settings': {
             >>>         'url': 'https://archiver.als.lbl.gov:8443',
             >>>         'timeout': 60
             >>>     }
@@ -297,8 +299,9 @@ class ConnectorFactory:
         # Create connector instance
         connector = connector_class()
 
-        # Get type-specific configuration
-        type_config = config.get(connector_type, {})
+        # The selected archiver's settings block. The rule is in types so that the
+        # build's refusal and this read give the same answer.
+        type_config = types.resolve_archiver_settings(config)
 
         # Connect with configuration
         await connector.connect(type_config)
