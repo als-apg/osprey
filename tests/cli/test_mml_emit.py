@@ -1357,6 +1357,27 @@ class TestVirtualAcceleratorLane:
         _assert_wrote_nothing(va_repo)
         _assert_wrote_no_va(va_repo)
 
+    def test_a_driven_device_the_export_does_not_band_refuses_the_va_lane(
+        self, va_repo: Path
+    ) -> None:
+        # The lane names the device it would drive unbanded, writes none of its
+        # five files, and serves no band of its own in their place.
+        export = va_repo / "data" / "mml" / "ao.json"
+        document = json.loads(export.read_text(encoding="utf-8"))
+        setpoint = document[SYNTHETIC_SYSTEM]["QF"]["Setpoint"]
+        rows = len(setpoint["ChannelNames"])
+        setpoint["Range"] = [["NaN", "NaN"]] + [[0, 200]] * (rows - 1)
+        export.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+        result = _emit()
+
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
+        assert f"{SYNTHETIC_SYSTEM}.QF device 1 ({SYNTHETIC_BANDED})" in result.output
+        assert "[NaN, NaN]" in result.output
+        assert "map --check" not in result.output
+        _assert_wrote_no_va(va_repo)
+
     def test_a_hand_banded_setpoint_refuses_the_va_lane_and_names_the_address(
         self, va_repo: Path
     ) -> None:

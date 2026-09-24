@@ -114,6 +114,7 @@ __all__ = [
     "LaneFindings",
     "NominalSeed",
     "SeriesSupply",
+    "UnbandedSetpointError",
     "emit_bindings",
     "emit_channel_limits",
     "emit_lattice",
@@ -1564,6 +1565,63 @@ _RANGE_KEY = "Range"
 _LIMITS_FIELD = "Setpoint"
 
 
+class UnbandedSetpointError(ValueError):
+    """A driven setpoint its export does not band finitely on both edges.
+
+    The virtual accelerator writes every coupled setpoint, so each one is
+    served inside a band with both edges stated. An edge the export does not
+    state is not one the emit supplies, and a family the mapping couples is not
+    one the emit stops driving on its own.
+
+    Attributes:
+        system: The system the family belongs to, or ``None`` where the
+            bindings name a family the judged views do not carry.
+        family: The raw family name.
+        address: The setpoint's channel address.
+        devices: The 1-based device positions the address sits at.
+        rows: The ``Setpoint`` ``Range`` as the export states it for those
+            devices, one entry each, or ``None`` where it states no ``Range``.
+    """
+
+    def __init__(
+        self,
+        system: str | None,
+        family: str,
+        address: str,
+        devices: tuple[int, ...],
+        rows: tuple[Any, ...] | None,
+    ) -> None:
+        self.system = system
+        self.family = family
+        self.address = address
+        self.devices = devices
+        self.rows = rows
+        numbers = ", ".join(str(device) for device in devices)
+        where = (
+            f"{system}.{family} device {numbers} ({address})"
+            if system and numbers
+            else f"{family} ({address})"
+        )
+        stated = (
+            f"states no {_LIMITS_FIELD} {_RANGE_KEY} for it"
+            if rows is None
+            else f"states its {_LIMITS_FIELD} {_RANGE_KEY} as "
+            + ", ".join(_row_words(row) for row in rows)
+        )
+        super().__init__(
+            f"{where} is driven, and the export {stated}; a driven setpoint needs a "
+            f"finite band on both edges. State one in the export, or latch {family} "
+            "in the mapping."
+        )
+
+
+def _row_words(row: Any) -> str:
+    """One ``Range`` row as the export states it, non-finite entries included."""
+    if isinstance(row, (list, tuple)):
+        return "[" + ", ".join(str(item) for item in row) + "]"
+    return str(row)
+
+
 @dataclass(frozen=True)
 class ChannelBand:
     """One coupled setpoint's band, as this run derives it.
@@ -1571,9 +1629,9 @@ class ChannelBand:
     Attributes:
         address: The channel the band applies to.
         family: The family the address belongs to.
-        min_value: The bottom of the band, or ``None`` when the export states
-            none -- no ``Range``, or an infinite bound, which is no bound.
-        max_value: The top of the band, or ``None``, for the same reasons.
+        min_value: The bottom of the band. Always stated: a coupled setpoint the
+            export does not band on both edges stops the emit.
+        max_value: The top of the band, stated for the same reason.
         nominal: The device's nominal hardware value, for a report to show
             beside a band it widened.
         widened: Whether the nominal sat outside the exported ``Range`` and
@@ -1586,8 +1644,8 @@ class ChannelBand:
 
     address: str
     family: str
-    min_value: float | None
-    max_value: float | None
+    min_value: float
+    max_value: float
     nominal: float | None
     widened: bool
     refused: str | None = None
@@ -1640,12 +1698,14 @@ def emit_channel_limits(
         refused rows are what the emit pre-flight stops on.
 
     Raises:
+        UnbandedSetpointError: A coupled setpoint's family states no finite
+            ``Range`` edge on one side or both for it.
         ValueError: A family's per-device ``Range`` states a different number
             of devices than the judged family has, so its rows no longer name
             the devices they were measured for.
     """
     grain = {view.raw_name: view for view in views if view.system == system}
-    banded: dict[str, tuple[float | None, float | None, bool, str, float | None]] = {}
+    banded: dict[str, tuple[float, float, bool, str, float | None]] = {}
     read_only: list[str] = []
     for binding in bindings:
         if binding.is_writable:
@@ -1688,7 +1748,7 @@ def emit_channel_limits(
 
 
 def _created_limits(
-    banded: dict[str, tuple[float | None, float | None, bool, str, float | None]],
+    banded: dict[str, tuple[float, float, bool, str, float | None]],
     read_only: Iterable[str],
     channel_addresses: Iterable[str],
     ctx: EmitContext,
@@ -1707,7 +1767,7 @@ def _created_limits(
 
 def _merged_limits(
     existing: dict,
-    banded: dict[str, tuple[float | None, float | None, bool, str, float | None]],
+    banded: dict[str, tuple[float, float, bool, str, float | None]],
     read_only: Iterable[str],
     ctx: EmitContext,
 ) -> tuple[dict[str, Any], dict[str, str]]:
@@ -1723,7 +1783,7 @@ def _merged_limits(
             document[address] = _restamped(entry, ctx, low, high)
             continue
         held = (_number(entry.get(_MIN_KEY)), _number(entry.get(_MAX_KEY)))
-        if (low, high) != held and (low is not None or high is not None):
+        if (low, high) != held:
             refusals[address] = (
                 f"{address}: the file bands it {_band_words(*held)} and carries no "
                 f"{PROVENANCE_KEY} stamp, while this export bands it "
@@ -1739,19 +1799,44 @@ def _merged_limits(
     return document, refusals
 
 
-def _setpoint_band(
-    binding: Binding, view: FamilyView | None
-) -> tuple[float | None, float | None, bool]:
-    """One coupled setpoint's band: its family's ``Range``, widened to its nominal."""
+def _setpoint_band(binding: Binding, view: FamilyView | None) -> tuple[float, float, bool]:
+    """One coupled setpoint's band: its family's ``Range``, widened to its nominal.
+
+    Raises:
+        UnbandedSetpointError: The ``Range`` leaves the setpoint without a finite
+            edge on either side, so there is no band to widen.
+    """
     low, high = _range_pair(view, binding.setpoint_address)
+    if low is None or high is None:
+        raise _unbanded(binding, view)
     nominal = _number(binding.nominal)
     widened = False
     if nominal is not None:
-        if low is not None and nominal < low:
+        if nominal < low:
             low, widened = nominal, True
-        if high is not None and nominal > high:
+        if nominal > high:
             high, widened = nominal, True
     return low, high, widened
+
+
+def _unbanded(binding: Binding, view: FamilyView | None) -> UnbandedSetpointError:
+    """The refusal for a driven setpoint, naming the ``Range`` rows it sits under."""
+    field_view = None if view is None else view.fields.get(_LIMITS_FIELD)
+    indices = [] if field_view is None else _device_indices(field_view, binding.setpoint_address)
+    declared = None if field_view is None else field_view.body.get(_RANGE_KEY)
+    rows: tuple[Any, ...] | None = None
+    if isinstance(declared, (list, tuple)) and declared:
+        if any(isinstance(row, (list, tuple)) for row in declared):
+            rows = tuple(declared[index] for index in indices if index < len(declared))
+        else:
+            rows = (declared,)
+    return UnbandedSetpointError(
+        None if view is None else view.system,
+        binding.family,
+        binding.setpoint_address,
+        tuple(index + 1 for index in indices),
+        rows,
+    )
 
 
 def _range_pair(view: FamilyView | None, address: str) -> tuple[float | None, float | None]:
@@ -1759,8 +1844,8 @@ def _range_pair(view: FamilyView | None, address: str) -> tuple[float | None, fl
 
     A flat pair is the whole family's band and reaches every device; a
     per-device table states one row each, and the row is the device's own. An
-    infinite bound is no bound at all and is left unwritten, which is what the
-    write-safety database means by an absent ``min_value``/``max_value``.
+    infinite bound is no bound at all and comes back ``None``; a driven setpoint
+    left with one is refused by :func:`_setpoint_band`.
 
     A supply feeding several magnets in series answers the band every one of
     them can take, which is the intersection of theirs: the knob moves them
@@ -1815,14 +1900,14 @@ def _device_indices(field_view: FieldView, address: str) -> list[int]:
     return found
 
 
-def _band_entry(ctx: EmitContext, low: float | None, high: float | None) -> dict[str, Any]:
+def _band_entry(ctx: EmitContext, low: float, high: float) -> dict[str, Any]:
     """A fresh entry for a coupled setpoint: stamped, writable, banded."""
-    entry: dict[str, Any] = {PROVENANCE_KEY: ctx.provenance_string, _WRITABLE_KEY: True}
-    if low is not None:
-        entry[_MIN_KEY] = low
-    if high is not None:
-        entry[_MAX_KEY] = high
-    return entry
+    return {
+        PROVENANCE_KEY: ctx.provenance_string,
+        _WRITABLE_KEY: True,
+        _MIN_KEY: low,
+        _MAX_KEY: high,
+    }
 
 
 def _read_only_entry(ctx: EmitContext) -> dict[str, Any]:

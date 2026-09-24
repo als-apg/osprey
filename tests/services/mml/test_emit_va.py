@@ -30,6 +30,7 @@ from osprey.services.mml.emit.context import LATTICE_ARTIFACT, EmitContext, buil
 from osprey.services.mml.emit.va import (
     PROVENANCE_KEY,
     SEED_ONLY_KEY,
+    UnbandedSetpointError,
     emit_bindings,
     emit_channel_limits,
     emit_lattice,
@@ -2168,23 +2169,33 @@ class TestChannelLimitsOnATreeItCreates:
         assert [band.widened for band in bands] == [True, True]
         assert [band.nominal for band in bands] == [1.5, 2.5]
 
-    def test_channel_limits_skip_an_infinite_range_bound(self, tmp_path):
-        document, _, _ = _limits(tmp_path, body=_banded_quad_body(("-Inf", 5)))
-        entry = document["SR:QF:1:SP"]
-        assert "min_value" not in entry
-        assert entry["max_value"] == 5
+    def test_channel_limits_refuse_a_range_with_an_infinite_edge(self, tmp_path):
+        with pytest.raises(UnbandedSetpointError) as refused:
+            _limits(tmp_path, body=_banded_quad_body(("-Inf", 5)))
+        assert refused.value.address == "SR:QF:1:SP"
+        assert refused.value.rows == (["-Inf", 5],)
 
     def test_channel_limits_keep_a_per_device_range_row_on_its_own_device(self, tmp_path):
         document, _, _ = _limits(tmp_path, body=_banded_quad_body([[0, 100], [0, 200]]))
         assert document["SR:QF:1:SP"]["max_value"] == 100
         assert document["SR:QF:2:SP"]["max_value"] == 200
 
-    def test_channel_limits_band_nothing_when_the_family_states_no_range(self, tmp_path):
-        document, bands, _ = _limits(tmp_path, body=_banded_quad_body(None))
-        entry = document["SR:QF:1:SP"]
-        assert entry["writable"] is True
-        assert "min_value" not in entry and "max_value" not in entry
-        assert [band.min_value for band in bands] == [None, None]
+    def test_channel_limits_refuse_a_driven_family_that_states_no_range(self, tmp_path):
+        with pytest.raises(UnbandedSetpointError) as refused:
+            _limits(tmp_path, body=_banded_quad_body(None))
+        assert (refused.value.family, refused.value.address) == ("QF", "SR:QF:1:SP")
+        assert refused.value.rows is None
+        assert "states no Setpoint Range" in str(refused.value)
+
+    def test_channel_limits_refuse_a_driven_device_whose_range_row_is_not_finite(self, tmp_path):
+        with pytest.raises(UnbandedSetpointError) as refused:
+            _limits(tmp_path, body=_banded_quad_body([[0, 100], ["NaN", "NaN"]]))
+        error = refused.value
+        assert (error.system, error.family, error.address) == (SYSTEM, "QF", "SR:QF:2:SP")
+        assert error.devices == (2,)
+        assert error.rows == (["NaN", "NaN"],)
+        assert f"{SYSTEM}.QF device 2 (SR:QF:2:SP)" in str(error)
+        assert "[NaN, NaN]" in str(error)
 
     def test_channel_limits_leave_a_monitor_family_read_only(self, tmp_path):
         views = [_view("BPMx", _bpm_body())]
@@ -2263,6 +2274,16 @@ class TestChannelLimitsMergeIntoAFacilityFile:
         refused = [band for band in bands if band.refused]
         assert [band.address for band in refused] == ["SR:QF:1:SP"]
         assert PROVENANCE_KEY in refused[0].refused
+
+    def test_channel_limits_merge_refuses_an_unbanded_device_a_hand_band_covers(self, tmp_path):
+        hand = {"min_value": -1, "max_value": 1, "writable": True}
+        with pytest.raises(UnbandedSetpointError) as refused:
+            _limits(
+                tmp_path,
+                existing=_facility_file(**{"SR:QF:2:SP": dict(hand)}),
+                body=_banded_quad_body([[0, 100], ["NaN", "NaN"]]),
+            )
+        assert refused.value.address == "SR:QF:2:SP"
 
     def test_channel_limits_merge_accepts_a_hand_written_band_that_agrees(self, tmp_path):
         agrees = {"min_value": 0, "max_value": 200}
