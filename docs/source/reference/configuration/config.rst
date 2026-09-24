@@ -651,10 +651,13 @@ suite's worst outcome in a word) and ``detail`` (``categories``, the default:
 its card lists one row per check category; ``checks``: every check).
 
 Nothing here can stop the terminal from booting. An item name the build does
-not know, a second copy of an item that can only appear once (everything but ``clock``, ``stopwatch``, ``space``
-and ``separator``), or a line that is not an item at all is reported in the log
-and skipped; the rest of the bar is rendered. Twenty items per bar is the
-ceiling, and extras past it are dropped.
+not know, a second copy of an item that can only appear once (everything but
+``clock``, ``stopwatch``, ``space`` and ``separator``), or a line that is not an
+item at all is reported in the log and skipped; the rest of the bar is
+rendered. An option the item does not take, or a value it does not accept
+(``zone: UTC`` rather than ``utc``, a ``width`` past ``2000``), is reported the
+same way and dropped; the item keeps its default for that option. Twenty items
+per bar is the ceiling, and extras past it are dropped.
 
 .. _config-file-watch-reconcile:
 

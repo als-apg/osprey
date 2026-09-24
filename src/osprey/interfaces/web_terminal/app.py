@@ -34,9 +34,11 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.bar_items_store import (
+    BarLayoutInvalid,
     BarVocabulary,
     layout_path,
     load_layout,
+    validate_option,
 )
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.feedback_destination import (
@@ -1423,10 +1425,17 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
 
     Two spellings are accepted, because both read naturally in YAML: a bare
     string (``- clock``) for an item with no options, and a mapping
-    (``- {type: clock, options: {zone: utc}}``) for one with them. Option
-    VALUES are not validated here — the catalog owns each type's option spec
-    and the browser applies it — but a non-mapping ``options`` is dropped,
-    since nothing downstream could read it.
+    (``- {type: clock, options: {zone: utc}}``) for one with them.
+
+    Each option is judged against :data:`BAR_ITEM_OPTIONS` by
+    :func:`~osprey.interfaces.web_terminal.bar_items_store.validate_option`,
+    the rule a save is judged by. An option the type does not take, or a value
+    outside its spec, is warned about and dropped while the item keeps its
+    other options: the browser completes a missing option from its default
+    without complaint, but reads an undeclared key or an out-of-spec value in
+    the deployment default as lost content and latches every operator's bars
+    read-only. A non-mapping ``options`` is dropped whole, since nothing
+    downstream could read it.
 
     Args:
         host: The bar the entry was written under, for the warning text.
@@ -1435,7 +1444,8 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
         raw: The entry, exactly as YAML produced it.
 
     Returns:
-        A ``{"type": ...}`` item, optionally carrying ``options``; ``None``
+        A ``{"type": ...}`` item, its optional ``options`` carrying only the
+        options its type takes, at values their specs allow; ``None``
         when the entry is malformed or names a type this build does not know.
     """
     where = f"web.bar_items.{host}[{index}]"
@@ -1456,7 +1466,22 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
     item: dict = {"type": item_type}
     if options is not None:
         if isinstance(options, dict):
-            item["options"] = dict(options)
+            specs = BAR_ITEM_OPTIONS.get(item_type, {})
+            kept: dict = {}
+            for name, value in options.items():
+                if name not in specs:
+                    logger.warning(
+                        "%s.options.%s is not an option %r takes; dropping it.",
+                        where,
+                        name,
+                        item_type,
+                    )
+                    continue
+                try:
+                    kept[name] = validate_option(value, specs[name], f"{where}.options.{name}")
+                except BarLayoutInvalid as exc:
+                    logger.warning("%s; dropping it.", exc)
+            item["options"] = kept
         else:
             logger.warning("%s has non-mapping options; dropping them.", where)
     return item
