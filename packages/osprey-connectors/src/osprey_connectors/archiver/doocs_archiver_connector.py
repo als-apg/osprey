@@ -145,7 +145,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         # A naive datetime's .timestamp() resolves against the *host* zone;
         # convert explicitly so the window means the same thing on every box.
         start_utc, end_utc = utc_window(start_date, end_date)
-        resolved = resolve_processing(processing, precision_ms)
+        resolved = resolve_processing(processing, precision_ms, start_utc)
 
         def fetch_all() -> dict[str, pd.Series]:
             data = {}

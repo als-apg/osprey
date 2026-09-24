@@ -29,7 +29,9 @@ value relabelled to the window start.
 Aggregates go to ``mystats`` where it can compute them, the same shape as the
 EPICS connector's server-side operators. ``median`` is the exception -- MYA does
 not compute one -- so that mode alone falls back to fetching raw events and
-binning client-side, the way the DOOCS connector does for every mode.
+binning client-side, the way the DOOCS connector does for every mode. Both paths
+cut their bins from the window start, so a window opening off the midnight
+lattice does not answer on two different grids depending on the mode.
 
 Timestamps are requested as epoch milliseconds (``unix_timestamps_ms``), which
 name an instant outright. myquery's default spelling is a naive local wall clock,
@@ -252,7 +254,7 @@ class MYAArchiverConnector(ArchiverConnector):
 
         timeout = timeout or self._timeout
         start_utc, end_utc = utc_window(start_date, end_date)
-        resolved = resolve_processing(processing, precision_ms)
+        resolved = resolve_processing(processing, precision_ms, start_utc)
 
         if end_utc <= start_utc:
             raise ValueError(f"end_date must be after start_date (got {start_date} to {end_date})")

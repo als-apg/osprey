@@ -192,7 +192,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-        resolved = resolve_processing(processing, precision_ms)
+        resolved = resolve_processing(processing, precision_ms, start_utc)
 
         # A bin width was asked for but the appliance cannot express it. Reject
         # rather than fall through to the bare PV name, which would answer an
