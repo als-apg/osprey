@@ -257,10 +257,9 @@ def _approval_stamp_key(operations: list[dict], confirm: bool | None) -> str | N
 
     A SHA-256 over the canonical JSON of ``operations`` and ``confirm`` —
     every parameter the tool accepts, and exactly what the hook finds in the
-    ``tool_input`` it is handed. The hook and this server share no call
-    identifier (the hook is handed a tool-call payload, the tool is handed its
-    arguments), so the payload is the only thing that provably crosses the gap
-    between them. Both sides key on it. The hook restates this derivation in
+    ``tool_input`` it is handed. The payload is the key because it is what the
+    approval prompt showed: a stamp keyed on it cannot vouch for a write
+    carrying different arguments. Both sides key on it. The hook restates this derivation in
     stdlib-only Python (it runs outside this venv and cannot import this
     module); a test pins the two spellings against each other.
 

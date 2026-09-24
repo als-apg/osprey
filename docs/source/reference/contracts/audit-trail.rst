@@ -74,11 +74,11 @@ gallery refusal and a config refusal never share a file.
    * - ``auth_sidecar.jsonl`` (under ``var/audit/sidecar/``)
      - Logins and login refusals, where a deployment has a login wall
 
-``decision`` reads ``allowed`` or ``refused`` on almost all of them, and ``ask``
-in ``hook_approval.jsonl``, where the hook did neither: it put the call in front
-of an operator. What the operator then said is visible in what follows --- an
-approved call leaves its own record on the server that ran it, and a declined
-one never reaches a server at all.
+``decision`` reads ``allowed`` or ``refused`` on almost all of them.
+``hook_approval.jsonl`` has three words of its own, all on the same
+``tool_use_id``: ``ask`` when the hook put the call in front of an approver,
+then ``approved`` when the harness reported that the call ran, or ``denied``
+when the turn ended without it --- declined or interrupted.
 
 Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves lines in
@@ -134,7 +134,7 @@ and a refused control-system write alike. One JSON object per line:
      - What the decision was about: a dotted config key, a tool name, or the
        project-relative path when a whole file is the target
    * - ``decision``
-     - ``allowed``, ``refused``, or ``ask``
+     - ``allowed``, ``refused``, ``ask``, ``approved`` or ``denied``
    * - ``reason``
      - Short machine-readable reason --- ``protected_key``, ``reserved path``,
        ``reserved path in ownership store``; a control-system write the
@@ -146,7 +146,10 @@ and a refused control-system write alike. One JSON object per line:
      - Surface-specific context: for a protected-set refusal, the file the
        write was aimed at (``target=``) and the channel that owns it, named
        the same way the refusal message names it; on the web surfaces, the
-       login the request came from --- see :ref:`audit-trail-identity-keys`
+       login the request came from --- see :ref:`audit-trail-identity-keys`.
+       An MCP server's own record adds ``approval=approved approver=<who>``
+       when an approval prompt let the call through, and a control-target
+       switch adds ``from_target=`` and ``to_target=``
 
 A ``PUT`` that would have changed many protected keys at once names the first
 ten and counts the rest in the message, but **every changed key gets its own

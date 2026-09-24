@@ -512,6 +512,12 @@ POSTURE_WRITES = "writes"
 AUDIT_DECISION_REFUSED = "refused"
 AUDIT_DECISION_ASK = "ask"
 
+#: An ask's answer is its own record, on the same ``tool_use_id`` as the ask:
+#: ``approved`` when the harness reports the call ran, ``denied`` when the turn
+#: ended without it. The envelope spells both the same way.
+AUDIT_DECISION_APPROVED = "approved"
+AUDIT_DECISION_DENIED = "denied"
+
 #: The shape a tool-use id is recorded in, restated from ``osprey.audit.call``.
 #: Anything else in the hook input is dropped rather than recorded.
 _AUDIT_TOOL_USE_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")

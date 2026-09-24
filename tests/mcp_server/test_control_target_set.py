@@ -1299,6 +1299,45 @@ class TestEveryDeclineIsVisible:
         assert target_state.read_file(target_state.request_file_path()) is None
 
 
+class TestTheSwitchEndpointsAreNoted:
+    """A switch notes the target it left and the one it asked for on its call.
+
+    The audit middleware copies both into the record it files for the call.
+    """
+
+    @pytest.mark.usefixtures("emitted")
+    async def test_the_switch_record_names_from_and_to(
+        self, make_manager, monkeypatch, record_root
+    ):
+        from osprey.audit.call import call_scope
+
+        manager = make_manager(raw=config_with_gateways())
+        install_context(manager, monkeypatch)
+        allow_every_target(monkeypatch)
+        owned_here(record_root, target="live", generation=3)
+        our_report(record_root, last_switch=applied_block(4))
+
+        with call_scope("toolu_switch", None) as call:
+            await TOOL(target="va")
+
+        assert call.facts["from_target"] == "live"
+        assert call.facts["to_target"] == "va"
+
+    @pytest.mark.usefixtures("emitted")
+    async def test_a_refused_switch_names_them_too(self, monkeypatch):
+        from osprey.audit.call import call_scope
+        from osprey.mcp_server.control_system import server_context as server_context_mod
+
+        monkeypatch.setattr(server_context_mod, "_registry", None)
+
+        with call_scope("toolu_refused", None) as call:
+            with assert_raises_error(error_type=control_target.ERROR_UNAVAILABLE):
+                await TOOL(target="va")
+
+        assert call.facts["from_target"] == control_target.UNKNOWN_TARGET
+        assert call.facts["to_target"] == "va"
+
+
 # ---------------------------------------------- the in-flight marker contract
 
 

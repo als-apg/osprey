@@ -202,6 +202,11 @@
 {%- for rule in framework_post_hooks | default([]) -%}
 {%- set _ = post_rules.append(rule) -%}
 {%- endfor -%}
+{#- The approval hook's outcome rules: the call an ask put in front of an
+    approver ran, so its answer was yes. One per approval matcher. -#}
+{%- for rule in approval_outcome_hooks | default([]) -%}
+{%- set _ = post_rules.append(rule) -%}
+{%- endfor -%}
 {%- for rule in declared.get('PostToolUse', []) -%}
 {%- set _ = post_rules.append(rule) -%}
 {%- endfor -%}
@@ -220,6 +225,13 @@
       }{% if not loop.last %},{% endif %}
 {%- endfor %}
     ],
+{#- The same outcome rules for a call that ran and failed: it was still
+    approved. A CLI build that emits no `PostToolUseFailure` simply never runs
+    this entry. -#}
+    "PostToolUseFailure": [
+{%- set rules = (approval_outcome_hooks | default([])) + declared.get('PostToolUseFailure', []) -%}
+{%- for rule in rules %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
+    ],
 {#- The closing edge of a turn, reported by the same hook that reports the
     opening one. `Stop` ends a turn that completed and `StopFailure` one that
     errored out; both leave the process between turns, which is the only state
@@ -234,13 +246,13 @@
 {%- for rule in rules %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ]
 {#- Events the framework wires nothing on exist as keys only when declared. The
-    two above are now framework-wired and take their declared entries inline,
+    three above are framework-wired and take their declared entries inline,
     so they are filtered out here: a second key of the same name would be legal
     JSON whose earlier copy — the framework's — silently loses.
-    `FRAMEWORK_WIRED_EVENTS` in cli/templates/claude_code.py lists both, so this
+    `FRAMEWORK_WIRED_EVENTS` in cli/templates/claude_code.py lists all three, so this
     filter normally has nothing left to remove; it stays because the render
     must not depend on that constant staying in step with this file. -#}
-{%- for event in declared_extra_events | default([]) if event not in ('Stop', 'StopFailure') %},
+{%- for event in declared_extra_events | default([]) if event not in ('PostToolUseFailure', 'Stop', 'StopFailure') %},
     "{{ event }}": [
 {%- for rule in declared[event] %}{{ hook_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
     ]

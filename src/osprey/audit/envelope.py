@@ -99,6 +99,13 @@ DECISION_ALLOWED = "allowed"
 DECISION_REFUSED = "refused"
 DECISIONS: tuple[str, ...] = (DECISION_ALLOWED, DECISION_REFUSED)
 
+#: The answer to an approval prompt, each filed as its own record on the
+#: approval hook's surface: ``approved`` when the call the prompt asked about
+#: ran, ``denied`` when the turn ended without it. Canonical spellings only,
+#: like the two above.
+DECISION_APPROVED = "approved"
+DECISION_DENIED = "denied"
+
 # --------------------------------------------------------------------------
 # Bounds
 # --------------------------------------------------------------------------

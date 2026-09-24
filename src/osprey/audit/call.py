@@ -41,12 +41,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 __all__ = [
+    "DETAIL_FACTS",
     "TOOL_USE_ID_META_KEY",
     "CallFacts",
     "call_scope",
     "current_call",
     "current_tool_use_id",
     "harness_session_id",
+    "note",
     "valid_tool_use_id",
 ]
 
@@ -57,6 +59,11 @@ TOOL_USE_ID_META_KEY = "claudecode/toolUseId"
 #: The shape a tool-use id is accepted in. The id names a stamp file, so it
 #: must be a safe path component; anything else is dropped rather than kept.
 _TOOL_USE_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")
+
+#: The noted facts a value-free default record may carry in its ``detail``.
+#: Target names are identifiers, so they qualify; every other fact is a value
+#: and rides only the full ``tool_call`` record.
+DETAIL_FACTS: tuple[str, ...] = ("from_target", "to_target")
 
 #: The conversation id Osprey forces at launch (web terminal, dispatch worker).
 _OSPREY_CONVERSATION_ENV = "OSPREY_TELEMETRY_SESSION_ID"
@@ -135,3 +142,17 @@ def current_tool_use_id() -> str | None:
     """The tool-use id of the call in scope, or ``None``."""
     call = _CURRENT.get()
     return call.tool_use_id if call is not None else None
+
+
+def note(**facts: Any) -> None:
+    """Add *facts* to the call in scope; outside a scope, do nothing.
+
+    Never raises: a fact that could not be noted costs the record that detail
+    and nothing else.
+    """
+    try:
+        call = _CURRENT.get()
+        if call is not None:
+            call.facts.update(facts)
+    except Exception:  # pragma: no cover - defensive: noting must not cost the call
+        return

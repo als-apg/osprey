@@ -130,6 +130,10 @@ class TestSchemaParity:
     def test_refused_is_spelled_as_the_envelope_spells_it(self, emitter):
         assert emitter.AUDIT_DECISION_REFUSED == osprey_envelope.DECISION_REFUSED
 
+    def test_an_asks_answers_are_spelled_as_the_envelope_spells_them(self, emitter):
+        assert emitter.AUDIT_DECISION_APPROVED == osprey_envelope.DECISION_APPROVED
+        assert emitter.AUDIT_DECISION_DENIED == osprey_envelope.DECISION_DENIED
+
     def test_field_bounds_match_the_envelope(self, emitter):
         assert emitter.AUDIT_MAX_FIELD_CHARS == osprey_envelope.MAX_FIELD_CHARS
         assert emitter.AUDIT_MAX_DETAIL_CHARS == osprey_envelope.MAX_DETAIL_CHARS

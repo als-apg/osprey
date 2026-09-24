@@ -981,6 +981,78 @@ class TestToolUseId:
         assert record["tool_use_id"] == "toolu_x"
 
 
+@pytest.fixture
+def ask_stamps(tmp_path, monkeypatch):
+    """Where the approval hook leaves its ask stamps, as this server resolves it."""
+    from tests._control_context_fixtures import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state = state_dir_under(root)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+
+    def stamp(tool_use_id: str, approver: str = "human", mode: str = "default") -> Path:
+        path = state / f"{am.APPROVAL_ASK_PREFIX}{tool_use_id}{am.APPROVAL_ASK_SUFFIX}"
+        path.write_text(
+            json.dumps({"tool_use_id": tool_use_id, "approver": approver, "permission_mode": mode})
+        )
+        return path
+
+    return stamp
+
+
+class TestApprovalOutcome:
+    """A call an approval prompt let through says so in its own record's detail."""
+
+    async def test_a_stamped_call_records_approval_in_detail(self, project, ask_stamps):
+        ask_stamps("toolu_01abc")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        record = _records(project, identity=_identity())[-1]
+        assert record["decision"] == DECISION_ALLOWED
+        assert record["detail"] == "approval=approved approver=human"
+
+    async def test_an_unstamped_call_has_no_approval_detail(self, project, ask_stamps):
+        ask_stamps("toolu_someone_else")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        assert "detail" not in _records(project, identity=_identity())[-1]
+
+    @pytest.mark.usefixtures("project")
+    async def test_the_stamp_is_not_consumed_here(self, ask_stamps):
+        path = ask_stamps("toolu_01abc")
+        await _call(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        assert path.exists()
+
+    async def test_a_refused_call_after_approval_names_both(self, project, ask_stamps):
+        ask_stamps("toolu_01abc")
+        with pytest.raises(ToolError):
+            await _call(
+                am.AuditMiddleware(), "channel_write", raises=ToolError("x"), meta=_TOOL_USE_META
+            )
+        record = _records(project, identity=_identity())[-1]
+        assert record["reason"] == am.REASON_TOOL_ERROR
+        assert record["detail"] == "approval=approved approver=human"
+
+    async def test_a_posture_refusal_keeps_its_clamp_source_first(
+        self, project, ask_stamps, monkeypatch
+    ):
+        ask_stamps("toolu_01abc")
+        _sandbox(monkeypatch)
+        await _refused(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        record = _records(project, identity=_identity())[-1]
+        assert record["detail"] == f"{am.CLAMP_SOURCE_LOADED} approval=approved approver=human"
+
+    async def test_noted_switch_endpoints_ride_the_detail(self, project):
+        from osprey.audit.call import note
+
+        async def call_next(_ctx):
+            note(from_target="live", to_target="va", limits={"verdict": "passed"})
+            return "switched"
+
+        await am.AuditMiddleware().on_call_tool(_context("control_target_set"), call_next)
+        assert _records(project)[-1]["detail"] == "from_target=live to_target=va"
+
+
 class TestToolErrors:
     async def test_a_tool_raised_error_is_recorded_as_a_refusal(self, project):
         with pytest.raises(ToolError):
