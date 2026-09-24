@@ -94,6 +94,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_f
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context
+from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -469,6 +470,8 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
         *set_pairs(_profile_edits()),
         "--set",
         f"virtual_accelerator.port={VA_CA_PORT}",
+        "--set",
+        f"virtual_accelerator.pva_port={VA_PVA_PORT}",
         "--set",
         f"bluesky.port={BRIDGE_PORT}",
         "--set",

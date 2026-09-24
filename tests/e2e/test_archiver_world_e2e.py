@@ -292,6 +292,8 @@ def _build_project(output_dir: Path) -> Path:
                 *set_pairs(_profile_edits()),
                 "--set",
                 f"virtual_accelerator.port={VA_CA_PORT}",
+                "--set",
+                f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
             ],
         ),
         (

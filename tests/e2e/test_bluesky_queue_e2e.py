@@ -810,6 +810,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
+            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
+            "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
             f"bluesky.tiled_port={TILED_PORT}",

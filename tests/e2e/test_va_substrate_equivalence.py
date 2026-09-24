@@ -456,6 +456,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
+            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
+            "--set",
             f"bluesky.port={BRIDGE_PORT}",
             # This module's own thousand-port block (see
             # test_dispatch_deploy.py's 20700 note): everything not pinned
@@ -632,12 +634,12 @@ def _published_pva_endpoint() -> str:
     every VA instance) and the host binding from ``docker port``, the P1
     precedent for "what was actually published".
 
-    Unlike ``VA_CA_PORT`` and ``BRIDGE_PORT`` this module cannot pin the value:
-    the deployment surface carries no ``virtual_accelerator.pva_port`` field, so
-    the template's own default is what gets published and a second VA (or a
-    stray PVA server) on this host takes the same host port. Reading it back and
-    failing loudly here turns that collision into a sentence instead of an RPC
-    timeout thirty seconds later.
+    The module pins the port through ``virtual_accelerator.pva_port``
+    (``_orm_stack.VA_PVA_PORT``), and this reads it back rather than trusting
+    the pin: a render that dropped the key would publish the template default
+    that every other VA on this host publishes too. Failing loudly here turns
+    that collision into a sentence instead of an RPC timeout thirty seconds
+    later.
     """
     env = _docker_inspect(VA_CONTAINER, "{{range .Config.Env}}{{println .}}{{end}}")
     ports = [
@@ -665,6 +667,10 @@ def _published_pva_endpoint() -> str:
     )
     assert binding.startswith("127.0.0.1:"), (
         f"the VA's PVAccess port must never leave loopback: {binding!r}"
+    )
+    assert binding == f"127.0.0.1:{_orm_stack.VA_PVA_PORT}", (
+        f"the VA publishes PVAccess on {binding!r}, not on the pinned "
+        f"virtual_accelerator.pva_port 127.0.0.1:{_orm_stack.VA_PVA_PORT}"
     )
     return binding
 
