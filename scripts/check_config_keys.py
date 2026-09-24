@@ -812,13 +812,13 @@ class ConfigKeyGuard:
         put back in front of the operator, which is what ``system.facility_name``
         was before this branch removed it.
 
-        Two keys are exempt, and the manifest says which and why
-        (``deleted_commented_examples``). Both were removed from what OSPREY
-        SHIPS while staying live in their readers — an explicitly set
+        Some keys are exempt, and the manifest says which and why
+        (``deleted_commented_examples``). Each was removed from what OSPREY
+        SHIPS while staying live in its reader — an explicitly set
         ``ariel.database.uri`` still wins over the derived DSN — and the
         commented line beside that prose is the documentation of an override
-        that works, not a retired knob put back. The exemption is narrow: those
-        two keys are still checked against the rendered union, against a LIVE
+        that works, not a retired knob put back. The exemption is narrow: an
+        exempt key is still checked against the rendered union, against a LIVE
         preset override and against the loader's defaults, which is where an
         actual resurrection would show.
         """
