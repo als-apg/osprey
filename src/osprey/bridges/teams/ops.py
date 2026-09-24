@@ -48,6 +48,14 @@ wall of text cannot become a second wall of text quoted back.
 :func:`ack_text` and :func:`quote_prefix` are public for the same reason: the
 e2e lane asserts the posted text by *equality* against them. A test that
 re-spelled the ack would prove only that someone typed it twice.
+
+Who is in the room
+------------------
+:meth:`TeamsOps.room_people` tells the agent who is in the conversation: the
+channel itself for a channel thread (never the team), the chat for a chat. The
+list comes from the Connector's paged member listing, cached per conversation by
+:class:`~osprey.bridges.teams.roster.ConversationRoster`, with names the
+conversation showed filling any the listing left empty.
 """
 
 from __future__ import annotations
@@ -67,6 +75,9 @@ from osprey.bridges.core import (
     InboundEvent,
     InputDownload,
     ReplyContext,
+    RoomMember,
+    RoomPeople,
+    RoomRoster,
     artifact_descriptors,
     fetch_artifact,
     queued_since,
@@ -83,10 +94,13 @@ from .events import (
     MS_CONVERSATION_ID,
     MS_CONVERSATION_TYPE,
     MS_SERVICE_URL,
+    people_seen,
+    roster_conversation_id,
 )
 from .events import parse_event as parse_teams_event
 from .events import resolve_reply_context as resolve_teams_reply_context
 from .formatting import markdown_to_teams
+from .roster import ConversationRoster
 
 logger = logging.getLogger(__name__)
 
@@ -437,6 +451,21 @@ def _attachment_activity(name: str, data: bytes) -> dict[str, Any]:
     }
 
 
+def _roster_address(entry: Mapping[str, Any]) -> tuple[str, str]:
+    """``(service URL, roster conversation id)`` for the entry; each ``""`` when absent.
+
+    The conversation is the one the question was said in, with a channel reply's
+    thread suffix removed (:func:`~osprey.bridges.teams.events.roster_conversation_id`),
+    so the roster is always the channel's own, never the team's. Never raises.
+    """
+    service_url = entry.get(MS_SERVICE_URL)
+    conversation = entry.get(MS_CONVERSATION_ID)
+    return (
+        service_url if isinstance(service_url, str) else "",
+        roster_conversation_id(conversation) if isinstance(conversation, str) else "",
+    )
+
+
 class TeamsOps:
     """Teams' platform I/O behind the ``ChannelOps`` seam.
 
@@ -445,7 +474,8 @@ class TeamsOps:
     member derives everything it needs from the ``entry`` it is handed. The
     collaborators it holds are themselves thread-safe — the connector client
     serializes its HTTP leg behind its own lock, and ``httpx.Client`` is safe to
-    share.
+    share. The instance holds one cross-call state, the room roster cache, which
+    owns its lock and its bound; it is the only state besides the collaborators.
     """
 
     def __init__(
@@ -485,6 +515,15 @@ class TeamsOps:
             worker_http if worker_http is not None else httpx.Client(trust_env=cfg.core.trust_env)
         )
         self._fetch_artifact = artifact_fetcher
+        self._roster = ConversationRoster(self._list_members, cfg.app_id)
+
+    def _list_members(
+        self, service_url: str, conversation: str, limit: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """The roster's listing call, resolved on the client at call time — so a
+        connector double without the method still constructs, and a call raises
+        inside the roster's guard."""
+        return self._client.list_members(service_url, conversation, limit=limit)
 
     # --- inbound members ---------------------------------------------------
 
@@ -496,7 +535,9 @@ class TeamsOps:
         leave the message unsettled and redelivered forever. See
         :func:`~osprey.bridges.teams.events.parse_event` for which activities
         count as questions for this bot — the mention filter outside a 1:1 chat
-        is the access control for a channel.
+        is the access control for a channel. Names the activity shows (its sender,
+        the people it mentions) are recorded in memory for the room roster; that
+        does no I/O.
 
         Args:
             event: One decoded activity.
@@ -504,7 +545,51 @@ class TeamsOps:
         Returns:
             The parsed event, or ``None`` to ignore this one.
         """
+        try:
+            conversation, seen = people_seen(event, self._cfg.app_id)
+            if conversation and seen:
+                self._roster.note_seen(conversation, seen)
+        except Exception:
+            logger.debug("could not record who was seen", exc_info=True)
         return parse_teams_event(event, self._cfg)
+
+    def room_people(self, entry: Mapping[str, Any]) -> RoomPeople | None:
+        """Who is in the entry's conversation, or ``None`` when that is unknown.
+
+        The :class:`~osprey.bridges.core.ports.RoomRoster` member. Never raises, and
+        lists only this conversation's people. The asker is named from the entry
+        when they are listed but neither the listing nor a seen name named them, so
+        a re-dispatch after a restart still names who asked; the asker is never
+        added when the listing does not contain them.
+        """
+        try:
+            service_url, conversation = _roster_address(entry)
+            if not service_url or not conversation:
+                return None
+            listed = self._roster.members(service_url, conversation)
+            if listed is None:
+                return None
+            names, more = listed
+            sender_id = entry.get("sender_id")
+            sender_display = entry.get("sender_display")
+            if (
+                isinstance(sender_id, str)
+                and sender_id in names
+                and names[sender_id] is None
+                and isinstance(sender_display, str)
+                and sender_display
+            ):
+                names[sender_id] = sender_display
+            return RoomPeople(
+                members=tuple(RoomMember(i, n) for i, n in names.items()),
+                mentions=self._cfg.mentions,
+                more_not_listed=more,
+            )
+        except Exception:
+            logger.warning(
+                "room roster failed for %s", entry.get(MS_CONVERSATION_ID), exc_info=True
+            )
+            return None
 
     # --- posting members ---------------------------------------------------
 
@@ -890,10 +975,15 @@ class TeamsOps:
         return None
 
 
-# NOT dead code, and not to be "cleaned up": this is the whole static conformance check
-# for the seam. Assigning a TeamsOps to a ChannelOps makes mypy verify every member's
+# NOT dead code, and not to be "cleaned up": these are the whole static conformance
+# checks for the two seams, ChannelOps and the optional RoomRoster. Assigning a
+# TeamsOps to either makes mypy verify every member's
 # FULL signature — parameter names, types, arity, return type — which a runtime
 # ``isinstance`` protocol check cannot do (it only looks for the names). Nothing runs it
 # and nothing constructs at import; the value is entirely in type-check time.
 def _static_conformance(ops: TeamsOps) -> ChannelOps:
+    return ops
+
+
+def _static_room_conformance(ops: TeamsOps) -> RoomRoster:
     return ops

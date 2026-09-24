@@ -34,6 +34,10 @@ the person's display name — "ask <at>Alice</at> about the magnets" has to reac
 the agent as "ask Alice about the magnets", because who was named is part of the
 question. Only the ends are stripped, so pasted code and markdown survive.
 
+**Names are also recorded, in memory, from what the conversation itself shows** —
+the sender and the people mentioned (:func:`people_seen`). They fill only a member
+the conversation's member listing leaves unnamed.
+
 **A channel conversation is keyed by its thread root.** Teams gives a reply the
 conversation id of the thread it is in (``<channel id>;messageid=<root id>``) but
 gives the *root post* the bare channel id, so the two forms have to be normalized
@@ -142,6 +146,10 @@ ROOT_MESSAGE_MARKER = ";messageid="
 """Separator Teams puts between a channel id and the id of the thread root, in a
 reply's conversation id. Its presence is what distinguishes a reply's conversation
 id from a root post's bare channel id."""
+
+USER_ID_PREFIX = "29:"
+"""Teams' actor prefix for a person. The room roster keeps only these ids, so a bot
+(``28:``) is never listed and never mentioned."""
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:
@@ -381,6 +389,58 @@ def parse_event(raw: Any, cfg: TeamsBridgeConfig) -> InboundEvent | None:
         # The activity itself, for adapter-internal use only; never persisted.
         raw=activity,
     )
+
+
+def roster_conversation_id(conversation_id: str) -> str:
+    """The conversation whose people a message was said in.
+
+    A channel reply's id carries ``;messageid=<root>``; the part before it is the
+    channel itself, so a thread root and every reply in it resolve to the channel.
+    A chat id carries no suffix and is returned as sent.
+    """
+    head, marker, _ = conversation_id.partition(ROOT_MESSAGE_MARKER)
+    return head if marker else conversation_id
+
+
+def people_seen(raw: Any, app_id: str) -> tuple[str, dict[str, str]]:
+    """The roster conversation and ``{id: name}`` for the people an activity names.
+
+    Two sources: the sender (unless it is a bot or this bot) and every mention
+    entity's ``mentioned`` person (except this bot). Only ``29:`` ids with a
+    non-empty name are kept. Free of I/O and never raising: an activity this cannot
+    read gives ``("", {})``.
+
+    Args:
+        raw: One decoded Bot Framework activity.
+        app_id: The bot's app id, never recorded.
+
+    Returns:
+        :func:`roster_conversation_id` of the activity's conversation, and the
+        names seen.
+    """
+    try:
+        activity = _mapping(raw)
+        conversation = roster_conversation_id(
+            _text(_mapping(activity.get("conversation")).get("id"))
+        )
+        if not conversation:
+            return "", {}
+        bot = bot_actor_id(app_id)
+        seen: dict[str, str] = {}
+
+        def keep(ident: str, name: str) -> None:
+            if ident.startswith(USER_ID_PREFIX) and ident != bot and name:
+                seen[ident] = name
+
+        sender = _mapping(activity.get("from"))
+        if _text(sender.get("role")).lower() != BOT_ROLE:
+            keep(_text(sender.get("id")), _text(sender.get("name")))
+        for entity in _mention_entities(activity):
+            mentioned = _mapping(entity.get("mentioned"))
+            keep(_text(mentioned.get("id")), _text(mentioned.get("name")))
+        return conversation, seen
+    except Exception:
+        return "", {}
 
 
 def resolve_reply_context(

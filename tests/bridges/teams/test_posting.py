@@ -154,12 +154,28 @@ class RecordingConnector:
     """A stand-in for :class:`~osprey.bridges.teams.client.ConnectorClient`.
 
     Records every ``reply`` and can be told to fail the next one, which is how
-    the swallow contracts are proven without a transport at all.
+    the swallow contracts are proven without a transport at all. ``members`` is what
+    ``list_members`` answers — a list, returned as ``(members, False)``, or an
+    exception to raise; its calls are recorded in ``member_calls``.
     """
 
-    def __init__(self, fail_with: BaseException | None = None) -> None:
+    def __init__(
+        self,
+        fail_with: BaseException | None = None,
+        members: list[dict[str, Any]] | BaseException = (),  # type: ignore[assignment]
+    ) -> None:
         self.calls: list[tuple[str, str, str, dict[str, Any]]] = []
         self.fail_with = fail_with
+        self.members = members
+        self.member_calls: list[tuple[str, str, int]] = []
+
+    def list_members(
+        self, service_url: str, conversation_id: str, *, limit: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        self.member_calls.append((service_url, conversation_id, limit))
+        if isinstance(self.members, BaseException):
+            raise self.members
+        return list(self.members), False
 
     def reply(
         self,

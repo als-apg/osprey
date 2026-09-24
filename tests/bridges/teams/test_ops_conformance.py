@@ -39,6 +39,7 @@ from osprey.bridges.core import (
     InboundEvent,
     InputDownload,
     ReplyContext,
+    RoomRoster,
 )
 from osprey.bridges.teams import events
 from osprey.bridges.teams.events import (
@@ -50,7 +51,12 @@ from osprey.bridges.teams.events import (
     MS_TENANT_ID,
     PERSONAL_CONVERSATION,
 )
-from osprey.bridges.teams.ops import TeamsOps, _static_conformance, quote_prefix
+from osprey.bridges.teams.ops import (
+    TeamsOps,
+    _static_conformance,
+    _static_room_conformance,
+    quote_prefix,
+)
 from tests.bridges.teams.test_posting import (
     ACTIVITY_ID,
     CHANNEL_CONVERSATION_ID,
@@ -69,6 +75,7 @@ from tests.bridges.test_ports import PROTOCOL_MEMBERS
 # is per-dispatch state on an instance several threads share — the failure this set exists
 # to make loud, since the corruption it causes is intermittent and load-dependent.
 COLLABORATORS = {"_cfg", "_client", "_http", "_fetch_artifact"}
+ROSTER = {"_roster"}
 
 
 # --- builders ---------------------------------------------------------------
@@ -148,6 +155,17 @@ def test_static_conformance_helper_is_the_type_check_seam() -> None:
     """
     ops, _ = make_ops()
     assert _static_conformance(ops) is ops
+
+
+def test_the_adapter_satisfies_the_room_roster_protocol() -> None:
+    ops, _ = make_ops()
+    assert isinstance(ops, RoomRoster)
+
+
+def test_static_room_conformance_helper_is_the_type_check_seam() -> None:
+    """The same guard for the optional room-roster seam."""
+    ops, _ = make_ops()
+    assert _static_room_conformance(ops) is ops
 
 
 def test_parsed_types_are_the_engines_own() -> None:
@@ -232,10 +250,11 @@ def test_coalesce_key_stands_alone_when_either_half_is_missing() -> None:
 # ==========================================================================
 
 
-def test_the_instance_holds_nothing_but_its_collaborators() -> None:
+def test_the_instance_holds_its_collaborators_and_the_roster_only() -> None:
     """The engine shares ONE instance across the receive threads and the drain thread.
 
-    So the instance dict must hold nothing but the injected collaborators: any
+    So the instance dict must hold nothing but the injected collaborators and the room
+    roster, which owns its lock and its bound: any
     per-dispatch field (a "current conversation", a cached entry) would be written by one
     thread and read by another, and the corruption would be intermittent and
     load-dependent. Asserted structurally, since a race cannot be asserted directly.
@@ -245,15 +264,14 @@ def test_the_instance_holds_nothing_but_its_collaborators() -> None:
     the fetcher is a pure function of its arguments.
     """
     ops, _ = make_ops()
-    assert set(vars(ops)) == COLLABORATORS
+    assert set(vars(ops)) == COLLABORATORS | ROSTER
 
 
 def test_a_full_dispatch_adds_no_instance_state_and_rebinds_nothing() -> None:
     """Every member the live path and the drain call, in order, against one instance.
 
-    The attribute set must come out identical and no attribute may be *replaced* — unlike
-    its Chat sibling this adapter carries no cross-call map at all, so nothing here is
-    even allowed to change.
+    The attribute set must come out identical and no attribute may be *replaced* — its one
+    cross-call map, the roster, is never rebound.
     """
     ops, connector = make_ops()
     entry = persisted(ops)
@@ -269,7 +287,7 @@ def test_a_full_dispatch_adds_no_instance_state_and_rebinds_nothing() -> None:
     ops.post_giveup(entry)
     ops.post_superseded(entry)
 
-    assert set(vars(ops)) == COLLABORATORS
+    assert set(vars(ops)) == COLLABORATORS | ROSTER
     assert all(vars(ops)[name] is value for name, value in before.items())
     # The dispatch really did reach the Connector, so the emptiness above is the
     # instance's and not a sign that every member returned early.

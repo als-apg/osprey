@@ -62,7 +62,8 @@ list, and that list, not the payload, is the security control.
 ``room``
 ========
 
-Who is in the conversation. Present only when the bridge can list the room:
+Who is in the conversation. Present only when the bridge can list the room
+(Google Chat and Microsoft Teams):
 
 .. list-table::
    :header-rows: 1

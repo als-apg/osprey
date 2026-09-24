@@ -43,7 +43,9 @@ from osprey.bridges.teams.events import (
     MS_TENANT_ID,
     bot_actor_id,
     parse_event,
+    people_seen,
     resolve_reply_context,
+    roster_conversation_id,
 )
 
 APP_ID = "11111111-2222-3333-4444-555555555555"
@@ -509,3 +511,45 @@ def test_reply_context_hands_back_a_fresh_mapping_each_time():
 
     assert first.reply_to is not second.reply_to
     assert first.meta is not second.meta
+
+
+# --- names the conversation shows, for the room roster ------------------------
+
+
+def test_people_seen_records_the_sender_and_mentioned_people():
+    activity = _activity(
+        text="<at>Osprey</at> ask <at>Carol</at>",
+        entities=[_mention(), _mention("29:carol-aad-id", "Carol")],
+    )
+    assert people_seen(activity, APP_ID) == (
+        CHANNEL_ID,
+        {USER_ID: "Alice Example", "29:carol-aad-id": "Carol"},
+    )
+
+
+def test_people_seen_skips_the_bot_and_other_bots():
+    activity = _activity(
+        **{"from": {"id": "28:other-bot", "name": "Other", "role": "bot"}},
+        entities=[_mention(), _mention("28:another", "Another bot")],
+    )
+    assert people_seen(activity, APP_ID) == (CHANNEL_ID, {})
+    own = _activity(**{"from": {"id": BOT_ID, "name": "Osprey"}})
+    assert people_seen(own, APP_ID) == (CHANNEL_ID, {})
+
+
+def test_people_seen_keys_a_channel_reply_and_its_root_on_one_conversation():
+    root, _ = people_seen(_activity(), APP_ID)
+    reply, _ = people_seen(_reply_activity(), APP_ID)
+    assert root == reply == CHANNEL_ID
+
+
+@pytest.mark.parametrize("raw", [None, "junk", [], {"type": "message"}, {"conversation": "nope"}])
+def test_people_seen_on_junk_is_empty(raw):
+    assert people_seen(raw, APP_ID) == ("", {})
+
+
+def test_roster_conversation_strips_only_the_thread_suffix():
+    assert roster_conversation_id(f"{CHANNEL_ID};messageid={ROOT_ID}") == CHANNEL_ID
+    assert roster_conversation_id(CHANNEL_ID) == CHANNEL_ID
+    assert roster_conversation_id(CHAT_ID) == CHAT_ID
+    assert roster_conversation_id("") == ""
