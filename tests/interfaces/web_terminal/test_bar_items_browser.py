@@ -59,6 +59,15 @@ Coverage (one test each):
   (p) a tile pressed with Enter keeps the keyboard: the accepted edit
       rebuilds every tile, and the focus lands on the new tile of the same
       type rather than on the page.
+  (q) a drag cancelled mid-gesture by ``pointercancel`` applies nothing: the
+      item keeps its place in the bar and in the stored document, no layout is
+      written, and the ghost, the drop marker and the dragging classes are gone.
+  (r) the context menu opened at the bottom-right corner of the window is
+      clamped inside it.
+  (s) the options popover is driven from the keyboard alone: it opens with
+      the focus on its first control, Move left re-opens it on the moved item
+      with the same button focused so a second Enter moves the item further,
+      and Escape gives the focus back to the item.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -1065,5 +1074,169 @@ def test_a_tile_pressed_with_enter_keeps_the_focus(tmp_path, engine_browser):
         expect(_shell(page, "header", "stopwatch")).to_be_visible(timeout=5_000)
         expect(page.locator(f'{SHEET} .bar-tile[data-before-edit="true"]')).to_have_count(0)
         expect(_tile(page, "stopwatch")).to_be_focused()
+
+        page.close()
+
+
+def _wait_for_order(page: Page, host: str, types: list[str]) -> None:
+    """Wait until *host* renders exactly *types*, in order."""
+    selector = f'[data-bar-host="{host}"] > .bar-item[data-bar-item]'
+    page.wait_for_function(
+        "([selector, want]) => [...document.querySelectorAll(selector)]"
+        ".map((el) => el.dataset.barItem).join(',') === want",
+        arg=[selector, ",".join(types)],
+        timeout=5_000,
+    )
+
+
+# ---------------------------------------------------------------------------
+# (q) a cancelled drag
+# ---------------------------------------------------------------------------
+
+
+def test_a_cancelled_drag_leaves_the_item_where_it_was(tmp_path, engine_browser):
+    """A ``pointercancel`` mid-drag ends the gesture without applying it.
+
+    The drag is aimed at the left half of the first item, so the same gesture
+    released normally would reorder the bar: the cancel is what keeps it in
+    place. Playwright has no way to make the browser cancel a pointer, so the
+    event is dispatched with the pointer id the drag started with.
+    """
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=["clock", "stopwatch", "feedback"],
+        )
+        page = _open(engine_browser, base_url)
+        _enter_edit_mode(page)
+        _settled(page, "status", ["clock", "stopwatch", "feedback"])
+        feedback = _shell(page, "status", "feedback")
+        clock_box = _box(_shell(page, "status", "clock"))
+        writes: list[str] = []
+
+        def note_write(request: Any) -> None:
+            if request.method != "GET" and "/api/bar-items" in request.url:
+                writes.append(request.method)
+
+        page.on("request", note_write)
+        page.evaluate(
+            "() => document.addEventListener('pointerdown', (event) => {"
+            " window.__barPointerId = event.pointerId; }, { capture: true, once: true })"
+        )
+
+        start = _center(feedback)
+        end = (clock_box["x"] + 2, clock_box["y"] + clock_box["height"] / 2)
+        page.mouse.move(*start)
+        page.mouse.down()
+        for step in range(1, 9):
+            page.mouse.move(
+                start[0] + (end[0] - start[0]) * step / 8,
+                start[1] + (end[1] - start[1]) * step / 8,
+            )
+        expect(page.locator(".bar-drag-ghost")).to_have_count(1)
+        expect(page.locator(".bar-drop-marker")).to_have_count(1)
+
+        feedback.dispatch_event(
+            "pointercancel",
+            {"pointerId": page.evaluate("() => window.__barPointerId"), "bubbles": True},
+        )
+        page.mouse.up()
+
+        expect(page.locator(".bar-drag-ghost")).to_have_count(0)
+        expect(page.locator(".bar-drop-marker")).to_have_count(0)
+        expect(page.locator("body")).not_to_have_class(re.compile(r"\bbar-dragging\b"))
+        expect(feedback).not_to_have_class(re.compile(r"\bis-bar-dragging\b"))
+        # A fixed settle, not a polling assertion: the failure this pins is a
+        # write that arrives after the cancel, which a retry would race past.
+        page.wait_for_timeout(1_000)
+        assert _types(page, "status") == ["clock", "stopwatch", "feedback"]
+        assert writes == [], f"a cancelled drag wrote the layout: {writes}"
+        stored = requests.get(f"{base_url}/api/bar-items", timeout=10).json()
+        assert [item["type"] for item in stored["status"]] == ["clock", "stopwatch", "feedback"]
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (r) the context menu stays on screen
+# ---------------------------------------------------------------------------
+
+
+def test_the_context_menu_opened_at_the_corner_stays_on_screen(tmp_path, engine_browser):
+    """A right-click at the window's bottom-right corner opens a menu inside it.
+
+    The status bar is the bottom edge of the page, so a right-click on its far
+    end is the case where an unclamped menu would hang off two sides at once.
+    """
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=["clock", "stopwatch", "feedback"],
+        )
+        page = _open(engine_browser, base_url)
+        _settled(page, "status", ["clock", "stopwatch", "feedback"])
+        size = page.viewport_size
+        assert size is not None
+        status = _box(page.locator(STATUS_HOST))
+
+        # 16 px in from the right: the settings drawer's resize handle is a
+        # 6 px strip along the window's right edge, over the status bar.
+        page.mouse.click(
+            status["x"] + status["width"] - 16,
+            status["y"] + status["height"] - 2,
+            button="right",
+        )
+
+        box = _box(page.locator(CONTEXT_MENU))
+        assert box["x"] >= 0 and box["y"] >= 0
+        assert box["x"] + box["width"] <= size["width"], box
+        assert box["y"] + box["height"] <= size["height"], box
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (s) the options popover from the keyboard
+# ---------------------------------------------------------------------------
+
+
+def test_the_options_popover_follows_its_item_from_the_keyboard(tmp_path, engine_browser):
+    """Open, Enter, Enter, Escape: the popover moves the item twice and hands back.
+
+    The feedback item has no options, so its popover's first control is Move
+    left. After each move the popover re-opens on the item at its new place
+    with the same button focused, until the item reaches the end of the bar
+    and there is no Move left to hold it.
+    """
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=["clock", "stopwatch", "feedback"],
+        )
+        page = _open(engine_browser, base_url)
+        _enter_edit_mode(page)
+        _settled(page, "status", ["clock", "stopwatch", "feedback"])
+        popover = page.locator(f'{STATUS_HOST} > .bar-item[data-bar-item="feedback"] .bar-options')
+        move_left = popover.locator('[data-bar-action="move-left"]')
+
+        _shell(page, "status", "feedback").click()
+        expect(move_left).to_be_focused()
+
+        page.keyboard.press("Enter")
+        _wait_for_order(page, "status", ["clock", "feedback", "stopwatch"])
+        expect(move_left).to_be_focused()
+
+        page.keyboard.press("Enter")
+        _wait_for_order(page, "status", ["feedback", "clock", "stopwatch"])
+        expect(popover).to_have_count(1)
+        expect(move_left).to_have_count(0)
+
+        page.keyboard.press("Escape")
+        expect(page.locator(".bar-options")).to_have_count(0)
+        expect(_shell(page, "status", "feedback").locator(".bar-item-btn")).to_be_focused()
+        expect(page.locator(SHEET)).to_have_class(re.compile(r"\bis-open\b"))
 
         page.close()
