@@ -199,39 +199,54 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
     return None
 
 
-def _override_ariel_db_uri(render: Path) -> None:
-    """Point a freshly built deployment at the per-cell ARIEL database.
+def _ariel_db_pins(template: str) -> dict[str, str]:
+    """The ``config:`` pin that points a lane's deployment at its own ARIEL database.
 
-    Takes the RENDER directory (``<repo>/build``) — the rewrite targets the
-    rendered ``config.yml``, which is what every MCP server is pointed at via
-    ``CONFIG_FILE`` and what ``apply_scenarios`` loads.
+    The model-matrix runner provisions one database per (model, seed) cell and
+    exports its URI as ``OSPREY_ARIEL_DB_URI``. Every project a cell builds must
+    name that database, so the agent's ARIEL MCP server and ``apply_scenarios``
+    both reach it: a scenario test purges the logbook and drops the
+    ``text_embeddings_*`` tables, and on a database two cells share that purge
+    lands in the middle of the other cell's logbook test.
 
-    When ``OSPREY_ARIEL_DB_URI`` is set (the matrix runner provisions one
-    database per (model, seed) cell), rewrite the rendered ``config.yml`` so the
-    agent's ARIEL MCP server *and* ``apply_scenarios`` both talk to the per-cell
-    DB instead of the shared default. This is what makes concurrent cells
-    isolated: a scenario test in one cell purges only its own DB and can no
-    longer drop another cell's ``text_embeddings_*`` tables mid-test.
+    The pin is ``ariel.database.uri``, stated at ``osprey init`` like every other
+    lane pin. A render names no URI of its own — the DSN is derived from
+    ``services.postgresql`` — and an explicit ``uri`` wins over that derivation.
+    A preset that configures no ARIEL gets no pin: an ``ariel:`` block in its
+    render would make ``apply_scenarios`` seed a logbook the deployment does not
+    have.
 
-    The default URI is a hardcoded literal in the template (not a profile
-    variable), so ``--set ariel.database.uri`` would not reach the rendered
-    config — a post-build text substitution is the reliable hook.
-
-    Projects that do not use a real ARIEL Postgres DB (e.g. the ``hello_world``
-    preset renders ``ariel: {enabled: false}`` and no DB URI) have nothing to
-    redirect, so the default URI is simply absent and this is a no-op. Template
-    *drift* for ARIEL-using presets is caught loudly elsewhere: the matrix
-    runner's per-cell provisioning patches a freshly built control-assistant
-    config and asserts the default URI is present before it can seed the DB.
+    Returns:
+        ``{"ariel.database.uri": <uri>}`` when the variable is set and the
+        preset configures ARIEL, otherwise an empty mapping.
     """
-    override = os.environ.get("OSPREY_ARIEL_DB_URI")
-    if not override or override == _DEFAULT_ARIEL_DB_URI:
+    uri = os.environ.get("OSPREY_ARIEL_DB_URI")
+    if not uri or not _preset_configures_ariel(template):
+        return {}
+    return {"ariel.database.uri": uri}
+
+
+def _assert_render_names_ariel_db(render: Path) -> None:
+    """Fail when a render that configures ARIEL does not name the exported database.
+
+    Takes the RENDER directory (``<repo>/build``). Its ``config.yml`` is what
+    every MCP server is pointed at via ``CONFIG_FILE`` and what
+    ``apply_scenarios`` loads, so it is where :func:`_ariel_db_pins` has to have
+    landed. A render with no ``ariel`` section has no database to point
+    anywhere, and a run that exported no ``OSPREY_ARIEL_DB_URI`` asked for none.
+    """
+    uri = os.environ.get("OSPREY_ARIEL_DB_URI")
+    if not uri:
         return
     config_path = render / "config.yml"
-    text = config_path.read_text(encoding="utf-8")
-    if _DEFAULT_ARIEL_DB_URI not in text:
+    ariel = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get("ariel")
+    if not ariel:
         return
-    config_path.write_text(text.replace(_DEFAULT_ARIEL_DB_URI, override), encoding="utf-8")
+    rendered = (ariel.get("database") or {}).get("uri")
+    assert rendered == uri, (
+        f"ariel.database.uri in {config_path} is {rendered!r}, not the "
+        f"OSPREY_ARIEL_DB_URI this run exported ({uri!r})"
+    )
 
 
 #: First port of the block the projects of xdist worker 0 bind. Each worker
@@ -314,6 +329,12 @@ def init_project(
     accelerator with no channel database to build its namespace from — which
     the build refuses, correctly.
 
+    ``ariel.database.uri`` is pinned when the run exports
+    ``OSPREY_ARIEL_DB_URI`` and the preset configures ARIEL (see
+    :func:`_ariel_db_pins`), and the render is then checked to name it: a pin
+    that stops reaching the render fails here rather than letting the agent
+    talk to some other database.
+
     ``channel_finder_mode`` is pinned to ``hierarchical`` when the caller names
     no mode and the preset's own is ``graph`` — the same containerless fact a
     third time. The graph paradigm answers from the ``graphdb`` service the
@@ -392,8 +413,9 @@ def init_project(
     init_args.extend(["--set", f"model={build_model(model)}"])
     # ``archiver.type`` is written in the literal dotted spelling the preset
     # already uses, so the edit replaces that entry instead of landing beside
-    # it. The stand-in pin rides along where the preset declares a VA.
-    pins: dict[str, Any] = {"config": {"archiver.type": archiver}}
+    # it. The stand-in pin rides along where the preset declares a VA, and the
+    # ARIEL database pin where the run exported one.
+    pins: dict[str, Any] = {"config": {"archiver.type": archiver, **_ariel_db_pins(template)}}
     if _preset_declares_virtual_accelerator(template):
         pins["virtual_accelerator"] = {"live_standin": None}
     init_args.extend(set_pairs(pins))
@@ -412,7 +434,7 @@ def init_project(
     assert repo.is_dir(), f"Deployment repo not created: {repo}"
     render = render_dir(repo)
     assert (render / "config.yml").is_file(), f"Build produced no render at {render}"
-    _override_ariel_db_uri(render)
+    _assert_render_names_ariel_db(render)
     return repo
 
 
@@ -439,6 +461,28 @@ def _preset_declares_virtual_accelerator(template: str) -> bool:
 
     raw, _path = _load_preset_raw(template.replace("_", "-"))
     return raw.get("virtual_accelerator") is not None
+
+
+def _preset_configures_ariel(template: str) -> bool:
+    """Whether the packaged preset ``template``, or a preset it extends, sets ARIEL config.
+
+    Read from the presets the way ``osprey init`` reads them, following
+    ``extends:``, so the answer is the presets' own rather than a list of names
+    kept here. A ``config:`` key is ARIEL config when its first dotted segment
+    is ``ariel``.
+    """
+    from osprey.cli.build_profile_presets import _load_preset_raw
+
+    name: str | None = template.replace("_", "-")
+    seen: set[str] = set()
+    while name and name not in seen:
+        seen.add(name)
+        raw, _path = _load_preset_raw(name)
+        if any(str(key).split(".", 1)[0] == "ariel" for key in raw.get("config") or {}):
+            return True
+        extends = raw.get("extends")
+        name = extends if isinstance(extends, str) else None
+    return False
 
 
 def _run_osprey(verb: str, args: list[str], *, timeout: int) -> None:
