@@ -44,8 +44,10 @@ __all__ = [
     "apply_panel_selection",
     "bar_items_selection_warnings",
     "panel_id_errors",
+    "panel_leaf_spellings",
     "panel_selection_errors",
     "panel_selection_overrides",
+    "panel_spelling_errors",
 ]
 
 #: The two bars a ``web.bar_items`` block arranges, as ``BAR_HOSTS`` names them.
@@ -121,9 +123,9 @@ def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[
     """Refuse an authored ``web.panels.<id>.enabled`` that contradicts the selection.
 
     ``web_panels`` is what shows a tab; an ``enabled`` under ``config:`` that
-    says otherwise is two spellings of one fact disagreeing. Every spelling of
-    the leaf is found (dotted, prefix-over-mapping, nested, mixed) so the
-    refusal can name the line to remove — a spelling missed here would be a
+    says otherwise is two spellings of one fact disagreeing. Every spelling the
+    render writes to the leaf is found (dotted, prefix-over-mapping, nested) so
+    the refusal can name the line to remove — a spelling missed here would be a
     contradiction the projection silently overwrote.
 
     Args:
@@ -136,7 +138,7 @@ def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[
     shown = set(selected_panels) | UNIVERSAL_PANELS
     errors: list[str] = []
     for pid in sorted(_spelled_panel_ids(config)):
-        for spelling, value in spelled_values(config, f"web.panels.{pid}.enabled"):
+        for spelling, value in panel_leaf_spellings(config, pid, "enabled"):
             if value is True and pid not in shown:
                 errors.append(
                     f"{spelling}: {value!r} but {pid!r} is not in web_panels — the selection "
@@ -149,6 +151,70 @@ def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[
                     f"web.panels.{pid}.hidden: true."
                 )
     return errors
+
+
+def panel_leaf_spellings(config: Any, pid: str, leaf: str) -> list[tuple[str, Any]]:
+    """Every line of *config* the render writes to ``web.panels[pid][leaf]``.
+
+    The render splits a top-level key at every dot and writes every key below
+    it whole. A spelling reaches the leaf when its top-level key splits into a
+    prefix of ``web``, ``panels``, *pid*, *leaf* and the mapping under it holds
+    the rest one key per step. So a dotted *pid* is reached only through a
+    mapping that holds it as one key.
+
+    Args:
+        config: The profile's ``config:`` block, whatever shape it parsed as.
+        pid: The panel id, as the render keys its block.
+        leaf: The key inside the block.
+
+    Returns:
+        ``(spelling, value)`` per line found, the spelling joined ``key: key``
+        the way :func:`osprey.cli.build_profile_reach.spelled_values` writes it.
+    """
+    if not isinstance(config, Mapping):
+        return []
+    path = ["web", "panels", pid, leaf]
+    found: list[tuple[str, Any]] = []
+    for key, value in config.items():
+        head = str(key).split(".")
+        if head != path[: len(head)]:
+            continue
+        written = [str(key)]
+        node = value
+        for step in path[len(head) :]:
+            if not isinstance(node, Mapping) or step not in node:
+                break
+            written.append(step)
+            node = node[step]
+        else:
+            found.append((": ".join(written), node))
+    return found
+
+
+def panel_spelling_errors(config: Any) -> list[str]:
+    """Refuse a ``panels.<…>`` key written inside a ``web:`` mapping.
+
+    Only a top-level ``config:`` key is split at its dots, so such a key renders
+    as one key under ``web`` with the dots in its name. The line reads like a
+    panel and is invisible afterwards: no tab, no refusal, no trace in the
+    terminal.
+
+    Args:
+        config: The profile's ``config:`` block, whatever shape it parsed as.
+
+    Returns:
+        One error per such key, naming the spellings that do reach a panel.
+    """
+    web = config.get("web") if isinstance(config, Mapping) else None
+    if not isinstance(web, Mapping):
+        return []
+    return [
+        f"web: {key}: renders as a key literally named {str(key)!r} under web, not as a "
+        f"panel block, because only a top-level config: key is split at its dots. Write it "
+        f"as web.{key}, or nest it under web: panels:."
+        for key in web
+        if str(key).startswith("panels.")
+    ]
 
 
 def panel_id_errors(config: Any) -> list[str]:
@@ -185,6 +251,8 @@ def _spelled_panel_ids(config: Any) -> set[str]:
     names its id in the third segment. A key inside a mapping is written as one
     key, dots included, so each key of a mapping under ``web.panels`` is an id
     taken whole. Only the mapping spellings can carry an id with a dot in it.
+    A ``panels.<…>`` key inside a ``web:`` mapping names no panel, and
+    :func:`panel_spelling_errors` refuses it.
     """
     ids: set[str] = set()
     if not isinstance(config, Mapping):
@@ -197,14 +265,9 @@ def _spelled_panel_ids(config: Any) -> set[str]:
             elif isinstance(value, Mapping):
                 ids.update(str(sub) for sub in value)
         elif parts == ["web"] and isinstance(value, Mapping):
-            for sub_key, sub_value in value.items():
-                sub_parts = str(sub_key).split(".")
-                if sub_parts[0] != "panels":
-                    continue
-                if len(sub_parts) > 1:
-                    ids.add(sub_parts[1])
-                elif isinstance(sub_value, Mapping):
-                    ids.update(str(leaf) for leaf in sub_value)
+            panels = value.get("panels")
+            if isinstance(panels, Mapping):
+                ids.update(str(leaf) for leaf in panels)
     return ids
 
 

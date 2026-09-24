@@ -1329,6 +1329,58 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     assert wide["okf"]["enabled"] is True
 
 
+def test_a_dotted_panel_id_is_projected_into_its_own_block(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A dotted id is switched on or off under its own key and nowhere else.
+
+    The render keeps ``beam.viewer`` whole as a key of ``web.panels``, so the
+    projection has to index it by that key: a switch written through the id's
+    first segment would land in a stray ``beam`` block and leave the tab on.
+    Asserted on both renders of one build and on the terminal's own reader.
+    """
+    from osprey.interfaces.web_terminal.app import _load_panel_config
+
+    root = tmp_path / "prof"
+    (root / "personas").mkdir(parents=True)
+    _facility_data(root, "control_assistant")
+    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "profile.yml").write_text(
+        "name: RootProfile\n"
+        "data: data\n"
+        "provider: anthropic\n"
+        "model: claude-haiku-4-5\n"
+        "channel_finder_mode: hierarchical\n"
+        "hooks: [memory-guard]\n"
+        "web_panels: [okf, beam.viewer]\n"
+        "config:\n" + _POSTURE_FLOOR + "  web.panels:\n"
+        "    beam.viewer:\n"
+        "      label: BEAM\n"
+        "      url: http://beam.local:9000\n"
+    )
+    (root / "personas" / "narrow.yml").write_text(
+        "name: Narrow\nexclude:\n  web_panels:\n    - beam.viewer\n"
+    )
+
+    result = _render_from(runner, str(root / "profile.yml"))
+    assert result.exit_code == 0, result.output
+
+    wide_config = _config_yaml(root / "build")
+    narrow_config = _config_yaml(_persona_project(root, "narrow"))
+    wide = wide_config["web"]["panels"]
+    narrow = narrow_config["web"]["panels"]
+    assert wide["beam.viewer"]["enabled"] is True
+    assert narrow["beam.viewer"]["enabled"] is False
+    assert "beam" not in wide
+    assert "beam" not in narrow
+
+    # Custom panels are in the custom list, never in the enabled set.
+    for config, expected in ((wide_config, ["beam.viewer"]), (narrow_config, [])):
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=config):
+            _enabled, custom, _default = _load_panel_config()
+        assert [panel["id"] for panel in custom] == expected
+
+
 class TestGraphModeRequiresAGraphStore:
     """`osprey init` refuses graph mode on a preset whose app template has no store.
 

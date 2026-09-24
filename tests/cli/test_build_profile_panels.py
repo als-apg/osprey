@@ -19,8 +19,10 @@ from osprey.cli.build_profile_panels import (
     apply_panel_selection,
     bar_items_selection_warnings,
     panel_id_errors,
+    panel_leaf_spellings,
     panel_selection_errors,
     panel_selection_overrides,
+    panel_spelling_errors,
 )
 from osprey.profiles.web_panels import panel_id_refusal, panel_spec_enabled
 from osprey.utils.config_writer import config_update_fields, load_config_document
@@ -198,7 +200,6 @@ def test_an_authored_enabled_false_for_a_selected_panel_is_refused() -> None:
         pytest.param({"web.panels.lattice.enabled": True}, id="dotted"),
         pytest.param({"web.panels.lattice": {"enabled": True}}, id="prefix_over_mapping"),
         pytest.param({"web": {"panels": {"lattice": {"enabled": True}}}}, id="nested"),
-        pytest.param({"web": {"panels.lattice.enabled": True}}, id="mixed"),
     ],
 )
 def test_every_spelling_of_a_contradiction_is_found(spelling) -> None:
@@ -243,7 +244,6 @@ def test_an_id_the_terminal_cannot_serve_is_refused(panel_id) -> None:
         pytest.param({"web.panels.überblick.url": "http://x:1"}, id="dotted"),
         pytest.param({"web.panels.überblick": {"url": "http://x:1"}}, id="prefix_over_mapping"),
         pytest.param({"web": {"panels": {"überblick": {"url": "http://x:1"}}}}, id="nested"),
-        pytest.param({"web": {"panels.überblick.url": "http://x:1"}}, id="mixed"),
     ],
 )
 def test_every_spelling_of_the_block_reaches_the_check(spelling) -> None:
@@ -349,6 +349,63 @@ def test_an_authored_enabled_on_a_dotted_id_is_judged_under_that_id() -> None:
     (error,) = panel_selection_errors(config, [])
     assert "'beam.viewer' is not in web_panels" in error
     assert panel_selection_errors(config, ["beam.viewer"]) == []
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"web": {"panels.lattice.enabled": True}}, id="enabled"),
+        pytest.param({"web": {"panels.überblick.url": "http://x:1"}}, id="url"),
+    ],
+)
+def test_a_panels_key_inside_a_web_mapping_is_refused_as_the_literal_key_it_renders(
+    config,
+) -> None:
+    """Only a top-level key is split at its dots, so this line names no panel.
+
+    It renders as one key under ``web`` that reads like a panel and is invisible
+    afterwards, so it is refused rather than read as one.
+    """
+    (key,) = config["web"]
+    (error,) = panel_spelling_errors(config)
+    assert f"web: {key}:" in error
+    assert f"literally named {key!r}" in error
+    assert panel_id_errors(config) == []
+    assert panel_selection_errors(config, []) == []
+
+
+def test_a_panels_mapping_inside_a_web_mapping_is_not_refused() -> None:
+    assert panel_spelling_errors({"web": {"panels": {"beam.viewer": {"url": "http://x:1"}}}}) == []
+    assert panel_spelling_errors({"web.panels.okf.enabled": True}) == []
+    assert panel_spelling_errors(None) == []
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param({"web.panels.beam.viewer.enabled": True}, id="dotted_split"),
+        pytest.param({"web.panels.beam.viewer": {"enabled": True}}, id="prefix_split"),
+        pytest.param({"web.panels": {"beam.viewer": {"enabled": True}}}, id="prefix_over_mapping"),
+        pytest.param({"web": {"panels": {"beam.viewer": {"enabled": True}}}}, id="nested"),
+        pytest.param({"web.panels": {"beam": {"viewer": {"enabled": True}}}}, id="split_mapping"),
+    ],
+)
+def test_a_leaf_is_read_where_the_render_writes_it(tmp_path, spelling) -> None:
+    """A spelling reaches the ``beam.viewer`` block exactly when the render puts it there.
+
+    ``config_update_fields`` is what ``osprey build`` applies a profile's
+    ``config:`` through, so the block is read off its output rather than restated.
+    """
+    path = tmp_path / "config.yml"
+    path.write_text("web:\n  panels:\n    okf:\n      enabled: true\n")
+    config_update_fields(path, spelling)
+    rendered = load_config_document(path)
+    block = rendered["web"]["panels"].get("beam.viewer") or {}
+
+    found = panel_leaf_spellings(spelling, "beam.viewer", "enabled")
+
+    assert bool(found) == ("enabled" in block)
+    assert [value for _, value in found] == ([block["enabled"]] if "enabled" in block else [])
 
 
 def test_an_ordinary_id_passes() -> None:
