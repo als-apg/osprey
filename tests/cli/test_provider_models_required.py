@@ -56,9 +56,9 @@ class TestModelLessProviderIsRefused:
         """The minimal custom-gateway config: ``provider:`` and ``model: <id>``.
 
         With no served list, every Claude Code alias runs that model, and the
-        warning names the substitution.
+        resolver's record names the substitution.
         """
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws", "default_model": "gateway-model-id"},
                 api_providers=self._MODEL_LESS,
@@ -66,7 +66,7 @@ class TestModelLessProviderIsRefused:
         assert spec.env_block["ANTHROPIC_MODEL"] == "gateway-model-id"
         assert spec.alias_models == dict.fromkeys(TIER_MODEL_ENV_VARS, "gateway-model-id")
         message = "\n".join(record.getMessage() for record in caplog.records)
-        assert "haiku, sonnet, opus aliases → gateway-model-id" in message
+        assert "haiku, sonnet, opus aliases run the main model gateway-model-id" in message
 
     def test_no_anthropic_ids_leak_into_the_message(self):
         with pytest.raises(ValueError) as excinfo:
@@ -77,8 +77,8 @@ class TestModelLessProviderIsRefused:
 class TestAliasSubstitutionIsLoud:
     """An alias no source fills runs the main model, and the build says so."""
 
-    def test_a_partial_family_warns_and_falls_back(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+    def test_a_partial_family_is_recorded_and_falls_back(self, caplog):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws"},
                 api_providers={
@@ -91,11 +91,11 @@ class TestAliasSubstitutionIsLoud:
             )
         assert spec.alias_models == dict.fromkeys(TIER_MODEL_ENV_VARS, "claude-haiku-4-5")
         message = "\n".join(record.getMessage() for record in caplog.records)
-        assert "sonnet, opus aliases → claude-haiku-4-5" in message
+        assert "sonnet, opus aliases run the main model claude-haiku-4-5" in message
         assert "claude-opus" not in message  # no Anthropic ids borrowed or named
 
     def test_claude_code_aliases_can_complete_the_set(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve(
                 {
                     "provider": "lbl-aws",

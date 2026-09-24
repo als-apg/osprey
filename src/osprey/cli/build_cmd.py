@@ -1235,6 +1235,15 @@ class _SharedRenderInputs(NamedTuple):
     :attr:`va_reported` keeps the manifest outcome to one line.
     """
 
+    model_facts_reported: set[str]
+    """Model warnings this build has already stated, by their text.
+
+    Every render pass resolves the same provider, so an alias running the main
+    model, or a configured id the provider does not list, is one fact about the
+    build rather than one per render. A persona that moves the provider says
+    something different, so it still gets its own line.
+    """
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -2393,7 +2402,7 @@ def _render_project(
         # built here and handed its gateway there), so the reference is the
         # render's contract with its runtime. The launch paths resolve it for
         # real and refuse by name when nothing supplies it.
-        load_provider_spec(
+        spec = load_provider_spec(
             render_dir,
             defer_unresolved_telemetry_creds=True,
             defer_unresolved_base_url=True,
@@ -2401,7 +2410,55 @@ def _render_project(
     except ValueError as e:
         raise BuildProfileError(str(e)) from e
 
+    if spec is not None:
+        _warn_model_facts(spec, shared.model_facts_reported)
+
     return render_dir
+
+
+def _warn_model_facts(spec: Any, reported: set[str]) -> None:
+    """Warn, once per build, where the models the render names differ from the served list.
+
+    Two facts, each promoted through :func:`osprey.cli.output.warn_fact`
+    because the altitude gate keeps raw warnings off the terminal while the
+    build draws its phases: Claude Code aliases that run the main model because
+    the provider serves no model of their family, and configured ids the
+    provider's served list does not carry, which are used as written.
+
+    Args:
+        spec: The render's resolved provider spec.
+        reported: The facts this build has already stated
+            (:attr:`_SharedRenderInputs.model_facts_reported`). A fact in it is
+            logged at DEBUG instead of repeated by every render pass.
+    """
+    from osprey.build.claude_code_resolver import (
+        ALIAS_SUBSTITUTION_REMEDY,
+        alias_substitution,
+        unserved_model_ids,
+    )
+
+    from . import output
+
+    facts: list[tuple[str, str | None, str | None]] = []
+    substitution = alias_substitution(spec)
+    if substitution:
+        facts.append((substitution, None, ALIAS_SUBSTITUTION_REMEDY))
+    unserved = unserved_model_ids(spec)
+    if unserved:
+        facts.append(
+            (
+                f"'{spec.provider}' does not list {', '.join(unserved)}; "
+                "they are used as configured.",
+                f"It serves {', '.join(spec.served_models)}.",
+                None,
+            )
+        )
+    for summary, detail, remedy in facts:
+        if summary in reported:
+            logger.debug(summary)
+            continue
+        reported.add(summary)
+        output.warn_fact(logger, summary, detail, remedy)
 
 
 def _persona_deltas(repo_root: Path) -> list[Path]:
@@ -3474,6 +3531,7 @@ def _build_repo(
             va_reported=set(),
             graph_indexes={},
             graph_facts_reported=set(),
+            model_facts_reported=set(),
             profile_overlays=profile_overlays,
         )
 

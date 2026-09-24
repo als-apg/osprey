@@ -128,6 +128,7 @@ def _shared(repo_root: Path) -> _SharedRenderInputs:
         va_reported=set(),
         graph_indexes={},
         graph_facts_reported=set(),
+        model_facts_reported=set(),
     )
 
 
