@@ -105,8 +105,10 @@ from fastmcp.server.middleware.middleware import CallNext, Middleware, Middlewar
 
 from osprey.audit import posture
 from osprey.audit.call import (
+    DETAIL_FACTS,
     TOOL_USE_ID_META_KEY,
     call_scope,
+    current_call,
     harness_session_id,
     valid_tool_use_id,
 )
@@ -122,6 +124,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "APPROVAL_ASK_PREFIX",
+    "APPROVAL_ASK_SUFFIX",
     "AuditMiddleware",
     "CLAMP_SOURCE_FLOOR",
     "CLAMP_SOURCE_LOADED",
@@ -573,6 +577,74 @@ def _request_meta(context: MiddlewareContext[Any]) -> dict[str, Any]:
     return {}
 
 
+#: The ask stamp the approval hook leaves for a call it put in front of an
+#: approver, restated from ``osprey_approval.py`` (a hook script this package
+#: cannot import) and pinned against it by a test.
+APPROVAL_ASK_PREFIX: str = "approval_ask_"
+APPROVAL_ASK_SUFFIX: str = ".json"
+
+
+def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None] | None:
+    """``(approver, permission_mode)`` when an approval prompt let this call through.
+
+    The approval hook leaves an ask stamp named by the call's tool-use id
+    before the prompt is shown; the call reaching this server means the
+    prompt was answered yes. Read only, never consumed: the hook's
+    ``PostToolUse`` owns the stamp's removal. ``None`` without a stamp, and on
+    any error.
+    """
+    if tool_use_id is None:
+        return None
+    try:
+        from osprey.mcp_server.control_system import target_state
+
+        stamp = target_state.read_file(
+            target_state.state_dir() / f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
+        )
+    except Exception:
+        logger.debug("Could not read the ask stamp for %s", tool_use_id, exc_info=True)
+        return None
+    if not isinstance(stamp, dict):
+        return None
+    approver = stamp.get("approver")
+    mode = stamp.get("permission_mode")
+    return (
+        approver if isinstance(approver, str) and approver else "unknown",
+        mode if isinstance(mode, str) else None,
+    )
+
+
+def _detail(*parts: str | None) -> str | None:
+    """Join the non-empty ``key=value`` *parts* with a space; ``None`` when there are none."""
+    kept = [part for part in parts if part]
+    return " ".join(kept) if kept else None
+
+
+def _call_detail(base: str | None = None) -> str | None:
+    """The ``detail`` every record this layer files carries.
+
+    *base* (the posture refusal's clamp source), then ``approval=approved
+    approver=<a>`` when an approval prompt let the call through, then the
+    identifier-shaped facts the tool noted (:data:`~osprey.audit.call.DETAIL_FACTS`).
+    Never raises: a detail that cannot be built is the *base* alone.
+    """
+    try:
+        call = current_call()
+        parts: list[str | None] = [base]
+        answered = _approval_answered(call.tool_use_id if call is not None else None)
+        if answered is not None:
+            parts.append(f"approval=approved approver={answered[0]}")
+        if call is not None:
+            for key in DETAIL_FACTS:
+                value = call.facts.get(key)
+                if isinstance(value, str) and value:
+                    parts.append(f"{key}={value}")
+        return _detail(*parts)
+    except Exception:
+        logger.debug("Could not build the audit detail", exc_info=True)
+        return base
+
+
 def _record(
     *,
     surface: str,
@@ -720,7 +792,7 @@ class AuditMiddleware(Middleware):
                 subject=subject,
                 decision=DECISION_REFUSED,
                 reason=REASON_POSTURE,
-                detail=clamp_source,
+                detail=_call_detail(clamp_source),
             )
             # `make_error` raises: fastmcp turns a raised ToolError into a
             # CallToolResult with isError=True and the message verbatim, which
@@ -799,6 +871,7 @@ class AuditMiddleware(Middleware):
                             subject=subject,
                             decision=DECISION_REFUSED,
                             reason=REASON_TOOL_ERROR,
+                            detail=_call_detail(),
                         )
                         outward = (DECISION_REFUSED, REASON_TOOL_ERROR, True)
                     raise
@@ -849,5 +922,6 @@ class AuditMiddleware(Middleware):
             subject=subject,
             decision=DECISION_ALLOWED,
             reason=REASON_TOOL_CALL,
+            detail=_call_detail(),
         )
         return result

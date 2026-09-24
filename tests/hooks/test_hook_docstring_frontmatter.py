@@ -119,6 +119,7 @@ class TestHookFrontMatter:
         valid_events = {
             "PreToolUse",
             "PostToolUse",
+            "PostToolUseFailure",
             "SessionStart",
             "UserPromptSubmit",
             "Stop",

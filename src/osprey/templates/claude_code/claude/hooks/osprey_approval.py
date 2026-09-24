@@ -4,7 +4,7 @@
 name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
-event: PreToolUse
+event: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure
 tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire
 safety_layer: 2
 ---
@@ -14,6 +14,10 @@ safety_layer: 2
 ```
 stdin ──► Parse JSON
               │
+              ├── PostToolUse / PostToolUseFailure ──► ask stamp for this
+              │        tool_use_id? file `approved`, drop it; EXIT (no output)
+              ├── Stop / StopFailure ──► this conversation's unconsumed ask
+              │        stamps: file `denied`, drop them; EXIT (no output)
               ▼
          Is OSPREY tool?  ──NO──► EXIT (allow)
               │
@@ -84,6 +88,15 @@ stamp is an enrichment, never a gate: a render that cannot write one simply
 produces a prompt the server cannot cross-check, exactly as every older render
 already does.
 
+## The answer to an ask
+
+Every ask also leaves an *ask stamp* keyed by the call's `tool_use_id`. The
+harness has no event for a human "No", so the answer is read from what it
+does emit: `PostToolUse` / `PostToolUseFailure` for that id means the call ran
+(`approved`), and a stamp of this conversation still unconsumed at `Stop` /
+`StopFailure` means it did not (`denied` — declined or interrupted). Both
+branches print nothing, so no decision of the harness's changes.
+
 ## Bluesky plan lanes
 
 A deployment that renders two plan lanes — one Bluesky stack per control-system
@@ -105,7 +118,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
+    AUDIT_DECISION_APPROVED,
     AUDIT_DECISION_ASK,
+    AUDIT_DECISION_DENIED,
     emit_audit,
     get_hook_input,
     is_write_call,
@@ -239,6 +254,7 @@ def build_approval_output(reason_detail: str, hook_input=None, read_record=None)
     record = (read_record or _record_reader(hook_input))()
     _stamp_write_approval(hook_input, record)
     _record_ask(hook_input)
+    _stamp_ask(hook_input)
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -584,15 +600,31 @@ WRITE_APPROVAL_SESSIONLESS_SLUG = "anon"
 #: matches a stamp by payload, so an expired one that survives is still correct.
 WRITE_APPROVAL_TTL_S = 3600.0
 
+#: Ask stamps: one per ask, named by the call's tool-use id, beside the
+#: write-approval stamps and under a prefix neither they nor a server report
+#: can match. Consumed when the harness reports the call ran, closed as
+#: ``denied`` at the end of the turn that did not run it.
+APPROVAL_ASK_PREFIX = "approval_ask_"
+APPROVAL_ASK_SUFFIX = ".json"
+
+#: How long an unanswered ask stamp stays on disk. A turn that is interrupted
+#: fires no ``Stop``, so its stamps are closed at the next ``Stop`` of the same
+#: conversation; a conversation that never stops again leaves its ask record
+#: standing alone, and the stamp is pruned after this long.
+APPROVAL_ASK_TTL_S = 86400.0
+
+#: The shape a tool-use id must have to name an ask stamp, restated from
+#: ``osprey.audit.call`` (the hook cannot import it).
+_APPROVAL_TOOL_USE_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")
+
 
 def write_approval_key(tool_input) -> str | None:
     """Correlate a prompt with the tool call it will authorize, or ``None``.
 
     The key is a SHA-256 over the canonical JSON of ``operations`` and
-    ``confirm`` — every parameter the tool accepts. The hook and the server
-    share no identifier at all (Claude Code gives the hook a session id and a
-    tool-call payload; the MCP tool receives only its arguments), so the
-    payload is the one thing that provably crosses the gap. The tool's own
+    ``confirm`` — every parameter the tool accepts. The payload is the key
+    because it is what the operator was shown: a stamp keyed on it cannot vouch
+    for a call carrying different arguments. The tool's own
     parameter names are the spelling of that payload, which is why the legacy
     single-channel shape (``channel``/``value``, which the tool does not
     accept) is deliberately not stamped.
@@ -727,15 +759,17 @@ def _write_stamp(path, payload) -> None:
     os.replace(tmp, path)
 
 
-def _prune_approval_stamps(directory, prefix) -> None:
-    """Drop *prefix* stamps older than :data:`WRITE_APPROVAL_TTL_S`. Never raises.
+def _prune_approval_stamps(directory, prefix, ttl_s: float = WRITE_APPROVAL_TTL_S) -> None:
+    """Drop *prefix* stamps older than *ttl_s* seconds. Never raises.
 
-    Parameterised by prefix because the two stamp kinds share this directory and
-    this TTL: a queue-start stamp expires for the same reason a write-approval
-    stamp does — a human who has not clicked within the hour is no longer
-    deciding about the state that was rendered to them.
+    Parameterised by prefix because every stamp kind shares this directory, and
+    by TTL because a kind's lifetime follows what it is for: a write-approval or
+    queue-start stamp expires after :data:`WRITE_APPROVAL_TTL_S` — a human who
+    has not clicked within the hour is no longer deciding about the state that
+    was rendered to them — while an ask stamp waits for the end of its turn and
+    keeps :data:`APPROVAL_ASK_TTL_S`.
     """
-    cutoff = time.time() - WRITE_APPROVAL_TTL_S
+    cutoff = time.time() - ttl_s
     for name in _approval_stamps_in(directory, prefix):
         path = os.path.join(directory, name)
         try:
@@ -796,6 +830,151 @@ def _stamp_write_approval(hook_input, record) -> None:
             "rendered_at": time.time(),
         }
         _write_stamp(path, payload)
+    except Exception:
+        return
+
+
+def _valid_tool_use_id(value):
+    """*value* when it can name an ask stamp, else ``None``."""
+    if isinstance(value, str) and _APPROVAL_TOOL_USE_ID.match(value):
+        return value
+    return None
+
+
+def approval_ask_filename(tool_use_id) -> str:
+    """The name the ask stamp for *tool_use_id* is filed under.
+
+    The audit middleware restates this to read the stamp; a test drives it
+    against a file only this function wrote.
+    """
+    return f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
+
+
+def _approval_state_dir(hook_input):
+    """The directory ask stamps live in, or ``None``. Never raises."""
+    try:
+        if _target_state is None:
+            return None
+        return _target_state.resolve_state_dir(hook_input) or None
+    except Exception:
+        return None
+
+
+def _stamp_ask(hook_input) -> None:
+    """Leave the stamp that lets this ask's answer be recorded. Never raises.
+
+    Keyed by the call's tool-use id, so the ``PostToolUse`` for that call finds
+    it. It names the approver — the dispatch policy in a headless dispatch run,
+    a human otherwise — and the permission mode the prompt was shown under. A
+    missing stamp costs only the outcome record, never the prompt.
+    """
+    try:
+        if not isinstance(hook_input, dict):
+            return
+        tool_use_id = _valid_tool_use_id(hook_input.get("tool_use_id"))
+        if tool_use_id is None:
+            return
+        directory = _approval_state_dir(hook_input)
+        if not directory:
+            return
+        os.makedirs(directory, exist_ok=True)
+        _prune_approval_stamps(directory, APPROVAL_ASK_PREFIX, ttl_s=APPROVAL_ASK_TTL_S)
+        payload = {
+            "tool_use_id": tool_use_id,
+            "tool": str(hook_input.get("tool_name") or ""),
+            "session_id": hook_input.get("session_id"),
+            "approver": (
+                "dispatch_policy" if os.environ.get("OSPREY_DISPATCH_RUN") == "1" else "human"
+            ),
+            "permission_mode": hook_input.get("permission_mode"),
+            "asked_at": time.time(),
+        }
+        _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)
+    except Exception:
+        return
+
+
+def _read_stamp(path):
+    """The stamp at *path* as a dict, or ``None``. Never raises."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _outcome_detail(stamp) -> str:
+    """``approver=<a> mode=<m>`` from an ask stamp."""
+    return f"approver={stamp.get('approver') or 'unknown'} mode={stamp.get('permission_mode')}"
+
+
+def _record_executed(hook_input) -> None:
+    """File ``approved`` for an asked call the harness reports ran. Never raises.
+
+    Fired on ``PostToolUse`` and ``PostToolUseFailure`` alike: a call that ran
+    and failed was still approved. No stamp means the call was never asked, and
+    nothing is filed.
+    """
+    try:
+        tool_use_id = _valid_tool_use_id(hook_input.get("tool_use_id"))
+        directory = _approval_state_dir(hook_input)
+        if tool_use_id is None or not directory:
+            return
+        path = os.path.join(directory, approval_ask_filename(tool_use_id))
+        stamp = _read_stamp(path)
+        if stamp is None:
+            return
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_APPROVED,
+            subject=hook_input.get("tool_name") or stamp.get("tool") or "",
+            reason="executed",
+            detail=_outcome_detail(stamp),
+            tool_use_id=tool_use_id,
+        )
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    except Exception:
+        return
+
+
+def _close_unanswered_asks(hook_input) -> None:
+    """File ``denied`` for every ask of this conversation that never ran. Never raises.
+
+    ``denied`` in the ledger means exactly this: the call was asked, and it had
+    not run by the end of the turn — a human "No" or an interrupt. The harness's
+    own ``tool_decision`` telemetry event (``source`` ``user_reject`` or
+    ``user_abort``) is where the two part. Only stamps whose conversation id is
+    this ``Stop``'s are closed; another conversation sharing the directory keeps
+    its own.
+    """
+    try:
+        session_id = hook_input.get("session_id")
+        directory = _approval_state_dir(hook_input)
+        if not session_id or not directory:
+            return
+        for name in _approval_stamps_in(directory, APPROVAL_ASK_PREFIX):
+            path = os.path.join(directory, name)
+            stamp = _read_stamp(path)
+            if stamp is None or stamp.get("session_id") != session_id:
+                continue
+            emit_audit(
+                "approval",
+                hook_input,
+                decision=AUDIT_DECISION_DENIED,
+                subject=stamp.get("tool") or "",
+                reason="not_executed",
+                detail=_outcome_detail(stamp),
+                tool_use_id=stamp.get("tool_use_id"),
+            )
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
     except Exception:
         return
 
@@ -2537,6 +2716,16 @@ def main():
 
     hook_input = get_hook_input()
     if not hook_input:
+        sys.exit(0)
+
+    # The outcome branches: an asked call ran, or the turn ended. Both print
+    # nothing, so the harness's flow is untouched.
+    event = hook_input.get("hook_event_name")
+    if event in ("PostToolUse", "PostToolUseFailure"):
+        _record_executed(hook_input)
+        sys.exit(0)
+    if event in ("Stop", "StopFailure"):
+        _close_unanswered_asks(hook_input)
         sys.exit(0)
 
     tool_name = hook_input.get("tool_name", "")

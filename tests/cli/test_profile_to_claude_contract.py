@@ -1725,7 +1725,9 @@ _FRAMEWORK_EVENT_WIRING: tuple[tuple[str, str | None, str, int], ...] = (
     ("UserPromptSubmit", None, "osprey_control_context.py", 3),
     ("UserPromptSubmit", None, "osprey_turn_state.py", 3),
     ("Stop", None, "osprey_turn_state.py", 3),
+    ("Stop", None, "osprey_approval.py", 5),
     ("StopFailure", None, "osprey_turn_state.py", 3),
+    ("StopFailure", None, "osprey_approval.py", 5),
 )
 
 
@@ -1818,14 +1820,70 @@ def test_dropping_panels_context_unwires_it_and_leaves_the_rest(tmp_path):
     ]
 
 
-def test_dropping_turn_state_leaves_no_stop_entries(tmp_path):
-    """Turn state is the only framework hook on ``Stop``/``StopFailure``."""
+def test_dropping_turn_state_leaves_approval_alone_on_stop(tmp_path):
+    """Without turn state, ``Stop``/``StopFailure`` carry the approval hook alone."""
     project = _project_with_hooks(tmp_path, "no-turn-state", dropped=("turn-state",))
     settings = json.loads((project / ".claude" / "settings.json").read_text())
 
-    assert _wired(settings, "Stop") == []
-    assert _wired(settings, "StopFailure") == []
+    assert _wired(settings, "Stop") == [(None, "osprey_approval.py", 5)]
+    assert _wired(settings, "StopFailure") == [(None, "osprey_approval.py", 5)]
     assert "osprey_turn_state.py" not in json.dumps(settings["hooks"])
+
+
+def _approval_matchers(settings: dict, event: str) -> list[str]:
+    """The matchers of every *event* rule that runs the approval hook."""
+    return [
+        rule["matcher"]
+        for rule in settings["hooks"].get(event, [])
+        if any("/.claude/hooks/osprey_approval.py" in h["command"] for h in rule["hooks"])
+    ]
+
+
+def test_every_approval_matcher_has_a_post_tool_use_twin(built_control_assistant_project):
+    """An asked call that ran is recorded as approved, on every approval matcher."""
+    settings = json.loads(
+        (built_control_assistant_project / ".claude" / "settings.json").read_text()
+    )
+    pre = _approval_matchers(settings, "PreToolUse")
+    assert pre, "the control-assistant render wires the approval hook"
+    assert _approval_matchers(settings, "PostToolUse") == pre
+    for rule in settings["hooks"]["PostToolUse"]:
+        for hook in rule["hooks"]:
+            if "osprey_approval.py" in hook["command"]:
+                assert "--budget" not in hook["command"]
+                assert hook["timeout"] == 5
+
+
+def test_post_tool_use_failure_carries_the_twins(built_control_assistant_project):
+    """A call that ran and failed was still approved."""
+    settings = json.loads(
+        (built_control_assistant_project / ".claude" / "settings.json").read_text()
+    )
+    assert _approval_matchers(settings, "PostToolUseFailure") == _approval_matchers(
+        settings, "PreToolUse"
+    )
+
+
+def test_dropping_approval_unwires_its_outcome_entries(tmp_path):
+    """No approval hook, no outcome entries on any event."""
+    project = _project_with_hooks(
+        tmp_path,
+        "no-approval-outcomes",
+        dropped=("approval",),
+        config_fields={
+            "control_system.writes_enabled": False,
+            "control_system.connector.epics.writes_enabled": False,
+            "control_system.connector.virtual_accelerator.writes_enabled": False,
+        },
+    )
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    for event in ("PostToolUse", "PostToolUseFailure", "Stop", "StopFailure"):
+        assert _approval_matchers(settings, event) == [], event
+        assert all(
+            "osprey_approval.py" not in hook["command"]
+            for rule in settings["hooks"].get(event, [])
+            for hook in rule["hooks"]
+        ), event
 
 
 def test_dropping_a_server_attached_hook_unwires_it(tmp_path):
