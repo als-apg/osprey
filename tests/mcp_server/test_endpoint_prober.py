@@ -12,8 +12,9 @@ The third is the honest refusal: an address-list gateway must produce
 called. A row that says "not applicable" while having quietly connected would be
 the exact dishonesty the mode distinction exists to prevent.
 
-Every interval and timeout here is tiny, and the clock is injected rather than
-slept through, so none of this costs the suite real time.
+Every interval and timeout here is tiny, and every prober reads an injected
+clock rather than the host's, so none of this costs the suite real time and no
+row ages because the host was slow.
 
 The last section covers the other half of the prober's job: publishing what it
 measured to the state file every sweep, in the vocabulary the readers use.
@@ -142,8 +143,16 @@ async def listener():
 
 
 def _prober(config: dict[str, Any], **kwargs: Any) -> EndpointProber:
+    """A prober with tiny timings on a frozen clock.
+
+    Staleness is judged at ``STALENESS_INTERVALS`` sub-second intervals, so on
+    the real monotonic clock a host that stalls between a probe and a read ages
+    the row. On a :class:`FakeClock` a row ages only when a test advances it; a
+    test that needs to do so passes its own clock and keeps the handle.
+    """
     kwargs.setdefault("connect_timeout_s", 0.5)
     kwargs.setdefault("interval_s", 0.05)
+    kwargs.setdefault("monotonic", FakeClock())
     return EndpointProber(config, **kwargs)
 
 
@@ -239,6 +248,15 @@ async def test_not_applicable_never_goes_stale(listener):
     clock.advance(prober.staleness_threshold_s * 100)
 
     assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_NOT_APPLICABLE
+
+
+async def test_a_row_ages_only_when_the_test_moves_the_clock(listener):
+    """A nanosecond interval: any real-clock read after the probe would be stale."""
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=1e-9)
+
+    await prober.sweep_once()
+
+    assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_OK
 
 
 async def test_staleness_uses_the_configured_interval():
@@ -525,8 +543,7 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
 
     monkeypatch.setattr(ep.target_state, "publish_reachability", _boom)
 
-    clock = FakeClock()
-    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01, monotonic=clock)
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
 
     with caplog.at_level("WARNING", logger=ep.logger.name):
         await prober.start()
