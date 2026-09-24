@@ -39,11 +39,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-# Aliased to the store's own long-standing spelling: the module's prose, its
-# tests, and the two neighbouring stores that mirror the pattern all name
-# ``feedback_store._atomic_write``.
-from ._json_store import read_json_object
-from ._json_store import write_json_atomic as _atomic_write
+from ._json_store import read_json_object, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -144,11 +140,11 @@ def write_record(
 
     context_doc: dict[str, Any] = {"id": record_id}
     context_doc.update({k: v for k, v in context.items() if k != "id"})
-    _atomic_write(feedback_dir / context_name, context_doc)
+    write_json_atomic(feedback_dir / context_name, context_doc)
 
     header_doc: dict[str, Any] = {"id": record_id, "context_file": context_name}
     header_doc.update({k: v for k, v in header.items() if k not in ("id", "context_file")})
-    _atomic_write(feedback_dir / header_filename(record_id), header_doc)
+    write_json_atomic(feedback_dir / header_filename(record_id), header_doc)
 
     return record_id
 
@@ -192,7 +188,7 @@ def _mark_context_pruned(header_path: Path) -> int:
     before = _file_size(header_path)
     document["context_pruned"] = True
     try:
-        _atomic_write(header_path, document)
+        write_json_atomic(header_path, document)
     except OSError:
         logger.warning(
             "feedback store: could not flag pruned header %s", header_path, exc_info=True
@@ -209,7 +205,7 @@ def prune_store(feedback_dir: Path, max_bytes: int) -> list[str]:
     in-flight temporary files never trigger a prune. While the store is over
     the ceiling, the oldest remaining context document (by the ``<utc-ms>``
     component of its name) is deleted and its header rewritten through
-    :func:`_atomic_write` with ``context_pruned: true``. Headers are never
+    :func:`~._json_store.write_json_atomic` with ``context_pruned: true``. Headers are never
     deleted: the submission history survives at full length, only its bulk is
     reclaimed, and a store of headers alone can legitimately end up over the
     ceiling with nothing left to prune.
