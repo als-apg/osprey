@@ -95,7 +95,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.posture_store import STATE_DIR_NAME
-from tests.e2e._orm_stack import VA_CA_PORT
+from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -378,6 +378,8 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
             *set_pairs(_profile_edits()),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={VA_PVA_PORT}",
         ],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,

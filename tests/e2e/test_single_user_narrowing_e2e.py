@@ -89,6 +89,7 @@ from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, w
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
+from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -338,6 +339,8 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
             "model=claude-haiku-4-5-20251001",
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={VA_PVA_PORT}",
         ],
         cwd=base,
         timeout=300,

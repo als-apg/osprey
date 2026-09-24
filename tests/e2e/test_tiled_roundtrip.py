@@ -236,6 +236,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"bluesky.tiled_port={TILED_PORT}",
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
             # This module's own thousand-port block (see
             # test_dispatch_deploy.py's 20700 note): everything not pinned
             # explicitly follows it instead of landing on a real deployment's

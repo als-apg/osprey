@@ -2069,6 +2069,14 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
     assert "\n  virtual-accelerator:\n" in rendered, "VA service must be deployed"
+    from osprey.port_layout import PVA_DEFAULT_PORT
+
+    # The harness's pvAccess pin reaches the compose file, not just the profile.
+    pva = _orm_stack.VA_PVA_PORT
+    assert f"127.0.0.1:{pva}:{pva}/tcp" in rendered, "the VA must publish the pinned pvAccess port"
+    assert f":{PVA_DEFAULT_PORT}:{PVA_DEFAULT_PORT}/tcp" not in rendered, (
+        "the VA must not publish the pvAccess protocol port every other VA on the host publishes"
+    )
     assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 

@@ -53,6 +53,7 @@ about what the worker is handed for the same channels.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -97,17 +98,33 @@ _T = TypeVar("_T")
 # CA_DEFAULT_PORT` keeps VA instance 1 there on purpose), and every caller of
 # this module already gets the one value plumbed through both the service port
 # and the connector. Pass an explicit `va_port=` to pin one.
+#
+# The pvAccess port the VA publishes its model surface on moves the same way,
+# through `virtual_accelerator.pva_port`. Its default, 5075, is the one every
+# other VA on the host publishes too, so every caller gets a free one reserved
+# here. Pass an explicit `va_pva_port=` to pin one.
 
 
-def _reserve_free_va_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+def _reserve_free_ports(count: int) -> tuple[int, ...]:
+    """Reserve ``count`` distinct free loopback ports.
+
+    Every socket stays bound until all are, so the ports are distinct by
+    construction rather than by the kernel's choice.
+    """
+    with contextlib.ExitStack() as stack:
+        socks = [
+            stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            for _ in range(count)
+        ]
+        for sock in socks:
+            sock.bind(("127.0.0.1", 0))
+        return tuple(sock.getsockname()[1] for sock in socks)
 
 
-# import-time required because VA_CA_PORT binds into `va_port=` default
-# arguments across the importing e2e modules, which evaluate at import.
-VA_CA_PORT = _reserve_free_va_port()
+# import-time required because VA_CA_PORT and VA_PVA_PORT bind into `va_port=`
+# and `va_pva_port=` default arguments across the importing e2e modules, which
+# evaluate at import.
+VA_CA_PORT, VA_PVA_PORT = _reserve_free_ports(2)
 
 # Bluesky bridge HTTP port. Distinct from the other e2e modules' pinned
 # ports (test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -295,6 +312,7 @@ def init_args(
     output_dir: Path,
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
+    va_pva_port: int = VA_PVA_PORT,
     port_base: int | None = None,
     provider: str | None = None,
     model: str | None = None,
@@ -327,6 +345,9 @@ def init_args(
     the way to reach config keys that have no named parameter here
     (postgres/openobserve/tiled/panels host ports). Empty or ``None`` is a
     no-op: the shared pins go out on their own.
+
+    ``va_port``/``va_pva_port`` pin the VA's Channel Access and pvAccess host
+    ports, the two a deployment's port block does not move.
     """
     args = [
         str(output_dir / project_name),
@@ -336,6 +357,8 @@ def init_args(
         *set_pairs(merged_profile_edits(extra_config or {})),
         "--set",
         f"virtual_accelerator.port={va_port}",
+        "--set",
+        f"virtual_accelerator.pva_port={va_pva_port}",
         "--set",
         f"bluesky.port={bridge_port}",
         "--set",
@@ -460,6 +483,7 @@ def build_via_cli_runner(
     project_name: str = "orm-stack",
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
+    va_pva_port: int = VA_PVA_PORT,
     pre_build: Callable[[Path], None] | None = None,
 ) -> Path:
     """In-process ``osprey init`` + ``osprey build`` (``CliRunner``, no
@@ -492,6 +516,7 @@ def build_via_cli_runner(
             output_dir=tmp_path,
             bridge_port=bridge_port,
             va_port=va_port,
+            va_pva_port=va_pva_port,
         ),
     )
     if result.exit_code != 0:
@@ -529,6 +554,7 @@ def build_project_subprocess(
     output_dir: Path,
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
+    va_pva_port: int = VA_PVA_PORT,
     port_base: int | None = None,
     timeout: int = BUILD_TIMEOUT_SEC,
     provider: str | None = None,
@@ -570,6 +596,7 @@ def build_project_subprocess(
             output_dir=output_dir,
             bridge_port=bridge_port,
             va_port=va_port,
+            va_pva_port=va_pva_port,
             port_base=port_base,
             provider=provider,
             model=model,

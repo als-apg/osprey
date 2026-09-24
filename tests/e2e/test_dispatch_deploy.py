@@ -572,6 +572,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             # The Channel Access port PORT_BASE cannot move (see VA_CA_PORT).
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
         ],
         cwd=base,
         timeout=300,
