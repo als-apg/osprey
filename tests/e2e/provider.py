@@ -1,4 +1,4 @@
-"""Which provider an end-to-end run builds with.
+"""Which provider, and which model, an end-to-end run builds with.
 
 Two environment variables decide it and this module is where they meet, so the
 precedence between them is stated once rather than rediscovered at each call
@@ -75,6 +75,26 @@ def build_provider(pinned: str) -> str:
     """
     forced = os.environ.get(FORCE_PROVIDER_ENV, "").strip()
     return forced or pinned
+
+
+#: The model a lane builds with when its call site names none.
+#:
+#: The suite's per-query ``max_budget_usd`` caps are sized for this model, so a
+#: lane that names a provider and no model runs it rather than the default the
+#: provider's catalog entry gives a deployment. The id is the one the
+#: ``als-apg`` gateway serves, and direct Anthropic answers to it as well.
+#: ``OSPREY_E2E_FORCE_MODEL`` still replaces it at run time.
+E2E_MODEL = "claude-haiku-4-5-20251001"
+
+
+def build_model(pinned: str | None) -> str:
+    """The model to build a project with, given what the call site pinned.
+
+    A call site that names a model keeps it. One that names none builds with
+    :data:`E2E_MODEL`, never the provider's catalog default: the budgets the
+    suite asserts against are that model's.
+    """
+    return pinned if pinned is not None else E2E_MODEL
 
 
 def gateway_base_url(provider: str, env_var: str) -> str | None:

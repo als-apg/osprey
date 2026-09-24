@@ -37,7 +37,7 @@ import yaml
 from osprey.port_layout import BLOCK_SIZE
 from tests import ci_diagnostics
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.provider import build_provider
+from tests.e2e.provider import build_model, build_provider
 
 # SDK imports — skip entire module if not installed
 try:
@@ -357,6 +357,11 @@ def init_project(
 
     The suite-wide override of that pinned choice is resolved by
     :func:`tests.e2e.provider.build_provider`, which states the precedence.
+
+    ``model`` is always written to the profile. A call site that names none
+    builds with :data:`tests.e2e.provider.E2E_MODEL` (see
+    :func:`tests.e2e.provider.build_model`), because the suite's budgets are
+    sized for that model and the provider's catalog default is not.
     """
     from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
 
@@ -384,9 +389,7 @@ def init_project(
         "--set",
         f"connector={connector}",
     ]
-    # No model named: the provider entry's default_model answers.
-    if model is not None:
-        init_args.extend(["--set", f"model={model}"])
+    init_args.extend(["--set", f"model={build_model(model)}"])
     # ``archiver.type`` is written in the literal dotted spelling the preset
     # already uses, so the edit replaces that entry instead of landing beside
     # it. The stand-in pin rides along where the preset declares a VA.
@@ -872,15 +875,15 @@ def _harvest_subagent_traces(
 def e2e_budget_scale() -> float:
     """Per-query budget multiplier for the model under test.
 
-    The base ``max_budget_usd`` caps across the e2e suite are tuned for the
-    haiku-tier default model. Pricier reference models (Sonnet, Opus) cost
-    several times more per token, so the same multi-step task blows the cap and
-    hard-errors mid-query (``Reached maximum budget``) — a cost artifact that
-    deflates their benchmark score for reasons unrelated to capability. The
-    model matrix runner (``scripts/run_e2e_for_model.sh``) sets
-    ``OSPREY_E2E_BUDGET_SCALE`` per model so the cap **and** the cost-ceiling
-    assertions scale together. Defaults to 1.0, so CI and ordinary local runs
-    are byte-for-byte unchanged.
+    The base ``max_budget_usd`` caps across the e2e suite are sized for
+    :data:`tests.e2e.provider.E2E_MODEL`, which every lane builds with when its
+    call site names no model. Pricier models (Sonnet, Opus) cost several times
+    more per token, so the same multi-step task reaches the cap and hard-errors
+    mid-query (``Reached maximum budget``) — a cost artifact that deflates their
+    benchmark score for reasons unrelated to capability. The model matrix runner
+    (``scripts/benchmark/run_e2e_for_model.sh``) sets ``OSPREY_E2E_BUDGET_SCALE``
+    per model so the cap **and** the cost-ceiling assertions scale together.
+    Unset, the scale is 1.0 and each call site's cap applies as written.
     """
     try:
         scale = float(os.environ.get("OSPREY_E2E_BUDGET_SCALE", "1.0"))
