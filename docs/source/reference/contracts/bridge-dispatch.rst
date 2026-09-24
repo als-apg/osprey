@@ -24,22 +24,36 @@ token. The body is the question plus whatever context the engine assembled:
 
    {
      "question": "now plot that over 24 hours",
+     "asker": {"id": "users/111", "name": "Alice"},
      "conversation_so_far": [{"question": "...", "answer": "...", "ts": 1757000000.0,
-                              "run_id": "run-...", "artifacts": []}],
+                              "run_id": "run-...", "artifacts": [],
+                              "asked_by": {"id": "users/222", "name": "Carol"}}],
      "reply_to": {"sender": "Alice", "text": "the vacuum trace from this morning"},
      "input_files": [{"filename": "trace.png", "mime": "image/png",
                       "content_b64": "...", "ingest": true}],
      "skipped_attachments": [{"filename": "scan.h5", "reason": "..."}]
    }
 
-Only ``question`` is always present. A text-only message in a fresh
-conversation sends that field and nothing else — the engine omits an empty
-context rather than sending empty containers, so such a dispatch is
-byte-identical to one made before any of this existed.
+Only ``question`` is always present. ``asker`` is present whenever the chat
+system told the bridge who sent the message. A text-only message whose sender
+is unknown, in a fresh conversation, sends ``question`` and nothing else. The
+engine omits an empty context rather than sending empty containers.
 
 The whole body becomes the agent's context, exactly as it does for a webhook
 fired by hand. A trigger's prompt does not have to name these fields for the
 agent to see them.
+
+``asker``
+=========
+
+Who sent this message, as ``id`` (the chat system's stable identity for the
+person) and ``name`` (their display name). Either may be ``null`` when the chat
+system did not supply it.
+
+It is what the chat system reports, not a verified identity. The dispatcher
+folds the whole body into the agent's prompt, so the agent reads the name the
+way it reads the question; what the agent may do is set by the trigger's tool
+list, and that list, not the payload, is the security control.
 
 ``conversation_so_far``
 =======================
@@ -65,6 +79,10 @@ The recent exchanges in this conversation, **oldest first**. This is what makes
    * - ``artifacts``
      - Descriptors for the files that run produced — round-tripped opaquely by
        the bridge, capped per turn, newest kept.
+   * - ``asked_by``
+     - Who asked this question, in the same shape as ``asker``. Absent when the
+       bridge did not know, including every turn recorded before the field
+       existed.
 
 The bridge caps the list by turn count and by total serialized size, dropping
 oldest first, so the newest exchanges always survive.

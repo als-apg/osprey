@@ -26,13 +26,13 @@ from typing import Any
 
 import pytest
 
-from osprey.bridges.core import runtime
+from osprey.bridges.core import pipeline, runtime
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.dispatch_client import DispatchClient
 from osprey.bridges.core.history import HistoryStore
 from osprey.bridges.core.pipeline import PipelineDeps
-from osprey.bridges.core.ports import InputDownload
+from osprey.bridges.core.ports import InboundEvent, InputDownload
 from osprey.bridges.core.reconcile import ReconcileDeps
 from tests.bridges.conftest import RecordingChannelOps
 
@@ -581,6 +581,24 @@ def test_rebuild_extra_is_empty_for_a_text_only_entry(tmp_path):
     _claim(deps.dedup, "m1", text=QUESTION, history_key="")
 
     assert runtime.rebuild_extra(deps, deps.dedup.get("m1")) == {}
+
+
+def test_rebuild_extra_carries_the_same_asker_the_live_path_sent(tmp_path):
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    ops = RecordingChannelOps(parse_result=event)
+    deps = _deps(tmp_path, ops)
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["asker"] == {"id": "users/111", "name": "Alice"}
+    assert runtime.rebuild_extra(deps, deps.dedup.get("m1"))["asker"] == live_extra["asker"]
 
 
 # --- the adapter entry point --------------------------------------------------

@@ -44,6 +44,7 @@ from typing import Any
 from . import retry
 from .dedup import DedupStore
 from .history import HistoryStore
+from .people import asker_of
 from .ports import ChannelOps
 
 logger = logging.getLogger(__name__)
@@ -263,7 +264,7 @@ def give_up(
     key = current.get("history_key")
     if history is not None and key:
         try:
-            history.append_failed(key, current.get("text", ""))
+            history.append_failed(key, current.get("text", ""), asked_by=asker_of(current))
         except Exception:
             logger.exception("give-up history append failed for %s; continuing", message_id)
 

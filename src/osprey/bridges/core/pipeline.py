@@ -58,6 +58,7 @@ from .dedup import DedupStore
 from .dispatch_client import DispatchClient
 from .errors import UndeliverableError
 from .history import HistoryStore
+from .people import asker_of
 from .ports import RESERVED_ENTRY_KEYS, ChannelOps, InputDownload
 
 logger = logging.getLogger(__name__)
@@ -232,18 +233,21 @@ def build_extra(
     The single payload assembler: :func:`handle_event` calls it on the live path (with
     the just-resolved ``reply_to``) and :func:`osprey.bridges.core.runtime.rebuild_extra`
     calls it for every RE-dispatch (with the persisted one), so a replayed question can
-    never quietly ship less than the live one did. In order: the conversation-so-far, so
-    follow-ups ("now plot it over 24h") resolve their referents; the reply context, which
+    never quietly ship less than the live one did. In order: who asked; the
+    conversation-so-far, so follow-ups ("now plot it over 24h") resolve their referents; the reply context, which
     the quoted-attachment fold then folds provenance into; this message's attachments;
     and the newest prior image artifacts — the last two off ONE memoized capability
     probe, so a dispatch shipping no bytes never probes at all.
 
     ``history_key`` is passed rather than read off ``entry`` because the live path knows
     it from the parsed event; empty means "no conversation history for this message".
-    Returns ``{}`` for a text-only entry with no history, leaving the payload
-    byte-identical to the no-attachment path.
+    Returns ``{}`` only for an entry with no known sender, no history and nothing
+    attached, which leaves that payload byte-identical to a bare question.
     """
     extra: dict[str, Any] = {}
+    asker = asker_of(entry)
+    if asker:
+        extra["asker"] = asker
 
     turns: list[dict[str, Any]] = []
     if deps.history is not None and history_key:
@@ -759,6 +763,7 @@ def _append_history(
         return
     question = entry.get("text", "")
     answer = result.get("text_output") or ""
+    asked_by = asker_of(entry)
     try:
         if result.get("status") == "completed" and answer:
             deps.history.append(
@@ -767,9 +772,10 @@ def _append_history(
                 answer,
                 run_id=result.get("run_id"),
                 artifacts=_turn_descriptors(result, artifact_urls),
+                asked_by=asked_by,
             )
         else:
-            deps.history.append_failed(key, question)
+            deps.history.append_failed(key, question, asked_by=asked_by)
     except Exception:
         logger.exception("history append failed for %s; continuing", key)
 
