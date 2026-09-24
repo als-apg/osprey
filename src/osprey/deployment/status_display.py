@@ -1051,7 +1051,11 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """
     import os
 
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.build.claude_code_resolver import (
+        ALIAS_SUBSTITUTION_REMEDY,
+        alias_substitution,
+        load_provider_spec,
+    )
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
     from osprey.models.display import display_model_name
     from osprey.registry.mcp import FRAMEWORK_AGENTS
@@ -1143,6 +1147,12 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             rows.append(("Claude Code aliases", ""))
             for alias, model_id in spec.alias_models.items():
                 rows.append((alias, f"{model_id} ({spec.alias_origin.get(alias, '?')})"))
+            # Said here, from the spec this section already holds, because the
+            # resolver's own record is INFO and the drift check below resolves
+            # the provider a second time: one report, one sentence.
+            substitution = alias_substitution(spec)
+            if substitution:
+                troubles.append((substitution, ALIAS_SUBSTITUTION_REMEDY))
 
             if show_agents:
                 rows.append(("agent models", ""))
