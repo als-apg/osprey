@@ -11,6 +11,10 @@ re-implements "what does this config select" is a guard that can disagree with
 the answer, and the disagreement is a bypass rather than a discrepancy — see
 :mod:`osprey_connectors.honesty`.
 
+:func:`resolve_archiver_settings` is the same arrangement for the other half of
+an archiver selection: which block its ``connect()`` is handed. The build
+refuses what it would refuse, from the same helpers.
+
 :func:`resolve_target` extends that to the run-time question "which machine is
 this session pointed at". It is the same shape of answer for the same reason:
 several holders follow a control target — the connector-host process, its child,
@@ -196,6 +200,88 @@ def resolve_archiver_type(section: Any) -> str:
 def resolve_control_system_type(section: Any) -> str:
     """The control system a ``control_system:`` config section actually selects."""
     return _resolve_type(section, MOCK)
+
+
+#: The one block under ``archiver:`` a connector's settings are read from,
+#: whichever route selected the connector. It has no dot in it, so a profile's
+#: ``archiver.settings.<leaf>`` renders to exactly the block the factory reads.
+ARCHIVER_SETTINGS_LEAF = "settings"
+
+#: Keys of the ``archiver:`` section that are not a connector's settings block:
+#: the selector, the settings block itself, and archiver_read's point budget.
+ARCHIVER_SECTION_LEAVES = ("type", ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
+
+
+def _own_name_block(connector_type: str) -> str | None:
+    """The older spelling of a short-named archiver's settings, or ``None``.
+
+    A built-in, or a connector registered under a short name, may still keep
+    its settings in a block carrying its own name (``archiver.epics_archiver``).
+    A dotted module path has no such block: a profile splits keys on every dot,
+    so a block keyed by one could never have been written from ``config:``.
+    """
+    return None if "." in connector_type else connector_type
+
+
+def _archiver_settings_homes(section: Any) -> list[tuple[str, Any]]:
+    """Every block in *section* that configures the selected archiver, in order."""
+    if not isinstance(section, dict):
+        return []
+    homes: list[tuple[str, Any]] = []
+    if ARCHIVER_SETTINGS_LEAF in section:
+        homes.append((ARCHIVER_SETTINGS_LEAF, section[ARCHIVER_SETTINGS_LEAF]))
+    own = _own_name_block(resolve_archiver_type(section))
+    if own is not None and own != ARCHIVER_SETTINGS_LEAF and own in section:
+        homes.append((own, section[own]))
+    return homes
+
+
+def _two_homes(own: str) -> str:
+    return (
+        f"`archiver.settings` and `archiver.{own}` both configure {own}; keep one "
+        f"— `archiver.settings` is the spelling for every archiver"
+    )
+
+
+def _not_a_block(key: str, value: Any) -> str:
+    return (
+        f"`archiver.{key}` is {value!r}, not a block; it holds the selected "
+        f"archiver's settings as a mapping"
+    )
+
+
+def archiver_settings_key(section: Any) -> str:
+    """The dotted key of the block that configures *section*'s archiver.
+
+    ``archiver.<type>`` when a short-named archiver is configured by its own-name
+    block alone, else ``archiver.settings`` — so a message about a setting names
+    the line an operator actually wrote.
+    """
+    homes = _archiver_settings_homes(section)
+    home = homes[0][0] if len(homes) == 1 else ARCHIVER_SETTINGS_LEAF
+    return f"archiver.{home}"
+
+
+def resolve_archiver_settings(section: Any) -> dict[str, Any]:
+    """The settings block the selected archiver's ``connect()`` is handed.
+
+    ``archiver.settings`` for every archiver; for a short-named one, its own-name
+    block when ``settings`` is absent. Absent, or a bare ``settings:``, is ``{}``.
+
+    Raises:
+        ValueError: when both spellings are present, or the block is not a
+            mapping. :func:`archiver_settings_errors` refuses the same configs
+            at build time, with the same words.
+    """
+    homes = _archiver_settings_homes(section)
+    if len(homes) > 1:
+        raise ValueError(_two_homes(homes[1][0]))
+    if not homes or homes[0][1] is None:
+        return {}
+    key, value = homes[0]
+    if not isinstance(value, dict):
+        raise ValueError(_not_a_block(key, value))
+    return dict(value)
 
 
 def resolve_target(section: Any, target: Any) -> str:
