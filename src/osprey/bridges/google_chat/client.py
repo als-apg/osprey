@@ -1,7 +1,7 @@
 """Google Chat REST calls the bridge makes, over one discovery service object.
 
-:class:`ChatClient` is a thin mapper onto the Chat v1 ``spaces.messages`` surface
-and nothing more: it assembles the message body (text, threading, ``cardsV2``),
+:class:`ChatClient` is a thin mapper onto the Chat v1 ``spaces.messages`` surface,
+plus the one ``spaces.members.list`` read the room roster makes, and nothing more: it assembles the message body (text, threading, ``cardsV2``),
 issues the call, and hands the parsed resource back. It carries **no retry, no
 backoff, and no swallow policy** for posting — a failed create raises, on the
 first failure, having made exactly one request.
@@ -14,6 +14,10 @@ so a lost message is re-delivered next cycle, while ``post_ack`` and
 Those are four different policies over the *same* REST call, so the call site —
 ``GoogleChatOps`` — is the only place that can choose correctly. A retry or an
 ``except`` hidden down here would fight all four.
+
+:meth:`ChatClient.list_members` raises like ``create_message``: listing a space's
+members runs under the same ``chat.bot`` app authentication as every post, so it
+needs no new scope, and whether a failed listing matters is the roster's call.
 
 :meth:`ChatClient.get_message` is the one exception, and only because its single
 caller is reply-context enrichment: a Chat hiccup there degrades to answering
@@ -74,6 +78,7 @@ from ..core.errors import UndeliverableError
 from ..core.text import _fence_spans as _fence_spans
 from ..core.text import chunk_text as _core_chunk_text
 from .config import GoogleChatBridgeConfig
+from .formatting import CHAT_MENTION_RE
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +87,9 @@ SA_SCOPES: tuple[str, ...] = ("https://www.googleapis.com/auth/chat.bot",)
 
 ``chat.bot`` is "act as the app": messages appear as sent by the Osprey Chat app
 rather than by a user, and it is also the credential ``spaces.messages.get``
-answers a full message snapshot to. The bridge holds no user OAuth token, so this
-is the only identity it ever posts or reads as."""
+answers a full message snapshot to, and ``spaces.members.list`` answers a space's
+members to. The bridge holds no user OAuth token, so this is the only identity it
+ever posts or reads as."""
 
 MAX_CHARS = 4096
 """Chat's hard per-message character limit, and therefore :func:`chunk_text`'s
@@ -138,8 +144,9 @@ def chunk_text(text: str, limit: int = MAX_CHARS) -> list[str]:
     A wrapper over :func:`osprey.bridges.core.text.chunk_text`, which owns the
     splitting rules — the limit, the preference for newline boundaries, and keeping
     a ``` fenced block whole. The core function requires a ``limit`` because the
-    ceiling is a property of the channel; supplying Chat's is all this adds, so the
-    ops layer can call it bare.
+    ceiling is a property of the channel; this supplies Chat's, and names Chat's
+    rendered mention (``<users/…>``) as a span to keep whole, so a mention is never
+    split across two messages. The ops layer can call it bare.
 
     Args:
         text: The message text, already transformed for Chat by the caller.
@@ -152,7 +159,7 @@ def chunk_text(text: str, limit: int = MAX_CHARS) -> list[str]:
     Raises:
         ValueError: If ``limit`` is not positive.
     """
-    return _core_chunk_text(text, limit)
+    return _core_chunk_text(text, limit, keep_whole=CHAT_MENTION_RE)
 
 
 def _permanent_refusal(exc: BaseException) -> str | None:
@@ -299,3 +306,44 @@ class ChatClient:
             logger.warning("messages.get failed for %s; no reply context", name, exc_info=True)
             return None
         return body if isinstance(body, dict) else None
+
+    def list_members(self, space: str, *, limit: int) -> tuple[list[dict[str, Any]], bool]:
+        """List up to ``limit`` memberships of ``space``, following the page token.
+
+        Pages with ``pageSize=min(limit, 100)``, collecting each page's
+        ``memberships`` (a list of dicts; anything else counts as an empty page with
+        no token). Stops when the token is absent, when a token repeats (a looping
+        server), or when ``limit`` memberships are collected.
+
+        Args:
+            space: Space resource name (``spaces/AAAA``).
+            limit: The most memberships to return.
+
+        Returns:
+            ``(memberships, more)``: at most ``limit`` membership resources, and
+            whether the listing stopped on ``limit`` with more left to read.
+
+        Raises:
+            Exception: Whatever the Chat transport raises. Never swallowed: the
+                caller owns the policy.
+        """
+        memberships: list[dict[str, Any]] = []
+        token: str | None = None
+        seen_tokens: set[str] = set()
+        while True:
+            params: dict[str, Any] = {"parent": space, "pageSize": min(limit, 100)}
+            if token:
+                params["pageToken"] = token
+            page = self._execute(self._service.spaces().members().list(**params))
+            if not isinstance(page, dict):
+                page = {}
+            items = page.get("memberships")
+            if isinstance(items, list):
+                memberships.extend(item for item in items if isinstance(item, dict))
+            next_token = page.get("nextPageToken")
+            token = next_token if isinstance(next_token, str) and next_token else None
+            if len(memberships) >= limit:
+                return memberships[:limit], len(memberships) > limit or token is not None
+            if token is None or token in seen_tokens:
+                return memberships, False
+            seen_tokens.add(token)

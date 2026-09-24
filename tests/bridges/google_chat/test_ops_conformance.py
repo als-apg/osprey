@@ -45,6 +45,7 @@ from osprey.bridges.core import (
     InboundEvent,
     InputDownload,
     ReplyContext,
+    RoomRoster,
 )
 from osprey.bridges.google_chat import client as client_module
 from osprey.bridges.google_chat import events
@@ -61,7 +62,12 @@ from osprey.bridges.google_chat.events import (
 )
 from osprey.bridges.google_chat.gcs import publish_artifacts, publish_documents
 from osprey.bridges.google_chat.inbound import download_attachments
-from osprey.bridges.google_chat.ops import STASH_LIMIT, GoogleChatOps, _static_conformance
+from osprey.bridges.google_chat.ops import (
+    STASH_LIMIT,
+    GoogleChatOps,
+    _static_conformance,
+    _static_room_conformance,
+)
 from tests.bridges.test_ports import PROTOCOL_MEMBERS
 
 APP_ID = "users/1234567890"
@@ -94,6 +100,7 @@ PLOT_URL = "https://storage.googleapis.com/test-bucket/plots/1.png"
 COLLABORATORS = {"_cfg", "_client", "_publisher", "_doc_publisher", "_media"}
 LOCKS = {"_media_lock", "_stash_lock"}
 STASH = {"_stashed_urls"}
+ROSTER = {"_roster"}
 
 
 # --- builders ---------------------------------------------------------------
@@ -293,6 +300,17 @@ def test_static_conformance_helper_is_the_type_check_seam():
     assert _static_conformance(ops) is ops
 
 
+def test_the_adapter_satisfies_the_room_roster_protocol():
+    ops, _ = make_ops()
+    assert isinstance(ops, RoomRoster)
+
+
+def test_static_room_conformance_helper_is_the_type_check_seam():
+    """The same guard for the optional room-roster seam."""
+    ops, _ = make_ops()
+    assert _static_room_conformance(ops) is ops
+
+
 # ==========================================================================
 # Constructor: explicit, injectable collaborators
 # ==========================================================================
@@ -355,11 +373,12 @@ def test_a_chat_client_is_built_from_the_config_when_none_is_injected(monkeypatc
 # ==========================================================================
 
 
-def test_the_stash_is_the_only_state_the_instance_holds():
+def test_the_stash_and_the_roster_are_the_only_state_the_instance_holds():
     """The engine shares ONE instance across the subscriber thread and the drain thread.
 
     So the instance dict must hold nothing but the injected collaborators, their locks,
-    and the one documented cross-call map: any per-dispatch field (a "current space", a
+    and the two documented cross-call maps (the stash, and the room roster, which owns
+    its lock and its bounds): any per-dispatch field (a "current space", a
     cached entry) would be written by one thread and read by another, and the corruption
     would be intermittent and load-dependent. Asserted structurally, since a race cannot
     be asserted directly.
@@ -370,7 +389,7 @@ def test_the_stash_is_the_only_state_the_instance_holds():
     behind the two locks.
     """
     ops, _ = make_ops()
-    assert set(vars(ops)) == COLLABORATORS | LOCKS | STASH
+    assert set(vars(ops)) == COLLABORATORS | LOCKS | STASH | ROSTER
 
 
 def test_a_full_dispatch_adds_no_instance_state_and_rebinds_nothing():
@@ -392,7 +411,7 @@ def test_a_full_dispatch_adds_no_instance_state_and_rebinds_nothing():
     ops.post_giveup(entry)
     ops.post_superseded(entry)
 
-    assert set(vars(ops)) == COLLABORATORS | LOCKS | STASH
+    assert set(vars(ops)) == COLLABORATORS | LOCKS | STASH | ROSTER
     assert all(vars(ops)[name] is value for name, value in before.items())
     # Popped, not merely read: the map is gone once the engine has taken it, so an
     # answered run leaves nothing behind on an instance that lives as long as the process.

@@ -19,6 +19,7 @@ The properties that get the most attention are the ones a live bridge breaks qui
 * no machine detail — above all ``result["error"]`` — ever reaches the space.
 """
 
+import dataclasses
 import time
 from typing import Any
 from unittest.mock import MagicMock, call
@@ -773,3 +774,79 @@ def test_no_space_facing_wording_is_empty(wording):
     # Chat rejects an empty body outright, so every constant that can become one has to
     # carry text.
     assert wording.strip()
+
+
+# --- post_answer: @mentions --------------------------------------------------
+
+
+def seed_members(service: MagicMock, *members: tuple[str, str | None]) -> MagicMock:
+    """Answer ``spaces.members.list`` with ``members`` (id, displayName) as humans."""
+    listing = service.spaces.return_value.members.return_value.list
+    listing.return_value.execute.return_value = {
+        "memberships": [
+            {"member": {"name": ident, "displayName": name, "type": "HUMAN"}, "state": "JOINED"}
+            for ident, name in members
+        ]
+    }
+    return listing
+
+
+def test_an_answer_mentioning_a_member_posts_chat_mention_syntax():
+    ops, service = make_ops()
+    seed_members(service, ("users/222", "Carol"))
+
+    ops.post_answer(ENTRY, completed("Please have a look, <@users/222>."))
+
+    assert only_body(service)["text"] == "Please have a look, <users/222>."
+
+
+def test_an_answer_without_a_mention_never_lists_members():
+    ops, service = make_ops()
+    listing = seed_members(service, ("users/222", "Carol"))
+
+    ops.post_answer(ENTRY, completed("42 mA"))
+
+    listing.assert_not_called()
+
+
+def test_a_members_list_failure_posts_the_mention_as_plain_text():
+    ops, service = make_ops()
+    listing = seed_members(service)
+    listing.return_value.execute.side_effect = RuntimeError("members down")
+
+    ops.post_answer(ENTRY, completed("cc <@users/222>"))
+
+    assert only_body(service)["text"] == "cc @users/222"
+
+
+def test_mentions_off_posts_plain_text():
+    ops, service = make_ops(dataclasses.replace(CFG, mentions=False))
+    seed_members(service, ("users/222", "Carol"))
+
+    ops.post_answer(ENTRY, completed("cc <@users/222>"))
+
+    assert only_body(service)["text"] == "cc @Carol"
+
+
+def test_a_long_answer_never_splits_a_mention_across_chunks():
+    ops, service = make_ops()
+    seed_members(service, ("users/2222222222", "Carol"))
+    text = "x" * (MAX_CHARS - 5) + "<@users/2222222222>" + " tail"
+
+    ops.post_answer(ENTRY, completed(text))
+
+    posted = [body["text"] for body in bodies(service)]
+    assert len(posted) == 2
+    assert all(len(chunk) <= MAX_CHARS for chunk in posted)
+    assert posted[1].startswith("<users/2222222222>")
+    assert "".join(posted) == "x" * (MAX_CHARS - 5) + "<users/2222222222> tail"
+
+
+def test_the_stored_text_output_keeps_the_placeholder():
+    ops, service = make_ops()
+    seed_members(service, ("users/222", "Carol"))
+    result = completed("cc <@users/222>")
+
+    ops.post_answer(ENTRY, result)
+
+    assert result["text_output"] == "cc <@users/222>"
