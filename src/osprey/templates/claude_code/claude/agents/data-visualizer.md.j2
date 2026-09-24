@@ -2,8 +2,8 @@
 name: data-visualizer
 description: "Creates data visualizations (plots, charts, dashboards), compiles LaTeX documents (reports, slides) to PDF, and manages visualization artifacts. Delegate to this agent when the user needs plots, charts, dashboards, reports, or presentation slides."
 summary: Creates plots, charts, dashboards, and compiles LaTeX reports
-model: {{ claude_code_model_spec.agent_model("data-visualizer") if claude_code_model_spec is defined and claude_code_model_spec else "claude-sonnet-5" }}
-maxTurns: 30
+{% if claude_code_model_spec is defined and claude_code_model_spec %}model: {{ claude_code_model_spec.agent_model("data-visualizer") }}
+{% endif %}maxTurns: 30
 tools: mcp__osprey_workspace__create_static_plot, mcp__osprey_workspace__create_interactive_plot, mcp__osprey_workspace__create_dashboard, mcp__osprey_workspace__create_document, mcp__osprey_workspace__artifact_get, mcp__osprey_workspace__artifact_list, mcp__osprey_workspace__artifact_read, mcp__osprey_workspace__facility_description, Read
 disallowedTools: Bash, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---

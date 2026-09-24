@@ -2,8 +2,8 @@
 name: facility-knowledge
 description: "Answers questions about facility design, accelerator physics concepts, and operational knowledge from the facility knowledge bundle. Delegate to this agent when the user asks about facility layout, terminology, beam parameters, or any documented facility knowledge."
 summary: Looks up facility knowledge concepts and documents
-model: {{ claude_code_model_spec.agent_model("facility-knowledge") if claude_code_model_spec is defined and claude_code_model_spec else "claude-sonnet-5" }}
-maxTurns: 20
+{% if claude_code_model_spec is defined and claude_code_model_spec %}model: {{ claude_code_model_spec.agent_model("facility-knowledge") }}
+{% endif %}maxTurns: 20
 tools: mcp__osprey_facility_knowledge__list_concepts, mcp__osprey_facility_knowledge__read_concept, mcp__osprey_facility_knowledge__search, mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---

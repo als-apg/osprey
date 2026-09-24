@@ -1643,6 +1643,7 @@ keys:
       served id of that Claude family, else the deployment's main model
   claude_code.agent_models:
     data-map: true
+    rendered: false
     evidence: 'claude_code_config\.get\("agent_models"\)'
     note: >-
       Agent name to the model id that agent runs. Keys are agent names, which
@@ -2900,7 +2901,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 342
+  expected_union_size: 338
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

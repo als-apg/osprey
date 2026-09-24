@@ -118,9 +118,18 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: simply three leaves shorter. The same three are declared in
 #: ``test_explicit_config_equivalence.CELL_DELTAS`` — that table is what pins
 #: the divergence; this set only keeps the partition reading the render as it
-#: is produced today.
+#: is produced today. The three ``claude_code.agent_models`` leaves are the
+#: helper-agent pins control-assistant carried; it pins none now, so every agent
+#: runs the deployment's main model, and no preset renders the key.
 _RETIRED_SINCE_THE_FREEZE = frozenset(
-    {"web.docs_url", "web.feedback.email", "web.feedback.github_repo"}
+    {
+        "web.docs_url",
+        "web.feedback.email",
+        "web.feedback.github_repo",
+        "claude_code.agent_models.channel-finder",
+        "claude_code.agent_models.facility-knowledge-graph",
+        "claude_code.agent_models.logbook-deep-research",
+    }
 )
 
 #: Leaves a preset still states whose VALUE moved since the freeze, mapped to

@@ -856,13 +856,9 @@ config:
   # skill library is ordinary work. What this turns off is writing to it: the
   # gallery's edit, create and delete surfaces are shared deployment state.
   web.scaffold_gallery.write_enabled: false
-  # The models the helper agents run; every other agent runs the main model.
-  # Ids served by direct Anthropic and by the als-apg gateway.
-  claude_code.agent_models.channel-finder: claude-sonnet-5
-  claude_code.agent_models.facility-knowledge-graph: claude-sonnet-5
-  claude_code.agent_models.logbook-deep-research: claude-opus-5-5
-  # Pin one of Claude Code's alias names, or the model one agent runs, to a
-  # model id the provider serves.
+  # Every agent runs the main model unless it is pinned here. Pin one of
+  # Claude Code's alias names, or the model one agent runs, to a model id the
+  # provider serves.
   # claude_code.aliases.haiku: claude-haiku-4-5
   # claude_code.agent_models.logbook-search: claude-sonnet-5
   # Switch a framework server or subagent off, or add an MCP server of your
