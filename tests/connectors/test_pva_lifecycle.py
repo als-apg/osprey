@@ -23,15 +23,15 @@ transport, and assertions on the concrete payload — the request string, the
 mapped units, the call order — never merely that a call "didn't raise".
 """
 
-import types
 from unittest.mock import MagicMock
 
 import pytest
 
 from osprey.connectors.control_system.epics_connector import (
-    EPICSConnector,
     _ChannelSubscription,
 )
+from tests.connectors._epics_fakes import FakeDisconnected, FakeValue
+from tests.connectors._epics_fakes import pva_connector as _pva_connector
 
 PVA_GLOB = "SR:CAM*:IMAGE"
 PVA_ADDRESS = "SR:CAM1:IMAGE"
@@ -43,48 +43,6 @@ METADATA_REQUEST = "field(alarm,timeStamp,display)"
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
-
-
-class FakeDisconnected(RuntimeError):
-    """Stands in for p4p's Disconnected (a RuntimeError, not a ConnectionError)."""
-
-
-class FakeRemoteError(RuntimeError):
-    """Stands in for p4p's RemoteError."""
-
-
-def _fake_p4p_module() -> types.ModuleType:
-    """A ``p4p`` module exposing exactly what the connector looks up on it."""
-    thread_mod = types.ModuleType("p4p.client.thread")
-    thread_mod.Context = MagicMock(name="Context")
-    thread_mod.Disconnected = FakeDisconnected
-    thread_mod.RemoteError = FakeRemoteError
-    thread_mod.TimeoutError = TimeoutError
-    client_mod = types.ModuleType("p4p.client")
-    client_mod.thread = thread_mod
-    p4p_mod = types.ModuleType("p4p")
-    p4p_mod.client = client_mod
-    return p4p_mod
-
-
-class FakeValue:
-    """Minimal p4p ``Value`` stand-in: a struct id plus (possibly nested) fields."""
-
-    def __init__(self, type_id: str, fields: dict):
-        self._type_id = type_id
-        self._fields = {
-            key: FakeValue("", value) if isinstance(value, dict) else value
-            for key, value in fields.items()
-        }
-
-    def getID(self) -> str:  # noqa: N802 - p4p's spelling
-        return self._type_id
-
-    def get(self, name, default=None):
-        return self._fields.get(name, default)
-
-    def __contains__(self, name) -> bool:
-        return name in self._fields
 
 
 class FakeSubscription:
@@ -141,18 +99,6 @@ def _metadata_value(type_id: str = "epics:nt/NTScalar:1.0") -> FakeValue:
             },
         },
     )
-
-
-def _pva_connector(context=None, globs=(PVA_GLOB,), epics=None) -> EPICSConnector:
-    """A connector wired for PVA without going through connect()."""
-    connector = EPICSConnector()
-    connector._pva_channel_globs = list(globs)
-    connector._p4p = _fake_p4p_module()
-    connector._pva_context = context
-    connector._timeout = 3.0
-    connector._epics = epics if epics is not None else MagicMock()
-    connector._connected = True
-    return connector
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from osprey.simulation.machine import (
     _validate_position_keys,
     parse_machine,
 )
+from tests.simulation.conftest import TEMPLATE_SIM
 
 _PATH = Path("machine.json")
 
@@ -337,9 +338,6 @@ class TestDeadConfigParseGuard:
         assert "texture" in caplog.text
         assert "machine.json" in caplog.text
 
-    def test_never_raises(self):
-        parse_machine(_channels({"PV:A": dict(self.DEAD)}), _PATH)  # no raise
-
     @pytest.mark.parametrize(
         "spec",
         [
@@ -475,15 +473,12 @@ class TestParsePhysicsFault:
         )
 
     def test_corrector_gain_parses(self):
+        # The machine has no "HCM01" channel, and that is fine: device ids are
+        # lattice ids, not EPICS channel names -- unlike `overrides`, they must
+        # never be validated against `channels`.
         machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": 1.15}}}})
         physics = parse_machine(machine, _PATH).scenarios["fault"].physics
         assert physics.corrector_gain == {"HCM01": 1.15}
-
-    def test_physics_device_ids_are_not_checked_against_channels(self):
-        # Device ids are lattice ids ("HCM01"), not EPICS channel names -- unlike
-        # `overrides`, they must never be validated against `channels`.
-        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": 1.1}}}})
-        parse_machine(machine, _PATH)  # no raise
 
     def test_non_mapping_physics_rejected(self):
         machine = _machine(scenarios={"fault": {"physics": []}})
@@ -530,13 +525,8 @@ class TestParsePhysicsFault:
             parse_machine(machine, _PATH)
 
 
-_TEMPLATE_SIM = (
-    Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
-
-
 class TestSeededDiscoveryScenarioBundles:
-    """The shipped bpm-polarity bundle parses under the physics schema.
+    """The shipped bundles parse under the physics schema.
 
     Loads the real ``control_assistant`` machine.json + scenarios/ tree (not the
     inline fixture) so a malformed bundle is caught here, not only downstream in
@@ -545,7 +535,7 @@ class TestSeededDiscoveryScenarioBundles:
 
     @staticmethod
     def _load() -> ParsedMachine:
-        machine_path = _TEMPLATE_SIM / "machine.json"
+        machine_path = TEMPLATE_SIM / "machine.json"
         machine = json.loads(machine_path.read_text())
         return parse_machine(machine, machine_path)
 
@@ -560,6 +550,27 @@ class TestSeededDiscoveryScenarioBundles:
         assert scenario.overrides == {}
         assert scenario.archiver == {}
         assert [e.entry_id for e in scenario.logbook] == ["DEMO-031"]
+
+    @pytest.mark.parametrize(
+        ("name", "bpm_errors", "corrector_gain"),
+        [
+            ("bpm-polarity", {"BPM17": BpmErrorSpec(polarity=-1)}, {}),
+            # Two faults on disjoint devices: a BPM 17 polarity flip plus a
+            # bounded HCM01 gain deficit.
+            ("orm-dual-fault", {"BPM17": BpmErrorSpec(polarity=-1)}, {"HCM01": 0.5}),
+            # A bundle with no ``physics`` block still parses, with ``None``.
+            ("rf-thermal", None, None),
+        ],
+        ids=["bpm-polarity", "orm-dual-fault", "rf-thermal-no-physics"],
+    )
+    def test_physics_block_parses(self, name, bpm_errors, corrector_gain):
+        physics = self._load().scenarios[name].physics
+        if bpm_errors is None:
+            assert physics is None
+            return
+        assert physics is not None
+        assert physics.bpm_errors == bpm_errors
+        assert physics.corrector_gain == corrector_gain
 
 
 class TestValidateAtTime:

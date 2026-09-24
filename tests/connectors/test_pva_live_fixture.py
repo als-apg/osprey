@@ -29,8 +29,10 @@ variable the connector wrote back after each test.
 
 **The Channel Access half of the mixed batch is unreachable on purpose.** Its
 address matches no ``pva_channels`` glob, so it takes the CA path, where no
-server answers it — that is the point, and the connector's timeout is kept
-short so the failure costs a second rather than a suite.
+server answers it — that is the point. The connectors are built against a
+stand-in pyepics whose channels never connect, so that half sends no Channel
+Access search off the host, and the real libca is never loaded into (nor its
+shutdown hook taken out of) the test process.
 """
 
 import gc
@@ -47,6 +49,10 @@ from p4p.server.thread import SharedPV  # noqa: E402
 
 from osprey.connectors.control_system.base import WriteOutcome  # noqa: E402
 from osprey.connectors.control_system.epics_connector import EPICSConnector  # noqa: E402
+from tests.connectors._epics_fakes import (  # noqa: E402
+    install_fake_pyepics,
+    writes_enabled,  # noqa: F401 - fixture, used by name
+)
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn  # noqa: E402
 
 # The served namespace, kept to one prefix so a single glob routes all of it
@@ -80,7 +86,8 @@ CODEC_NAME = "blosc"
 # Generous for a loopback read, short enough that a wedged server fails the
 # test instead of the suite.
 READ_TIMEOUT_S = 5.0
-# The mixed batch pays this once for the address nobody serves.
+# The mixed batch and the unserved-address probe each pay this once for the
+# address nobody serves.
 BATCH_TIMEOUT_S = 2.0
 
 # Everything ``connect()`` writes when a PVA gateway is configured, restored
@@ -180,16 +187,19 @@ def connector_factory(pva_server):
     whichever loop a test brings.
 
     The teardown is not bookkeeping: the PVA client context owns worker threads,
-    and the CA half of the mixed batch leaves a pyepics PV that must be
-    disconnected deterministically rather than collected at some later moment.
-    The ``EPICS_PVA_*`` variables ``connect()`` writes are put back at the same
-    time, so nothing downstream of this module inherits a pinned name server.
+    and they must be closed deterministically rather than collected at some
+    later moment. The ``EPICS_PVA_*`` variables ``connect()`` writes are put
+    back at the same time, so nothing downstream of this module inherits a
+    pinned name server, and the stand-in pyepics is taken out of
+    ``sys.modules`` again.
     """
     import asyncio
     import os
 
     saved_env = {key: os.environ.get(key) for key in _PVA_ENV_KEYS}
     built: list[EPICSConnector] = []
+    patcher = pytest.MonkeyPatch()
+    install_fake_pyepics(patcher)
 
     def build(timeout: float = READ_TIMEOUT_S) -> EPICSConnector:
         connector = EPICSConnector()
@@ -217,6 +227,7 @@ def connector_factory(pva_server):
         for connector in built:
             asyncio.run(connector.disconnect())
         gc.collect()
+        patcher.undo()
         for key, value in saved_env.items():
             if value is None:
                 os.environ.pop(key, None)
@@ -232,7 +243,7 @@ def connector(connector_factory):
 
 @pytest.fixture(scope="module")
 def batch_connector(connector_factory):
-    """A second connector on a short timeout, for the address nobody answers."""
+    """A second connector on a short timeout, for the addresses nobody answers."""
     return connector_factory(timeout=BATCH_TIMEOUT_S)
 
 
@@ -339,9 +350,13 @@ class TestMetadataAndValidation:
     async def test_validate_channel_is_true_for_a_served_address(self, connector):
         assert await connector.validate_channel(SCALAR) is True
 
-    async def test_validate_channel_is_false_for_an_unserved_address(self, connector):
-        """A PVA-globbed address nobody serves is not reachable."""
-        assert await connector.validate_channel(UNSERVED) is False
+    async def test_validate_channel_is_false_for_an_unserved_address(self, batch_connector):
+        """A PVA-globbed address nobody serves is not reachable.
+
+        The probe waits out the connector's whole timeout, so it runs on the
+        short-timeout connector.
+        """
+        assert await batch_connector.validate_channel(UNSERVED) is False
 
     async def test_a_compressed_channel_still_validates(self, connector):
         """Reachability is a property of the channel, not of its payload.
@@ -355,17 +370,6 @@ class TestMetadataAndValidation:
 # ---------------------------------------------------------------------------
 # Criterion 4: PVA writes are refused, for scalars and for arrays
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def writes_enabled(monkeypatch):
-    """Enable writes at the deployment gate, so the PVA refusal is what answers.
-
-    Without this the connector's ``writes_enabled`` pre-check refuses first and
-    the PVA-specific refusal would never be reached — a green test that proved
-    only that the test environment has no config file.
-    """
-    monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
 
 
 @pytest.mark.usefixtures("writes_enabled")

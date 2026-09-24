@@ -16,31 +16,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.errors import ChannelLimitsViolationError
-
-
-def _writes_enabled_config(key, default=None):
-    """Config stub: writes enabled so the base wrapper reaches write_channel."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
-
-
-def _make_connector(validate_side_effect=None, caput_side_effect=None, caput_return=True):
-    """Build an EPICSConnector wired with mock epics + limits validator.
-
-    Bypasses connect() (which imports pyepics) by setting the attributes the
-    write path depends on directly.
-    """
-    connector = EPICSConnector()
-    connector._epics = MagicMock()
-    connector._epics.caput = MagicMock(side_effect=caput_side_effect, return_value=caput_return)
-    connector._limits_validator = MagicMock()
-    connector._limits_validator.validate = MagicMock(side_effect=validate_side_effect)
-    connector._timeout = 5.0
-    connector._connected = True
-    return connector
+from tests.connectors._write_fakes import make_mock_epics_connector as _make_connector
+from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
 
 
 class TestFailClosedValidation:
@@ -63,13 +41,26 @@ class TestFailClosedValidation:
         connector._epics.caput.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_limits_violation_propagates(self):
-        """A ChannelLimitsViolationError still propagates; caput never runs."""
+    @pytest.mark.parametrize(
+        ("violation_type", "value", "reason"),
+        [
+            ("max_value", 999.0, "above max"),
+            ("max_step", 5.0, "step 5.0 exceeds max_step 1.0"),
+        ],
+        ids=["max_value", "max_step"],
+    )
+    async def test_limits_violation_propagates_without_caput(self, violation_type, value, reason):
+        """A ChannelLimitsViolationError raised inside the validate+caput offload
+        propagates out of write_channel unchanged, and caput never runs.
+
+        ``max_step`` is not skipped by the offload: it raises from the same
+        thread hop a ``max_value`` violation does.
+        """
         violation = ChannelLimitsViolationError(
             channel_address="TEST:PV",
-            value=999.0,
-            violation_type="max_value",
-            violation_reason="above max",
+            value=value,
+            violation_type=violation_type,
+            violation_reason=reason,
         )
         connector = _make_connector(validate_side_effect=violation)
 
@@ -77,9 +68,11 @@ class TestFailClosedValidation:
             "osprey.utils.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            with pytest.raises(ChannelLimitsViolationError):
-                await connector.write_channel("TEST:PV", 999.0, confirm=False)
+            with pytest.raises(ChannelLimitsViolationError) as raised:
+                await connector.write_channel("TEST:PV", value, confirm=False)
 
+        assert raised.value is violation
+        connector._limits_validator.validate.assert_called_once()
         connector._epics.caput.assert_not_called()
 
     @pytest.mark.asyncio
@@ -161,27 +154,3 @@ class TestNonBlockingOffload:
         # (unconfirmed, since confirm=False).
         connector._limits_validator.validate.assert_called_once()
         assert result.outcome is WriteOutcome.UNREQUESTED
-
-    @pytest.mark.asyncio
-    async def test_max_step_violation_still_raised_through_offload(self):
-        """max_step is NOT skipped by the offload: a limits violation raised
-        inside the thread propagates out of write_channel unchanged, and no
-        caput is issued.
-        """
-        violation = ChannelLimitsViolationError(
-            channel_address="TEST:PV",
-            value=5.0,
-            violation_type="max_step",
-            violation_reason="step 5.0 exceeds max_step 1.0",
-        )
-        connector = _make_connector(validate_side_effect=violation)
-
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
-            with pytest.raises(ChannelLimitsViolationError):
-                await connector.write_channel("TEST:PV", 5.0, confirm=False)
-
-        connector._limits_validator.validate.assert_called_once()
-        connector._epics.caput.assert_not_called()

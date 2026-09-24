@@ -22,21 +22,14 @@ import pytest
 import osprey.connectors.control_system.epics_connector as epics_connector_module
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
+from tests.connectors._epics_fakes import (  # noqa: F401 - fixtures, used by name
+    clean_epics_env,
+    fake_pyepics,
+)
 
-EPICS_VARS = [
-    "EPICS_CA_ADDR_LIST",
-    "EPICS_CA_SERVER_PORT",
-    "EPICS_CA_NAME_SERVERS",
-    "EPICS_CA_AUTO_ADDR_LIST",
-]
-
-
-@pytest.fixture
-def clean_epics_env(monkeypatch):
-    """Snapshot EPICS_* env vars so connect()'s direct os.environ writes are restored."""
-    for var in EPICS_VARS:
-        monkeypatch.delenv(var, raising=False)
-    yield
+# connect() runs against a stand-in pyepics: the real one would load libca and
+# keep the shutdown-hook change for every later test in the worker.
+pytestmark = pytest.mark.usefixtures("fake_pyepics")
 
 
 def _both_gateways():

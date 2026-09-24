@@ -149,15 +149,15 @@ class TestGetDataValidation:
             with pytest.raises(RuntimeError, match="not connected"):
                 await conn.get_data(["ADDR"], _START, _END)
 
-    async def test_raises_on_invalid_start_date(self, archiver):
+    @pytest.mark.parametrize(
+        ("bound", "start", "end"),
+        [("start_date", "2026-01-01", _END), ("end_date", _START, 1234567890)],
+        ids=["start", "end"],
+    )
+    async def test_non_datetime_bound_is_rejected(self, archiver, bound, start, end):
         conn, _ = archiver
-        with pytest.raises(TypeError, match="start_date"):
-            await conn.get_data(["ADDR"], "2026-01-01", _END)
-
-    async def test_raises_on_invalid_end_date(self, archiver):
-        conn, _ = archiver
-        with pytest.raises(TypeError, match="end_date"):
-            await conn.get_data(["ADDR"], _START, 1234567890)
+        with pytest.raises(TypeError, match=bound):
+            await conn.get_data(["ADDR"], start, end)
 
 
 # --------------------------------------------------------------------------------------
@@ -166,26 +166,16 @@ class TestGetDataValidation:
 
 
 class TestGetDataSinglePV:
-    async def test_returns_dataframe(self, archiver):
-        """The canonical long frame, and a populated one."""
+    async def test_single_pv_returns_populated_long_frame(self, archiver):
+        """The canonical long frame, carrying exactly the requested channel and
+        every one of the fixture chunk's 20 archived samples."""
         conn, _ = archiver
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
 
         assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["timestamp", "channel", "value"]
-        assert not df.empty
-
-    async def test_single_pv_channel_present(self, archiver):
-        """Exactly the requested channel comes back, and it carries rows."""
-        conn, _ = archiver
-        df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
-
         assert set(df["channel"]) == {"FAC/DEV/LOC/PROP"}
-
-    async def test_single_pv_has_data(self, archiver):
-        conn, _ = archiver
-        df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
-        assert len(df) > 0
+        assert len(df) == 20
 
     async def test_unreadable_history_raises_runtime_error(self, archiver):
         """A channel whose history cannot be read fails loudly, not as an empty frame."""
@@ -448,27 +438,19 @@ class TestReadHistory:
         assert len(out["time"]) == 10
         assert np.all(np.diff(out["time"]) > 0)
 
-    def test_hist_suffix_appended(self):
+    @pytest.mark.parametrize(
+        "address", ["FAC/DEV/LOC/PROP", "FAC/DEV/LOC/PROP.HIST"], ids=["bare", "already_hist"]
+    )
+    def test_history_is_read_from_the_hist_address(self, address):
+        """``.HIST`` is appended to a bare address and not doubled on one that has it."""
         chunk = _make_raw_chunk(n=5)
         mock_d4py = MagicMock()
         self._mock_get(mock_d4py, chunk)
 
         conn = self._make_connector_with_d4py(mock_d4py)
-        conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS)
+        conn._read_history(address, _START_TS, _END_TS)
 
-        addr_arg = mock_d4py.Address.call_args[0][0]
-        assert addr_arg.endswith(".HIST")
-
-    def test_hist_suffix_not_doubled(self):
-        chunk = _make_raw_chunk(n=5)
-        mock_d4py = MagicMock()
-        self._mock_get(mock_d4py, chunk)
-
-        conn = self._make_connector_with_d4py(mock_d4py)
-        conn._read_history("FAC/DEV/LOC/PROP.HIST", _START_TS, _END_TS)
-
-        addr_arg = mock_d4py.Address.call_args[0][0]
-        assert addr_arg.count(".HIST") == 1
+        assert mock_d4py.Address.call_args[0][0] == "FAC/DEV/LOC/PROP.HIST"
 
     def test_returns_only_the_parallel_arrays_get_data_consumes(self):
         """``_read_history`` hands back exactly ``time`` and ``data``, nothing else."""
@@ -513,23 +495,17 @@ class TestCheckAvailability:
 
         assert avail["FAC/DEV/LOC/PROP"] is False
 
-    async def test_hist_suffix_appended_for_lookup(self, archiver):
+    @pytest.mark.parametrize(
+        "address", ["FAC/DEV/LOC/PROP", "FAC/DEV/LOC/PROP.HIST"], ids=["bare", "already_hist"]
+    )
+    async def test_lookup_uses_the_hist_address(self, archiver, address):
+        """``.HIST`` is appended to a bare address and not doubled on one that has it."""
         conn, mock_d4py = archiver
         mock_d4py.names.return_value = []
 
-        await conn.check_availability(["FAC/DEV/LOC/PROP"])
+        await conn.check_availability([address])
 
-        call_arg = mock_d4py.names.call_args[0][0]
-        assert call_arg.endswith(".HIST")
-
-    async def test_hist_suffix_not_doubled_for_lookup(self, archiver):
-        conn, mock_d4py = archiver
-        mock_d4py.names.return_value = []
-
-        await conn.check_availability(["FAC/DEV/LOC/PROP.HIST"])
-
-        call_arg = mock_d4py.names.call_args[0][0]
-        assert call_arg.count(".HIST") == 1
+        assert mock_d4py.names.call_args[0][0] == "FAC/DEV/LOC/PROP.HIST"
 
 
 # --------------------------------------------------------------------------------------
@@ -558,16 +534,30 @@ class TestDisconnectedGuard:
     """A disconnected connector must not reach the ENS."""
 
     async def test_never_connected_returns_all_false_without_lookups(self):
+        """A client object alone does not make the connector usable.
+
+        The client is planted by hand so the ``_connected`` guard, not a missing
+        client, is what keeps the lookup from happening.
+        """
         from osprey.connectors.archiver.doocs_archiver_connector import (
             DOOCSArchiverConnector,
         )
 
+        mock_d4py = _make_doocs4py(names_result=[("FAC/DEV/LOC/P.HIST", "value")])
         conn = DOOCSArchiverConnector()
+        conn._doocs4py = mock_d4py
+
         avail = await conn.check_availability(["FAC/DEV/LOC/P"])
 
         assert avail == {"FAC/DEV/LOC/P": False}
+        assert mock_d4py.names.call_count == 0
 
     async def test_after_disconnect_returns_all_false_without_lookups(self):
+        """``disconnect()`` alone keeps a live-looking client away from the ENS.
+
+        ``disconnect()`` also drops ``_doocs4py``, which would hide a missing
+        ``_connected`` guard, so the client is put back to isolate the guard.
+        """
         mock_d4py = _make_doocs4py(names_result=[("FAC/DEV/LOC/P.HIST", "value")])
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
@@ -578,6 +568,7 @@ class TestDisconnectedGuard:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             await conn.disconnect()
+            conn._doocs4py = mock_d4py
 
             mock_d4py.names.reset_mock()
             avail = await conn.check_availability(["FAC/DEV/LOC/P"])
@@ -722,8 +713,17 @@ class TestProcessingGenuineAggregation:
         mock_d4py.get.side_effect = [r_a, r_b]
         return mock_d4py
 
-    async def test_multi_pv_mean_aggregates_true_within_bin_average_for_both_channels(self):
-        """Each channel must carry its own true within-bin means, independently."""
+    @pytest.mark.parametrize(
+        ("processing", "expected"),
+        [("mean", [4.5, 14.5, 24.5]), ("count", [10, 10, 10])],
+        ids=["mean", "count"],
+    )
+    async def test_multi_pv_aggregates_each_channel_over_its_own_bins(self, processing, expected):
+        """Each channel must carry its own true within-bin aggregate, independently.
+
+        Bin 0 holds values 0..9, bin 1 10..19, bin 2 20..29: means 4.5, 14.5,
+        24.5, and 10 real samples per 1 s bin, on both PVs.
+        """
         chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
         mock_d4py = self._two_pv_mock(chunk, chunk)
 
@@ -739,38 +739,12 @@ class TestProcessingGenuineAggregation:
                 start_date=_START,
                 end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
                 precision_ms=1000,
-                processing="mean",
+                processing=processing,
             )
             await conn.disconnect()
 
-        # Bin 0: values 0..9 -> 4.5; bin 1: 10..19 -> 14.5; bin 2: 20..29 -> 24.5.
-        expected = pytest.approx([4.5, 14.5, 24.5])
-        assert df.loc[df["channel"] == "FAC/DEV/LOC/A", "value"].tolist() == expected
-        assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == expected
-
-    async def test_multi_pv_count_returns_true_per_bin_sample_count_for_both_channels(self):
-        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
-        mock_d4py = self._two_pv_mock(chunk, chunk)
-
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
-                channels=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
-                precision_ms=1000,
-                processing="count",
-            )
-            await conn.disconnect()
-
-        # 10 real samples land in each 1 s bin, on both PVs.
-        assert df.loc[df["channel"] == "FAC/DEV/LOC/A", "value"].tolist() == [10, 10, 10]
-        assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == [10, 10, 10]
+        assert df.loc[df["channel"] == "FAC/DEV/LOC/A", "value"].tolist() == pytest.approx(expected)
+        assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == pytest.approx(expected)
 
     async def test_multi_pv_raw_output_is_each_channels_own_decimated_series(self):
         """Raw keeps each 1s bin's own last real sample, at its own real
@@ -807,36 +781,6 @@ class TestProcessingGenuineAggregation:
             assert rows["value"].tolist() == pytest.approx(expected_values)
             assert list(rows["timestamp"]) == list(expected_times)
 
-    async def test_raw_returns_only_real_archived_timestamps(self):
-        """Every "raw"-mode timestamp must be a real archived sample, never a
-        manufactured grid point.
-
-        Regression: "raw" passed ``max_points`` into ``_read_history``, which
-        zero-order-held onto an ``np.linspace`` grid of manufactured timestamps.
-        """
-        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
-        mock_d4py = _make_doocs4py(chunk=chunk)
-        archived_timestamps = set(pd.to_datetime([c[0] for c in chunk], unit="s", utc=True))
-
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
-                channels=["FAC/DEV/LOC/P"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
-                precision_ms=1000,
-                # processing defaults to "raw"
-            )
-            await conn.disconnect()
-
-        assert len(df) > 0
-        assert set(df["timestamp"]) <= archived_timestamps
-
     @staticmethod
     def _mixed_cadence_mock(fast_chunk, slow_chunk):
         """A mock doocs4py wired for one dense and one sparse channel.
@@ -857,9 +801,21 @@ class TestProcessingGenuineAggregation:
         mock_d4py.get.side_effect = [r_fast, r_slow, r_slow_empty]
         return mock_d4py
 
-    async def test_multi_pv_mixed_cadence_channels_aggregate_independently(self):
+    @pytest.mark.parametrize(
+        ("processing", "fast_expected", "slow_expected"),
+        [
+            ("mean", [4.5 + 10 * b for b in range(10)], [500.0]),
+            ("count", [10] * 10, [1]),
+        ],
+        ids=["mean", "count"],
+    )
+    async def test_multi_pv_mixed_cadence_channels_aggregate_independently(
+        self, processing, fast_expected, slow_expected
+    ):
         """A 10 Hz and a 0.1 Hz channel queried together must each be aggregated
-        over only their own samples.
+        over only their own samples: FAST keeps its 10 true per-bin means, and its
+        per-bin count is not deflated by SLOW's coarser cadence ("count came back
+        10x low"); SLOW keeps its own single real sample.
 
         Regression: a shared grid would floor the bin width at the sparsest
         channel's cadence and forward-fill the dense channel onto it.
@@ -880,46 +836,15 @@ class TestProcessingGenuineAggregation:
                 start_date=_START,
                 end_date=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
                 precision_ms=1000,
-                processing="mean",
+                processing=processing,
             )
             await conn.disconnect()
 
         fast_values = df.loc[df["channel"] == "FAC/DEV/LOC/FAST", "value"].tolist()
         slow_values = df.loc[df["channel"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
 
-        # FAST: 10 true per-bin means over its own samples.
-        assert fast_values == pytest.approx([4.5 + 10 * b for b in range(10)])
-        # SLOW: its own single real sample.
-        assert slow_values == pytest.approx([500.0])
-
-    async def test_multi_pv_mixed_cadence_dense_channel_count_not_deflated(self):
-        """The dense channel's per-bin count must not be deflated by the sparse
-        channel's coarser cadence ("count came back 10x low")."""
-        fast_chunk = self._dense_chunk(n_bins=10, samples_per_bin=10)
-        slow_chunk = [(_START_TS + 5.0, 0, 0, 500.0)]
-        mock_d4py = self._mixed_cadence_mock(fast_chunk, slow_chunk)
-
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
-                channels=["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
-                precision_ms=1000,
-                processing="count",
-            )
-            await conn.disconnect()
-
-        fast_counts = df.loc[df["channel"] == "FAC/DEV/LOC/FAST", "value"].tolist()
-        slow_counts = df.loc[df["channel"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
-
-        assert fast_counts == [10] * 10
-        assert slow_counts == [1]
+        assert fast_values == pytest.approx(fast_expected)
+        assert slow_values == pytest.approx(slow_expected)
 
     async def test_multi_pv_sparse_dominated_mixed_cadence_defect_is_gone(self):
         """Mixed cadence with >=2 sparse samples spaced wider than precision_ms.
@@ -933,18 +858,9 @@ class TestProcessingGenuineAggregation:
         ]  # 10 Hz, 4 true 1s bins
         slow_chunk = [(base_ts, 0, 0, 500.0), (base_ts + 5.0, 0, 0, 501.0)]  # 5 s apart
 
-        mock_d4py = MagicMock()
-        mock_d4py.__version__ = "2.0.0"
-        mock_d4py.names.return_value = [("FACILITY", "XFEL")]
-        r_fast = MagicMock()
-        r_fast.value = fast_chunk
-        r_slow = MagicMock()
-        r_slow.value = slow_chunk
-        r_slow_empty = MagicMock()
-        r_slow_empty.value = []
-        # Both chunks reach start_ts on the first get(); the spare empty
+        # Both chunks reach start_ts on the first get(); the mock's spare empty
         # result keeps this robust to either pagination outcome.
-        mock_d4py.get.side_effect = [r_fast, r_slow, r_slow_empty]
+        mock_d4py = self._mixed_cadence_mock(fast_chunk, slow_chunk)
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
             from osprey.connectors.archiver.doocs_archiver_connector import (

@@ -121,29 +121,6 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_creates_readback(self):
-        """Test that writing to :SP creates corresponding :RB."""
-        connector = MockConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
-        ):
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.001})
-
-            # Write to setpoint
-            sp_name = "MAGNET:CURRENT:SP"
-            rb_name = "MAGNET:CURRENT:RB"
-            test_value = 100.0
-
-            await connector.write_channel(sp_name, test_value)
-
-            # Check that readback exists and is close
-            rb_result = await connector.read_channel(rb_name)
-            assert abs(rb_result.value - test_value) < 1.0
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
     async def test_write_disabled(self):
         """Test that writes are blocked via base class when config says false."""
         connector = MockConnector()

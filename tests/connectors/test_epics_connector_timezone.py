@@ -12,20 +12,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from osprey.connectors.control_system.epics_connector import EPICSConnector
+from tests.connectors._epics_fakes import connected_pv
 
 TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST
-
-
-def _fake_pv(epoch: float):
-    pv = MagicMock()
-    pv.connected = True
-    pv.wait_for_connection.return_value = True
-    pv.get.return_value = 1.23
-    pv.timestamp = epoch
-    pv.units = "A"
-    pv.precision = 3
-    pv.status = 0
-    return pv
 
 
 @pytest.mark.asyncio
@@ -37,7 +26,7 @@ async def test_read_channel_timestamp_is_facility_tz_aware(monkeypatch):
     connector = EPICSConnector()
     # Inject a fake epics module so no real CA / pyepics is needed.
     connector._epics = MagicMock()
-    connector._epics.PV.return_value = _fake_pv(1_750_000_000.0)
+    connector._epics.PV.return_value = connected_pv(1.23, timestamp=1_750_000_000.0)
     connector._epics_configured = True
 
     result = await connector.read_channel("SR:TEST:CHANNEL", timeout=1.0)

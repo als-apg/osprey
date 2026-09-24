@@ -17,7 +17,7 @@ Postgres dependency and runs in the fast suite.
 
 from __future__ import annotations
 
-import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -27,38 +27,24 @@ from osprey.simulation.apply import (
     apply_scenarios,
     seed_active_logbook,
 )
-
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
+from tests.simulation.conftest import stage_sim_project
 
 ARIEL_CONFIG = {"database": {"uri": "postgresql://unused-mocked/none"}}
 
 
 def _make_project(tmp_path: Path) -> Path:
-    """Stage a sim-backed project with `rf-thermal` already active."""
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
-        "ariel": ARIEL_CONFIG,
-    }
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
+    """Stage a sim-backed project with an ARIEL section (never dialed)."""
+    return stage_sim_project(tmp_path, ariel=ARIEL_CONFIG)
 
 
-def _activate(project: Path, monkeypatch, names: list[str]) -> None:
+def _activate(project: Path, monkeypatch, names: list[str], *, now: datetime | None = None) -> None:
     """Activate scenarios the way an operator would, without touching a database."""
 
     async def _no_seed(_ariel_config, _entries):
         return 0, False
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
-    apply_scenarios(project, names, seed_archive=False)
+    apply_scenarios(project, names, seed_archive=False, now=now)
 
 
 def _stub_ariel(monkeypatch, *, existing: int) -> dict:
@@ -89,16 +75,23 @@ def test_active_logbook_entries_follow_the_active_scenarios(tmp_path, monkeypatc
     """The entries are the ones the currently-active set narrates -- read back from
     the project's own state, not re-activated from an argument."""
     # Arrange
+    anchor = datetime(2026, 3, 10, 12, 0, tzinfo=UTC)
     project = _make_project(tmp_path)
-    _activate(project, monkeypatch, ["rf-thermal"])
+    _activate(project, monkeypatch, ["rf-thermal"], now=anchor)
     config = yaml.safe_load((project / "config.yml").read_text())
 
     # Act
     entries = active_logbook_entries(config, project)
 
     # Assert
-    assert entries, "the active scenario narrates entries, so some must be built"
+    by_id = {entry["entry_id"]: entry for entry in entries}
+    # nominal's 25 ambient entries plus rf-thermal's three-entry incident arc.
+    assert len(entries) == 28
+    assert {"DEMO-026", "DEMO-027", "DEMO-028"} <= by_id.keys()
     assert all(entry["timestamp"].tzinfo is not None for entry in entries)
+    # Placed on the persisted anchor, not on today's clock: DEMO-026 is
+    # "4 days ago at 03:20" relative to the apply-time anchor.
+    assert by_id["DEMO-026"]["timestamp"] == datetime(2026, 3, 6, 3, 20, tzinfo=UTC)
 
 
 def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch):

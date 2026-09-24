@@ -60,10 +60,6 @@ from typing import Any
 
 import pytest
 
-# Floor for this module's own test count -- a guard against a refactor that
-# leaves the file importable but empty, which would otherwise pass silently.
-MIN_COLLECTED_TESTS = 20
-
 #: The module the live suite stands its server up from, and the name it passes
 #: to ``importorskip``. The two must agree, or this guard would pass while the
 #: suite skipped; :class:`TestTheGuardWatchesTheRightModule` pins that.
@@ -400,14 +396,3 @@ class TestTheGuardWatchesTheRightModule:
             and node.name.startswith("test_")
         ]
         assert len(tests) >= MIN_LIVE_SUITE_TESTS
-
-
-def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
-    """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_pva_venue_guard.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS

@@ -22,7 +22,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
-from osprey_connectors.ipc import frames
+from osprey_connectors.ipc import exceptions, frames
 
 TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
 
@@ -92,17 +92,6 @@ def test_codec_does_not_validate_method_names():
 
     assert frame.method == "not_a_real_method"
     assert frame.kwargs == {}
-
-
-def test_request_ids_match_replies_out_of_order():
-    first = frames.encode_result("req-1", 11.0)
-    second = frames.encode_result("req-2", 22.0)
-
-    reader = frames.FrameReader()
-    decoded = reader.feed(second + first)
-
-    assert [f.request_id for f in decoded] == ["req-2", "req-1"]
-    assert [f.value for f in decoded] == [22.0, 11.0]
 
 
 def test_new_request_id_is_unique():
@@ -379,90 +368,59 @@ def test_unsupported_value_is_refused_at_encode_time():
 # ---------------------------------------------------------------- exceptions
 
 
-def test_channel_limits_violation_round_trips_every_field():
-    original = ChannelLimitsViolationError(
-        channel_address="SR:BEND:1:CUR",
-        value=999.0,
-        violation_type="range",
-        violation_reason="Value 999.0 above maximum 500.0",
-        min_value=0.0,
-        max_value=500.0,
-        max_step=10.0,
-        current_value=120.0,
-    )
+# The field-by-field spec for each class is pinned in test_exception_frames.py;
+# here the point is that every spec field survives the JSON frame codec.
+TYPED_EXCEPTIONS = [
+    pytest.param(
+        ChannelLimitsViolationError(
+            channel_address="SR:BEND:1:CUR",
+            value=999.0,
+            violation_type="range",
+            violation_reason="Value 999.0 above maximum 500.0",
+            min_value=0.0,
+            max_value=500.0,
+            max_step=10.0,
+            current_value=120.0,
+        ),
+        id="limits-full",
+    ),
+    pytest.param(
+        ChannelLimitsViolationError(
+            channel_address="SR:X",
+            value="on",
+            violation_type="unlisted",
+            violation_reason="Channel not in the limits registry",
+        ),
+        id="limits-unset-bounds",
+    ),
+    pytest.param(
+        ChannelWriteBlockedError(
+            channel_address="SR:BEND:1:CUR",
+            reason="WRITES_DISABLED",
+            message="Writes are disabled for this deployment",
+        ),
+        id="blocked-custom-message",
+    ),
+    pytest.param(
+        ChannelWriteBlockedError(channel_address="SR:Y", reason="LIMITS"),
+        id="blocked-default-message",
+    ),
+    pytest.param(ConnectionError("gateway unreachable"), id="connection"),
+    pytest.param(TimeoutError("read timed out after 2.0s"), id="timeout"),
+]
+
+
+@pytest.mark.parametrize("original", TYPED_EXCEPTIONS)
+def test_a_typed_exception_round_trips_with_every_spec_field(original):
     frame = _round_trip(frames.encode_error("req-e", original))
 
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.request_id == "req-e"
-    assert frame.class_tag == "ChannelLimitsViolationError"
-    rebuilt = frame.exception
-    assert isinstance(rebuilt, ChannelLimitsViolationError)
-    assert rebuilt.channel_address == "SR:BEND:1:CUR"
-    assert rebuilt.attempted_value == 999.0
-    assert rebuilt.violation_type == "range"
-    assert rebuilt.violation_reason == "Value 999.0 above maximum 500.0"
-    assert rebuilt.min_value == 0.0
-    assert rebuilt.max_value == 500.0
-    assert rebuilt.max_step == 10.0
-    assert rebuilt.current_value == 120.0
-    # The constructor re-renders the operator-facing message from those fields.
-    assert str(rebuilt) == str(original)
-
-
-def test_channel_limits_violation_keeps_unset_bounds_as_none():
-    original = ChannelLimitsViolationError(
-        channel_address="SR:X",
-        value="on",
-        violation_type="unlisted",
-        violation_reason="Channel not in the limits registry",
-    )
-    rebuilt = _round_trip(frames.encode_error("req-e2", original)).exception
-
-    assert rebuilt.attempted_value == "on"
-    assert rebuilt.min_value is None
-    assert rebuilt.max_value is None
-    assert rebuilt.max_step is None
-    assert rebuilt.current_value is None
-
-
-def test_channel_write_blocked_round_trips_reason_and_message():
-    original = ChannelWriteBlockedError(
-        channel_address="SR:BEND:1:CUR",
-        reason="WRITES_DISABLED",
-        message="Writes are disabled for this deployment",
-    )
-    frame = _round_trip(frames.encode_error("req-b", original))
-    rebuilt = frame.exception
-
-    assert frame.class_tag == "ChannelWriteBlockedError"
-    assert isinstance(rebuilt, ChannelWriteBlockedError)
-    assert rebuilt.channel_address == "SR:BEND:1:CUR"
-    assert rebuilt.reason == "WRITES_DISABLED"
-    assert str(rebuilt) == "Writes are disabled for this deployment"
-
-
-def test_channel_write_blocked_default_message_survives():
-    original = ChannelWriteBlockedError(channel_address="SR:Y", reason="LIMITS")
-    rebuilt = _round_trip(frames.encode_error("req-b2", original)).exception
-
-    assert rebuilt.reason == "LIMITS"
-    assert str(rebuilt) == str(original)
-
-
-def test_connection_error_round_trips():
-    frame = _round_trip(frames.encode_error("req-c", ConnectionError("gateway unreachable")))
-
-    assert frame.class_tag == "ConnectionError"
-    assert type(frame.exception) is ConnectionError
-    assert str(frame.exception) == "gateway unreachable"
-
-
-def test_timeout_error_round_trips():
-    frame = _round_trip(frames.encode_error("req-t", TimeoutError("read timed out after 2.0s")))
-
-    assert frame.class_tag == "TimeoutError"
-    assert type(frame.exception) is TimeoutError
-    assert str(frame.exception) == "read timed out after 2.0s"
+    assert frame.class_tag == type(original).__name__
+    assert type(frame.exception) is type(original)
+    # The operator-facing message is re-rendered (or carried) intact.
+    assert str(frame.exception) == str(original)
+    assert exceptions.exception_fields(frame.exception) == exceptions.exception_fields(original)
 
 
 def test_unknown_class_tag_fails_closed_to_connection_error():
@@ -537,6 +495,7 @@ def test_reader_emits_several_coalesced_frames_and_buffers_the_partial_tail():
     decoded = reader.feed(one + two + three[:5])
 
     assert [f.request_id for f in decoded] == ["req-1", "req-2"]
+    assert [f.value for f in decoded] == [1, 2]
     assert len(reader) == 5
     assert [f.request_id for f in reader.feed(three[5:])] == ["req-3"]
 
@@ -554,13 +513,6 @@ def test_reader_refuses_an_absurd_declared_length():
 
     with pytest.raises(frames.FrameDecodeError, match="above the 1024 limit"):
         reader.feed(payload)
-
-
-def test_decode_frame_rejects_a_truncated_frame():
-    payload = frames.encode_result("req-short", 1)
-
-    with pytest.raises(frames.FrameDecodeError):
-        frames.decode_frame(payload[:-2])
 
 
 # ---------------------------------------------------------------- no pickle
@@ -684,6 +636,11 @@ MALFORMED_FRAMES = [
         lambda: _doctored(_two_array_result(), _set("value", {_TAG: "ndarray", "blob": True})),
         "blob index True outside the frame's 2 segments",
         id="blob-index-is-a-bool",
+    ),
+    pytest.param(
+        lambda: _result()[:-2],
+        "body bytes but carries",
+        id="truncated-body",
     ),
     pytest.param(
         lambda: b"XXXX" + _result()[4:],

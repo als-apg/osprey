@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
     get_framework_standard_patterns,
@@ -11,81 +13,47 @@ from osprey.services.python_executor.analysis.pattern_detection import (
 class TestPatternDetection:
     """Test pattern detection for control system operations."""
 
-    def test_epics_write_detection(self):
-        """Test detection of EPICS write operations."""
-        code = "epics.caput('BEAM:CURRENT', 500.0)"
+    @pytest.mark.parametrize(
+        ("code", "has_writes", "has_reads"),
+        [
+            ("epics.caput('BEAM:CURRENT', 500.0)", True, False),
+            ("value = epics.caget('BEAM:CURRENT')", False, True),
+            ("pv = epics.PV('BEAM:CURRENT')\npv.put(500.0)\n", True, False),
+            ("pv = epics.PV('BEAM:CURRENT')\nvalue = pv.get()\n", False, True),
+            ("write_channel('BEAM:CURRENT', 500.0)", True, False),
+            ("value = read_channel('BEAM:CURRENT')", False, True),
+            (
+                "import numpy as np\ndata = np.array([1, 2, 3])\nprint(data.mean())\n",
+                False,
+                False,
+            ),
+            (
+                "current = epics.caget('BEAM:CURRENT')\n"
+                "if current < 400:\n"
+                "    epics.caput('ALARM:STATUS', 1)\n",
+                True,
+                True,
+            ),
+        ],
+        ids=[
+            "caput",
+            "caget",
+            "pv-put",
+            "pv-get",
+            "write_channel",
+            "read_channel",
+            "none",
+            "mixed",
+        ],
+    )
+    def test_detects_reads_and_writes(self, code, has_writes, has_reads):
+        """Each snippet is classified on both axes, so a write is never also a read."""
         result = detect_control_system_operations(code)
 
-        assert result["has_writes"] is True
-        assert result["has_reads"] is False
-        assert len(result["detected_patterns"]["writes"]) > 0
-
-    def test_epics_read_detection(self):
-        """Test detection of EPICS read operations."""
-        code = "value = epics.caget('BEAM:CURRENT')"
-        result = detect_control_system_operations(code)
-
-        assert result["has_writes"] is False
-        assert result["has_reads"] is True
-        assert len(result["detected_patterns"]["reads"]) > 0
-
-    def test_epics_pv_write_detection(self):
-        """Test detection of EPICS PV.put() operations."""
-        code = """
-pv = epics.PV('BEAM:CURRENT')
-pv.put(500.0)
-"""
-        result = detect_control_system_operations(code)
-        assert result["has_writes"] is True
-
-    def test_epics_pv_read_detection(self):
-        """Test detection of EPICS PV.get() operations."""
-        code = """
-pv = epics.PV('BEAM:CURRENT')
-value = pv.get()
-"""
-        result = detect_control_system_operations(code)
-        assert result["has_reads"] is True
-
-    def test_unified_api_write_detection(self):
-        """Test detection of unified API write operations."""
-        code = "write_channel('BEAM:CURRENT', 500.0)"
-        result = detect_control_system_operations(code)
-
-        assert result["has_writes"] is True
-
-    def test_unified_api_read_detection(self):
-        """Test detection of unified API read operations."""
-        code = "value = read_channel('BEAM:CURRENT')"
-        result = detect_control_system_operations(code)
-
-        assert result["has_reads"] is True
-
-    def test_no_operations_detected(self):
-        """Test code with no control system operations."""
-        code = """
-import numpy as np
-data = np.array([1, 2, 3])
-print(data.mean())
-"""
-        result = detect_control_system_operations(code)
-
-        assert result["has_writes"] is False
-        assert result["has_reads"] is False
-        assert len(result["detected_patterns"]["writes"]) == 0
-        assert len(result["detected_patterns"]["reads"]) == 0
-
-    def test_mixed_operations_detection(self):
-        """Test detection of both read and write operations."""
-        code = """
-current = epics.caget('BEAM:CURRENT')
-if current < 400:
-    epics.caput('ALARM:STATUS', 1)
-"""
-        result = detect_control_system_operations(code)
-
-        assert result["has_writes"] is True
-        assert result["has_reads"] is True
+        assert result["has_writes"] is has_writes
+        assert result["has_reads"] is has_reads
+        assert bool(result["detected_patterns"]["writes"]) is has_writes
+        assert bool(result["detected_patterns"]["reads"]) is has_reads
 
     def test_framework_patterns_structure(self):
         """Test that framework patterns have expected structure."""
@@ -132,11 +100,6 @@ if current < 400:
             return default
 
         with (
-            patch(
-                "osprey.services.python_executor.analysis.pattern_detection.get_config_value",
-                side_effect=mock_config,
-                create=True,
-            ),
             patch(
                 "osprey.utils.config.get_config_value",
                 side_effect=mock_config,
@@ -230,11 +193,6 @@ if current < 400:
             return default
 
         with (
-            patch(
-                "osprey.services.python_executor.analysis.pattern_detection.get_config_value",
-                side_effect=mock_config,
-                create=True,
-            ),
             patch(
                 "osprey.utils.config.get_config_value",
                 side_effect=mock_config,

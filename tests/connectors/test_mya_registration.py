@@ -34,12 +34,15 @@ class TestBuiltinRegistration:
     """``register_builtin_connectors()`` mints the name."""
 
     def test_mya_archiver_registers_as_builtin_archiver(self):
+        """`archiver.type: mya_archiver` must resolve without a dotted path."""
+        from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
+
         with isolated_connector_registries(clear=True):
             register_builtin_connectors()
 
             assert types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
             registered = ConnectorFactory._archiver_connectors[types.MYA_ARCHIVER]
-            assert registered.__name__ == "MYAArchiverConnector"
+            assert registered is MYAArchiverConnector
 
     def test_registration_needs_no_client_library(self):
         """Registration must not import ``jlab_archiver_client``.

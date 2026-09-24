@@ -77,6 +77,13 @@ def test_the_shim_discovery_finds_the_shim_modules():
 
 
 @pytest.mark.parametrize("shim", _SHIMS, ids=lambda shim: shim.dotted)
+def test_a_shim_is_the_module_it_substitutes(shim: _Shim):
+    # Patching and isinstance through the historical path are safe only if both
+    # names resolve to the SAME module object.
+    assert importlib.import_module(shim.dotted) is importlib.import_module(shim.target)
+
+
+@pytest.mark.parametrize("shim", _SHIMS, ids=lambda shim: shim.dotted)
 def test_a_shim_stars_from_the_module_it_substitutes(shim: _Shim):
     # Typing against one module while substituting another is the one way this
     # file can lie about what it forwards, and neither half fails on its own.
@@ -113,29 +120,6 @@ def test_osprey_connectors_is_installed():
     assert major.isdigit() and int(major) >= 2026, osprey_connectors.__version__
 
 
-def test_errors_shim_preserves_module_identity():
-    import osprey.errors
-    import osprey_connectors.errors
-
-    assert osprey.errors is osprey_connectors.errors
-
-
-def test_utils_shims_preserve_module_identity():
-    import osprey.utils.config
-    import osprey.utils.dotenv
-    import osprey.utils.logger
-    import osprey.utils.relative_time
-    import osprey_connectors.config
-    import osprey_connectors.dotenv
-    import osprey_connectors.logger
-    import osprey_connectors.relative_time
-
-    assert osprey.utils.config is osprey_connectors.config
-    assert osprey.utils.dotenv is osprey_connectors.dotenv
-    assert osprey.utils.logger is osprey_connectors.logger
-    assert osprey.utils.relative_time is osprey_connectors.relative_time
-
-
 def test_patching_through_shim_reaches_real_module(monkeypatch):
     import osprey_connectors.config as real_config
 
@@ -143,39 +127,10 @@ def test_patching_through_shim_reaches_real_module(monkeypatch):
     assert real_config.get_config_value("anything") == "patched"
 
 
-def test_simulation_core_shims_preserve_module_identity():
+def test_the_simulation_package_reexports_the_engine_class():
+    """``osprey.simulation`` is a package of its own, not a shim, so its
+    re-export of ``SimulationEngine`` is not covered by module identity."""
     import osprey.simulation
-    import osprey.simulation.engine
-    import osprey_connectors.simulation.engine
+    import osprey_connectors.simulation
 
-    assert osprey.simulation.engine is osprey_connectors.simulation.engine
     assert osprey.simulation.SimulationEngine is osprey_connectors.simulation.SimulationEngine
-
-
-def test_connector_shims_preserve_module_identity():
-    import osprey.connectors.archiver.base
-    import osprey.connectors.control_system.epics_connector
-    import osprey.connectors.control_system.tango_connector
-    import osprey.connectors.factory
-    import osprey_connectors.archiver.base
-    import osprey_connectors.control_system.epics_connector
-    import osprey_connectors.control_system.tango_connector
-    import osprey_connectors.factory
-
-    assert (
-        osprey.connectors.control_system.epics_connector
-        is osprey_connectors.control_system.epics_connector
-    )
-    assert (
-        osprey.connectors.control_system.tango_connector
-        is osprey_connectors.control_system.tango_connector
-    )
-    assert osprey.connectors.archiver.base is osprey_connectors.archiver.base
-    assert osprey.connectors.factory is osprey_connectors.factory
-
-
-def test_exception_identity_across_namespaces():
-    from osprey.errors import ChannelWriteBlockedError as old
-    from osprey_connectors.errors import ChannelWriteBlockedError as new
-
-    assert old is new

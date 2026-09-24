@@ -76,8 +76,12 @@ def test_assemble_full_ring_ground_truth():
     assert markers == expected_markers
 
 
-def test_physics_linear_stability_and_optics():
-    """Linear stability (SC4), optics, tune, and circumference of the 4D ring."""
+def test_4d_ring_is_linearly_stable():
+    """Linear stability (SC4) of the 4D ring.
+
+    Tunes and chromaticity are checked against MATLAB in ``test_fidelity.py``,
+    and the circumference to 1e-6 in ``test_assemble_full_ring_ground_truth``.
+    """
     r = build_ring().deepcopy()
     r.disable_6d()
     assert r.is_6d is False
@@ -86,17 +90,3 @@ def test_physics_linear_stability_and_optics():
     # Trace of each 2x2 transverse block within (-2, 2) -> stable betatron motion.
     assert abs(m44[0, 0] + m44[1, 1]) < 2
     assert abs(m44[2, 2] + m44[3, 3]) < 2
-
-    # get_optics with chromaticity must complete without error. It returns a
-    # 3-tuple; ringdata (index 1) carries 'tune' and 'chromaticity' fields.
-    optics = at.get_optics(r, get_chrom=True, dp=1e-6)
-    assert len(optics) == 3
-    ringdata = optics[1]
-    assert ringdata["tune"] is not None
-    assert ringdata["chromaticity"] is not None
-
-    tune = at.get_tune(r)
-    assert len(tune) == 2
-    assert all(v == v and abs(v) != float("inf") for v in tune)
-
-    assert r.circumference == pytest.approx(182.12, abs=1e-2)

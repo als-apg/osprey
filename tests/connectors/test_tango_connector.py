@@ -663,18 +663,20 @@ class TestNonBlockingOffload:
 
 
 class TestWriteTextIsDisplayOnly:
+    """``notes`` and the message wording never carry the classification."""
+
     async def test_message_text_does_not_change_the_structured_facts(self, connector):
         conn, proxy = connector
-        proxy.read_attribute.return_value = _make_attribute(value=10.0)
-        result = await conn.write_channel(_ADDRESS, 10.0)
-        assert _structured_write_facts(result) == (
-            WriteOutcome.CONFIRMED,
-            10.0,
-            None,
-            False,
-            "NO_ALARM",
-            0,
-        )
+
+        results = []
+        for message in ("readback error", "an entirely different failure text"):
+            proxy.read_attribute.side_effect = RuntimeError(message)
+            results.append(await conn.write_channel(_ADDRESS, 10.0, confirm=True))
+
+        first, second = results
+        assert first.error_message != second.error_message
+        assert first.outcome is WriteOutcome.UNCONFIRMED
+        assert _structured_write_facts(first) == _structured_write_facts(second)
 
 
 # --------------------------------------------------------------------------------------

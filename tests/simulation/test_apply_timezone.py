@@ -16,36 +16,23 @@ contract is pinned without a Postgres dependency and runs in the fast suite.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import yaml
-
 from osprey.simulation.apply import apply_scenarios
+from tests.simulation.conftest import stage_sim_project
 
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
 LA = ZoneInfo("America/Los_Angeles")  # non-UTC facility; -7h (PDT) / -8h (PST)
 
 
 def _make_project(tmp_path: Path) -> Path:
     """Stage a minimal sim-backed project with a non-UTC facility timezone."""
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
+    return stage_sim_project(
+        tmp_path,
         # URI is never dialed: _seed_logbook is stubbed below.
-        "ariel": {"database": {"uri": "postgresql://unused-mocked/none"}},
-        "system": {"timezone": "America/Los_Angeles"},
-    }
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
+        ariel={"database": {"uri": "postgresql://unused-mocked/none"}},
+        system={"timezone": "America/Los_Angeles"},
+    )
 
 
 def test_default_anchor_seeds_logbook_in_facility_zone(tmp_path, monkeypatch):

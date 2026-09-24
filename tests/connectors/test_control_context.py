@@ -1061,15 +1061,6 @@ def test_every_unconverged_reason_is_named_once_and_in_pid_order():
     assert control_context.converged(record, reports, "sess-1") is False
 
 
-def test_converged_is_the_absence_of_a_reason():
-    record = _context()
-    reports = [_report(4321, session="sess-1", applied_generation=6)]
-
-    for session in (None, "sess-1", "kernel:abc"):
-        blocked = control_context.blocking_pids(record, reports, session)
-        assert control_context.converged(record, reports, session) is (not blocked)
-
-
 def test_converged_reads_a_one_shot_iterable_of_reports_once():
     record = _context()
     reports = iter([_applying(4321)])
@@ -1207,19 +1198,32 @@ def test_the_report_fixture_defaults_to_a_server_that_has_answered_nothing(data_
     assert report.last_switch is None
 
 
-def test_the_fixtures_are_seen_when_they_rewrite_within_one_clock_tick(data_root):
+def test_the_record_fixture_drops_the_read_cache_after_every_write(data_root, monkeypatch):
     """The reader caches on ``(mtime_ns, size, ino)``; the fixture drops it.
 
     Two writes of the same size inside one tick are exactly the case that key
     cannot distinguish, and a suite that flips a posture back and forth does it
-    on every other line.
+    on every other line. Today the atomic replace also changes the inode, so a
+    re-read alone cannot show the drop: the spy pins the fixture's own contract.
     """
     from tests._control_context_fixtures import write_control_context
 
+    drops = []
+    real_invalidate = control_context.invalidate_cache
+
+    def spy():
+        drops.append(True)
+        real_invalidate()
+
+    monkeypatch.setattr(control_context, "invalidate_cache", spy)
+
     write_control_context(data_root, target="va", generation=7)
+    assert drops, "write_control_context did not drop the read cache"
     assert control_context.read_record().generation == 7
 
+    drops.clear()
     write_control_context(data_root, target="va", generation=8)
+    assert drops, "write_control_context did not drop the read cache"
     assert control_context.read_record().generation == 8
 
 

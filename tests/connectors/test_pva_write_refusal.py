@@ -19,35 +19,21 @@ config-less test environment, so the ``writes_enabled`` fixture patches it as a
 property to let the real body run. Fakes are injected instead of connecting.
 """
 
-import types
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from tests.connectors._epics_fakes import (
+    ca_connector,
+    fake_p4p_module,
+    writes_enabled,  # noqa: F401 - fixture, used by name
+)
 
 PVA_GLOB = "SR:CAM*:IMAGE"
 PVA_ADDRESS = "SR:CAM1:IMAGE"
 CA_ADDRESS = "SR:BEAM:CURRENT"
-
-
-@pytest.fixture
-def writes_enabled(monkeypatch):
-    """Open the base-class writes gate so ``write_channel`` reaches its body."""
-    monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
-
-
-def _fake_p4p_module() -> types.ModuleType:
-    """A ``p4p`` module stub — present only so any use of it would be visible."""
-    thread_mod = types.ModuleType("p4p.client.thread")
-    thread_mod.Context = MagicMock(name="Context")
-    client_mod = types.ModuleType("p4p.client")
-    client_mod.thread = thread_mod
-    p4p_mod = types.ModuleType("p4p")
-    p4p_mod.client = client_mod
-    return p4p_mod
 
 
 class _LoudValidator:
@@ -66,16 +52,14 @@ class _LoudValidator:
 
 def _connector(*, globs=(PVA_GLOB,), limits_validator=None):
     """A connector wired for both transports without touching ``connect()``."""
-    connector = EPICSConnector()
-    connector._pva_channel_globs = list(globs)
-    connector._p4p = _fake_p4p_module()
-    connector._pva_context = MagicMock(name="pva_context")
-    connector._epics = MagicMock(name="epics")
+    connector = ca_connector(
+        epics=MagicMock(name="epics"), limits_validator=limits_validator, timeout=3.0
+    )
     connector._epics.caput.return_value = True
-    connector._limits_validator = limits_validator
-    connector._timeout = 3.0
-    connector._connected = True
-    connector._epics_configured = True
+    connector._pva_channel_globs = list(globs)
+    # A p4p stub carrying only ``Context``, so any use of it would be visible.
+    connector._p4p = fake_p4p_module(errors=False)
+    connector._pva_context = MagicMock(name="pva_context")
     return connector
 
 

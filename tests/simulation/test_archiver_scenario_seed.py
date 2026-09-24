@@ -175,6 +175,19 @@ def mongo_store():
         }
 
 
+#: Connection keys for tests that only need a project to *declare* a store.
+#: Nothing listens on port 1, so a test that wrongly connected would fail
+#: instead of quietly needing Docker.
+UNREACHABLE_STORE = {
+    "host": "127.0.0.1",
+    "port": 1,
+    "username": "rewriteuser",
+    "password": "rewritepass123",
+    "database": "rewrite_db",
+    "collection": "pv_history",
+}
+
+
 def _write_project(root: Path, store: dict | None, *, password: str | None) -> Path:
     """Lay out a built project on disk: model, config, and its ``.env``."""
     (root / "data" / "simulation").mkdir(parents=True, exist_ok=True)
@@ -509,6 +522,9 @@ class TestPersistedAnchor:
     """
 
     def test_the_anchor_written_by_an_apply_is_readable_afterwards(self, tmp_path):
+        """Before any apply the answer is ``None``: "no established timeline",
+        which is a caller's cue to mint one — not an error to paper over with
+        wall-clock now."""
         root = _write_project(tmp_path / "proj", None, password=None)
         config = yaml.safe_load((root / "config.yml").read_text())
 
@@ -520,17 +536,7 @@ class TestPersistedAnchor:
         assert anchor is not None
         assert anchor == T0
 
-    def test_a_project_that_never_activated_anything_has_no_anchor(self, tmp_path):
-        """``None`` means "no established timeline", which is a caller's cue to
-        mint one — not an error to paper over with wall-clock now."""
-        root = _write_project(tmp_path / "proj", None, password=None)
-
-        assert (
-            persisted_scenario_anchor(yaml.safe_load((root / "config.yml").read_text()), root)
-            is None
-        )
-
-    def test_the_anchor_survives_a_second_apply_at_a_different_instant(self, tmp_path):
+    def test_a_second_apply_moves_the_anchor(self, tmp_path):
         """Re-applying moves it, deliberately — this reads what is *current*,
         so a caller that wants the old timeline has to read it before applying."""
         root = _write_project(tmp_path / "proj", None, password=None)
@@ -654,10 +660,15 @@ class TestRewrite:
         interleaved timelines — the recorder's and this one's — half a cadence
         apart, which reads as a doubled sampling rate rather than as a denser
         one, and no equivalence assertion could tell the two grids apart.
+
+        The apply anchor is deliberately off-grid: T0 has a second of 53, so an
+        implementation that offset its grid from the anchor would put every
+        insert 3 seconds off the shared clock.
         """
         root, collection = project
+        assert T0.second % KNOBS.hot_cadence_sec != 0, "the anchor must be off-grid"
 
-        _apply(root, ["burst"])
+        _apply(root, ["burst"], at=T0)
 
         inserted = list(collection.find({DENSIFIED_FIELD: True}))
         assert inserted
@@ -667,25 +678,6 @@ class TestRewrite:
             # Strictly between coarse samples: a dense insert on a coarse
             # timestamp would duplicate a sample the base seed already wrote.
             assert epoch % KNOBS.tail_cadence_sec != 0
-
-    def test_the_anchor_second_does_not_leak_into_the_grid(self, project):
-        """Applying at a non-cadence instant must not shift the inserts.
-
-        T0 here has a second of 53, so an implementation that offset its grid
-        from the anchor would put every insert 3 seconds off the shared clock —
-        and would still pass every other test in this file.
-        """
-        root, collection = project
-        assert T0.second % KNOBS.hot_cadence_sec != 0, "the anchor must be off-grid"
-
-        _apply(root, ["burst"], at=T0)
-
-        stamps = [
-            document[DATE_FIELD].replace(tzinfo=UTC).timestamp()
-            for document in collection.find({DENSIFIED_FIELD: True})
-        ]
-        assert stamps
-        assert all(stamp % KNOBS.hot_cadence_sec == 0 for stamp in stamps)
 
     def test_switching_back_leaves_no_trace_of_the_previous_scenario(self, project):
         """The headline contract.
@@ -1117,10 +1109,10 @@ class TestRefusals:
 
         assert result.archiver.skipped == "project declares no MongoDB archive"
 
-    def test_a_configured_store_with_no_password_refuses_loudly(self, tmp_path, mongo_store):
+    def test_a_configured_store_with_no_password_refuses_loudly(self, tmp_path):
         """Failing here is the point: the scenario is now active, and history
         that silently contradicts it is the exact defect being removed."""
-        root = _write_project(tmp_path / "proj", mongo_store, password=None)
+        root = _write_project(tmp_path / "proj", UNREACHABLE_STORE, password=None)
 
         with pytest.raises(RuntimeError, match="MONGO_ROOT_PASSWORD"):
             _apply(root, ["burst"])
@@ -1142,8 +1134,8 @@ class TestPreflight:
     def _config(self, root: Path) -> dict:
         return yaml.safe_load((root / "config.yml").read_text())
 
-    def test_a_missing_password_is_refused_with_nothing_activated(self, tmp_path, mongo_store):
-        root = _write_project(tmp_path / "proj", mongo_store, password=None)
+    def test_a_missing_password_is_refused_with_nothing_activated(self, tmp_path):
+        root = _write_project(tmp_path / "proj", UNREACHABLE_STORE, password=None)
 
         with pytest.raises(RuntimeError, match="MONGO_ROOT_PASSWORD"):
             preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
@@ -1175,12 +1167,16 @@ class TestPreflight:
             is None
         )
 
-    def test_a_healthy_project_returns_the_store_it_would_rewrite(self, tmp_path, mongo_store):
-        root = _write_project(tmp_path / "proj", mongo_store, password=mongo_store["password"])
+    def test_a_healthy_project_returns_the_store_it_would_rewrite(self, tmp_path):
+        """Deciding never connects: the store only has to be declared and its
+        password resolvable, so no server is needed to answer."""
+        root = _write_project(
+            tmp_path / "proj", UNREACHABLE_STORE, password=UNREACHABLE_STORE["password"]
+        )
 
         store = preflight_archive_rewrite(
             root, self._config(root), self._machine_path(root), ["burst"]
         )
 
         assert store is not None
-        assert store["database"] == mongo_store["database"]
+        assert store["database"] == UNREACHABLE_STORE["database"]
