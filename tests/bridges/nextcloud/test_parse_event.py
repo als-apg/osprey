@@ -31,7 +31,7 @@ from osprey.bridges.nextcloud_talk import (
     TalkClient,
 )
 from osprey.bridges.nextcloud_talk.client import ROOM_TYPE_ONE_TO_ONE
-from osprey.bridges.nextcloud_talk.events import parse_event
+from osprey.bridges.nextcloud_talk.events import parse_event, people_seen
 
 BOT = "osprey-bot"
 
@@ -628,3 +628,52 @@ def test_parsing_issues_no_requests():
         parse_event(_msg(token=DIRECT, messageParameters=[]), DIRECT, CFG, directory)
 
     assert served == []
+
+
+# ==========================================================================
+# Names the room shows, for the room roster
+# ==========================================================================
+
+
+def test_people_seen_records_the_sender_and_mentioned_users():
+    raw = _msg(
+        message="{mention-user1} tell {mention-user2}",
+        messageParameters={
+            "mention-user1": dict(BOT_MENTION),
+            "mention-user2": dict(OTHER_MENTION),
+        },
+    )
+    assert people_seen(raw, BOT) == (GROUP, {"alice": "Alice", "bob": "Bob"})
+
+
+def test_people_seen_skips_the_bot_across_casing():
+    raw = _msg(
+        actorId="OSPREY-Bot",
+        actorDisplayName="OSPREY Bot",
+        messageParameters={"m": {"type": "user", "id": "Osprey-BOT", "name": "OSPREY Bot"}},
+    )
+    assert people_seen(raw, BOT) == (GROUP, {})
+
+
+def test_people_seen_skips_guests_and_an_actor_with_no_display_name():
+    assert people_seen(_msg(actorType="guests", actorId="abc"), BOT) == (GROUP, {})
+    assert people_seen(_msg(actorDisplayName=""), BOT) == (GROUP, {})
+
+
+def test_people_seen_ignores_call_and_group_mentions():
+    raw = _msg(
+        actorType="guests",
+        messageParameters={
+            "a": dict(ALL_MENTION),
+            "g": {"type": "group", "id": "admins", "name": "Admins"},
+        },
+    )
+    assert people_seen(raw, BOT) == (GROUP, {})
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [None, [], {"messageParameters": []}, {k: v for k, v in _msg().items() if k != "token"}],
+)
+def test_people_seen_on_junk_is_empty(raw):
+    assert people_seen(raw, BOT) == ("", {})

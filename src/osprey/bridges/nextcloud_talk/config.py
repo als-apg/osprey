@@ -12,7 +12,8 @@ budgets). Composition, not subclassing: the engine's collaborators are handed
 ``nextcloud-question`` default lives at the deployment surface only (the profile
 block renders it as ``DISPATCH_TRIGGER`` in the compose template), which is what
 keeps :meth:`NextcloudBridgeConfig.require_startup` a meaningful check for a
-deployment that was not rendered by ``osprey build``.
+deployment that was not rendered by ``osprey build``. ``NEXTCLOUD_MENTIONS`` is
+optional and defaults on.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from osprey.bridges.core import CoreConfig
+from osprey.bridges.core import CoreConfig, env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,13 @@ class NextcloudBridgeConfig:
     and on the same bridge volume as ``core.dedup_path``/``core.history_path`` —
     losing it alone would replay or skip history."""
 
+    mentions: bool = True
+    """Whether an agent's ``<@ID>`` becomes a real Talk @mention of a room
+    participant. On by default. When off, every mention is posted as the person's
+    name in plain text, and the agent is told to name people instead. Set from the
+    build profile's ``nextcloud_bridge.mentions``, rendered as
+    ``NEXTCLOUD_MENTIONS``."""
+
     core: CoreConfig = field(default_factory=CoreConfig)
     """The channel-neutral half, handed to the engine's collaborators as-is."""
 
@@ -108,6 +116,7 @@ class NextcloudBridgeConfig:
             app_password=e.get("NEXTCLOUD_APP_PASSWORD", ""),
             rooms=_split_rooms(e.get("NEXTCLOUD_ROOMS", "")),
             offsets_path=e.get("OFFSETS_PATH", "/data/offsets.json"),
+            mentions=env_flag(e.get("NEXTCLOUD_MENTIONS"), True),
             core=CoreConfig.from_env(e),
         )
 
