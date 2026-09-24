@@ -1258,6 +1258,72 @@ def test_a_pin_on_every_target_hands_over_the_launch_remedy(monkeypatch):
     assert detail.reason == "pinned everywhere at launch — re-run the script"
 
 
+def test_record_verdict_detail_is_public_api():
+    """The record clause without the pin is a name a refusal can ask by."""
+    assert "record_verdict_detail" in posture_store.__all__
+    assert list(inspect.signature(posture_store.record_verdict_detail).parameters) == [
+        "target",
+        "owner",
+    ]
+
+
+def test_without_a_pin_the_store_and_the_record_answer_alike(bound_tree):
+    """With no launch pin the store's clause IS the record's."""
+    _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
+
+    for target in ("live", "va", None):
+        assert posture_store.store_verdict_detail(
+            target, "alice"
+        ) == posture_store.record_verdict_detail(target, "alice")
+
+
+def test_a_pin_hides_the_record_from_the_store_but_not_from_the_record_clause(
+    bound_tree, monkeypatch
+):
+    """The pin answers the store without a read; the record clause spends that read."""
+    _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
+    monkeypatch.setenv(
+        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        posture_store.launch_posture_stamp("live", posture_store.POSTURE_SANDBOX),
+    )
+    reads: list[str] = []
+    real = posture_store._read_tree_record
+
+    def _counting(tree, owner):
+        reads.append(owner)
+        return real(tree, owner)
+
+    monkeypatch.setattr(posture_store, "_read_tree_record", _counting)
+
+    assert posture_store.store_verdict_detail("live", "alice") == (
+        posture_store.StoreVerdict.NARROWING,
+        None,
+    )
+    assert reads == []
+    assert posture_store.record_verdict_detail("live", "alice") == (
+        posture_store.StoreVerdict.NARROWING,
+        None,
+    )
+    assert reads == ["alice"]
+
+
+def test_the_record_clause_reports_an_unreadable_record_under_a_pin(monkeypatch):
+    """A pin answers narrowing; the record behind it may still be unreadable."""
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "control_target")
+    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+    monkeypatch.setenv(
+        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        posture_store.launch_posture_stamp("live", posture_store.POSTURE_SANDBOX),
+    )
+
+    assert posture_store.store_verdict_detail("live").verdict is (
+        posture_store.StoreVerdict.NARROWING
+    )
+    detail = posture_store.record_verdict_detail("live")
+    assert detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in detail.reason
+
+
 @pytest.mark.usefixtures("data_root")
 def test_a_pin_naming_a_target_carries_no_remedy(monkeypatch):
     """A named pin is an operator's decision, and its wording is the caller's."""
