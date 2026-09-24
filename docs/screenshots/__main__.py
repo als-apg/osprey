@@ -1,7 +1,8 @@
 """CLI entry point: ``python -m docs.screenshots [list] [--only N] [--stack] [--agentic]``.
 
-Default (no command, no flags) captures only the ``standalone_interface`` static
-recipes — zero container, CI-safe locally. ``--stack`` opts into the
+Default (no command, no flags) captures the container-free static recipes —
+``standalone_interface``, ``static_page`` and ``hermetic_hub`` — zero container,
+CI-safe locally. ``--stack`` opts into the
 tutorial-stack recipes (needs a container runtime + the port layout's free
 postgres port); ``--agentic`` opts into the live web-terminal hero (needs a live
 Claude session). ``list`` prints the registry without capturing anything.

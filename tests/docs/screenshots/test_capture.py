@@ -145,6 +145,45 @@ def test_tutorial_stack_provider_skips(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# hermetic_hub recipes go through the contact sheet's capture routine
+# ---------------------------------------------------------------------------
+
+
+def test_hermetic_hub_recipe_captures_each_theme_in_its_mode(tmp_path, monkeypatch) -> None:
+    from contextlib import contextmanager
+
+    from docs.screenshots import contact_sheet
+
+    hub = object()
+    calls: list[tuple] = []
+
+    @contextmanager
+    def _stub_hub():
+        yield hub
+
+    def _record(_browser, got_hub, theme, mode, dest, *, stage=None, **_kw):
+        assert got_hub is hub
+        calls.append((theme, mode, stage, dest))
+
+    monkeypatch.setattr(contact_sheet, "hermetic_hub", _stub_hub)
+    monkeypatch.setattr(contact_sheet, "capture_hub_view", _record)
+    monkeypatch.setattr(capture, "output_dir", lambda: tmp_path)
+
+    (recipe,) = [s for s in recipes.REGISTRY if s.name == "customize_sheet"]
+    paths = capture._capture_hermetic_hub(object(), recipe)
+
+    by_theme = {theme: (mode, stage, dest) for theme, mode, stage, dest in calls}
+    assert len(calls) == len(recipe.themes) == 2
+    assert by_theme["light"] == (
+        "expert",
+        "customize_sheet",
+        tmp_path / "customize_sheet_light.png",
+    )
+    assert by_theme["dark"] == ("expert", "customize_sheet", tmp_path / "customize_sheet_dark.png")
+    assert sorted(paths) == sorted(dest for *_, dest in calls)
+
+
+# ---------------------------------------------------------------------------
 # Real standalone element-crop capture (skips cleanly without chromium)
 # ---------------------------------------------------------------------------
 
