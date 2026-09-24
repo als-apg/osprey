@@ -3539,6 +3539,88 @@ def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> Non
 
 
 # ---------------------------------------------------------------------------
+# (h4) every browser engine a fixture launches is installed by the lane: a
+# fixture whose engine binary is absent skips every test that asks for it, and
+# a lane whose tests all skipped reports green having proved nothing.
+# ---------------------------------------------------------------------------
+
+_INTERFACES_CONFTEST = TESTS_ROOT / "interfaces" / "conftest.py"
+
+
+def _browser_engines() -> tuple[str, ...]:
+    """``BROWSER_ENGINES`` from the interfaces conftest, read with ``ast``.
+
+    Not imported, for the reason :func:`_module_marks` gives: the conftest pulls
+    in playwright and the interface servers, which a workflow-wiring check has
+    no business loading.
+    """
+    for node in ast.parse(_INTERFACES_CONFTEST.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        elif isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "BROWSER_ENGINES" for t in targets):
+            continue
+        assert isinstance(value, ast.Tuple), "BROWSER_ENGINES is not a tuple literal"
+        return tuple(
+            elt.value
+            for elt in value.elts
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        )
+    raise AssertionError(f"no BROWSER_ENGINES in {_INTERFACES_CONFTEST}")
+
+
+def _engines_the_lane_installs(wf: dict[str, Any]) -> set[str]:
+    """Every engine named after ``playwright install`` in the browser job's steps.
+
+    Flags (``--with-deps``) are dropped, so an option is never read as an engine.
+    """
+    engines: set[str] = set()
+    for step in _jobs(wf)[BROWSER_JOB].get("steps", []):
+        run = step.get("run")
+        if not isinstance(run, str):
+            continue
+        for match in re.finditer(r"playwright install([^\n;&|]*)", run):
+            engines.update(tok for tok in match.group(1).split() if not tok.startswith("-"))
+    return engines
+
+
+def test_browser_engine_discovery_finds_both_engines() -> None:
+    """The floor: a mis-parse that found nothing would make the next guard vacuous."""
+    assert _browser_engines() == ("chromium", "webkit")
+
+
+def test_every_engine_a_fixture_launches_is_installed_by_the_browser_lane(
+    workflow: dict[str, Any],
+) -> None:
+    missing = set(_browser_engines()) - _engines_the_lane_installs(workflow)
+    assert missing == set(), (
+        f"browser engines the '{BROWSER_JOB}' lane never installs: {sorted(missing)}. "
+        "An engine the lane does not install skips every test that asks for it, "
+        "and the lane still reports green."
+    )
+
+
+def test_every_engine_is_installed__mutation_drops_the_webkit_install() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[BROWSER_JOB]
+    job["steps"] = [s for s in job["steps"] if s.get("name") != "Install Playwright webkit"]
+    assert set(_browser_engines()) - _engines_the_lane_installs(mutated) == {"webkit"}
+
+
+def test_every_browser_engine_has_its_fixture() -> None:
+    functions = {
+        node.name
+        for node in ast.parse(_INTERFACES_CONFTEST.read_text(encoding="utf-8")).body
+        if isinstance(node, ast.FunctionDef)
+    }
+    missing = [e for e in _browser_engines() if f"{e}_browser" not in functions]
+    assert missing == [], f"engines in BROWSER_ENGINES with no <engine>_browser fixture: {missing}"
+
+
+# ---------------------------------------------------------------------------
 # (i) bluesky-queue-e2e: the queue stack's own lane, secret-free
 # ---------------------------------------------------------------------------
 

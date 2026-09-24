@@ -66,9 +66,10 @@ gives: ``OSPREY_AGENT_DATA_ROOT`` is not consulted by the resolver, so a test
 trusting it writes into the repository's ``var/agent_data``.
 
 Run:
-    .venv/bin/pytest tests/interfaces/web_terminal/test_bar_items_browser.py -v
+    .venv/bin/pytest tests/interfaces/web_terminal/test_bar_items_browser.py -m browser -v
 
-Skips cleanly when the chromium headless binary is not installed.
+Every test runs once in Chromium and once in WebKit, and each engine skips
+cleanly when its binary is not installed.
 """
 
 from __future__ import annotations
@@ -135,6 +136,23 @@ NARROW_VIEWPORT = {"width": 1024, "height": 768}
 #: around 0.59 — so it fails on a structural regression (a gap that stopped
 #: shrinking, chrome that doubled) rather than on a few pixels of font drift.
 MIN_BAR_HEADROOM_RATIO = 0.25
+
+
+# ---------------------------------------------------------------------------
+# Browser engines
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(params=["chromium_browser", "webkit_browser"], ids=["chromium", "webkit"])
+def engine_browser(request: pytest.FixtureRequest) -> Browser:
+    """Each browser engine in turn.
+
+    Every test here drives pointer or keyboard input through the bars, and the
+    drag module justifies building on pointer events by Safari's behaviour, so
+    each test runs in both Chromium and WebKit. Each engine skips on its own
+    when its binary is absent.
+    """
+    return request.getfixturevalue(request.param)
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +373,7 @@ def _outside_the_bars(page: Page) -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 
 
-def test_a_tile_dragged_from_the_sheet_lands_where_it_was_dropped(tmp_path, chromium_browser):
+def test_a_tile_dragged_from_the_sheet_lands_where_it_was_dropped(tmp_path, engine_browser):
     """The sheet's tiles are drag sources, and the drop point picks the index.
 
     Dropped on the LEFT half of the first item in the status bar, so the
@@ -365,7 +383,7 @@ def test_a_tile_dragged_from_the_sheet_lands_where_it_was_dropped(tmp_path, chro
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "space", "display"], status=["clock", "docs"])
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         _enter_edit_mode(page)
 
         tile = _tile(page, "stopwatch")
@@ -394,7 +412,7 @@ def test_a_tile_dragged_from_the_sheet_lands_where_it_was_dropped(tmp_path, chro
 # ---------------------------------------------------------------------------
 
 
-def test_a_drag_inside_one_bar_reorders_it(tmp_path, chromium_browser):
+def test_a_drag_inside_one_bar_reorders_it(tmp_path, engine_browser):
     """A reorder is a permutation, and a full bar must still accept one.
 
     The seeded status bar holds three fixed-width items (no ``space``, which
@@ -407,7 +425,7 @@ def test_a_drag_inside_one_bar_reorders_it(tmp_path, chromium_browser):
             header=["logo", "space", "display"],
             status=["clock", "stopwatch", "feedback"],
         )
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         assert _types(page, "status") == ["clock", "stopwatch", "feedback"]
         _enter_edit_mode(page)
 
@@ -436,7 +454,7 @@ def test_a_drag_inside_one_bar_reorders_it(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
-def test_an_item_dragged_to_the_other_bar_leaves_the_first(tmp_path, chromium_browser):
+def test_an_item_dragged_to_the_other_bar_leaves_the_first(tmp_path, engine_browser):
     """A cross-bar move is one edit: the item arrives, and it is gone from home."""
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(
@@ -444,7 +462,7 @@ def test_an_item_dragged_to_the_other_bar_leaves_the_first(tmp_path, chromium_br
             header=["logo", "clock", "space", "display"],
             status=["docs"],
         )
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         _enter_edit_mode(page)
 
         _settled(page, "header", ["logo", "clock", "space", "display"])
@@ -469,7 +487,7 @@ def test_an_item_dragged_to_the_other_bar_leaves_the_first(tmp_path, chromium_br
         page.close()
 
 
-def test_an_item_dropped_into_the_header_is_not_folded_away(tmp_path, chromium_browser):
+def test_an_item_dropped_into_the_header_is_not_folded_away(tmp_path, engine_browser):
     """An item dropped into a bar stays in that bar.
 
     The mirror of the test above, and the direction that exposes the crowding
@@ -481,7 +499,7 @@ def test_an_item_dropped_into_the_header_is_not_folded_away(tmp_path, chromium_b
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "space", "display"], status=["clock", "docs"])
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
 
         crowding = (
             "() => {const bar = document.querySelector('[data-bar-host=\"header\"]');"
@@ -517,11 +535,11 @@ def test_an_item_dropped_into_the_header_is_not_folded_away(tmp_path, chromium_b
 # ---------------------------------------------------------------------------
 
 
-def test_an_item_released_outside_both_bars_is_removed(tmp_path, chromium_browser):
+def test_an_item_released_outside_both_bars_is_removed(tmp_path, engine_browser):
     """Only a release over NEITHER bar removes — the drag's one destructive end."""
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "space", "display"], status=["clock", "docs"])
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         _enter_edit_mode(page)
 
         _drag(page, _center(_shell(page, "status", "docs")), _outside_the_bars(page))
@@ -537,7 +555,7 @@ def test_an_item_released_outside_both_bars_is_removed(tmp_path, chromium_browse
 # ---------------------------------------------------------------------------
 
 
-def test_the_arrangement_survives_a_reload(tmp_path, chromium_browser, store_dir):
+def test_the_arrangement_survives_a_reload(tmp_path, engine_browser, store_dir):
     """The layout is stored server-side, so the SECOND first-paint carries it.
 
     Proved from both ends: the reloaded page renders the edited order, and the
@@ -545,7 +563,7 @@ def test_the_arrangement_survives_a_reload(tmp_path, chromium_browser, store_dir
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "space", "display"], status=["clock", "docs"])
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         _enter_edit_mode(page)
 
         _drag(page, _center(_shell(page, "status", "docs")), _outside_the_bars(page))
@@ -566,7 +584,7 @@ def test_the_arrangement_survives_a_reload(tmp_path, chromium_browser, store_dir
 # ---------------------------------------------------------------------------
 
 
-def test_the_wordmark_dropped_outside_is_removed_like_any_item(tmp_path, chromium_browser):
+def test_the_wordmark_dropped_outside_is_removed_like_any_item(tmp_path, engine_browser):
     """Nothing in the bars is locked: the wordmark goes the way the clock does.
 
     The terminal depends on no bar item being present — the command palette
@@ -575,7 +593,7 @@ def test_the_wordmark_dropped_outside_is_removed_like_any_item(tmp_path, chromiu
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "space", "display"], status=["clock"])
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         _enter_edit_mode(page)
 
         _drag(page, _center(_shell(page, "header", "logo")), _outside_the_bars(page))
@@ -591,7 +609,7 @@ def test_the_wordmark_dropped_outside_is_removed_like_any_item(tmp_path, chromiu
 # ---------------------------------------------------------------------------
 
 
-def test_a_header_item_moves_to_the_status_bar(tmp_path, chromium_browser):
+def test_a_header_item_moves_to_the_status_bar(tmp_path, engine_browser):
     """One move and one refusal, the refusal stated rather than silent.
 
     Dragging the search trigger down onto the footer moves it there and it
@@ -602,7 +620,7 @@ def test_a_header_item_moves_to_the_status_bar(tmp_path, chromium_browser):
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "search", "space", "display"], status=["clock"])
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         _enter_edit_mode(page)
 
         status_box = page.locator(STATUS_HOST).bounding_box()
@@ -636,7 +654,7 @@ def test_a_header_item_moves_to_the_status_bar(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
-def test_simple_mode_renders_the_layout_and_offers_the_same_ways_in(tmp_path, chromium_browser):
+def test_simple_mode_renders_the_layout_and_offers_the_same_ways_in(tmp_path, engine_browser):
     """The mode axis is not the layout axis.
 
     Simple renders the same saved arrangement — the bars are the operator's
@@ -651,7 +669,7 @@ def test_simple_mode_renders_the_layout_and_offers_the_same_ways_in(tmp_path, ch
             status=["clock", "docs"],
         )
         app.state.web_ui_mode = "simple"
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
 
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         assert _types(page, "header") == ["logo", "space", "search", "display"]
@@ -689,7 +707,7 @@ def test_simple_mode_renders_the_layout_and_offers_the_same_ways_in(tmp_path, ch
 # ---------------------------------------------------------------------------
 
 
-def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, chromium_browser):
+def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, engine_browser):
     """The declared flex hints, not a JS rung, are what hold the bar together.
 
     Fifteen gaps at their maximum 400 px ask for 6000 px inside a 1024 px
@@ -707,7 +725,7 @@ def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, chr
             header=["logo", "identity", "control-target", "search", "display", *gaps],
             status=["clock"],
         )
-        page = _open(chromium_browser, base_url, viewport=NARROW_VIEWPORT)
+        page = _open(engine_browser, base_url, viewport=NARROW_VIEWPORT)
 
         overflow = page.evaluate(
             "() => {"
@@ -780,7 +798,7 @@ def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, chr
 # ---------------------------------------------------------------------------
 
 
-def test_the_status_readouts_are_live_on_a_real_page(tmp_path, chromium_browser):
+def test_the_status_readouts_are_live_on_a_real_page(tmp_path, engine_browser):
     """The clock reports the page it is on.
 
     The unit suites drive the builder by hand; this is the one place it is
@@ -792,7 +810,7 @@ def test_the_status_readouts_are_live_on_a_real_page(tmp_path, chromium_browser)
             header=["logo", "space", "display"],
             status=["clock"],
         )
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
 
         expect(page.locator(f"{STATUS_HOST} .bar-clock-time")).to_have_text(
             re.compile(r"^\d{2}:\d{2}$"), timeout=10_000
@@ -806,7 +824,7 @@ def test_the_status_readouts_are_live_on_a_real_page(tmp_path, chromium_browser)
 # ---------------------------------------------------------------------------
 
 
-def test_a_deployment_with_no_identity_block_paints_no_separator(tmp_path, chromium_browser):
+def test_a_deployment_with_no_identity_block_paints_no_separator(tmp_path, engine_browser):
     """The middot is a fact about ORDER and about the identity item, both.
 
     With nothing to identify — no signed-in user and no deployment name — the
@@ -823,7 +841,7 @@ def test_a_deployment_with_no_identity_block_paints_no_separator(tmp_path, chrom
         )
         app.state.app_name = ""
         app.state.terminal_user = ""
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
 
         assert _types(page, "header") == ["logo", "space", "display"]
         follower = page.locator(f'{HEADER_HOST} > .bar-item[data-follows="logo"]')
@@ -844,7 +862,7 @@ def test_a_deployment_with_no_identity_block_paints_no_separator(tmp_path, chrom
 # ---------------------------------------------------------------------------
 
 
-def test_reset_to_default_discards_the_stored_arrangement(tmp_path, chromium_browser, store_dir):
+def test_reset_to_default_discards_the_stored_arrangement(tmp_path, engine_browser, store_dir):
     """A reset is a DELETE, not a write of the deployment's own layout.
 
     "Saved nothing" and "saved something equal to the default" behave
@@ -857,7 +875,7 @@ def test_reset_to_default_discards_the_stored_arrangement(tmp_path, chromium_bro
             header=["logo", "space", "display"],
             status=["stopwatch", "clock"],
         )
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         assert _types(page, "status") == ["stopwatch", "clock"]
         assert (store_dir / LAYOUT_FILENAME).is_file()
 
@@ -903,7 +921,7 @@ PANEL_MENU = ".rail-context-menu"
 PANEL_MENU_ITEM = ".rail-context-item"
 
 
-def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, chromium_browser):
+def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, engine_browser):
     """Hiding the header must not strand the operator.
 
     The header's own right-click menu is what hides it, and a hidden bar has
@@ -920,7 +938,7 @@ def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, chromi
             status=["clock", "docs"],
             header_visible=False,
         )
-        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page = engine_browser.new_page(viewport=VIEWPORT)
         page.goto(base_url, wait_until="domcontentloaded")
         # The header is withdrawn, so its hydrated shell is attached but not
         # visible -- the default "visible" wait would sit out the timeout.
@@ -958,7 +976,7 @@ def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, chromi
 # ---------------------------------------------------------------------------
 
 
-def test_a_configured_option_is_on_the_first_paint(tmp_path, chromium_browser):
+def test_a_configured_option_is_on_the_first_paint(tmp_path, engine_browser):
     """The server's paint carries each item's options, so the first reconcile
     renders the configured item rather than the type's defaults.
 
@@ -972,7 +990,7 @@ def test_a_configured_option_is_on_the_first_paint(tmp_path, chromium_browser):
             header=["logo", "space", "display"],
             status=[{"type": "clock", "options": {"zone": "utc"}}],
         )
-        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page = engine_browser.new_page(viewport=VIEWPORT)
         page.route("**/api/bar-items", lambda route: route.abort())
         with page.expect_request(lambda r: r.url.endswith("/api/bar-items") and r.method == "GET"):
             page.goto(base_url, wait_until="domcontentloaded")
@@ -988,7 +1006,7 @@ def test_a_configured_option_is_on_the_first_paint(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
-def test_move_left_from_the_popover_works_from_the_keyboard(tmp_path, chromium_browser):
+def test_move_left_from_the_popover_works_from_the_keyboard(tmp_path, engine_browser):
     """The options popover's Move left does from the keyboard what a drag does.
 
     The popover is opened with a plain click in edit mode; the reorder itself
@@ -1000,7 +1018,7 @@ def test_move_left_from_the_popover_works_from_the_keyboard(tmp_path, chromium_b
             header=["logo", "space", "display"],
             status=["clock", "stopwatch", "feedback"],
         )
-        page = _open(chromium_browser, base_url)
+        page = _open(engine_browser, base_url)
         _enter_edit_mode(page)
         _settled(page, "status", ["clock", "stopwatch", "feedback"])
 
