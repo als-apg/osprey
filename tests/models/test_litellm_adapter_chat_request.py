@@ -404,3 +404,59 @@ class TestHandleStructuredOutputWithChatRequest:
         # Should rebuild to single user message from `message` param
         assert len(call_kwargs["messages"]) == 1
         assert call_kwargs["messages"][0]["content"] == "original message"
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_second_ask_sends_the_schema_instruction_once(self, mock_litellm):
+        """The schema instruction is added before the first ask, so a second ask
+        sends the same messages rather than a second copy of the instruction."""
+        from pydantic import BaseModel
+
+        from osprey.models.providers.litellm_adapter import _handle_structured_output
+
+        def reply(content):
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = content
+            return response
+
+        mock_litellm.completion.side_effect = [reply("not json"), reply('{"name": "test"}')]
+
+        class TestModel(BaseModel):
+            name: str
+
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage("system", "sys"),
+                ChatMessage("user", "turn1"),
+                ChatMessage("assistant", "a"),
+                ChatMessage("user", "find things"),
+            ]
+        )
+        completion_kwargs = {
+            "model": "openai/deepseek-v4-flash",
+            "messages": req.to_litellm_messages(),
+            "max_tokens": 1024,
+            "temperature": 0.0,
+        }
+
+        result = _handle_structured_output(
+            provider="ds4",
+            model_id="deepseek-v4-flash",
+            litellm_model="openai/deepseek-v4-flash",
+            message="",
+            completion_kwargs=completion_kwargs,
+            output_format=TestModel,
+            is_typed_dict_output=False,
+            chat_request=req,
+        )
+
+        assert result == TestModel(name="test")
+        assert mock_litellm.completion.call_count == 2
+        first, second = (c.kwargs["messages"][-1] for c in mock_litellm.completion.call_args_list)
+        second_text = (
+            second["content"][-1]["text"]
+            if isinstance(second["content"], list)
+            else second["content"]
+        )
+        assert second_text.count("must respond with valid JSON") == 1
+        assert second == first

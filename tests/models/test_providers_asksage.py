@@ -475,6 +475,50 @@ class TestAskSageExecuteCompletion:
 
         assert result == SampleOutput(result="line one\nline two", value=5)
 
+    @staticmethod
+    def _mock_client_replies(*contents):
+        """Build an openai.OpenAI mock returning one reply per create call."""
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [
+            MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
+            for content in contents
+        ]
+        return client
+
+    def _ask_structured(self, client):
+        provider = AskSageProviderAdapter()
+        with patch("openai.OpenAI", return_value=client):
+            return provider.execute_completion(
+                message="hi",
+                model_id="m",
+                api_key="key",
+                base_url="https://test",
+                output_format=SampleOutput,
+            )
+
+    def test_structured_output_is_asked_for_once_more(self):
+        """Test a reply that does not parse is asked for once more."""
+        client = self._mock_client_replies("not json", json.dumps({"result": "ok", "value": 2}))
+
+        assert self._ask_structured(client) == SampleOutput(result="ok", value=2)
+        assert client.chat.completions.create.call_count == 2
+
+    def test_structured_output_second_bad_reply_is_the_failure(self):
+        """Test the second reply that does not parse is the failure."""
+        client = self._mock_client_replies("not json", "still not json")
+
+        with pytest.raises(ValueError, match="^Failed to parse structured output from AskSage: "):
+            self._ask_structured(client)
+        assert client.chat.completions.create.call_count == 2
+
+    def test_structured_output_with_no_content_is_a_reply_that_does_not_parse(self):
+        """Test a reply with no content is reported like any reply that does not parse."""
+        client = self._mock_client_replies(None, None)
+
+        with pytest.raises(ValueError, match="^Failed to parse structured output from AskSage: "):
+            self._ask_structured(client)
+        assert client.chat.completions.create.call_count == 2
+
 
 class TestAskSageCheckHealth:
     """Test AskSage health check."""

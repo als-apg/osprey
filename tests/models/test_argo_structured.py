@@ -229,6 +229,56 @@ class TestExecuteArgoStructuredOutput:
 
         assert result == SampleOutput(name="one\ntwo", value=1, active=False)
 
+    @staticmethod
+    def _argo_reply(content):
+        response = MagicMock()
+        response.json.return_value = {"choices": [{"message": {"content": content}}]}
+        response.raise_for_status = MagicMock()
+        return response
+
+    @staticmethod
+    def _ask_argo():
+        return _execute_argo_structured_output(
+            model_id="gpt5mini",
+            message="Extract info",
+            output_format=SampleOutput,
+            api_key="test-key",
+            base_url="https://test.url",
+        )
+
+    @patch("osprey.models.providers.argo.httpx.post")
+    def test_a_reply_that_does_not_parse_is_asked_for_once_more(self, mock_post):
+        """A reply that does not parse is asked for once more."""
+        mock_post.side_effect = [
+            self._argo_reply("not valid json"),
+            self._argo_reply('{"name": "test", "value": 2, "active": true}'),
+        ]
+
+        assert self._ask_argo() == SampleOutput(name="test", value=2, active=True)
+        assert mock_post.call_count == 2
+
+    @patch("osprey.models.providers.argo.httpx.post")
+    def test_the_second_bad_reply_is_the_failure(self, mock_post):
+        """The second reply that does not parse is the one reported."""
+        mock_post.side_effect = [
+            self._argo_reply("first bad reply"),
+            self._argo_reply("second bad reply"),
+        ]
+
+        with pytest.raises(ValueError, match=r"from Argo \(gpt5mini\)") as raised:
+            self._ask_argo()
+        assert "second bad reply" in str(raised.value)
+        assert mock_post.call_count == 2
+
+    @patch("osprey.models.providers.argo.httpx.post")
+    def test_an_empty_response_is_not_asked_again(self, mock_post):
+        """An empty response is refused as it comes, with one post."""
+        mock_post.return_value = self._argo_reply("")
+
+        with pytest.raises(ValueError, match="Empty response"):
+            self._ask_argo()
+        assert mock_post.call_count == 1
+
     @patch("osprey.models.providers.argo.httpx.post")
     def test_cleans_markdown_fenced_response(self, mock_post):
         """Successfully parses response wrapped in markdown code fences."""

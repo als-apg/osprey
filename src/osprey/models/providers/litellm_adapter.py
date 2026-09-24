@@ -427,6 +427,13 @@ def _supports_native_structured_output(litellm_model: str, provider: str) -> boo
         return False
 
 
+#: How many replies a structured request is given. A model samples a reply
+#: that is not the JSON it was asked for on some fraction of calls, so one
+#: bad reply is asked past; a second is reported, so a caller never waits on
+#: more than two replies for one answer.
+_STRUCTURED_REPLY_ASKS = 2
+
+
 def _parse_structured_reply(text: str, output_format: type[BaseModel]) -> BaseModel:
     """Validate a structured reply against *output_format* in JSON mode.
 
@@ -463,6 +470,11 @@ def _structured_reply(
 ) -> BaseModel | dict:
     """Ask for a structured reply and turn it into *output_format*.
 
+    A reply that does not become the model is asked for once more. The second
+    ask sends the identical request, because a re-phrased one would make which
+    reply parsed a part of the answer. Only a reply that does not become the
+    model is asked past; a request that fails is raised as it comes.
+
     :param ask: Sends the request and returns the reply text
     :param output_format: Pydantic model the reply must become
     :param source: Provider name used in the error message
@@ -472,18 +484,26 @@ def _structured_reply(
     :return: Validated model instance or dict
     :raises ValueError: The reply does not become the model
     """
-    text = ask()
-    if clean is not None:
-        text = clean(text)
-    try:
-        result = _parse_structured_reply(text, output_format)
-    except ValueError as error:
-        raise ValueError(
-            f"Failed to parse structured output from {source}: {error}\nResponse: {text[:snippet]}"
-        ) from error
-    if is_typed_dict_output and hasattr(result, "model_dump"):
-        return result.model_dump()
-    return result
+    for attempt in range(1, _STRUCTURED_REPLY_ASKS + 1):
+        text = ask()
+        if clean is not None:
+            text = clean(text)
+        try:
+            result = _parse_structured_reply(text, output_format)
+        except ValueError as error:
+            if attempt == _STRUCTURED_REPLY_ASKS:
+                raise ValueError(
+                    f"Failed to parse structured output from {source}: {error}\n"
+                    f"Response: {text[:snippet]}"
+                ) from error
+            logger.warning(
+                "%s: structured reply did not parse, asking once more: %s", source, error
+            )
+            continue
+        if is_typed_dict_output and hasattr(result, "model_dump"):
+            return result.model_dump()
+        return result
+    raise AssertionError("unreachable: the loop returns or raises")  # pragma: no cover
 
 
 def _clean_json_response(text: str) -> str:
