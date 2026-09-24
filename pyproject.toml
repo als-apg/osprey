@@ -663,6 +663,7 @@ select = [
     "UP", # pyupgrade
     "ARG001",  # unused function argument
     "ARG002",  # unused method argument
+    "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
 ]
 ignore = [
     "E501",  # line too long, handled by formatter
