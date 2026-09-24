@@ -476,6 +476,85 @@ class TestHandleStructuredOutputPromptFallback:
         assert [m["content"] for m in sent] == ["sys", "a"]  # untouched
 
 
+def _reply(content):
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.content = content
+    return response
+
+
+class TestStructuredReplyIsAskedForOnceMore:
+    """A reply that does not become the model is asked for once more, with the
+    identical request; a second such reply is the failure."""
+
+    def _call(self, mock_litellm, replies):
+        mock_litellm.completion.side_effect = replies
+        return _handle_structured_output(
+            provider="ds4",
+            model_id="deepseek-v4-flash",
+            litellm_model="openai/deepseek-v4-flash",
+            message="extract info",
+            completion_kwargs={"model": "openai/deepseek-v4-flash"},
+            output_format=_FallbackModel,
+            is_typed_dict_output=False,
+        )
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_reply_that_does_not_parse_is_asked_for_once_more(self, mock_litellm):
+        result = self._call(
+            mock_litellm,
+            [
+                _reply('{"name": "he said "hi"", "count": 3}'),
+                _reply('{"name": "abc", "count": 3}'),
+            ],
+        )
+        assert result == _FallbackModel(name="abc", count=3)
+        assert mock_litellm.completion.call_count == 2
+        first, second = mock_litellm.completion.call_args_list
+        assert first.kwargs == second.kwargs
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_reply_that_breaks_the_schema_is_asked_for_once_more(self, mock_litellm):
+        result = self._call(
+            mock_litellm,
+            [_reply('{"name": "a", "count": "three"}'), _reply('{"name": "a", "count": 3}')],
+        )
+        assert result == _FallbackModel(name="a", count=3)
+        assert mock_litellm.completion.call_count == 2
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_the_second_reply_that_does_not_parse_is_the_failure(self, mock_litellm):
+        with pytest.raises(
+            ValueError, match="^Failed to parse structured output from ds4: "
+        ) as raised:
+            self._call(mock_litellm, [_reply("first bad reply"), _reply("second bad reply")])
+        assert "second bad reply" in str(raised.value)
+        assert mock_litellm.completion.call_count == 2
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_a_request_that_fails_is_not_asked_again(self, mock_litellm):
+        mock_litellm.completion.side_effect = RuntimeError("gateway down")
+        with pytest.raises(RuntimeError, match="gateway down"):
+            _handle_structured_output(
+                provider="ds4",
+                model_id="deepseek-v4-flash",
+                litellm_model="openai/deepseek-v4-flash",
+                message="extract info",
+                completion_kwargs={"model": "openai/deepseek-v4-flash"},
+                output_format=_FallbackModel,
+                is_typed_dict_output=False,
+            )
+        assert mock_litellm.completion.call_count == 1
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_the_first_bad_reply_is_logged(self, mock_litellm, caplog):
+        with caplog.at_level("WARNING"):
+            self._call(mock_litellm, [_reply("not json"), _reply('{"name": "a", "count": 1}')])
+        records = [r for r in caplog.records if "asking once more" in r.getMessage()]
+        assert len(records) == 1
+        assert "ds4" in records[0].getMessage()
+
+
 class TestExecuteOllamaStructuredOutput:
     """The direct-API Ollama structured-output path (bypasses LiteLLM bug #15463)."""
 
@@ -531,6 +610,53 @@ class TestExecuteOllamaStructuredOutput:
             max_tokens=256,
         )
         assert result == _FallbackModel(name="a\nb", count=1)
+
+    @staticmethod
+    def _ollama_reply(content):
+        response = MagicMock()
+        response.json.return_value = {"message": {"content": content}}
+        response.raise_for_status = MagicMock()
+        return response
+
+    def _ask_ollama(self):
+        return _execute_ollama_structured_output(
+            model_id="llama3.1:8b",
+            message="extract",
+            output_format=_FallbackModel,
+            base_url="http://localhost:11434",
+            max_tokens=256,
+        )
+
+    @patch("httpx.post")
+    def test_a_reply_that_does_not_parse_is_asked_for_once_more(self, mock_post):
+        mock_post.side_effect = [
+            self._ollama_reply("not json"),
+            self._ollama_reply('{"name": "z", "count": 7}'),
+        ]
+        assert self._ask_ollama() == _FallbackModel(name="z", count=7)
+        assert mock_post.call_count == 2
+
+    @patch("httpx.post")
+    def test_the_second_bad_reply_is_the_failure(self, mock_post):
+        mock_post.side_effect = [self._ollama_reply("not json"), self._ollama_reply("still not")]
+        with pytest.raises(ValueError, match="^Failed to parse structured output from Ollama: "):
+            self._ask_ollama()
+        assert mock_post.call_count == 2
+
+    @patch("httpx.post")
+    def test_an_http_error_is_not_asked_again(self, mock_post):
+        import httpx
+
+        response = MagicMock()
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "500 Server Error",
+            request=httpx.Request("POST", "http://localhost:11434/api/chat"),
+            response=httpx.Response(500),
+        )
+        mock_post.return_value = response
+        with pytest.raises(httpx.HTTPStatusError):
+            self._ask_ollama()
+        assert mock_post.call_count == 1
 
 
 class TestStructuredOutputCapabilityFlag:
