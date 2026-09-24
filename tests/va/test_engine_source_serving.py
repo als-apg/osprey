@@ -166,17 +166,17 @@ class FakeDriver:
         self.fail_on = fail_on
         self.calls: list[tuple[str, str, Any]] = []
 
-    def setParam(self, reason: str, value: Any) -> None:  # noqa: N802 - driver contract
+    def setParam(self, reason: str, value: Any) -> None:  # driver contract
         self.calls.append(("setParam", reason, value))
         if reason in self.fail_on:
             raise RuntimeError(f"driver refuses {reason!r}")
         self.values[reason] = value
 
-    def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
+    def getParam(self, reason: str) -> Any:  # driver contract
         self.calls.append(("getParam", reason, None))
         return self.values[reason]
 
-    def updatePV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def updatePV(self, reason: str) -> None:  # driver contract
         self.calls.append(("updatePV", reason, None))
 
     def posted(self) -> list[str]:
@@ -247,7 +247,7 @@ def _source(
 
 
 @pytest.fixture()
-def source(engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001, ARG001 - the driver is attached to the serving records before the source is built over them
+def source(engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ARG001 - the driver is attached to the serving records before the source is built over them
     return _source(engine, serving, data_dir, state_dir)
 
 
@@ -420,7 +420,7 @@ class TestSetpointEchoSyncReadsThroughTheDriver:
     expression channel would never move."""
 
     @pytest.fixture()
-    def echo_source(self, engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001, ARG002 - the driver is attached to the serving records before the source is built over them
+    def echo_source(self, engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ARG002 - the driver is attached to the serving records before the source is built over them
         return _source(engine, serving, data_dir, state_dir, echo=True)
 
     def test_baseline_expression_reflects_the_boot_setpoint(
@@ -488,7 +488,7 @@ class TestOneRecordNeverKillsTheLoop:
         return drv
 
     @pytest.fixture()
-    def broken_source(self, engine, serving, data_dir, state_dir, broken) -> EngineSource:  # noqa: ANN001, ARG002 - the raising driver is attached to the serving records before the source is built over them
+    def broken_source(self, engine, serving, data_dir, state_dir, broken) -> EngineSource:  # noqa: ARG002 - the raising driver is attached to the serving records before the source is built over them
         return _source(engine, serving, data_dir, state_dir)
 
     @pytest.mark.usefixtures("broken")
@@ -526,7 +526,7 @@ class TestOneRecordNeverKillsTheLoop:
         self, engine, serving: ServingRecords, data_dir: Path, state_dir: Path
     ) -> None:
         class ExplodingReadDriver(FakeDriver):
-            def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
+            def getParam(self, reason: str) -> Any:  # driver contract
                 raise RuntimeError(f"driver read failed for {reason!r}")
 
         drv = ExplodingReadDriver({a: s["value"] for a, s in serving.pvdb.items()})

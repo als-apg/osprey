@@ -237,7 +237,7 @@ class TestIngestionScheduler:
 
         async def _fetch_error(**kwargs):
             raise ConnectionError("API unreachable")
-            yield  # make it a generator  # noqa: E501
+            yield  # make it a generator
 
         adapter.fetch_entries = _fetch_error
 
@@ -302,7 +302,7 @@ class TestIngestionScheduler:
         async def _fetch(since=None, until=None, limit=None):  # noqa: ARG001 - the ingestion adapter fetch_entries signature
             fetch_calls.append(since)
             return
-            yield  # make it a generator  # noqa: E501
+            yield  # make it a generator
 
         adapter.fetch_entries = _fetch
 

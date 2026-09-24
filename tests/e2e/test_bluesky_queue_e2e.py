@@ -361,11 +361,11 @@ def _request(
         headers[_LAUNCH_TOKEN_HEADER] = token
     if extra_headers:
         headers.update(extra_headers)
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{base}{path}", data=data, method=method, headers=headers
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
             try:
                 return resp.status, json.loads(raw.decode("utf-8"))
@@ -449,9 +449,9 @@ def _raw_get(path: str, timeout: float = 60.0) -> tuple[int, dict[str, str], byt
     parsed message object provides. Lowercasing here keeps one spelling for
     callers instead of pinning whichever case the server happened to use.
     """
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310 - localhost
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # localhost
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, {k.lower(): v for k, v in exc.headers.items()}, exc.read()
@@ -462,7 +462,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=5.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -772,7 +772,7 @@ def _drain_leftover_queue_items() -> None:
     leftovers = queue["items"]
     if not leftovers:
         return
-    print(  # noqa: T201 - surface inherited state in the run log
+    print(  # surface inherited state in the run log
         f"[fixture] draining {len(leftovers)} queue item(s) left by an earlier run "
         f"(the Redis volume outlives `osprey down`)"
     )
@@ -935,7 +935,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own so a
@@ -1327,7 +1327,7 @@ class _RecordingBridgeHop(http.server.ThreadingHTTPServer):
 class _BridgeHopHandler(http.server.BaseHTTPRequestHandler):
     """Relay one POST to the bridge and answer with the bridge's own reply."""
 
-    def do_POST(self) -> None:  # noqa: N802 - the stdlib handler's own spelling
+    def do_POST(self) -> None:  # the stdlib handler's own spelling
         hop = self.server
         assert isinstance(hop, _RecordingBridgeHop)
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
@@ -1343,11 +1343,11 @@ class _BridgeHopHandler(http.server.BaseHTTPRequestHandler):
         }
         hop.relayed.append(_WireRequest(path=self.path, headers=forwarded, raw=raw))
 
-        request = urllib.request.Request(  # noqa: S310 - localhost only
+        request = urllib.request.Request(  # localhost only
             f"{BRIDGE_URL}{self.path}", data=raw, method="POST", headers=forwarded
         )
         try:
-            with urllib.request.urlopen(request, timeout=60.0) as resp:  # noqa: S310
+            with urllib.request.urlopen(request, timeout=60.0) as resp:
                 status, payload = resp.status, resp.read()
         except urllib.error.HTTPError as exc:
             # A refusal is the ordinary answer here, not an error to raise:

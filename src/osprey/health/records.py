@@ -127,7 +127,7 @@ def _load_config_result(
             None,
             False,
         )
-    except Exception as exc:  # noqa: BLE001 - bad YAML / non-mapping / is-a-directory
+    except Exception as exc:  # bad YAML / non-mapping / is-a-directory
         state = ConfigState(
             config_path, exists=True, cwd=project_path, config=None, yaml_error=str(exc)
         )

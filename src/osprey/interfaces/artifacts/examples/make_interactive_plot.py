@@ -22,7 +22,7 @@ from pathlib import Path
 OUTPUT = Path(__file__).with_name("interactive-plot.html")
 
 
-def build_figure():  # noqa: ANN201 — plotly is a dev-only import here
+def build_figure():  # plotly is a dev-only import here
     import numpy as np
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots

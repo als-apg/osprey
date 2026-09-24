@@ -282,7 +282,7 @@ def start_or_fail(
         try:
             container.start()  # type: ignore[attr-defined]
             return container, int(container.get_exposed_port(port))  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001 — every start failure is retried alike
+        except Exception as exc:  # every start failure is retried alike
             stop_quietly(container)
             failures.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
             logger.warning("%s: start attempt %d failed (%s)", label, attempt, exc)
@@ -430,7 +430,7 @@ def wait_until_ready(
         attempts += 1
         try:
             probe()
-        except Exception as exc:  # noqa: BLE001 — any failure means "not ready yet"
+        except Exception as exc:  # any failure means "not ready yet"
             last = exc
             only_refusals = only_refusals and _is_refused_connection(exc)
         else:
@@ -501,7 +501,7 @@ def _container_liveness(container: object) -> tuple[str | None, bytes | None]:
         wrapped.reload()
         status = str(wrapped.status)
         tail = wrapped.logs(tail=_PROGRESS_TAIL_LINES)
-    except Exception as exc:  # noqa: BLE001 — an unreadable container is not a verdict
+    except Exception as exc:  # an unreadable container is not a verdict
         logger.debug("could not read container state: %s", exc)
         return None, None
     return status, tail if isinstance(tail, bytes) else b""
@@ -515,7 +515,7 @@ def _container_exit_detail(container: object) -> str:
         code = state.get("ExitCode")
         error = str(state.get("Error") or "").strip()
         tail = wrapped.logs(tail=20).decode("utf-8", "replace").strip()
-    except Exception as exc:  # noqa: BLE001 — diagnosis is best-effort
+    except Exception as exc:  # diagnosis is best-effort
         logger.debug("could not read container exit detail: %s", exc)
         return ""
     detail = f"\nexit code: {code}"

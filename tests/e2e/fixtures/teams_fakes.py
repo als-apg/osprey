@@ -167,7 +167,7 @@ class TokenRequest:
 class _TokenHandler(_FakeHandler):
     fake: ClassVar[FakeTokenServer]
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
+    def do_POST(self) -> None:  # http.server API
         path, _ = self.split_path()
         match = _TOKEN_ROUTE.match(path)
         if match is None:
@@ -188,7 +188,7 @@ class _TokenHandler(_FakeHandler):
             },
         )
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:  # http.server API
         path, _ = self.split_path()
         self._aad_error(405, "invalid_request", f"the token route is POST-only: GET {path}")
 
@@ -340,7 +340,7 @@ class PostedActivity:
 class _ConnectorHandler(_FakeHandler):
     fake: ClassVar[FakeConnectorServer]
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
+    def do_POST(self) -> None:  # http.server API
         path, _ = self.split_path()
         match = _ACTIVITY_ROUTE.match(path)
         if match is None:
@@ -361,7 +361,7 @@ class _ConnectorHandler(_FakeHandler):
             self.fake.reject_message,
         )
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:  # http.server API
         path, params = self.split_path()
         match = _MEMBERS_ROUTE.match(path)
         if match is None:

@@ -78,11 +78,11 @@ def _create_linux_backend() -> ScreenCaptureBackend:
 
     missing: list[str] = []
     try:
-        import mss  # noqa: F401
+        import mss
     except ImportError:
         missing.append("mss")
     try:
-        import Xlib  # noqa: F401
+        import Xlib
     except ImportError:
         missing.append("python-xlib")
 

@@ -48,7 +48,7 @@ class ProbeDriver(Driver):
         self._telem = 0.0
         threading.Thread(target=self._telemetry_loop, daemon=True).start()
 
-    def write(self, reason, value):  # noqa: D102 - pcaspy Driver contract
+    def write(self, reason, value):  # pcaspy Driver contract
         if reason == "ASYNC:SP":
             # Deliberately do NOT commit here. The value lands, and completion
             # is signalled, only from the delayed worker below -- the same

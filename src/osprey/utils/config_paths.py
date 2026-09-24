@@ -74,7 +74,7 @@ def resolve_config_dir() -> Path | None:
         from osprey.utils.workspace import resolve_config_path
 
         return Path(resolve_config_path()).parent
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 

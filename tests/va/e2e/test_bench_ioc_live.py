@@ -465,7 +465,7 @@ def written_config(tmp_path):
 
 
 @pytest.fixture
-def deployment(bench_endpoint, va_endpoint, limits_database) -> dict[str, Any]:  # noqa: F811
+def deployment(bench_endpoint, va_endpoint, limits_database) -> dict[str, Any]:
     """This module's deployment, pointed at the two containers it booted."""
     return raw_config(
         bench_port=bench_endpoint.port, va_port=va_endpoint, limits_db=limits_database

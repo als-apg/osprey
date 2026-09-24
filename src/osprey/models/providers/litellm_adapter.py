@@ -39,18 +39,18 @@ from typing import TYPE_CHECKING, Any
 # operator who set LITELLM_MODE explicitly keeps their value.
 os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
 
-import litellm  # noqa: E402  (must follow the LITELLM_MODE setdefault above)
-from pydantic import BaseModel, ValidationError  # noqa: E402
+import litellm  # must follow the LITELLM_MODE setdefault above
+from pydantic import BaseModel, ValidationError
 
-from osprey.models.spend_attribution import (  # noqa: E402
+from osprey.models.spend_attribution import (
     LITELLM_GATEWAY,
     TAGS_HEADER,
     attribution_tags,
 )
-from osprey.utils.identity import acting_identity  # noqa: E402
-from osprey.utils.logger import get_logger  # noqa: E402
+from osprey.utils.identity import acting_identity
+from osprey.utils.logger import get_logger
 
-from .base import KEYLESS_API_KEY_PLACEHOLDER  # noqa: E402
+from .base import KEYLESS_API_KEY_PLACEHOLDER
 
 if TYPE_CHECKING:
     from .base import BaseProvider
@@ -156,7 +156,7 @@ def _provider_gateway(provider: str) -> str | None:
 
     try:
         provider_class = get_provider_registry().get_provider(provider)
-    except Exception:  # noqa: BLE001 — unknown provider: attribute nothing
+    except Exception:  # unknown provider: attribute nothing
         return None
     return getattr(provider_class, "gateway", None)
 

@@ -115,7 +115,7 @@ class TextEmbeddingMigration(BaseMigration):
                     created_at      TIMESTAMPTZ DEFAULT NOW(),
                     UNIQUE(entry_id)
                 )
-                """  # noqa: S608
+                """
             )
 
             await conn.execute(create_vector_index_sql(table_name))
@@ -125,6 +125,6 @@ class TextEmbeddingMigration(BaseMigration):
         models = self._get_models()
         for model_name, _dimension in models:
             table_name = model_to_table_name(model_name)
-            await conn.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")  # noqa: S608
+            await conn.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
 
         # Note: We don't drop the vector extension as other things may use it

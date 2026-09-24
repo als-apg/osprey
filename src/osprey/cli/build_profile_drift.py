@@ -527,7 +527,7 @@ class _Lines:
         self.path = path
         try:
             self.root: Any = YAML(typ="rt").load(path.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001 — an unreadable file simply has no lines to cite
+        except Exception:  # an unreadable file simply has no lines to cite
             self.root = None
 
     def line(self, path: tuple[str, ...]) -> int | None:

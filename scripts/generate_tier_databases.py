@@ -35,7 +35,7 @@ from pathlib import Path
 # Add scripts/ to path for the sibling shared-helper import under direct execution.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _tier_db_common import (  # noqa: E402
+from _tier_db_common import (
     PRESET_TIERS_DIR,
     collect_tier_queries,
     regenerate_tier_databases,

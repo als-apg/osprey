@@ -14,7 +14,7 @@ def _exec_data_reader(data_source: str) -> object:
 
     code = build_data_reader(data_source)
     ns = {"pd": pd}
-    exec(code, ns)  # noqa: S102
+    exec(code, ns)
     return ns["data"]
 
 

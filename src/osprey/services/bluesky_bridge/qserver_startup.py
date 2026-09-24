@@ -573,7 +573,7 @@ def _json_safe(value: Any) -> Any:
     if callable(unwrap):
         try:
             value = unwrap()
-        except Exception:  # noqa: BLE001 - a non-scalar `.item()`; fall through to repr
+        except Exception:  # a non-scalar `.item()`; fall through to repr
             pass
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -676,7 +676,7 @@ def preview_plan_in_namespace(
     try:
         plan = plan_function(**dict(kwargs or {}))
         moves, total = collect_channel_moves(plan, cap=cap)
-    except Exception as exc:  # noqa: BLE001 - every failure is reported, never raised
+    except Exception as exc:  # every failure is reported, never raised
         result["ok"] = False
         result["error"] = f"{type(exc).__name__}: {exc}"[:PREVIEW_ERROR_CHARS]
         logger.info(

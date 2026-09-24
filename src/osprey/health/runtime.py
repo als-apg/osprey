@@ -270,7 +270,7 @@ class HealthRuntime:
             from osprey.mcp_server.control_system.target_banner import baseline_pinned_line
 
             line = baseline_pinned_line(HEALTH_SUBJECT)
-        except Exception:  # noqa: BLE001 - a label can never cost a health run
+        except Exception:  # a label can never cost a health run
             logger.debug("Could not resolve the baseline-pinned row (ignored)", exc_info=True)
             return None
         if line is None:

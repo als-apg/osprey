@@ -64,7 +64,7 @@ def _run_reader_in_sandbox(data_source: str, tmp_path: Path) -> dict:
         + "    'values': data.tolist(),\n"
         + "}))\n"
     )
-    proc = subprocess.run(  # noqa: S603
+    proc = subprocess.run(
         [sys.executable, str(script)],
         capture_output=True,
         text=True,
@@ -161,7 +161,7 @@ class TestNpyReaderRoundTrip:
         namespace: dict = {}
 
         with pytest.raises(FileNotFoundError):
-            exec(code, namespace)  # noqa: S102
+            exec(code, namespace)
 
 
 class TestNpyReaderSandboxSafety:
@@ -188,7 +188,7 @@ class TestExistingBranchesUnchanged:
         fp.write_text("a,b\n1,2\n3,4\n")
 
         namespace: dict = {"pd": pd}
-        exec(build_data_reader(str(fp)), namespace)  # noqa: S102
+        exec(build_data_reader(str(fp)), namespace)
 
         data = namespace["data"]
         assert isinstance(data, pd.DataFrame)

@@ -205,8 +205,8 @@ def compile_to_json(yaml_path: Path, json_path: Path) -> OntologyMap:
         OntologyMapError: The described table does not validate.
         OSError: The JSON file could not be written; it is left untouched.
     """
-    from osprey.cli.knowledge_cmd import _replace_file  # noqa: PLC0415
-    from osprey.services.facility_knowledge.ontology_compiler import (  # noqa: PLC0415
+    from osprey.cli.knowledge_cmd import _replace_file
+    from osprey.services.facility_knowledge.ontology_compiler import (
         compile_schema,
         render_json,
     )

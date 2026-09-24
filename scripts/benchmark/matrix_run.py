@@ -174,7 +174,7 @@ def main() -> int:
         result["ok"] = result["tool_called"] and result["result_relayed"]
     except TimeoutError:
         result["error"] = "timeout"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
     result["latency_s"] = round(time.monotonic() - t0, 1)
 

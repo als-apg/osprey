@@ -197,7 +197,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_repo_root  # noqa: E402
+from osprey_hook_log import get_repo_root
 
 # The framework DEFAULT agent-data root, imported rather than spelled out here so
 # the two cannot drift apart. The fallback covers the ordinary case — a hook

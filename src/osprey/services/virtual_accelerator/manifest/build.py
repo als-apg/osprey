@@ -247,7 +247,7 @@ def _paradigm_addresses(paths: ManifestPaths) -> ParadigmExpansion:
     for name in paths.staged_paradigms:
         try:
             expansion = loader_by_paradigm[name]()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning(
                 "The tier-%d %s channel database at %s is present and could not be read "
                 "(%s: %s), so it contributes no channels to the manifest.",

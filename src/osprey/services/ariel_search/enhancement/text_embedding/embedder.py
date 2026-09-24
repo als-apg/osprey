@@ -222,7 +222,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
             ON CONFLICT (entry_id) DO UPDATE SET
                 embedding = EXCLUDED.embedding,
                 created_at = NOW()
-            """,  # noqa: S608
+            """,
             [entry_id, embedding],
         )
 

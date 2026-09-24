@@ -244,7 +244,7 @@ def test_a_launch_token_does_not_buy_a_retired_route_back(
 ) -> None:
     """These routes are gone for everyone. Holding the token that used to arm
     them changes nothing — there is no in-process execution left to arm."""
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "s3cr3t")  # noqa: S105 - test fixture value
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "s3cr3t")  # test fixture value
     client, _ = bridge()
     with client:
         resp = getattr(client, method)(path, json={}, headers={"X-Launch-Token": "s3cr3t"})

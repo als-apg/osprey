@@ -326,7 +326,7 @@ def vocabulary_status(config_dict: dict, config_dir: Path | None = None) -> dict
         # block: it carries the loader's errors AND "enabled without a path".
         # The prefix filter keeps unrelated config errors out of this one line.
         errors = [error for error in config.validate() if error.startswith("ariel.vocabulary")]
-    except Exception as exc:  # noqa: BLE001 - any parse failure is reportable here
+    except Exception as exc:  # any parse failure is reportable here
         return {"status": "invalid", "concepts": 0, "errors": [str(exc)]}
 
     if errors:
@@ -795,7 +795,7 @@ async def run_watch(
                     limit=1000,
                     progress=progress,
                 )
-            except Exception as e:  # noqa: BLE001 -- cleanup is not an ingestion failure.
+            except Exception as e:  # cleanup is not an ingestion failure.
                 get_logger("ariel").warning(f"Enhance cleanup failed, continuing: {e}")
             return result
 
@@ -846,7 +846,7 @@ async def run_sync_watch(
     async def _sync_then_watch() -> StopReason | None:
         try:
             await run_sync(config_dict, progress=progress)
-        except Exception as e:  # noqa: BLE001 -- the loop's backoff owns the retries.
+        except Exception as e:  # the loop's backoff owns the retries.
             failure = f"{type(e).__name__}: {e}"
             get_logger("ariel").warning(f"Initial sync failed, watching anyway: {failure}")
             if progress:
@@ -1308,7 +1308,7 @@ async def resync_qmd_mirror_best_effort(
 
     try:
         result = await run_qmd_resync(config_dict)
-    except Exception as e:  # noqa: BLE001 -- a mirror problem must not stop ingestion.
+    except Exception as e:  # a mirror problem must not stop ingestion.
         get_logger("ariel").warning(f"qmd mirror resync failed, continuing: {e}")
         return None
 
@@ -1561,7 +1561,7 @@ async def run_reembed(
                 for entry_id, raw_text in rows:
                     if not force:
                         await cur.execute(
-                            f"SELECT 1 FROM {table_name} WHERE entry_id = %s",  # noqa: S608
+                            f"SELECT 1 FROM {table_name} WHERE entry_id = %s",
                             (entry_id,),
                         )
                         if await cur.fetchone():
@@ -1636,7 +1636,7 @@ async def _embed_batch(
                 INSERT INTO {table_name} (entry_id, embedding)
                 VALUES (%s, %s)
                 {conflict_clause}
-                """,  # noqa: S608
+                """,
                 (eid, emb),
             )
         if progress:
@@ -1824,7 +1824,7 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
                     """)
                     embedding_tables = [r[0] for r in await cur.fetchall()]
                     for table in embedding_tables:
-                        await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")  # noqa: S608
+                        await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
                         if progress:
                             progress(f"  Dropped {table}")
                     await _unrecord_embedding_migration(cur)
@@ -1839,7 +1839,7 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
                     """)
                     embedding_tables = [r[0] for r in await cur.fetchall()]
                     for table in embedding_tables:
-                        await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")  # noqa: S608
+                        await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
                     await _unrecord_embedding_migration(cur)
                     if progress:
                         progress("\n✓ All ARIEL data purged.")

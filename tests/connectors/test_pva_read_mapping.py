@@ -75,7 +75,7 @@ class FakeValue:
             for key, value in fields.items()
         }
 
-    def getID(self) -> str:  # noqa: N802 - p4p's spelling
+    def getID(self) -> str:  # p4p's spelling
         return self._type_id
 
     def get(self, name, default=None):

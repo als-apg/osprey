@@ -302,7 +302,7 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # ``osprey down`` keeps volumes; drop this project's own (legacy name
@@ -348,7 +348,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -396,14 +396,14 @@ def _auth_header_from_resolver(user: str = OO_EMAIL, password: str = OO_PASSWORD
 
 
 def _otlp_post(path: str, payload: dict, auth: str) -> tuple[int, str]:
-    req = urllib.request.Request(  # noqa: S310 - localhost
+    req = urllib.request.Request(  # localhost
         f"{OO_BASE_URL}{path}",
         data=json.dumps(payload).encode(),
         method="POST",
         headers={"Content-Type": "application/json", "Authorization": auth},
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             return resp.status, resp.read().decode()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode()
@@ -411,14 +411,14 @@ def _otlp_post(path: str, payload: dict, auth: str) -> tuple[int, str]:
 
 def _query(path: str, payload: dict | None, auth: str, method: str = "POST") -> tuple[int, dict]:
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(  # noqa: S310 - localhost
+    req = urllib.request.Request(  # localhost
         f"{OO_BASE_URL}{path}",
         data=data,
         method=method,
         headers={"Content-Type": "application/json", "Authorization": auth},
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
         # Error bodies are not reliably JSON (e.g. a bare "Unauthorized Access"

@@ -618,7 +618,7 @@ def _launch_posture(target: str | None) -> str:
     """
     try:
         permitted = posture_store.store_permits(target)
-    except Exception:  # noqa: BLE001 - an unreadable store must not grant writes
+    except Exception:  # an unreadable store must not grant writes
         logger.warning(
             "Could not resolve the session write posture for target %r; "
             "the run is launched sandboxed",

@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.errors import ConfigurationError, RegistryError  # noqa: F401 (re-exported)
+from osprey.errors import ConfigurationError, RegistryError  # re-exported
 from osprey.utils.config import get_agent_dir, get_config_value
 from osprey.utils.logger import get_logger
 

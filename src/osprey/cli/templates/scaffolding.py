@@ -142,7 +142,7 @@ def provider_base_url_entries() -> list[dict[str, str]]:
         # problem — the registry reports that where it is actionable.
         try:
             cls = registry.get_provider(provider)
-        except Exception:  # noqa: BLE001 - see comment above
+        except Exception:  # see comment above
             continue
         if cls is None:
             continue

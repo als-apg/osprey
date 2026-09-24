@@ -541,7 +541,7 @@ def _fetch_artifacts(artifact_port: int) -> list[dict]:
     """Return the artifact-server's current artifact list ([] on any error)."""
     url = f"http://127.0.0.1:{artifact_port}/api/artifacts"
     try:
-        with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 (loopback only)
+        with urllib.request.urlopen(url, timeout=5.0) as resp:  # loopback only
             return json.loads(resp.read().decode()).get("artifacts", [])
     except (urllib.error.URLError, json.JSONDecodeError, OSError):
         return []

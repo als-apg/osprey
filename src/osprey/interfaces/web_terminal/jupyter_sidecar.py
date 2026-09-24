@@ -499,7 +499,7 @@ class JupyterSidecar:
             )
         try:
             example_channel = starter_read_channel(_deployment_config())
-        except Exception:  # noqa: BLE001 — the read line is cosmetic, the panel is not
+        except Exception:  # the read line is cosmetic, the panel is not
             logger.debug("Starter notebook: config load failed", exc_info=True)
             example_channel = None
         seed_starter_notebook(self.notebooks_dir, example_channel)

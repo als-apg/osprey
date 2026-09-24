@@ -409,12 +409,12 @@ def registered_ariel_names(attribute: str) -> list[str]:
         names = [registration.name for registration in getattr(get_registry().config, attribute)]
         if names:
             return names
-    except Exception:  # noqa: BLE001 — the caller's own job matters more than the list
+    except Exception:  # the caller's own job matters more than the list
         pass
 
     try:
         return framework_ariel_names(attribute)
-    except Exception:  # noqa: BLE001 — same
+    except Exception:  # same
         return []
 
 

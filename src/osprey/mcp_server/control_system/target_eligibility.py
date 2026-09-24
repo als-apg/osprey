@@ -1197,7 +1197,7 @@ def _notebook_client(kernel_id: str, kernel_name: KernelNameResolver | None) -> 
     if kernel_name is not None:
         try:
             notebook = kernel_name(kernel_id)
-        except Exception:  # noqa: BLE001 — naming a client never fails a refusal
+        except Exception:  # naming a client never fails a refusal
             notebook = None
         if isinstance(notebook, str) and notebook.strip():
             return f"notebook {notebook.strip()}"

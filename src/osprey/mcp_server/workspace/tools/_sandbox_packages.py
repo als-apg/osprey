@@ -65,7 +65,7 @@ def describe_sandbox_packages() -> str:
         from osprey.mcp_server.workspace.execution.sandbox_executor import _ALLOWED_TOP_LEVEL
 
         importable = sorted(_ALLOWED_TOP_LEVEL & set(packages_distributions()))
-    except Exception:  # noqa: BLE001 - description generation must never break startup
+    except Exception:  # description generation must never break startup
         logger.warning(
             "Could not enumerate the visualization sandbox environment; "
             "tool description will not name packages",

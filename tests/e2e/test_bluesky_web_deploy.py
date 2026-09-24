@@ -222,7 +222,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -242,14 +242,14 @@ def _request(
     data = json.dumps(body).encode("utf-8") if body is not None else None
     all_headers = {"Content-Type": "application/json"} if data is not None else {}
     all_headers.update(headers or {})
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{base}{path}",
         data=data,
         method=method,
         headers=all_headers,
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             raw = resp.read()
             try:
                 return resp.status, json.loads(raw.decode("utf-8"))
@@ -280,22 +280,18 @@ def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> t
     headers = {"Content-Type": "application/json"}
     if token:
         headers["X-Launch-Token"] = token
-    req = urllib.request.Request(  # noqa: S310
-        f"{BRIDGE_URL}{path}", data=data, method="POST", headers=headers
-    )
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method="POST", headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
 def _get_html(path: str) -> tuple[int, str]:
-    req = urllib.request.Request(  # noqa: S310
-        f"{BLUESKY_WEB_URL}{path}", method="GET", headers=_auth_headers()
-    )
+    req = urllib.request.Request(f"{BLUESKY_WEB_URL}{path}", method="GET", headers=_auth_headers())
     try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             return resp.status, resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", errors="replace")
@@ -545,7 +541,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own so a

@@ -3304,11 +3304,11 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         try:
             down = _run([str(osprey_bin), "down"], cwd=repo, timeout=DOWN_TIMEOUT_SEC)
             if down.returncode != 0:
-                print(  # noqa: T201 - surface teardown issues in CI logs
+                print(  # surface teardown issues in CI logs
                     f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
                 )
         except (OSError, subprocess.SubprocessError) as exc:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down could not complete ({type(exc).__name__}: {exc}) -- "
                 f"containers of project {PROJECT_NAME!r} may still be running"
             )

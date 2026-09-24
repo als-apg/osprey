@@ -67,14 +67,14 @@ from osprey_connectors.posture_store import (
 pytest.importorskip("bluesky")
 pytest.importorskip("ophyd_async")
 
-from bluesky import RunEngine  # noqa: E402
-from bluesky import plan_stubs as bps  # noqa: E402
-from bluesky.utils import FailedStatus  # noqa: E402
-from ophyd.status import StatusBase  # noqa: E402
+from bluesky import RunEngine
+from bluesky import plan_stubs as bps
+from bluesky.utils import FailedStatus
+from ophyd.status import StatusBase
 
-from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable  # noqa: E402
-from osprey.services.bluesky_bridge.plan_fields import MovableChannel  # noqa: E402
-from tests.services.bluesky_bridge.test_connector_devices import FakeConnector  # noqa: E402
+from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+from tests.services.bluesky_bridge.test_connector_devices import FakeConnector
 
 _OWNER = "alice"
 _PLAN_NAME = "stub_plan"

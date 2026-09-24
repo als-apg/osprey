@@ -98,7 +98,7 @@ def _provider_block(provider_name: str, config: Mapping[str, Any] | None) -> Map
         return block if isinstance(block, Mapping) else {}
     try:
         block = get_config_value(f"api.providers.{provider_name}", {})
-    except Exception:  # noqa: BLE001 - config unavailability degrades to no block
+    except Exception:  # config unavailability degrades to no block
         return {}
     return block if isinstance(block, Mapping) else {}
 
@@ -210,7 +210,7 @@ async def run(
             latency_ms=latency_ms,
             probed=probed,
         )
-    except Exception as exc:  # noqa: BLE001 - an unreachable provider is a warning, never error
+    except Exception as exc:  # an unreachable provider is a warning, never error
         latency_ms = (perf_counter() - t0) * 1000.0
         return CheckResult(
             result_name,

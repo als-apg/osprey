@@ -904,7 +904,7 @@ def emit_cmd(duckdb_path: str | None, repo: Path | None) -> None:
         try:
             duck.parent.mkdir(parents=True, exist_ok=True)
             import_to_duckdb(str(db_path), str(duck))
-        except Exception as exc:  # noqa: BLE001 - duckdb raises its own hierarchy
+        except Exception as exc:  # duckdb raises its own hierarchy
             raise click.ClickException(
                 f"Cannot import {db_path} into {duck} ({exc}); "
                 "check the path is writable and emit again."

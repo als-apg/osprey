@@ -1058,7 +1058,7 @@ def load_as_built_config(repo_root: Path) -> dict | None:
         from osprey.utils.config import load_project_config
 
         return load_project_config(str(config_path), wrap_errors=True) or None
-    except Exception:  # noqa: BLE001 - an unreadable build must not block a reset
+    except Exception:  # an unreadable build must not block a reset
         return None
 
 
@@ -1133,7 +1133,7 @@ def _as_built_config(repo_root: Path) -> dict:
         from osprey.utils.config import ConfigBuilder
 
         return ConfigBuilder(str(config_path)).raw_config or {}
-    except Exception as exc:  # noqa: BLE001 - an unreadable build must not block a reset
+    except Exception as exc:  # an unreadable build must not block a reset
         logger.warning(
             "Could not read this deployment's rendered config from %s (%s). Reset will "
             "fall back to the image names derivable from the project name alone.",
@@ -1214,7 +1214,7 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
             auth_tag = auth_sidecar_local_tag(config)
             if auth_tag not in tags:
                 tags.append(auth_tag)
-    except Exception as exc:  # noqa: BLE001 - a bad roster must not block a reset
+    except Exception as exc:  # a bad roster must not block a reset
         logger.warning(
             "Could not resolve this deployment's web-terminal image tags from %s (%s). "
             "Reset will remove the project image only; any persona image is left in "
@@ -1894,7 +1894,7 @@ def runtime_selection_config(repo_root: Path) -> dict | None:
         from osprey.utils.config import load_project_config
 
         return load_project_config(str(config_path), wrap_errors=True)
-    except Exception:  # noqa: BLE001 - runtime selection falls back to detection
+    except Exception:  # runtime selection falls back to detection
         return None
 
 

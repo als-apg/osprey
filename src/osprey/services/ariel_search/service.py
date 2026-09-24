@@ -923,7 +923,7 @@ async def _open_readonly_pool(config: ARIELConfig) -> AsyncConnectionPool | None
     else:
         try:
             return await create_connection_pool(config.database, uri=readonly_uri, max_size=3)
-        except Exception as exc:  # noqa: BLE001 -- any failure to open falls back
+        except Exception as exc:  # any failure to open falls back
             reason = f"{type(exc).__name__}: {exc}"
 
     logger.warning(

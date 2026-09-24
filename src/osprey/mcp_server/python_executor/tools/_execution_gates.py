@@ -294,7 +294,7 @@ def _enforce_recorded_posture_term(target: str | None) -> None:
         from osprey_connectors.posture_store import store_permits
 
         permitted = store_permits(target)
-    except Exception:  # noqa: BLE001 - the store degrades; the run does not fail here
+    except Exception:  # the store degrades; the run does not fail here
         logger.warning(
             "Recorded write posture unavailable — skipping the record writes check",
             exc_info=True,
@@ -364,7 +364,7 @@ def _record_posture_clamp(tool: str) -> None:
             subject=_tool_subject(tool),
             detail=f"tool={tool}",
         )
-    except Exception:  # noqa: BLE001 - the audit trail degrades; the refusal does not
+    except Exception:  # the audit trail degrades; the refusal does not
         logger.warning("Could not record the posture refusal", exc_info=True)
 
 
@@ -489,7 +489,7 @@ def _record_write_refusal(
             source=code,
             detail=_refusal_detail(tool, execution_mode, trigger, description),
         )
-    except Exception:  # noqa: BLE001 - the audit trail degrades; the refusal does not
+    except Exception:  # the audit trail degrades; the refusal does not
         logger.warning("Could not record the refusal for audit", exc_info=True)
 
 

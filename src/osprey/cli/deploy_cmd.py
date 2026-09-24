@@ -108,7 +108,7 @@ def _failure_cause(exc: BaseException, repo_root: Path) -> str:
     if config_path.is_file():
         try:
             config = load_project_config(str(config_path), wrap_errors=True)
-        except Exception:  # noqa: BLE001 - runtime selection only; the failure stands
+        except Exception:  # runtime selection only; the failure stands
             config = None
     detail = captured_failure_detail(exc, config=config)
     return f"{exc}\n{detail}" if detail else str(exc)

@@ -439,7 +439,7 @@ async def _fetch_hits(
 
     try:
         return await run(rerank=True), ()
-    except Exception as exc:  # noqa: BLE001 - any reranker fault falls back
+    except Exception as exc:  # any reranker fault falls back
         # The client already proved /health answers at resolve time, so a
         # failure here is the reranker itself: the model is still loading
         # after a sidecar restart and the query outran the timeout, or the

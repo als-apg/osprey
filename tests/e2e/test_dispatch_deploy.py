@@ -686,7 +686,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # images.
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         for user in (READONLY_USER, READWRITE_USER):
@@ -704,7 +704,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -763,14 +763,14 @@ def _wait_for_worker_feed(timeout: float) -> None:
     """
     deadline = time.monotonic() + timeout
     last = "(no response yet)"
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{DISPATCHER_URL}/dashboard/runs",
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
                 if resp.status == 200:
                     return
                 last = f"HTTP {resp.status}"
@@ -787,13 +787,13 @@ def _wait_for_worker_feed(timeout: float) -> None:
 
 def _fire(trigger: str, payload: dict) -> None:
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{DISPATCHER_URL}/webhook/{trigger}",
         data=body,
         method="POST",
         headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=15.0) as resp:
         assert resp.status == 202, f"{trigger}: expected 202 from webhook, got {resp.status}"
         fired = json.loads(resp.read().decode("utf-8"))
     assert fired.get("dispatched") is True, f"{trigger}: {fired}"
@@ -945,13 +945,13 @@ def _runs_by_trigger() -> dict[str, dict]:
     run with the trigger_name that produced it. It is a bearer-gated read endpoint,
     so the snapshot must send the same EVENT_DISPATCHER_TOKEN written to .env above.
     """
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{DISPATCHER_URL}/dashboard/runs",
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             runs = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         # A transient gateway error means the dispatcher momentarily could not

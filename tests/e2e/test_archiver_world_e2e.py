@@ -443,7 +443,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         )
         _discard_store_volume()
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
@@ -656,7 +656,7 @@ def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
     assert _SEED_PROGRESS_RE.search(output), (
         "seed emitted no progress lines; a silent multi-minute step reads as a hang"
     )
-    print(  # noqa: T201
+    print(
         f"\nMEASURED base seed: {elapsed_s:.1f}s of the {SEED_BUDGET_SEC:.0f}s budget "
         f"({documents:,} documents x {channels:,} channels)"
     )
@@ -691,7 +691,7 @@ def test_seeded_archive_fits_the_disk_budget_with_the_declared_compressor(archiv
         "the collection was not created with the compressor the compose template "
         f"declares; wiredTiger creationString reports: {block_compressor[:200]!r}"
     )
-    print(  # noqa: T201
+    print(
         f"\nMEASURED store size: {on_disk / 1024**3:.2f} GiB of the "
         f"{DISK_BUDGET_BYTES / 1024**3:.0f} GiB budget "
         f"({documents:,} documents, block_compressor=zstd)"
@@ -763,7 +763,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
         )
         seen = [float(v) for v in frame["value"]] if len(frame) else []
         if any(abs(value - target) < 1e-6 for value in seen):
-            print(  # noqa: T201
+            print(
                 f"\nMEASURED write->read: {time.monotonic() - started:.1f}s of the "
                 f"{RECORDER_BUDGET_SEC:.0f}s budget ({setpoint} = {target})"
             )
@@ -1007,7 +1007,7 @@ def test_applying_a_scenario_rewrites_windows_not_the_whole_archive(archiver_wor
         f"({after / before:.2f}x), past the {APPLY_GROWTH_RATIO}x a windowed rewrite "
         "should ever need -- this is the whole-archive densification signature"
     )
-    print(  # noqa: T201
+    print(
         f"\nMEASURED apply growth: {before:,} -> {after:,} documents "
         f"({after / before:.3f}x of the {APPLY_GROWTH_RATIO}x bound); "
         f"{result.archiver.uncovered} of {intended:,} grid points uncovered "
@@ -1179,7 +1179,7 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
         "the recorder announced it was recording again after control_system.type returned "
         f"to 'virtual_accelerator', but archived no sample in the {settle:.0f}s that followed"
     )
-    print(  # noqa: T201
+    print(
         f"\nMEASURED recorder flip: {idle_report}; recording announced {resumed:.0f}s "
         f"after the flip back, {after_resume} samples archived in the {settle:.0f}s after that"
     )

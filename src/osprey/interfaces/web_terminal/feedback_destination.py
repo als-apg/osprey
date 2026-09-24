@@ -452,7 +452,7 @@ def osprey_version() -> str:
         from osprey import __version__
 
         return str(__version__)
-    except Exception:  # noqa: BLE001 — a version lookup must not lose the report
+    except Exception:  # a version lookup must not lose the report
         logger.debug("could not read the OSPREY version", exc_info=True)
         return "unknown"
 

@@ -1296,7 +1296,7 @@ def _record_removal(action: str, owner: str | None, item: Any = None) -> None:
     """
     try:
         removal_log().append(action, owner, item)
-    except Exception as exc:  # noqa: BLE001 - a record must not fail the write
+    except Exception as exc:  # a record must not fail the write
         logger.warning("could not record a %s on the queue removal log: %s", action, exc)
 
 

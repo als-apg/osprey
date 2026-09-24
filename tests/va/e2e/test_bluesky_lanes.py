@@ -254,14 +254,14 @@ def _request(
     a status-code-only assertion passes while the refusal code drifts.
     """
     payload = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(  # noqa: S310 - loopback only
+    request = urllib.request.Request(  # loopback only
         f"{base}{path}",
         data=payload,
         method=method,
         headers={"Content-Type": "application/json"} if payload else {},
     )
     try:
-        with urllib.request.urlopen(  # noqa: S310 - loopback only
+        with urllib.request.urlopen(  # loopback only
             request, timeout=timeout or HTTP_TIMEOUT_S
         ) as response:
             return response.status, json.loads(response.read() or b"null")
@@ -279,7 +279,7 @@ def _wait_for_bridge(base: str, timeout: float) -> None:
     while time.monotonic() < deadline:
         try:
             status, body = _request(base, "/health", timeout=5.0)
-        except Exception as exc:  # noqa: BLE001 - any transport failure is "not up yet"
+        except Exception as exc:  # any transport failure is "not up yet"
             last = repr(exc)
         else:
             if status == 200:
@@ -640,7 +640,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
     finally:
         down = _run([str(_osprey_bin()), "down"], cwd=repo, timeout=DEPLOY_DOWN_TIMEOUT_S)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in the run log
+            print(  # surface teardown issues in the run log
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own, or a

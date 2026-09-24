@@ -198,7 +198,7 @@ def queue_autostart_configured() -> bool:
 
     try:
         section = get_config_value("bluesky", {})
-    except Exception:  # noqa: BLE001 - config trouble must not become an armed queue
+    except Exception:  # config trouble must not become an armed queue
         return False
     return isinstance(section, dict) and section.get("queue_autostart") is True
 

@@ -272,7 +272,7 @@ app = FastAPI(title="dispatch-worker", version="1.0.0", lifespan=_lifespan)
 
 
 @app.middleware("http")
-async def _limit_request_body(request: Request, call_next):  # noqa: ANN001, ANN202
+async def _limit_request_body(request: Request, call_next):
     """Reject an over-size request body (413) before the route reads it.
 
     Guards every route from the declared Content-Length; only /dispatch carries a
