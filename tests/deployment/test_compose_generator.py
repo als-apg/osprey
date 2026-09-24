@@ -34,6 +34,7 @@ from ruamel.yaml import YAML
 import osprey.channel_roster as channel_roster
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
+from osprey.deployment import host_ports
 from osprey.deployment.compose_generator import (
     prepare_compose_files,
     resolve_project_name,
@@ -195,6 +196,59 @@ def test_prepare_compose_files_no_services_renders_nothing(
     assert compose_files == [], (
         f"empty deployed_services must render no compose files, got {compose_files}"
     )
+
+
+def test_prepare_compose_files_names_a_shared_template_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stand-in is a second instance of the VA, so one file describes both.
+
+    ``services.live_standin`` declares the same ``path`` as
+    ``services.virtual_accelerator``, and the render walks
+    ``deployed_services``: without a first-seen dedupe it hands back that one
+    compose file once per instance. Every caller passes the list on as-is, and
+    the host-port preflight parses each entry, so a repeat reads as every VA
+    port colliding with itself.
+    """
+    config_path = tmp_path / "config.yml"
+    with config_path.open("w", encoding="utf-8") as handle:
+        YAML().dump(
+            {
+                "project_name": "standin-fixture",
+                "project_root": str(tmp_path),
+                "build_dir": str(tmp_path / "build"),
+                "system": {"timezone": "UTC"},
+                "services": {
+                    "virtual_accelerator": {
+                        "path": "./services/virtual_accelerator",
+                        "port": 5064,
+                    },
+                    "live_standin": {"path": "./services/virtual_accelerator", "port": 5074},
+                },
+                "deployed_services": ["virtual_accelerator", "live_standin"],
+            },
+            handle,
+        )
+    _copy_service_templates(tmp_path)
+
+    monkeypatch.chdir(tmp_path)
+    loaded, compose_files = prepare_compose_files(str(config_path))
+
+    build = tmp_path / "build" / "services"
+    assert compose_files == [
+        str(build / "docker-compose.yml"),
+        str(build / "virtual_accelerator" / "docker-compose.yml"),
+    ]
+
+    bindings = host_ports.parse_host_port_bindings(compose_files)
+    # The one file still describes both containers.
+    assert {binding.service for binding in bindings} == {"virtual-accelerator", "live-standin"}
+
+    # And the preflight sees each published port once. Probes answer "free" so
+    # only the intra-deploy check can speak.
+    monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+    conflicts = host_ports.find_port_conflicts(bindings, "standin-fixture", loaded)
+    assert [c for c in conflicts if c.kind == "duplicate"] == []
 
 
 def test_copy_service_templates_no_config_returns_zero(tmp_path: Path) -> None:

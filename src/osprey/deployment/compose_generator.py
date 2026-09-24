@@ -4291,7 +4291,9 @@ def prepare_compose_files(
 
         ``None`` reads the published build zone.
     :type persona_root: str or None
-    :return: Tuple of (config dict, list of compose file paths)
+    :return: Tuple of (config dict, list of compose file paths). Each path
+        appears once, in first-rendered order, however many deployed services
+        share its template (:func:`_dedupe_compose_files`).
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
     :raises DeploymentPreconditionError: Some target arms writes with limits
@@ -4441,4 +4443,4 @@ def prepare_compose_files(
         else:
             raise RuntimeError(f"Service '{service_name}' not found in configuration")
 
-    return config, compose_files
+    return config, _dedupe_compose_files(compose_files)
