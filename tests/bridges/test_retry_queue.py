@@ -591,6 +591,17 @@ def test_give_up_records_the_failed_turn_in_history(dedup, tmp_path):
     assert turns[0]["question"] == "why is the beam down?"
 
 
+def test_give_up_records_who_asked_on_the_failed_turn(dedup, tmp_path):
+    history = HistoryStore(str(tmp_path / "history.json"))
+    ops = _ops()
+    entry = _claim(dedup, "m1", sender_id="users/111", sender_display="Alice")
+
+    give_up(ops, dedup, "m1", entry, history=history)
+
+    [turn] = history.recent("space/1")
+    assert turn["asked_by"] == {"id": "users/111", "name": "Alice"}
+
+
 def test_give_up_skips_history_when_the_notice_failed(dedup, tmp_path):
     """No notice landed, so the drain will retry the whole give-up next cycle — a
     history turn written now would be duplicated."""

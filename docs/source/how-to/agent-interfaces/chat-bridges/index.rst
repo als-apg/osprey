@@ -62,6 +62,11 @@ arrives at the agent with the previous exchange attached. It is also what makes
 a restart safe: a question interrupted halfway through is picked up again rather
 than answered twice or lost.
 
+In a shared room it also remembers who asked each question. Every question
+reaches the agent with its asker's name, and every remembered exchange keeps
+the name of the person who asked it, so a conversation among several people
+reads as one.
+
 .. _bridge-access:
 
 Who Can Ask

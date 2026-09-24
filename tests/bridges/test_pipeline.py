@@ -48,6 +48,7 @@ MSG = "spaces/AAA/messages/1"
 MSG2 = "spaces/AAA/messages/2"
 QUESTION = "what is the orbit doing?"
 HISTORY_KEY = "spaces/AAA"
+ASKER = {"id": "users/7", "name": "Pat"}
 
 COMPLETED = {
     "status": "completed",
@@ -114,13 +115,16 @@ class MarkingHistory(HistoryStore):
         answer: str,
         run_id: str | None = None,
         artifacts: list[dict[str, Any]] | None = None,
+        asked_by: dict[str, Any] | None = None,
     ) -> None:
         self._ops.mark("history_append", key=key, question=question, answer=answer)
-        super().append(key, question, answer, run_id=run_id, artifacts=artifacts)
+        super().append(key, question, answer, run_id=run_id, artifacts=artifacts, asked_by=asked_by)
 
-    def append_failed(self, key: str, question: str) -> None:
+    def append_failed(
+        self, key: str, question: str, asked_by: dict[str, Any] | None = None
+    ) -> None:
         self._ops.mark("history_append_failed", key=key, question=question)
-        super().append_failed(key, question)
+        super().append_failed(key, question, asked_by=asked_by)
 
 
 class StubDispatcher:
@@ -326,7 +330,51 @@ def test_empty_history_key_skips_history_entirely(tmp_path):
 
     assert ops.count("history_recent") == 0
     assert ops.count("history_append") == 0
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
+
+
+# --- who asked ----------------------------------------------------------------------
+
+
+def test_the_asker_rides_the_payload(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops)
+
+    handle_event({}, deps)
+
+    assert deps.dispatcher.calls[0]["extra"]["asker"] == ASKER
+
+
+def test_an_event_with_no_sender_ships_no_asker(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event(sender_id="", sender_display=""))
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
     assert deps.dispatcher.calls[0]["extra"] is None
+
+
+def test_the_history_turn_records_who_asked(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops)
+
+    handle_event({}, deps)
+
+    [turn] = deps.history.recent(HISTORY_KEY)
+    assert turn["answer"] == "The orbit is stable."
+    assert turn["asked_by"] == ASKER
+
+
+def test_a_failed_turn_records_who_asked(tmp_path):
+    result = {"status": "error", "failure_class": "fatal", "run_id": "run-1"}
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, result=result)
+
+    handle_event({}, deps)
+
+    [turn] = deps.history.recent(HISTORY_KEY)
+    assert turn["question"] == QUESTION
+    assert turn["asked_by"] == ASKER
 
 
 # --- terminal settle ----------------------------------------------------------------
@@ -547,7 +595,8 @@ def test_probe_is_lazy_when_nothing_would_ship(tmp_path):
 
     assert probe.calls == 0
     assert deps.dispatcher.calls[0]["extra"] == {
-        "skipped_attachments": [{"filename": "big.bin", "reason": "too large"}]
+        "asker": ASKER,
+        "skipped_attachments": [{"filename": "big.bin", "reason": "too large"}],
     }
 
 
@@ -555,9 +604,9 @@ def test_probe_is_lazy_when_nothing_would_ship(tmp_path):
 
 
 def test_noop_input_download_leaves_payload_byte_identical(tmp_path):
-    # A text-only message: the adapter returns the empty InputDownload(). The
-    # dispatch payload must be byte-identical to the no-attachment path — the
-    # dispatcher is called with NO extra at all, and the probe never fires.
+    # A text-only message: the adapter returns the empty InputDownload(), which adds
+    # no key to the payload — the dispatch carries only who asked, exactly as the
+    # no-attachment path does, and the probe never fires.
     ops = RecordingChannelOps(parse_result=make_event())  # inputs = InputDownload()
     probe = CountingProbe(True)
     deps = make_deps(tmp_path, ops, probe=probe, history=False)
@@ -565,7 +614,7 @@ def test_noop_input_download_leaves_payload_byte_identical(tmp_path):
     assert handle_event({}, deps) == "handled"
 
     assert ops.count("download_inputs") == 1
-    assert deps.dispatcher.calls[0] == {"question": QUESTION, "extra": None}
+    assert deps.dispatcher.calls[0] == {"question": QUESTION, "extra": {"asker": ASKER}}
     assert probe.calls == 0
 
 
@@ -599,7 +648,8 @@ def test_fresh_budget_bytes_cap_can_decline_everything(tmp_path, monkeypatch):
     # Everything declined -> skips-only payload, and no probe (nothing to send).
     assert probe.calls == 0
     assert deps.dispatcher.calls[0]["extra"] == {
-        "skipped_attachments": [{"filename": "f1", "reason": OVER_BUDGET_REASON}]
+        "asker": ASKER,
+        "skipped_attachments": [{"filename": "f1", "reason": OVER_BUDGET_REASON}],
     }
 
 
@@ -733,7 +783,7 @@ def test_quoted_bucket_without_reply_context_is_dropped_with_warning(tmp_path, c
     with caplog.at_level(logging.WARNING, logger="osprey.bridges.core.pipeline"):
         assert handle_event({}, deps) == "handled"
 
-    assert deps.dispatcher.calls[0]["extra"] is None
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
     assert any("quoted" in rec.message for rec in caplog.records)
 
 

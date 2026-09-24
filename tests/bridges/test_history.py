@@ -370,3 +370,68 @@ def test_reload_preserves_turns(tmp_path):
     assert turn["question"] == "q"
     assert turn["run_id"] == "r1"
     assert turn["artifacts"] == [{"entry_id": "e1"}]
+
+
+# --- who asked ------------------------------------------------------------------
+
+ALICE = {"id": "users/111", "name": "Alice"}
+
+
+def test_append_records_who_asked(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"), now=FakeClock())
+    h.append("k", "q", "a", run_id="run-1", asked_by=ALICE)
+    assert h.recent("k")[0]["asked_by"] == ALICE
+
+
+def test_append_without_an_asker_writes_the_five_field_shape(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"), now=FakeClock())
+    h.append("k", "q", "a", run_id="run-1")
+    h.append("k", "q2", "a2", asked_by={"id": "", "name": None})
+    for turn in h.recent("k"):
+        assert set(turn) == {"question", "answer", "ts", "run_id", "artifacts"}
+
+
+def test_append_failed_records_who_asked(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"), now=FakeClock())
+    h.append_failed("k", "q", asked_by=ALICE)
+    [turn] = h.recent("k")
+    assert turn["answer"] == FAILED_TURN_ANSWER
+    assert turn["asked_by"] == ALICE
+
+
+def test_a_legacy_turn_without_asked_by_loads_unchanged_and_is_not_rewritten(tmp_path):
+    path = tmp_path / "h.json"
+    turn = {"question": "q", "answer": "a", "ts": 2_000_000.0, "run_id": None, "artifacts": []}
+    _write(path, {"k": [turn]})
+    before = path.read_text(encoding="utf-8")
+    h = HistoryStore(str(path), now=FakeClock(9_999_999.0))
+    assert h.recent("k") == [turn]
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_a_malformed_asked_by_is_dropped_on_load(tmp_path):
+    path = tmp_path / "h.json"
+    base = {"question": "q", "answer": "a", "ts": 2_000_000.0, "run_id": None, "artifacts": []}
+    _write(
+        path,
+        {
+            "k": [
+                dict(base, asked_by="Alice"),
+                dict(base, asked_by={"id": 7, "name": "Alice"}),
+                dict(base, asked_by={"id": "", "name": None}),
+                dict(base, asked_by={"id": "users/111", "name": "Alice", "extra": 1}),
+            ]
+        },
+    )
+    h = HistoryStore(str(path), now=FakeClock())
+    turns = h.recent("k")
+    assert ["asked_by" in t for t in turns] == [False, False, False, True]
+    assert turns[3]["asked_by"] == ALICE
+    # The malformed values were normalised away and the file rewritten.
+    assert [("asked_by" in t) for t in _read(path)["k"]] == [False, False, False, True]
+
+
+def test_asked_by_survives_a_reload(tmp_path):
+    path = tmp_path / "h.json"
+    HistoryStore(str(path), now=FakeClock()).append("k", "q", "a", asked_by=ALICE)
+    assert HistoryStore(str(path), now=FakeClock()).recent("k")[0]["asked_by"] == ALICE
