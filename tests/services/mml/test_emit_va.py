@@ -21,6 +21,7 @@ documents are byte-stable across re-emits.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -1625,6 +1626,40 @@ class TestASupplyFeedingSeveralMagnets:
         knob = float(to_physics(binding.calibration, (binding.nominal,))[0])
         held = [knob * slice_.weight for slice_ in binding.slices]
         assert held == pytest.approx([0.1 * 10.0, 0.1 * 12.0])
+
+    def test_a_string_starts_at_the_same_exact_mean_on_every_interpreter(self, tmp_path):
+        """The seed and the binding's start are one exactly rounded mean.
+
+        The two means are one number on every interpreter the package supports.
+        The built-in ``sum`` of floats is not: its rounding differs between
+        interpreter versions, so it could put the two files a last digit apart
+        from one Python to the next.
+        """
+        nominals = (10.1, 10.2, 10.3)
+        block = _series_block(nominals=nominals, gain=(0.1, 0.1, 0.1))
+        block["device_list"] = [[1, 1], [1, 2], [1, 3]]
+        block["nominals"]["Setpoint"]["at_index"] = [1, 2, 3]
+        block["Setpoint"]["calibration"]["offset"] = [0.0, 0.0, 0.0]
+        views = [_view("QF", _three_on_one_supply())]
+        judged_va = {(SYSTEM, "QF"): block}
+        elements = {
+            "QF": tuple(
+                _element("QF", "strength", (1, d), "PolynomB", 1, f"QF_1_{d}") for d in (1, 2, 3)
+            )
+        }
+        document, _seeds, _ = _machine(
+            tmp_path,
+            views=views,
+            judged_va=judged_va,
+            verdicts={(SYSTEM, "QF"): _coupled()},
+            mapping=_mapping([_family("QF")]),
+            elements=elements,
+        )
+        _text, bindings = _bindings(tmp_path, views=views, judged_va=judged_va, elements=elements)
+        binding = bindings.bindings[0]
+
+        value = document["channels"]["SR:QF:BOTH:SP"]["value"]
+        assert value == binding.nominal == math.fsum(nominals) / 3
 
     def test_the_run_names_how_many_devices_the_model_left_out(self, tmp_path):
         supplies = _findings(

@@ -441,7 +441,7 @@ def _field_seeds(
     for address, rows in asked.items():
         stated = modelled.get(address) or rows
         device = stated[0][0] + 1
-        value = sum(number for _index, number in stated) / len(stated)
+        value = math.fsum(number for _index, number in stated) / len(stated)
         seeded = channels.get(address)
         if seeded is not None and seeded["value"] != value:
             seeds.append(
@@ -974,7 +974,7 @@ def _supply_binding(
     stated = [value for value in nominals if value is not None]
     # The knob starts where the string's magnets average out; with one magnet
     # that is its own nominal, exactly, and nothing about the binding moves.
-    start = sum(stated) / len(stated) if stated else None
+    start = math.fsum(stated) / len(stated) if stated else None
 
     calibration = _curve_for_device(block.get(written), "calibration", reference, devices, where)
     if calibration is None:
