@@ -599,11 +599,11 @@ body.bar-dragging {
 }
 
 /* One tile per catalog type: the item itself, at header density, over its
-   label. A tile the operator cannot use is a DISABLED button carrying its
+   label. A tile the operator cannot use is an aria-disabled button carrying its
    reason, not a hidden one — an item missing from the sheet with no
    explanation is the failure this replaces. A single-node item that is already
    in a bar is dimmed instead: the sheet reads as an inventory, and where the
-   item sits is on hover. */
+   item sits is on hover. Both states are `[aria-disabled="true"]`. */
 
 .bar-tile {
   display: flex;
@@ -622,14 +622,13 @@ body.bar-dragging {
   transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
-.bar-tile:hover:not(:disabled):not(.is-in-bar) {
+.bar-tile:hover:not([aria-disabled="true"]) {
   color: var(--text-primary);
   border-color: var(--border-accent);
   background: var(--bg-elevated);
 }
 
-.bar-tile:disabled,
-.bar-tile.is-in-bar {
+.bar-tile[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }

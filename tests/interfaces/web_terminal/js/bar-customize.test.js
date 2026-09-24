@@ -305,7 +305,7 @@ describe('a tile names why it cannot be added', () => {
     customize.enterEditMode();
 
     expect(customize.refusalFor('identity', 'header')).toBe('Not in this deployment');
-    expect(tile('identity').disabled).toBe(true);
+    expect(tile('identity').getAttribute('aria-disabled')).toBe('true');
     expect(tileReason('identity')).toBe('Not in this deployment');
   });
 
@@ -313,7 +313,7 @@ describe('a tile names why it cannot be added', () => {
     await boot();
     customize.enterEditMode();
 
-    expect(tile('clock').disabled).toBe(false);
+    expect(tile('clock').getAttribute('aria-disabled')).toBeNull();
     expect(tileReason('clock')).toBe('');
   });
 
@@ -382,7 +382,7 @@ describe('a tile shows the item', () => {
     customize.enterEditMode();
 
     expect(customize.refusalFor('clock', 'header')).toBe('Header is full');
-    expect(tile('clock').disabled).toBe(true);
+    expect(tile('clock').getAttribute('aria-disabled')).toBe('true');
     expect(tileReason('clock')).toBe('Header is full');
   });
 
@@ -411,11 +411,62 @@ describe('a tile shows the item', () => {
 
     expect(sync.isLayoutReadonly()).toBe(true);
     expect(customize.refusalFor('clock', 'header')).toBe('Layout not editable');
-    expect(tile('clock').disabled).toBe(true);
+    expect(tile('clock').getAttribute('aria-disabled')).toBe('true');
 
     tile('clock').click();
     await settle();
     expect(putBodies()).toEqual([]);
+  });
+});
+
+describe('the sheet and the keyboard', () => {
+  test('a refused tile stays in the tab order, and its reason with it', async () => {
+    await boot({ fetch: endpoint({ get: fullHeader() }) });
+    customize.enterEditMode();
+
+    const refused = tile('clock');
+    expect(refused.disabled).toBe(false);
+    expect(refused.getAttribute('aria-disabled')).toBe('true');
+    refused.focus();
+    expect(document.activeElement).toBe(refused);
+    expect(refused.textContent).toContain('Header is full');
+  });
+
+  test('opening the sheet moves the focus to its first tile', async () => {
+    await boot();
+    customize.enterEditMode();
+
+    expect(document.activeElement).toBe(document.querySelector('.bar-sheet .bar-tile'));
+  });
+
+  test('closing the sheet gives the focus back to where it was', async () => {
+    await boot();
+    const origin = document.createElement('button');
+    document.body.append(origin);
+    origin.focus();
+
+    customize.enterEditMode();
+    expect(document.activeElement).not.toBe(origin);
+    customize.exitEditMode();
+
+    expect(document.activeElement).toBe(origin);
+    origin.remove();
+  });
+
+  test('closing leaves the focus alone once the operator has moved it out', async () => {
+    await boot();
+    const origin = document.createElement('button');
+    const elsewhere = document.createElement('button');
+    document.body.append(origin, elsewhere);
+    origin.focus();
+
+    customize.enterEditMode();
+    elsewhere.focus();
+    customize.exitEditMode();
+
+    expect(document.activeElement).toBe(elsewhere);
+    origin.remove();
+    elsewhere.remove();
   });
 });
 
