@@ -20,8 +20,8 @@ Two environments are dispatched by :func:`run`:
   Postgres never ready) it raises :class:`ScreenshotSkip` so a ``--stack`` run
   degrades to a clean one-line notice instead of a traceback.
 
-The whole run shares one browser; missing chromium/Playwright is reported as a
-one-line skip rather than a traceback.
+The whole run shares one browser; missing chromium/Playwright, or a Playwright driver
+that does not start, is reported as a one-line skip rather than a traceback.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,7 +78,8 @@ _MIN_HERO_PNG_BYTES = 1024
 class ScreenshotSkip(Exception):
     """Raised when capture cannot proceed for a benign, expected reason.
 
-    Used for absent optional dependencies (Playwright, the chromium binary) and
+    Used for absent optional dependencies (Playwright, a Playwright driver that
+    starts, the chromium binary) and
     for the not-yet-available ``tutorial_stack`` provider, so callers can print a
     clear one-line notice instead of surfacing a traceback.
     """
@@ -147,21 +148,47 @@ def stamp_manifest(name: str, kind: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _driver_start_failure(exc: AttributeError | OSError) -> str:
+    """Return the skip reason for a Playwright driver that did not start."""
+    if isinstance(exc, OSError):
+        return f"playwright driver did not start: {exc}"
+    reason = "playwright driver exited before its handshake"
+    node_options = os.environ.get("NODE_OPTIONS")
+    if node_options:
+        # The driver is a node process that inherits this environment, and NODE_OPTIONS
+        # acts before any Playwright code runs, so it is the host setting worth naming.
+        reason += f" (NODE_OPTIONS={node_options!r})"
+    return reason
+
+
 @contextmanager
 def chromium_context() -> Iterator[Browser]:
     """Yield a headless chromium ``Browser``, stopping Playwright on every exit.
 
     Raises :class:`ScreenshotSkip` (never a traceback) when Playwright is not
-    installed or the chromium binary is unavailable. ``sync_playwright().start()``
-    spins an asyncio loop on the main thread, so it is stopped on *every* exit
-    path — including the skip taken when the binary is absent.
+    installed, its driver does not start, or the chromium binary is unavailable.
+    ``sync_playwright().start()`` spins an asyncio loop on the main thread, so it
+    is stopped on *every* exit path — including the skip taken when the binary is
+    absent.
     """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise ScreenshotSkip("playwright is not installed") from exc
 
-    pw = sync_playwright().start()
+    manager = sync_playwright()
+    try:
+        pw = manager.start()
+    # The sync API reports a driver that exited before its handshake as a missing
+    # ``_playwright`` attribute and one it cannot spawn as an OSError; only those two are
+    # an absent browser stack. ``__exit__`` is best-effort: an unspawned driver has no pipe.
+    except (AttributeError, OSError) as exc:
+        if isinstance(exc, AttributeError) and exc.name != "_playwright":
+            raise
+        with suppress(Exception):
+            manager.__exit__(None, None, None)
+        raise ScreenshotSkip(_driver_start_failure(exc)) from exc
+
     try:
         browser = pw.chromium.launch(headless=True)
     except Exception as exc:

@@ -20,6 +20,7 @@ from docs.screenshots.capture import (
 from docs.screenshots.recipes import DocShot, SubView
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from playwright.sync_api import Error as PlaywrightError
 
 # ---------------------------------------------------------------------------
 # App factory resolvable by dotted path (importlib in _capture_standalone)
@@ -142,6 +143,98 @@ def test_tutorial_stack_provider_skips(monkeypatch) -> None:
     )
     with pytest.raises(ScreenshotSkip):
         capture.capture_tutorial_stack(lambda: None, shot, agentic=False)
+
+
+# ---------------------------------------------------------------------------
+# Playwright driver start (a driver that cannot start is a named skip)
+# ---------------------------------------------------------------------------
+
+
+class _DriverThatWillNotStart:
+    """Stands in for ``sync_playwright()`` whose ``start()`` raises ``error``."""
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+        self.exited = False
+
+    def start(self):
+        raise self.error
+
+    def __exit__(self, *exc_info) -> None:
+        self.exited = True
+
+
+@pytest.mark.parametrize(
+    "node_options",
+    [None, "--require /gone/preload.js"],
+    ids=["no-node-options", "node-options"],
+)
+def test_driver_that_exits_before_its_handshake_is_a_skip(monkeypatch, node_options) -> None:
+    error = AttributeError(
+        "'PlaywrightContextManager' object has no attribute '_playwright'", name="_playwright"
+    )
+    stub = _DriverThatWillNotStart(error)
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: stub)
+    if node_options is None:
+        monkeypatch.delenv("NODE_OPTIONS", raising=False)
+    else:
+        monkeypatch.setenv("NODE_OPTIONS", node_options)
+
+    with pytest.raises(ScreenshotSkip, match="exited before its handshake") as info:
+        with capture.chromium_context():
+            pytest.fail("no browser should be yielded")
+
+    assert info.value.__cause__ is error
+    assert stub.exited is True
+    if node_options is None:
+        assert "NODE_OPTIONS" not in str(info.value)
+    else:
+        assert "NODE_OPTIONS='--require /gone/preload.js'" in str(info.value)
+
+
+def test_driver_that_cannot_be_spawned_is_a_skip(monkeypatch) -> None:
+    error = FileNotFoundError(2, "No such file or directory", "/gone/node")
+    stub = _DriverThatWillNotStart(error)
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: stub)
+    monkeypatch.setenv("NODE_OPTIONS", "--require /gone/preload.js")
+
+    with pytest.raises(ScreenshotSkip, match="playwright driver did not start") as info:
+        with capture.chromium_context():
+            pytest.fail("no browser should be yielded")
+
+    assert "/gone/node" in str(info.value)
+    assert "NODE_OPTIONS" not in str(info.value)
+    assert info.value.__cause__ is error
+    assert stub.exited is True
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        AttributeError("boom", name="_connection"),
+        PlaywrightError("It looks like you are using Playwright Sync API inside the asyncio loop."),
+        RuntimeError("boom"),
+    ],
+    ids=["other-attribute", "sync-api-in-loop", "runtime-error"],
+)
+def test_other_start_failures_are_not_a_skip(monkeypatch, error) -> None:
+    stub = _DriverThatWillNotStart(error)
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: stub)
+
+    with pytest.raises(type(error)) as info:
+        with capture.chromium_context():
+            pytest.fail("no browser should be yielded")
+
+    assert info.value is error
+
+
+def test_a_real_driver_killed_by_its_preload_is_a_skip(monkeypatch, tmp_path) -> None:
+    # The preload file is never created, so node exits before the driver handshake.
+    monkeypatch.setenv("NODE_OPTIONS", f"--require {tmp_path / 'deleted-preload.js'}")
+
+    with pytest.raises(ScreenshotSkip, match="exited before its handshake"):
+        with capture.chromium_context():
+            pytest.fail("no browser should be yielded")
 
 
 # ---------------------------------------------------------------------------
