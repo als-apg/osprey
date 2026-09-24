@@ -96,7 +96,7 @@ if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
     PROV_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ariel_prov_${CELL_DB}.XXXXXX")"
     if "$PY" -m osprey.cli.main build prov --preset control-assistant \
          --skip-deps --skip-lifecycle --output-dir "$PROV_DIR" \
-         --set provider=als-apg --set model=haiku >&2; then
+         --set provider=als-apg --set model=claude-haiku-4-5-20251001 >&2; then
       PROV_CFG="$PROV_DIR/prov/config.yml"
       "$PY" - "$PROV_CFG" "$OSPREY_ARIEL_DB_URI" <<'PYEOF' >&2
 import sys
