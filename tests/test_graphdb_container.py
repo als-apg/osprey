@@ -312,3 +312,63 @@ def test_any_other_read_failure_is_left_as_it_is(error: Exception) -> None:
     assert raised.value is error
     assert not isinstance(raised.value, GraphStoreUnavailable)
     assert store.losses == []
+
+
+class _Inspector:
+    """Says a fixed container state and counts how often it was asked."""
+
+    def __init__(self, state: str) -> None:
+        self.state = state
+        self.calls = 0
+
+    def __call__(self) -> str:
+        self.calls += 1
+        return self.state
+
+
+def test_the_failure_says_what_state_the_container_was_in() -> None:
+    """A lost read adds its container's state, read once, after the first line."""
+    inspector = _Inspector("exited (code 137, out of memory)")
+    store = WatchedStore(URI, label=LABEL, inspect=inspector)
+    session = WatchedSession(_FakeSession([ServiceUnavailable("defunct"), [{"n": 1}]]), store)
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+    assert session.single("RETURN 1 AS n") == {"n": 1}
+
+    lines = str(raised.value).splitlines()
+    assert lines[0].startswith(f"{LABEL} at {URI} stopped answering during ")
+    assert "Container state when the read failed: exited (code 137, out of memory)" in lines
+    assert inspector.calls == 1
+
+
+def test_without_an_inspector_the_failure_says_nothing_about_the_container() -> None:
+    """A store built from a URI and a label alone keeps the message it had."""
+    _store, _fake, session = _watched([ServiceUnavailable("defunct")])
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    message = str(raised.value)
+    assert "Container state" not in message
+    assert message.endswith("not at the code under test.")
+
+
+def test_an_inspector_that_fails_leaves_the_lost_read_as_the_failure() -> None:
+    """An inspector that raises is reported in the line, never over the lost read."""
+
+    def inspect() -> str:
+        raise RuntimeError("daemon went away")
+
+    lost = ServiceUnavailable("defunct")
+    store = WatchedStore(URI, label=LABEL, inspect=inspect)
+    session = WatchedSession(_FakeSession([lost]), store)
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    assert raised.value.__cause__ is lost
+    assert (
+        "Container state when the read failed: could not be read (RuntimeError: daemon went away)"
+        in str(raised.value).splitlines()
+    )
