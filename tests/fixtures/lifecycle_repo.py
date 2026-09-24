@@ -1464,6 +1464,7 @@ panel_presets: {}
 #
 # nextcloud_bridge:
 #   trigger: nextcloud-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 
 # --- Google Chat bridge ------------------------------------------------------
 # Answers questions asked from a Google Chat space or direct message. The

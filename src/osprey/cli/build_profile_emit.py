@@ -462,6 +462,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #
 # nextcloud_bridge:
 #   trigger: nextcloud-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 """,
     "gchat_bridge": """
 # --- Google Chat bridge ------------------------------------------------------

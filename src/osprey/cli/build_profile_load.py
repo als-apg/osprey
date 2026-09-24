@@ -1126,8 +1126,12 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if nextcloud_bridge_raw is not None:
         if not isinstance(nextcloud_bridge_raw, dict):
             raise BuildProfileError("Profile 'nextcloud_bridge' must be a mapping")
+        mentions = nextcloud_bridge_raw.get("mentions", True)
+        if not isinstance(mentions, bool):
+            raise BuildProfileError("Profile 'nextcloud_bridge.mentions' must be true or false")
         nextcloud_bridge = NextcloudBridgeProfileConfig(
             trigger=nextcloud_bridge_raw.get("trigger", "nextcloud-question"),
+            mentions=mentions,
         )
 
     gchat_bridge_raw = raw.get("gchat_bridge")

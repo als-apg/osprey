@@ -42,14 +42,15 @@ there, rather than replying to a month of history.
 Enable It in a Profile
 ======================
 
-Add a ``nextcloud_bridge:`` block to your build profile. The only setting is
-which dispatcher trigger the bridge fires — that trigger decides what the agent
-is allowed to do with a chat question:
+Add a ``nextcloud_bridge:`` block to your build profile. Two settings: which
+dispatcher trigger the bridge fires — that trigger decides what the agent is
+allowed to do with a chat question — and whether the agent may @mention people:
 
 .. code-block:: yaml
 
    nextcloud_bridge:
      trigger: nextcloud-question    # default; must exist in your triggers file
+     mentions: true                # default; false posts @mentions as plain text
 
    env:
      required:
@@ -103,6 +104,8 @@ Runtime settings
        part of its URL: in ``…/call/a1b2c3d4`` the token is ``a1b2c3d4``.
    * - ``DISPATCH_TRIGGER``
      - The trigger to fire. Filled in for you from the profile block.
+   * - ``NEXTCLOUD_MENTIONS``
+     - Whether @mentions are on. Filled in for you from the profile block.
    * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
      - The two shared secrets the bridge needs to reach the dispatcher and the
        worker, generated for you when unset — see
@@ -196,6 +199,29 @@ state.
    conversation, and each room's reading position — in a named volume mounted at
    ``/data``. Do not remove that volume. Without it, a restart forgets everything
    and the room's history is either replayed from the beginning or skipped past.
+
+Who Is in the Room, and @Mentions
+=================================
+
+Each question reaches the agent with who asked it and who is in the room. The
+bridge reads the room's participant list as the bot account, which is already a
+member, so there is no extra permission to grant. Signed-in users are listed by
+their Nextcloud display name; guests and users from other servers are not
+listed.
+
+In a room with the lobby turned on, Nextcloud shows the list only to
+moderators. Make the bot account a moderator of that room, or its questions
+reach the agent with the asker only.
+
+The agent may @mention a participant of the same room only when someone in the
+room asks it to pass something on or to notify someone. It never does so on its
+own. Anyone not in the room is written by name, as plain text, without an
+``@``. Any other ``@name`` in an answer is posted without its ``@`` too. Inside
+code the ``@`` is kept (so ``@dataclass`` survives) unless the word is a room
+member's user id, so the agent never notifies anyone outside these rules.
+
+Set ``mentions: false`` in the profile block to have every mention posted as
+plain text instead.
 
 Who Can Ask, and What Is Shared
 ===============================
