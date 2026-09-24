@@ -460,6 +460,21 @@ class TestAskSageExecuteCompletion:
                     output_format=SampleOutput,
                 )
 
+    def test_structured_output_with_a_control_character_parses(self):
+        """Test a raw newline inside a JSON string is read, not refused."""
+        provider = AskSageProviderAdapter()
+        reply = '{"result": "line one\nline two", "value": 5}'
+        with patch("openai.OpenAI", return_value=self._mock_client(reply)):
+            result = provider.execute_completion(
+                message="hi",
+                model_id="m",
+                api_key="key",
+                base_url="https://test",
+                output_format=SampleOutput,
+            )
+
+        assert result == SampleOutput(result="line one\nline two", value=5)
+
 
 class TestAskSageCheckHealth:
     """Test AskSage health check."""
