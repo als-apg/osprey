@@ -55,7 +55,10 @@ def _ocs(data, *, status=200, headers=None):
 
 
 def _talk(request):
-    """A minimal Talk that answers all three calls with valid payloads."""
+    """A minimal Talk that answers every call with a valid payload."""
+    # First: the participants route also contains /api/v4/room/.
+    if request.url.path.endswith("/participants"):
+        return _ocs([])
     if "/api/v4/room/" in request.url.path:
         return _ocs(ROOM_PAYLOAD)
     if request.method == "POST":
@@ -86,6 +89,7 @@ ALL_CALLS = [
     pytest.param(lambda c: c.poll_messages("roomA", 0), id="poll_messages"),
     pytest.param(lambda c: c.post_message("roomA", "hi"), id="post_message"),
     pytest.param(lambda c: c.room_info("roomA"), id="room_info"),
+    pytest.param(lambda c: c.list_participants("roomA"), id="list_participants"),
 ]
 
 
@@ -462,3 +466,39 @@ def test_package_exports_the_client_surface():
     import osprey.bridges.nextcloud_talk as pkg
 
     assert (pkg.TalkClient, pkg.RoomInfo, pkg.TalkApiError) == (TalkClient, RoomInfo, TalkApiError)
+
+
+# ==========================================================================
+# The participants listing
+# ==========================================================================
+
+PARTICIPANTS = [
+    {"attendeeId": 1, "actorType": "users", "actorId": "alice", "displayName": "Alice"},
+    {"attendeeId": 2, "actorType": "guests", "actorId": "abc123", "displayName": "Visitor"},
+]
+
+
+def test_list_participants_targets_the_v4_participants_route():
+    client, seen = _recording()
+    client.list_participants("roomA")
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/ocs/v2.php/apps/spreed/api/v4/room/roomA/participants"
+
+
+def test_list_participants_returns_the_attendee_list_unmodified():
+    client = _client(lambda request: _ocs(PARTICIPANTS))
+    assert client.list_participants("roomA") == PARTICIPANTS
+
+
+@pytest.mark.parametrize("data", [{}, [1], "x"])
+def test_list_participants_raises_on_a_payload_that_is_not_a_list_of_objects(data):
+    client = _client(lambda request: _ocs(data))
+    with pytest.raises(TalkApiError, match="not a list of participants"):
+        client.list_participants("roomA")
+
+
+def test_list_participants_raises_on_a_lobby_412():
+    client = _client(lambda request: httpx.Response(412, text="lobby"))
+    with pytest.raises(httpx.HTTPStatusError) as excinfo:
+        client.list_participants("roomA")
+    assert excinfo.value.response.status_code == 412

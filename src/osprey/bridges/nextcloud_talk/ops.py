@@ -7,8 +7,9 @@ the wording the room actually sees. This module carries the **posting** members
 :meth:`~NextcloudTalkOps.post_queued`, :meth:`~NextcloudTalkOps.post_giveup`,
 :meth:`~NextcloudTalkOps.post_superseded`), inbound file downloads
 (:meth:`~NextcloudTalkOps.download_inputs`), outbound artifact delivery
-(:meth:`~NextcloudTalkOps.deliver_files`), and the pure
-:meth:`~NextcloudTalkOps.coalesce_key`. The two inbound members
+(:meth:`~NextcloudTalkOps.deliver_files`), the pure
+:meth:`~NextcloudTalkOps.coalesce_key`, and the optional room roster
+(:meth:`~NextcloudTalkOps.room_people`). The two inbound members
 (:meth:`~NextcloudTalkOps.parse_event`, :meth:`~NextcloudTalkOps.resolve_reply_context`)
 join them on the same class as thin delegations to
 :mod:`osprey.bridges.nextcloud_talk.events`, which is where Talk's wire format is read.
@@ -47,6 +48,7 @@ member                     on failure
                            notice lands; lost silence is worse than a duplicate notice
 ``post_superseded``        swallow — the coalesce CAS already committed
 ``coalesce_key``           pure; never raises, never does I/O
+``room_people``            return None — the question goes out with its asker only
 =========================  ==============================================================
 
 Wording is deliberately dull and never leaks machine detail: no exception text, no run id,
@@ -73,6 +75,9 @@ from osprey.bridges.core import (
     InboundEvent,
     InputDownload,
     ReplyContext,
+    RoomMember,
+    RoomPeople,
+    RoomRoster,
     artifact_descriptors,
     ext_for_mime,
     fetch_artifact,
@@ -82,10 +87,11 @@ from osprey.bridges.core import (
 
 from .client import MAX_DOWNLOAD_BYTES, REQUEST_TIMEOUT, DavTooLargeError, TalkClient, upload_dir
 from .config import NextcloudBridgeConfig
-from .events import QUOTED_FILES_KEY
+from .events import QUOTED_FILES_KEY, people_seen
 from .events import parse_event as parse_talk_message
 from .events import resolve_reply_context as resolve_talk_reply_context
 from .rooms import RoomDirectory
+from .roster import ParticipantRoster
 
 logger = logging.getLogger(__name__)
 
@@ -493,7 +499,9 @@ class NextcloudTalkOps:
 
     Thread-safe and free of per-dispatch state: the engine shares ONE instance across
     every room thread and the drain thread, and each member derives everything it needs
-    from the ``entry`` it is handed.
+    from the ``entry`` it is handed. The one cross-call state is the participant roster
+    (:class:`~osprey.bridges.nextcloud_talk.roster.ParticipantRoster`), which owns its
+    lock and its bounds.
     """
 
     def __init__(
@@ -537,6 +545,7 @@ class NextcloudTalkOps:
             else httpx.Client(timeout=REQUEST_TIMEOUT, trust_env=cfg.core.trust_env)
         )
         self._rooms = rooms if rooms is not None else RoomDirectory(self._client)
+        self._roster = ParticipantRoster(self._client.list_participants, cfg.bot_account)
 
     # --- inbound parse members ---------------------------------------------
     #
@@ -561,6 +570,9 @@ class NextcloudTalkOps:
         *is* the server's statement of which room it answered for — and it is the room's
         canonical token, where the poller's own string is operator-typed config, so
         keying dedup and history on it is if anything the more consistent of the two.
+
+        Names the message shows (its sender, the users it mentions) are recorded in
+        memory for the room roster before the delegation; that does no I/O.
 
         A message that names no usable room is **ignored**. Without a room there is no
         dedup key to claim it under and no destination to answer into, so there is
@@ -591,7 +603,50 @@ class NextcloudTalkOps:
                 event.get("id") if isinstance(event, Mapping) else None,
             )
             return None
+        try:
+            _, seen = people_seen(event, self._cfg.bot_account)
+            if seen:
+                self._roster.note_seen(room, seen)
+        except Exception:
+            logger.debug("could not record names from a Talk message", exc_info=True)
         return parse_talk_message(event, room, self._cfg, self._rooms)
+
+    def room_people(self, entry: Mapping[str, Any]) -> RoomPeople | None:
+        """Who is in the entry's room, or ``None`` when that is unknown. Never raises.
+
+        The :class:`~osprey.bridges.core.ports.RoomRoster` member. Lists only the
+        signed-in users of this entry's own room. The asker is named from the entry
+        when the listing and the seen names both had nothing — and only from a real
+        display name: Talk falls back to the actor id for ``sender_display``, and a
+        name is never derived from an id.
+        """
+        try:
+            room = _room(entry)
+            if not room:
+                return None
+            listed = self._roster.members(room)
+            if listed is None:
+                return None
+            names = dict(listed[0])
+            sender_id = entry.get("sender_id")
+            sender_display = entry.get("sender_display")
+            if (
+                isinstance(sender_id, str)
+                and sender_id in names
+                and names[sender_id] is None
+                and isinstance(sender_display, str)
+                and sender_display
+                and sender_display != sender_id
+            ):
+                names[sender_id] = sender_display
+            return RoomPeople(
+                members=tuple(RoomMember(i, n) for i, n in names.items()),
+                mentions=self._cfg.mentions,
+                more_not_listed=listed[1],
+            )
+        except Exception:
+            logger.warning("room roster failed for %s", entry.get(NC_ROOM), exc_info=True)
+            return None
 
     def resolve_reply_context(self, event: InboundEvent) -> ReplyContext | None:
         """Resolve the quoted message a Talk reply points at, or ``None``.
@@ -1013,12 +1068,17 @@ class NextcloudTalkOps:
         return [history_key, sender_id]
 
 
-# NOT dead code, and not to be "cleaned up": this is the whole static conformance check
-# for the seam. Assigning a NextcloudTalkOps to a ChannelOps makes mypy verify every
+# NOT dead code, and not to be "cleaned up": these are the whole static conformance
+# checks for the two seams, ChannelOps and the optional RoomRoster. Assigning a
+# NextcloudTalkOps to either makes mypy verify every
 # member's FULL signature — parameter names, types, arity, return type — which a runtime
 # ``isinstance`` protocol check cannot do (it only looks for the names). Nothing runs it
 # and nothing constructs at import; the value is entirely in type-check time.
 def _static_conformance(ops: NextcloudTalkOps) -> ChannelOps:
+    return ops
+
+
+def _static_room_conformance(ops: NextcloudTalkOps) -> RoomRoster:
     return ops
 
 
