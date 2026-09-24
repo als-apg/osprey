@@ -15,6 +15,7 @@ wording agree on is the one the posting path actually used.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pytest
@@ -43,6 +44,7 @@ from osprey.bridges.teams.ops import (
     GIVEUP_TEXT,
     QUEUED_TEXT,
     QUOTE_LINE_CHARS,
+    RESUMED_TEXT,
     SUPERSEDED_TEXT,
     TeamsOps,
     ack_text,
@@ -589,6 +591,37 @@ def test_post_giveup_raises_on_a_transport_failure(failure: BaseException) -> No
     ops, _ = make_ops(RecordingConnector(fail_with=failure))
     with pytest.raises(type(failure)):
         ops.post_giveup(make_entry("channel"))
+
+
+# --- post_resumed -----------------------------------------------------------
+
+
+def test_post_resumed_names_the_queue_time() -> None:
+    ops, connector = make_ops()
+    entry = make_entry("channel")
+    entry["first_queued_at"] = time.time() - 12 * 60
+    entry["queued_notified"] = True
+    ops.post_resumed(entry, {"status": "completed"})
+    (text,) = connector.texts
+    assert text.startswith("Resuming your request queued at ")
+    assert "(12 min ago)" in text
+    assert RESUMED_TEXT.split("{since}")[1] in text
+
+
+def test_post_resumed_in_a_chat_opens_with_the_quote() -> None:
+    ops, connector = make_ops()
+    entry = make_entry("groupChat")
+    entry["first_queued_at"] = time.time() - 60
+    ops.post_resumed(entry, {"status": "completed"})
+    assert connector.texts[0].startswith(quote_prefix(entry))
+
+
+def test_post_resumed_swallows_a_transport_failure() -> None:
+    """Best-effort: the answer follows whether or not this line landed."""
+    ops, _ = make_ops(RecordingConnector(fail_with=ConnectorError("connector refused")))
+    entry = make_entry("channel")
+    entry["first_queued_at"] = time.time() - 60
+    ops.post_resumed(entry, {"status": "completed"})
 
 
 # --- post_superseded --------------------------------------------------------

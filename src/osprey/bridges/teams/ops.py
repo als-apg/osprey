@@ -69,6 +69,7 @@ from osprey.bridges.core import (
     ReplyContext,
     artifact_descriptors,
     fetch_artifact,
+    queued_since,
     safe_label,
 )
 from osprey.bridges.core.text import chunk_text
@@ -121,6 +122,11 @@ QUEUED_TEXT = (
     "runs, so there's no need to re-send this."
 )
 """First-park notice. A re-park is silent (the engine posts this only once)."""
+
+RESUMED_TEXT = "Resuming your request queued {since} — service is restored, answer follows."
+"""Posted right before the delayed answer of a request the user was told was queued.
+``{since}`` is ``at <stamp> (<elapsed> ago)`` from :func:`~osprey.bridges.core.queued_since`,
+or ``earlier`` when the entry carries no usable time."""
 
 GIVEUP_TEXT = (
     "I couldn't run this automatically and I've stopped retrying, so this question will "
@@ -612,6 +618,28 @@ class TeamsOps:
                 to "what now?" is the same whatever the cause.
         """
         self._post_text(entry, quote_prefix(entry) + QUEUED_TEXT)
+
+    def post_resumed(
+        self,
+        entry: Mapping[str, Any],
+        result: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels that word the line by outcome read the result
+    ) -> None:
+        """Post the "resuming your queued request" line. Never raises.
+
+        Right before the delayed answer, so the two read in order; in a flat chat it
+        opens with the question's quote, which is what says WHICH request resumes.
+        Best-effort: the answer follows whether or not this line did.
+        """
+        since = queued_since(entry)
+        text = RESUMED_TEXT.format(since=f"at {since}" if since else "earlier")
+        try:
+            self._post_text(entry, quote_prefix(entry) + text)
+        except Exception:
+            logger.warning(
+                "resume notice failed for %s; the answer follows regardless",
+                entry.get(MS_ACTIVITY_ID),
+                exc_info=True,
+            )
 
     def post_giveup(self, entry: Mapping[str, Any]) -> None:
         """Post the honest abandonment notice. **Raises** on failure.

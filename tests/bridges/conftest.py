@@ -202,6 +202,9 @@ class RecordingChannelOps:
     def post_queued(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         self._record("post_queued", {"entry": entry, "result": result})
 
+    def post_resumed(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+        self._record("post_resumed", {"entry": entry, "result": result})
+
     def post_giveup(self, entry: Mapping[str, Any]) -> None:
         self._record("post_giveup", {"entry": entry})
 

@@ -19,6 +19,19 @@ Those are four different policies over the *same* REST call, so the call site �
 caller is reply-context enrichment: a Chat hiccup there degrades to answering
 without the quoted context, so it returns ``None`` instead of raising.
 
+Permanent refusals
+------------------
+One thing IS classified here rather than passed through: a failure that says the
+destination itself is closed to the app for good — ``403 "This Chat app is not a
+member of this space."`` after the app was removed from a space, or a ``404`` for
+a space that no longer exists — is re-raised as
+:class:`~osprey.bridges.core.errors.UndeliverableError` (with the original as its
+cause). That is not a policy but a fact about the failure: every retry of that
+post will be refused the same way, and the engine needs to know it to stop
+retrying instead of failing the same message once per drain pass. Any other
+``403`` — a missing scope, a disabled API — is a bridge-wide misconfiguration that
+one fix clears for every destination, so it stays the ordinary raise it always was.
+
 Threading
 ---------
 Every message is created with
@@ -53,6 +66,8 @@ from __future__ import annotations
 import logging
 import threading
 from typing import Any
+
+from ..core.errors import UndeliverableError
 
 # Re-exported, not used here: the helper moved to the core with the chunker, and
 # this name stays importable from the module it has always lived in.
@@ -140,6 +155,27 @@ def chunk_text(text: str, limit: int = MAX_CHARS) -> list[str]:
     return _core_chunk_text(text, limit)
 
 
+def _permanent_refusal(exc: BaseException) -> str | None:
+    r"""Chat's reason when ``exc`` says the destination is closed to the app for good,
+    else ``None``.
+
+    Reads the two attributes ``googleapiclient.errors.HttpError`` carries — ``resp.status``
+    and the parsed ``reason`` — by duck typing, so the check needs no Google import (the
+    module's whole point, see its docstring) and any transport error without them is
+    simply not a refusal. A ``404`` is one whatever it says: the space is gone. A ``403``
+    is one only when Chat says the app is not a member — the other ``403``\ s (scope,
+    disabled API) are bridge-wide and clear for every destination at once.
+    """
+    status = getattr(getattr(exc, "resp", None), "status", None)
+    reason = getattr(exc, "reason", None)
+    reason = reason if isinstance(reason, str) and reason else str(exc)
+    if status == 404:
+        return reason
+    if status == 403 and "not a member" in reason.lower():
+        return reason
+    return None
+
+
 class ChatClient:
     """The Chat v1 ``spaces.messages`` calls the bridge makes, over one service.
 
@@ -178,11 +214,19 @@ class ChatClient:
             Whatever the API answered, undecoded by us.
 
         Raises:
-            Exception: Whatever the transport raises, unchanged — callers own the
-                policy.
+            UndeliverableError: If Chat refused the destination permanently (see the
+                module docstring); the transport's error is the cause.
+            Exception: Anything else the transport raises, unchanged — callers own
+                the policy.
         """
         with self._lock:
-            return request.execute()
+            try:
+                return request.execute()
+            except Exception as exc:
+                refusal = _permanent_refusal(exc)
+                if refusal is None:
+                    raise
+                raise UndeliverableError(refusal) from exc
 
     def create_message(
         self,

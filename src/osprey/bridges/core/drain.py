@@ -21,7 +21,9 @@ This module owns replaying those parked entries once the pipeline recovers.
   4. For each surviving entry:
        * give-up check (:func:`osprey.bridges.core.retry.give_up_due`): abandon
          via the give-up callback, then mark the entry terminal (a failed notice
-         leaves it queued to retry; the reason lands in ``give_up_reason`` meta);
+         leaves it queued to retry — unless the channel reports the destination
+         itself undeliverable, which settles the entry terminal at once; the
+         reason lands in ``give_up_reason`` meta);
        * **re-attach** when it already has a ``run_id`` — probe the worker once
          (:meth:`~osprey.bridges.core.dispatch_client.DispatchClient.status`): a
          ``completed`` run is delivered (callback) and marked terminal (a
@@ -66,6 +68,7 @@ from typing import Any
 from .config import TERMINAL_STATUSES
 from .dedup import DedupStore
 from .dispatch_client import DispatchClient
+from .errors import UndeliverableError
 from .health_gate import gate_open
 from .retry import (
     ceiling_age,
@@ -280,6 +283,16 @@ def _reattach(deps: DrainDeps, message_id: str, entry: dict[str, Any], run_id: s
         # re-delivers rather than drops.
         try:
             deps.callbacks.deliver(message_id, entry, body)
+        except UndeliverableError as exc:
+            # The one raise a retry can never clear: the destination refuses the
+            # app for good. Terminal now, with the refusal on record.
+            logger.warning(
+                "answer for %s is undeliverable (%s); settling terminal", message_id, exc
+            )
+            deps.dedup.transition(
+                message_id, "queued", _GIVE_UP_STATUS, give_up_reason=f"undeliverable: {exc}"
+            )
+            return
         except Exception:
             logger.exception("deliver failed for %s; left queued to retry next cycle", message_id)
             return
@@ -354,13 +367,27 @@ def _abandon(deps: DrainDeps, message_id: str, entry: dict[str, Any], reason: st
 
     Callback FIRST: a give-up notice that fails to send leaves the entry queued
     for the next cycle rather than silently terminal — a lost notice is
-    silence, worse than the rare duplicate a race could produce. ``reason`` is
-    the drain's machine-side explanation; it never reaches the callback (the
-    surface stays ``(message_id, entry)``) but is stamped into the terminal
-    transition meta as ``give_up_reason`` for the audit trail.
+    silence, worse than the rare duplicate a race could produce. The one
+    exception is a channel reporting the destination itself undeliverable
+    (:class:`~osprey.bridges.core.errors.UndeliverableError`: the app was
+    removed from the space, the room is gone): no later cycle can deliver that
+    notice either, so the entry settles terminal at once instead of failing the
+    same post once per pass until its lifetime cap. ``reason`` is the drain's
+    machine-side explanation; it never reaches the callback (the surface stays
+    ``(message_id, entry)``) but is stamped into the terminal transition meta as
+    ``give_up_reason`` for the audit trail — prefixed with the refusal when the
+    notice never landed.
     """
     try:
         deps.callbacks.give_up(message_id, entry)
+    except UndeliverableError as exc:
+        logger.warning(
+            "give-up notice for %s is undeliverable (%s); settling terminal", message_id, exc
+        )
+        deps.dedup.transition(
+            message_id, "queued", _GIVE_UP_STATUS, give_up_reason=f"undeliverable: {exc}; {reason}"
+        )
+        return
     except Exception:
         logger.exception("give_up callback failed for %s; leaving queued", message_id)
         return

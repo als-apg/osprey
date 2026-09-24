@@ -34,6 +34,8 @@ member                        contract on failure
                               must not be un-delivered by a failed file upload
 ``post_queued``               may raise — the engine parks the entry BEFORE posting the
                               notice, so a lost notice never loses the request
+``post_resumed``              best-effort: swallow internally, never raise — the answer
+                              follows regardless (and the engine guards the call too)
 ``post_giveup``               MUST raise — the engine marks the entry terminal only
                               after the notice lands; a lost give-up notice is silence,
                               worse than the rare duplicate a retry could produce
@@ -41,6 +43,12 @@ member                        contract on failure
                               failed note must never disturb the pass
 ``coalesce_key``              pure function of the entry; never raise
 ============================  =========================================================
+
+One exception cuts across the "MUST raise" rows: ``UndeliverableError`` (in
+``osprey.bridges.core.errors``). A member raises it when the platform permanently refuses
+the entry's destination — the app was removed from the space, the room is gone — and the
+engine then settles the entry terminal instead of keeping it queued for a retry that can
+never land. Every other raise keeps today's meaning.
 
 This module is import-isolated on purpose: no channel imports, no osprey dispatch
 internals, no agent SDK, not even sibling ``osprey.bridges.core`` modules — an adapter can
@@ -73,9 +81,11 @@ __all__ = [
 # ``sender_display`` / ``history_key`` and persists ``reply_to``; the dedup store
 # stamps ``run_id`` / ``status`` / ``claimed_at`` / ``settled_at``; the retry queue's
 # park stamps ``failure_class`` / ``num_tool_calls`` / ``queued_at`` /
-# ``first_queued_at`` / ``coalesce_key`` / ``attempts``; the pipeline's re-queue path
-# stamps ``queued_at`` / ``first_queued_at``; the drain stamps ``retried`` /
-# ``attempts`` / ``notfound_count`` / ``gate_seen_open`` / ``give_up_reason``.
+# ``first_queued_at`` / ``coalesce_key`` / ``attempts`` and, once the first-park
+# notice landed, ``queued_notified``; the pipeline's re-queue path stamps ``queued_at``
+# / ``first_queued_at``; the drain stamps ``retried`` / ``attempts`` /
+# ``notfound_count`` / ``gate_seen_open`` / ``give_up_reason`` (the pipeline stamps the
+# last of these too, for an undeliverable answer).
 RESERVED_ENTRY_KEYS: frozenset[str] = frozenset(
     {
         "text",
@@ -89,6 +99,7 @@ RESERVED_ENTRY_KEYS: frozenset[str] = frozenset(
         "reply_to",
         "queued_at",
         "first_queued_at",
+        "queued_notified",
         "attempts",
         "retried",
         "failure_class",
@@ -305,6 +316,15 @@ class ChannelOps(Protocol):
         restored. Posted on the FIRST park only (a re-park is silent); ``result`` is
         the retryable-failure result that triggered the park, for channels that
         surface any of it."""
+        ...
+
+    def post_resumed(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+        """Tell the user the request they were told was queued is being answered now.
+        Posted right BEFORE ``post_answer``, and only for an entry whose queued notice
+        actually landed (it carries ``queued_notified``) — a delayed answer that arrives
+        hours after "queued" should say what it is. ``result`` is the terminal result
+        about to be delivered, for channels that word the line by its status.
+        Best-effort; never raises, and never delays the answer."""
         ...
 
     def post_giveup(self, entry: Mapping[str, Any]) -> None:

@@ -33,6 +33,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from osprey.bridges.core import text as core_text
+from osprey.bridges.core.errors import UndeliverableError
 from osprey.bridges.google_chat import GoogleChatBridgeConfig
 from osprey.bridges.google_chat import client as client_module
 from osprey.bridges.google_chat.client import (
@@ -144,6 +145,57 @@ def test_create_raises_on_transport_failure_without_retrying():
 
     # No retry and no swallow: the ops layer owns both, per outcome.
     assert execute.call_count == 1
+
+
+class _FakeHttpError(Exception):
+    """The shape of ``googleapiclient.errors.HttpError`` the mapping reads: a ``resp``
+    with a ``status`` and the parsed ``reason``. Built by hand so this file keeps its
+    no-Google-library property."""
+
+    def __init__(self, status: int, reason: str) -> None:
+        super().__init__(f"<HttpError {status} returned {reason!r}>")
+        self.resp = MagicMock(status=status)
+        self.reason = reason
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _FakeHttpError(403, "This Chat app is not a member of this space."),
+        _FakeHttpError(404, "Space not found."),
+    ],
+    ids=["not-a-member", "gone"],
+)
+def test_create_maps_a_permanent_refusal_of_the_destination_to_undeliverable(error):
+    """Chat will refuse this destination on every later attempt too, so the engine gets
+    the one signal that lets it stop retrying rather than the bare transport error."""
+    service = make_service()
+    messages_of(service).create.return_value.execute.side_effect = error
+
+    with pytest.raises(UndeliverableError, match=error.reason) as caught:
+        ChatClient(CFG, service).create_message(SPACE, THREAD, "hello")
+
+    assert caught.value.__cause__ is error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _FakeHttpError(403, "The caller does not have permission"),
+        _FakeHttpError(429, "Quota exceeded"),
+        _FakeHttpError(500, "Internal error"),
+        RuntimeError("connection reset"),
+    ],
+    ids=["other-403", "429", "500", "transport"],
+)
+def test_create_passes_every_other_failure_through_unchanged(error):
+    # A missing scope is a 403 too, but it is a bridge misconfiguration that a fix will
+    # clear for every destination at once — not this destination refusing forever.
+    service = make_service()
+    messages_of(service).create.return_value.execute.side_effect = error
+
+    with pytest.raises(type(error)):
+        ChatClient(CFG, service).create_message(SPACE, THREAD, "hello")
 
 
 def test_create_does_not_chunk():
