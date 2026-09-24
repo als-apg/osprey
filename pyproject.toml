@@ -638,8 +638,8 @@ src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
 extend-exclude = [
-    "src/osprey/_version.py",
-    "packages/osprey-connectors/src/osprey_connectors/_version.py",
+    "*/src/osprey/_version.py",
+    "*/src/osprey_connectors/_version.py",
 ]
 
 [tool.ruff.format]
@@ -703,6 +703,9 @@ omit = [
     "dist/*",
     "venv/*",
     "_agent_data/*",
+    # Written by the hatch-vcs build hook (gitignored); not source anyone maintains.
+    "*/src/osprey/_version.py",
+    "*/src/osprey_connectors/_version.py",
 ]
 
 [tool.coverage.report]
@@ -718,4 +721,8 @@ exclude_lines = [
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
     "if TYPE_CHECKING:",
+]
+# Typing overload stubs never run; excluding the decorator excludes the stub.
+exclude_also = [
+    "@(typing\\.)?overload",
 ]

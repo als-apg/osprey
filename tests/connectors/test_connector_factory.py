@@ -361,3 +361,61 @@ class TestLiveStandinRegistration:
 
         assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is first
         assert types.LIVE_STANDIN in ConnectorFactory.list_control_systems()
+
+
+class TestArchiverTypeResolution:
+    """How ``create_archiver_connector`` turns ``archiver.type`` into a class."""
+
+    @pytest.mark.parametrize(
+        ("connector_type", "message"),
+        [
+            pytest.param(
+                "osprey_no_such_package.archivers.Thing",
+                "Could not import connector module 'osprey_no_such_package.archivers': "
+                "No module named 'osprey_no_such_package'",
+                id="module-not-importable",
+            ),
+            pytest.param(
+                "osprey.connectors.archiver.mock_archiver_connector.NoSuchArchiver",
+                "Module 'osprey.connectors.archiver.mock_archiver_connector' has no class "
+                "'NoSuchArchiver'",
+                id="class-missing",
+            ),
+            pytest.param(
+                "hdf5_archiver",
+                "Unknown archiver type: 'hdf5_archiver'. Available types: ['mock_archiver']. "
+                "Use a dotted module path for custom connectors.",
+                id="unknown-name-lists-available",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_an_unusable_archiver_type_is_refused(self, connector_type, message):
+        with pytest.raises(ValueError) as caught:
+            await ConnectorFactory.create_archiver_connector({"type": connector_type})
+
+        assert message in str(caught.value)
+
+    @pytest.mark.asyncio
+    async def test_a_dotted_archiver_path_is_imported_and_remembered(self):
+        dotted = "osprey.connectors.archiver.mock_archiver_connector.MockArchiverConnector"
+
+        connector = await ConnectorFactory.create_archiver_connector({"type": dotted})
+
+        assert isinstance(connector, MockArchiverConnector)
+        assert ConnectorFactory._archiver_connectors[dotted] is MockArchiverConnector
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_an_unloadable_config_falls_back_to_the_mock_archiver_with_a_warning(
+        self, caplog
+    ):
+        def unreadable(*args, **kwargs):
+            raise RuntimeError("config.yml is unreadable")
+
+        with patch("osprey_connectors.config.get_config_value", unreadable):
+            connector = await ConnectorFactory.create_archiver_connector(None)
+
+        assert isinstance(connector, MockArchiverConnector)
+        assert "Could not load config: config.yml is unreadable, using defaults" in caplog.text
+        await connector.disconnect()

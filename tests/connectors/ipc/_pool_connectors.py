@@ -76,3 +76,10 @@ class TimingOutConnector(MockConnector):
 
     async def connect(self, config):  # noqa: ARG002 - the base signature
         raise TimeoutError("pool test: the gateway did not answer in time")
+
+
+class ExitingConnector(MockConnector):
+    """A connector whose ``connect()`` ends the child process outright."""
+
+    async def connect(self, config):  # noqa: ARG002 - the base signature
+        os._exit(3)

@@ -53,6 +53,7 @@ FAILING = f"{_HELPERS}.FailingConnector"
 HANGING = f"{_HELPERS}.HangingConnector"
 SLOW_START = f"{_HELPERS}.SlowStartConnector"
 TIMING_OUT = f"{_HELPERS}.TimingOutConnector"
+EXITING = f"{_HELPERS}.ExitingConnector"
 
 #: Bound for calls that must simply succeed, generous enough for a loaded CI box.
 OK_TIMEOUT_S = 10.0
@@ -705,6 +706,247 @@ def test_children_do_not_outlive_a_parent_that_is_killed(isolated):
     while time.monotonic() < deadline and any(_alive(pid) for pid in pids):
         time.sleep(0.1)
     assert not any(_alive(pid) for pid in pids), "a child outlived its parent"
+
+
+# ------------------------------------------------------------ handles and batches
+
+
+def test_a_handle_names_the_key_it_is_bound_to():
+    pool = ConnectorHostPool(_section(SLOW))
+
+    live = PooledConnector(pool, ("live", None))
+    live_ro = PooledConnector(pool, ("live", "readonly"))
+
+    assert (live.target, live.execution_mode) == ("live", None)
+    assert (live_ro.target, live_ro.execution_mode) == ("live", "readonly")
+
+
+async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(pools, writable):
+    section, config_file, log = writable
+    pool = pools(section, config_file=config_file)
+    live = await pool.connector("live")
+
+    values = await live.read_multiple_channels(["SR:A", "SR:B"], timeout=OK_TIMEOUT_S)
+    results = await live.write_multiple_channels([("SR:SP1", 1.0), ("SR:SP2", 2.0)])
+
+    assert sorted(values) == ["SR:A", "SR:B"]
+    assert all(value.value is not None for value in values.values())
+    assert [(r.channel_address, r.value_written) for r in results] == [
+        ("SR:SP1", 1.0),
+        ("SR:SP2", 2.0),
+    ]
+    assert all(result.outcome is not WriteOutcome.REFUSED for result in results)
+    assert [line.split() for line in log.read_text().splitlines()] == [
+        ["SR:SP1", "1.0"],
+        ["SR:SP2", "2.0"],
+    ]
+
+
+# ------------------------------------------------------------ calls lost to a write timeout
+
+
+@pytest.mark.parametrize(
+    ("method", "args", "error", "lands"),
+    [
+        ("read_channel", ("SLOW:RB",), ConnectorHostLostError, False),
+        ("write_channel", ("SLOW:SP2", 2.0), ConnectorHostWriteTimeoutError, True),
+    ],
+)
+async def test_a_call_in_flight_on_a_child_killed_for_another_writes_timeout_is_lost_with_it(
+    pools, writable, method, args, error, lands
+):
+    section, config_file, _ = writable
+    pool = pools(section, config_file=config_file, timeout_grace_s=0.2, kill_on_write_timeout=True)
+    live = await pool.connector("live")
+    pid = live.pid
+
+    bystander = asyncio.create_task(getattr(live, method)(*args, timeout=30.0))
+    await asyncio.sleep(0.2)
+    with pytest.raises(ConnectorHostWriteTimeoutError):
+        await live.write_channel("SLOW:SP", 1.0, timeout=0.3)
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await asyncio.wait_for(bystander, 10.0)
+    lost = caught.value
+    # Only a write is a write timeout; a read on the same child was just lost.
+    assert type(lost) is error
+    assert (lost.pid, lost.cause) == (pid, "write_timeout")
+    assert "killed because another write on it missed its deadline" in str(lost)
+    assert f"while {method!r} was in flight" in str(lost)
+    assert ("The write may or may not have landed." in str(lost)) is lands
+    assert not _alive(pid)
+
+
+# ------------------------------------------------------------ start refusals
+
+
+async def test_a_placeholder_inside_a_list_in_the_block_refuses_before_anything_is_spawned(
+    pools, spawns, monkeypatch
+):
+    monkeypatch.delenv("OSPREY_POOL_TEST_UNSET_LIST", raising=False)
+    block = {"channels": ["SR:A", ("SR:B", "${OSPREY_POOL_TEST_UNSET_LIST}")]}
+    pool = pools(_section(SLOW, block=block))
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live")
+
+    assert caught.value.stage == "config"
+    assert caught.value.pid is None
+    assert "still carries ${OSPREY_POOL_TEST_UNSET_LIST} after environment resolution" in str(
+        caught.value
+    )
+    assert spawns == []
+
+
+async def test_a_standin_on_a_deployment_with_no_live_machine_passes_the_config_stage(
+    pools, monkeypatch
+):
+    # No block names a real machine, so ``live`` does not resolve here and
+    # there is no live endpoint for the stand-in to collide with.
+    async def no_spawn(*args, **kwargs):
+        raise OSError("pool test: spawning is disabled")
+
+    monkeypatch.setattr(pool_module, "spawn_host", no_spawn)
+    section = {
+        "type": "live_standin",
+        "connector": {"live_standin": {"gateways": _ca_gateways("127.0.0.1", 5064)}},
+    }
+    pool = pools(section)
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("standin")
+
+    assert caught.value.stage == "spawn"
+    assert "pool test: spawning is disabled" in str(caught.value)
+
+
+async def test_a_child_that_exits_before_answering_init_is_refused_at_the_init_stage(pools, spawns):
+    pool = pools(_section(EXITING))
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live")
+
+    assert caught.value.stage == "init"
+    assert "exited before answering its init frame (exit code 3)" in str(caught.value)
+    assert spawns[0][1].returncode == 3
+    assert pool.pids() == {}
+
+
+def _doctor_init_reports(monkeypatch, doctor):
+    """Pass every child's post-connect report through *doctor* on its way in.
+
+    The child is real and answers honestly; only what the pool is handed is
+    changed, so each verify check sees exactly one lie.
+    """
+
+    class DoctoringProxy(pool_module.ConnectorHostProxy):
+        async def supervisor_request(self, method, kwargs, timeout):
+            reply = await super().supervisor_request(method, kwargs, timeout)
+            return doctor(reply) if method == "init" else reply
+
+    monkeypatch.setattr(pool_module, "ConnectorHostProxy", DoctoringProxy)
+
+
+def _with(**changes):
+    return lambda report: {**report, **changes}
+
+
+@pytest.mark.parametrize(
+    ("mode", "doctor", "stage", "message"),
+    [
+        pytest.param(
+            None,
+            lambda report: [report],
+            "init",
+            "answered its init frame with list, not the post-connect report",
+            id="report-not-a-dict",
+        ),
+        pytest.param(
+            None,
+            _with(target="va"),
+            "verify",
+            "reports target 'va' where 'live' was asked for",
+            id="target-mismatch",
+        ),
+        pytest.param(
+            None,
+            _with(connector_type="epics"),
+            "verify",
+            f"reports connector_type 'epics' where {SLOW!r} was asked for",
+            id="connector-type-mismatch",
+        ),
+        pytest.param(
+            "readonly",
+            _with(readonly_run=False),
+            "verify",
+            "was asked to run readonly but reports it is not in a readonly run",
+            id="readonly-child-not-readonly",
+        ),
+        pytest.param(
+            None,
+            _with(mode="gateway", host="10.9.9.9"),
+            "verify",
+            "came up somewhere other than derived",
+            id="endpoint-verification-fails",
+        ),
+    ],
+)
+async def test_a_child_whose_report_disagrees_with_the_derivation_is_refused_and_stopped(
+    pools, spawns, monkeypatch, mode, doctor, stage, message
+):
+    _doctor_init_reports(monkeypatch, doctor)
+    pool = pools(_section(SLOW))
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live", execution_mode=mode)
+
+    assert caught.value.stage == stage
+    assert message in str(caught.value)
+    assert len(spawns) == 1
+    process = spawns[0][1]
+    assert caught.value.pid == process.pid
+    assert process.returncode is not None
+    assert not _alive(process.pid)
+    assert pool.pids() == {}
+
+
+# ------------------------------------------------------------ lifetime, continued
+
+
+async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool():
+    async with ConnectorHostPool(_section(SLOW)) as pool:
+        live = await pool.connector("live")
+        pid = live.pid
+        assert _alive(pid)
+
+    await _wait_for(lambda: not _alive(pid))
+    assert pool.pids() == {}
+    with pytest.raises(RuntimeError, match="ConnectorHostPool is closed"):
+        await pool.connector("live")
+
+
+async def test_a_caller_queued_behind_a_start_that_close_interrupts_is_refused_as_closed(
+    pools, spawns
+):
+    pool = pools(_section(SLOW_START))
+    starting = asyncio.create_task(pool.connector("live"))
+    await _wait_for(lambda: spawns)
+    queued = asyncio.create_task(pool.connector("live"))
+    # Past the pool's first closed check, and waiting on the key's lock.
+    await asyncio.sleep(0.1)
+
+    await pool.close()
+
+    with pytest.raises(RuntimeError, match="closed while this child was starting"):
+        await starting
+    with pytest.raises(RuntimeError, match=r"^ConnectorHostPool is closed$"):
+        await queued
+    assert len(spawns) == 1
+
+
+async def test_disconnecting_a_key_with_no_child_starts_nothing(pools, spawns):
+    pool = pools(_section(SLOW))
+
+    await PooledConnector(pool, ("live", None)).disconnect()
+
+    assert spawns == []
+    assert pool.pids() == {}
 
 
 # ------------------------------------------------------------ helpers

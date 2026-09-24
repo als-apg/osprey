@@ -249,6 +249,15 @@ def test_an_unresolvable_target_fails_the_launch_with_a_typed_error(child):
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
 
+def test_an_init_whose_control_system_is_not_a_mapping_fails_the_launch(child):
+    frame = child.init(control_system=["type", MOCK_TYPE])
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert isinstance(frame.exception, ConnectionError)
+    assert "'control_system' must be the config section dict" in frame.message
+    assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
+
+
 def test_inherited_epics_variables_do_not_survive_into_the_child(tmp_path):
     junk = {
         "EPICS_CA_ADDR_LIST": "junk.example.org",
@@ -394,6 +403,29 @@ def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(
     assert isinstance(follow_up.value, ChannelValue)
 
 
+@pytest.mark.parametrize("bound", [0, -1.5])
+def test_a_probe_with_a_bound_that_is_not_positive_is_refused_and_the_child_keeps_serving(
+    ready_child, bound
+):
+    frame = ready_child.call("spawn_probe", channel="SR:BEAM:CURRENT", timeout=bound)
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert f"spawn_probe timeout must be positive, got {bound!r}" in frame.message
+
+    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    assert isinstance(follow_up.value, ChannelValue)
+
+
+def test_a_reply_frame_sent_to_the_child_is_ignored_and_the_child_keeps_serving(ready_child):
+    ready_child.proc.stdin.write(frames.encode_result("req-stray", 1))
+    ready_child.proc.stdin.flush()
+
+    ready_child.quiet()
+    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    assert isinstance(follow_up.value, ChannelValue)
+    assert "ignoring unexpected ResultFrame frame" in ready_child.stderr()
+
+
 def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
     frame = ready_child.call("subscribe", channel_address="SR:BEAM:CURRENT")
 
@@ -412,6 +444,29 @@ def test_closing_stdin_exits_the_child_cleanly(ready_child):
     ready_child.proc.stdin.close()
 
     assert ready_child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_OK
+
+
+def test_closing_stdin_before_the_init_frame_exits_the_child_cleanly(child):
+    child.proc.stdin.close()
+
+    assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_OK
+    deadline = time.monotonic() + REPLY_TIMEOUT_S
+    while "stdin closed before the init frame" not in child.stderr():
+        assert time.monotonic() < deadline, child.stderr()
+        time.sleep(0.05)
+
+
+def test_closing_stdin_lets_a_call_in_flight_reply_before_the_child_exits(child):
+    slow = {**CONTROL_SYSTEM, "connector": {MOCK_TYPE: {"response_delay_ms": 500}}}
+    child.init(control_system=slow)
+
+    request_id = child.send("read_channel", channel_address="SR:BEAM:CURRENT")
+    child.proc.stdin.close()
+
+    frame = child.next_frame()
+    assert frame.request_id == request_id
+    assert isinstance(frame.value, ChannelValue)
+    assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_OK
 
 
 def test_disconnect_is_acknowledged_before_the_child_exits(ready_child):
@@ -513,6 +568,61 @@ def test_installed_endpoint_is_empty_when_nothing_was_configured(monkeypatch):
     monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
 
     assert host._installed_endpoint() == (None, None, None)
+
+
+def test_installed_endpoint_reads_a_name_server_with_no_port_as_a_bare_host(monkeypatch):
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "cagw.example.org")
+    monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
+
+    assert host._installed_endpoint() == ("name_server", "cagw.example.org", None)
+
+
+@pytest.mark.parametrize(
+    ("raw", "port"),
+    [(None, None), ("", None), ("5064", 5064), ("gw-port", "gw-port")],
+)
+def test_a_port_reads_back_as_an_int_none_or_verbatim(raw, port):
+    assert host._as_port(raw) == port
+
+
+@pytest.mark.parametrize(
+    ("gateway", "why"),
+    [
+        (None, "not a mapping"),
+        (["localhost", 5064], "not a mapping"),
+        ({}, "empty"),
+        ({"address": "localhost", "port": 5065}, "port differs"),
+        ({"address": "elsewhere", "port": 5064}, "address differs"),
+    ],
+)
+def test_a_gateway_block_that_does_not_describe_the_installed_endpoint_is_no_match(gateway, why):
+    assert host._endpoint_matches(gateway, "addr_list", "localhost", 5064) is False, why
+
+
+def test_the_same_endpoint_in_the_same_mode_is_a_match():
+    """The positive control for the table above: only the one field differs there."""
+    assert host._endpoint_matches(
+        {"address": "localhost", "port": 5064}, "addr_list", "localhost", 5064
+    )
+
+
+def test_a_connector_with_no_write_posture_reports_writes_off():
+    assert host._selection_writes_enabled(object()) is False
+
+
+def test_a_gateways_entry_that_is_not_a_mapping_reports_no_role(monkeypatch):
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "localhost:5064")
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    section = {"connector": {"epics": {"gateways": ["localhost:5064"]}}}
+
+    report = host._post_connect_report(object(), "epics", "live", section)
+
+    assert (report["selected_role"], report["mode"], report["host"], report["port"]) == (
+        None,
+        "name_server",
+        "localhost",
+        5064,
+    )
 
 
 GATEWAYS = {

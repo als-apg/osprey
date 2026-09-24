@@ -293,7 +293,7 @@ def _exit_now(code: int) -> None:
         sys.stderr.flush()
         _save_coverage()
     finally:
-        os._exit(code)
+        os._exit(code)  # pragma: no cover - ends the process before the tracer records it
 
 
 def _save_coverage() -> None:
@@ -305,7 +305,7 @@ def _save_coverage() -> None:
     this is a dictionary lookup.
     """
     coverage = sys.modules.get("coverage")
-    if coverage is None:
+    if coverage is None:  # pragma: no cover - only true outside a measured run
         return
     with contextlib.suppress(Exception):
         current = coverage.Coverage.current()

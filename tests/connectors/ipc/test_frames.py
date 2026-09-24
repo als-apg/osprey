@@ -7,6 +7,7 @@ value that came back out, the exact fields on a reconstructed exception —
 never merely that a round trip "didn't raise".
 """
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -615,3 +616,155 @@ def test_object_array_cannot_be_encoded():
     """An object array is exactly what pickle would be needed for — so it is refused."""
     with pytest.raises(ValueError, match="pickle"):
         frames.encode_result("req-obj", np.array([{"a": 1}], dtype=object))
+
+
+# ---------------------------------------------------------------- malformed frames
+
+
+def _split(frame: bytes) -> tuple[dict, bytes]:
+    """Take a well-formed frame apart into its JSON header and its blob bytes."""
+    body = frame[8:]
+    (header_len,) = frames._HEADER_STRUCT.unpack_from(body, 0)
+    return json.loads(body[4 : 4 + header_len]), body[4 + header_len :]
+
+
+def _repack(header: bytes, blob_bytes: bytes = b"") -> bytes:
+    """Frame raw header bytes the way ``_pack`` does, with consistent outer lengths."""
+    body = frames._HEADER_STRUCT.pack(len(header)) + header + blob_bytes
+    return frames.MAGIC + frames._HEADER_STRUCT.pack(len(body)) + body
+
+
+def _doctored(frame: bytes, edit) -> bytes:
+    """``frame`` with its header passed through ``edit``, everything else intact."""
+    header, blob_bytes = _split(frame)
+    edit(header)
+    return _repack(json.dumps(header).encode(), blob_bytes)
+
+
+def _result(value=1) -> bytes:
+    return frames.encode_result("req-bad", value)
+
+
+def _array_result() -> bytes:
+    return frames.encode_result("req-bad", np.arange(3))
+
+
+def _two_array_result() -> bytes:
+    return frames.encode_result("req-bad", [np.arange(3), np.arange(2)])
+
+
+def _set(key, value):
+    return lambda header: header.__setitem__(key, value)
+
+
+def _drop(key):
+    return lambda header: header.pop(key)
+
+
+_TAG = frames._TAG
+
+MALFORMED_FRAMES = [
+    pytest.param(
+        lambda: _doctored(_result(), _set("value", {"a": 1})),
+        "untagged object in frame payload",
+        id="untagged-object",
+    ),
+    pytest.param(
+        lambda: _doctored(_result(), _set("value", {_TAG: "Bogus", "fields": {}})),
+        "unknown value tag 'Bogus' in frame payload",
+        id="unknown-value-tag",
+    ),
+    pytest.param(
+        lambda: _doctored(_array_result(), _set("value", {_TAG: "ndarray", "blob": 5})),
+        "blob index 5 outside the frame's 1 segments",
+        id="blob-index-out-of-range",
+    ),
+    pytest.param(
+        # True == 1 would index the second of two segments if it were let through.
+        lambda: _doctored(_two_array_result(), _set("value", {_TAG: "ndarray", "blob": True})),
+        "blob index True outside the frame's 2 segments",
+        id="blob-index-is-a-bool",
+    ),
+    pytest.param(
+        lambda: b"XXXX" + _result()[4:],
+        "does not start with the expected magic prefix",
+        id="bad-magic",
+    ),
+    pytest.param(
+        lambda: _result()[:8] + frames._HEADER_STRUCT.pack(10_000) + _result()[12:],
+        "frame header length runs past the end of the frame",
+        id="header-length-past-the-end",
+    ),
+    pytest.param(
+        lambda: _repack(b"{not json"),
+        "frame header is not valid JSON",
+        id="non-json-header",
+    ),
+    pytest.param(
+        lambda: _repack(b"\xff\xfe"),
+        "frame header is not valid JSON",
+        id="non-utf8-header",
+    ),
+    pytest.param(
+        lambda: _repack(b"[1, 2]"),
+        "frame header is not a JSON object",
+        id="header-not-an-object",
+    ),
+    pytest.param(
+        lambda: _doctored(_result(), _set("v", 99)),
+        f"frame protocol version 99 != {frames.PROTOCOL_VERSION}",
+        id="wrong-protocol-version",
+    ),
+    pytest.param(
+        lambda: _doctored(_array_result(), lambda h: h.__setitem__("blobs", [h["blobs"][0] + 7])),
+        "frame blob segment is truncated",
+        id="truncated-blob-segment",
+    ),
+    pytest.param(
+        lambda: _doctored(_result(), _drop("request_id")),
+        "frame is missing its request id",
+        id="missing-request-id",
+    ),
+    pytest.param(
+        lambda: _doctored(_result(), _set("request_id", 7)),
+        "frame is missing its request id",
+        id="non-string-request-id",
+    ),
+    pytest.param(
+        lambda: _doctored(_result(), _set("kind", "gossip")),
+        "unknown frame kind 'gossip'",
+        id="unknown-frame-kind",
+    ),
+]
+
+
+@pytest.mark.parametrize(("build", "message"), MALFORMED_FRAMES)
+def test_decode_frame_refuses_a_malformed_frame_with_a_specific_reason(build, message):
+    payload = build()
+
+    with pytest.raises(frames.FrameDecodeError) as caught:
+        frames.decode_frame(payload)
+
+    assert message in str(caught.value)
+
+
+def test_the_malformed_frame_builders_start_from_a_frame_that_decodes():
+    """The table above mutates real frames; the unmutated ones must be valid, or
+    every row could be failing for the same unrelated reason."""
+    assert frames.decode_frame(_doctored(_result(), lambda header: None)).value == 1
+    decoded = frames.decode_frame(_doctored(_array_result(), lambda header: None)).value
+    assert decoded.tolist() == [0, 1, 2]
+
+
+def test_a_json_node_no_json_parser_produces_is_refused():
+    """``json.loads`` never yields a tuple or a set, so this arm cannot be reached
+    through a frame; it stops a caller-built node tree from decoding as nothing."""
+    with pytest.raises(frames.FrameDecodeError, match="unsupported JSON node of type 'set'"):
+        frames._decode_value({1, 2}, [])
+
+
+def test_encoding_a_frame_over_the_size_limit_is_refused(monkeypatch):
+    monkeypatch.setattr(frames, "MAX_FRAME_BYTES", 64)
+
+    with pytest.raises(frames.FrameEncodeError, match=r"frame of \d+ bytes exceeds the 64 limit"):
+        frames.encode_result("req-big", "x" * 100)

@@ -577,3 +577,273 @@ class TestValidateAtTime:
     def test_timezone_offset_rejected(self):
         with pytest.raises(ValueError, match="must not carry a"):
             _validate_at_time(_PREFIX, "08:30:00+02:00")
+
+
+def _scenario(spec):
+    """A machine whose one scenario, ``s``, is *spec*."""
+    return _machine(scenarios={"s": spec})
+
+
+def _bpm(errors):
+    return _scenario({"physics": {"bpm_errors": errors}})
+
+
+def _event(event):
+    return _scenario({"archiver": [{"channel": "PV:A", "events": [event]}]})
+
+
+class TestParseMachineRejectsMalformedSpecs:
+    """Every malformed shape the in-memory parser refuses, with the reason it gives."""
+
+    @pytest.mark.parametrize(
+        ("machine", "message"),
+        [
+            pytest.param(
+                _channels({"PV:A": 5.0}),
+                "Channel 'PV:A': entry must be a mapping, got float",
+                id="channel-not-a-mapping",
+            ),
+            pytest.param(
+                _channels({"PV:A": {"value": [1, 2]}}),
+                "Channel 'PV:A': 'value' must be a number or string",
+                id="channel-value-a-list",
+            ),
+            pytest.param(
+                _channels({"PV:A": {"value": True}}),
+                "Channel 'PV:A': 'value' must be a number or string",
+                id="channel-value-a-bool",
+            ),
+            pytest.param(
+                _channels({"PV:A": {"expr": 3}}),
+                "Channel 'PV:A': 'expr' must be a string",
+                id="channel-expr-not-a-string",
+            ),
+            pytest.param(
+                _machine(scenarios=["fault"]),
+                "'scenarios' must be a mapping of scenario name to definition",
+                id="scenarios-not-a-mapping",
+            ),
+            pytest.param(
+                _scenario("a fault"),
+                "Scenario 's': definition must be a mapping",
+                id="scenario-not-a-mapping",
+            ),
+            pytest.param(
+                _scenario({"overrides": {"PV:A": None}}),
+                "Scenario 's': override for 'PV:A' must be a number or string",
+                id="override-none",
+            ),
+            pytest.param(
+                _scenario({"overrides": {"PV:A": False}}),
+                "Scenario 's': override for 'PV:A' must be a number or string",
+                id="override-bool",
+            ),
+            pytest.param(
+                _scenario({"archiver": ["PV:A"]}),
+                "Scenario 's': archiver entries must be mappings",
+                id="archiver-entry-not-a-mapping",
+            ),
+            pytest.param(
+                _scenario({"physics": {"bpm_errors": ["BPM01"]}}),
+                "Scenario 's' physics: 'bpm_errors' must be a mapping of device id to an error spec",
+                id="bpm-errors-not-a-mapping",
+            ),
+            pytest.param(
+                _bpm({"": {"polarity": -1}}),
+                "Scenario 's' physics: 'bpm_errors' keys must be non-empty device id strings",
+                id="bpm-errors-empty-device-id",
+            ),
+            pytest.param(
+                _bpm({"BPM01": {"offset": "1e-4"}}),
+                "Scenario 's' physics bpm_errors['BPM01']: 'offset' must be a number, got '1e-4'",
+                id="bpm-error-offset-a-string",
+            ),
+            pytest.param(
+                _bpm({"BPM01": {"gain": True}}),
+                "Scenario 's' physics bpm_errors['BPM01']: 'gain' must be a number, got True",
+                id="bpm-error-gain-a-bool",
+            ),
+            pytest.param(
+                _event("step at 0.5"),
+                "Scenario 's', channel 'PV:A': event must be a mapping",
+                id="event-not-a-mapping",
+            ),
+            pytest.param(
+                _event({"shape": "step"}),
+                "Scenario 's', channel 'PV:A': 'step' event missing keys ['to']",
+                id="event-missing-keys",
+            ),
+        ],
+    )
+    def test_rejects_with_the_specific_reason(self, machine, message):
+        with pytest.raises(ValueError) as caught:
+            parse_machine(machine, _PATH)
+
+        assert message in str(caught.value)
+
+    def test_a_channel_listed_after_the_one_it_references_parses(self):
+        """The reference walk reaches PV:A through PV:B first, then skips it."""
+        machine = _channels({"PV:B": {"expr": "ch('PV:A') + 1"}, "PV:A": {"value": 1.0}})
+
+        channels = parse_machine(machine, _PATH).channels
+
+        assert channels["PV:B"].refs == ("PV:A",)
+        assert channels["PV:A"].value == 1.0
+
+
+_LOG_ENTRY = {
+    "entry_id": "E-1",
+    "when": {"days_ago": 1, "time": "08:30:00"},
+    "author": "operator",
+    "title": "Beam lost",
+    "text": "RF trip at 08:29.",
+}
+
+
+def _entry(**changes):
+    entry = {**_LOG_ENTRY, **changes}
+    return {key: value for key, value in entry.items() if value is not _DROP}
+
+
+_DROP = object()
+
+
+def _write_bundle(root: Path, *, scenario=None, logbook=None) -> Path:
+    """A machine file beside a ``scenarios/fault`` bundle; returns the machine path.
+
+    ``scenario``/``logbook`` are written verbatim when a ``str`` (to plant bad
+    JSON), as JSON otherwise; a ``scenario`` of ``None`` leaves scenario.json out.
+    """
+    bundle = root / "scenarios" / "fault"
+    bundle.mkdir(parents=True)
+    for name, content in (("scenario.json", scenario), ("logbook.json", logbook)):
+        if content is not None:
+            text = content if isinstance(content, str) else json.dumps(content)
+            (bundle / name).write_text(text)
+    machine_path = root / "machine.json"
+    machine_path.write_text(json.dumps(_machine(scenarios={})))
+    return machine_path
+
+
+def _load_bundle(machine_path: Path) -> ParsedMachine:
+    return parse_machine(json.loads(machine_path.read_text()), machine_path)
+
+
+class TestScenarioBundleValidation:
+    """``scenarios/<name>/`` bundles: the files themselves, then each logbook entry."""
+
+    def test_a_valid_bundle_carries_its_logbook(self, tmp_path):
+        machine_path = _write_bundle(
+            tmp_path, scenario={"description": "rf trip"}, logbook=[_entry(tags=["rf"])]
+        )
+
+        scenario = _load_bundle(machine_path).scenarios["fault"]
+
+        assert scenario.description == "rf trip"
+        [entry] = scenario.logbook
+        assert (entry.entry_id, entry.author, entry.tags) == ("E-1", "operator", ("rf",))
+        assert (entry.when.days_ago, entry.when.time.isoformat()) == (1, "08:30:00")
+
+    @pytest.mark.parametrize(
+        ("scenario", "logbook", "message"),
+        [
+            pytest.param(
+                None,
+                None,
+                "Scenario bundle 'fault' is missing scenario.json",
+                id="no-scenario-json",
+            ),
+            pytest.param(
+                "{not json",
+                None,
+                "Scenario bundle 'fault': invalid scenario.json",
+                id="scenario-bad-json",
+            ),
+            pytest.param(
+                {}, "[{", "Scenario bundle 'fault': invalid logbook.json", id="logbook-bad-json"
+            ),
+            pytest.param(
+                {},
+                {"entries": []},
+                "Scenario bundle 'fault': logbook.json must be a JSON array",
+                id="logbook-not-an-array",
+            ),
+        ],
+    )
+    def test_a_malformed_bundle_file_is_refused(self, tmp_path, scenario, logbook, message):
+        machine_path = _write_bundle(tmp_path, scenario=scenario, logbook=logbook)
+
+        with pytest.raises(ValueError) as caught:
+            _load_bundle(machine_path)
+
+        assert message in str(caught.value)
+
+    @pytest.mark.parametrize(
+        ("entry", "message"),
+        [
+            pytest.param("E-1", "logbook: each entry must be a mapping", id="entry-not-a-mapping"),
+            pytest.param(
+                _entry(entry_id=""),
+                "logbook: 'entry_id' must be a non-empty string, got ''",
+                id="entry-id-empty",
+            ),
+            pytest.param(
+                _entry(entry_id=_DROP),
+                "logbook: 'entry_id' must be a non-empty string, got None",
+                id="entry-id-missing",
+            ),
+            pytest.param(
+                _entry(when="yesterday"),
+                "entry 'E-1': 'when' must be a mapping with 'days_ago' and 'time'",
+                id="when-not-a-mapping",
+            ),
+            pytest.param(
+                _entry(when={"days_ago": -1, "time": "08:30:00"}),
+                "entry 'E-1': 'days_ago' must be a non-negative integer, got -1",
+                id="days-ago-negative",
+            ),
+            pytest.param(
+                _entry(when={"days_ago": True, "time": "08:30:00"}),
+                "entry 'E-1': 'days_ago' must be a non-negative integer, got True",
+                id="days-ago-bool",
+            ),
+            pytest.param(
+                _entry(author=7),
+                "entry 'E-1': 'author' must be a string, got 7",
+                id="author-not-a-string",
+            ),
+            pytest.param(
+                _entry(text=_DROP),
+                "entry 'E-1': 'text' must be a string, got None",
+                id="text-missing",
+            ),
+            pytest.param(
+                _entry(tags="rf"),
+                "entry 'E-1': 'tags' must be a list of strings, got 'rf'",
+                id="tags-a-string",
+            ),
+            pytest.param(
+                _entry(categories=["ops", 3]),
+                "entry 'E-1': 'categories' must be a list of strings, got ['ops', 3]",
+                id="categories-mixed",
+            ),
+            pytest.param(
+                _entry(loto_tag=42),
+                "entry 'E-1': 'loto_tag' must be a string or null, got 42",
+                id="loto-tag-a-number",
+            ),
+            pytest.param(
+                _entry(extra=["k", "v"]),
+                "entry 'E-1': 'extra' must be a mapping, got ['k', 'v']",
+                id="extra-not-a-mapping",
+            ),
+        ],
+    )
+    def test_a_malformed_logbook_entry_is_refused(self, tmp_path, entry, message):
+        machine_path = _write_bundle(tmp_path, scenario={}, logbook=[entry])
+
+        with pytest.raises(ValueError) as caught:
+            _load_bundle(machine_path)
+
+        assert "Scenario 'fault' logbook" in str(caught.value)
+        assert message in str(caught.value)
