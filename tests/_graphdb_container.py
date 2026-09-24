@@ -28,6 +28,15 @@ never mount.
 half and its content does not depend on the lane. The *store* is deliberately
 not shared: the lanes that wipe it between corpora start their own
 module-scoped container from this same recipe.
+
+**A store that stops answering.** A started store can still stop answering
+mid-module, most often because the host is saturated. The driver then raises
+``ServiceUnavailable`` from its socket layer, and a test that reads through
+the raw session reports that as its own failure. :class:`WatchedStore` and
+:class:`WatchedSession` make each such read fail as
+:class:`GraphStoreUnavailable`, naming the store. They do not stop later
+reads from contacting it: a stalled store can come back, and a later read
+that gets an answer is a real result.
 """
 
 from __future__ import annotations
@@ -36,12 +45,14 @@ import io
 import logging
 import os
 import tarfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 import requests
+from neo4j.exceptions import ServiceUnavailable
 
 from tests._container_support import (
     is_docker_available,
@@ -304,3 +315,89 @@ def graphdb_store_published_port(
         yield port
     finally:
         stop_quietly(container)
+
+
+# ---------------------------------------------------------------------------
+# A store that stops answering
+# ---------------------------------------------------------------------------
+
+
+class GraphStoreUnavailable(AssertionError):
+    """A store read got no answer because the store stopped answering after it started.
+
+    It subclasses :class:`AssertionError` so that a caller that does nothing
+    special reports it as the real failure it is, never as a skip. It is its
+    own type so that a reader can tell it apart from a parity assertion in the
+    short summary.
+    """
+
+
+class WatchedStore:
+    """Watches a started store's reads and turns ``ServiceUnavailable`` into
+    :class:`GraphStoreUnavailable`.
+
+    It keeps a count of losses for the message and does not stop later reads
+    from contacting the store.
+
+    Args:
+        uri: The bolt URI the store is reached on.
+        label: Human-readable name for the store, used in the failure.
+    """
+
+    def __init__(self, uri: str, *, label: str) -> None:
+        self.uri = uri
+        self.label = label
+        self.losses: list[str] = []
+
+    @contextmanager
+    def reading(self) -> Iterator[None]:
+        """Run the block as a read of this store.
+
+        Raises:
+            GraphStoreUnavailable: When the block raises ``ServiceUnavailable``.
+                Every other exception passes through untouched.
+        """
+        try:
+            yield
+        except ServiceUnavailable as exc:
+            where = os.environ.get("PYTEST_CURRENT_TEST", "a read outside any test")
+            self.losses.append(f"{where}: {type(exc).__name__}: {exc}")
+            message = (
+                f"{self.label} at {self.uri} stopped answering during {self.losses[-1]}\n"
+                "No answer came back to compare, so this is not a parity result. The "
+                "container started before this read; look at the container and the host "
+                "it runs on (docker ps -a, daemon load), not at the code under test."
+            )
+            if len(self.losses) > 1:
+                message += (
+                    f"\nThis store has stopped answering {len(self.losses)} times in this "
+                    f"module; the first was during {self.losses[0]}"
+                )
+            raise GraphStoreUnavailable(message) from exc
+
+
+class WatchedSession:
+    """A driver session whose every read, record fetch included, runs inside
+    :meth:`WatchedStore.reading`.
+
+    The records are fetched inside the guard because the driver pulls them
+    lazily: a result handed back unread would fail outside it.
+
+    Args:
+        session: The driver session to read through.
+        store: The store the session is on.
+    """
+
+    def __init__(self, session: Any, store: WatchedStore) -> None:
+        self._session = session
+        self._store = store
+
+    def single(self, cypher: str, params: Mapping[str, Any] | None = None) -> Any:
+        """Run *cypher* and return the driver's ``.single()`` of its result."""
+        with self._store.reading():
+            return self._session.run(cypher, dict(params or {})).single()
+
+    def records(self, cypher: str, params: Mapping[str, Any] | None = None) -> list[Any]:
+        """Run *cypher* and return every record of its result."""
+        with self._store.reading():
+            return list(self._session.run(cypher, dict(params or {})))
