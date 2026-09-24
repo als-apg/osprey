@@ -30,7 +30,9 @@ from osprey.port_layout import (
     CA_DEFAULT_PORT,
     DEFAULT_PORT_BASE,
     PORT_BASE_CONFIG_KEY,
+    PVA_DEFAULT_PORT,
     SLOTS_BY_NAME,
+    VA_PVA_PORT_CONFIG_KEY,
     block_range,
     default_port,
 )
@@ -951,6 +953,66 @@ class TestRemedyResolution:
             assert host_ports._remedy_for_service(service, CONTAINER_BOLT_PORT) == expected
 
 
+class TestPvAccessPort:
+    """Virtual-accelerator instance 1's second protocol port and the key that moves it.
+
+    The service publishes Channel Access and pvAccess, each on the same number
+    inside and outside the container, so the service name alone cannot say which
+    key moves a contested one. The configured pvAccess port tells them apart.
+    """
+
+    @staticmethod
+    def _duplicated(port, config=None):
+        """Conflicts from two ``virtual-accelerator`` bindings on ``port:port``."""
+        bindings = [
+            HostPortBinding("virtual-accelerator", "127.0.0.1", port, port, "a.yml"),
+            HostPortBinding("virtual-accelerator", "127.0.0.1", port, port, "b.yml"),
+        ]
+        return find_port_conflicts(bindings, project_name="proj", config=config)
+
+    def test_the_pvaccess_binding_names_its_own_key(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+        assert [c.remedy for c in self._duplicated(PVA_DEFAULT_PORT)] == [VA_PVA_PORT_CONFIG_KEY]
+        assert [c.remedy for c in self._duplicated(CA_DEFAULT_PORT)] == [
+            "services.virtual_accelerator.port"
+        ]
+
+    def test_a_moved_pvaccess_port_is_still_recognised(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+        config = {"services": {"virtual_accelerator": {"pva_port": 15075}}}
+        assert [c.remedy for c in self._duplicated(15075, config)] == [VA_PVA_PORT_CONFIG_KEY]
+
+    def test_a_malformed_pvaccess_setting_falls_back_to_the_protocol_port(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+        for config in (
+            {"services": {"virtual_accelerator": {"pva_port": "x"}}},
+            {"services": ["virtual_accelerator"]},
+        ):
+            assert [c.remedy for c in self._duplicated(PVA_DEFAULT_PORT, config)] == [
+                VA_PVA_PORT_CONFIG_KEY
+            ]
+
+    def test_the_report_explains_the_pvaccess_exception(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+        outside = self._duplicated(PVA_DEFAULT_PORT, {"deployment": {"port_base": SECOND_BASE}})
+        assert [c.pvaccess for c in outside] == [True]
+        report = format_conflict_report(outside)
+        paragraph = f"Port {PVA_DEFAULT_PORT} is outside the block. It is the pvAccess port"
+        assert report.count(paragraph) == 1
+        assert "virtual_accelerator.pva_port in its build profile" in report
+
+        in_block_port = SECOND_BASE + 500
+        inside = self._duplicated(
+            in_block_port,
+            {
+                "deployment": {"port_base": SECOND_BASE},
+                "services": {"virtual_accelerator": {"pva_port": in_block_port}},
+            },
+        )
+        assert [c.pvaccess for c in inside] == [False]
+        assert "It is the pvAccess port" not in format_conflict_report(inside)
+
+
 class TestHostNetworkConflicts:
     """The derived bindings join the same duplicate and external checks."""
 
@@ -1388,14 +1450,14 @@ class TestTwoDeploymentsOnOneHost:
 
     A default-base deployment is running. A second project, built at
     ``port_base: 20000``, is preflighted against it. Everything the second
-    project binds is inside its own block and free, so the only collision left
-    is the one port a base cannot move.
+    project binds is inside its own block and free, so the only collisions left
+    are the two protocol ports a base cannot move.
     """
 
-    #: What the first deployment holds: its whole block, plus Channel Access.
+    #: What the first deployment holds: its whole block, plus both protocol ports.
     def _held_ports(self):
         first, last = block_range(DEFAULT_PORT_BASE)
-        return set(range(first, last + 1)) | {CA_DEFAULT_PORT}
+        return set(range(first, last + 1)) | {CA_DEFAULT_PORT, PVA_DEFAULT_PORT}
 
     def _second_project(self):
         """Published bindings of a second project built at ``SECOND_BASE``."""
@@ -1413,14 +1475,18 @@ class TestTwoDeploymentsOnOneHost:
                 ("bluesky-bridge", "bluesky", 8000),
             )
         ] + [
-            # The Channel Access exception: instance 1 is NOT in the block, so
-            # it did not move with the base and lands on the running one.
+            # The protocol-port exception: instance 1's Channel Access and
+            # pvAccess ports are NOT in the block, so they did not move with the
+            # base and land on the running one's.
             HostPortBinding(
                 "virtual-accelerator", "127.0.0.1", CA_DEFAULT_PORT, CA_DEFAULT_PORT, "b.yml"
-            )
+            ),
+            HostPortBinding(
+                "virtual-accelerator", "127.0.0.1", PVA_DEFAULT_PORT, PVA_DEFAULT_PORT, "b.yml"
+            ),
         ]
 
-    def _run(self, monkeypatch):
+    def _run(self, monkeypatch, bindings=None, config=None):
         held = self._held_ports()
         monkeypatch.setattr(
             host_ports, "_port_is_free", lambda host_ip, host_port: host_port not in held
@@ -1436,20 +1502,36 @@ class TestTwoDeploymentsOnOneHost:
             ),
         )
         return find_port_conflicts(
-            self._second_project(),
+            self._second_project() if bindings is None else bindings,
             project_name="second",
-            config={"deployment": {"port_base": SECOND_BASE}},
+            config={"deployment": {"port_base": SECOND_BASE}} if config is None else config,
             repo_id="secondrepo1",
         )
 
-    def test_only_the_channel_access_port_collides(self, monkeypatch):
+    def test_only_the_two_protocol_ports_collide(self, monkeypatch):
         conflicts = self._run(monkeypatch)
         assert [(c.host_port, c.service) for c in conflicts] == [
-            (CA_DEFAULT_PORT, "virtual-accelerator")
+            (CA_DEFAULT_PORT, "virtual-accelerator"),
+            (PVA_DEFAULT_PORT, "virtual-accelerator"),
         ]
-        assert conflicts[0].remedy == "services.virtual_accelerator.port"
-        assert conflicts[0].channel_access is True
-        assert conflicts[0].port_base == SECOND_BASE
+        assert [c.remedy for c in conflicts] == [
+            "services.virtual_accelerator.port",
+            VA_PVA_PORT_CONFIG_KEY,
+        ]
+        assert [c.channel_access for c in conflicts] == [True, False]
+        assert [c.pvaccess for c in conflicts] == [False, True]
+        assert {c.port_base for c in conflicts} == {SECOND_BASE}
+
+    def test_a_second_deployment_that_moves_both_protocol_ports_collides_nowhere(self, monkeypatch):
+        bindings = [b for b in self._second_project() if b.service != "virtual-accelerator"] + [
+            HostPortBinding("virtual-accelerator", "127.0.0.1", 15064, 15064, "b.yml"),
+            HostPortBinding("virtual-accelerator", "127.0.0.1", 15075, 15075, "b.yml"),
+        ]
+        config = {
+            "deployment": {"port_base": SECOND_BASE},
+            "services": {"virtual_accelerator": {"port": 15064, "pva_port": 15075}},
+        }
+        assert self._run(monkeypatch, bindings, config) == []
 
     def test_the_report_frames_the_second_block_and_explains_the_exception(self, monkeypatch):
         report = format_conflict_report(self._run(monkeypatch))
@@ -1457,6 +1539,8 @@ class TestTwoDeploymentsOnOneHost:
         assert f"ports {first}-{last}" in report
         assert f"Port {CA_DEFAULT_PORT} is outside the block." in report
         assert "services.virtual_accelerator.port" in report
+        assert f"Port {PVA_DEFAULT_PORT} is outside the block. It is the pvAccess port" in report
+        assert "virtual_accelerator.pva_port in its build profile" in report
         # The base moved everything it could, so it is not offered again.
         assert "moves all of them at once" not in report
 
@@ -1476,7 +1560,7 @@ class TestTwoDeploymentsOnOneHost:
                 b.container_port,
                 b.compose_file,
             )
-            if b.host_port != CA_DEFAULT_PORT
+            if b.host_port not in (CA_DEFAULT_PORT, PVA_DEFAULT_PORT)
             else b
             for b in self._second_project()
         ]
@@ -1488,7 +1572,7 @@ class TestTwoDeploymentsOnOneHost:
         )
         assert len(conflicts) == len(bindings)
         # Every in-block one names the single knob that moves them together.
-        in_block = [c for c in conflicts if not c.channel_access]
+        in_block = [c for c in conflicts if not (c.channel_access or c.pvaccess)]
         assert {c.remedy for c in in_block} == {PORT_BASE_CONFIG_KEY}
 
 
