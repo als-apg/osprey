@@ -615,6 +615,35 @@ def test_a_content_type_with_parameters_is_normalized_before_it_is_used(cfg):
     assert results[0]["mime"] == "text/csv"
 
 
+@pytest.mark.parametrize(
+    "mime,extension,body",
+    [
+        ("text/csv", ".csv", b"time,state\n10:00,OPEN\n"),
+        ("text/tab-separated-values", ".tsv", b"time\tstate\n10:00\tOPEN\n"),
+    ],
+)
+def test_a_table_is_published_as_a_document_under_its_own_extension(cfg, mime, extension, body):
+    # A table reaches the space as a file a reader can open in a spreadsheet,
+    # keyed and served under its own type rather than as .bin.
+    client = FakeGcsClient()
+
+    results = publish_documents(
+        cfg,
+        "R1",
+        [descriptor("a1", mime=mime, filename=f"transitions{extension}")],
+        http=make_http(worker_handler_for({"a1": (body, f"{mime}; charset=utf-8")})),
+        client_factory=factory_for(client),
+    )
+
+    blob = client.only_blob()
+    assert blob.name.startswith("docs/")
+    assert blob.name.endswith(extension)
+    assert blob.uploaded == body
+    assert blob.content_type == mime
+    assert results[0]["filename"] == f"transitions{extension}"
+    assert results[0]["mime"] == mime
+
+
 def test_a_document_served_with_no_content_type_falls_back_to_octet_stream(cfg):
     # The descriptor claims markdown; an absent served type is reported as
     # unknown rather than borrowing that claim.
