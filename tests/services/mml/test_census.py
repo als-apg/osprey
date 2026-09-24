@@ -779,6 +779,16 @@ class TestVaFamilyFacts:
             ("Monitor", "table"),
         ]
 
+    def test_a_mixed_band_is_read_as_the_fallback_it_is(self):
+        """A field banded for one device and not the other is gridded over the fallback."""
+        census = _synthetic_census()
+        assert [
+            (f.calibration_kind, f.grid_source) for f in _va_family_census(census, "BDM").fields
+        ] == [("linear", "fallback")]
+        assert [(r.family, r.field) for r in _system(census, "SR").hazards.non_finite_ranges] == [
+            ("BDM", "Setpoint")
+        ]
+
     def test_the_nominal_source_of_each_field(self):
         """The units the nominal came back in, and whether it stood in for a reading."""
         census = _synthetic_census()
