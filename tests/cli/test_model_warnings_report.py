@@ -7,8 +7,8 @@ from the resolved spec, through ``warn_fact`` in the build and as one trouble
 line in status, so the operator reads it once however often the verb resolved.
 
 One real exemplar build with ``provider: openai`` serves every test. The
-exemplar keeps three Claude ``agent_models`` ids, so the same build also carries
-configured ids the provider does not list.
+build also pins one agent to an id the provider does not list, so it carries that
+warning too.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from osprey.deployment import status_display
 from tests.cli.conftest import TerminalProbe
 
 SUBSTITUTION = "haiku, sonnet, opus aliases run the main model gpt-6-sol"
-UNLISTED = "'openai' does not list claude-opus-5-5, claude-sonnet-5"
+UNLISTED = "'openai' does not list gpt-6-preview"
 
 _WITNESS = "MODELWARNINGSWITNESSMARKER"
 
@@ -80,7 +80,12 @@ def openai_build(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
     profile = repo / "profile.yml"
     text = profile.read_text()
     assert text.count("\nprovider: anthropic\n") == 1
-    profile.write_text(text.replace("\nprovider: anthropic\n", "\nprovider: openai\n"))
+    text = text.replace("\nprovider: anthropic\n", "\nprovider: openai\n")
+    example = "  # claude_code.agent_models.logbook-search: claude-sonnet-5\n"
+    assert text.count(example) == 1
+    profile.write_text(
+        text.replace(example, "  claude_code.agent_models.logbook-search: gpt-6-preview\n")
+    )
 
     buffer = StringIO()
     console = Console(

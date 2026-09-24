@@ -610,6 +610,36 @@ def _persona_corpus_deltas() -> tuple[Delta, ...]:
     )
 
 
+#: The three helper agents the fixtures pin, and the Claude id each was pinned to.
+_FROZEN_HELPER_PINS = (
+    ("channel-finder", "claude-sonnet-5"),
+    ("facility-knowledge-graph", "claude-sonnet-5"),
+    ("logbook-deep-research", "claude-opus-5-5"),
+)
+
+
+def _helper_agent_model_deltas() -> tuple[Delta, ...]:
+    """The helper-agent pins every control-assistant document lost.
+
+    The fixtures were frozen while the preset pinned three helper agents to a
+    model each. The preset pins none now, so every agent runs the deployment's
+    main model, and every document it renders loses those three leaves.
+
+    Returns:
+        One delta per document per pinned agent.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path=f"claude_code.agent_models.{agent}",
+            fixture=model_id,
+            live=ABSENT,
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+        for agent, model_id in _FROZEN_HELPER_PINS
+    )
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -646,7 +676,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas(),
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -656,7 +687,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas(),
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -666,7 +698,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas(),
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -676,7 +709,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
-    + _simulator_baseline_deltas(),
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas(),
 }
 
 

@@ -613,11 +613,10 @@ class TestValidateProvider:
 
 
 class TestAgentTemplatesNameAModelId:
-    """Each framework agent's frontmatter names a model id, never an alias word.
+    """Each framework agent's frontmatter names the model the spec gives it.
 
-    The template asks the spec for the agent's model, and its literal fallback —
-    rendered only when no spec is passed — is a full id the packaged direct
-    Anthropic entry serves.
+    The template names no model of its own: with no spec there is no main model
+    to name, so it renders no ``model:`` line.
     """
 
     AGENTS_DIR = (
@@ -629,25 +628,28 @@ class TestAgentTemplatesNameAModelId:
         / "claude"
         / "agents"
     )
-    PATTERN = re.compile(r'model: \{\{.*agent_model\("(?P<name>[^"]+)"\).*?else "(?P<id>[^"]+)"')
+    PATTERN = re.compile(
+        r"\{% if claude_code_model_spec is defined and claude_code_model_spec %\}"
+        r'model: \{\{ claude_code_model_spec\.agent_model\("(?P<name>[^"]+)"\) \}\}\n\{% endif %\}'
+    )
+    MODEL_LINE = re.compile(r"^(?:\{%[^%]*%\})?model:.*$", re.MULTILINE)
 
     def test_every_framework_agent_template_asks_for_its_own_model(self):
         from osprey.registry.mcp import FRAMEWORK_AGENTS
 
-        seen = {}
+        seen = set()
         for path in sorted(self.AGENTS_DIR.glob("*.md.j2")):
             match = self.PATTERN.search(path.read_text())
-            assert match, f"{path.name} declares no model line with a fallback id"
+            assert match, f"{path.name} declares no spec-guarded model line"
             assert match.group("name") == path.name.removesuffix(".md.j2")
-            seen[match.group("name")] = match.group("id")
-        assert set(seen) == set(FRAMEWORK_AGENTS)
+            seen.add(match.group("name"))
+        assert seen == set(FRAMEWORK_AGENTS)
 
-    def test_each_template_fallback_is_a_served_anthropic_id(self):
-        served = load_provider_catalog(None).entries["anthropic"]["models"]
+    def test_no_template_names_a_model_of_its_own(self):
         for path in sorted(self.AGENTS_DIR.glob("*.md.j2")):
-            match = self.PATTERN.search(path.read_text())
-            assert match.group("id") in served, path.name
-            assert match.group("id") not in TIER_MODEL_ENV_VARS
+            lines = self.MODEL_LINE.findall(path.read_text())
+            assert len(lines) == 1, path.name
+            assert " else " not in lines[0], path.name
 
 
 class TestEnvBlockAliasModels:

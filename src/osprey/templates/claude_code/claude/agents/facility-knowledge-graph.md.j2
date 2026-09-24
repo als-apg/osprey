@@ -3,8 +3,8 @@
 name: facility-knowledge-graph
 description: "Answers structural questions about the machine from the facility knowledge graph: which devices exist, where they sit along the beam, what channels a device exposes, which addresses read vs write, device classes and counts, which devices share a channel. Delegate to this agent when the user asks how the machine fits together."
 summary: Answers structural machine questions from the facility knowledge graph
-model: {{ claude_code_model_spec.agent_model("facility-knowledge-graph") if claude_code_model_spec is defined and claude_code_model_spec else "claude-sonnet-5" }}
-maxTurns: 30
+{% if claude_code_model_spec is defined and claude_code_model_spec %}model: {{ claude_code_model_spec.agent_model("facility-knowledge-graph") }}
+{% endif %}maxTurns: 30
 tools: mcp__graph__capabilities, mcp__graph__example_queries, mcp__graph__get_schema, mcp__graph__read_cypher, mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
