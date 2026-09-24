@@ -176,6 +176,90 @@ def test_the_model_is_judged_against_the_provider_set_beside_it(runner, lifecycl
     assert "not in provider 'cborg''s served list" in result.output
 
 
+# --- an agent pin is a model id for an agent ------------------------------------
+
+_PIN = "config.claude_code.agent_models"
+
+
+def test_an_agent_pin_spelled_as_an_alias_word_is_refused(runner, lifecycle_repo):
+    before = _profile_text(lifecycle_repo)
+
+    result = runner.invoke(
+        set_command, ["--repo", str(lifecycle_repo), f"{_PIN}.logbook-search=sonnet"]
+    )
+
+    assert result.exit_code != 0
+    assert f"`{_PIN}.logbook-search=sonnet` is not a model id" in result.output
+    assert "claude-sonnet-5" in result.output
+    assert _profile_text(lifecycle_repo) == before
+
+
+def test_an_agent_pin_mapping_is_checked_entry_by_entry(runner, lifecycle_repo):
+    before = _profile_text(lifecycle_repo)
+
+    result = runner.invoke(
+        set_command, ["--repo", str(lifecycle_repo), f"{_PIN}={{logbook-search: opus}}"]
+    )
+
+    assert result.exit_code != 0
+    assert f"`{_PIN}.logbook-search=opus` is not a model id" in result.output
+    assert _profile_text(lifecycle_repo) == before
+
+
+def test_an_agent_pin_naming_no_agent_is_refused_with_the_agent_names(runner, lifecycle_repo):
+    before = _profile_text(lifecycle_repo)
+
+    result = runner.invoke(
+        set_command,
+        ["--repo", str(lifecycle_repo), f"{_PIN}.chanel-finder=claude-haiku-4-5"],
+    )
+
+    assert result.exit_code != 0
+    assert "claude_code.agent_models.chanel-finder: no agent is called" in result.output
+    assert "channel-finder" in result.output
+    assert _profile_text(lifecycle_repo) == before
+
+
+def test_a_served_agent_pin_is_written_without_a_note(runner, lifecycle_repo):
+    result = _invoke(runner, lifecycle_repo, f"{_PIN}.logbook-search=claude-haiku-4-5")
+
+    assert result.exit_code == 0, result.output
+    assert "claude_code.agent_models.logbook-search: claude-haiku-4-5" in (
+        _profile_text(lifecycle_repo)
+    )
+    assert "served list" not in result.output
+
+
+def test_an_unserved_agent_pin_is_written_with_a_note(runner, lifecycle_repo):
+    result = _invoke(runner, lifecycle_repo, f"{_PIN}.logbook-search=claude-opus-4-8-preview")
+
+    assert result.exit_code == 0, result.output
+    assert "claude_code.agent_models.logbook-search: claude-opus-4-8-preview" in (
+        _profile_text(lifecycle_repo)
+    )
+    assert "claude-opus-4-8-preview is not in provider 'anthropic''s served list" in (result.output)
+
+
+def test_a_pin_the_deployment_agent_file_overrides_is_refused(runner, lifecycle_repo):
+    agents = lifecycle_repo / "agents"
+    agents.mkdir(exist_ok=True)
+    (agents / "site-helper.md").write_text(
+        "---\nname: site-helper\ndescription: Site questions.\nmodel: claude-sonnet-5\n---\n",
+        encoding="utf-8",
+    )
+    before = _profile_text(lifecycle_repo)
+
+    result = runner.invoke(
+        set_command, ["--repo", str(lifecycle_repo), f"{_PIN}.site-helper=claude-haiku-4-5"]
+    )
+
+    assert result.exit_code != 0
+    assert "claude-haiku-4-5 is not what agents/site-helper.md runs (claude-sonnet-5)" in (
+        result.output
+    )
+    assert _profile_text(lifecycle_repo) == before
+
+
 def test_dotted_config_key_replaces_the_literal_entry(runner, lifecycle_repo):
     """``config.`` keys address the profile's dotted entries, not a subtree."""
     result = _invoke(runner, lifecycle_repo, "config.control_system.type=epics")

@@ -1646,8 +1646,13 @@ keys:
     rendered: false
     evidence: 'claude_code_config\.get\("agent_models"\)'
     note: >-
-      Agent name to the model id that agent runs. Keys are agent names, which
-      a deployment may add, so the leaves are data.
+      Agent name to the model id that agent runs. Keys are agent names: the
+      framework's channel-finder, data-visualizer, facility-knowledge,
+      facility-knowledge-graph, logbook-deep-research, logbook-search and
+      pyat-specialist, plus any agent the deployment defines under
+      claude_code.agents or ships in agents/, so the leaves are data. The build
+      refuses a key that names no agent, and a pin on an agent whose own
+      agents/<name>.md names another model.
     default: derived
     default_note: every agent runs the deployment's main model
   claude_code.servers:
