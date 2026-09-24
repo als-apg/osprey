@@ -2234,6 +2234,7 @@ def _create_lifespan(
                     proxy_port = start_proxy(
                         _spec.upstream_base_url,
                         os.environ.get(_spec.auth_env_var),
+                        provider=_spec.provider,
                     )
                     os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
                     logger.info(

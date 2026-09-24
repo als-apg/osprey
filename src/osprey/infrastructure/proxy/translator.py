@@ -18,8 +18,20 @@ def _gen_id(prefix: str = "msg_") -> str:
 # ── Request: Anthropic → OpenAI ──────────────────────────────────────
 
 
-def anthropic_to_openai_request(body: dict) -> dict:
-    """Convert an Anthropic Messages API request body to OpenAI Chat Completions."""
+def anthropic_to_openai_request(
+    body: dict,
+    *,
+    max_tokens_param: str = "max_tokens",
+    accepts_temperature: bool = True,
+) -> dict:
+    """Convert an Anthropic Messages API request body to OpenAI Chat Completions.
+
+    Args:
+        body: The Anthropic Messages request.
+        max_tokens_param: The upstream parameter that carries the output-token cap.
+        accepts_temperature: Whether the upstream takes a caller-chosen temperature;
+            when False the request carries none.
+    """
     messages = _convert_messages(body.get("messages", []), body.get("system"))
     tools = _convert_tools_to_openai(body.get("tools"))
 
@@ -30,8 +42,8 @@ def anthropic_to_openai_request(body: dict) -> dict:
     }
 
     if body.get("max_tokens"):
-        openai_body["max_tokens"] = body["max_tokens"]
-    if body.get("temperature") is not None:
+        openai_body[max_tokens_param] = body["max_tokens"]
+    if accepts_temperature and body.get("temperature") is not None:
         openai_body["temperature"] = body["temperature"]
     if body.get("top_p") is not None:
         openai_body["top_p"] = body["top_p"]
