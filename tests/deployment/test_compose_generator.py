@@ -5683,6 +5683,33 @@ def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> 
     assert '"osprey-framework"' not in dockerfile
 
 
+def _gchat_services(**block: object) -> dict:
+    return {
+        "gchat_bridge": {"trigger": "gchat-question", **block},
+        "event_dispatcher": {},
+        "dispatch_worker": {},
+    }
+
+
+def test_gchat_bridge_mentions_render_on_by_default() -> None:
+    """A block without the key (a hand-edited or older config) renders mentions on."""
+    assert _gchat_bridge_service()["environment"]["GCHAT_MENTIONS"] == "true"
+
+
+@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
+def test_gchat_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
+    environment = _gchat_bridge_service(services=_gchat_services(mentions=value))["environment"]
+    assert environment["GCHAT_MENTIONS"] == rendered
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_gchat_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
+    from osprey.bridges.google_chat import GoogleChatBridgeConfig
+
+    environment = _gchat_bridge_service(services=_gchat_services(mentions=value))["environment"]
+    assert GoogleChatBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
+
+
 # ---------------------------------------------------------------------------
 # Teams bridge service template
 #

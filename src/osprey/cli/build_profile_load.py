@@ -1135,8 +1135,12 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if gchat_bridge_raw is not None:
         if not isinstance(gchat_bridge_raw, dict):
             raise BuildProfileError("Profile 'gchat_bridge' must be a mapping")
+        mentions = gchat_bridge_raw.get("mentions", True)
+        if not isinstance(mentions, bool):
+            raise BuildProfileError("Profile 'gchat_bridge.mentions' must be true or false")
         gchat_bridge = GChatBridgeProfileConfig(
             trigger=gchat_bridge_raw.get("trigger", "gchat-question"),
+            mentions=mentions,
         )
 
     teams_bridge_raw = raw.get("teams_bridge")
