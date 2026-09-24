@@ -42,6 +42,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -493,6 +494,49 @@ def _synthetic_event(now_ns: int) -> dict:
     }
 
 
+def _synthetic_span(now_ns: int, trace_id: str) -> dict:
+    """One ``claude_code.tool`` span carrying a ``tool.output`` event."""
+    return {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [{"key": "service.name", "value": {"stringValue": "claude-code"}}]
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "com.anthropic.claude_code.tracing"},
+                        "spans": [
+                            {
+                                "traceId": trace_id,
+                                "spanId": trace_id[:16],
+                                "name": "claude_code.tool",
+                                "kind": 1,
+                                "startTimeUnixNano": str(now_ns),
+                                "endTimeUnixNano": str(now_ns + 1_000_000),
+                                "attributes": [
+                                    {"key": "tool_name", "value": {"stringValue": "Read"}}
+                                ],
+                                "events": [
+                                    {
+                                        "timeUnixNano": str(now_ns + 500_000),
+                                        "name": "tool.output",
+                                        "attributes": [
+                                            {
+                                                "key": "content",
+                                                "value": {"stringValue": "line one\nline two"},
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -669,6 +713,46 @@ def test_synthetic_otlp_roundtrip_via_the_ingest_identity(deployed_openobserve: 
         time.sleep(2.0)
 
     assert event_total >= 1, "no record visible after ingest via the ingest identity"
+
+
+def test_synthetic_trace_roundtrip_via_the_ingest_identity(deployed_openobserve: Path) -> None:
+    """A tool span with its output event lands through the traces route.
+
+    The base endpoint the resolver emits plus the exporter's ``/v1/traces`` is
+    this route, on the pinned image, authenticated as the provisioned ingest
+    identity with the resolver's header.
+    """
+    email, token = _ingest_credentials(deployed_openobserve)
+    auth = _auth_header_from_resolver(user=email, password=token)
+
+    now_ns = int(time.time() * 1_000_000_000)
+    trace_id = secrets.token_hex(16)
+    status, body = _otlp_post(f"/api/{OO_ORG}/v1/traces", _synthetic_span(now_ns, trace_id), auth)
+    assert status == 200, f"trace ingest rejected: {status} {body} — {_container_cred_diagnosis()}"
+
+    start_us = (now_ns // 1_000) - 3_600_000_000
+    end_us = (now_ns // 1_000) + 60_000_000
+    deadline = time.monotonic() + INGEST_QUERY_TIMEOUT_SEC
+    total = 0
+    while time.monotonic() < deadline:
+        _, tres = _query(
+            f"/api/{OO_ORG}/_search?type=traces",
+            {
+                "query": {
+                    "sql": f"SELECT * FROM \"default\" WHERE trace_id = '{trace_id}'",
+                    "start_time": start_us,
+                    "end_time": end_us,
+                    "size": 5,
+                }
+            },
+            auth,
+        )
+        total = tres.get("total", 0)
+        if total >= 1:
+            break
+        time.sleep(2.0)
+
+    assert total >= 1, f"trace {trace_id} not visible in OpenObserve after ingest"
 
 
 def test_a_wrong_token_for_the_ingest_account_is_rejected(deployed_openobserve: Path) -> None:

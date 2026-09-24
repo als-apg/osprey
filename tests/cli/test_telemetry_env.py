@@ -114,6 +114,7 @@ CONTENT_GATES = [
     ("OTEL_LOG_ASSISTANT_RESPONSES", "log_assistant_responses"),
     ("OTEL_LOG_TOOL_DETAILS", "log_tool_details"),
     ("OTEL_LOG_RAW_API_BODIES", "log_raw_api_bodies"),
+    ("OTEL_LOG_TOOL_CONTENT", "log_tool_content"),
 ]
 
 
@@ -123,10 +124,39 @@ def test_content_gates_default_on():
         assert env[env_var] == "1"
 
 
-def test_tool_content_never_wired():
-    """OTEL_LOG_TOOL_CONTENT requires tracing and is out of scope."""
+def test_traces_are_exported_with_the_tracing_switch():
+    """Traces ride the enabled block, with the switch that turns tracing on."""
     env = _build_telemetry_env({"enabled": True, "endpoint": "http://c:4318"})
-    assert "OTEL_LOG_TOOL_CONTENT" not in env
+    assert env["OTEL_TRACES_EXPORTER"] == "otlp"
+    assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+    assert env["OTEL_LOG_TOOL_CONTENT"] == "1"
+    assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in env
+
+
+def test_content_max_length_is_emitted_as_a_string():
+    for raw in (262144, "262144"):
+        env = _build_telemetry_env(
+            {"enabled": True, "endpoint": "http://c:4318", "content_max_length": raw}
+        )
+        assert env["CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH"] == "262144"
+
+
+def test_content_max_length_absent_leaves_claude_codes_default():
+    """Unset or empty emits nothing, so Claude Code's own limit applies."""
+    env = _build_telemetry_env({"enabled": True, "endpoint": "http://c:4318"})
+    assert "CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH" not in env
+    env = _build_telemetry_env(
+        {"enabled": True, "endpoint": "http://c:4318", "content_max_length": ""}
+    )
+    assert "CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH" not in env
+
+
+@pytest.mark.parametrize("bad", ["big", 0, -1, True, "${OTEL_LIMIT}"])
+def test_content_max_length_must_be_a_positive_integer(bad):
+    with pytest.raises(TelemetryConfigError, match="content_max_length"):
+        _build_telemetry_env(
+            {"enabled": True, "endpoint": "http://c:4318", "content_max_length": bad}
+        )
 
 
 @pytest.mark.parametrize("env_var,cfg_key", CONTENT_GATES)
@@ -402,6 +432,7 @@ def test_telemetry_env_vars_covers_all_emitted_keys():
             "openobserve": {"user": "u", "password": "p"},
             "resource_attributes": "service.name=osprey",
             "headers": {"X-Trace": "abc"},
+            "content_max_length": 262144,
         },
         in_container=False,
     )
@@ -542,6 +573,17 @@ _OO_CFG = {
     "backend": "openobserve",
     "openobserve": {"user": "u", "password": "p"},
 }
+
+
+def test_openobserve_traces_share_the_base_endpoint():
+    """One base endpoint serves every signal.
+
+    The OTLP exporter appends ``/v1/traces`` to the base endpoint, which is
+    OpenObserve's traces route, so no per-signal endpoint is emitted.
+    """
+    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_port=15080)
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:15080/api/default"
+    assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in env
 
 
 def test_host_override_wins_over_derivation():
@@ -758,6 +800,7 @@ def test_no_warning_when_all_content_off(recwarn):
             "log_assistant_responses": False,
             "log_tool_details": False,
             "log_raw_api_bodies": False,
+            "log_tool_content": False,
         }
     )
     assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]
