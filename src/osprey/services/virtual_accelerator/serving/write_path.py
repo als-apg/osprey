@@ -59,7 +59,7 @@ that, which is what lets one write path serve every facility:
 :func:`physics_setpoint_addresses` is the same set as the served database
 states it. The conversion itself is never respelled here either -- an
 ``inverse`` readback is the model variable's own
-:meth:`~osprey.services.virtual_accelerator.model.variables._CalibratedSetpoint.readback`,
+:meth:`~osprey.services.virtual_accelerator.model.variables.CalibratedSetpoint.readback`,
 so the value a client reads back and the physics the lattice took come from
 one calibration and not from two spellings of it.
 """
