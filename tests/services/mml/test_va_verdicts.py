@@ -189,7 +189,7 @@ class TestTheSyntheticExport:
     def test_the_cavity_couples_on_its_class_and_not_on_its_index(
         self, verdicts: dict, export: dict
     ) -> None:
-        assert export["families"]["RF"]["nominals"]["Setpoint"]["at_index"] == 41
+        assert export["families"]["RF"]["nominals"]["Setpoint"]["at_index"] == 43
         verdict = verdicts["RF"]
         assert (verdict.verdict, verdict.kind, verdict.element_field) == ("couple", "rf", None)
 

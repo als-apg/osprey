@@ -147,6 +147,9 @@ def _ring_elements() -> list[Any]:
         if cell != CELLS:
             elements.append(at.Corrector(f"HC{cell}B", 0.0, [0.0, 0.0]))
         elements.append(at.Drift("DR", TAIL_DRIFT))
+    # The last girder's two ends, marked with the monitor element type under one
+    # name; no family reads them.
+    elements += [at.Monitor("GE"), at.Monitor("GE")]
     return elements
 
 
@@ -189,10 +192,10 @@ def _apply_nominal_kicks(ring: at.Lattice) -> None:
     write path applies, and the rule the emitted slice weights come from.
     """
     for plane, family in ((0, "HC"), (1, "VC")):
-        gain = CONVERSIONS[family]["gain"]
+        hw2physics = CONVERSIONS[family]["hw2physics"]
         for device, current in enumerate(NOMINAL_AMPS[family]):
             indices = _corrector_elements(ring, device)
-            kick = gain * current / len(indices)
+            kick = hw2physics(np.array([current]), DECK_ENERGY_GEV)[0] / len(indices)
             for index in indices:
                 angle = np.array(ring[index].KickAngle, dtype=float)
                 angle[plane] = kick
@@ -272,6 +275,32 @@ def _linear_brho(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
 
     def convert(hardware: np.ndarray, energy: float) -> np.ndarray:
         return gain * hardware * brho(DECK_ENERGY_GEV) / brho(energy)
+
+    return convert
+
+
+def _sinh_brho(gain: float, scale: float) -> Callable[[np.ndarray, float], np.ndarray]:
+    """A rigidity-scaled conversion that bends: odd, strictly monotonic, its slope ``gain`` at zero."""
+
+    def convert(hardware: np.ndarray, energy: float) -> np.ndarray:
+        return (
+            gain
+            * scale
+            * np.sinh(np.asarray(hardware, dtype=float) / scale)
+            * brho(DECK_ENERGY_GEV)
+            / brho(energy)
+        )
+
+    return convert
+
+
+def _asinh_brho(gain: float, scale: float) -> Callable[[np.ndarray, float], np.ndarray]:
+    """The exact inverse of :func:`_sinh_brho`."""
+
+    def convert(physics: np.ndarray, energy: float) -> np.ndarray:
+        return scale * np.arcsinh(
+            np.asarray(physics, dtype=float) * brho(energy) / brho(DECK_ENERGY_GEV) / (gain * scale)
+        )
 
     return convert
 
@@ -407,8 +436,8 @@ CONVERSIONS: dict[str, dict[str, Any]] = {
     },
     "HC": {
         "gain": 1.0e-4,
-        "hw2physics": _linear_brho(1.0e-4),
-        "physics2hw": _brho_inverse(1.0e-4),
+        "hw2physics": _sinh_brho(1.0e-4, 2.0),
+        "physics2hw": _asinh_brho(1.0e-4, 2.0),
         "fcn": "amp2rad",
         "inverse_fcn": "rad2amp",
     },
@@ -667,7 +696,7 @@ def build_ao(ring: at.Lattice) -> dict[str, Any]:
     monitors = at_index(_named(ring, "BPM"))
     dipoles = at_index(_named(ring, "BD"))
     cavity = at_index(_named(ring, "RFC"))[0]
-    septum = at_index([len(ring) - 2])[0]
+    septum = at_index([max(i for i, e in enumerate(ring) if isinstance(e, at.Drift))])[0]
 
     correctors = []
     for device in range(CELLS):
@@ -779,7 +808,7 @@ def build_ao(ring: at.Lattice) -> dict[str, Any]:
         "BEND",
         "Radian",
         2,
-        setpoint_range=[-2.0, 2.0],
+        setpoint_range=[[-2.0, 2.0], [float("nan"), float("nan")]],
         monitor_range=None,
         monitor=False,
         hw_units="Ampere",
@@ -1481,8 +1510,12 @@ def build_va(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
 # The response matrix.
 # ---------------------------------------------------------------------------
 
-#: The kick each corrector is stepped by while the matrix is measured, in radians.
-ACTUATOR_DELTA = 1.0e-5
+#: The kick each corrector is stepped by while the matrix is measured, in radians:
+#: one kick per corrector device.
+ACTUATOR_DELTA = {
+    "HC": [1.0e-5, 1.1e-5, 0.9e-5, 1.0e-5],
+    "VC": [1.2e-5, 1.0e-5, 1.0e-5, 0.8e-5],
+}
 
 #: The monitor device whose measurement this file does not count as good.
 BAD_MONITOR = 2
@@ -1505,7 +1538,8 @@ def _orbit(ring: at.Lattice) -> np.ndarray:
 def _response_column(ring: at.Lattice, plane: int, device: int) -> np.ndarray:
     """One corrector's orbit response, measured the way a model measurement is: both ways."""
     indices = _corrector_elements(ring, device)
-    step = ACTUATOR_DELTA / len(indices)
+    delta = ACTUATOR_DELTA["HC" if plane == 0 else "VC"][device]
+    step = delta / len(indices)
     saved = [np.array(ring[index].KickAngle, dtype=float) for index in indices]
 
     def kick(sign: float) -> np.ndarray:
@@ -1518,7 +1552,7 @@ def _response_column(ring: at.Lattice, plane: int, device: int) -> np.ndarray:
     plus, minus = kick(+1.0), kick(-1.0)
     for index, angle in zip(indices, saved, strict=True):
         ring[index].KickAngle = angle
-    return (plus - minus) / (2.0 * ACTUATOR_DELTA)
+    return (plus - minus) / (2.0 * delta)
 
 
 def _rounded(value: Any) -> np.ndarray:
@@ -1566,11 +1600,12 @@ def build_response(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
                         # matrix was taken; the vertical file predates the field.
                         "data": (
                             _rounded(
-                                np.array(NOMINAL_AMPS[actuator_family])
-                                * CONVERSIONS[actuator_family]["gain"]
+                                CONVERSIONS["HC"]["hw2physics"](
+                                    np.array(NOMINAL_AMPS["HC"]), DECK_ENERGY_GEV
+                                )
                             )
                             if actuator_family == "HC"
-                            else np.nan
+                            else np.full(CELLS, np.nan)
                         ),
                     },
                     "origin": "model",
@@ -1579,7 +1614,7 @@ def build_response(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
                     "units": "Physics",
                     "units_string": "meter/radian",
                     "modulation_method": "bipolar",
-                    "actuator_delta": ACTUATOR_DELTA,
+                    "actuator_delta": np.array(ACTUATOR_DELTA[actuator_family]),
                     "data": _rounded(data),
                 }
             )
