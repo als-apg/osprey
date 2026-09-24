@@ -745,7 +745,9 @@ def _resolve_aliases(
     Derived from the served list by family name (newest version wins); a
     catalog entry's ``claude_code_aliases`` beats derivation; a deployment's
     ``claude_code.aliases`` beats both. An alias nothing resolves runs the main
-    model, and one warning names every such substitution.
+    model, and one INFO record names every such substitution. The record is for
+    the sinks: the verbs an operator reads promote the same sentence from the
+    resolved spec (:func:`alias_substitution`), once per run.
     """
     models: dict[str, str] = {}
     origin: dict[str, str] = {}
@@ -764,25 +766,60 @@ def _resolve_aliases(
             origin[alias] = "claude_code.aliases"
     missing = [alias for alias in TIER_MODEL_ENV_VARS if alias not in models]
     if missing:
-        what = (
-            "no Claude models"
-            if len(missing) == len(TIER_MODEL_ENV_VARS)
-            else ("no model of " + ("that family" if len(missing) == 1 else "those families"))
-        )
-        logger.warning(
-            "Claude Code's %s alias%s → %s: '%s' serves %s; Claude Code's own "
-            "background calls will use the main model. Set claude_code.aliases.<name> "
-            "to choose.",
-            ", ".join(missing),
-            "es" if len(missing) > 1 else "",
-            main_model,
-            provider_name,
-            what,
+        logger.info(
+            "%s %s",
+            _alias_substitution_text(missing, main_model, provider_name),
+            ALIAS_SUBSTITUTION_REMEDY,
         )
         for alias in missing:
             models[alias], origin[alias] = main_model, "main model"
     ordered = {alias: models[alias] for alias in TIER_MODEL_ENV_VARS}
     return ordered, {alias: origin[alias] for alias in TIER_MODEL_ENV_VARS}
+
+
+#: What to do about an alias substitution, printed as its remedy.
+ALIAS_SUBSTITUTION_REMEDY = "Set claude_code.aliases.<name> to choose."
+
+
+def _alias_substitution_text(missing: list[str], main_model: str, provider_name: str) -> str:
+    """The one sentence naming the aliases that run the main model, and why."""
+    what = (
+        "no Claude models"
+        if len(missing) == len(TIER_MODEL_ENV_VARS)
+        else ("no model of " + ("that family" if len(missing) == 1 else "those families"))
+    )
+    names = f"{', '.join(missing)} aliases run" if len(missing) > 1 else f"{missing[0]} alias runs"
+    return f"Claude Code's {names} the main model {main_model}: '{provider_name}' serves {what}."
+
+
+def alias_substitution(spec: ClaudeCodeModelSpec) -> str | None:
+    """The alias substitution a resolved spec carries, as one sentence, or ``None``.
+
+    Read off ``alias_origin`` rather than kept from the resolve that made the
+    spec, so a verb that resolved several times still has one sentence to say.
+    """
+    missing = [alias for alias, origin in spec.alias_origin.items() if origin == "main model"]
+    if not missing:
+        return None
+    return _alias_substitution_text(missing, spec.default_model_id, spec.provider)
+
+
+def unserved_model_ids(spec: ClaudeCodeModelSpec) -> list[str]:
+    """Configured model ids the provider's served list does not carry, sorted.
+
+    The main model, every alias set by ``claude_code.aliases`` and every
+    ``claude_code.agent_models`` value. Empty when the provider lists no models,
+    because then there is no list to be outside of.
+    """
+    if not spec.served_models:
+        return []
+    configured = [spec.default_model_id, *spec.agent_models.values()]
+    configured += [
+        model_id
+        for alias, model_id in spec.alias_models.items()
+        if spec.alias_origin.get(alias) == "claude_code.aliases"
+    ]
+    return sorted({model_id for model_id in configured if model_id not in spec.served_models})
 
 
 class ClaudeCodeModelResolver:

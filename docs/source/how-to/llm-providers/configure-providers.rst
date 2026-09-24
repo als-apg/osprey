@@ -276,7 +276,7 @@ Which model answers
 ``provider`` picks one of the entries in ``providers.yml``. ``model`` is the
 deployment's main model: a model id the provider serves. Omit it and the
 provider entry's ``default_model`` answers. An id the entry's ``models`` list
-does not carry is still used — the build logs that it trusts the gateway, so a
+does not carry is still used, and the build names it in one warning line. A
 newly released model works before the catalog lists it, and a misspelt id fails
 at the provider (an error naming the id). A bare ``haiku``, ``sonnet`` or
 ``opus`` is refused, with the ids the provider serves: those words are Claude

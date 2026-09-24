@@ -12,7 +12,9 @@ from osprey.build.claude_code_resolver import (
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
+    alias_substitution,
     inject_provider_env,
+    unserved_model_ids,
 )
 from osprey.profiles.providers import load_provider_catalog
 from tests.conftest import GATEWAY_BASE_URL, GATEWAY_ORIGIN
@@ -483,27 +485,29 @@ class TestAliasDerivation:
         }
         assert set(spec.alias_origin.values()) == {"derived"}
 
-    def test_a_gateway_serving_no_claude_model_runs_the_main_model_and_warns(self, caplog):
+    def test_a_gateway_serving_no_claude_model_runs_the_main_model_and_records_it(self, caplog):
+        """One INFO record for the sinks; the verbs promote the sentence themselves."""
         entry = _gateway("gpt-6-sol", ("gpt-6-astra", "gpt-6-sol", "gpt-6-luna"))
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve({"provider": "openai"}, {"openai": entry})
         assert spec.alias_models == dict.fromkeys(TIER_MODEL_ENV_VARS, "gpt-6-sol")
         assert spec.alias_origin == dict.fromkeys(TIER_MODEL_ENV_VARS, "main model")
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert len(warnings) == 1
-        text = warnings[0].getMessage()
-        assert "haiku, sonnet, opus" in text and "gpt-6-sol" in text
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        records = [r.getMessage() for r in caplog.records if "main model" in r.getMessage()]
+        assert len(records) == 1
+        text = records[0]
+        assert "haiku, sonnet, opus aliases run the main model gpt-6-sol" in text
         assert "serves no Claude models" in text
         assert "claude_code.aliases" in text
 
     def test_a_partial_family_names_only_the_missing_alias(self, caplog):
         entry = _gateway("claude-sonnet-5", ("claude-sonnet-5", "claude-opus-5"))
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve({"provider": "gw"}, {"gw": entry})
         assert spec.alias_models["haiku"] == "claude-sonnet-5"
         assert spec.alias_origin["haiku"] == "main model"
         assert spec.alias_origin["opus"] == "derived"
-        assert "haiku alias" in caplog.text
+        assert "haiku alias runs the main model" in caplog.text
 
     def test_catalog_aliases_beat_derivation(self):
         entry = _gateway(
@@ -533,6 +537,55 @@ class TestAliasDerivation:
         spec = ClaudeCodeModelResolver.resolve({"provider": "gw"}, {"gw": entry})
         for alias, var in TIER_MODEL_ENV_VARS.items():
             assert spec.env_block[var] == spec.alias_models[alias]
+
+
+class TestServedListReaders:
+    """What a resolved spec says about the served list, for the verbs to print."""
+
+    def test_the_substitution_is_read_off_the_spec(self):
+        entry = _gateway("gpt-6-sol", ("gpt-6-astra", "gpt-6-sol"))
+        spec = ClaudeCodeModelResolver.resolve({"provider": "openai"}, {"openai": entry})
+        assert alias_substitution(spec) == (
+            "Claude Code's haiku, sonnet, opus aliases run the main model gpt-6-sol: "
+            "'openai' serves no Claude models."
+        )
+
+    def test_a_partial_family_names_the_one_alias(self):
+        entry = _gateway("claude-sonnet-5", ("claude-sonnet-5", "claude-opus-5"))
+        spec = ClaudeCodeModelResolver.resolve({"provider": "gw"}, {"gw": entry})
+        assert alias_substitution(spec) == (
+            "Claude Code's haiku alias runs the main model claude-sonnet-5: "
+            "'gw' serves no model of that family."
+        )
+
+    def test_a_full_family_has_nothing_to_say(self):
+        entry = _gateway("claude-sonnet-5", ALS_APG_SERVED)
+        spec = ClaudeCodeModelResolver.resolve({"provider": "gw"}, {"gw": entry})
+        assert alias_substitution(spec) is None
+        assert unserved_model_ids(spec) == []
+
+    def test_configured_ids_outside_the_list_are_named_once_each(self):
+        entry = _gateway("gpt-6-sol", ("gpt-6-astra", "gpt-6-sol"))
+        spec = ClaudeCodeModelResolver.resolve(
+            {
+                "provider": "openai",
+                "aliases": {"opus": "gpt-7"},
+                "agent_models": {
+                    "a": "claude-sonnet-5",
+                    "b": "claude-sonnet-5",
+                    "c": "gpt-6-astra",
+                },
+            },
+            {"openai": entry},
+        )
+        assert unserved_model_ids(spec) == ["claude-sonnet-5", "gpt-7"]
+
+    def test_a_provider_that_lists_nothing_has_no_list_to_be_outside_of(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "gw", "default_model": "x", "agent_models": {"a": "y"}},
+            {"gw": {"base_url": "https://gateway.example.org/v1"}},
+        )
+        assert unserved_model_ids(spec) == []
 
 
 class TestValidateProvider:
