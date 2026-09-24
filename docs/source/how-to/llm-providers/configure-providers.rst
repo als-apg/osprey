@@ -300,6 +300,19 @@ Every job that calls a model names its own id or runs on the main model:
      claude_code.agent_models.channel-finder: claude-haiku-4-5
      claude_code.agent_models.logbook-deep-research: claude-opus-5
 
+The agents are the seven framework agents (``channel-finder``,
+``data-visualizer``, ``facility-knowledge``, ``facility-knowledge-graph``,
+``logbook-deep-research``, ``logbook-search`` and ``pyat-specialist``), plus any
+agent the deployment defines under ``claude_code.agents`` or ships in
+``agents/``. The build refuses a pin that names no agent. An agent the
+deployment ships as ``agents/<agent>.md`` runs that file's ``model:`` line, so
+the build also refuses a pin naming a different model. ``osprey set`` writes a
+pin with the same checks it makes for ``model=``:
+
+.. code-block:: bash
+
+   osprey set config.claude_code.agent_models.logbook-deep-research=claude-opus-5
+
 .. _claude-code-alias-names:
 
 Claude Code's alias names
@@ -326,7 +339,7 @@ own background calls ask for ``haiku``. OSPREY fills all three at build:
      claude_code.aliases.haiku: claude-haiku-4-5
 
 ``osprey status --agents`` lists each alias with its model and where it came
-from, and each agent's model with its origin.
+from, and each agent the build ships with the model its agent file names.
 
 Protocol Translation
 --------------------
