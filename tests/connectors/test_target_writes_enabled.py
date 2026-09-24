@@ -41,6 +41,7 @@ from osprey_connectors.types import (
     target_writes_enabled,
     target_writes_enabled_key,
     type_writes_enabled,
+    writes_enabled_answering_key,
     writes_enabled_key,
     writes_enabled_remedy,
 )
@@ -84,6 +85,22 @@ def test_a_type_names_its_own_block_key():
     )
 
 
+def test_the_key_that_answered_is_the_block_that_carries_the_leaf():
+    """What refused and what to edit are two questions with two answers.
+
+    A type whose own block states the posture was refused by that block. A type
+    that says nothing about itself was refused by the deployment-wide line it
+    inherits, however narrowly an operator would arm it again.
+    """
+    stated = {"connector": {"epics": {TYPE_WRITES_ENABLED_LEAF: False}}}
+    inherited = {"writes_enabled": False, "connector": {"epics": {}}}
+
+    assert writes_enabled_answering_key(stated, EPICS) == writes_enabled_key(EPICS)
+    assert writes_enabled_answering_key(inherited, EPICS) == WRITES_ENABLED_KEY
+    assert writes_enabled_answering_key({}, EPICS) == WRITES_ENABLED_KEY
+    assert writes_enabled_answering_key(inherited, None) == WRITES_ENABLED_KEY
+
+
 def test_a_registered_type_is_armed_by_the_key_that_names_it():
     """A name with no dots in it is one line, and the refusal quotes that line."""
     remedy = writes_enabled_remedy(EPICS)
@@ -107,6 +124,24 @@ def test_a_dotted_type_is_armed_by_a_mapping_the_profile_applies_verbatim():
     assert f"{CUSTOM_TYPE}:" in remedy
     assert f"{TYPE_WRITES_ENABLED_LEAF}: true" in remedy
     # And the key it inherits when it says nothing about itself.
+    assert WRITES_ENABLED_KEY in remedy
+
+
+def test_the_one_line_remedy_is_yaml_an_operator_can_paste():
+    """The flow spelling is the block one, and selecting it copies valid YAML.
+
+    Punctuation glued to the closing brace would make the copied text a parse
+    error, which would cost the one-line form the only reason it exists.
+    """
+    import yaml
+
+    remedy = writes_enabled_remedy(CUSTOM_TYPE, one_line=True)
+    mapping = remedy.split(" as ", 1)[1].split(" —", 1)[0]
+
+    assert yaml.safe_load(mapping) == {
+        "control_system.connector": {CUSTOM_TYPE: {TYPE_WRITES_ENABLED_LEAF: True}}
+    }
+    assert "\n" not in remedy
     assert WRITES_ENABLED_KEY in remedy
 
 
@@ -1123,14 +1158,15 @@ class TestTheConnectorReferenceMonitor:
         assert writes_enabled_key(EPICS) in result.error_message
 
     @pytest.mark.asyncio
-    async def test_a_narrowing_the_deployment_already_refuses_names_the_deployment(
-        self, deployment, store
-    ):
-        """Last resort: the chip is named only when flipping it would help.
+    async def test_a_narrowing_the_deployment_already_refuses_names_both(self, deployment, store):
+        """Two things refuse this write, and the operator is told both.
 
-        Sending an operator to a chip whose other position the deployment
-        refuses anyway costs them a round trip and teaches them the message
-        cannot be trusted.
+        The deployment comes first, because arming the chip alone leaves the
+        write refused — but the chip is still a reason, and an operator who
+        arms the deployment without hearing it pays for a rebuild and a
+        redeploy to be refused again. What the chip does NOT get here is the
+        flip: offering it as the remedy would send them somewhere that cannot
+        help while the deployment refuses.
         """
         # Arrange
         deployment({"type": EPICS, "writes_enabled": False, "connector": {"epics": {}}})
@@ -1142,7 +1178,11 @@ class TestTheConnectorReferenceMonitor:
 
         # Assert
         assert writes_enabled_key(EPICS) in message
-        assert "chip" not in message
+        assert "control-target chip in the header" in message
+        assert message.index("writes are disabled") < message.index("control-target chip")
+        assert "Turn writes back on" not in message
+        assert "config.yml is not the gate here" not in message
+        assert message.rstrip(".").endswith(posture_store.StoreVerdict.NARROWING.value)
 
     @pytest.mark.asyncio
     async def test_a_readonly_run_still_wins_the_wording(self, deployment, store, monkeypatch):
@@ -1289,6 +1329,24 @@ class TestOneStoreReadPerWrite:
         monkeypatch.setattr(posture_store, "store_verdict_detail", _counting)
         return calls
 
+    @staticmethod
+    def _record_reads(monkeypatch) -> list[None]:
+        """Every actual read of the control-context record, wherever it is asked.
+
+        The clause counter above sees one entry point; this one sees the file.
+        A second way to reach the record — a refusal asking for itself what the
+        verdict already knew — is invisible to the first and plain in this one.
+        """
+        reads: list[None] = []
+        real = control_context.read_record
+
+        def _counting(*args, **kwargs):
+            reads.append(None)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(control_context, "read_record", _counting)
+        return reads
+
     @pytest.mark.asyncio
     async def test_a_refused_write_reads_the_store_once(self, deployment, store, monkeypatch):
         # Arrange
@@ -1315,6 +1373,7 @@ class TestOneStoreReadPerWrite:
         deployment(ARMED_SECTION)
         store.narrow(standin=posture_store.POSTURE_SANDBOX)
         calls = self._counted(monkeypatch)
+        reads = self._record_reads(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1326,6 +1385,76 @@ class TestOneStoreReadPerWrite:
         assert len(results) == 3
         assert all("control-target chip in the header" in r.error_message for r in results)
         assert calls == [TARGET_STANDIN]
+        assert len(reads) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_batch_reads_the_record_once_for_the_whole_batch(
+        self, deployment, store, monkeypatch
+    ):
+        """A pinned batch names the chip as well, and still opens the record once.
+
+        The launch pin refuses ahead of the record, so the clause counter sees
+        nothing to count here — this is the path where a refusal asking the
+        record for itself would cost one read per operation, and where every
+        result would stop agreeing the moment an operator touched the chip
+        mid-batch.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        monkeypatch.setenv(
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
+        )
+        reads = self._record_reads(monkeypatch)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        results = await connector.write_multiple_channels(
+            [(f"S:{index}:SP", float(index)) for index in range(8)]
+        )
+
+        # Assert
+        assert len(results) == 8
+        assert all("launched while writes were off" in r.error_message for r in results)
+        assert all("control-target chip in the header" in r.error_message for r in results)
+        assert len(reads) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_write_reads_the_record_once(self, deployment, store, monkeypatch):
+        """One write, one read — the read the pin's own refusal skipped."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        monkeypatch.setenv(
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
+        )
+        reads = self._record_reads(monkeypatch)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        result = await connector.write_channel("S:CORR:1:SP", 0.5)
+
+        # Assert
+        assert result.outcome is WriteOutcome.REFUSED
+        assert len(reads) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_permitted_write_reads_the_record_once(self, deployment, store, monkeypatch):
+        """Naming a hidden narrowing costs a refusal one read, and a write none."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.write({})
+        reads = self._record_reads(monkeypatch)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        result = await connector.write_channel("S:CORR:1:SP", 0.5)
+
+        # Assert
+        assert result.outcome is not WriteOutcome.REFUSED
+        assert len(reads) == 1
 
     @pytest.mark.asyncio
     async def test_a_readonly_run_reads_the_store_not_at_all(self, deployment, store, monkeypatch):
@@ -1711,7 +1840,10 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
 
     @pytest.mark.asyncio
     async def test_the_fork_costs_no_extra_store_read(self, deployment, store, monkeypatch):
-        """The pin is one environment read, so the per-write memo is untouched."""
+        """The pin costs no record read of its own.
+
+        So the one read this write makes is the record clause the pin skipped.
+        """
         # Arrange
         deployment(ARMED_SECTION)
         self._widened(store)
@@ -1720,6 +1852,7 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
             posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
         )
         calls = TestOneStoreReadPerWrite._counted(monkeypatch)
+        reads = TestOneStoreReadPerWrite._record_reads(monkeypatch)
         connector = _built(EPICS, TARGET_STANDIN)
 
         # Act
@@ -1728,6 +1861,414 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         # Assert
         assert result.outcome is WriteOutcome.REFUSED
         assert calls == [TARGET_STANDIN]
+        assert len(reads) == 1
+
+
+#: A deployment that refuses this type in the type's own block.
+UNARMED_TYPE_SECTION: dict[str, Any] = {
+    "type": EPICS,
+    "writes_enabled": False,
+    "connector": {"epics": {"writes_enabled": False}},
+}
+
+#: A deployment that states one posture for everything, which this type
+#: inherits: the line that refuses and the line that would arm this one type
+#: are different lines.
+INHERITED_POSTURE_SECTION: dict[str, Any] = {
+    "type": EPICS,
+    "writes_enabled": False,
+    "connector": {"epics": {}},
+}
+
+
+class TestARefusedWriteNamesEveryReason:
+    """A write refused twice over says so, deployment first.
+
+    An operator acts on the message: told only that the run launched narrowed,
+    they re-run the script and are refused by a config they were never shown;
+    told only about the config, they arm it, rebuild, redeploy and are refused
+    by the pin. So every reason that holds is spoken, and the deployment's
+    config leads — it is the one that outlives the run.
+    """
+
+    @staticmethod
+    def _pin(monkeypatch) -> None:
+        """Launch this run under writes-off for the target it acts on."""
+        monkeypatch.setenv(
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
+        )
+
+    @staticmethod
+    def _unreadable_record(monkeypatch) -> None:
+        """Bind the record to a tree no container can open, for a named owner."""
+        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "control_target")
+        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+
+    @pytest.mark.asyncio
+    async def test_a_disarmed_deployment_alone_names_the_deployment_alone(self, deployment, store):
+        # Arrange
+        deployment(UNARMED_TYPE_SECTION)
+        store.write({})
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert "writes are disabled" in message
+        assert writes_enabled_remedy(EPICS) in message
+        assert "launched" not in message
+        assert "chip" not in message
+
+    @pytest.mark.asyncio
+    async def test_a_launch_pin_alone_names_the_run_alone(self, deployment, store, monkeypatch):
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.write({})
+        self._pin(monkeypatch)
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert f"launched while writes were off for '{TARGET_STANDIN}'" in message
+        assert "writes are disabled" not in message
+        assert writes_enabled_key(EPICS) not in message
+
+    @pytest.mark.asyncio
+    async def test_both_are_named_with_the_deployment_first(self, deployment, store, monkeypatch):
+        # Arrange
+        deployment(UNARMED_TYPE_SECTION)
+        store.write({})
+        self._pin(monkeypatch)
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert — both reasons, and the order an operator has to act in
+        assert "writes are disabled" in message
+        assert writes_enabled_remedy(EPICS) in message
+        assert f"launched while writes were off for '{TARGET_STANDIN}'" in message
+        assert "Re-run the script" in message
+        assert message.index("writes are disabled") < message.index("launched while")
+
+    @pytest.mark.asyncio
+    async def test_the_fail_closed_pin_is_named_beside_the_deployment_too(
+        self, deployment, store, monkeypatch
+    ):
+        """The pin nobody set is still a reason the write was refused."""
+        # Arrange
+        deployment(UNARMED_TYPE_SECTION)
+        store.write({})
+        monkeypatch.setenv(
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX),
+        )
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert "writes are disabled" in message
+        assert "most restrictive write state" in message
+        assert "chip" not in message
+
+    @pytest.mark.asyncio
+    async def test_a_readonly_run_is_named_beside_the_deployment(
+        self, deployment, store, monkeypatch
+    ):
+        """Lifting the run leaves the config, and lifting the config leaves the run."""
+        # Arrange
+        deployment(UNARMED_TYPE_SECTION)
+        store.write({})
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert "writes are disabled" in message
+        assert "readonly execution mode" in message
+        assert message.index("writes are disabled") < message.index("readonly execution mode")
+
+    @pytest.mark.asyncio
+    async def test_the_reason_names_the_key_that_refused_not_the_key_to_edit(
+        self, deployment, store
+    ):
+        """A deployment with one posture for everything refuses on that line.
+
+        The remedy still names the type's own block, which arms this machine and
+        leaves the others alone — but an operator looking for what said no finds
+        the line that really did.
+        """
+        # Arrange
+        deployment(INHERITED_POSTURE_SECTION)
+        store.write({})
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert f"writes are disabled by {WRITES_ENABLED_KEY}" in message
+        assert writes_enabled_remedy(EPICS) in message
+
+    @pytest.mark.asyncio
+    async def test_a_composed_refusal_stays_on_one_line(self, deployment, store, monkeypatch):
+        """An auditor reading this message reads it a line at a time.
+
+        The refusal reaches the executor's audit trail through the sandbox's
+        stderr, where the record's trigger keeps the lines carrying the readonly
+        marker and drops the rest. A reason pushed onto a line of its own would
+        be dropped with them, so a message with more than one reason takes the
+        remedy's flow spelling instead of its block one. A dotted connector type
+        is the only remedy with lines to lose.
+        """
+        # Arrange
+        dotted = "my_pkg.mod.MyConn"
+        deployment({"type": dotted, "writes_enabled": False, "connector": {dotted: {}}})
+        store.write({})
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+
+        # Act
+        message = (
+            await _built(dotted, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)
+        ).error_message
+
+        # Assert — one line, and still the mapping a profile applies verbatim
+        assert "\n" not in message
+        assert f"control_system.connector: {{{dotted}: {{{TYPE_WRITES_ENABLED_LEAF}: true}}}}" in (
+            message
+        )
+        assert "readonly execution mode" in message
+        assert message.splitlines()[0] == message
+
+    @pytest.mark.asyncio
+    async def test_one_reason_keeps_the_block_remedy(self, deployment, store):
+        """Nothing to lose a line to, so the form an operator reads best stays."""
+        # Arrange
+        dotted = "my_pkg.mod.MyConn"
+        deployment({"type": dotted, "writes_enabled": False, "connector": {dotted: {}}})
+        store.write({})
+
+        # Act
+        message = (
+            await _built(dotted, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)
+        ).error_message
+
+        # Assert
+        assert f"    {dotted}:" in message
+        assert writes_enabled_remedy(dotted) in message
+
+    @pytest.mark.asyncio
+    async def test_a_dotted_type_hears_its_inherited_key_once(self, deployment, store):
+        """The remedy already quotes the key a dotted type inherits."""
+        # Arrange
+        dotted = "my_pkg.mod.MyConn"
+        deployment({"type": dotted, "writes_enabled": False, "connector": {dotted: {}}})
+        store.write({})
+
+        # Act
+        message = (
+            await _built(dotted, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)
+        ).error_message
+
+        # Assert — and never the dotted key, which a profile would split on its dots
+        assert message.count(WRITES_ENABLED_KEY) == 1
+        assert writes_enabled_key(dotted) not in message
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_run_hears_the_chip_narrowing_too(self, deployment, store, monkeypatch):
+        """Re-running a script into a narrowing nobody named is the round trip
+        this refusal exists to remove.
+
+        The store answers the pin without opening the record, so the record read
+        that names the chip here is the one this write never spent.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        self._pin(monkeypatch)
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert f"launched while writes were off for '{TARGET_STANDIN}'" in message
+        assert "control-target chip in the header" in message
+        assert message.index("launched while") < message.index("control-target chip")
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_run_on_a_widened_record_names_the_pin_alone(
+        self, deployment, store, monkeypatch
+    ):
+        """The operator flipped it back; the run is what is left refusing."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.write({})
+        self._pin(monkeypatch)
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert f"launched while writes were off for '{TARGET_STANDIN}'" in message
+        assert "chip" not in message
+
+    def test_the_run_is_read_before_the_config_can_change_it(self, deployment, store, monkeypatch):
+        """A refusal describes the run the monitor's own verdict saw.
+
+        The first config read of a process loads the deployment's .env chain
+        into the environment, and this message can be that first read: the
+        verdict short-circuits on the run's own terms without ever asking the
+        config. Were the run read afterwards, a refusal could tell an operator
+        their whole deployment is read-only on the strength of a variable that
+        arrived while the message was being built.
+        """
+        # Arrange — reading the config stamps the run read-only as a side effect
+        deployment(UNARMED_TYPE_SECTION)
+        store.write({})
+        posture = connector_base._deployment_posture
+
+        def _stamping(connector_type):
+            monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+            return posture(connector_type)
+
+        monkeypatch.setattr(connector_base, "_deployment_posture", _stamping)
+
+        # Act
+        result = connector_base._writes_disabled_result(
+            "S:C:1:SP",
+            0.5,
+            EPICS,
+            TARGET_STANDIN,
+            store_verdict=posture_store.StoreVerdict.PERMITTED,
+        )
+
+        # Assert
+        assert "writes are disabled" in result.error_message
+        assert "readonly execution mode" not in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_a_type_that_refused_itself_is_named_once(self, deployment, store):
+        """The line that refused and the line to edit are the same line here."""
+        # Arrange
+        deployment(UNARMED_TYPE_SECTION)
+        store.write({})
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert "writes are disabled. " in message
+        assert message.count(writes_enabled_key(EPICS)) == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("store")
+    async def test_a_pinned_run_hears_an_unreadable_record_too(self, deployment, monkeypatch):
+        """The pin answers the store; the record behind it could not be read.
+
+        Told only about the pin, an operator re-runs the script into a record
+        nobody can open. Each clause closes on its own verdict, so the message
+        ends on the record's while the store memo keeps the pin's.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+        self._pin(monkeypatch)
+        self._unreadable_record(monkeypatch)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        message = (await connector.write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert f"launched while writes were off for '{TARGET_STANDIN}'" in message
+        assert "could not be read" in message
+        assert message.index("launched while") < message.index("could not be read")
+        assert message.rstrip(".").endswith(
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+        )
+        assert "Turn writes back on" not in message
+        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_record_verdict is (
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("store")
+    async def test_an_unreadable_record_is_named_beside_the_deployment(
+        self, deployment, monkeypatch
+    ):
+        """Arming the deployment would still meet a record nobody can open."""
+        # Arrange
+        deployment(UNARMED_TYPE_SECTION)
+        self._unreadable_record(monkeypatch)
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert "writes are disabled" in message
+        assert "could not be read" in message
+        assert message.index("writes are disabled") < message.index("could not be read")
+        assert message.rstrip(".").endswith(
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_chip_narrowing_beside_the_deployment_still_closes_on_its_verdict(
+        self, deployment, store
+    ):
+        """The flip is not offered, and the verdict the store gave is still spoken."""
+        # Arrange
+        deployment(UNARMED_TYPE_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+
+        # Act
+        message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
+
+        # Assert
+        assert message.rstrip(".").endswith(posture_store.StoreVerdict.NARROWING.value)
+        assert "config.yml is not the gate here" not in message
+
+    @pytest.mark.asyncio
+    async def test_a_pinned_run_memoises_the_record_beside_the_store(
+        self, deployment, store, monkeypatch
+    ):
+        """Under a pin the record is its own answer, and it follows the chip."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        self._pin(monkeypatch)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act / Assert — pinned and narrowed on the chip
+        await connector.write_channel("S:C:1:SP", 0.5)
+        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_record_verdict is posture_store.StoreVerdict.NARROWING
+
+        # Act / Assert — the chip lifted, the pin still in force
+        store.write({})
+        await connector.write_channel("S:C:1:SP", 0.5)
+        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_record_verdict is posture_store.StoreVerdict.PERMITTED
+
+    @pytest.mark.asyncio
+    async def test_an_unpinned_run_memoises_one_answer_twice(self, deployment, store, monkeypatch):
+        """Without a pin the store's answer IS the record's, and it is asked once."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        calls = TestOneStoreReadPerWrite._counted(monkeypatch)
+        reads = TestOneStoreReadPerWrite._record_reads(monkeypatch)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        await connector.write_channel("S:C:1:SP", 0.5)
+
+        # Assert
+        assert connector._last_record_verdict is connector._last_store_verdict
+        assert calls == [TARGET_STANDIN]
+        assert len(reads) == 1
 
 
 class _OverridingConnector(_FakeConnector):
