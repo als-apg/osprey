@@ -33,13 +33,15 @@ always the one *this* config resolved rather than the layout's default. That is
 what makes the report actionable: a contested port that still sits where the
 layout puts it moves with the whole block, so its remedy is the one key
 ``deployment.port_base``, while a port a project moved by hand keeps its own
-key. The one port outside the block is Channel Access 5064, and a collision
-there says so rather than sending an operator to a knob that cannot move it.
+key. The ports outside the block are virtual-accelerator instance 1's Channel
+Access 5064 and pvAccess port, and a collision on either says so rather than
+sending an operator to a knob that cannot move it.
 """
 
 import json
 import socket
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,7 +63,9 @@ from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_fro
 from osprey.port_layout import (
     CA_DEFAULT_PORT,
     PORT_BASE_CONFIG_KEY,
+    PVA_DEFAULT_PORT,
     SLOTS_BY_NAME,
+    VA_PVA_PORT_CONFIG_KEY,
     block_range,
     default_port,
     resolve_port_base,
@@ -99,6 +103,8 @@ _SERVICE_REMEDY_KEYS = {
     "bluesky-live-bridge": "services.bluesky_live.port",
     "tiled": "services.bluesky.tiled_port",
     "bluesky-web": "services.bluesky_web.port",
+    # The Channel Access port's key. The pvAccess binding is told apart by its
+    # configured port and resolved before this table (see `_is_va_pva_binding`).
     "virtual-accelerator": "services.virtual_accelerator.port",
     # The SECOND virtual accelerator, when a project asked for a live stand-in
     # (``virtual_accelerator.live_standin``). It is the same image on its own
@@ -267,6 +273,9 @@ class PortConflict:
         Access port (:data:`~osprey.port_layout.CA_DEFAULT_PORT`) and it falls
         outside this deployment's block. That pair is the one collision
         ``deployment.port_base`` cannot resolve, and the report says so.
+    :param pvaccess: ``True`` when the contested port is virtual-accelerator
+        instance 1's pvAccess port and it falls outside this deployment's
+        block — the second collision ``deployment.port_base`` cannot resolve.
     """
 
     host_port: int
@@ -278,6 +287,7 @@ class PortConflict:
     host_network: bool = False
     port_base: int | None = None
     channel_access: bool = False
+    pvaccess: bool = False
 
 
 @dataclass
@@ -1085,10 +1095,58 @@ def _is_channel_access_exception(host_port, base):
     Returns:
         ``True`` when the port is 5064 and this deployment's block excludes it.
     """
-    if host_port != CA_DEFAULT_PORT or base is None:
+    return host_port == CA_DEFAULT_PORT and _outside_block(host_port, base)
+
+
+def _outside_block(host_port, base):
+    """Whether ``host_port`` lies outside the block starting at ``base``.
+
+    Args:
+        host_port: The contested host port.
+        base: The base this deployment resolved, or ``None`` when unknown.
+
+    Returns:
+        ``False`` when ``base`` is ``None``: with no block shown there is no
+        boundary to be outside of.
+    """
+    if base is None:
         return False
     first, last = block_range(base)
     return not first <= host_port <= last
+
+
+def _va_pva_port(config):
+    """Virtual-accelerator instance 1's pvAccess port, read out of a rendered config.
+
+    Read defensively: a non-mapping level, a missing key, a ``bool`` or a
+    non-``int`` value all fall back, because the preflight reports collisions
+    and a malformed config is the build's to refuse.
+
+    Args:
+        config: The rendered configuration, or ``None``.
+
+    Returns:
+        ``services.virtual_accelerator.pva_port`` when it is an integer, else
+        :data:`~osprey.port_layout.PVA_DEFAULT_PORT`.
+    """
+    node = config
+    for part in VA_PVA_PORT_CONFIG_KEY.split("."):
+        if not isinstance(node, Mapping):
+            return PVA_DEFAULT_PORT
+        node = node.get(part)
+    if isinstance(node, bool) or not isinstance(node, int):
+        return PVA_DEFAULT_PORT
+    return node
+
+
+def _is_va_pva_binding(binding, pva_port):
+    """Whether ``binding`` is virtual-accelerator instance 1's pvAccess port.
+
+    The template publishes ``pva_port:pva_port`` and serves on that same number,
+    so the container port identifies it, and the configured value is what tells
+    it apart from the Channel Access port the same service publishes.
+    """
+    return binding.service == "virtual-accelerator" and binding.container_port == pva_port
 
 
 def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
@@ -1116,6 +1174,7 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
     """
     conflicts = []
     base = _resolve_base(config)
+    pva_port = _va_pva_port(config)
 
     # Published bindings claim first: a host-network service whose port a
     # published one already took is the one that has to move, and its remedy is
@@ -1126,19 +1185,26 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
 
     def _conflict(binding, kind, holder):
         """Build one conflict, resolving its remedy against this base."""
+        is_pva = _is_va_pva_binding(binding, pva_port)
+        if binding.remedy:
+            remedy = binding.remedy
+        elif is_pva:
+            remedy = VA_PVA_PORT_CONFIG_KEY
+        else:
+            remedy = _remedy_for_service(
+                binding.service, binding.container_port, binding.host_port, base
+            )
         return PortConflict(
             host_port=binding.host_port,
             bind_address=binding.host_ip,
             service=binding.service,
             kind=kind,
             holder=holder,
-            remedy=binding.remedy
-            or _remedy_for_service(
-                binding.service, binding.container_port, binding.host_port, base
-            ),
+            remedy=remedy,
             host_network=binding.host_network,
             port_base=base,
             channel_access=_is_channel_access_exception(binding.host_port, base),
+            pvaccess=is_pva and _outside_block(binding.host_port, base),
         )
 
     # a. Intra-set duplicates: the first binding claims each address; any later
@@ -1245,6 +1311,18 @@ def format_conflict_report(conflicts):
             f"configured for a real facility reach it unchanged, and {PORT_BASE_CONFIG_KEY} "
             "does not move it. A second deployment on this host sets "
             "services.virtual_accelerator.port by hand."
+        )
+        lines.append("")
+
+    # Instance 1's pvAccess port is outside the block for the same reason, and
+    # its own key moves it.
+    pva_conflict = next((conflict for conflict in conflicts if conflict.pvaccess), None)
+    if pva_conflict is not None:
+        lines.append(
+            f"Port {pva_conflict.host_port} is outside the block. It is the pvAccess port "
+            "where virtual-accelerator instance 1 publishes its model surface, and "
+            f"{PORT_BASE_CONFIG_KEY} does not move it. A second deployment on this host sets "
+            "virtual_accelerator.pva_port in its build profile."
         )
         lines.append("")
 
