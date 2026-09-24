@@ -370,7 +370,8 @@ sends you to the wrong control:
 - The connector --- *"Write to '<channel>' blocked: writes are off for the
   '<target>' control target --- turned off from the control-target chip in the
   header; applies deployment-wide. Turn writes back on for '<target>' from the
-  chip if the write is intended; config.yml is not the gate here."*
+  chip if the write is intended; config.yml is not the gate here. The store
+  answered narrowing."*
 - The executor --- *"Writes are off for the '<target>' control target ---
   turned off from the control-target chip in the header; applies
   deployment-wide."* --- offering a re-run as ``readonly``, and saying to turn
@@ -392,12 +393,25 @@ different story and says so, because no click lifts that one:
 The chip shows the same thing: every button locked, with *the whole
 deployment is running read-only* as the reason.
 
-No writes-off refusal mentions the deployment's ``writes_enabled`` keys,
+A writes-off refusal from the chip mentions no ``writes_enabled`` key,
 deliberately: changing one would not lift it, and a message that pointed at
 one would send an operator to rebuild a deployment when a single click was
-the remedy. The reverse holds too --- a write refused because this target is
-not armed says so in its own words, names the key that would arm it, and
-says nothing about the chip.
+the remedy. A write refused because this target is not armed is the other way
+round --- it names the key that would arm it, and says nothing about the chip.
+
+A write refused because the recorded write state could not be read says so
+instead --- which folder or record could not be read, and what to do about
+it --- and says the chip does not lift it: nobody set that refusal, so no
+click undoes it.
+
+When more than one holds at once, the connector names every one, the
+deployment first: arming the chip alone would leave the write refused, and an
+operator who heard only about the key would rebuild and redeploy to be refused
+again. The same goes for a run that launched read-only or under a narrowed
+write state --- the reason that outlives the run is spoken first, then the
+run's own, then the chip's or the record's. A script that launched with writes
+off, and whose target has since been turned off from the chip, hears both:
+re-running it alone would meet the chip next.
 
 .. note::
 
