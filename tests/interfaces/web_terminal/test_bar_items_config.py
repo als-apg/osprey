@@ -23,6 +23,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
+    BAR_ITEM_OPTIONS,
     BAR_LAYOUT_VERSION,
     DEFAULT_BAR_LAYOUT,
     MAX_BAR_ITEMS_PER_HOST,
@@ -54,6 +55,24 @@ def _write_config(tmp_path: Path, bar_items: object) -> Path:
 
 def _types(items: list[dict]) -> list[str]:
     return [item["type"] for item in items]
+
+
+def _every_allowed_option_value():
+    """Every value the catalog allows, one param per ``(type, option, value)``.
+
+    An enum gives each of its values, a boolean both, a number its bounds.
+    """
+    for item_type, specs in BAR_ITEM_OPTIONS.items():
+        for name, spec in specs.items():
+            kind = spec["kind"]
+            if kind == "enum":
+                values: tuple = tuple(spec["values"])
+            elif kind == "boolean":
+                values = (True, False)
+            else:
+                values = (spec["min"], spec["max"])
+            for value in values:
+                yield pytest.param(item_type, name, value, id=f"{item_type}.{name}={value!r}")
 
 
 class TestAbsentAndUnreadable:
@@ -187,6 +206,66 @@ class TestDropRules:
             layout = _load_bar_items(path)
         assert layout["status"] == [{"type": "clock"}]
         assert "options" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("item_type", "options", "kept", "named"),
+        [
+            pytest.param(
+                "clock",
+                {"zone": "UTC", "format": "12h"},
+                {"format": "12h"},
+                "options.zone",
+                id="clock-zone-wrong-case",
+            ),
+            pytest.param(
+                "clock", {"seconds": "yes"}, {}, "options.seconds", id="clock-seconds-str"
+            ),
+            pytest.param("space", {"width": 5000}, {}, "options.width", id="space-width-over-max"),
+            pytest.param("space", {"width": "120"}, {}, "options.width", id="space-width-str"),
+            pytest.param("space", {"width": True}, {}, "options.width", id="space-width-bool"),
+        ],
+    )
+    def test_an_option_value_outside_its_spec_is_dropped_with_a_warning(
+        self, tmp_path, caplog, item_type, options, kept, named
+    ):
+        path = _write_config(tmp_path, {"status": [{"type": item_type, "options": options}]})
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path)
+        assert layout["status"] == [{"type": item_type, "options": kept}]
+        assert f"web.bar_items.status[0].{named}" in caplog.text
+
+    def test_an_option_the_type_does_not_take_is_dropped_with_a_warning(self, tmp_path, caplog):
+        path = _write_config(
+            tmp_path, {"status": [{"type": "clock", "options": {"zone": "utc", "tz": "utc"}}]}
+        )
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path)
+        assert layout["status"] == [{"type": "clock", "options": {"zone": "utc"}}]
+        assert "web.bar_items.status[0].options.tz" in caplog.text
+
+    def test_options_on_a_type_that_takes_none_are_dropped_with_a_warning(self, tmp_path, caplog):
+        # The shipped header places the logo; an empty one frees it for the status bar.
+        path = _write_config(
+            tmp_path, {"header": [], "status": [{"type": "logo", "options": {"size": 3}}]}
+        )
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path)
+        assert layout["status"] == [{"type": "logo", "options": {}}]
+        assert "options.size" in caplog.text
+
+    @pytest.mark.parametrize(("item_type", "name", "value"), _every_allowed_option_value())
+    def test_every_value_the_catalog_allows_is_kept(self, tmp_path, caplog, item_type, name, value):
+        item = {"type": item_type, "options": {name: value}}
+        path = _write_config(tmp_path, {"status": [item]})
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path)
+        assert layout["status"] == [item]
+        assert [
+            record
+            for record in caplog.records
+            if record.name == "osprey.interfaces.web_terminal.app"
+            and record.levelno >= logging.WARNING
+        ] == []
 
     def test_a_host_that_is_not_a_list_falls_back_to_the_shipped_order(self, tmp_path, caplog):
         path = _write_config(tmp_path, {"header": "logo"})
