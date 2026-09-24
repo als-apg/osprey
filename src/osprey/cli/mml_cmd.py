@@ -1553,6 +1553,7 @@ def _emit_va(
 
     from osprey.services.mml.canonical import write_if_changed
     from osprey.services.mml.emit.va import (
+        UnbandedSetpointError,
         emit_bindings,
         emit_channel_limits,
         emit_lattice,
@@ -1608,6 +1609,8 @@ def _emit_va(
             views=lane.views,
             system=lane.system,
         )
+    except UnbandedSetpointError as exc:
+        raise click.ClickException(f"{exc} No virtual-accelerator file was written.") from exc
     except ValueError as exc:
         raise _disagrees(exc) from exc
 
