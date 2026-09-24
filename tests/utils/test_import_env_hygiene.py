@@ -29,6 +29,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -48,13 +49,14 @@ def _write_dotenv(directory: Path) -> Path:
     return env_file
 
 
-def _probe(snippet: str, *, cwd: Path) -> str | None:
+def _probe(snippet: str, *, cwd: Path, extra_env: Mapping[str, str] | None = None) -> str | None:
     """Run ``snippet`` in a fresh interpreter under ``cwd``; return the sentinel it saw.
 
     The child must not inherit the sentinel, or every assertion below passes
-    for the wrong reason.
+    for the wrong reason. ``extra_env`` is merged into the child's environment.
     """
     env = {k: v for k, v in os.environ.items() if k != SENTINEL}
+    env.update(extra_env or {})
     code = textwrap.dedent(snippet) + textwrap.dedent(
         f"""
         import json as _json, os as _os
@@ -102,6 +104,28 @@ def test_explicit_load_does_publish_the_sentinel(tmp_path):
     )
 
     assert seen == "leaked"
+
+
+def test_a_process_stamped_as_handed_its_environment_does_not_load_the_chain(tmp_path):
+    """A parent that chose the child's environment stamps it; the chain stays unread.
+
+    The control above proves the same load publishes the sentinel when the
+    stamp is absent.
+    """
+    from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
+
+    _write_dotenv(tmp_path)
+
+    seen = _probe(
+        """
+        from osprey.utils.config import load_project_dotenv
+        load_project_dotenv()
+        """,
+        cwd=tmp_path,
+        extra_env={ENV_CHAIN_APPLIED_ENV: "1"},
+    )
+
+    assert seen is None
 
 
 def test_explicit_load_overrides_an_existing_value(tmp_path):

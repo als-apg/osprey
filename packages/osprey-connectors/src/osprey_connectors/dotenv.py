@@ -182,6 +182,11 @@ ENV_LOCAL_FILENAME = ".env"
 #: not a directory scan.
 ENV_CHAIN_FILENAMES: tuple[str, ...] = (ENV_SHARED_FILENAME, ENV_LOCAL_FILENAME)
 
+#: Set by a parent that already applied the env chain and hands its child a
+#: resolved environment it chose. A process that carries it does not load the
+#: chain again: reloading would put back what the parent withheld.
+ENV_CHAIN_APPLIED_ENV = "OSPREY_ENV_CHAIN_APPLIED"
+
 #: Header written at the top of a merged env file (:func:`write_env_merged`).
 #: The file is a machine artifact — regenerated from the chain on every write —
 #: so whoever opens it is told where the editable originals are.

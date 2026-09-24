@@ -383,7 +383,17 @@ def load_project_dotenv() -> None:
     import time, and never from library code that a host application merely
     imports. Missing files, missing ``python-dotenv``, and an unreadable file
     are all non-fatal.
+
+    A process stamped with
+    :data:`~osprey_connectors.dotenv.ENV_CHAIN_APPLIED_ENV` was handed its
+    environment by a parent that chose it, and this returns without loading
+    anything: reloading the chain would put back what the parent withheld.
     """
+    from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
+
+    if os.environ.get(ENV_CHAIN_APPLIED_ENV):
+        return
+
     try:
         from dotenv import load_dotenv
     except ImportError:
