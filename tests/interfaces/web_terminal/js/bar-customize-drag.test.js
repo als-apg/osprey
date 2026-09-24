@@ -285,6 +285,8 @@ describe('dragging in from the sheet', () => {
     await drag(tile('identity'), IN_HEADER, { from: { x: 20, y: 200 } });
 
     expect(putBodies()).toEqual([]);
+    // A drag that started would name the bar's refusal on the way over it.
+    expect(noticeText()).toBe('');
   });
 
   test('a dimmed tile does not start a drag either', async () => {
@@ -293,6 +295,8 @@ describe('dragging in from the sheet', () => {
     await drag(tile('docs'), IN_STATUS, { from: { x: 20, y: 200 } });
 
     expect(putBodies()).toEqual([]);
+    // A drag that started would name the bar's refusal on the way over it.
+    expect(noticeText()).toBe('');
   });
 });
 

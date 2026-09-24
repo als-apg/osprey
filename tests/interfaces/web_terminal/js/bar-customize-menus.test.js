@@ -551,7 +551,7 @@ describe('the Default preset', () => {
     }));
     customize.enterEditMode();
     expect(sync.isLayoutReadonly()).toBe(true);
-    expect(tileFor('clock').disabled).toBe(true);
+    expect(tileFor('clock').getAttribute('aria-disabled')).toBe('true');
     expect(document.querySelector('.bar-sheet-notice')?.textContent).toBe(
       'Layout not editable. Default resets it.'
     );
@@ -560,7 +560,7 @@ describe('the Default preset', () => {
     await settle();
 
     expect(sync.isLayoutReadonly()).toBe(false);
-    expect(tileFor('clock').disabled).toBe(false);
+    expect(tileFor('clock').getAttribute('aria-disabled')).toBeNull();
   });
 
   test('a refused reset leaves the arrangement alone and says so', async () => {
