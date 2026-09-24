@@ -475,6 +475,24 @@ there is, drawn as it will look in the bar. From there:
 
 **Done** or **Esc** ends customizing. Every change applies as you make it.
 
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/customize_sheet_light.png
+         :alt: The Customize sheet open over the web terminal in the light Osprey theme
+         :width: 100%
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/customize_sheet_dark.png
+         :alt: The Customize sheet open over the web terminal in the dark Osprey theme
+         :width: 100%
+
+Customize bars in Expert view, light and dark. Captured with OSPREY
+|captured_customize_sheet|.
+
 Some edits are refused, and the sheet says why rather than failing quietly.
 Most items go in once: a tile that is already in a bar is dimmed, and says
 where it is on hover. A tile for something this

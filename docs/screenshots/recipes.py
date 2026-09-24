@@ -6,13 +6,17 @@ its *kind*, themes, viewport, sub-views, and capture mode. The runner
 (:mod:`docs.screenshots.capture`) and the ``conf.py`` caption hook both read
 this list; adding a doc image is one ``DocShot`` line here.
 
-Three environments cover every real case:
+Four environments cover every real case:
 
 * ``standalone_interface`` — boot a single interface ``create_app()`` on a free
   port (zero container, deterministic). A default target of ``make screenshots``.
 * ``static_page`` — serve a committed HTML file (hand-authored architecture
   diagrams under ``docs/diagrams/``) from a throwaway local HTTP server and crop
   a figure element out of it. Zero app, zero container; also on by default.
+* ``hermetic_hub`` — boot the real web terminal through
+  :func:`docs.screenshots.contact_sheet.hermetic_hub`: a seeded workspace and a
+  canned terminal transcript, with zero containers and no provider. On by
+  default.
 * ``tutorial_stack`` — build the ``control-assistant`` tutorial project, bring up
   Postgres, and seed ARIEL via the product's own commands. Opt-in (``--stack``);
   agentic recipes (the web-terminal hero) additionally need ``--agentic``.
@@ -60,7 +64,7 @@ class DocShot:
     """A single declarative screenshot recipe."""
 
     name: str
-    environment: Literal["standalone_interface", "static_page", "tutorial_stack"]
+    environment: Literal["standalone_interface", "static_page", "hermetic_hub", "tutorial_stack"]
     kind: Literal["static", "agentic"]
     themes: tuple[str, ...] = ("light", "dark")
     viewport: tuple[int, int] = (1280, 800)
@@ -88,6 +92,15 @@ class DocShot:
     ``docs/diagrams/retrieval_map.html`` for the ``data-theme`` shim). Combine
     with ``capture_mode="element"`` to crop a single ``<figure>`` out of a page
     holding several diagrams."""
+
+    # hermetic_hub
+    hub_mode: Literal["expert", "simple"] = "expert"
+    """The UI mode a ``hermetic_hub`` capture loads in, passed as ``&mode=`` so
+    the page is in that mode before its first paint (``mode-boot.js`` reads the
+    parameter)."""
+    stage: str | None = None
+    """A key of :data:`docs.screenshots.contact_sheet.STAGES`: the UI state the
+    page is driven into before the shot (``hermetic_hub`` environment only)."""
 
     # env → many files
     subviews: tuple[SubView, ...] = ()
@@ -226,6 +239,18 @@ REGISTRY: list[DocShot] = [
         themes=("light", "dark"),
         viewport=(1280, 800),
     ),
+    # The Customize sheet open over a populated Expert-mode web terminal, for
+    # operate.rst's "Rearranging the bars". The viewport is the full shell,
+    # because the text describes the tinted, labelled bars as well as the sheet.
+    DocShot(
+        name="customize_sheet",
+        environment="hermetic_hub",
+        kind="static",
+        hub_mode="expert",
+        stage="customize_sheet",
+        themes=("light", "dark"),
+        viewport=(1280, 800),
+    ),
 ]
 
 
@@ -244,8 +269,12 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
         the ``tutorial_stack`` environment;
       * ``standalone_interface`` recipes require an ``app_factory``;
       * ``static_page`` recipes require a ``source_file``;
+      * a ``stage`` requires the ``hermetic_hub`` environment and must be a key
+        of :data:`docs.screenshots.contact_sheet.STAGES`;
       * ``themes`` is a non-empty subset of ``{light, dark}``.
     """
+    from docs.screenshots.contact_sheet import STAGES
+
     reg = REGISTRY if registry is None else registry
     seen_names: set[str] = set()
     seen_outputs: set[str] = set()
@@ -285,6 +314,14 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
 
         if shot.environment == "static_page" and not shot.source_file:
             raise ValueError(f"{shot.name!r}: static_page recipes require a source_file")
+
+        if shot.stage is not None:
+            if shot.environment != "hermetic_hub":
+                raise ValueError(f"{shot.name!r}: a stage requires the hermetic_hub environment")
+            if shot.stage not in STAGES:
+                raise ValueError(
+                    f"{shot.name!r}: unknown stage {shot.stage!r}; known: {sorted(STAGES)}"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -329,15 +366,15 @@ def caption_substitutions(manifest: dict | None = None) -> dict[str, str]:
 def is_enabled(shot: DocShot, *, stack: bool, agentic: bool) -> bool:
     """Whether a recipe runs given the opt-in flags.
 
-    Default (no flags) runs the container-free recipes: ``standalone_interface``
-    and ``static_page`` statics. ``--stack`` adds ``tutorial_stack`` static
+    Default (no flags) runs the container-free recipes: ``standalone_interface``,
+    ``static_page`` and ``hermetic_hub`` statics. ``--stack`` adds ``tutorial_stack`` static
     recipes; ``--agentic`` adds agentic recipes.
     """
     if shot.kind == "agentic":
         return agentic
     if shot.environment == "tutorial_stack":
         return stack
-    return True  # standalone_interface / static_page static — always on
+    return True  # standalone_interface / static_page / hermetic_hub static — always on
 
 
 def select_recipes(

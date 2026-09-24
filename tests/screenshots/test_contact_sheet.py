@@ -22,6 +22,8 @@ from docs.screenshots.contact_sheet import (
     DEMO_TRANSCRIPT_PATH,
     EXTRA_VARIANTS,
     MAX_CARD_LINE_WIDTH,
+    STAGED_VARIANTS,
+    STAGES,
     TERMINAL_DIMS_SEAM,
     TRANSCRIPT_SENTINEL,
     VARIANTS,
@@ -264,6 +266,24 @@ def test_capture_variant_filename_and_url() -> None:
     assert _variant_url("http://h", "dark", "expert", rail="top").endswith("&rail=top")
 
 
+def test_staged_variants_are_expert_and_named() -> None:
+    """Every staged card is an Expert hub card naming a known stage, and its
+    filename collides with no base or showcase card."""
+    assert STAGED_VARIANTS
+    for _theme, mode, stage in STAGED_VARIANTS:
+        assert mode == "expert"
+        assert stage in STAGES
+    base = [_variant_filename(theme, mode) for theme, mode in VARIANTS]
+    extra = [_variant_filename(theme, mode, rail=rail) for theme, mode, rail in EXTRA_VARIANTS]
+    staged = [_variant_filename(theme, mode, stage=stage) for theme, mode, stage in STAGED_VARIANTS]
+    names = base + extra + staged
+    assert len(names) == len(set(names))
+    assert (
+        _variant_filename("dark", "expert", stage="customize_sheet")
+        == "web_terminal_dark_expert_customize_sheet.png"
+    )
+
+
 def test_extra_variants_unique_filenames() -> None:
     """The showcase extras never collide with the base matrix or each other."""
     base = [_variant_filename(theme, mode) for theme, mode in VARIANTS]
@@ -430,6 +450,8 @@ def test_compose_variant_label_omits_empty_axes() -> None:
         _variant_label(CapturedVariant("light", "simple", "blue", "x.png"))
         == "Light · Simple · blue"
     )
+    staged = CapturedVariant("dark", "expert", None, "x.png", stage="customize_sheet")
+    assert _variant_label(staged).endswith("· Customize bars open")
 
 
 # ---------------------------------------------------------------------------

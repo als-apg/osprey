@@ -342,6 +342,26 @@ def _capture_static_page(browser: Browser, shot: DocShot) -> list[Path]:
         thread.join(timeout=5)
 
 
+def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
+    """Boot the contact sheet's hermetic web terminal and capture a recipe from it.
+
+    One stack serves every theme. Each theme loads in ``shot.hub_mode`` and is
+    driven into ``shot.stage`` before the shot, through the same routine the
+    contact sheet uses, so the doc image and the review card cannot drift apart.
+    """
+    from docs.screenshots.contact_sheet import capture_hub_view, hermetic_hub
+
+    dest_dir = output_dir()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    with hermetic_hub() as hub:
+        for theme in shot.themes:
+            dest = dest_dir / _output_filename(shot.name, theme, len(shot.themes))
+            capture_hub_view(browser, hub, theme, shot.hub_mode, dest, stage=shot.stage)
+            paths.append(dest)
+    return paths
+
+
 def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
     """Run one project-scoped lifecycle command, mapping failure to a skip.
 
@@ -836,6 +856,7 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
 
     ``standalone_interface`` recipes are booted and captured directly;
     ``static_page`` recipes are served from their committed HTML file;
+    ``hermetic_hub`` recipes boot the contact sheet's seeded web terminal;
     ``tutorial_stack`` recipes are delegated to :func:`capture_tutorial_stack`
     and skipped per-recipe (with a clear notice) where its runtime is absent.
     Absent chromium/Playwright skips the whole run gracefully. One manifest
@@ -854,6 +875,12 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                 elif shot.environment == "static_page":
                     try:
                         paths = _capture_static_page(browser, shot)
+                    except ScreenshotSkip as exc:
+                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                        continue
+                elif shot.environment == "hermetic_hub":
+                    try:
+                        paths = _capture_hermetic_hub(browser, shot)
                     except ScreenshotSkip as exc:
                         print(f"skipped {shot.name}: {exc}", file=sys.stderr)
                         continue
