@@ -112,7 +112,9 @@ services:
     on, and unlike `port` EVERY instance defaults it: it is published on the
     host for instance 1 alone (see `ports:` below), so two instances binding the
     same number, each inside its own container, collide nowhere. A null block
-    lands on the default for the reason it does for `port`. -#}
+    lands on the default for the reason it does for `port`. The build writes
+    `pva_port` onto instance 1's block from the profile's
+    `virtual_accelerator.pva_port`, and only when it is set. -#}
 {%- set pva_port = svc.pva_port | default(5075) %}
 {%- set bind_address = deployment.bind_address | default('127.0.0.1') %}
 {#- A blank line BETWEEN instances and none before the first: the rendered

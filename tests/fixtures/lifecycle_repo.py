@@ -264,6 +264,10 @@ virtual_accelerator:
   # EPICS port the simulator serves on. The agent follows this value, so
   # changing it moves both.
   port: 5064
+  # pvAccess port the simulator publishes its model surface on (5075 unless
+  # set). Like `port`, it is outside this deployment's port block, so a second
+  # deployment on this host that also runs the simulator sets its own.
+  # pva_port: 5075
   # A second copy of the simulator with a small fixed offset on its readouts,
   # stood up as this deployment's own third control target: `standin`. From
   # this key alone the build derives the target's connector block,

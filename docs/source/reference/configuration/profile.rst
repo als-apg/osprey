@@ -985,6 +985,14 @@ by ``osprey up`` and served from the lattice the build renders (see
        ``va_standin`` slot (``10090`` at the default base — see
        :ref:`reference-ports`); a number pins it somewhere else. Absent means
        one machine, as before.
+   * - ``pva_port``
+     - ``5075``
+     - pvAccess port the simulator publishes its model surface on. Like
+       ``port`` it is outside the deployment's port block, so a second
+       deployment on the same host that runs a simulator sets its own. The
+       build writes it to ``services.virtual_accelerator.pva_port`` and refuses
+       that key in ``config:``. A value that collides with ``port``,
+       ``live_standin`` or another port the profile spends is refused.
 
 The live stand-in
 -----------------

@@ -1109,6 +1109,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         virtual_accelerator = VAConfig(
             port=va_raw.get("port", VAConfig.port),
             live_standin=live_standin,
+            pva_port=va_raw.get("pva_port"),
         )
 
     bluesky_web_raw = raw.get("bluesky_web")

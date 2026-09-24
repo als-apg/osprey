@@ -37,7 +37,7 @@ from ruamel.yaml.tokens import CommentToken
 from osprey import __version__
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.errors import BuildProfileError
-from osprey.port_layout import CA_DEFAULT_PORT
+from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
@@ -397,10 +397,13 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # the second container. Write `true` and the stand-in takes this deployment's
 # own stand-in port, so two deployments on one host never collide over it; a
 # number pins it somewhere specific instead. The first instance stays on the
-# Channel Access port below, the one port the port block cannot move.
+# Channel Access port below and publishes its model surface on the pvAccess port
+# below it; the port block moves neither, so a second deployment on this host
+# sets both.
 #
 # virtual_accelerator:
 #   port: {CA_DEFAULT_PORT}
+#   pva_port: {PVA_DEFAULT_PORT}
 #   live_standin: true
 """,
     "va_archiver": """
