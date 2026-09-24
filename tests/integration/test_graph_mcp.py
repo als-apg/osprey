@@ -24,7 +24,9 @@ the control_assistant channel database) through the same primitives
 Skips are loud and only ever about the host.  If Docker is not reachable the
 whole module skips with that reason; if Docker *is* reachable every test here
 runs, because a graph test that quietly passes without a graph is worse than
-no test at all.
+no test at all.  A store that stops answering after it started is not a skip
+either: a seeder read fails naming the store, and a read through the tools
+reports it the way a deployment would, as a store that did not answer.
 
 The container recipe — pinned n10s jar bind-mounted at ``/plugins`` instead of
 ``NEO4J_PLUGINS``, APOC copied out of the image — is the shared one in
@@ -54,6 +56,7 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
+    WatchedStore,
     graphdb_store,
 )
 from tests.integration._graph_oracles import (
@@ -129,24 +132,31 @@ def _requires_a_real_store(graph_mcp_plugin_dir: Path) -> None:
     """
 
 
-def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
-    """Start a store, seed it through the real seeder, and yield its bolt URI.
+def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[WatchedStore]:
+    """Start a store, seed it through the real seeder, and yield it watched.
 
     Seeding goes through :mod:`~osprey.services.facility_knowledge.seeder.graph_seeder`
     rather than raw Cypher because that is the path ``osprey knowledge
     seed-graph`` takes — including ``write_marker``, which is what puts the
     ``_OspreySeed`` bookkeeping node in the store that ``get_schema`` then has
-    to hide.
+    to hide. The seeder takes a raw driver session, so its calls run inside
+    the store's watch: a seeding step that gets no answer fails naming this
+    store.
     """
-    with graphdb_store(plugin_dir, label=f"graphdb for {label}") as uri:
+    store_label = f"graphdb for {label}"
+    with graphdb_store(plugin_dir, label=store_label) as uri:
         from osprey.services.facility_knowledge.seeder import graph_seeder
 
-        with graph_seeder.open_session(
-            uri,
-            GRAPHDB_TEST_USERNAME,
-            GRAPHDB_TEST_PASSWORD,
-            database=GRAPHDB_TEST_DATABASE,
-        ) as session:
+        store = WatchedStore(uri, label=store_label)
+        with (
+            store.reading(),
+            graph_seeder.open_session(
+                uri,
+                GRAPHDB_TEST_USERNAME,
+                GRAPHDB_TEST_PASSWORD,
+                database=GRAPHDB_TEST_DATABASE,
+            ) as session,
+        ):
             bootstrap = graph_seeder.bootstrap(session)
             assert bootstrap.ok, bootstrap.message
             imported = graph_seeder.import_ttl(session, ttl_text)
@@ -160,7 +170,7 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
                 f"{label}: seeded {imported.triples_loaded} triples, "
                 f"{graph_seeder.resource_count(session)} Resource nodes"
             )
-        yield uri
+        yield store
 
 
 def _demo_ttl_text() -> str:
@@ -181,7 +191,7 @@ def _demo_ttl_text() -> str:
 
 
 @pytest.fixture(scope="module")
-def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
+def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[WatchedStore]:
     """A store seeded with the generated demo-machine corpus."""
     yield from _seeded_store(graph_mcp_plugin_dir, _demo_ttl_text(), "demo")
 
@@ -250,9 +260,9 @@ def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[An
 
 
 @pytest.fixture
-def demo_ctx(demo_store: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+def demo_ctx(demo_store: WatchedStore, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     """The graph tools, live against the demo-seeded store."""
-    with _installed_context(demo_store, monkeypatch) as context:
+    with _installed_context(demo_store.uri, monkeypatch) as context:
         yield context
 
 
@@ -333,13 +343,20 @@ def _run_example(key: str) -> dict[str, Any]:
     return _read_cypher(example.cypher, dict(example.parameters))
 
 
-def _store_state(uri: str) -> tuple[int, str | None]:
-    """Read the store's corpus size and seed marker straight off the driver."""
+def _store_state(store: WatchedStore) -> tuple[int, str | None]:
+    """Read the store's corpus size and seed marker straight off the driver.
+
+    The read runs inside the store's watch, so a store that stops answering
+    fails it naming the store.
+    """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    with graph_seeder.open_session(
-        uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE
-    ) as session:
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE
+        ) as session,
+    ):
         return graph_seeder.resource_count(session), graph_seeder.read_marker(session)
 
 
@@ -349,7 +366,9 @@ def _store_state(uri: str) -> tuple[int, str | None]:
 
 
 @pytest.mark.usefixtures("demo_ctx")
-def test_write_is_refused_by_the_read_transaction_and_changes_nothing(demo_store: str) -> None:
+def test_write_is_refused_by_the_read_transaction_and_changes_nothing(
+    demo_store: WatchedStore,
+) -> None:
     """A CREATE reaches the store, is refused there, and leaves no trace.
 
     The gate deliberately does not vet write keywords — write enforcement is
