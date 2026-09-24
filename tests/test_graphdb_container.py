@@ -44,6 +44,14 @@ SUPERSEDED_MODULE = "testcontainers.neo4j"
 #: The one module allowed to build a graph container, relative to ``tests/``.
 RECIPE = "_graphdb_container.py"
 
+#: The tie-parity module, relative to ``tests/``, whose store reads must all go
+#: through :class:`tests._graphdb_container.WatchedSession`.
+TIE_PARITY_MODULE = "integration/test_graph_index_parity_ties.py"
+
+#: A raw driver read. The watched session's methods are ``single`` and
+#: ``records``, so a module that reads only through it never spells this.
+RAW_DRIVER_READ = ".run("
+
 #: The private halves of the plugin recipe. A lane that assembles its own
 #: plugin directory has to call one of these, so naming them names every way
 #: of re-implementing :func:`tests._graphdb_container.resolve_plugin_dir`.
@@ -92,6 +100,18 @@ def test_only_the_shared_recipe_resolves_the_plugins() -> None:
         f"lane that resolves its own plugins re-states the probe order, and the "
         f"copy has already dropped a probe by the time it is noticed — depend on "
         f"the session fixture ``graphdb_plugin_dir`` instead."
+    )
+
+
+def test_the_tie_parity_module_reads_its_store_only_through_the_watch() -> None:
+    """A raw read there would fail a stalled store as a parity result."""
+    texts = [text for rel, text in python_sources(Path(__file__)) if rel == TIE_PARITY_MODULE]
+
+    assert len(texts) == 1, f"{TIE_PARITY_MODULE} is not in the tree"
+    assert RAW_DRIVER_READ not in texts[0], (
+        "a store read in the tie-parity module bypasses WatchedSession, so a store "
+        "that stops answering would fail it as a parity result. Read through "
+        "ties_session.single / .records."
     )
 
 

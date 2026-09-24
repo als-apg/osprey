@@ -24,7 +24,9 @@ construction rather than by accident — the channel census — the difference i
 pinned with the number it has, not hidden.
 
 Skips are loud and only ever about the host: without a reachable Docker daemon
-the plugin resolver skips the whole module with its reason.
+the plugin resolver skips the whole module with its reason. A store that
+stops answering after it started is not a skip either: the read fails naming
+the store, and the next read asks it again.
 """
 
 from __future__ import annotations
@@ -42,6 +44,8 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
+    WatchedSession,
+    WatchedStore,
     graphdb_store,
 )
 from tests.integration._graph_oracles import (
@@ -96,6 +100,9 @@ TWICE_BOUND_ADDRESS = "SR:MAG:TWICE:CURRENT"
 _SEM = corpora.NARAD_SEM
 MAGNET_CLASS_URI = _SEM + "Magnet"
 QUADRUPOLE_CLASS_URI = _SEM + "Quadrupole"
+
+#: What the throwaway store is called in its skip and failure messages.
+TIES_STORE_LABEL = "graphdb (neo4j + n10s) for the tie corpus"
 
 #: Every filter shape this corpus can say something about, its values its own.
 #:
@@ -155,7 +162,7 @@ def _session(uri: str) -> Iterator[Any]:
 
 
 @pytest.fixture(scope="module")
-def ties_store(graphdb_plugin_dir: Path) -> Iterator[str]:
+def ties_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
     """A store of its own, seeded with :data:`TIES_CORPUS`.
 
     Its own container rather than the demo lane's: n10s imports into whatever
@@ -163,12 +170,14 @@ def ties_store(graphdb_plugin_dir: Path) -> Iterator[str]:
     count the module beside this one asserts.
 
     The seeding goes through the real seeder, which is the path ``osprey
-    knowledge seed-graph`` takes.
+    knowledge seed-graph`` takes. It yields the store watched, so a seeding
+    step or a later read that gets no answer fails naming this store.
     """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    with graphdb_store(graphdb_plugin_dir) as uri:
-        with _session(uri) as session:
+    with graphdb_store(graphdb_plugin_dir, label=TIES_STORE_LABEL) as uri:
+        store = WatchedStore(uri, label=TIES_STORE_LABEL)
+        with store.reading(), _session(uri) as session:
             bootstrap = graph_seeder.bootstrap(session)
             assert bootstrap.ok, bootstrap.message
             imported = graph_seeder.import_ttl(session, TIES_CORPUS)
@@ -182,14 +191,14 @@ def ties_store(graphdb_plugin_dir: Path) -> Iterator[str]:
                 f"ties: seeded {imported.triples_loaded} triples, "
                 f"{graph_seeder.resource_count(session)} Resource nodes"
             )
-        yield uri
+        yield store
 
 
 @pytest.fixture(scope="module")
-def ties_session(ties_store: str) -> Iterator[Any]:
+def ties_session(ties_store: WatchedStore) -> Iterator[WatchedSession]:
     """One session on the seeded store, held for the module."""
-    with _session(ties_store) as session:
-        yield session
+    with _session(ties_store.uri) as session:
+        yield WatchedSession(session, ties_store)
 
 
 @pytest.fixture(scope="module")
@@ -222,25 +231,25 @@ def ties_index(ties_index_path: Path) -> Iterator[Any]:
 # ---------------------------------------------------------------------------
 
 
-def _oracle(session: Any) -> Any:
+def _oracle(session: WatchedSession) -> Any:
     """A runner for :func:`oracle_search` bound to *session*'s store."""
 
     def run(params: Mapping[str, Any]) -> Mapping[str, Any]:
-        record = session.run(GRAPH_SEARCH_CYPHER, dict(params)).single()
+        record = session.single(GRAPH_SEARCH_CYPHER, params)
         assert record is not None, "the search must answer in exactly one row"
         return record.data()
 
     return run
 
 
-def _count(session: Any, cypher: str) -> int:
+def _count(session: WatchedSession, cypher: str) -> int:
     """Run a counting query that returns a single ``n``."""
-    record = session.run(cypher).single()
+    record = session.single(cypher)
     assert record is not None, cypher
     return int(record["n"])
 
 
-def _store_taxonomy(session: Any) -> list[dict[str, Any]]:
+def _store_taxonomy(session: WatchedSession) -> list[dict[str, Any]]:
     """The taxonomy the retired route served: the store's rows, pruned.
 
     ``direct`` is carried back in from the unpruned rows because the pruning
@@ -248,7 +257,7 @@ def _store_taxonomy(session: Any) -> list[dict[str, Any]]:
     """
     from osprey.services.channel_finder.graph_index import prune_device_taxonomy
 
-    rows = [record.data() for record in session.run(GRAPH_ONTOLOGY_CYPHER)]
+    rows = [record.data() for record in session.records(GRAPH_ONTOLOGY_CYPHER)]
     direct = {row["uri"]: int(row.get("direct") or 0) for row in rows}
     return [{**entry, "direct": direct[entry["uri"]]} for entry in prune_device_taxonomy(rows)]
 
