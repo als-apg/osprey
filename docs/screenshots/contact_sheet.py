@@ -531,6 +531,10 @@ def open_customize_sheet(page: Page) -> None:
     display-menu row needs its popover open and the palette action needs the
     palette open. The wait is for a hydrated shell first, because the bar
     modules arm the right-click only once they have booted.
+
+    The sheet focuses its first tile on open so a keyboard lands in it. The
+    docs show the sheet as a pointer user sees it, so the focus is dropped
+    before the shot.
     """
     page.wait_for_selector(
         '[data-bar-host="header"] .bar-item[data-bar-key]', timeout=_NAV_TIMEOUT_MS
@@ -538,6 +542,10 @@ def open_customize_sheet(page: Page) -> None:
     page.locator('[data-bar-host="header"]').click(button="right", position={"x": 4, "y": 4})
     page.locator('.bar-context-menu [data-bar-action="customize"]').click(timeout=_NAV_TIMEOUT_MS)
     page.locator(".bar-sheet.is-open").wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
+    page.evaluate("() => document.activeElement?.blur()")
+    page.wait_for_function(
+        "() => !document.querySelector('.bar-sheet :focus')", timeout=_NAV_TIMEOUT_MS
+    )
 
 
 #: A named UI state a capture drives the page into after boot and before the
