@@ -25,7 +25,12 @@ from pathlib import Path
 import pytest
 from neo4j.exceptions import ClientError, ServiceUnavailable
 
-from tests._graphdb_container import GraphStoreUnavailable, WatchedSession, WatchedStore
+from tests._graphdb_container import (
+    GraphStoreUnavailable,
+    WatchedSession,
+    WatchedStore,
+    watched_graphdb_store,
+)
 from tests._tree_scan import python_sources
 
 #: Construction of a graph container. One call site, in the recipe. The
@@ -372,3 +377,38 @@ def test_an_inspector_that_fails_leaves_the_lost_read_as_the_failure() -> None:
         "Container state when the read failed: could not be read (RuntimeError: daemon went away)"
         in str(raised.value).splitlines()
     )
+
+
+def test_the_watched_store_inspects_its_own_container(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The store it yields reads the state of the container it started, then stops it."""
+
+    class _StartedContainer:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def get_connection_url(self) -> str:
+            return URI
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    started = _StartedContainer()
+    inspected: list[object] = []
+
+    def container_state(container: object) -> str:
+        inspected.append(container)
+        return "paused"
+
+    monkeypatch.setattr("tests._graphdb_container.start_or_skip", lambda factory, *, label: started)
+    monkeypatch.setattr("tests._graphdb_container.container_state", container_state)
+
+    with watched_graphdb_store(Path("plugins"), label=LABEL) as store:
+        session = WatchedSession(_FakeSession([ServiceUnavailable("defunct")]), store)
+        with pytest.raises(GraphStoreUnavailable) as raised:
+            session.single("RETURN 1 AS n")
+
+    assert store.uri == URI
+    assert store.label == LABEL
+    assert inspected == [started]
+    assert "Container state when the read failed: paused" in str(raised.value).splitlines()
+    assert started.stopped

@@ -46,7 +46,7 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_USERNAME,
     WatchedSession,
     WatchedStore,
-    graphdb_store,
+    watched_graphdb_store,
 )
 from tests.integration._graph_oracles import (
     GRAPH_DEVICE_COUNT_CYPHER,
@@ -171,13 +171,13 @@ def ties_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
 
     The seeding goes through the real seeder, which is the path ``osprey
     knowledge seed-graph`` takes. It yields the store watched, so a seeding
-    step or a later read that gets no answer fails naming this store.
+    step or a later read that gets no answer fails naming this store and the
+    state its container was in.
     """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    with graphdb_store(graphdb_plugin_dir, label=TIES_STORE_LABEL) as uri:
-        store = WatchedStore(uri, label=TIES_STORE_LABEL)
-        with store.reading(), _session(uri) as session:
+    with watched_graphdb_store(graphdb_plugin_dir, label=TIES_STORE_LABEL) as store:
+        with store.reading(), _session(store.uri) as session:
             bootstrap = graph_seeder.bootstrap(session)
             assert bootstrap.ok, bootstrap.message
             imported = graph_seeder.import_ttl(session, TIES_CORPUS)
