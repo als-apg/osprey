@@ -141,7 +141,10 @@ by hand: ``OSPREY_DEV`` makes ``osprey up --dev`` install a locally built
 wheel, and ``OSPREY_PIP_PRE`` is ``"1"`` when the pinned OSPREY version is a
 pre-release, so the ``pip`` resolve inside the image admits the pre-release of
 ``osprey-connectors`` that ships beside it. A hand-run build pinning a beta
-needs ``--build-arg OSPREY_PIP_PRE=1`` for the same reason.)
+needs ``--build-arg OSPREY_PIP_PRE=1`` for the same reason. The
+``.gitlab-ci.yml`` that ``osprey scaffold ci`` writes follows the same rule:
+its own ``pip install`` passes ``--pre`` when ``requires_osprey_version`` names
+a pre-release.)
 
 The **host** side of the build reads its own settings from the shell rather
 than from ``config.yml``: ``osprey build`` installs the project's virtual
