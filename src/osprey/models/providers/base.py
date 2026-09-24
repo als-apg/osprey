@@ -92,6 +92,14 @@ class BaseProvider(ABC):
     #   False -> use OSPREY's prompt-based JSON fallback
     #   None  -> defer to litellm.supports_response_schema() (auto-detect)
     supports_native_structured_output: bool | None = None
+    # The request parameter that carries the output-token cap. LiteLLM maps
+    # max_tokens to each route's own parameter for the models it recognises; an
+    # endpoint that refuses max_tokens outright declares the parameter it takes.
+    max_tokens_param: str = "max_tokens"
+    # Whether the endpoint takes a caller-chosen sampling temperature. An endpoint
+    # whose models refuse every temperature but their own default declares False,
+    # and its requests carry none.
+    accepts_temperature: bool = True
 
     @classmethod
     def effective_base_url(cls, base_url: str | None) -> str | None:

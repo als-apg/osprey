@@ -87,11 +87,36 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _request_shape(provider: str | None) -> dict[str, Any]:
+    """The request parameters *provider*'s adapter class declares for its endpoint.
+
+    An unregistered or absent provider gets ``max_tokens`` and a temperature,
+    the OpenAI Chat Completions defaults.
+    """
+    provider_class = None
+    if provider:
+        from osprey.models.provider_registry import get_provider_registry
+
+        provider_class = get_provider_registry().get_provider(provider)
+    return {
+        "max_tokens_param": getattr(provider_class, "max_tokens_param", "max_tokens"),
+        "accepts_temperature": bool(getattr(provider_class, "accepts_temperature", True)),
+    }
+
+
 def start_proxy(
     upstream_base_url: str,
     upstream_api_key: str | None = None,
+    *,
+    provider: str | None = None,
 ) -> int:
     """Start the translation proxy in a daemon thread.
+
+    Args:
+        upstream_base_url: OpenAI-compatible endpoint the proxy forwards to.
+        upstream_api_key: API key for the upstream provider.
+        provider: The provider behind the upstream; its adapter class decides
+            the token-cap parameter and whether a temperature is sent.
 
     Returns the port number. Thread-safe; repeated calls are no-ops.
     """
@@ -101,7 +126,7 @@ def start_proxy(
 
         from osprey.infrastructure.proxy.app import create_proxy_app
 
-        app = create_proxy_app(upstream_base_url, upstream_api_key)
+        app = create_proxy_app(upstream_base_url, upstream_api_key, **_request_shape(provider))
         port = find_free_port()
 
         import uvicorn

@@ -35,5 +35,11 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
 
     # LiteLLM integration - OpenAI models don't need a prefix in LiteLLM
     litellm_prefix = ""
+    # OpenAI's API takes max_completion_tokens on every chat model and refuses
+    # max_tokens on its reasoning models, whichever generation LiteLLM knows.
+    max_tokens_param = "max_completion_tokens"
+    # OpenAI's reasoning models refuse every temperature but their default, so
+    # requests carry none and each model samples at its own default.
+    accepts_temperature = False
 
     # execute_completion / check_health inherited from LiteLLMDelegatingProvider.

@@ -144,7 +144,33 @@ class TestStartStop:
         assert lifecycle._state["port"] == port
         assert isinstance(lifecycle._state["server"], _FakeServer)
         assert lifecycle.get_proxy_url() == f"http://127.0.0.1:{port}"
-        app_factory.assert_called_once_with("https://up.example/v1", "k")
+        app_factory.assert_called_once_with(
+            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=True
+        )
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_builds_the_app_with_the_providers_request_shape(self, monkeypatch):
+        """The proxy sends what the provider's adapter class declares."""
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy("https://api.openai.com/v1", upstream_api_key="k", provider="openai")
+
+        app_factory.assert_called_once_with(
+            "https://api.openai.com/v1",
+            "k",
+            max_tokens_param="max_completion_tokens",
+            accepts_temperature=False,
+        )
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_an_unregistered_provider_gets_the_default_request_shape(self, monkeypatch):
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy("https://up.example/v1", upstream_api_key="k", provider="house-llm")
+
+        app_factory.assert_called_once_with(
+            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=True
+        )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_is_idempotent(self, monkeypatch):

@@ -233,6 +233,7 @@ def _inject_provider_env_once() -> None:
                 port = start_proxy(
                     spec.upstream_base_url,
                     os.environ.get(spec.auth_env_var),
+                    provider=spec.provider,
                 )
                 os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
                 logger.info("Translation proxy on :%d (provider=%s)", port, spec.provider)

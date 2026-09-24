@@ -16,6 +16,8 @@ Provider Integration:
     - litellm_prefix: The LiteLLM prefix (e.g., "anthropic", "gemini")
     - is_openai_compatible: True for OpenAI-compatible endpoints (CBORG, vLLM, etc.)
     - supports_native_structured_output: True=native json_schema, False=prompt fallback, None=auto-detect
+    - max_tokens_param: the request parameter that carries the output-token cap (max_tokens)
+    - accepts_temperature: False when the endpoint's models refuse a caller-chosen temperature
 
     This prefers provider-declared attributes over the hardcoded fallback maps and allows custom providers to integrate
     without modifying this adapter.
@@ -159,6 +161,33 @@ def _provider_gateway(provider: str) -> str | None:
     return getattr(provider_class, "gateway", None)
 
 
+def _max_tokens_param(provider: str) -> str:
+    """The request parameter that carries the output-token cap for *provider*.
+
+    Read from the registered adapter class (``max_tokens_param``), so the
+    completion and the health probe send the same parameter. An unregistered
+    name sends ``max_tokens``, which LiteLLM maps for every route it knows.
+    """
+    # Lazy import avoids an import cycle: provider_registry imports provider
+    # modules, which import this adapter.
+    from osprey.models.provider_registry import get_provider_registry
+
+    provider_class = get_provider_registry().get_provider(provider)
+    return getattr(provider_class, "max_tokens_param", "max_tokens")
+
+
+def _accepts_temperature(provider: str) -> bool:
+    """Whether a request to *provider* carries the caller's sampling temperature.
+
+    Read from the registered adapter class (``accepts_temperature``). An
+    unregistered name sends the temperature, which LiteLLM maps per route.
+    """
+    from osprey.models.provider_registry import get_provider_registry
+
+    provider_class = get_provider_registry().get_provider(provider)
+    return bool(getattr(provider_class, "accepts_temperature", True))
+
+
 def execute_litellm_completion(
     provider: str,
     message: str,
@@ -180,7 +209,8 @@ def execute_litellm_completion(
     :param api_key: API key for authentication
     :param base_url: Custom API endpoint URL
     :param max_tokens: Maximum tokens to generate
-    :param temperature: Sampling temperature
+    :param temperature: Sampling temperature (not sent where the provider declares
+        accepts_temperature False)
     :param kwargs: Additional arguments (enable_thinking, budget_tokens, output_format, etc.)
     :return: Response text, Pydantic model instance, or list of content blocks
     """
@@ -201,9 +231,10 @@ def execute_litellm_completion(
     completion_kwargs: dict[str, Any] = {
         "model": litellm_model,
         "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
+        _max_tokens_param(provider): max_tokens,
     }
+    if _accepts_temperature(provider):
+        completion_kwargs["temperature"] = temperature
 
     extra_body = kwargs.get("extra_body")
     if isinstance(extra_body, dict) and extra_body:
@@ -718,7 +749,8 @@ def check_litellm_health(
         completion_kwargs: dict[str, Any] = {
             "model": litellm_model,
             "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 16,  # one token is not enough: reasoning models (GPT-5.x) spend it on reasoning and 400
+            # One token is not enough: reasoning models (GPT-5.x) spend it on reasoning and 400.
+            _max_tokens_param(provider): 16,
             "timeout": timeout,
         }
 
