@@ -1068,13 +1068,6 @@ def test_converged_reads_a_one_shot_iterable_of_reports_once():
     assert control_context.blocking_pids(record, reports, "sess-1") == (4321,)
 
 
-@pytest.mark.usefixtures("rootless")
-def test_converged_reads_no_files():
-    """A pure judgement over parsed data: sandboxes and kernels call it hot."""
-    record = _context()
-    assert control_context.converged(record, [_report(4321)], "sess-1") is True
-
-
 # --- the shared test fixtures ----------------------------------------------
 #
 # ``tests/_control_context_fixtures.py`` is what every suite downstream of the

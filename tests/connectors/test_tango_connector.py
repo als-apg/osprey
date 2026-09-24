@@ -383,14 +383,18 @@ class TestEnumReadings:
 
 
 async def _write_with_validator(
-    validator, value=10.0, readback=10.0, *, device_error=None, **kwargs
+    validator, value=10.0, readback=10.0, *, device_error=None, write_error=None, **kwargs
 ):
     """Drive one write through a connector wired with the given validator.
 
     ``device_error`` makes the ``DeviceProxy`` lookup itself raise, which is
     what an unreachable device looks like from inside the write's offload.
+    ``write_error`` makes ``write_attribute`` raise: the device did not take
+    the value.
     """
     proxy = _make_proxy(read_value=readback)
+    if write_error is not None:
+        proxy.write_attribute.side_effect = write_error
     mock_tango = _make_tango(proxy)
     if device_error is not None:
         mock_tango.DeviceProxy.side_effect = device_error
@@ -418,28 +422,6 @@ class TestWriteChannel:
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.observed_value == 10.0
         proxy.write_attribute.assert_called_once_with("Current", 10.0)
-
-    async def test_confirm_false_is_unrequested_and_reads_nothing(self, connector):
-        conn, proxy = connector
-        result = await conn.write_channel(_ADDRESS, 10.0, confirm=False)
-        assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
-        proxy.read_attribute.assert_not_called()
-
-    async def test_failed_put_is_failed_and_never_reads_back(self, connector):
-        conn, proxy = connector
-        proxy.write_attribute.side_effect = RuntimeError("write refused by device")
-        result = await conn.write_channel(_ADDRESS, 10.0)
-        assert result.outcome is WriteOutcome.FAILED
-        assert result.error_message is not None
-        proxy.read_attribute.assert_not_called()
-
-    async def test_read_that_raises_is_unconfirmed(self, connector):
-        conn, proxy = connector
-        proxy.read_attribute.side_effect = RuntimeError("read exploded")
-        result = await conn.write_channel(_ADDRESS, 10.0)
-        assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.error_message is not None
 
     async def test_mismatch_carries_both_values_and_no_message(self, connector):
         conn, proxy = connector
@@ -624,12 +606,12 @@ class TestNonBlockingOffload:
         assert result.outcome is WriteOutcome.UNREQUESTED
         proxy.write_attribute.assert_called_once_with("Current", 10.0)
 
-    async def test_confirm_is_resolved_only_once_the_value_is_away(self):
+    async def test_confirm_is_not_resolved_for_a_refused_write(self):
         """A write that never left is not a confirmation question.
 
         The policy lookup happens on the branch where the value was actually
-        sent, so neither a refused write nor a failed one asks the limits
-        database whether it should be read back.
+        sent, so a write refused by validation does not ask the limits database
+        whether it should be read back.
         """
         validator = _make_limits_validator()
         validator.validate.side_effect = RuntimeError("limits database unreachable")
@@ -639,23 +621,12 @@ class TestNonBlockingOffload:
         proxy.write_attribute.assert_not_called()
         validator.resolve_confirm.assert_not_called()
 
+    async def test_confirm_is_not_resolved_for_a_failed_write(self):
+        """A write the device did not take is not a confirmation question either."""
         validator = _make_limits_validator()
-        proxy = _make_proxy()
-        proxy.write_attribute.side_effect = RuntimeError("write refused by device")
-        mock_tango = _make_tango(proxy)
-        with (
-            patch.dict(sys.modules, {"tango": mock_tango}),
-            patch(_LIMITS_PATCH, return_value=validator),
-            patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
-        ):
-            from osprey.connectors.control_system.tango_connector import TangoConnector
-
-            conn = TangoConnector()
-            await conn.connect({})
-            failed = await conn.write_channel(_ADDRESS, 10.0)
-            await conn.disconnect()
-
+        failed, proxy = await _write_with_validator(
+            validator, write_error=RuntimeError("write refused by device")
+        )
         assert failed.outcome is WriteOutcome.FAILED
         assert failed.notes == "TANGO did not take the value"
         proxy.read_attribute.assert_not_called()

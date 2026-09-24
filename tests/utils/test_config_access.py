@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 
 from osprey.utils.config import (
-    ConfigBuilder,
     get_agent_dir,
     get_config_builder,
     get_config_value,
@@ -57,14 +56,16 @@ class TestGetConfigBuilderCaching:
         assert get_config_builder() is explicit
 
     def test_no_arg_uses_config_file_env(self, tmp_path, monkeypatch):
-        cfg = _write_config(tmp_path, "project_root: /via-env\n")
+        cfg = _write_config(
+            tmp_path,
+            "project_root: /via-env\ncontrol_system:\n  limits:\n    max_channels: 100\n",
+        )
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
         builder = get_config_builder()
         assert builder.get("project_root") == "/via-env"
-
-    def test_returns_config_builder_instance(self, tmp_path):
-        cfg = _write_config(tmp_path, "project_root: /x\n")
-        assert isinstance(get_config_builder(str(cfg)), ConfigBuilder)
+        # The no-arg value accessor reads the same file, dotted paths included.
+        assert get_config_value("project_root") == "/via-env"
+        assert get_config_value("control_system.limits.max_channels", 0) == 100
 
 
 class TestLoadConfig:

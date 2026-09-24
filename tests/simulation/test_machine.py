@@ -6,6 +6,7 @@ contract of the extracted ``parse_machine`` entry point and the ``ParsedMachine`
 container it returns.
 """
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -179,7 +180,7 @@ class TestParseTexture:
         texture = _one(
             {"value": 0.0, "texture": {"kind": "wander", "amplitude": 1.0, "period_s": 60.0}}
         ).texture
-        with pytest.raises(Exception):  # noqa: B017 - FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             texture.amplitude = 2.0
 
     def test_rejects_non_mapping(self):
@@ -285,7 +286,7 @@ class TestSimChannelDefaults:
 
     def test_still_frozen(self):
         channel = SimChannel("PV:A", 1.0, None, (), "A", 0.0, "d")
-        with pytest.raises(Exception):  # noqa: B017 - FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             channel.noise_abs = 1.0
 
 

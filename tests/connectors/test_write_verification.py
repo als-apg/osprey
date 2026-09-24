@@ -9,7 +9,7 @@ of any control-system client library.
 """
 
 import ast
-from dataclasses import asdict, fields
+from dataclasses import MISSING, asdict, fields
 from pathlib import Path
 from typing import Any, get_type_hints
 
@@ -24,28 +24,20 @@ from osprey.connectors.control_system.base import (
 class TestChannelWriteResultShape:
     """The result type every connector returns, pinned at the dataclass."""
 
-    def test_only_address_value_and_outcome_are_required(self):
-        """A connector states what became of the write and nothing more.
-
-        Everything else is optional, so a ``refused`` result carries no observed
-        value and a ``confirmed`` one carries no message.
-        """
-        result = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
-            value_written=100.0,
-            outcome=WriteOutcome.CONFIRMED,
-        )
-
-        assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.refusal_reason is None
-        assert result.error_message is None
-        assert result.observed_value is None
-        assert result.alarm_status is None
-        assert result.alarm_severity is None
-        assert result.notes is None
-
     def test_optional_fields_default_to_none_on_the_dataclass(self):
-        """Pinned on the dataclass, not just via one constructor call."""
+        """Only address, value and outcome are required; every other field defaults to None.
+
+        A connector states what became of the write and nothing more, so a
+        ``refused`` result carries no observed value and a ``confirmed`` one
+        carries no message.
+        """
+        required = {
+            f.name
+            for f in fields(ChannelWriteResult)
+            if f.default is MISSING and f.default_factory is MISSING
+        }
+        assert required == {"channel_address", "value_written", "outcome"}
+
         defaults = {f.name: f.default for f in fields(ChannelWriteResult)}
 
         assert defaults["refusal_reason"] is None
@@ -148,9 +140,6 @@ class TestChannelMetadataAlarmStatusNotWidened:
 
     def test_alarm_status_defaults_to_none(self):
         assert ChannelMetadata().alarm_status is None
-
-    def test_alarm_status_holds_a_name(self):
-        assert ChannelMetadata(alarm_status="NO_ALARM").alarm_status == "NO_ALARM"
 
 
 #: Protocol client libraries the shared core must never reach for.

@@ -139,6 +139,7 @@ class TestSubscribeRouting:
 
         assert context.calls == []  # PVA client untouched
         assert epics.PV.call_args.args == (CA_ADDRESS,)
+        assert sub_id.startswith(f"{CA_ADDRESS}_")
         assert connector._subscriptions[sub_id].kind == "ca"
         assert connector._subscriptions[sub_id].handle is pv
 
@@ -334,12 +335,6 @@ class TestChannelSubscriptionWrapper:
 
         assert handle.close_calls == 1
         assert subscription.closed is True
-
-    def test_close_dispatches_on_kind(self):
-        pv = MagicMock(spec=["clear_callbacks"])
-        _ChannelSubscription("ca", pv).close()
-
-        pv.clear_callbacks.assert_called_once()
 
     def test_a_failing_handle_does_not_break_teardown(self):
         handle = MagicMock(spec=["close"])

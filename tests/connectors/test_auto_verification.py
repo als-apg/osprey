@@ -122,7 +122,10 @@ class TestConfirmResolution:
         await connector.disconnect()
 
     async def test_channel_entry_beats_the_defaults_block(self, tmp_path, monkeypatch):
-        """Layer 1: one channel's entry overrides the block, in both directions."""
+        """Layer 1: one channel's entry opts in over a declining block.
+
+        The other direction is the next test.
+        """
         limits_file = _write_limits_db(
             tmp_path,
             {

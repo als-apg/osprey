@@ -497,7 +497,7 @@ async def test_per_request_timeout_raises_timeout_error_and_leaves_the_proxy_usa
     assert (await proxy.read_channel("SR:FAST", timeout=5.0)).value == 3.5
 
 
-async def test_a_call_without_a_timeout_waits_forever_unless_a_deadline_is_set(teardown):
+async def test_a_call_without_a_timeout_is_bounded_by_the_local_deadline(teardown):
     async def handler(_child, _frame):
         return None
 
@@ -519,6 +519,10 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
 
     with pytest.raises(TimeoutError) as caught:
         await proxy.read_channel("SR:GONE", timeout=5.0)
+    # Exactly the child's TimeoutError, not re-wrapped: ChildUnresponsiveError
+    # is a TimeoutError too, so the raises() above cannot tell them apart.
+    assert type(caught.value) is TimeoutError
+    assert raised_by_child(caught.value)
     assert "SR:GONE did not respond" in str(caught.value)
 
 

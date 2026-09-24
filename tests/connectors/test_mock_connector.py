@@ -73,23 +73,22 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_pv_infers_units(self):
-        """Test that connector infers units from PV names."""
+    @pytest.mark.parametrize(
+        ("channel", "units"),
+        [
+            pytest.param("BEAM:CURRENT", "mA", id="beam-current"),
+            pytest.param("MAGNET:VOLTAGE", "V", id="magnet-voltage"),
+            pytest.param("VACUUM:PRESSURE", "Torr", id="vacuum-pressure"),
+        ],
+    )
+    async def test_read_pv_infers_units(self, channel, units):
+        """The connector infers each channel's exact unit from its name."""
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
-            # Test beam current units
-            beam_result = await connector.read_channel("BEAM:CURRENT")
-            assert "mA" in beam_result.metadata.units or "A" in beam_result.metadata.units
-
-            # Test voltage units
-            voltage_result = await connector.read_channel("MAGNET:VOLTAGE")
-            assert "V" in voltage_result.metadata.units
-
-            # Test pressure units
-            pressure_result = await connector.read_channel("VACUUM:PRESSURE")
-            assert "Torr" in pressure_result.metadata.units
+            result = await connector.read_channel(channel)
+            assert result.metadata.units == units
 
             await connector.disconnect()
 
@@ -201,24 +200,6 @@ class TestMockArchiverConnector:
             await connector.connect({"sample_rate_hz": sample_rate_hz})
 
     @pytest.mark.asyncio
-    async def test_get_data_accepts_any_pvs(self):
-        """Test that mock archiver accepts any PV names."""
-        connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.01})
-
-        start_date = datetime(2024, 1, 1, 0, 0, 0)
-        end_date = datetime(2024, 1, 1, 1, 0, 0)
-        channels = ["FAKE:PV:1", "RANDOM:PV:2", "ANY:NAME:3"]
-
-        df = await connector.get_data(channels=channels, start_date=start_date, end_date=end_date)
-
-        assert df is not None
-        assert len(df) > 0
-        assert set(df["channel"]) == set(channels)
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
     async def test_get_data_returns_dataframe(self):
         """Test that get_data returns the canonical long-format DataFrame."""
         connector = MockArchiverConnector()
@@ -270,49 +251,29 @@ class TestMockArchiverConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_generated_time_series_has_variation(self):
-        """Test that generated time series have realistic variation."""
-        connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.1})
-
-        start_date = datetime(2024, 1, 1, 0, 0, 0)
-        end_date = datetime(2024, 1, 1, 1, 0, 0)
-
-        df = await connector.get_data(
-            channels=["BEAM:CURRENT"], start_date=start_date, end_date=end_date
-        )
-
-        # Check that values vary (not all the same)
-        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"].to_numpy()
-        assert len(set(values)) > 1
-        assert values.std() > 0
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
     async def test_multi_pv_returns_independent_rows_per_channel(self):
-        """Each channel contributes its own rows to the long frame."""
+        """Each requested channel, whatever its name, contributes its own rows.
+
+        Made-up names sit beside known ones: the mock archives any PV.
+        """
         connector = MockArchiverConnector()
         await connector.connect({"noise_level": 0.01})
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 0, 1, 0)
+        channels = ["BEAM:CURRENT", "MAGNET:VOLTAGE", "FAKE:PV:1", "ANY:NAME:3"]
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT", "MAGNET:VOLTAGE"],
+            channels=channels,
             start_date=start_date,
             end_date=end_date,
             precision_ms=1000,
         )
 
         assert list(df.columns) == ["timestamp", "channel", "value"]
-        current_rows = df[df["channel"] == "BEAM:CURRENT"]
-        voltage_rows = df[df["channel"] == "MAGNET:VOLTAGE"]
-
-        assert len(current_rows) > 0
-        assert len(voltage_rows) > 0
-        # Every row belongs to exactly one of the two requested channels.
-        assert len(current_rows) + len(voltage_rows) == len(df)
+        # Every row belongs to a requested channel, and every channel has rows.
+        assert set(df["channel"]) == set(channels)
+        assert (df["channel"].value_counts() >= 1).all()
 
         await connector.disconnect()
 
@@ -397,6 +358,7 @@ class TestMockArchiverProceduralKinds:
     @pytest.mark.parametrize(
         ("channel", "base_value"),
         [
+            ("BEAM:CURRENT", 500.0),
             ("PS:CURRENT", 150.0),
             ("RF:POWER", 50.0),
             ("CRYO:TEMP", 25.0),
@@ -722,32 +684,6 @@ class TestMockWriteConfirmationContract:
         assert "CA disconnected" in result.error_message
         assert result.alarm_status is None
         assert result.alarm_severity is None
-
-        await connector.disconnect()
-
-    async def test_confirm_false_does_not_read(self, monkeypatch):
-        """``unrequested`` is the fast path: a read that would raise is never issued."""
-        connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
-
-        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, confirm=False)
-
-        assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
-        assert result.error_message is None
-
-        await connector.disconnect()
-
-    async def test_a_value_the_store_cannot_hold_is_a_failed_write(self, monkeypatch):
-        """The put itself failing is ``failed``: the control system did not take it."""
-        connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
-
-        result = await connector.write_channel("TEST:CHANNEL:SP", "not-a-number")
-
-        assert result.outcome is WriteOutcome.FAILED
-        assert result.observed_value is None
-        assert result.error_message is not None
 
         await connector.disconnect()
 

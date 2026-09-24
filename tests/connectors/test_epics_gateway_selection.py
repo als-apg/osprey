@@ -105,7 +105,9 @@ async def test_warns_when_writes_enabled_but_no_write_gateway(monkeypatch):
     )
 
     assert os.environ["EPICS_CA_ADDR_LIST"] == "ro.example.com"
-    assert any("write" in w.lower() for w in warnings), warnings
+    # An unstamped connector has no type block, so the warning names the
+    # deployment-wide key.
+    assert any("control_system.writes_enabled is true" in w for w in warnings), warnings
 
 
 @pytest.mark.asyncio

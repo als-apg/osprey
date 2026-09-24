@@ -9,8 +9,7 @@ IS a refusal is the control system's own denial; see
 test_control_system_refused.py.
 """
 
-import asyncio
-import time
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -104,52 +103,29 @@ class TestNonBlockingOffload:
 
     @pytest.mark.asyncio
     async def test_validate_runs_off_the_event_loop(self):
-        """A slow (blocking) validate() must NOT starve the event loop.
+        """A blocking validate() runs on a worker thread, not the event loop.
 
-        Simulates max_step's blocking caget with a 0.3s time.sleep inside
-        validate(). While write_channel is in flight, a concurrently-awaited
-        0.05s asyncio.sleep must complete promptly. If validate ran ON the loop,
-        the loop would be blocked for the full 0.3s and the concurrent sleep
-        could not finish until then — proving validate ran OFF the loop.
+        max_step's fresh read is a blocking caget; if validate() ran on the
+        loop thread it would stall every other coroutine for its duration.
+        Recording the thread validate() runs on pins the offload directly.
         """
         connector = _make_connector()
+        validate_threads: list[int] = []
 
-        def slow_validate(_addr, _val, *, read_current=None):  # noqa: ARG001 - the limits-validator interface names read_current
-            time.sleep(0.3)  # stand-in for max_step's blocking fresh read
+        def recording_validate(_addr, _val, *, read_current=None):  # noqa: ARG001 - the limits-validator interface names read_current
+            validate_threads.append(threading.get_ident())
 
-        connector._limits_validator.validate = MagicMock(side_effect=slow_validate)
-
-        # A concurrent ticker that can only advance if the loop is being serviced.
-        ticks = 0
-
-        async def ticker():
-            nonlocal ticks
-            while True:
-                await asyncio.sleep(0.005)
-                ticks += 1
+        connector._limits_validator.validate = MagicMock(side_effect=recording_validate)
 
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            ticker_task = asyncio.create_task(ticker())
-            write_task = asyncio.create_task(
-                connector.write_channel("TEST:PV", 42.0, confirm=False)
-            )
+            result = await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
-            # Give the write time to reach its to_thread offload, then measure how
-            # long a short concurrent sleep takes while validate() blocks a thread.
-            start = time.monotonic()
-            await asyncio.sleep(0.05)
-            elapsed = time.monotonic() - start
-
-            result = await write_task
-            ticker_task.cancel()
-
-        # The loop stayed responsive: the 0.05s sleep did NOT get stretched to the
-        # 0.3s validate duration, and the ticker advanced during the window.
-        assert elapsed < 0.2, f"event loop was blocked for {elapsed:.3f}s"
-        assert ticks > 0, "concurrent coroutine was starved (loop blocked)"
+        loop_thread = threading.get_ident()
+        assert validate_threads, "validate() was never called"
+        assert validate_threads[0] != loop_thread, "validate() ran on the event-loop thread"
         # max_step-style validation was still evaluated, and the write succeeded
         # (unconfirmed, since confirm=False).
         connector._limits_validator.validate.assert_called_once()

@@ -64,22 +64,18 @@ class TestConnectDisconnectLifecycle:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_default_timeout(self):
-        """Test that default timeout of 60s is used when not specified."""
+    @pytest.mark.parametrize(
+        ("config_timeout", "expected"), [(None, 60), (120, 120)], ids=["default", "configured"]
+    )
+    async def test_connect_timeout(self, config_timeout, expected):
+        """The timeout is 60 s unless the config names one."""
+        config = {"url": "https://archiver.example.com"}
+        if config_timeout is not None:
+            config["timeout"] = config_timeout
         connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        await connector.connect(config)
 
-        assert connector._timeout == 60
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_connect_custom_timeout(self):
-        """Test that custom timeout is used when specified."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com", "timeout": 120})
-
-        assert connector._timeout == 120
+        assert connector._timeout == expected
 
         await connector.disconnect()
 
@@ -117,32 +113,9 @@ class TestGetDataMethod:
     """Tests for get_data method."""
 
     @pytest.mark.asyncio
-    async def test_get_data_returns_dataframe(self):
-        """Test that get_data returns the canonical long-format DataFrame."""
-        points = [(1704067200, 0, 499.8), (1704067201, 0, 499.7)]
-        response = _make_urlopen_response(_archiver_payload("BEAM:CURRENT", points))
-
-        with patch("urllib.request.urlopen", return_value=response):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            df = await connector.get_data(
-                channels=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1, 0, 0, 0),
-                end_date=datetime(2024, 1, 1, 1, 0, 0),
-            )
-
-            assert isinstance(df, pd.DataFrame)
-            assert list(df.columns) == ["timestamp", "channel", "value"]
-            assert df["timestamp"].dtype == "datetime64[ns, UTC]"
-            assert df["value"].dtype == "float64"
-            assert set(df["channel"]) == {"BEAM:CURRENT"}
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
     async def test_get_data_single_pv_correct_values(self):
-        """Test that single-PV fetch returns correct values, in timestamp order."""
+        """A single-PV fetch returns the canonical long-format DataFrame with the
+        correct values, in timestamp order."""
         points = [(1704067200, 0, 1.0), (1704067201, 0, 2.0), (1704067202, 0, 3.0)]
         response = _make_urlopen_response(_archiver_payload("PV:X", points))
 
@@ -156,6 +129,10 @@ class TestGetDataMethod:
                 end_date=datetime(2024, 1, 1, 1),
             )
 
+            assert isinstance(df, pd.DataFrame)
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+            assert df["value"].dtype == "float64"
             assert (df["channel"] == "PV:X").all()
             assert list(df["value"]) == [1.0, 2.0, 3.0]
 
@@ -530,24 +507,19 @@ class TestConnectSideEffects:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_does_not_pollute_stdout(self):
-        """Nothing may print to stdout during connect() — MCP stdio safety."""
-        import io
-        import sys
+    async def test_connect_does_not_pollute_stdout(self, capfd):
+        """Nothing may print to stdout during connect() — MCP stdio safety.
 
+        ``capfd`` captures file descriptor 1, so a write from a C extension or a
+        subprocess is caught as well as one through ``sys.stdout``.
+        """
         connector = EPICSArchiverConnector()
+        capfd.readouterr()
 
-        captured = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = captured
-        try:
-            await connector.connect({"url": "http://archiver.example.com:17668"})
-        finally:
-            sys.stdout = old_stdout
+        await connector.connect({"url": "http://archiver.example.com:17668"})
 
-        assert captured.getvalue() == "", (
-            f"stdout was polluted during connect(): {captured.getvalue()!r}"
-        )
+        out = capfd.readouterr().out
+        assert out == "", f"stdout was polluted during connect(): {out!r}"
         assert connector._connected is True
         await connector.disconnect()
 

@@ -23,6 +23,19 @@ SRC = str(Path(__file__).resolve().parents[2] / "src")
 FORBIDDEN = ("pandas", "litellm", "openai", "anthropic", "fastapi", "playwright")
 
 
+def _run_clean(code: str) -> None:
+    """Run ``code`` in a fresh interpreter; it must exit 0 and print CLEAN."""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=SRC),
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "CLEAN" in result.stdout
+
+
 def test_control_system_chain_imports_without_heavy_deps():
     code = (
         "import osprey.connectors.control_system.epics_connector;"
@@ -33,14 +46,7 @@ def test_control_system_chain_imports_without_heavy_deps():
         "assert not bad, f'lean connector chain eagerly imported: {bad}';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
 
 
 def test_limits_validator_reaches_for_no_control_system_client():
@@ -65,14 +71,7 @@ def test_limits_validator_reaches_for_no_control_system_client():
         "assert not bad, f'the limits validator imported a control-system client: {bad}';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
 
 
 def test_control_context_imports_no_osprey_module():
@@ -91,14 +90,7 @@ def test_control_context_imports_no_osprey_module():
         "assert cc.RECORD_FILENAME == 'control_context.json';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
 
 
 def test_identity_imports_no_osprey_module():
@@ -119,27 +111,7 @@ def test_identity_imports_no_osprey_module():
         "assert not bad, f'the identity ladder eagerly imported: {bad}';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
-
-
-def _run_clean(code: str) -> None:
-    """Run ``code`` in a fresh interpreter; it must exit 0 and print CLEAN."""
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
 
 
 @pytest.mark.parametrize(

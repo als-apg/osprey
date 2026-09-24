@@ -12,6 +12,7 @@ environment, so a child reads only the config file its test hands the pool.
 """
 
 import asyncio
+import contextlib
 import gc
 import logging
 import os
@@ -193,6 +194,8 @@ async def test_a_hung_call_on_one_target_does_not_hold_up_another(pools):
     assert value.value is not None
     assert not hung.done()
     hung.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await hung
 
 
 async def test_an_unknown_execution_mode_is_refused(pools):
@@ -234,26 +237,25 @@ async def test_a_section_that_arms_writes_without_a_config_file_is_refused(pools
     assert pool.pids() == {}
 
 
-async def test_a_config_file_that_arms_what_the_section_does_not_is_refused(pools, writable):
+@pytest.mark.parametrize("via", ["passed", "inherited"])
+async def test_a_config_file_that_arms_what_the_section_does_not_is_refused(
+    pools, writable, monkeypatch, via
+):
     _, config_file, log = writable
     # Gatewayless mock: no gateway role could reveal the disagreement, so only
-    # the posture check stands between this child and an armed write.
-    pool = pools(_section(SLOW, writes_enabled=False), config_file=config_file)
+    # the posture check stands between this child and an armed write. The file
+    # reaches the child either handed to the pool or through CONFIG_FILE.
+    if via == "passed":
+        pool = pools(_section(SLOW, writes_enabled=False), config_file=config_file)
+    else:
+        monkeypatch.setenv("CONFIG_FILE", str(config_file))
+        pool = pools(_section(SLOW, writes_enabled=False))
     with pytest.raises(ConnectorHostStartError) as caught:
         await pool.connector("live")
 
     assert caught.value.stage == "verify"
     assert "writes armed" in str(caught.value)
     assert not log.exists()
-
-
-async def test_an_inherited_config_file_that_arms_writes_is_refused(pools, writable, monkeypatch):
-    _, config_file, _ = writable
-    monkeypatch.setenv("CONFIG_FILE", str(config_file))
-    pool = pools(_section(SLOW, writes_enabled=False))
-    with pytest.raises(ConnectorHostStartError) as caught:
-        await pool.connector("live")
-    assert caught.value.stage == "verify"
 
 
 # ------------------------------------------------------------ losing a child
@@ -465,7 +467,9 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
     await _wait_for(lambda: not _alive(caught.value.pid))
 
 
-async def test_an_unresolved_placeholder_refuses_before_anything_is_spawned(pools, monkeypatch):
+async def test_an_unresolved_placeholder_refuses_before_anything_is_spawned(
+    pools, spawns, monkeypatch
+):
     monkeypatch.delenv("OSPREY_POOL_TEST_UNSET", raising=False)
     pool = pools(_section(SLOW, block={"note": "${OSPREY_POOL_TEST_UNSET}"}))
     with pytest.raises(ConnectorHostStartError) as caught:
@@ -474,6 +478,7 @@ async def test_an_unresolved_placeholder_refuses_before_anything_is_spawned(pool
     assert caught.value.stage == "config"
     assert caught.value.pid is None
     assert "${OSPREY_POOL_TEST_UNSET}" in str(caught.value)
+    assert spawns == []
 
 
 async def test_a_placeholder_is_resolved_at_spawn_not_at_construction(pools, monkeypatch):

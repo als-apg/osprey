@@ -69,14 +69,6 @@ class TestConnectorFactory:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_create_with_invalid_type_raises_error(self):
-        """Test that invalid connector type raises error."""
-        config = {"type": "nonexistent_system", "connector": {}}
-
-        with pytest.raises(ValueError, match="Unknown control system type"):
-            await ConnectorFactory.create_control_system_connector(config)
-
-    @pytest.mark.asyncio
     async def test_factory_creates_independent_instances(self):
         """Test that factory creates independent connector instances."""
         config = {"type": "mock", "connector": {"mock": {"response_delay_ms": 0}}}

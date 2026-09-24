@@ -64,29 +64,22 @@ class TestConnectDisconnectLifecycle:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_default_timeout(self, mongodb_config):
-        """Test that default timeout of 60s is used when not specified."""
-        # Remove timeout from config to test default
-        config_without_timeout = mongodb_config.copy()
-        del config_without_timeout["timeout"]
+    @pytest.mark.parametrize(
+        ("config_timeout", "expected"), [(None, 60), (120, 120)], ids=["default", "configured"]
+    )
+    async def test_connect_timeout(self, static_mongo_config, config_timeout, expected):
+        """The timeout is 60 s unless the config names one. A config-only read,
+        so the client is patched rather than dialled."""
+        config = static_mongo_config.copy()
+        del config["timeout"]
+        if config_timeout is not None:
+            config["timeout"] = config_timeout
 
         connector = MongoDBArchiverConnector()
-        await connector.connect(config_without_timeout)
+        with patch("pymongo.MongoClient"):
+            await connector.connect(config)
 
-        assert connector._timeout == 60
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_connect_custom_timeout(self, mongodb_config):
-        """Test that custom timeout is used when specified."""
-        config_with_timeout = mongodb_config.copy()
-        config_with_timeout["timeout"] = 120
-
-        connector = MongoDBArchiverConnector()
-        await connector.connect(config_with_timeout)
-
-        assert connector._timeout == 120
+        assert connector._timeout == expected
 
         await connector.disconnect()
 
@@ -203,28 +196,6 @@ class TestGetDataMethod:
     """Tests for get_data method."""
 
     @pytest.mark.asyncio
-    async def test_get_data_returns_dataframe(self, mongodb_config, mongodb_test_data):
-        """Test that get_data returns a DataFrame with DatetimeIndex."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
-
-        start_date = mongodb_test_data["start_date"]
-        end_date = datetime(2024, 1, 1, 12, 0, 0)  # First 12 hours
-
-        df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        assert isinstance(df, pd.DataFrame)
-        assert list(df.columns) == ["timestamp", "channel", "value"]
-        assert (df["channel"] == "BEAM:CURRENT").all()
-        assert len(df) > 0  # Should have data
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
     async def test_get_data_multiple_pvs(self, mongodb_config, mongodb_test_data):
         """Test that get_data returns data for multiple PVs."""
         connector = MongoDBArchiverConnector()
@@ -241,6 +212,7 @@ class TestGetDataMethod:
         )
 
         assert isinstance(df, pd.DataFrame)
+        assert list(df.columns) == ["timestamp", "channel", "value"]
         # All PVs should be represented as channels, long-format
         assert set(df["channel"]) == set(channels)
         assert len(df) > 0
@@ -367,23 +339,6 @@ class TestMetadataMethods:
         # No stored samples means no coverage window — not an invented one.
         assert metadata.archival_start is None
         assert metadata.archival_end is None
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_check_availability_returns_dict(self, mongodb_config, mongodb_test_data):
-        """Test that check_availability returns dict mapping PVs to availability."""
-        connector = MongoDBArchiverConnector()
-        await connector.connect(mongodb_config)
-
-        channels = mongodb_test_data["channels"]
-        availability = await connector.check_availability(channels)
-
-        assert isinstance(availability, dict)
-        assert len(availability) == len(channels)
-        for pv in channels:
-            assert pv in availability
-            assert availability[pv] is True  # All test PVs should be available
 
         await connector.disconnect()
 

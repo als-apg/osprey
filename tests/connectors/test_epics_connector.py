@@ -1,17 +1,14 @@
 """Behavioral tests for the EPICS control-system connector.
 
-No general EPICS connector test existed before this file (see the note in
-``test_epics_connector_timezone.py``); gateway selection and the read timestamp
-were the only covered paths. These tests drive the connector's remaining real
-code paths — libca configuration, connect error/name-server handling, the
-confirm flow and its five outcomes, the fail-closed write guard, and
-subscription plumbing — with an injected fake ``_epics`` so no real Channel
-Access is required.
+These tests drive the connector's real code paths — libca configuration,
+connect error/name-server handling, the read path and its facility-timezone
+timestamp, the confirm flow and its five outcomes, the fail-closed write guard,
+and subscription plumbing — with an injected fake ``_epics`` so no real Channel
+Access is required. Gateway selection lives in ``test_epics_gateway_selection.py``.
 
-Convention (matching ``test_epics_connector_timezone.py`` and PR #270): inject a
-fake ``_epics`` and assert on the concrete payload — outcome word, observed
-value, alarm fields, env vars, refusal reason — never merely that a call
-"didn't raise".
+Convention (matching PR #270): inject a fake ``_epics`` and assert on the
+concrete payload — outcome word, observed value, alarm fields, env vars,
+refusal reason — never merely that a call "didn't raise".
 """
 
 import asyncio
@@ -19,6 +16,7 @@ import os
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -239,6 +237,26 @@ class TestReadChannel:
 
         with pytest.raises(ConnectionError, match="Failed to connect to PV 'SR:NOPE'"):
             await connector.read_channel("SR:NOPE", timeout=0.5)
+
+    @pytest.mark.asyncio
+    async def test_read_channel_timestamp_is_facility_tz_aware(self, monkeypatch):
+        """The PV's own timestamp is rendered in the facility zone, not UTC or the box's.
+
+        A naive ``datetime.fromtimestamp(ts)`` without a zone would fail this.
+        """
+        monkeypatch.setattr(
+            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            lambda: ZoneInfo("Asia/Tokyo"),  # UTC+9, no DST
+        )
+        epics = MagicMock()
+        epics.PV.return_value = connected_pv(1.23, timestamp=1_750_000_000.0)
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:TEST:CHANNEL", timeout=1.0)
+
+        assert result.timestamp.tzinfo is not None
+        assert result.timestamp.utcoffset().total_seconds() == 9 * 3600
+        assert result.metadata.timestamp.utcoffset().total_seconds() == 9 * 3600
 
     @pytest.mark.asyncio
     async def test_missing_timestamp_falls_back_to_now(self, monkeypatch):
@@ -633,18 +651,6 @@ class TestWriteFailClosed:
 
 class TestSubscribe:
     @pytest.mark.asyncio
-    async def test_subscribe_registers_pv_and_returns_id(self):
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _connector(epics=epics)
-
-        sub_id = await connector.subscribe("SR:CH", lambda v: None)
-
-        assert sub_id.startswith("SR:CH_")
-        assert connector._subscriptions[sub_id].handle is pv
-
-    @pytest.mark.asyncio
     async def test_epics_callback_converts_to_channel_value(self, monkeypatch):
         """The pyepics callback is adapted into a facility-tz ChannelValue."""
         tokyo = __import__("zoneinfo").ZoneInfo("Asia/Tokyo")
@@ -669,25 +675,6 @@ class TestSubscribe:
         assert received[0].value == 7.0
         assert received[0].metadata.units == "A"
         assert received[0].timestamp.utcoffset().total_seconds() == 9 * 3600
-
-    @pytest.mark.asyncio
-    async def test_unsubscribe_clears_and_removes(self):
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _connector(epics=epics)
-        sub_id = await connector.subscribe("SR:CH", lambda v: None)
-
-        await connector.unsubscribe(sub_id)
-
-        pv.clear_callbacks.assert_called_once()
-        assert sub_id not in connector._subscriptions
-
-    @pytest.mark.asyncio
-    async def test_unsubscribe_unknown_id_is_noop(self):
-        connector = _connector()
-        # Must not raise for an id that was never registered.
-        await connector.unsubscribe("does-not-exist")
 
 
 class TestValidateChannelAndMetadata:

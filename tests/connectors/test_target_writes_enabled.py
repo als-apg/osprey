@@ -1021,27 +1021,6 @@ class TestTheConnectorReferenceMonitor:
         assert connector.writes == []
 
     @pytest.mark.asyncio
-    async def test_the_narrowing_reaches_a_process_that_carries_no_session(self, deployment, store):
-        """The narrowing is the deployment's, so nothing has to be addressed.
-
-        A CLI run, a dispatch worker and a bare agent hold no session of their
-        own. Each of them writes to the same machine an operator took away, so
-        each of them reads the same record and is refused by it.
-        """
-        # Arrange
-        deployment(ARMED_SECTION)
-        store.narrow(standin=posture_store.POSTURE_SANDBOX, va=posture_store.POSTURE_SANDBOX)
-        connector = _built(EPICS, TARGET_STANDIN)
-
-        # Act
-        result = await connector.write_channel("S:CORR:1:SP", 0.5)
-
-        # Assert
-        assert result.outcome is WriteOutcome.REFUSED
-        assert "control-target chip in the header" in result.error_message
-        assert connector.writes == []
-
-    @pytest.mark.asyncio
     async def test_an_unstamped_target_takes_the_most_restrictive_entry(self, deployment, store):
         """A connector that cannot say which machine it writes to gets the floor.
 

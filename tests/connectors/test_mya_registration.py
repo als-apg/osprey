@@ -44,21 +44,37 @@ class TestBuiltinRegistration:
             registered = ConnectorFactory._archiver_connectors[types.MYA_ARCHIVER]
             assert registered is MYAArchiverConnector
 
-    def test_registration_needs_no_client_library(self):
+    def test_registration_needs_no_client_library(self, monkeypatch):
         """Registration must not import ``jlab_archiver_client``.
 
         The connector imports it inside ``connect()``. If that ever moved to
         module scope, registering the built-ins would raise ImportError on
         every machine without the library and take the whole framework down.
+
+        The connector module (and its shim alias) is dropped from
+        ``sys.modules`` first: in a suite run it is already cached, and a
+        cached module never re-runs its module-scope imports.
         """
         import sys
+
+        import osprey_connectors.archiver as archiver_pkg
+
+        canonical = "osprey_connectors.archiver.mya_archiver_connector"
+        shim = "osprey.connectors.archiver.mya_archiver_connector"
+        cached = sys.modules.get(canonical)
+        # The re-import rebinds the package attribute; put it back afterwards.
+        monkeypatch.setattr(archiver_pkg, "mya_archiver_connector", cached, raising=False)
 
         with (
             patch.dict(sys.modules, {"jlab_archiver_client": None}),
             isolated_connector_registries(clear=True),
         ):
+            sys.modules.pop(canonical, None)
+            sys.modules.pop(shim, None)
+
             register_builtin_connectors()
 
+            assert sys.modules[canonical] is not cached, "the connector was not re-imported"
             assert types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
 
 

@@ -55,8 +55,11 @@ class RecordingConnector(ControlSystemConnector):
     def __init__(self) -> None:
         self.writes: list[tuple[str, Any]] = []
 
-    async def connect(self, config: dict[str, Any]) -> None: ...
-    async def disconnect(self) -> None: ...
+    async def connect(self, config: dict[str, Any]) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
 
     async def read_channel(self, channel_address: str, timeout: float | None = None):
         raise NotImplementedError

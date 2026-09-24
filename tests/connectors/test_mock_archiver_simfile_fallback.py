@@ -108,8 +108,11 @@ def project(tmp_path, monkeypatch):
 
 
 async def _series(connector: MockArchiverConnector) -> list[float]:
+    """The channel's samples, never empty: an ``all(...)`` over nothing would pass."""
     df = await connector.get_data(channels=["T:Q1:CUR:SP"], start_date=START, end_date=END)
-    return df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
+    values = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
+    assert values, "no samples: the simulation file did not feed the engine"
+    return values
 
 
 def _warnings(caplog) -> list[str]:
@@ -229,9 +232,7 @@ class TestExplicitArchiverValueWins:
         with caplog.at_level(logging.WARNING, logger=ARCHIVER_LOGGER):
             await connector.connect({"simulation_file": "data/simulation/other-machine.json"})
 
-        values = await _series(connector)
-        assert values, "no samples — the explicit file did not feed the engine"
-        assert all(v == ARCHIVER_ONLY_VALUE for v in values)
+        assert all(v == ARCHIVER_ONLY_VALUE for v in await _series(connector))
 
         warnings = _warnings(caplog)
         assert len(warnings) == 1, f"expected one divergence warning, got {warnings}"

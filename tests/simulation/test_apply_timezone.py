@@ -46,7 +46,7 @@ def test_default_anchor_seeds_logbook_in_facility_zone(tmp_path, monkeypatch):
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _fake_seed)
     # Pin the facility zone regardless of host config-loading quirks.
-    monkeypatch.setattr("osprey.simulation.apply.get_facility_timezone", lambda: LA, raising=False)
+    monkeypatch.setattr("osprey.simulation.apply.get_facility_timezone", lambda: LA)
 
     # now=None -> exercise the DEFAULT anchor (the path the bug lives on).
     apply_scenarios(project, ["rf-thermal"], now=None)

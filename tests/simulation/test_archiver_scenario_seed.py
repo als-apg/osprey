@@ -889,9 +889,13 @@ class TestScenarioSwitch:
         _apply(root, ["late-burst"])
 
         low, high = _window(SPIKE_OFFSET_S)
-        for stamp, document in _snapshot(collection).items():
-            if low <= stamp.replace(tzinfo=UTC) <= high and stamp in base:
-                assert document == base[stamp], f"the previous scenario survived at {stamp}"
+        after = _snapshot(collection)
+        matched = [
+            stamp for stamp in after if low <= stamp.replace(tzinfo=UTC) <= high and stamp in base
+        ]
+        assert matched, "no base sample falls inside the old window"
+        for stamp in matched:
+            assert after[stamp] == base[stamp], f"the previous scenario survived at {stamp}"
 
     def test_the_ledger_converges_on_the_new_window(self, project):
         root, collection = project

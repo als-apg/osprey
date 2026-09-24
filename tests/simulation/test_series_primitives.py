@@ -333,12 +333,6 @@ class TestKeyedNormals:
             single = keyed_normals(key, np.array([counters[i]], dtype=np.uint64))
             assert single[0] == batch[i]
 
-    def test_pointwise_stable_across_separate_calls(self):
-        key = channel_key_bytes("SR:VCM:03:SP")
-        counters = np.array([1, 2, 3, 1_700_000_000_000], dtype=np.uint64)
-
-        np.testing.assert_array_equal(keyed_normals(key, counters), keyed_normals(key, counters))
-
     def test_pointwise_stable_under_slicing_and_reordering(self):
         key = channel_key_bytes("SR:VCM:04:SP")
         counters = np.arange(2_000_000, 2_000_100, dtype=np.uint64)

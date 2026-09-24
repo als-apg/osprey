@@ -436,21 +436,6 @@ def test_unknown_class_tag_fails_closed_to_connection_error():
     assert "libca segfaulted" in str(frame.exception)
 
 
-def test_unknown_class_tag_on_the_wire_fails_closed():
-    """A tag this codec has never heard of still decodes, as a ConnectionError."""
-    payload = frames.encode_error("req-u2", ConnectionError("original text"))
-    # Same byte length, so the frame's declared header length stays valid.
-    tampered = payload.replace(b"ConnectionError", b"WeirdChildError")
-    assert len(tampered) == len(payload)
-
-    frame = _round_trip(tampered)
-
-    assert frame.class_tag == "WeirdChildError"
-    assert type(frame.exception) is ConnectionError
-    assert "WeirdChildError" in str(frame.exception)
-    assert "original text" in str(frame.exception)
-
-
 # ---------------------------------------------------------------- stream reader
 
 

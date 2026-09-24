@@ -33,13 +33,6 @@ def clean_connector_factory():
         yield
 
 
-class TestVirtualAcceleratorConnectorClass:
-    """Basic shape checks for the connector class itself."""
-
-    def test_is_thin_subclass_of_epics_connector(self):
-        assert issubclass(VirtualAcceleratorConnector, EPICSConnector)
-
-
 class TestFactoryResolution:
     """The ConnectorFactory (used by register_builtin_connectors) resolves the type."""
 

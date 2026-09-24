@@ -40,6 +40,7 @@ import pytest
 import yaml
 
 from osprey_connectors import posture_store
+from osprey_connectors.channel_taxonomy import classify_channel
 from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
@@ -375,12 +376,16 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
 # ------------------------------------------------------------- spawn_probe
 
 
-def test_spawn_probe_reads_the_named_channel(ready_child):
-    frame = ready_child.call("spawn_probe", channel="SR:BEAM:CURRENT", timeout=5.0)
+@pytest.mark.parametrize("channel", ["SR:BEAM:CURRENT", "VAC:PRESSURE"])
+def test_spawn_probe_reads_the_named_channel(ready_child, channel):
+    frame = ready_child.call("spawn_probe", channel=channel, timeout=5.0)
 
     assert isinstance(frame, frames.ResultFrame)
     assert isinstance(frame.value, ChannelValue)
     assert isinstance(frame.value.value, float)
+    # The mock's units come from the channel name, so they show which channel
+    # was read: mA for the beam current, Torr for the vacuum gauge.
+    assert frame.value.metadata.units == classify_channel(channel).units
 
 
 def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(ready_child):

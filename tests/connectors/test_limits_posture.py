@@ -748,15 +748,21 @@ class TestMostRestrictive:
     # A deployment with no per-type block at all
     # ------------------------------------------------------------------
 
-    @pytest.mark.parametrize("deployment_wide", [_block(True, False), _block(True, True)])
+    @pytest.mark.parametrize(
+        ("deployment_wide", "expected"),
+        [
+            (_block(True, False), LimitsPosture(True, False, None)),
+            (_block(True, True), LimitsPosture(True, True, None)),
+        ],
+        ids=["unlisted-refused", "unlisted-allowed"],
+    )
     def test_no_per_type_block_answers_the_deployment_wide_posture(
-        self, deployment_wide: dict[str, Any]
+        self, deployment_wide: dict[str, Any], expected: LimitsPosture
     ) -> None:
         """The compatibility story: every target reads one block, so the union is it."""
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = deployment_wide
         del section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF]
-        expected = type_limits_posture(section, EPICS)
         assert most_restrictive_limits_posture(section) == expected
 
     # ------------------------------------------------------------------

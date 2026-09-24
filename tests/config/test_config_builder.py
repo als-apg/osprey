@@ -7,7 +7,7 @@ including YAML loading, environment variable resolution, and nested access.
 import pytest
 import yaml
 
-from osprey.utils.config import ConfigBuilder, get_config_value
+from osprey.utils.config import ConfigBuilder
 
 
 class TestConfigBuilder:
@@ -172,12 +172,10 @@ control_system:
 """
         )
 
-        builder = ConfigBuilder(str(config_file))
+        configurable = ConfigBuilder(str(config_file)).configurable
 
-        assert builder.configurable is not None
-        assert isinstance(builder.configurable, dict)
-        assert "model_configs" in builder.configurable
-        assert "project_root" in builder.configurable
+        assert configurable["project_root"] == "/test/project"
+        assert configurable["model_configs"]["orchestrator"]["provider"] == "openai"
 
     def test_model_configs_loaded(self, tmp_path):
         """Test that model configurations are loaded correctly."""
@@ -331,35 +329,6 @@ class TestConfigFileShape:
         config_file.write_text("execution: subprocess\n")
 
         assert ConfigBuilder(str(config_file))._get_execution_config() == "subprocess"
-
-
-class TestConfigGlobalAccess:
-    """Test global configuration access functions."""
-
-    def test_get_config_value_with_path(self, tmp_path, monkeypatch):
-        """Test get_config_value function with dot-separated path."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-project_root: /test/project
-control_system:
-  limits:
-    max_channels: 100
-"""
-        )
-
-        # Set up global config
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-
-        # Reset global config
-        from osprey.utils import config as config_module
-
-        config_module._default_config = None
-        config_module._default_configurable = None
-
-        # Test access
-        value = get_config_value("control_system.limits.max_channels", 0)
-        assert value == 100  # Should retrieve the value from config
 
 
 class TestGetFacilityTimezone:

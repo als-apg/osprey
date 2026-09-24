@@ -65,7 +65,7 @@ def _stub_ariel(monkeypatch, *, existing: int) -> dict:
 
     import osprey.services.ariel_search.cli_operations as ops
 
-    monkeypatch.setattr(ops, "logbook_entry_count", _count, raising=False)
+    monkeypatch.setattr(ops, "logbook_entry_count", _count)
     monkeypatch.setattr(ops, "seed_logbook_entries", _seed)
     monkeypatch.setattr(ops, "run_qmd_resync", _resync)
     return seen

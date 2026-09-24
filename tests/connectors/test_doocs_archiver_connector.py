@@ -331,7 +331,9 @@ class TestReadHistory:
 
         assert conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS) is None
 
-    def test_every_archived_sample_is_returned(self):
+    def test_every_archived_sample_is_returned_as_the_parallel_arrays_get_data_consumes(self):
+        """``_read_history`` hands back every sample, as exactly ``time`` and
+        ``data`` and nothing else."""
         chunk = _make_raw_chunk(n=20)
         mock_d4py = MagicMock()
         self._mock_get(mock_d4py, chunk)
@@ -340,9 +342,8 @@ class TestReadHistory:
         out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS)
 
         assert out is not None
-        assert "time" in out and "data" in out
-        assert len(out["time"]) == 20
-        assert len(out["data"]) == 20
+        assert set(out) == {"time", "data"}
+        assert len(out["time"]) == len(out["data"]) == 20
 
     def test_smoothing_applied_with_avg_window(self):
         # Use a step-function signal: 25 zeros then 25 ones.
@@ -451,18 +452,6 @@ class TestReadHistory:
         conn._read_history(address, _START_TS, _END_TS)
 
         assert mock_d4py.Address.call_args[0][0] == "FAC/DEV/LOC/PROP.HIST"
-
-    def test_returns_only_the_parallel_arrays_get_data_consumes(self):
-        """``_read_history`` hands back exactly ``time`` and ``data``, nothing else."""
-        chunk = _make_raw_chunk(n=10)
-        mock_d4py = MagicMock()
-        self._mock_get(mock_d4py, chunk)
-
-        conn = self._make_connector_with_d4py(mock_d4py)
-        out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS)
-
-        assert set(out) == {"time", "data"}
-        assert len(out["time"]) == len(out["data"])
 
 
 # --------------------------------------------------------------------------------------

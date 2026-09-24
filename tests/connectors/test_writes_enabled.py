@@ -69,13 +69,6 @@ class _StubConnector(ControlSystemConnector):
 class TestInitSubclassWrapping:
     """Tests for __init_subclass__ write_channel wrapping."""
 
-    def test_subclass_write_channel_is_wrapped(self):
-        """write_channel on a subclass should NOT be the original method."""
-        # _StubConnector defines write_channel, so it should be wrapped
-        connector = _StubConnector()
-        # The method should have been replaced by _guarded
-        assert hasattr(connector.write_channel, "__wrapped__")
-
     @pytest.mark.asyncio
     async def test_write_blocked_when_disabled(self):
         """With _writes_enabled=False, the write is refused and never attempted."""
