@@ -14,14 +14,18 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from osprey.models.provider_registry import PROVIDER_API_KEYS
 from osprey.profiles.providers import load_provider_catalog
 from tests.conftest import _e2e_provider_availability
 from tests.e2e import conftest as e2e_conftest
+from tests.e2e import sdk_helpers
 from tests.e2e.provider import (
+    E2E_MODEL,
     E2E_PROVIDER_ENV,
     FORCE_PROVIDER_ENV,
+    build_model,
     build_provider,
     e2e_provider,
     gateway_base_url,
@@ -45,6 +49,7 @@ PROVIDER_MARKER = "requires_e2e_provider"
 GATEWAY_MARKER = "requires_als_apg"
 
 _TESTS_ROOT = Path(__file__).resolve().parent
+_REPO_ROOT = _TESTS_ROOT.parent
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +89,59 @@ def test_an_empty_override_is_unset_for_both_readers(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv(E2E_PROVIDER_ENV, "cborg")
     assert build_provider("ds4") == "ds4"
     assert e2e_provider() == "cborg"
+
+
+# ---------------------------------------------------------------------------
+# build_model: the model a lane builds with
+# ---------------------------------------------------------------------------
+
+
+def test_build_model_keeps_what_the_call_site_pinned() -> None:
+    assert build_model("claude-opus-5") == "claude-opus-5"
+
+
+def test_a_call_site_that_names_no_model_builds_with_haiku() -> None:
+    assert build_model(None) == "claude-haiku-4-5-20251001"
+
+
+def test_the_provider_ci_names_serves_the_lane_model() -> None:
+    """A catalog or workflow change that strands the lanes on a model their
+    provider does not serve fails here rather than at the gateway."""
+    workflow = yaml.safe_load(
+        (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+    provider = workflow["env"]["OSPREY_E2E_PROVIDER"]
+    assert E2E_MODEL in load_provider_catalog(None).entries[provider]["models"]
+
+
+class _InitReached(Exception):
+    """Raised by the stand-in for ``osprey init`` so the build never runs."""
+
+
+@pytest.mark.parametrize(
+    ("pinned", "expected"),
+    [(None, E2E_MODEL), ("claude-opus-5", "claude-opus-5")],
+)
+def test_init_project_writes_the_lane_model_into_the_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pinned: str | None, expected: str
+) -> None:
+    calls: list[list[str]] = []
+
+    def _record(verb: str, args: list[str], *, timeout: int) -> None:  # noqa: ARG001 - stands in for _run_osprey, whose callers name timeout
+        calls.append([verb, *args])
+        raise _InitReached
+
+    monkeypatch.setattr(sdk_helpers, "_run_osprey", _record)
+    with pytest.raises(_InitReached):
+        sdk_helpers.init_project(tmp_path, "proj", provider="als-apg", model=pinned)
+
+    argv = calls[0]
+    model_sets = [
+        argv[i + 1]
+        for i in range(len(argv) - 1)
+        if argv[i] == "--set" and argv[i + 1].startswith("model=")
+    ]
+    assert model_sets == [f"model={expected}"]
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +372,17 @@ def test_the_build_and_run_lanes_gate_on_the_named_provider() -> None:
         assert GATEWAY_MARKER not in source, (
             f"tests/{relative} builds with the provider the run named, so "
             f"{GATEWAY_MARKER} would gate it on a gateway it may never contact"
+        )
+
+
+def test_the_build_and_run_lanes_name_the_lane_model() -> None:
+    """The four lanes build with whatever provider the run named, so each one
+    names its model too; otherwise it runs the provider's catalog default, which
+    the suite's budgets are not sized for."""
+    for relative in BUILD_AND_RUN_MODULES:
+        source = (_TESTS_ROOT / relative).read_text(encoding="utf-8")
+        assert "model={E2E_MODEL}" in source or "model={build_model(model)}" in source, (
+            f"tests/{relative} must build with the lane model"
         )
 
 

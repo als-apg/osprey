@@ -46,7 +46,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.e2e.provider import e2e_provider
+from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
 TOKEN = "tutorial-e2e-token"  # shared dispatcher<->worker bearer for the test
@@ -190,6 +190,8 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--no-git",
             "--set",
             f"provider={e2e_provider()}",
+            "--set",
+            f"model={E2E_MODEL}",
         ],
         cwd=base,
     )
