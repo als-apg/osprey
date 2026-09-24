@@ -422,6 +422,11 @@ class TestVirtualAccelerator:
         ):
             assert row in block, row
 
+    def test_a_field_sampled_partly_over_the_fallback_grid_says_so(self):
+        """A device with no band is sampled about its nominal, and the reviewer reads so."""
+        block = _va(_va_render())
+        assert "| BDM | Setpoint | linear | fallback | Hardware | sampled | Radian |" in block
+
     def test_an_uncounted_cavity_is_unstated_rather_than_zero(self):
         """Nothing loads the deck at import yet, and the page says so."""
         assert "| Cavities | unstated |" in _va(_va_render())

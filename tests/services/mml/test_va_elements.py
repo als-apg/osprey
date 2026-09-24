@@ -123,6 +123,18 @@ class TestTheSyntheticExport:
         for family in ("BDM", "BSOFT", "IDGAP", "SEPTUM", "DCCT", "TUNE", "Version"):
             assert family not in addressed.bindings
 
+    def test_the_deck_s_repeated_girder_markers_are_served_as_plain_markers(
+        self, addressed: Addressing, deck
+    ) -> None:
+        marks = [index for index, element in enumerate(deck) if element.FamName == "GE"]
+        assert len(marks) == 2
+        assert all(isinstance(deck[index], at.Monitor) for index in marks)
+        assert addressed.markers == (ServedMarker(name="GE", elements=2),)
+        for index in marks:
+            served = addressed.ring[index]
+            assert isinstance(served, at.Marker)
+            assert (served.FamName, served.Length) == ("GE", 0.0)
+
     def test_one_binding_per_device_in_the_order_the_export_lists_them(
         self, addressed: Addressing, export: dict
     ) -> None:
