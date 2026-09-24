@@ -57,9 +57,10 @@ READONLY_REFUSAL_MARKER = "readonly execution mode"
 
 #: Refusal prefix the filesystem guard carries in a readonly run. It embeds
 #: :data:`READONLY_REFUSAL_MARKER` so that a write refused into the render zone
-#: or the profile sources reaches the operator alert and the audit ledger by the
-#: same path a refused control-system write does — ``report_runtime_refusal``
-#: scans the subprocess's stderr for that marker and nothing else.
+#: or the profile sources, and an open refused on a secret file, reaches the
+#: operator alert and the audit ledger by the same path a refused control-system
+#: write does — ``report_runtime_refusal`` scans the subprocess's stderr for that
+#: marker and nothing else.
 READONLY_FS_REFUSAL_PREFIX = f"Refused ({READONLY_REFUSAL_MARKER}):"
 
 #: The same refusal in a readwrite run. It names the protected path and says
@@ -91,6 +92,7 @@ class ExecutionWrapper:
         permitted_roots: Iterable[str | Path] = (),
         perimeter_denied_ports: Iterable[int] = (),
         step_read_timeout_s: float | None = None,
+        secret_roots: Iterable[str | Path] = (),
     ):
         """
         Initialize the wrapper.
@@ -116,6 +118,13 @@ class ExecutionWrapper:
                 installed and refusing nothing, which is what a caller that
                 knows no project layout (a unit test, a bare ``ExecutionWrapper()``)
                 should get.
+            secret_roots: Absolute, already-resolved directories where the env
+                chain lives. A ``.env`` or ``.env.*`` file at any depth under
+                one of them may not be opened by executed code, for read or
+                write, in any mode. Resolved by the parent
+                (:func:`osprey.mcp_server.python_executor.executor.resolve_secret_roots`)
+                and baked in as literals, like ``protected_roots``. Empty still
+                refuses ``/proc/<...>/environ`` and ``/proc/<...>/cmdline``.
             permitted_roots: Absolute, already-resolved paths carved back out of
                 the protected set — the agent's own data zone. The execution
                 folder is added to this in :meth:`_get_filesystem_guard`, since
@@ -151,6 +160,7 @@ class ExecutionWrapper:
         self.execution_mode = execution_mode
         self.protected_roots = tuple(str(root) for root in protected_roots)
         self.permitted_roots = tuple(str(root) for root in permitted_roots)
+        self.secret_roots = tuple(str(root) for root in secret_roots)
         self.perimeter_denied_ports = tuple(perimeter_denied_ports)
         if step_read_timeout_s is None:
             from osprey_connectors.control_system.limits_validator import (
@@ -1928,6 +1938,12 @@ if not _execution_dir.exists():
         writer and the tool that matches it — which is a change to files this
         does not own.
 
+        The same guard refuses any open of a secret file (a ``.env`` file under
+        :attr:`secret_roots`, a ``/proc/<...>/environ`` or ``cmdline``), read or
+        write, in both modes and with the mode's prefix. A readonly refusal
+        therefore carries the marker and reaches ``report_runtime_refusal``; a
+        readwrite one is refused and not audited, the same split writes have.
+
         The roots are resolved in the parent and interpolated as literals; the
         child never re-derives them. ``permitted_roots`` is checked before
         ``protected_roots`` by the renderer, which is what lets the execution
@@ -1980,6 +1996,7 @@ if not _execution_dir.exists():
             read_roots=(),
             patch_targets=EXECUTOR_PATCH_TARGETS,
             refusal_prefix=prefix,
+            secret_roots=self.secret_roots,
         ).strip()
 
     def _get_net_guard(self) -> str:

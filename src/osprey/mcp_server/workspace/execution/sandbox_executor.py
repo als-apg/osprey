@@ -253,6 +253,8 @@ def _create_sandbox_wrapper(
     execution_folder: Path,
     workspace_root: Path,
     project_root: Path,
+    *,
+    secret_roots: tuple[Path, ...] = (),
 ) -> str:
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
@@ -262,7 +264,9 @@ def _create_sandbox_wrapper(
         with ``default_deny=True``): reads of the Python environment and the
         project tree are allowed, reads and writes under the execution folder,
         workspace, tempdir and the HOME cache dirs are allowed, everything else
-        raises ``PermissionError``
+        raises ``PermissionError``; opening a ``.env`` file under
+        ``secret_roots`` or a ``/proc/<...>/environ`` or ``cmdline`` raises
+        ``PermissionError`` for reads too, including a ``Path.read_text``
       - Injects ``save_artifact()`` for subprocess artifact creation
       - Captures stdout/stderr via StringIO
       - Writes ``execution_metadata.json`` for the caller to read
@@ -292,6 +296,7 @@ def _create_sandbox_wrapper(
         bypass_prefixes=("site-packages", "lib/python", sys.prefix),
         patch_targets=SANDBOX_PATCH_TARGETS,
         write_modes_only_targets=SANDBOX_WRITE_MODES_ONLY_TARGETS,
+        secret_roots=secret_roots,
     )
 
     return f'''\
@@ -464,6 +469,7 @@ async def execute_sandbox_code(
         )
 
     # 2. Generate wrapper
+    from osprey.mcp_server.python_executor.executor import resolve_secret_roots
     from osprey.utils.workspace import (
         load_osprey_config,
         resolve_project_root,
@@ -482,7 +488,13 @@ async def execute_sandbox_code(
     # project root is.
     osprey_config = load_osprey_config()
     project_root = resolve_project_root(osprey_config)
-    wrapped_code = _create_sandbox_wrapper(code, execution_folder, workspace_root, project_root)
+    wrapped_code = _create_sandbox_wrapper(
+        code,
+        execution_folder,
+        workspace_root,
+        project_root,
+        secret_roots=resolve_secret_roots(project_root),
+    )
 
     # 3. Write script and spawn subprocess
     script_path = execution_folder / "wrapped_script.py"
