@@ -84,6 +84,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from osprey.audit.call import current_tool_use_id
 from osprey.audit.envelope import DECISION_REFUSED, SURFACE_EXECUTOR, AuditEnvelope
 from osprey.utils.identity import acting_identity
 from osprey.utils.logger import get_logger
@@ -516,6 +517,10 @@ def record(**fields: Any) -> Path | None:
     * ``actor`` defaults to :func:`~osprey.utils.identity.acting_identity`, so
       no emitter re-implements the ladder or accidentally names the process
       account where the container has a service identity.
+    * ``tool_use_id`` defaults to the id of the tool call in scope
+      (:func:`osprey.audit.call.current_tool_use_id`), so every recorder
+      running inside the middleware's call scope names the call it belongs to
+      without a call-site edit. Outside a scope the key is omitted.
     * Construction happens *inside* the never-raises boundary, so an emitter
       does not need a ``try`` of its own around a schema that validates. An
       invalid envelope degrades to a warning and ``None`` — the audit trail
@@ -525,6 +530,9 @@ def record(**fields: Any) -> Path | None:
     """
     try:
         fields.setdefault("actor", acting_identity())
+        tool_use_id = current_tool_use_id()
+        if tool_use_id is not None:
+            fields.setdefault("tool_use_id", tool_use_id)
         envelope = AuditEnvelope(**fields)
     except Exception:
         logger.warning(

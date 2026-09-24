@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 from dataclasses import FrozenInstanceError, fields
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -235,17 +236,41 @@ class TestToDict:
 
 
 class TestTimestamp:
-    """Second resolution with a literal Z, matching the ledgers this replaces."""
+    """Millisecond resolution with a literal Z, so records of one second order."""
 
     def test_format(self) -> None:
-        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", utc_timestamp())
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", utc_timestamp())
 
     def test_envelope_stamps_itself(self) -> None:
-        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", make_envelope().ts)
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", make_envelope().ts)
+
+    def test_older_second_stamps_still_parse(self) -> None:
+        """A ledger holding both resolutions parses line by line with one call."""
+        older = datetime.fromisoformat("2026-01-01T00:00:00Z")
+        newer = datetime.fromisoformat(utc_timestamp())
+        assert older.utcoffset() == timedelta(0)
+        assert newer.utcoffset() == timedelta(0)
 
     def test_supplied_ts_is_kept(self) -> None:
         """The writer may replay a record; a stamped one is not re-stamped."""
         assert make_envelope(ts="2026-01-01T00:00:00Z").ts == "2026-01-01T00:00:00Z"
+
+
+class TestToolUseId:
+    """Optional like ``detail``/``role``: only a record a tool call produced has one."""
+
+    def test_absent_is_omitted(self) -> None:
+        assert "tool_use_id" not in make_envelope().to_dict()
+
+    def test_present_follows_role(self) -> None:
+        record = make_envelope(role="operator", tool_use_id="toolu_1", detail="x").to_dict()
+        keys = list(record)
+        assert record["tool_use_id"] == "toolu_1"
+        assert keys.index("tool_use_id") == keys.index("role") + 1
+
+    def test_bounded_like_session(self) -> None:
+        envelope = make_envelope(tool_use_id="t" * (MAX_FIELD_CHARS + 10))
+        assert envelope.tool_use_id == "t" * MAX_FIELD_CHARS
 
 
 class TestLeafModule:

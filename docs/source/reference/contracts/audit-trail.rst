@@ -102,7 +102,9 @@ and a refused control-system write alike. One JSON object per line:
    * - Field
      - What it holds
    * - ``ts``
-     - UTC timestamp, ``YYYY-MM-DDTHH:MM:SSZ``
+     - UTC timestamp to the millisecond, ``YYYY-MM-DDTHH:MM:SS.mmmZ``. Older
+       lines in the same file may carry whole seconds
+       (``YYYY-MM-DDTHH:MM:SSZ``); both parse the same way
    * - ``surface``
      - Which layer decided --- the file's own name
    * - ``actor``
@@ -122,6 +124,12 @@ and a refused control-system write alike. One JSON object per line:
        ``kernel:<id>`` for a notebook kernel, or ``null`` where the emitter
        names none. An identifier the trail joins on, and nothing more: the
        write posture it describes belongs to the deployment
+   * - ``tool_use_id``
+     - The agent harness's id for the tool call the record is about. Present
+       on records a tool call produced --- the hooks, the MCP servers, the
+       Python executor --- and absent elsewhere. It is the key that joins a
+       record to the full ``tool_call`` record and to the harness's own
+       telemetry
    * - ``subject``
      - What the decision was about: a dotted config key, a tool name, or the
        project-relative path when a whole file is the target

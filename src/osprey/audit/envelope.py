@@ -11,7 +11,7 @@ This module defines the single envelope that replaces both, and that MCP tool
 calls, HTTP mutations, hook decisions and logins all emit:
 
 ``{ts, surface, actor, posture, posture_source, session, subject, decision,
-reason, detail?, role?, source?}``
+reason, detail?, role?, tool_use_id?, source?}``
 
 **What may go in an envelope.** Every field carries an *identifier* or a
 *config key* — a surface name, a username, a tool name, a dotted config key, a
@@ -128,12 +128,12 @@ MAX_SOURCE_CHARS = 8000
 def utc_timestamp() -> str:
     """Return the current UTC time in Osprey's audit timestamp format.
 
-    Second resolution with a literal ``Z``, matching the two P1/P2 ledgers this
-    envelope subsumes, so records from before and after the migration sort and
-    parse the same way. Deliberately not :meth:`~datetime.datetime.isoformat`,
-    whose microseconds and ``+00:00`` offset would break that continuity.
+    ``YYYY-MM-DDTHH:MM:SS.mmmZ``: millisecond resolution, so records from
+    different processes order within one second, with a literal ``Z``.
+    :meth:`datetime.datetime.fromisoformat` parses both this and the older
+    second-resolution stamps a ledger may still hold.
     """
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _truncate(value: str, limit: int) -> tuple[str, bool]:
@@ -180,6 +180,10 @@ class AuditEnvelope:
         :data:`MAX_DETAIL_CHARS`. Identifiers and config keys only — never a
         config value, a prompt, or an agent message.
     :param role: The role the actor held, where the decision was identity-bound.
+    :param tool_use_id: The agent harness's id for the tool call this decision
+        is about — an identifier that joins this record to the full
+        ``tool_call`` record and to the harness's own telemetry. Omitted where
+        no tool call exists (HTTP, login, restore).
     :param source: The offending code, on :data:`SURFACE_EXECUTOR` only.
         Bounded to :data:`MAX_SOURCE_CHARS`; a :class:`ValueError` on any other
         surface, which is the schema's guard against payload leaking into the
@@ -202,6 +206,7 @@ class AuditEnvelope:
     reason: str
     detail: str | None = None
     role: str | None = None
+    tool_use_id: str | None = None
     source: str | None = None
     ts: str = field(default_factory=utc_timestamp)
 
@@ -253,8 +258,10 @@ class AuditEnvelope:
             if value is not None:
                 object.__setattr__(self, name, _truncate(value, MAX_FIELD_CHARS)[0])
 
-        if self.session is not None:
-            object.__setattr__(self, "session", _truncate(self.session, MAX_FIELD_CHARS)[0])
+        for name in ("session", "tool_use_id"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _truncate(value, MAX_FIELD_CHARS)[0])
 
         if self.detail is not None:
             object.__setattr__(self, "detail", _truncate(self.detail, MAX_DETAIL_CHARS)[0])
@@ -281,6 +288,8 @@ class AuditEnvelope:
             record["detail"] = self.detail
         if self.role is not None:
             record["role"] = self.role
+        if self.tool_use_id is not None:
+            record["tool_use_id"] = self.tool_use_id
         if self.source is not None:
             record["source"] = self.source
         if self.source_truncated:

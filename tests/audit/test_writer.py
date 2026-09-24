@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from osprey.audit import writer
+from osprey.audit.call import call_scope
 from osprey.audit.envelope import (
     DECISION_ALLOWED,
     DECISION_REFUSED,
@@ -58,6 +59,18 @@ def audit_root(tmp_path, monkeypatch):
     target = tmp_path / "var" / "audit"
     monkeypatch.setattr(writer, "audit_dir", lambda: target)
     return target
+
+
+#: A minimal legal record for the ``record(**fields)`` entry point.
+_RECORD_FIELDS = {
+    "surface": "mcp_python",
+    "posture": "sandbox",
+    "posture_source": POSTURE_SOURCE_PROCESS,
+    "session": None,
+    "subject": "mcp__python__execute",
+    "decision": DECISION_ALLOWED,
+    "reason": "allowed",
+}
 
 
 def _records(path: Path) -> list[dict]:
@@ -355,6 +368,32 @@ class TestKwargsEntryPoint:
 
         (record,) = _records(written)
         assert record["actor"] == "sidecar"
+
+    @pytest.mark.usefixtures("audit_root")
+    def test_record_takes_the_tool_use_id_from_the_call_scope(self, monkeypatch):
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+        with call_scope("toolu_scope", None):
+            written = writer.record(**_RECORD_FIELDS)
+
+        (record,) = _records(written)
+        assert record["tool_use_id"] == "toolu_scope"
+
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_explicit_tool_use_id_wins(self, monkeypatch):
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+        with call_scope("toolu_scope", None):
+            written = writer.record(**_RECORD_FIELDS, tool_use_id="toolu_explicit")
+
+        (record,) = _records(written)
+        assert record["tool_use_id"] == "toolu_explicit"
+
+    @pytest.mark.usefixtures("audit_root")
+    def test_no_scope_no_key(self, monkeypatch):
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
+        written = writer.record(**_RECORD_FIELDS)
+
+        (record,) = _records(written)
+        assert "tool_use_id" not in record
 
     def test_an_invalid_envelope_degrades_instead_of_raising(self, audit_root, monkeypatch):
         """Construction validates; the writer's boundary is what keeps a
