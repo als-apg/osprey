@@ -14,6 +14,12 @@
  * the same declaration, and the clamp that keeps an out-of-spec value off the
  * wire lives with the write path rather than in this markup.
  *
+ * THE FOCUS GOES IN AND COMES BACK. Opening the popover puts the focus on its
+ * first control, and closing it with Escape or one of its own buttons gives
+ * the focus back to the item it was opened from. A popover that re-opens after
+ * an accepted edit (an option set, Move left, Move right) puts the focus back
+ * on the control that had it, so a repeated key press repeats the edit.
+ *
  * ONE POPOVER AT A TIME, AND THE HOST CAN CLOSE IT. Every open registers with
  * bar-host.js, which closes an item's popover before a reconcile moves it —
  * the same invariant the adopted chrome keeps.
@@ -52,6 +58,21 @@ let stopListening = null;
 
 /** Close the open options popover, if there is one. @type {(() => void) | null} */
 let closeOpenOptions = null;
+
+/** The open options popover. @type {HTMLElement | null} */
+let optionsNode = null;
+
+/**
+ * One control in the options popover, named by what it does rather than by
+ * node, so the same control can be found again in a rebuilt popover.
+ * @typedef {{option?: string, value?: string, action?: string}} PopControl
+ */
+
+/** Where the focus goes when the options popover closes. @type {HTMLElement | null} */
+let optionsReturn = null;
+
+/** The popover control that last had the focus. @type {PopControl | null} */
+let optionsFocus = null;
 
 /** The open context menu. @type {HTMLElement | null} */
 let openMenuNode = null;
@@ -159,18 +180,24 @@ function optionsFoot(owner, ctrl, place) {
   if (reorder && place.index > 0) {
     foot.append(
       button(owner, 'bar-btn', 'Move left', 'move-left', () => {
-        closeOptions();
-        void ctrl.moveItem(place.host, place.index, place.host, place.index - 1);
+        void editThenFocus(
+          ctrl,
+          () => ctrl.moveItem(place.host, place.index, place.host, place.index - 1),
+          () => ({ host: place.host, index: place.index - 1 })
+        );
       })
     );
   }
   if (reorder && place.index < run.length - 1) {
     foot.append(
       button(owner, 'bar-btn', 'Move right', 'move-right', () => {
-        closeOptions();
         // moveItem reads the target index before it removes the item, so the
         // slot after the right-hand neighbour is two past this one.
-        void ctrl.moveItem(place.host, place.index, place.host, place.index + 2);
+        void editThenFocus(
+          ctrl,
+          () => ctrl.moveItem(place.host, place.index, place.host, place.index + 2),
+          () => ({ host: place.host, index: place.index + 1 })
+        );
       })
     );
   }
@@ -178,15 +205,26 @@ function optionsFoot(owner, ctrl, place) {
   if (!ctrl.dropRefusal(place.type, other, place.host)) {
     foot.append(
       button(owner, 'bar-btn', `Move to ${HOST_LABEL[other].toLowerCase()}`, 'move', () => {
-        closeOptions();
-        void ctrl.moveItem(place.host, place.index, other, Number.MAX_SAFE_INTEGER);
+        void editThenFocus(
+          ctrl,
+          () => ctrl.moveItem(place.host, place.index, other, Number.MAX_SAFE_INTEGER),
+          () => ({ host: other, index: ctrl.hostItems(other).length - 1 })
+        );
       })
     );
   }
   foot.append(
     button(owner, 'bar-btn is-danger', 'Remove', 'remove', () => {
-      closeOptions();
-      void ctrl.removeAt(place.host, place.index);
+      // The item is gone, so the focus goes to the one that took its place,
+      // or to the one before it when it was last.
+      void editThenFocus(
+        ctrl,
+        () => ctrl.removeAt(place.host, place.index),
+        () => ({
+          host: place.host,
+          index: Math.min(place.index, ctrl.hostItems(place.host).length - 1),
+        })
+      );
     })
   );
   return foot;
@@ -198,15 +236,23 @@ function optionsFoot(owner, ctrl, place) {
  * An accepted edit re-opens the popover on the item's shell: the save
  * reconciles, which rebuilds a body whose options changed, and an operator
  * setting two options in a row should not have to click the item again.
+ *
+ * The focus moves to `how.focus` when the new popover has that control, and to
+ * its first control otherwise. It goes back to `how.returnTo` on close when
+ * that is still inside this item, and otherwise to what had the focus inside
+ * the item when it opened, or to the item's own first control.
  * @param {HTMLElement} shell
  * @param {BarEditController} ctrl
+ * @param {{focus?: PopControl | null, returnTo?: HTMLElement | null}} [how]
  */
-export function openOptions(shell, ctrl) {
-  closeOptions();
+export function openOptions(shell, ctrl, how = {}) {
+  const owner = shell.ownerDocument;
+  const returnTo = returnPointIn(shell, how.returnTo ?? null, owner.activeElement);
+  closeOptions({ restoreFocus: false });
+  optionsFocus = null;
   const place = ctrl.locate(shell);
   const item = place && ctrl.itemAt(place.host, place.index);
   if (!place || !item) return;
-  const owner = shell.ownerDocument;
   const key = shell.dataset.barKey ?? '';
   const entry = BAR_CATALOG[place.type];
 
@@ -245,12 +291,113 @@ export function openOptions(shell, ctrl) {
   pop.append(optionsFoot(owner, ctrl, place));
 
   shell.append(pop);
-  const unregister = registerBarPopover(shell, () => closeOptions());
+  pop.addEventListener('focusin', (event) => {
+    optionsFocus = controlOf(/** @type {Element} */ (event.target));
+  });
+  // The host closes the popover while a reconcile moves or rebuilds the item,
+  // and the focus is the reconcile's to keep then, not this popover's.
+  const unregister = registerBarPopover(shell, () => closeOptions({ restoreFocus: false }));
+  optionsReturn = returnTo;
+  optionsNode = pop;
   closeOpenOptions = () => {
     unregister();
     pop.remove();
+    optionsNode = null;
     closeOpenOptions = null;
   };
+  (findControl(pop, how.focus ?? null) ?? controlsIn(pop)[0])?.focus({ preventScroll: true });
+}
+
+/**
+ * Where the focus goes back to when a popover over `shell` closes: `preferred`
+ * when it is still inside the item, else whatever had the focus inside the
+ * item, else the item's first control. Null when the item has none.
+ * @param {HTMLElement} shell
+ * @param {HTMLElement | null} preferred
+ * @param {Element | null} active
+ * @returns {HTMLElement | null}
+ */
+function returnPointIn(shell, preferred, active) {
+  /** @param {unknown} node */
+  const ownControl = (node) =>
+    node instanceof HTMLElement && shell.contains(node) && !node.closest('.bar-pop');
+  for (const node of [preferred, active]) {
+    if (ownControl(node)) return /** @type {HTMLElement} */ (node);
+  }
+  const first = Array.from(shell.querySelectorAll(FOCUSABLE)).find(ownControl);
+  return /** @type {HTMLElement | undefined} */ (first) ?? null;
+}
+
+/** What in an item or a popover can take the focus from the keyboard. */
+const FOCUSABLE =
+  'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** The popover's controls, in order. @param {HTMLElement} pop @returns {HTMLElement[]} */
+function controlsIn(pop) {
+  return /** @type {HTMLElement[]} */ (Array.from(pop.querySelectorAll(FOCUSABLE)));
+}
+
+/**
+ * Name a popover control by what it does.
+ * @param {Element} node
+ * @returns {PopControl | null}
+ */
+function controlOf(node) {
+  const row = /** @type {HTMLElement | null} */ (node.closest('[data-bar-option]'));
+  const own = /** @type {HTMLElement} */ (node);
+  if (row) return { option: row.dataset.barOption, value: own.dataset?.barValue };
+  if (own.dataset?.barAction) return { action: own.dataset.barAction };
+  return null;
+}
+
+/**
+ * The control in `pop` that `want` names, or null.
+ * @param {HTMLElement} pop
+ * @param {PopControl | null} want
+ * @returns {HTMLElement | null}
+ */
+function findControl(pop, want) {
+  if (!want) return null;
+  for (const node of controlsIn(pop)) {
+    const have = controlOf(node);
+    if (!have) continue;
+    const same = want.action
+      ? have.action === want.action
+      : have.option === want.option && (want.value === undefined || have.value === want.value);
+    if (same) return node;
+  }
+  return null;
+}
+
+/**
+ * Run one of the foot's edits that closes the popover, then give the focus to
+ * the item where the stored layout now has it. The item's body can be rebuilt
+ * on the way (a move to the other bar changes its density), so the control that
+ * had the focus is looked for inside the item at its new place, and the item's
+ * first control stands in when it is gone. An operator who has put the focus
+ * somewhere else in the meantime keeps it there.
+ * @param {BarEditController} ctrl
+ * @param {() => Promise<boolean>} edit
+ * @param {() => {host: BarHost, index: number}} landing - read after the edit
+ * @returns {Promise<void>}
+ */
+async function editThenFocus(ctrl, edit, landing) {
+  const back = optionsReturn;
+  closeOptions();
+  if (!(await edit())) return;
+  const where = landing();
+  const key = where.index >= 0 ? ctrl.keyAt(where.host, where.index) : null;
+  const shell = key ? shellForKey(key) : null;
+  if (!shell || !isLive(shell)) return;
+  const doc = shell.ownerDocument;
+  const active = doc.activeElement;
+  const free =
+    !active ||
+    active === doc.body ||
+    !active.isConnected ||
+    !isLive(active) ||
+    shell.contains(active);
+  if (free) returnPointIn(shell, back, active)?.focus({ preventScroll: true });
 }
 
 /**
@@ -263,15 +410,30 @@ export function openOptions(shell, ctrl) {
  * @returns {Promise<void>}
  */
 async function commitOption(ctrl, place, optionKey, value, itemKey) {
+  const back = optionsReturn;
   const stored = await ctrl.setOption(place.host, place.index, optionKey, value);
   if (!stored) return;
   const shell = shellForKey(itemKey);
-  if (shell && isLive(shell)) openOptions(shell, ctrl);
+  const focus = optionsFocus ?? { option: optionKey };
+  if (shell && isLive(shell)) openOptions(shell, ctrl, { focus, returnTo: back });
 }
 
-/** Close the options popover, if one is open. */
-export function closeOptions() {
+/**
+ * Close the options popover, if one is open. The focus goes back to the item
+ * the popover was opened from when it was inside the popover or nowhere; an
+ * operator who has already put it somewhere else keeps it there.
+ * @param {{restoreFocus?: boolean}} [how] - false when the caller owns the
+ *   focus: the pointer put it somewhere, or a reconcile is moving the item
+ */
+export function closeOptions({ restoreFocus = true } = {}) {
+  const back = optionsReturn;
+  const doc = optionsNode?.ownerDocument;
+  const active = doc?.activeElement ?? null;
+  const wasInside = !!active && !!optionsNode?.contains(active);
+  optionsReturn = null;
   closeOpenOptions?.();
+  if (!restoreFocus || !back || !doc || !back.isConnected || !isLive(back)) return;
+  if (wasInside || !active || active === doc.body) back.focus({ preventScroll: true });
 }
 
 /* ---- the context menu ---- */
@@ -424,7 +586,7 @@ export function armMenus(ctrl, root) {
       target?.closest('.bar-item[data-bar-item]') ?? null
     );
     if (!shell || !isLive(shell) || !ctrl.isEditing() || dragJustEnded()) {
-      closeOptions();
+      closeOptions({ restoreFocus: false });
       return;
     }
     openOptions(shell, ctrl);

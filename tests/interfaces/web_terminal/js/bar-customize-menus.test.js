@@ -20,6 +20,12 @@
  *   - "Move left" and "Move right" are offered only where the item has a
  *     neighbour on that side and the layout is editable.
  *
+ *   - the popover takes the focus when it opens and gives it back to the item
+ *     when it closes, and a popover that re-opens after an accepted edit puts
+ *     the focus back on the control that made it. After Move left or Move
+ *     right that is the same button on the item's new place, so pressing it
+ *     again moves the item further.
+ *
  *   - the one preset, Default, is the deployment's own arrangement: applying it
  *     DELETES the operator's document and renders what the server hands back,
  *     because only the server knows what `web.bar_items` configured.
@@ -656,5 +662,125 @@ describe('the Default preset', () => {
 
     expect(rendered('header')).toEqual(['logo', 'clock']);
     expect(document.querySelector('.bar-sheet-notice')?.textContent).toBe('Layout not reset');
+  });
+});
+
+/**
+ * An item's own control: the button its body is built around. The stopwatch
+ * and the feedback item each build one; the other types here build none.
+ * @param {string} type
+ */
+function controlOf(type) {
+  return /** @type {any} */ (shell(type).querySelector('.bar-item-btn'));
+}
+
+/** Open an item's options from its own focused control, as a keyboard does. */
+async function openFromKeyboard(/** @type {string} */ type) {
+  controlOf(type).focus();
+  await press(controlOf(type));
+  expect(popover().contains(document.activeElement)).toBe(true);
+}
+
+/** Press Escape the way a keyboard does. */
+function escape() {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
+
+/** Activate a focused control: Enter on a button is a click. */
+async function press(/** @type {any} */ node) {
+  node.click();
+  await settle();
+}
+
+describe('the popover takes the focus and gives it back', () => {
+  test('opening it focuses its first control', async () => {
+    await editing(doc(['logo', 'clock'], []));
+
+    await openOptions('clock');
+
+    expect(document.activeElement).toBe(popover().querySelector('button, input'));
+  });
+
+  test('a type with no options focuses the first button in its foot', async () => {
+    await editing(doc(['logo', 'clock'], []));
+
+    await openOptions('logo');
+
+    expect(document.activeElement).toBe(popover().querySelector('.bar-pop-foot button'));
+  });
+
+  test('Escape gives the focus back to the item it was opened from', async () => {
+    await editing(doc(['logo', 'stopwatch'], []));
+    await openFromKeyboard('stopwatch');
+
+    escape();
+
+    expect(popover()).toBe(null);
+    expect(document.activeElement).toBe(controlOf('stopwatch'));
+    expect(customize.isEditing()).toBe(true);
+  });
+
+  test('Move to gives the focus to the item in the other bar', async () => {
+    // The move rebuilds the body at the other bar's density, so the control
+    // that had the focus is a new node; the item's control there takes it.
+    await editing(doc(['logo', 'stopwatch'], []));
+    await openFromKeyboard('stopwatch');
+
+    await press(popover().querySelector('[data-bar-action="move"]'));
+
+    expect(rendered('status')).toEqual(['stopwatch']);
+    expect(document.activeElement).toBe(controlOf('stopwatch'));
+  });
+
+  test('Remove gives the focus to the item that took its place', async () => {
+    await editing(doc(['logo', 'stopwatch', 'feedback'], []));
+    await openFromKeyboard('stopwatch');
+
+    await press(popover().querySelector('[data-bar-action="remove"]'));
+
+    expect(rendered('header')).toEqual(['logo', 'feedback']);
+    expect(document.activeElement).toBe(controlOf('feedback'));
+  });
+
+  test('setting an option keeps the focus on the control that set it', async () => {
+    await editing(doc(['logo', 'clock'], []));
+    await openOptions('clock');
+    const utc = row('zone').querySelector('[data-bar-value="utc"]');
+    utc.focus();
+
+    await press(utc);
+
+    expect(putBodies()[0].header[1].options.zone).toBe('utc');
+    expect(popover()).not.toBe(null);
+    expect(document.activeElement).toBe(row('zone').querySelector('[data-bar-value="utc"]'));
+  });
+});
+
+describe('the context menu stays on screen', () => {
+  test('opened at the far corner it is clamped inside the window', async () => {
+    await editing(doc(['logo', 'clock'], []));
+    // happy-dom lays nothing out, so the menu is given a size here; the real
+    // layout is the browser lane's to check.
+    const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    /** @param {number} size */
+    const sized = (size) => ({
+      configurable: true,
+      get() {
+        return /** @type {any} */ (this).classList?.contains('bar-context-menu') ? size : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', sized(200));
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', sized(120));
+    try {
+      rightClick(shell('clock'), window.innerWidth - 2, window.innerHeight - 2);
+      const menu = /** @type {any} */ (document.querySelector('.bar-context-menu'));
+
+      expect(menu.style.left).toBe(`${window.innerWidth - 200 - 8}px`);
+      expect(menu.style.top).toBe(`${window.innerHeight - 120 - 8}px`);
+    } finally {
+      if (width) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', width);
+      if (height) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', height);
+    }
   });
 });
