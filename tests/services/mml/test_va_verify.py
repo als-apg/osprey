@@ -937,10 +937,9 @@ class TestTheReport:
     def test_it_says_when_every_conversion_runs_one_way(self, text: str) -> None:
         assert "Every sampled conversion converts one way over its whole grid." in text
 
-    def test_it_says_when_every_monitor_on_the_deck_addresses_its_own_reading(
-        self, text: str
-    ) -> None:
-        assert "Every monitor-type element on the deck is read or uniquely named." in text
+    def test_it_names_the_girder_markers_the_deck_repeats(self, text: str) -> None:
+        assert "Every monitor-type element on the deck is read or uniquely named." not in text
+        assert "| GE | 2 |" in text
 
     def test_it_names_each_repeated_monitor_it_served_as_a_marker(
         self, result: VerifyReport
@@ -1235,7 +1234,8 @@ class TestThePerDeviceSweep:
         self, inputs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The width a file states as one number is the width of every column."""
-        report, seen = self._swept(inputs, copy.deepcopy(inputs["response"]), monkeypatch)
+        response = self._stated(copy.deepcopy(inputs["response"]), "HC", 1e-05)
+        report, seen = self._swept(inputs, response, monkeypatch)
 
         assert report.compared
         assert self._driven(seen, "HC") == {
@@ -1261,7 +1261,8 @@ class TestThePerDeviceSweep:
             for device, width in zip((1, 2, 3, 4), widths, strict=True)
         }
         assert self._driven(seen, "VC") == {
-            f"QK:VC:{device}:CUR:SP": [1e-05] for device in (1, 2, 3, 4)
+            f"QK:VC:{device}:CUR:SP": [width]
+            for device, width in zip((1, 2, 3, 4), (1.2e-05, 1e-05, 1e-05, 8e-06), strict=True)
         }
         assert _block(report, "BPMx", "HC").compared == 16
 
@@ -1381,7 +1382,7 @@ class TestThePerDeviceSweep:
             copy.deepcopy(inputs["response"]), "HC", [1e-05, 2e-05, 3e-05, 4e-05]
         )
 
-        assert "| 1e-05 |" in render_report(result, provenance="")
+        assert "| 9e-06 to 1.1e-05 |" in render_report(result, provenance="")
         assert "| 1e-05 to 4e-05 |" in render_report(_verify(inputs, response), provenance="")
 
 

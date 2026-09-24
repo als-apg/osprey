@@ -814,13 +814,11 @@ class TestJudgedVaBlock:
         assert nominal["values"] == [1.5, -0.8, 0.4]
         assert nominal["at_index"] == [[9, 10], [19, 20], [29, 30]]
         assert nominal["at_type"] == "HCM"
-        assert judged["Setpoint"]["calibration"]["gain"] == [0.0001, 0.0001, 0.0001]
-        assert judged["Setpoint"]["calibration"]["offset"] == [0, 0, 0]
-        assert judged["Monitor"]["monitor_inverse"]["gain"] == [10000, 10000, 10000]
-        # The offsets are zero. Whether a particular one arrives as exactly
-        # zero or as the last bit of the fit that produced it is a property of
-        # the sampling grid, not of the device this dropped.
-        assert judged["Monitor"]["monitor_inverse"]["offset"] == pytest.approx([0, 0, 0], abs=1e-12)
+        calibration = judged["Setpoint"]["calibration"]
+        assert [(row[0], row[-1]) for row in calibration["grid"]] == [(-1, 1.5), (-1, 1), (-1, 1)]
+        assert calibration["finite_span"] == [[-1, 1.5], [-1, 1], [-1, 1]]
+        assert len(calibration["values"]) == 3
+        assert len(judged["Monitor"]["monitor_inverse"]["grid"]) == 3
         assert va == before
 
     def test_the_va_block_drops_the_rows_of_a_sampled_conversion(self):
@@ -879,7 +877,9 @@ class TestJudgedVaBlock:
         nominal = judged["nominals"]["Setpoint"]
         assert nominal["values"] == [1.5, -0.8, 0.4, 0, "NaN"]
         assert nominal["at_index"] == [[9, 10], [19, 20], [29, 30], [39, "NaN"], ["NaN", "NaN"]]
-        assert judged["Setpoint"]["calibration"]["gain"] == [0.0001] * 4 + ["NaN"]
+        calibration = judged["Setpoint"]["calibration"]
+        assert calibration["finite_span"][-1] == ["NaN", "NaN"]
+        assert set(calibration["grid"][-1]) == {"NaN"}
 
     def test_the_readout_rows_follow_the_devices_the_family_kept(self):
         """What corrects a reading is one number per device, so a drop takes its number.

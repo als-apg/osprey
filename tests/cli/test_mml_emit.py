@@ -968,8 +968,8 @@ class TestVirtualAcceleratorLane:
 
         assert result.exit_code == 0, result.output
         assert (
-            "5 monitor-type elements no family reads share a name; "
-            "served as plain markers: GE (2), GS (3)." in result.output
+            "7 monitor-type elements no family reads share a name; "
+            "served as plain markers: GE (4), GS (3)." in result.output
         )
 
     def test_the_run_names_the_cavity_it_built_for_a_deck_that_carries_none(
@@ -1049,20 +1049,21 @@ class TestVirtualAcceleratorLane:
 
         assert result.exit_code == 0, result.output
         assert (
-            "4 monitor-type elements no family reads share a name; "
-            "served as plain markers: BPM (4)." in result.output
+            "6 monitor-type elements no family reads share a name; "
+            "served as plain markers: BPM (6)." in result.output
         )
         assert f"{SYNTHETIC_SYSTEM} is served reading no beam position anywhere." in result.output
 
-    def test_the_run_says_nothing_of_the_kind_while_one_monitor_is_left(
-        self, va_repo: Path
-    ) -> None:
-        _mark_the_deck(va_repo, "GE", "GE")
-
+    @pytest.mark.usefixtures("va_repo")
+    def test_the_run_says_nothing_of_the_kind_while_one_monitor_is_left(self) -> None:
+        """The committed deck marks its last girder with two ``GE`` and keeps its monitors."""
         result = _emit()
 
         assert result.exit_code == 0, result.output
-        assert "served as plain markers: GE (2)." in result.output
+        assert (
+            "2 monitor-type elements no family reads share a name; "
+            "served as plain markers: GE (2)." in result.output
+        )
         assert "reads no beam position" not in result.output
 
     def test_a_rerun_leaves_every_va_artifact_byte_identical(self, va_repo: Path) -> None:

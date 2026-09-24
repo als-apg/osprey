@@ -404,7 +404,11 @@ class TestTheMonitorsItServesAsMarkers:
 
         addressed = address_elements(export, ring, verdicts)
 
-        untouched = [index for index in range(len(ring)) if index not in placed]
+        untouched = [
+            index
+            for index in range(len(ring))
+            if index not in placed and ring[index].FamName != "GE"
+        ]
         assert [type(addressed.ring[index]).__name__ for index in untouched] == [
             type(ring[index]).__name__ for index in untouched
         ]
@@ -420,7 +424,7 @@ class TestTheMonitorsItServesAsMarkers:
         served = addressed.ring[next(iter(placed))]
         assert isinstance(served, at.Monitor)
         assert served.FamName == "MK4G1C30A"
-        assert addressed.markers == ()
+        assert addressed.markers == (ServedMarker(name="GE", elements=2),)
 
     def test_a_monitor_a_family_reads_is_never_converted(
         self, export: dict, deck, verdicts: dict
@@ -434,7 +438,10 @@ class TestTheMonitorsItServesAsMarkers:
         assert isinstance(read, at.Monitor)
         assert read.FamName == "BPMx_1_1"
         assert [type(addressed.ring[index]).__name__ for index in placed] == ["Marker", "Marker"]
-        assert addressed.markers == (ServedMarker(name="BPM1", elements=2),)
+        assert addressed.markers == (
+            ServedMarker(name="BPM1", elements=2),
+            ServedMarker(name="GE", elements=2),
+        )
 
     def test_it_names_every_converted_name_with_its_count(
         self, export: dict, deck, verdicts: dict
@@ -444,7 +451,7 @@ class TestTheMonitorsItServesAsMarkers:
         addressed = address_elements(export, ring, verdicts)
 
         assert addressed.markers == (
-            ServedMarker(name="GE", elements=2),
+            ServedMarker(name="GE", elements=4),
             ServedMarker(name="GS", elements=3),
         )
 
@@ -468,7 +475,7 @@ class TestTheMonitorsItServesAsMarkers:
         index = max(placed)
         ring[index] = at.Monitor("GE", Length=0.5)
 
-        with pytest.raises(ValueError, match=r"2 monitor-type elements named 'GE'.*0.5 m long"):
+        with pytest.raises(ValueError, match=r"4 monitor-type elements named 'GE'.*0.5 m long"):
             address_elements(export, ring, verdicts)
 
     def test_a_repeated_monitor_that_acts_on_the_beam_is_refused_by_name(
@@ -485,7 +492,7 @@ class TestTheMonitorsItServesAsMarkers:
         self, addressed: Addressing, deck
     ) -> None:
         """The deck calls a dozen drifts ``DR`` and nothing addresses any of them."""
-        assert addressed.markers == ()
+        assert "DR" not in {marker.name for marker in addressed.markers}
         assert sum(1 for element in deck if element.FamName == "DR") > 1
 
 
