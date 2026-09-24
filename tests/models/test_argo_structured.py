@@ -208,6 +208,28 @@ class TestExecuteArgoStructuredOutput:
             )
 
     @patch("osprey.models.providers.argo.httpx.post")
+    def test_a_control_character_inside_a_string_parses(self, mock_post):
+        """A raw newline inside a JSON string is read, not refused."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [
+                {"message": {"content": '{"name": "one\ntwo", "value": 1, "active": false}'}}
+            ]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        result = _execute_argo_structured_output(
+            model_id="gpt5mini",
+            message="Extract info",
+            output_format=SampleOutput,
+            api_key="test-key",
+            base_url="https://test.url",
+        )
+
+        assert result == SampleOutput(name="one\ntwo", value=1, active=False)
+
+    @patch("osprey.models.providers.argo.httpx.post")
     def test_cleans_markdown_fenced_response(self, mock_post):
         """Successfully parses response wrapped in markdown code fences."""
         mock_response = MagicMock()

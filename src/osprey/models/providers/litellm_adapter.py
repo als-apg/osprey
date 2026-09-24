@@ -24,6 +24,7 @@ Provider Integration:
 import json
 import os
 import warnings
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 # Must precede `import litellm`. LiteLLM calls a bare `dotenv.load_dotenv()` at
@@ -37,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
 
 import litellm  # noqa: E402  (must follow the LITELLM_MODE setdefault above)
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, ValidationError  # noqa: E402
 
 from osprey.models.spend_attribution import (  # noqa: E402
     LITELLM_GATEWAY,
@@ -365,10 +366,6 @@ def _handle_structured_output(
         if chat_request is None:
             completion_kwargs["messages"] = [{"role": "user", "content": message}]
 
-        response = litellm.completion(**completion_kwargs)
-        response_text = response.choices[0].message.content or ""
-        # Clean response even for native support (some models still return Python-style booleans)
-        response_text = _clean_json_response(response_text)
     else:
         # Prompt-based fallback for models without native support
         schema_instruction = (
@@ -393,24 +390,15 @@ def _handle_structured_output(
             structured_message = f"{message}{schema_instruction}"
             completion_kwargs["messages"] = [{"role": "user", "content": structured_message}]
 
-        response = litellm.completion(**completion_kwargs)
-        response_text = response.choices[0].message.content or ""
-
-        # Clean up markdown code blocks and fix common JSON issues
-        response_text = _clean_json_response(response_text)
-
-    # Parse and validate
-    try:
-        result = output_format.model_validate_json(response_text)
-
-        if is_typed_dict_output and hasattr(result, "model_dump"):
-            return result.model_dump()
-        return result
-    except Exception as e:
-        raise ValueError(
-            f"Failed to parse structured output from {provider}: {e}\n"
-            f"Response: {response_text[:_ERR_SNIPPET]}"
-        ) from e
+    # Both paths clean the reply: markdown fences, and Python-style booleans that
+    # some models return even under native structured output.
+    return _structured_reply(
+        lambda: litellm.completion(**completion_kwargs).choices[0].message.content or "",
+        output_format,
+        source=provider,
+        clean=_clean_json_response,
+        is_typed_dict_output=is_typed_dict_output,
+    )
 
 
 def _supports_native_structured_output(litellm_model: str, provider: str) -> bool:
@@ -437,6 +425,65 @@ def _supports_native_structured_output(litellm_model: str, provider: str) -> boo
         return litellm.supports_response_schema(model=litellm_model)
     except Exception:
         return False
+
+
+def _parse_structured_reply(text: str, output_format: type[BaseModel]) -> BaseModel:
+    """Validate a structured reply against *output_format* in JSON mode.
+
+    A model may put a raw control character (a newline, a tab) inside a JSON
+    string. The strict parser refuses that, but it carries no ambiguity, so the
+    text is read with control characters allowed and re-serialised. Validation
+    stays in JSON mode so the model validates exactly as a clean reply would.
+
+    :param text: Reply text, already cleaned by the caller's cleaner
+    :param output_format: Pydantic model the reply must become
+    :return: Validated model instance
+    :raises ValidationError: The reply is not JSON, or breaks the schema
+    """
+    try:
+        return output_format.model_validate_json(text)
+    except ValidationError as error:
+        if not any(item["type"] == "json_invalid" for item in error.errors()):
+            raise
+        try:
+            data = json.loads(text, strict=False)
+        except json.JSONDecodeError:
+            raise error from None
+        return output_format.model_validate_json(json.dumps(data))
+
+
+def _structured_reply(
+    ask: Callable[[], str],
+    output_format: type[BaseModel],
+    *,
+    source: str,
+    clean: Callable[[str], str] | None = None,
+    is_typed_dict_output: bool = False,
+    snippet: int = _ERR_SNIPPET,
+) -> BaseModel | dict:
+    """Ask for a structured reply and turn it into *output_format*.
+
+    :param ask: Sends the request and returns the reply text
+    :param output_format: Pydantic model the reply must become
+    :param source: Provider name used in the error message
+    :param clean: The provider's reply cleaner, applied before parsing
+    :param is_typed_dict_output: Whether to return the model as a dict
+    :param snippet: Characters of the reply quoted in the error message
+    :return: Validated model instance or dict
+    :raises ValueError: The reply does not become the model
+    """
+    text = ask()
+    if clean is not None:
+        text = clean(text)
+    try:
+        result = _parse_structured_reply(text, output_format)
+    except ValueError as error:
+        raise ValueError(
+            f"Failed to parse structured output from {source}: {error}\nResponse: {text[:snippet]}"
+        ) from error
+    if is_typed_dict_output and hasattr(result, "model_dump"):
+        return result.model_dump()
+    return result
 
 
 def _clean_json_response(text: str) -> str:
@@ -552,34 +599,29 @@ You must respond with valid JSON that matches this schema:
 
 Respond ONLY with the JSON object, no additional text."""
 
-    # Direct Ollama API call - bypasses LiteLLM's broken response handling
-    response = httpx.post(
-        f"{base_url.rstrip('/')}/api/chat",
-        json={
-            "model": model_id,
-            "messages": [{"role": "user", "content": structured_message}],
-            "stream": False,
-            "format": "json",
-            "options": {"num_predict": max_tokens},
-        },
-        timeout=120.0,
+    def ask() -> str:
+        # Direct Ollama API call - bypasses LiteLLM's broken response handling
+        response = httpx.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json={
+                "model": model_id,
+                "messages": [{"role": "user", "content": structured_message}],
+                "stream": False,
+                "format": "json",
+                "options": {"num_predict": max_tokens},
+            },
+            timeout=120.0,
+        )
+        response.raise_for_status()
+
+        # Extract content - works correctly even with thinking field present
+        data = response.json()
+        content: str = data["message"]["content"]
+        return content
+
+    return _structured_reply(
+        ask, output_format, source="Ollama", is_typed_dict_output=is_typed_dict_output
     )
-    response.raise_for_status()
-
-    # Extract content - works correctly even with thinking field present
-    data = response.json()
-    content = data["message"]["content"]
-
-    # Parse and validate
-    try:
-        result = output_format.model_validate_json(content)
-        if is_typed_dict_output and hasattr(result, "model_dump"):
-            return result.model_dump()
-        return result
-    except Exception as e:
-        raise ValueError(
-            f"Failed to parse structured output from Ollama: {e}\nResponse: {content[:_ERR_SNIPPET]}"
-        ) from e
 
 
 def _requires_api_key(provider: str) -> bool:
