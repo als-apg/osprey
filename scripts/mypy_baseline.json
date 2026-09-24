@@ -1,5 +1,5 @@
 {
-  "total": 394,
+  "total": 369,
   "errors": [
     {
       "path": "packages/osprey-connectors/src/osprey_connectors/archiver/doocs_archiver_connector.py",
@@ -1130,12 +1130,6 @@
       "count": 1
     },
     {
-      "path": "src/osprey/models/providers/asksage.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"_clean_json_response\" has incompatible type \"str | None\"; expected \"str\"",
-      "count": 1
-    },
-    {
       "path": "src/osprey/models/providers/litellm_adapter.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"bool\"",
@@ -1151,12 +1145,6 @@
       "path": "src/osprey/models/providers/litellm_adapter.py",
       "code": "return-value",
       "message": "Incompatible return value type (got \"BaseModel | dict[Any, Any]\", expected \"str | BaseModel | list[Any]\")",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/models/tiers.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\"",
       "count": 1
     },
     {
@@ -1562,48 +1550,6 @@
       "count": 1
     },
     {
-      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"module_from_spec\" has incompatible type \"ModuleSpec | None\"; expected \"ModuleSpec\"",
-      "count": 2
-    },
-    {
-      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
-      "code": "func-returns-value",
-      "message": "\"main\" does not return a value (it only ever returns None)",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
-      "code": "return-value",
-      "message": "No return value expected",
-      "count": 2
-    },
-    {
-      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Loader | Any | None\" has no attribute \"exec_module\"",
-      "count": 2
-    },
-    {
-      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"ModuleSpec | None\" has no attribute \"loader\"",
-      "count": 2
-    },
-    {
-      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
-      "code": "var-annotated",
-      "message": "Need type annotation for \"data\" (hint: \"data: dict[<type>, <type>] = ...\")",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/facility_knowledge/ttl_generator/direction.py",
-      "code": "no-redef",
-      "message": "Name \"directions\" already defined on line 239",
-      "count": 1
-    },
-    {
       "path": "src/osprey/services/facility_knowledge/ttl_generator/emitter.py",
       "code": "arg-type",
       "message": "Argument 1 to \"add\" of \"Graph\" has incompatible type \"tuple[URIRef, URIRef, object]\"; expected \"tuple[Node, Node, Node]\"",
@@ -1701,86 +1647,14 @@
     },
     {
       "path": "src/osprey/services/virtual_accelerator/manifest/build.py",
-      "code": "assignment",
-      "message": "Incompatible types in assignment (expression has type \"str | None\", variable has type \"str\")",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/manifest/build.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"str\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/manifest/build.py",
-      "code": "var-annotated",
-      "message": "Need type annotation for \"claimed\" (hint: \"claimed: dict[<type>, <type>] = ...\")",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/bindings.py",
-      "code": "arg-type",
-      "message": "Argument \"axis\" to \"PyATReadOnlyScalarVariable\" has incompatible type \"str | None\"; expected \"Literal['x', 'y']\"",
       "count": 1
     },
     {
       "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
       "code": "arg-type",
       "message": "Argument \"default_validation_config\" to \"PyATWritableScalarVariable\" has incompatible type \"str\"; expected \"ConfigEnum\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"ConfigEnum\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"bool\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"int | None\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"str\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"ConfigEnum\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"bool\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"float | None\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"int | None\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"str\"",
       "count": 1
     },
     {
