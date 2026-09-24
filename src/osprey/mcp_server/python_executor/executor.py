@@ -262,15 +262,9 @@ def resolve_protected_roots(
     ``personas/`` directory is one where creating it is exactly the write to
     refuse.
 
-    **``.env`` is deliberately not in this set.** The secrets zone is a
-    different problem from the render zone: what matters about ``.env`` is that
-    executed code should not *read* it, and this guard is a denylist that
-    refuses writes while leaving reads alone — adding the path here would
-    advertise it while protecting nothing that matters. Keeping agent code away
-    from the secrets zone is a follow-up in its own right (it needs a read-side
-    verdict, and a decision about the environment the child already inherits),
-    and it is out of scope for this phase. Do not read the omission as a
-    judgement that ``.env`` is safe for executed code to touch.
+    ``.env`` is not in this set because the secrets zone is refused on the read
+    side as well, by :func:`resolve_secret_roots` and the guard's secret check;
+    this set remains writes only.
 
     Args:
         project_root: Repo root. Defaults to the resolved project root.
@@ -323,6 +317,27 @@ def resolve_permitted_roots(
         config = load_osprey_config()
 
     return (anchored_path(agent_data_base_dir(config), root).resolve(),)
+
+
+def resolve_secret_roots(project_root: Path | None = None) -> tuple[Path, ...]:
+    """Resolve the directories whose env-chain files executed code may not open.
+
+    These are where the env chain lives: the repo root, and the directory of
+    the rendered ``config.yml``, which is the root in a container layout — the
+    same two places :func:`osprey.mcp_env.load_dotenv_from_project` looks. The
+    guard refuses a ``.env`` or ``.env.*`` file at any depth under either, for
+    read and write, in every mode.
+
+    Args:
+        project_root: Repo root. Defaults to the resolved project root.
+
+    Returns:
+        Absolute, resolved paths — de-duplicated, order preserved.
+    """
+    from osprey_connectors.workspace import resolve_config_path
+
+    root = Path(project_root) if project_root is not None else _resolve_project_root()
+    return tuple(dict.fromkeys((root.resolve(), resolve_config_path().resolve().parent)))
 
 
 def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
@@ -889,6 +904,7 @@ async def _execute_via_local(
         execution_mode=execution_mode,
         protected_roots=resolve_protected_roots(project_root, osprey_config),
         permitted_roots=resolve_permitted_roots(project_root, osprey_config),
+        secret_roots=resolve_secret_roots(project_root),
         # Resolved by the parent and passed down as literals, exactly like the
         # guard roots above and for the same reason: the child is handed the
         # boundary rather than left to work out for itself which ports it is
