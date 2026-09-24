@@ -16,11 +16,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import Middleware, MiddlewareContext
-from mcp.types import CallToolRequestParams
+from mcp.types import CallToolRequestParams, RequestParams
 
 from osprey.audit import writer
 from osprey.audit.dedup import mark_recorded
@@ -137,14 +138,39 @@ def _touch_forward(path: Path) -> None:
     os.utime(path, (stamp, stamp))
 
 
-def _context(tool: str) -> MiddlewareContext:
+def _context(
+    tool: str, meta: dict | None = None, *, message_meta: dict | None = None
+) -> MiddlewareContext:
+    """One tools/call context; *meta* rides where FastMCP leaves the client's ``_meta``.
+
+    FastMCP rebuilds ``context.message`` without the client's meta and keeps it
+    on ``fastmcp_context.request_context.meta``; *message_meta* puts it on the
+    message instead, the fallback path.
+    """
+    params: dict = {"name": tool, "arguments": {}}
+    if message_meta is not None:
+        params["_meta"] = message_meta
+    fastmcp_context = None
+    if meta is not None:
+        fastmcp_context = SimpleNamespace(
+            request_context=SimpleNamespace(meta=RequestParams.Meta(**meta))
+        )
     return MiddlewareContext(
-        message=CallToolRequestParams(name=tool, arguments={}),
+        message=CallToolRequestParams.model_validate(params),
+        fastmcp_context=fastmcp_context,  # type: ignore[arg-type]
         method="tools/call",
     )
 
 
-async def _call(mw, tool: str, *, raises: BaseException | None = None):
+async def _call(
+    mw,
+    tool: str,
+    *,
+    raises: BaseException | None = None,
+    meta: dict | None = None,
+    message_meta: dict | None = None,
+    result: object = None,
+):
     """Drive one tools/call; returns ``(result, seen)`` where *seen* counts hops."""
     seen: list[str] = []
 
@@ -152,13 +178,13 @@ async def _call(mw, tool: str, *, raises: BaseException | None = None):
         seen.append(context.message.name)
         if raises is not None:
             raise raises
-        return f"{context.message.name}-result"
+        return f"{context.message.name}-result" if result is None else result
 
-    result = await mw.on_call_tool(_context(tool), call_next)
-    return result, seen
+    returned = await mw.on_call_tool(_context(tool, meta, message_meta=message_meta), call_next)
+    return returned, seen
 
 
-async def _refused(mw, tool: str) -> ToolError:
+async def _refused(mw, tool: str, *, meta: dict | None = None) -> ToolError:
     seen: list[str] = []
 
     async def call_next(context):  # pragma: no cover - must never run
@@ -166,7 +192,7 @@ async def _refused(mw, tool: str) -> ToolError:
         return "ran"
 
     with pytest.raises(ToolError) as excinfo:
-        await mw.on_call_tool(_context(tool), call_next)
+        await mw.on_call_tool(_context(tool, meta), call_next)
     assert seen == [], f"{tool} was refused but the tool still ran"
     return excinfo.value
 
@@ -893,6 +919,66 @@ class TestAuditRecord:
         await _refused(am.AuditMiddleware(), "channel_write")
         detail = _records(project, surface=CLONE_PREFIX)[-1]["detail"]
         assert detail == am.CLAMP_SOURCE_UNVERIFIED
+
+
+_TOOL_USE_META = {"claudecode/toolUseId": "toolu_01abc"}
+
+
+class TestToolUseId:
+    """Every record a call files names the harness's id for that call."""
+
+    async def test_the_allowed_record_carries_the_id_from_request_meta(self, project):
+        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
+        assert _records(project)[-1]["tool_use_id"] == "toolu_01abc"
+
+    async def test_the_posture_refusal_carries_it(self, project, monkeypatch):
+        _sandbox(monkeypatch)
+        await _refused(am.AuditMiddleware(), "channel_write", meta=_TOOL_USE_META)
+        record = _records(project)[-1]
+        assert record["reason"] == am.REASON_POSTURE
+        assert record["tool_use_id"] == "toolu_01abc"
+
+    async def test_the_tool_error_record_carries_it(self, project):
+        with pytest.raises(ToolError):
+            await _call(
+                am.AuditMiddleware(), "channel_write", raises=ToolError("x"), meta=_TOOL_USE_META
+            )
+        record = _records(project)[-1]
+        assert record["reason"] == am.REASON_TOOL_ERROR
+        assert record["tool_use_id"] == "toolu_01abc"
+
+    async def test_message_meta_is_the_fallback(self, project):
+        await _call(am.AuditMiddleware(), "channel_read", message_meta=_TOOL_USE_META)
+        assert _records(project)[-1]["tool_use_id"] == "toolu_01abc"
+
+    async def test_no_meta_no_key(self, project):
+        await _call(am.AuditMiddleware(), "channel_read")
+        assert "tool_use_id" not in _records(project)[-1]
+
+    async def test_a_malformed_id_is_dropped(self, project):
+        await _call(
+            am.AuditMiddleware(), "channel_read", meta={"claudecode/toolUseId": "../etc/passwd"}
+        )
+        assert "tool_use_id" not in _records(project)[-1]
+
+    async def test_the_id_survives_a_real_fastmcp_round_trip(self, project):
+        """Guards the FastMCP fact the reader rests on: a real client's ``_meta``
+        reaches the middleware, wherever the server keeps it."""
+        from fastmcp import Client, FastMCP
+
+        server = FastMCP("roundtrip")
+        server.add_middleware(am.AuditMiddleware())
+
+        @server.tool
+        def channel_read() -> str:
+            return "ok"
+
+        async with Client(server) as client:
+            await client.call_tool("channel_read", {}, meta={"claudecode/toolUseId": "toolu_x"})
+
+        record = _records(project)[-1]
+        assert record["subject"] == "mcp__controls__channel_read"
+        assert record["tool_use_id"] == "toolu_x"
 
 
 class TestToolErrors:

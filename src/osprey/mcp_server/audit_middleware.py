@@ -75,6 +75,14 @@ and out; a marker inherited across a ``fork`` is not believed. The deferral is
 transitive — the marker is re-asserted once the scope closes — so a layer
 stacked outside this one defers to the same answer.
 
+**Joined to the tool call.** The agent harness sends its id for every call in
+the request's ``_meta`` (:data:`~osprey.audit.call.TOOL_USE_ID_META_KEY`). Each
+call runs inside :func:`~osprey.audit.call.call_scope` opened with that id and
+the conversation id, outermost, so every record filed while the call runs —
+this layer's refusal, ``tool_error`` and ``allowed`` lines, and an inner
+recorder's through :func:`~osprey.audit.writer.record` — carries the same
+``tool_use_id``. A client that sends no id leaves the key off.
+
 **Nothing here may cost the call it records.** Records go through
 :func:`~osprey.audit.writer.record`, which builds the envelope and appends it
 inside its own never-raises boundary; the one place this module could still
@@ -96,6 +104,12 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
 
 from osprey.audit import posture
+from osprey.audit.call import (
+    TOOL_USE_ID_META_KEY,
+    call_scope,
+    harness_session_id,
+    valid_tool_use_id,
+)
 from osprey.audit.dedup import decision_scope, mark_recorded, recorded_decision
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
 from osprey.audit.writer import record
@@ -528,6 +542,37 @@ def _is_clamped(clamp: frozenset[str], subject: str, tool: str, *, verified: boo
     return any(entry.endswith(f"__{tool}") for entry in clamp)
 
 
+def _request_meta(context: MiddlewareContext[Any]) -> dict[str, Any]:
+    """The ``_meta`` the client sent with this request, or ``{}``.
+
+    Read from the low-level request context, NOT from ``context.message``:
+    FastMCP's ``call_tool`` rebuilds the ``CallToolRequestParams`` the
+    middleware chain sees with only its own version meta
+    (``fastmcp/server/server.py`` in 3.4.4), so ``context.message.meta`` does
+    not carry what the client sent. The client's keys survive as extras on
+    ``context.fastmcp_context.request_context.meta``. ``context.message.meta``
+    is kept as the fallback for a server path that does pass them through, and
+    a real in-memory round trip in the tests fails if a FastMCP upgrade moves
+    them again.
+
+    Never raises: a missing hop or an unexpected shape is ``{}``.
+    """
+    try:
+        fastmcp_context = getattr(context, "fastmcp_context", None)
+        request_context = getattr(fastmcp_context, "request_context", None)
+        meta = getattr(request_context, "meta", None)
+        extra = getattr(meta, "model_extra", None)
+        if isinstance(extra, dict) and extra:
+            return extra
+        message_meta = getattr(getattr(context, "message", None), "meta", None)
+        extra = getattr(message_meta, "model_extra", None)
+        if isinstance(extra, dict):
+            return extra
+    except Exception:
+        logger.debug("Could not read the request meta", exc_info=True)
+    return {}
+
+
 def _record(
     *,
     surface: str,
@@ -642,7 +687,21 @@ class AuditMiddleware(Middleware):
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        """Record the call, refuse it if the posture says so, else pass it on."""
+        """Record the call, refuse it if the posture says so, else pass it on.
+
+        The whole call runs inside one :func:`~osprey.audit.call.call_scope`,
+        so every record filed for it names the harness's tool-use id.
+        """
+        meta = _request_meta(context)
+        with call_scope(valid_tool_use_id(meta.get(TOOL_USE_ID_META_KEY)), harness_session_id()):
+            return await self._audited_call(context, call_next)
+
+    async def _audited_call(
+        self,
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+    ) -> ToolResult:
+        """The decision and its record, for one call already in scope."""
         tool = getattr(context.message, "name", "") or ""
         prefix = _tool_prefix()
         subject = f"mcp__{prefix}__{tool}" if prefix else tool
