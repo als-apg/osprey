@@ -15,6 +15,8 @@ a smaller test will not notice:
   messages renders as garbage in both.
 """
 
+import re
+
 import pytest
 
 from osprey.bridges.core.text import _fence_spans, chunk_text
@@ -153,3 +155,32 @@ def test_an_unterminated_fence_spans_to_the_end():
 
 def test_an_indented_fence_counts():
     assert _fence_spans("intro\n    ```\ncode\n    ```") != []
+
+
+# --- keep_whole: spans the caller names are never bisected ----------------------
+
+MENTION = re.compile(r"<users/[^\s<>]+>")
+
+
+def test_a_keep_whole_span_is_never_bisected_by_a_hard_split():
+    token = "<users/1234567890>"
+    for offset in range(1, len(token)):
+        text = "x" * (100 - offset) + token + "y" * 50
+        chunks = chunk_text(text, 100, keep_whole=MENTION)
+        assert all(len(chunk) <= 100 for chunk in chunks)
+        assert "".join(chunks) == text
+        for chunk in chunks:
+            assert "<users/" not in chunk or token in chunk
+            assert chunk.count("<") == chunk.count(">")
+
+
+def test_keep_whole_does_not_change_a_split_that_misses_every_span():
+    text = "a" * 30 + " <users/1> " + "b" * 200 + "\n" + "c" * 120
+    assert chunk_text(text, 100, keep_whole=MENTION) == chunk_text(text, 100)
+
+
+def test_a_keep_whole_span_at_offset_zero_that_overflows_is_hard_split():
+    text = "<users/" + "9" * 200 + ">"
+    chunks = chunk_text(text, 100, keep_whole=MENTION)
+    assert [len(chunk) for chunk in chunks] == [100, 100, 8]
+    assert "".join(chunks) == text

@@ -33,6 +33,7 @@ from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.errors import UndeliverableError
 from osprey.bridges.core.history import HistoryStore
+from osprey.bridges.core.people import MENTION_RULE
 from osprey.bridges.core.pipeline import (
     EXPIRED_NOTE,
     OVER_BUDGET_REASON,
@@ -41,8 +42,14 @@ from osprey.bridges.core.pipeline import (
     PipelineDeps,
     handle_event,
 )
-from osprey.bridges.core.ports import InboundEvent, InputDownload, ReplyContext
-from tests.bridges.conftest import RecordingChannelOps
+from osprey.bridges.core.ports import (
+    InboundEvent,
+    InputDownload,
+    ReplyContext,
+    RoomMember,
+    RoomPeople,
+)
+from tests.bridges.conftest import RecordingChannelOps, RosterChannelOps
 
 MSG = "spaces/AAA/messages/1"
 MSG2 = "spaces/AAA/messages/2"
@@ -375,6 +382,66 @@ def test_a_failed_turn_records_who_asked(tmp_path):
     [turn] = deps.history.recent(HISTORY_KEY)
     assert turn["question"] == QUESTION
     assert turn["asked_by"] == ASKER
+
+
+# --- who is in the room -------------------------------------------------------------
+
+ROOM = RoomPeople(members=(RoomMember("users/7", "Pat"), RoomMember("users/9")), mentions=True)
+
+
+def test_the_room_rides_the_payload_beside_the_asker(tmp_path):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=ROOM)
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    assert deps.dispatcher.calls[0]["extra"] == {
+        "asker": ASKER,
+        "room": {
+            "members": [{"id": "users/7", "name": "Pat"}, {"id": "users/9", "name": None}],
+            "mentions": MENTION_RULE,
+        },
+    }
+
+
+def test_a_roster_that_raises_dispatches_with_the_asker_only(tmp_path, caplog):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=RuntimeError("boom"))
+    deps = make_deps(tmp_path, ops, history=False)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.bridges.core.pipeline"):
+        assert handle_event({}, deps) == "handled"
+
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
+    assert any("room roster failed" in rec.message for rec in caplog.records)
+
+
+def test_a_roster_that_answers_none_ships_no_room(tmp_path):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=None)
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
+    assert ops.count("room_people") == 1
+
+
+def test_an_adapter_without_a_roster_ships_no_room(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    assert "room" not in deps.dispatcher.calls[0]["extra"]
+
+
+def test_the_roster_is_asked_after_the_claim_and_the_ack(tmp_path):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=ROOM)
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    ops.assert_order("claim", "post_ack", "room_people", "dispatch")
+    ops.assert_never_before("room_people", "post_ack")
 
 
 # --- terminal settle ----------------------------------------------------------------

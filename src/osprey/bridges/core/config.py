@@ -33,6 +33,20 @@ TERMINAL_STATUSES = frozenset({"completed", "error", "post_failed", "superseded"
 # repo (``osprey.interfaces.vendor``, ``osprey.services.bluesky_bridge``).
 _TRUTHY = {"1", "true", "yes", "on"}
 
+
+def env_flag(raw: str | None, default: bool) -> bool:
+    """Read an on/off environment variable: the one reading across the bridges.
+
+    Unset or blank (after ``strip()``) gives ``default``; anything else is on only for
+    a spelling in the truthy set (``1``, ``true``, ``yes``, ``on``, any case), so a
+    typo reads as off. Every bridge config reads its switches through this, so the
+    spelling set lives once.
+    """
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in _TRUTHY
+
+
 #: Where a bridge reaches the dispatch pair when nothing tells it otherwise: the
 #: layout's ``dispatcher`` slot and worker 1 of its ``worker`` band, both at the
 #: layout's DEFAULT base — the one place that base is legitimate, because a
@@ -163,12 +177,6 @@ class CoreConfig:
                 return default
             return float(raw)
 
-        def _b(name: str, default: bool) -> bool:
-            raw = e.get(name)
-            if raw is None or raw == "":
-                return default
-            return raw.strip().lower() in _TRUTHY
-
         return cls(
             dispatcher_url=e.get("DISPATCHER_URL", _DEFAULT_DISPATCHER_URL).rstrip("/"),
             worker_url=e.get("WORKER_URL", _DEFAULT_WORKER_URL).rstrip("/"),
@@ -180,7 +188,7 @@ class CoreConfig:
             # Same var the worker itself reads, so a deployment that raises the
             # cap raises it for both halves from one setting.
             worker_timeout=_f("DISPATCH_TIMEOUT_SEC", 300.0),
-            trust_env=_b("BRIDGE_TRUST_ENV", False),
+            trust_env=env_flag(e.get("BRIDGE_TRUST_ENV"), False),
             drain_interval=_f("DRAIN_INTERVAL", 60.0),
             retry_min_age=_f("RETRY_MIN_AGE", 1200.0),
             retry_give_up=_f("RETRY_GIVE_UP", 172800.0),

@@ -32,9 +32,9 @@ from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.dispatch_client import DispatchClient
 from osprey.bridges.core.history import HistoryStore
 from osprey.bridges.core.pipeline import PipelineDeps
-from osprey.bridges.core.ports import InboundEvent, InputDownload
+from osprey.bridges.core.ports import InboundEvent, InputDownload, RoomMember, RoomPeople
 from osprey.bridges.core.reconcile import ReconcileDeps
-from tests.bridges.conftest import RecordingChannelOps
+from tests.bridges.conftest import RecordingChannelOps, RosterChannelOps
 
 QUESTION = "what is the orbit doing?"
 HISTORY_KEY = "room/AAA"
@@ -599,6 +599,28 @@ def test_rebuild_extra_carries_the_same_asker_the_live_path_sent(tmp_path):
     [(_, live_extra)] = deps.dispatcher.runs
     assert live_extra["asker"] == {"id": "users/111", "name": "Alice"}
     assert runtime.rebuild_extra(deps, deps.dedup.get("m1"))["asker"] == live_extra["asker"]
+
+
+def test_rebuild_extra_ships_the_same_room_as_the_live_path(tmp_path):
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    room = RoomPeople(members=(RoomMember("users/111", "Alice"), RoomMember("users/222")))
+    ops = RosterChannelOps(parse_result=event, room_people=room)
+    deps = _deps(tmp_path, ops)
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["room"]["members"] == [
+        {"id": "users/111", "name": "Alice"},
+        {"id": "users/222", "name": None},
+    ]
+    assert runtime.rebuild_extra(deps, deps.dedup.get("m1"))["room"] == live_extra["room"]
 
 
 # --- the adapter entry point --------------------------------------------------
