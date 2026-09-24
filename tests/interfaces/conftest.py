@@ -45,9 +45,11 @@ __all__ = [
     "_free_port",
     "_run_app_server",
     "_wait_for_port",
+    "BROWSER_ENGINES",
     "chromium_browser",
     "launch_graph_channel_finder",
     "use_process_web_credentials",
+    "webkit_browser",
     "write_graph_config",
 ]
 
@@ -374,6 +376,12 @@ def launch_graph_channel_finder(
             yield base_url
 
 
+#: The Playwright engines this tree launches, with one ``<engine>_browser``
+#: fixture each. The browser lane installs exactly these, and
+#: ``tests/deployment/test_ci_workflow_wiring.py`` holds it there.
+BROWSER_ENGINES: tuple[str, ...] = ("chromium", "webkit")
+
+
 # ---------------------------------------------------------------------------
 # Function-scoped chromium fixture
 # ---------------------------------------------------------------------------
@@ -476,14 +484,15 @@ def _install_auth_seam(browser: Browser) -> None:
     browser.new_page = new_page
 
 
-@pytest.fixture
-def chromium_browser() -> Iterator[Browser]:
-    """Function-scoped Playwright browser, pre-authorized against the auth gate.
+@contextmanager
+def _launched_browser(engine: str) -> Iterator[Browser]:
+    """Launch one Playwright engine headless, pre-authorized against the auth gate.
 
-    Skips if the chromium binary is absent. The yielded browser's
-    ``new_context``/``new_page`` are wrapped by :func:`_install_auth_seam` so
-    every page opened from it carries a valid operator session cookie for the
-    in-process interface servers these suites drive.
+    Skips if the engine's binary is absent. The yielded browser's
+    ``new_context``/``new_page`` are wrapped by :func:`_install_auth_seam`.
+
+    Args:
+        engine: A name from :data:`BROWSER_ENGINES`.
     """
     if not _PLAYWRIGHT_AVAILABLE:
         pytest.skip("playwright package not installed")
@@ -495,10 +504,10 @@ def chromium_browser() -> Iterator[Browser]:
     # session raise "Runner.run() cannot be called from a running event loop".
     pw = sync_playwright().start()
     try:
-        browser = pw.chromium.launch(headless=True)
+        browser = getattr(pw, engine).launch(headless=True)
     except Exception as exc:  # pragma: no cover
         pw.stop()
-        pytest.skip(f"Chromium binary not available: {exc}")
+        pytest.skip(f"{engine} binary not available: {exc}")
         return  # unreachable — present only to satisfy type checkers
 
     _install_auth_seam(browser)
@@ -507,3 +516,29 @@ def chromium_browser() -> Iterator[Browser]:
     finally:
         browser.close()
         pw.stop()
+
+
+@pytest.fixture
+def chromium_browser() -> Iterator[Browser]:
+    """Function-scoped Playwright browser, pre-authorized against the auth gate.
+
+    Skips if the chromium binary is absent. The yielded browser's
+    ``new_context``/``new_page`` are wrapped by :func:`_install_auth_seam` so
+    every page opened from it carries a valid operator session cookie for the
+    in-process interface servers these suites drive.
+    """
+    with _launched_browser("chromium") as browser:
+        yield browser
+
+
+@pytest.fixture
+def webkit_browser() -> Iterator[Browser]:
+    """Function-scoped WebKit browser, pre-authorized against the auth gate.
+
+    WebKit is Safari's engine; this fixture exists so code built on pointer
+    gestures gets proof in that engine as well as in Chromium. Skips if the
+    webkit binary is absent, and wraps ``new_context``/``new_page`` exactly as
+    :func:`chromium_browser` does.
+    """
+    with _launched_browser("webkit") as browser:
+        yield browser
