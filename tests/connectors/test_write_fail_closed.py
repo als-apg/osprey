@@ -121,7 +121,7 @@ class TestNonBlockingOffload:
         """
         connector = _make_connector()
 
-        def slow_validate(_addr, _val, *, read_current=None):  # noqa: ARG001 - the limits-validator interface names read_current
+        def slow_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             time.sleep(0.3)  # stand-in for max_step's blocking fresh read
 
         connector._limits_validator.validate = MagicMock(side_effect=slow_validate)
