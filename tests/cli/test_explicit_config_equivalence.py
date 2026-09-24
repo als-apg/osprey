@@ -699,6 +699,36 @@ BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _tool_content_deltas() -> tuple[Delta, ...]:
+    """The tool-content gate and content limit every control-assistant document gains.
+
+    The fixtures were frozen before the control-assistant preset recorded
+    built-in tool output, so every document it renders gains the gate and the
+    content limit.
+
+    Returns:
+        Two deltas per control-assistant document.
+    """
+    return tuple(
+        delta
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+        for delta in (
+            Delta(
+                document=document,
+                path="claude_code.telemetry.log_tool_content",
+                fixture=ABSENT,
+                live=True,
+            ),
+            Delta(
+                document=document,
+                path="claude_code.telemetry.content_max_length",
+                fixture=ABSENT,
+                live=262144,
+            ),
+        )
+    )
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -737,7 +767,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
-    + _agent_record_deltas(),
+    + _agent_record_deltas()
+    + _tool_content_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -749,7 +780,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
-    + _agent_record_deltas(),
+    + _agent_record_deltas()
+    + _tool_content_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -761,7 +793,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
-    + _agent_record_deltas(),
+    + _agent_record_deltas()
+    + _tool_content_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -773,7 +806,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
-    + _agent_record_deltas(),
+    + _agent_record_deltas()
+    + _tool_content_deltas(),
 }
 
 

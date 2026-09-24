@@ -85,6 +85,13 @@ def test_full_content_capture_is_the_default_posture():
             )
 
 
+def test_control_assistant_records_built_in_tool_output():
+    """control-assistant turns the tool-content gate on and sets the content limit."""
+    telemetry = (_cfg("control-assistant").get("claude_code") or {}).get("telemetry") or {}
+    assert telemetry.get("log_tool_content") is True
+    assert telemetry.get("content_max_length") == 262144
+
+
 def test_retention_bound_declared_everywhere():
     """Growth is bounded by age since a named volume has no size cap."""
     for preset in _DEPLOYING_PRESETS:

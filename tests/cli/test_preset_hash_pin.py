@@ -134,27 +134,32 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `extends` children inherit both; they build no services, so only the
     # retention reaches them. ariel-standalone, channel-finder-standalone and
     # hello-world stand still.
+    # The sixteenth move, and control-assistant's family alone: the root
+    # preset turned on the tool-content gate and set the content limit, so a
+    # rebuilt project's agent exports built-in tool output as span events. The
+    # five `extends` children inherit it; ariel-standalone,
+    # channel-finder-standalone and hello-world stand still.
     "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
     "channel-finder-standalone": (
         "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
     ),
     "control-assistant": (
-        "sha256:fab1e791bc6c6ebc23b158bf30283a2982856522c0db454e752bd8e5527aa12d"
+        "sha256:1f4f1f3848f6b5eb2027ed965e78177b8d5b6aca3062f18d4547d5cb5357f1e8"
     ),
     "control-assistant-admin": (
-        "sha256:bb6e266213fa500a2c1d4d708d937ba960218ca972826f0c7899ad21f5b9817d"
+        "sha256:5aea7bf9784ee59c2497a5b482c43899e636c254443e71f99278f0a4374defd3"
     ),
     "control-assistant-knowledge": (
-        "sha256:c46292a67ec778689f1b6c6baab25ad4339ac6ee5861160990a8ea69952363e8"
+        "sha256:451b0caf8be8de3188a770d04c2fb88344276eed4ca534ccf9042bce6953cabe"
     ),
     "control-assistant-logbook": (
-        "sha256:ed92ce3cbe36a08f802de6c8487804dce10791c55853cae59be2e5eb3175359a"
+        "sha256:638d0bdaa338144522388541e99bb5c482124b6b21db7ae2c7671524bd8ab881"
     ),
     "control-assistant-readonly": (
-        "sha256:3ebfe8961ba9a5feed56816ab9b5b4dbcdf2174d4a02d5d5a43067e233061d04"
+        "sha256:0a0feb7deca677f0313a78cb31bac3e8223debd5bbbe93b1888b209993ad5cb5"
     ),
     "control-assistant-readwrite": (
-        "sha256:6bcc8bcae377def4da786c4d057ae3e1405c67db3e7b1e01d9cf81af4f5100b4"
+        "sha256:c9253e4f39ce056a27a269f64f54c7aa40e27d1794dbffbd94ef62789acf1462"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }

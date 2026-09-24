@@ -5,3 +5,4 @@ four), records what the built-in Read and Bash tools returned, and with
 `claude_code.telemetry.content_max_length` sets how long one content value may
 be before Claude Code truncates it. The interactive web terminal now passes
 these tracing switches through to the agent.
+The control-assistant preset turns the gate on and sets the limit to 262144.
