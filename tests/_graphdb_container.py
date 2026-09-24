@@ -45,7 +45,7 @@ import io
 import logging
 import os
 import tarfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -342,12 +342,17 @@ class WatchedStore:
     Args:
         uri: The bolt URI the store is reached on.
         label: Human-readable name for the store, used in the failure.
+        inspect: Returns one line saying what state the store's container is
+            in. Called once per read that gets no answer, and its line added to
+            the failure. Without it the failure says nothing about the
+            container.
     """
 
-    def __init__(self, uri: str, *, label: str) -> None:
+    def __init__(self, uri: str, *, label: str, inspect: Callable[[], str] | None = None) -> None:
         self.uri = uri
         self.label = label
         self.losses: list[str] = []
+        self._inspect = inspect
 
     @contextmanager
     def reading(self) -> Iterator[None]:
@@ -368,12 +373,23 @@ class WatchedStore:
                 "container started before this read; look at the container and the host "
                 "it runs on (docker ps -a, daemon load), not at the code under test."
             )
+            if self._inspect is not None:
+                message += f"\nContainer state when the read failed: {_read_state(self._inspect)}"
             if len(self.losses) > 1:
                 message += (
                     f"\nThis store has stopped answering {len(self.losses)} times in this "
                     f"module; the first was during {self.losses[0]}"
                 )
             raise GraphStoreUnavailable(message) from exc
+
+
+def _read_state(inspect: Callable[[], str]) -> str:
+    """*inspect*'s line, or what stopped it; never raises."""
+    try:
+        return inspect()
+    except Exception as exc:
+        # The lost read is the failure to report, not the inspector's.
+        return f"could not be read ({type(exc).__name__}: {exc})"
 
 
 class WatchedSession:
