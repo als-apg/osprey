@@ -62,7 +62,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Any
 
 import httpx
@@ -71,6 +71,7 @@ from osprey.bridges.core import (
     KNOWN_EXTENSIONS,
     MAX_DELIVERED_DOC_BYTES,
     MAX_DELIVERED_IMAGE_BYTES,
+    MENTION_PLACEHOLDER_RE,
     ChannelOps,
     InboundEvent,
     InputDownload,
@@ -91,7 +92,7 @@ from .events import QUOTED_FILES_KEY, people_seen
 from .events import parse_event as parse_talk_message
 from .events import resolve_reply_context as resolve_talk_reply_context
 from .rooms import RoomDirectory
-from .roster import ParticipantRoster
+from .roster import EVERYONE_ID, ParticipantRoster
 
 logger = logging.getLogger(__name__)
 
@@ -226,17 +227,24 @@ def _reply_target(entry: Mapping[str, Any]) -> int | None:
     return None
 
 
-def _chunk(text: str, limit: int = MAX_MESSAGE_CHARS) -> list[str]:
+def _chunk(
+    text: str, limit: int = MAX_MESSAGE_CHARS, *, keep_whole: re.Pattern[str] | None = None
+) -> list[str]:
     """Split ``text`` into chunks of at most ``limit`` characters.
 
     Cuts at the last newline inside each window so a split lands between lines where it
     can, and hard-splits a single line longer than ``limit`` where it cannot.
-    ``"".join(_chunk(text)) == text`` always holds: this splits, it never reflows,
-    trims, or re-wraps, so markdown passes through byte-for-byte.
+    ``"".join(_chunk(text)) == text`` always holds, with or without ``keep_whole``: this
+    splits, it never reflows, trims, or re-wraps, so markdown passes through
+    byte-for-byte. No span matching ``keep_whole`` is split either: a cut inside one is
+    backed up to its start (the core chunker's rule), except a span at offset 0 that
+    overflows, which is hard-split. The cut can only land inside a span on a hard split,
+    because a newline cut falls between lines and a rendered mention holds no newline.
 
     Args:
         text: The answer text, assumed non-empty.
         limit: Maximum characters per chunk.
+        keep_whole: A pattern whose matches must never be split across chunks.
 
     Returns:
         The chunks in posting order; empty only for empty input.
@@ -248,11 +256,174 @@ def _chunk(text: str, limit: int = MAX_MESSAGE_CHARS) -> list[str]:
         # rfind returning -1 (no newline) or 0 (the window is one long line preceded by
         # a bare newline) leaves no boundary worth preferring — take the full window.
         cut = limit if cut <= 0 else cut + 1  # keep the newline with the chunk it ends
+        if keep_whole is not None:
+            for m in keep_whole.finditer(rest):
+                if m.start() >= cut:
+                    break
+                if m.start() < cut < m.end():
+                    if m.start() > 0:
+                        cut = m.start()
+                    break
         chunks.append(rest[:cut])
         rest = rest[cut:]
     if rest:
         chunks.append(rest)
     return chunks
+
+
+# --- @mentions ----------------------------------------------------------------
+#
+# Talk carries a mention inside the message text, and the server extracts it with the
+# Nextcloud comments rule (``Comment::getMentions``): a clean left edge — start of text,
+# whitespace, or one of ``- @ . '`` — then ``@`` and either a quoted id or an unquoted
+# run of ``[a-z0-9_-@.']``. Three consequences shape everything below: the rendered form
+# is always quoted, it needs a clean left edge, and in Talk a bare ``@word`` is itself a
+# mention, so plain text never carries an ``@`` the server would parse.
+
+TALK_MENTION_RE = re.compile(r'@"[^"\n]+"')
+"""A rendered Talk mention, ``@"id"``: the span :func:`_chunk` keeps whole."""
+
+_MENTIONABLE_ID_RE = re.compile(r"[A-Za-z0-9_.@' -]+")
+"""The id alphabet the server's quoted-mention form accepts (letters, digits, space and
+``_ . @ - '``), used with ``fullmatch``. An id outside it is posted as plain text."""
+
+TALK_BARE_MENTION_RE = re.compile(r"(?<![^\s\-@.'])@(\"[^\"\n]+\"|[a-z0-9_\-@.']+)", re.IGNORECASE)
+"""A bare mention the Talk server would parse: a clean left edge, then ``@`` and a quoted
+or unquoted id (group 1, quotes included when quoted). It does not match the ``@`` of a
+``<@ID>`` placeholder (``<`` fails the left edge) or of an email address (a word
+character fails it)."""
+
+_CODE_MENTION_RE = re.compile(r"(?<![\w@])@+(\"[^\"\n]+\"|[a-z0-9_\-@.']+)", re.IGNORECASE)
+"""A mention-shaped word inside code: ``@`` (one or more) after any non-word character,
+then a quoted or unquoted id (group 1). Broader than the server's left-edge rule on
+purpose, so a member's id reads as a mention wherever a snippet puts it (after a
+backtick or a bracket as well)."""
+
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+
+_PLACEHOLDER_RE = re.compile(r"@*(?:" + MENTION_PLACEHOLDER_RE.pattern + ")")
+"""A ``<@ID>`` placeholder with any ``@`` run written right before it (id in group 1).
+The run is replaced together with the placeholder: left in place, it would turn the
+plain name that replaces the placeholder into a bare mention (``@<@dave>`` → ``@dave``).
+"""
+
+
+def _unchanged(text: str) -> str:
+    """The identity render: an answer posted with no mention rendering."""
+    return text
+
+
+def _talk_mention(ident: str) -> str | None:
+    """Talk's mention of ``ident``, ``@"ident"``, or ``None`` when it cannot be one.
+
+    The one place Talk's form is spelled. ``None`` for an id outside the quoted form's
+    alphabet and for the whole-room id, which is never mentioned.
+    """
+    if _MENTIONABLE_ID_RE.fullmatch(ident) is None or ident.casefold() == EVERYONE_ID:
+        return None
+    return f'@"{ident}"'
+
+
+def _code_spans(text: str) -> list[tuple[int, int]]:
+    """Where an answer shows code: fenced blocks and inline code spans, sorted.
+
+    A fenced block runs from a line starting with ``` to the next such line, and an
+    unterminated fence runs to the end (the core chunker's rule, restated because this
+    package imports the core from its root only); inline spans are counted outside the
+    blocks. Code is the one place the bare-mention rule differs.
+    """
+    fences: list[tuple[int, int]] = []
+    offset = 0
+    start: int | None = None
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            if start is None:
+                start = offset
+            else:
+                fences.append((start, offset + len(line)))
+                start = None
+        offset += len(line) + 1
+    if start is not None:
+        fences.append((start, len(text)))
+    spans = list(fences)
+    for m in _INLINE_CODE_RE.finditer(text):
+        if not any(a <= m.start() < b for a, b in fences):
+            spans.append(m.span())
+    return sorted(spans)
+
+
+def neutralise_bare_mentions(text: str, *, members: Callable[[], Collection[str] | None]) -> str:
+    """Drop the ``@`` from every bare mention the Talk server would parse in ``text``.
+
+    Outside code every bare mention loses its ``@``, always. Inside a code span or block
+    the ``@`` stays (so ``@dataclass`` survives), unless the mention's id, quotes
+    stripped, casefolds equal to the id of a member of the current room; then it loses
+    its ``@`` too, so a snippet cannot notify a member. ``members`` is called lazily, at
+    most once, and only when a bare mention sits inside code; when it answers ``None``
+    (the room is unknown) every bare mention inside code loses its ``@`` as well, erring
+    toward notifying nobody. The result is the same with mentions on or off. Only ``@``
+    characters are removed; every other byte, code included, is kept.
+    """
+    cache: list[set[str] | None] = []
+
+    def room_ids() -> set[str] | None:
+        if not cache:
+            listed = members()
+            cache.append(None if listed is None else {i.casefold() for i in listed})
+        return cache[0]
+
+    def in_code(pos: int, spans: list[tuple[int, int]]) -> bool:
+        return any(a <= pos < b for a, b in spans)
+
+    while True:
+        spans = _code_spans(text)
+
+        def prose(m: re.Match[str], spans: list[tuple[int, int]] = spans) -> str:
+            return m.group(0) if in_code(m.start(), spans) else m.group(1).lstrip("@")
+
+        def code(m: re.Match[str], spans: list[tuple[int, int]] = spans) -> str:
+            if not in_code(m.start(), spans):
+                return m.group(0)
+            ids = room_ids()
+            bare = m.group(1).lstrip("@")
+            if ids is None or bare.strip('"').casefold() in ids:
+                return bare
+            return m.group(0)
+
+        updated = TALK_BARE_MENTION_RE.sub(prose, text)
+        if updated == text:
+            updated = _CODE_MENTION_RE.sub(code, text)
+        if updated == text:
+            return text
+        text = updated
+
+
+def render_mentions(text: str, roster: Mapping[str, str | None], *, enabled: bool) -> str:
+    """Render the agent's ``<@ID>`` placeholders in one posted copy of a Talk answer.
+
+    A placeholder whose id is in ``roster`` (the room's participants) becomes Talk's
+    quoted mention ``@"id"`` when ``enabled`` and the id can be one, with one space put
+    in front when the character before it is neither the start of the text nor
+    whitespace (the server's left-edge rule). Anything else becomes the person's name,
+    or the id, with **no** ``@``: in Talk a bare ``@word`` is itself a mention. Any
+    ``@`` written right before a placeholder is dropped with it, either way. Runs on
+    the posted copy only; the stored answer keeps its placeholders.
+    """
+
+    def one(m: re.Match[str]) -> str:
+        ident = m.group(1)
+        mention = _talk_mention(ident) if enabled and ident in roster else None
+        if mention is not None:
+            before = text[m.start() - 1] if m.start() > 0 else ""
+            return mention if not before or before.isspace() else " " + mention
+        return _plain_name(roster.get(ident) or ident)
+
+    return _PLACEHOLDER_RE.sub(one, text)
+
+
+def _plain_name(name: str) -> str:
+    """``name`` as plain text in a Talk message: no bare mention the server would parse."""
+    return neutralise_bare_mentions(name, members=lambda: None)
 
 
 def _refs(entry: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
@@ -704,6 +875,12 @@ class NextcloudTalkOps:
         tail of an answer would be the alternative, and it is far worse — a truncated
         answer reads as a complete one.
 
+        **Mentions.** On the posted copy only, every bare ``@name`` the server would
+        parse loses its ``@`` (see :func:`neutralise_bare_mentions`), and a ``<@ID>``
+        placeholder for a participant of this room becomes a Talk mention when mentions
+        are on. Anything else is the person's name in plain text. A roster failure posts
+        plain text and never raises.
+
         Args:
             entry: The persisted entry; supplies the room and the reply target.
             result: The terminal result. Only ``status`` and ``text_output`` are read —
@@ -715,11 +892,46 @@ class NextcloudTalkOps:
         """
         room = self._require_room(entry)
         reply_to = _reply_target(entry)
-        for index, chunk in enumerate(_answer_chunks(result)):
+        chunks = _answer_chunks(result, lambda text: self._render_mentions(entry, text))
+        for index, chunk in enumerate(chunks):
             # The first message quotes the question so a multi-message answer stays
             # anchored to it in a busy room; the rest follow as a plain continuation
             # rather than repeating the quote on every chunk.
             self._client.post_message(room, chunk, reply_to=reply_to if index == 0 else None)
+
+    def _render_mentions(self, entry: Mapping[str, Any], text: str) -> str:
+        """The posted copy of an answer: bare mentions neutralised, then placeholders
+        rendered for this room's participants.
+
+        The roster is read only when a bare mention sits inside code or the text holds
+        a placeholder, and it is cached, so both steps share one listing. The rendered
+        ``@"id"`` is produced after the neutralising step, so it is never neutralised. A
+        failure here falls back to plain text with no server-parsable ``@`` anywhere, so
+        it can neither cost the answer nor notify anyone.
+        """
+        original = text
+        try:
+            room = _room(entry)
+
+            def room_ids() -> set[str] | None:
+                listed = self._roster.members(room)
+                return None if listed is None else set(listed[0])
+
+            text = neutralise_bare_mentions(text, members=room_ids)
+            if MENTION_PLACEHOLDER_RE.search(text) is None:
+                return text
+            listed = self._roster.members(room)
+            return render_mentions(
+                text,
+                listed[0] if listed else {},
+                enabled=self._cfg.mentions and listed is not None,
+            )
+        except Exception:
+            logger.warning("mention rendering failed; posting plain text", exc_info=True)
+            return _PLACEHOLDER_RE.sub(
+                lambda m: _plain_name(m.group(1)),
+                neutralise_bare_mentions(original, members=lambda: None),
+            )
 
     def post_queued(
         self,
@@ -1082,15 +1294,20 @@ def _static_room_conformance(ops: NextcloudTalkOps) -> RoomRoster:
     return ops
 
 
-def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
+def _answer_chunks(
+    result: Mapping[str, Any], render: Callable[[str], str] = _unchanged
+) -> list[str]:
     """The messages :meth:`NextcloudTalkOps.post_answer` should post, in order.
 
     A non-completed status becomes the channel's fixed error wording — the result's own
     ``error`` string is internal and never posted. A completed run with no text still
     gets a message, so "it worked but said nothing" never looks like a dead bridge.
+    Only a completed run's text is passed through ``render`` (the fixed wordings hold no
+    ``@``), and a rendered mention is never split across two messages.
 
     Args:
         result: The terminal result.
+        render: The posted-copy transform for the answer text.
 
     Returns:
         One or more messages, each within :data:`MAX_MESSAGE_CHARS`. Never empty.
@@ -1100,4 +1317,4 @@ def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
     text = result.get("text_output")
     if not isinstance(text, str) or not text.strip():
         return [EMPTY_ANSWER_TEXT]
-    return _chunk(text)
+    return _chunk(render(text), keep_whole=TALK_MENTION_RE) or [EMPTY_ANSWER_TEXT]
