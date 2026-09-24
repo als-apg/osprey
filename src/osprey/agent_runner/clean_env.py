@@ -87,16 +87,20 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
 from osprey.utils.sensitive_env import strip_sensitive
 from osprey.utils.shell_resolver import user_bin_dirs
 
-# The telemetry master switch must survive the strip so that OpenTelemetry
-# stays enabled on both the web-terminal chat path and the interactive PTY
-# path. It starts with the ``CLAUDE_CODE_`` prefix but is a user-facing
-# configuration toggle, not an internal session marker.
-_TELEMETRY_MASTER_SWITCH = "CLAUDE_CODE_ENABLE_TELEMETRY"
-
 _STRIP_PREFIXES = ("CLAUDECODE", "CLAUDE_CODE_")
+
+# Claude Code's telemetry switches start with the stripped prefix but are
+# configuration, not session markers, so they survive the strip on both the
+# web-terminal chat path and the interactive PTY path. The set is read off
+# ``TELEMETRY_ENV_VARS`` so a telemetry variable added there survives the strip
+# without a second list.
+_TELEMETRY_SWITCHES: frozenset[str] = frozenset(
+    k for k in TELEMETRY_ENV_VARS if k.startswith(_STRIP_PREFIXES)
+)
 
 
 def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
@@ -104,9 +108,10 @@ def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
 
     Strips every key beginning with ``CLAUDECODE`` or ``CLAUDE_CODE_`` (nesting
     detection, entrypoint tracking, beta flags) so a nested launch does not
-    inherit the parent session's markers. The telemetry master switch
-    ``CLAUDE_CODE_ENABLE_TELEMETRY`` is preserved so telemetry survives on both
-    the operator and PTY paths. ``OTEL_*`` keys do not carry the stripped
+    inherit the parent session's markers. The telemetry switches (every
+    ``CLAUDE_CODE_*`` member of ``TELEMETRY_ENV_VARS``: the master switch, the
+    tracing switch and the content limit) are preserved so telemetry survives on
+    both the operator and PTY paths. ``OTEL_*`` keys do not carry the stripped
     prefix and therefore pass through untouched.
 
     Args:
@@ -118,7 +123,7 @@ def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
     return {
         k: v
         for k, v in env.items()
-        if k == _TELEMETRY_MASTER_SWITCH or not k.startswith(_STRIP_PREFIXES)
+        if k in _TELEMETRY_SWITCHES or not k.startswith(_STRIP_PREFIXES)
     }
 
 
@@ -131,7 +136,7 @@ def build_base_child_env() -> dict[str, str]:
     overlays its own path-specific keys:
 
     1. Strip Claude Code internal session variables via
-       :func:`strip_claude_code_env` (preserving the telemetry master switch).
+       :func:`strip_claude_code_env` (preserving the telemetry switches).
     2. Drop the sensitive credentials named by
        :mod:`osprey.utils.sensitive_env` via :func:`strip_sensitive`, so a
        spawned child never inherits a value that would let agent-run code
@@ -173,7 +178,7 @@ def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
 
     Layers the SDK-specific keys on top of :func:`build_base_child_env` (which
     strips ``CLAUDECODE``/``CLAUDE_CODE_*`` variables while preserving the
-    telemetry master switch, drops the sensitive credentials, resolves the
+    telemetry switches, drops the sensitive credentials, resolves the
     auth-token conflict, and augments ``PATH``): auto-sets ``OSPREY_CONFIG``
     from the project directory.
 
