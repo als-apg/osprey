@@ -463,7 +463,7 @@ def _toggle(page: Page, target: str) -> Any:
 
 def _settled_chip(
     browser: Browser, base_url: str, *, init_script: str | None = None
-) -> tuple[Page, str | None]:
+) -> tuple[Page, str]:
     """Open the hub and wait until the chip speaks for a writable deployment.
 
     A visible chip already means the whole chain ran: the module mounted and
@@ -489,12 +489,12 @@ def _settled_chip(
             ``None``, which is every call site that only wants a settled chip.
 
     Returns:
-        (page, session_id) — the id ``terminal.js`` settled on, which is
-        ``None`` in a view whose terminal never connects. Nothing the chip does
-        needs it; case (b) uses it to name the PTY it asserts was not
-        respawned. The id is the one the owning surface settled on, which is
-        the terminal's confirmation in the Expert view and the console's key
-        in the Simple one.
+        (page, session_id) — the id the owning surface settled on: the
+        terminal's confirmation in the Expert view, the console's key in the
+        Simple one. Both views write it and this helper waits for it, so a
+        missing id is a timeout here, never an empty return. Nothing the chip
+        does needs it; case (b) uses it to name the PTY it asserts was not
+        respawned.
     """
     page = browser.new_page()
     if init_script:
