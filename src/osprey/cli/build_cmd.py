@@ -1949,7 +1949,10 @@ def _render_project(
         live_standin_config_overrides,
         live_standin_duplicate_key_errors,
     )
-    from .validate_claude_artifacts import validate_agent_tools_against_permissions
+    from .validate_claude_artifacts import (
+        agent_model_pin_errors,
+        validate_agent_tools_against_permissions,
+    )
 
     build_profile = resolved.profile
     repo_root = shared.repo_root
@@ -2411,6 +2414,19 @@ def _render_project(
         raise BuildProfileError(str(e)) from e
 
     if spec is not None:
+        # Every pin names an agent and is the model that agent's file runs. Checked
+        # against the finished render: a claimed or profile agent file is copied
+        # rather than rendered, so only its own frontmatter decides its model.
+        from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+        rendered_claude_code = _rendered_config(render_dir).get("claude_code") or {}
+        pin_errors = agent_model_pin_errors(
+            render_dir / ".claude" / "agents",
+            spec.agent_models,
+            {*FRAMEWORK_AGENTS, *(rendered_claude_code.get("agents") or {})},
+        )
+        if pin_errors:
+            raise BuildProfileError("Agent model pins do not apply:\n  " + "\n  ".join(pin_errors))
         _warn_model_facts(spec, shared.model_facts_reported)
 
     return render_dir

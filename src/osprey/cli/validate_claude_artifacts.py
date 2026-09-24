@@ -1,6 +1,6 @@
 """Validate rendered Claude Code artifacts after ``osprey build``.
 
-Catches two classes of drift between profile inputs and rendered ``.claude/`` output:
+Catches three classes of drift between profile inputs and rendered ``.claude/`` output:
 
 1. **Wildcard tools in agent frontmatter** — every agent must list its MCP tools
    explicitly so the lockdown is auditable. ``mcp__<server>__*`` is rejected.
@@ -13,12 +13,18 @@ Catches two classes of drift between profile inputs and rendered ``.claude/`` ou
    removes a tool from the backed set (deny wins at runtime). A tool in neither
    allow nor ask — or one explicitly denied — is a real drift: the agent thinks
    it has a tool the MCP gateway will refuse.
+3. **Agent model pins that do not apply** — every ``claude_code.agent_models``
+   key must name an agent, and an agent the render ships must run the pinned
+   model. Without that, a pin on a deployment's own agent file (claimed or
+   profile, copied rather than rendered) is ignored while the config says it
+   applies.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -114,4 +120,69 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
                     ".claude/settings.json permissions.allow or permissions.ask"
                 )
 
+    return errors
+
+
+def agent_file_models(agents_dir: Path) -> dict[str, str | None]:
+    """Map each agent file's stem to the model its frontmatter names.
+
+    Reads a render's ``.claude/agents/`` or a repo's own ``agents/``. A file with
+    no ``model:`` line, or no frontmatter, maps to ``None``.
+
+    Args:
+        agents_dir: Directory holding the agent ``*.md`` files.
+
+    Returns:
+        Agent name to model id, sorted by name; ``{}`` when the directory is missing.
+    """
+    agents_dir = Path(agents_dir)
+    if not agents_dir.is_dir():
+        return {}
+    models: dict[str, str | None] = {}
+    for md_file in sorted(agents_dir.glob("*.md")):
+        fm = _parse_frontmatter(md_file.read_text(encoding="utf-8")) or {}
+        model = fm.get("model")
+        models[md_file.stem] = None if model is None else str(model)
+    return models
+
+
+def agent_model_pin_errors(
+    agents_dir: Path, pins: Mapping[str, Any], known_agents: Iterable[str]
+) -> list[str]:
+    """Return one error per ``claude_code.agent_models`` pin that does not apply.
+
+    Rules, per pin:
+      - A name that is neither in *known_agents* nor an agent file in
+        *agents_dir* is refused, and the error lists the agent names there are.
+      - A known name with no file is not an error: in a render the agent is not
+        shipped, and in a repo the framework renders the pin into the file.
+      - A file whose ``model:`` line differs from the pin is refused: that file
+        decides the agent's model, so the pin would be ignored.
+
+    Args:
+        agents_dir: A render's ``.claude/agents/`` or a repo's own ``agents/``.
+        pins: Agent name to pinned model id.
+        known_agents: Agent names valid without a file in *agents_dir*.
+
+    Returns:
+        Error strings, sorted by agent; empty when every pin applies.
+    """
+    files = agent_file_models(agents_dir)
+    names = sorted({*known_agents, *files})
+    errors: list[str] = []
+    for agent in sorted(pins):
+        key = f"claude_code.agent_models.{agent}"
+        model_id = str(pins[agent])
+        if agent not in names:
+            errors.append(f"{key}: no agent is called {agent!r}. Agents: {', '.join(names)}.")
+            continue
+        if agent not in files:
+            continue
+        runs = files[agent]
+        if runs != model_id:
+            errors.append(
+                f"{key}: {model_id} is not what agents/{agent}.md runs "
+                f"({runs or 'it has no model: line'}). That file is the deployment's own, "
+                "so set model: there or remove the pin."
+            )
     return errors

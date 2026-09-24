@@ -1057,8 +1057,8 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
         load_provider_spec,
     )
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+    from osprey.cli.validate_claude_artifacts import agent_file_models
     from osprey.models.display import display_model_name
-    from osprey.registry.mcp import FRAMEWORK_AGENTS
     from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
 
     rows: list[tuple[str, object]] = []
@@ -1156,17 +1156,21 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
 
             if show_agents:
                 rows.append(("agent models", ""))
-                # Every agent this deployment could run, not only the ones
-                # claude_code.agent_models names: an agent it leaves out runs
-                # the main model, and a status report that left it out would be
-                # the only place that went unsaid.
-                for agent_name in sorted(set(FRAMEWORK_AGENTS) | set(spec.agent_models)):
-                    model_id = spec.agent_model(agent_name)
-                    origin = (
-                        "claude_code.agent_models"
-                        if agent_name in spec.agent_models
-                        else "main model"
-                    )
+                # Every agent the build ships, each with the model its own file
+                # names: that file is what Claude Code reads.
+                agent_models = agent_file_models(build_dir / ".claude" / "agents")
+                if not agent_models:
+                    rows.append(("agents", "none in build/.claude/agents"))
+                for agent_name, model_id in agent_models.items():
+                    if model_id is None:
+                        rows.append((agent_name, "no model: line (Claude Code chooses)"))
+                        continue
+                    if spec.agent_models.get(agent_name) == model_id:
+                        origin = "claude_code.agent_models"
+                    elif model_id == spec.default_model_id:
+                        origin = "main model"
+                    else:
+                        origin = f"agents/{agent_name}.md"
                     rows.append(
                         (agent_name, f"{display_model_name(model_id)}  {model_id}  ({origin})")
                     )
