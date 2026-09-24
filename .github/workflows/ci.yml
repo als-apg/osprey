@@ -1933,8 +1933,12 @@ jobs:
         # Two steps, because they are two things: `init` writes the source
         # zone, `build` renders it. --skip-deps/--skip-lifecycle belong to the
         # render and so live on `build`.
+        #
+        # The model is named by the id the gateway serves: the build refuses
+        # an alias word such as haiku. It is the smallest model the gateway
+        # serves, and the lane makes no model call.
         uv run osprey init hello-world-test --preset hello-world \
-          --set provider=als-apg --set model=haiku
+          --set provider=als-apg --set model=claude-haiku-4-5-20251001
         cd hello-world-test
         uv run osprey build --skip-deps --skip-lifecycle
         ls -la
