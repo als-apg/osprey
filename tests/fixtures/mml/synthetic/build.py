@@ -30,7 +30,9 @@ committed files are still exactly what this script writes::
 ``--check`` is the fixture's determinism gate: it rebuilds into a temporary
 directory and compares every byte. Everything a clock or a machine would
 otherwise decide is pinned -- the ``_export`` timestamp, the MAT-file's header
-text -- so a rebuild on another day on another machine writes the same bytes.
+text, and the arithmetic: the one curved conversion is summed from products and
+sums, and every other transcendental goes through the C library -- so a rebuild
+on another day on another machine writes the same bytes.
 """
 
 from __future__ import annotations
@@ -279,6 +281,58 @@ def _linear_brho(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
     return convert
 
 
+#: Terms of the odd power series :func:`_sinh` sums. The first term left out,
+#: ``x**27 / 27!``, is below a double's last digit for every ``|x| <= 1``, and
+#: every argument the fixture hands the series lies inside +-0.83: 0.75 on the
+#: hardware grid, 0.822 as an inverse target.
+SINH_TERMS = 12
+
+#: Newton steps :func:`_arcsinh` takes. Newton reaches the last binary digit by
+#: the sixth step; after that some values alternate between two neighbouring
+#: doubles, so the count is fixed rather than "until nothing moves". A fixed
+#: count lands every platform on the same one of the two.
+ARCSINH_STEPS = 8
+
+
+def _libm(function: Callable[[float], float], values: np.ndarray) -> np.ndarray:
+    """Apply ``function`` one value at a time, keeping the input's shape.
+
+    numpy picks its own vectorised ``exp`` and ``log`` on some processors, while
+    ``math`` always calls the C library.
+    """
+    array = np.asarray(values, dtype=float)
+    return np.array([function(float(v)) for v in array.flat], dtype=float).reshape(array.shape)
+
+
+def _sinh(x: np.ndarray) -> np.ndarray:
+    """``sinh`` summed as its odd power series in Horner form.
+
+    The lattice stores its kicks as raw doubles, and ``np.sinh`` does not give
+    every platform the same last binary digit. IEEE 754 rounds a product, a
+    quotient and a sum identically on every machine.
+    """
+    x = np.asarray(x, dtype=float)
+    square = x * x
+    total = np.ones_like(x)
+    for n in range(SINH_TERMS, 0, -1):
+        total = 1.0 + square / float((2 * n) * (2 * n + 1)) * total
+    return x * total
+
+
+def _arcsinh(t: np.ndarray) -> np.ndarray:
+    """The inverse of :func:`_sinh` by a fixed number of Newton steps.
+
+    The slope ``cosh y`` is ``sqrt(1 + sinh(y)**2)``, and IEEE 754 rounds a
+    square root exactly.
+    """
+    t = np.asarray(t, dtype=float)
+    y = t.copy()
+    for _ in range(ARCSINH_STEPS):
+        s = _sinh(y)
+        y = y - (s - t) / np.sqrt(1.0 + s * s)
+    return y
+
+
 def _sinh_brho(gain: float, scale: float) -> Callable[[np.ndarray, float], np.ndarray]:
     """A rigidity-scaled conversion that bends: odd, strictly monotonic, its slope ``gain`` at zero."""
 
@@ -286,7 +340,7 @@ def _sinh_brho(gain: float, scale: float) -> Callable[[np.ndarray, float], np.nd
         return (
             gain
             * scale
-            * np.sinh(np.asarray(hardware, dtype=float) / scale)
+            * _sinh(np.asarray(hardware, dtype=float) / scale)
             * brho(DECK_ENERGY_GEV)
             / brho(energy)
         )
@@ -298,7 +352,7 @@ def _asinh_brho(gain: float, scale: float) -> Callable[[np.ndarray, float], np.n
     """The exact inverse of :func:`_sinh_brho`."""
 
     def convert(physics: np.ndarray, energy: float) -> np.ndarray:
-        return scale * np.arcsinh(
+        return scale * _arcsinh(
             np.asarray(physics, dtype=float) * brho(energy) / brho(DECK_ENERGY_GEV) / (gain * scale)
         )
 
@@ -318,7 +372,7 @@ def _bend_hw2physics(hardware: np.ndarray, energy: float) -> np.ndarray:
     """The bend supply's measured ramp, in radians of bend, ending where it ends."""
     field = np.where(
         hardware <= RAMP_CURRENT_LIMIT,
-        RAMP_GAIN * (1.0 - np.exp(-np.abs(hardware) / RAMP_TAU)),
+        RAMP_GAIN * (1.0 - _libm(math.exp, -np.abs(hardware) / RAMP_TAU)),
         np.nan,
     )
     return field * DIPOLE_LENGTH / brho(energy)
@@ -328,7 +382,7 @@ def _bend_physics2hw(physics: np.ndarray, energy: float) -> np.ndarray:
     """The ramp read the other way: the current that bends this angle."""
     field = np.asarray(physics, dtype=float) * brho(energy) / DIPOLE_LENGTH
     ratio = np.clip(1.0 - field / RAMP_GAIN, 1.0e-12, None)
-    current = -RAMP_TAU * np.log(ratio)
+    current = -RAMP_TAU * _libm(math.log, ratio)
     return np.where(current <= RAMP_CURRENT_LIMIT, current, np.nan)
 
 
@@ -364,7 +418,7 @@ def _quad_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
 def _qd_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
     """A readback conversion with a curve in it, so the inverse is written as a table."""
     strength = np.asarray(physics, dtype=float)
-    return -82.0 * strength + 3.0e3 * strength**3
+    return -82.0 * strength + 3.0e3 * (strength * strength * strength)
 
 
 def _identity_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:

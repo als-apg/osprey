@@ -28,8 +28,9 @@ functions at the top of the file. The ring is pyAT's, saved with
 importer loads; `osprey.simulation.lattice.artifact` makes the same call for the
 demo ring under `use='RING'`.
 
-Built with pyAT (`accelerator-toolbox`) 0.8.0, SciPy 1.18.0 and NumPy 2.4.2 on
-Python 3.13. Rebuild it, or check that the committed files are still exactly what
+`--check` passes with pyAT (`accelerator-toolbox`) 0.8.0 and NumPy 2.4.2, with
+SciPy 1.18.0 on Python 3.12 and 3.13 and SciPy 1.17.1 on Python 3.11, on macOS
+arm64 and Linux x86_64. Rebuild it, or check that the committed files are still exactly what
 it writes, from the repository root:
 
     uv run python tests/fixtures/mml/synthetic/build.py
@@ -40,7 +41,11 @@ a machine would otherwise decide are pinned so that holds: the `_export`
 timestamp, the MATLAB version the `_export` block names, and the 116-byte
 descriptive header `scipy.io.savemat` writes into a MAT-file, which carries the
 build clock and which nothing reads — the format version and the endian marker
-live in the twelve bytes after it. Numbers are written at fifteen significant
+live in the twelve bytes after it. The arithmetic is pinned the same way: the
+corrector's curved conversion is summed as a power series of products and sums,
+which IEEE 754 rounds identically everywhere, and the bend ramp's `exp` and `log`
+are the C library's, called one value at a time — so a rebuild on Linux writes the
+bytes one on macOS does. Numbers are written at fifteen significant
 digits, the spelling `jsonencode` gives a double, with whole numbers written
 without a fractional part the way it writes those; digits past the fifteenth
 would be the arithmetic's own noise rather than a value a reader can use.
