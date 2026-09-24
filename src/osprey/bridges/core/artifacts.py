@@ -163,6 +163,7 @@ _EXT_BY_MIME = {
     "text/plain": ".txt",
     "application/pdf": ".pdf",
     "text/csv": ".csv",
+    "text/tab-separated-values": ".tsv",
     "application/json": ".json",
     "image/jpeg": ".jpg",
     "image/svg+xml": ".svg",
