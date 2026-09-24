@@ -246,6 +246,20 @@ def test_services_write_is_unchanged(tmp_path):
     assert config["deployed_services"] == ["postgresql", "virtual_accelerator"]
 
 
+def test_a_named_pva_port_lands_on_instance_one_only(tmp_path):
+    """The pvAccess port is instance 1's alone; the stand-in's block never carries it."""
+    (tmp_path / "config.yml").write_text(CONFIG_WITHOUT_VA_BLOCK, encoding="utf-8")
+    _inject_va(VAConfig(port=5064, pva_port=15075, live_standin=5074), tmp_path)
+
+    services = pyyaml.safe_load((tmp_path / "config.yml").read_text(encoding="utf-8"))["services"]
+    assert services["virtual_accelerator"] == {
+        "path": "./services/virtual_accelerator",
+        "port": 5064,
+        "pva_port": 15075,
+    }
+    assert "pva_port" not in services["live_standin"]
+
+
 def test_a_non_mapping_connector_entry_is_left_alone(tmp_path):
     """Whatever ``virtual_accelerator: <scalar>`` meant, it is not ours to replace."""
     text = _inject(

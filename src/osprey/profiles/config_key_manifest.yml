@@ -642,6 +642,19 @@ keys:
       `services.bluesky.image`.
     default: derived
     default_note: osprey_images.va
+  services.virtual_accelerator.pva_port:
+    rendered: false
+    evidence: 'VA_PVA_PORT_CONFIG_KEY = "services\.virtual_accelerator\.pva_port"'
+    note: >-
+      pvAccess host port of virtual-accelerator instance 1, where its model
+      surface is published. Written by `_inject_va` from the build profile's
+      `virtual_accelerator.pva_port`, and only when that key is set, so no
+      default render carries it. Outside the port block like the Channel
+      Access port: `deployment.port_base` does not move it. Evidence anchors on
+      `osprey.port_layout`, where the dotted path is spelled once for the
+      preflight's remedy; the compose template reads it through the
+      per-instance `svc` alias.
+    default: 5075
   # The live stand-in is a SECOND INSTANCE of the virtual accelerator, not a
   # service of its own. `_inject_va` writes `services.live_standin` beside
   # `services.virtual_accelerator` — same `path`, same template directory, same

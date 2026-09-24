@@ -1401,6 +1401,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
        ``deployed_services`` (so ``find_service_config`` resolves it,
        mirroring ``_inject_bluesky``) — plus a second ``services.live_standin``
        instance of the same service when ``va.live_standin`` names a port.
+       Instance 1's block carries ``pva_port`` only when the profile names one.
     3. Make sure the deployed soft-IOC has a target block pointing at it —
        ``control_system.connector.virtual_accelerator.gateways`` — when the
        config carries none (see :func:`_ensure_va_connector_gateways`, which
@@ -1463,9 +1464,10 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     # soft-IOC container on its own Channel Access port, reached as the
     # deployment's ``standin`` target. The compose template reads the instance
     # list off ``deployed_services``, so both keys have to land in both places.
-    instances: list[tuple[str, dict[str, Any]]] = [
-        ("virtual_accelerator", {"path": "./services/virtual_accelerator", "port": va.port})
-    ]
+    primary: dict[str, Any] = {"path": "./services/virtual_accelerator", "port": va.port}
+    if va.pva_port is not None:
+        primary["pva_port"] = va.pva_port
+    instances: list[tuple[str, dict[str, Any]]] = [("virtual_accelerator", primary)]
     if va.live_standin is not None:
         instances.append(
             (

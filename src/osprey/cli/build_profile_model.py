@@ -67,6 +67,7 @@ from .build_profile_schema import (
 )
 from .build_profile_va_faults import (
     live_standin_errors,
+    pva_port_errors,
     standin_archive_errors,
     standin_baseline_errors,
 )
@@ -863,6 +864,9 @@ class BuildProfile:
         ``virtual_accelerator.port`` is deliberately absent: the stand-in's rule
         against it is its own, with a message naming both halves, and reporting
         the same collision twice would not help anyone.
+        ``virtual_accelerator.pva_port`` is absent for the same reason; its own
+        rule clears it against this ledger and against both instance ports, so
+        a pvAccess/stand-in collision is reported once.
 
         A port a profile never spells is spent all the same. The framework's own
         services take the layout's slots at whatever base the deployment
@@ -1769,8 +1773,10 @@ class BuildProfile:
         # Validate virtual_accelerator configuration
         if self.virtual_accelerator is not None:
             va = self.virtual_accelerator
+            claimed = self._claimed_ports()
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
+            errors.extend(pva_port_errors(va, claimed, self.config))
             # A live stand-in is a SECOND container claiming a second port and
             # a THIRD control target, so it can collide with any port the
             # profile already spends and with the simulation's own gateways.
@@ -1781,7 +1787,7 @@ class BuildProfile:
                     live_standin_errors(
                         va.live_standin,
                         va.port,
-                        self._claimed_ports(),
+                        claimed,
                         self.config,
                         profile_dir,
                     )

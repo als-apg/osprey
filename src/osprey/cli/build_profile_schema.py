@@ -861,6 +861,13 @@ class VAConfig:
     base; the field stays an ``int | None`` because a facility may still name an
     absolute port, and every consumer downstream reads one number either way."""
 
+    pva_port: int | None = None
+    """pvAccess TCP port virtual-accelerator instance 1 publishes its model
+    surface on. Absent (the default) leaves the compose template's own default,
+    the pvAccess protocol port :data:`~osprey.port_layout.PVA_DEFAULT_PORT`.
+    Like ``port`` it is outside the deployment's port block, so a second
+    deployment on one host that runs a virtual accelerator names its own here."""
+
 
 @dataclass
 class BlueskyWebConfig:
