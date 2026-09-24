@@ -764,12 +764,12 @@ def test_set_pairs_are_baked_and_resolvable(runner: CliRunner, tmp_path: Path) -
     target = tmp_path / "my-facility"
 
     created = _new(
-        runner, target, "hello-world", "--set", "model=claude-opus-5", "--set", "provider=als-apg"
+        runner, target, "hello-world", "--set", "model=claude-opus-5-5", "--set", "provider=als-apg"
     )
     assert created.exit_code == 0, created.output
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.model == "claude-opus-5"
+    assert resolved.model == "claude-opus-5-5"
     assert resolved.provider == "als-apg"
 
 

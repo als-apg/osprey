@@ -68,14 +68,14 @@ class TestAliasCandidates:
     def test_the_als_apg_list_fills_all_three_and_never_fable(self):
         served = [
             "claude-fable-5-1",
-            "claude-opus-5",
+            "claude-opus-5-5",
             "claude-sonnet-5",
             "claude-haiku-4-5-20251001",
         ]
         assert claude_code_alias_candidates(served) == {
             "haiku": "claude-haiku-4-5-20251001",
             "sonnet": "claude-sonnet-5",
-            "opus": "claude-opus-5",
+            "opus": "claude-opus-5-5",
         }
 
     def test_an_unversioned_id_still_qualifies(self):

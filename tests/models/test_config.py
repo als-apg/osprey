@@ -31,8 +31,8 @@ def test_a_job_on_another_provider_takes_that_provider_default():
 
 
 def test_the_deployment_default_applies_when_no_deployment_provider_is_named():
-    config = {"claude_code": {"default_model": "claude-opus-5"}, "api": {"providers": {}}}
-    assert main_model_id(config, "als-apg") == "claude-opus-5"
+    config = {"claude_code": {"default_model": "claude-opus-5-5"}, "api": {"providers": {}}}
+    assert main_model_id(config, "als-apg") == "claude-opus-5-5"
 
 
 def test_neither_key_is_an_error_naming_both():
