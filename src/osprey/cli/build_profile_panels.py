@@ -13,8 +13,11 @@ Reach Contract copies addresses from the host's render), so nothing about
 inheritance moves; only ``enabled`` does, and it says exactly one thing:
 *selected here*.
 
-:func:`panel_selection_overrides` is that projection, applied on the ordinary
-config-override path after the injectors have written their blocks.
+:func:`panel_selection_overrides` is that projection, keyed by id.
+:func:`apply_panel_selection` writes it into the rendered document after the
+injectors have written their blocks. It indexes each block by its id rather
+than through a dotted key, because an id may carry a dot and a dotted key is
+split at every one.
 :func:`panel_selection_errors` is the model-time refusal of an authored
 ``enabled`` that contradicts the selection — the same rule
 :func:`osprey.cli.build_profile_reach.reach_override_errors` applies to a pinned
@@ -26,6 +29,7 @@ The predicate every reader of a block then shares is
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
 from osprey.profiles.web_panels import (
@@ -37,6 +41,7 @@ from osprey.profiles.web_panels import (
 from .build_profile_reach import spelled_values
 
 __all__ = [
+    "apply_panel_selection",
     "bar_items_selection_warnings",
     "panel_id_errors",
     "panel_selection_errors",
@@ -50,27 +55,66 @@ _BAR_HOSTS: tuple[str, ...] = ("header", "status")
 def panel_selection_overrides(
     selected_panels: Iterable[str], rendered_config: Mapping[str, Any]
 ) -> dict[str, bool]:
-    """``web.panels.<id>.enabled`` for every block the render carries.
+    """The ``enabled`` every block the render carries is told, keyed by its id.
 
     ``True`` for a selected (or universal) panel, ``False`` for any other block
     — whatever wrote it and whatever else it says. Only blocks that exist are
     annotated: a selected panel with no block is the template's or an
     injector's to write (and, for a Reach tab, ``selected_panel_errors``'s to
-    refuse), not this function's.
+    refuse), not this function's. The id is the block's key as the render
+    wrote it, dots included.
 
     Args:
         selected_panels: The profile's resolved ``web_panels`` selection.
         rendered_config: The render's ``config.yml``, after the injectors.
 
     Returns:
-        Dotted keys to apply on the config-override path, in block order.
+        Panel id to ``enabled``, in block order, for :func:`apply_panel_selection`.
     """
     web = rendered_config.get("web") if isinstance(rendered_config, Mapping) else None
     panels = web.get("panels") if isinstance(web, Mapping) else None
     if not isinstance(panels, Mapping):
         return {}
     shown = set(selected_panels) | UNIVERSAL_PANELS
-    return {f"web.panels.{pid}.enabled": pid in shown for pid in panels}
+    return {str(pid): str(pid) in shown for pid in panels}
+
+
+def apply_panel_selection(config_path: Path, projection: Mapping[str, bool]) -> None:
+    """Write each block's ``enabled`` into the rendered ``config.yml``.
+
+    Each block is indexed by its id as one key, so ``beam.viewer`` is told
+    under ``web.panels["beam.viewer"]`` and nowhere else. A block that is not a
+    mapping, such as ``okf: true``, carries no other fact, so it becomes
+    ``{enabled: <shown>}``. The write goes through
+    :func:`osprey.utils.config_writer.anchored_put`, the public writer with the
+    same trailing-section-comment handling a new dotted key gets.
+
+    Args:
+        config_path: The render's ``config.yml``.
+        projection: Panel id to ``enabled``, from :func:`panel_selection_overrides`.
+    """
+    from osprey.utils.config_writer import (
+        anchored_put,
+        load_config_document,
+        save_config_document,
+    )
+
+    if not projection:
+        return
+    document = load_config_document(config_path)
+    web = document.get("web") if isinstance(document, Mapping) else None
+    panels = web.get("panels") if isinstance(web, Mapping) else None
+    if not isinstance(panels, dict):
+        return
+    for pid, shown in projection.items():
+        if pid not in panels:
+            continue
+        block = panels[pid]
+        if isinstance(block, dict):
+            anchored_put(block, "enabled", shown)
+        else:
+            anchored_put(panels, pid, {"enabled": shown})
+    save_config_document(config_path, document)
 
 
 def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[str]:

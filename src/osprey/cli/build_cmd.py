@@ -1938,7 +1938,7 @@ def _render_project(
     from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
-    from .build_profile_panels import panel_selection_overrides
+    from .build_profile_panels import apply_panel_selection, panel_selection_overrides
     from .build_profile_ports import layout_port_fill
     from .build_profile_reach import (
         attached_render_overrides,
@@ -2227,8 +2227,8 @@ def _render_project(
             build_profile.web_panels or (), _rendered_config(render_dir)
         )
         if projected_tabs:
-            _apply_config_overrides(render_dir, projected_tabs)
-            off = sorted(key.split(".")[2] for key, shown in projected_tabs.items() if not shown)
+            apply_panel_selection(render_dir / "config.yml", projected_tabs)
+            off = sorted(pid for pid, shown in projected_tabs.items() if not shown)
             if off:
                 progress(
                     "  ✓ Switched off %d panel block(s) this profile does not select: %s",
