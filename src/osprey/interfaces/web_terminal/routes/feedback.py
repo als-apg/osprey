@@ -429,7 +429,7 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
             {"text": text, "context": record_context, "scrollback": scrollback},
             record_id=record_id,
         )
-    except Exception as exc:  # noqa: BLE001 — surfaced as a 5xx, never swallowed
+    except Exception as exc:  # surfaced as a 5xx, never swallowed
         logger.warning("feedback: could not write a record to %s", feedback_dir, exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"could not record the feedback submission: {exc}"
@@ -437,7 +437,7 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
 
     try:
         prune_store(feedback_dir, _max_store_bytes(request))
-    except Exception:  # noqa: BLE001 — the record is written; a full store is not this user's problem
+    except Exception:  # the record is written; a full store is not this user's problem
         logger.warning("feedback: could not prune %s", feedback_dir, exc_info=True)
 
     return {"id": record_id, "payload": payload, "context_status": material.context_status}

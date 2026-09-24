@@ -59,7 +59,7 @@ class _Roots:
         """Run *guard* + *probe* in a real subprocess and return its stdout."""
         script = self.tmp / "probe_script.py"
         script.write_text(guard + "\n" + textwrap.dedent(probe) + "\n", encoding="utf-8")
-        proc = subprocess.run(  # noqa: S603 - fixed argv, test-authored script
+        proc = subprocess.run(  # fixed argv, test-authored script
             [sys.executable, str(script)],
             capture_output=True,
             text=True,

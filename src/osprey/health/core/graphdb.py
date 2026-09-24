@@ -211,7 +211,7 @@ def _probe(connection: GraphdbConnection) -> list[CheckResult]:
             auth=(connection.username, connection.password),
             connection_acquisition_timeout=_CONNECTION_TIMEOUT_S,
         )
-    except Exception as exc:  # noqa: BLE001 - a bad address degrades, never crashes
+    except Exception as exc:  # a bad address degrades, never crashes
         return [_unreachable_row(connection, exc, perf_counter() - start)]
 
     try:
@@ -219,7 +219,7 @@ def _probe(connection: GraphdbConnection) -> list[CheckResult]:
             driver.execute_query(_PING_QUERY)
         except AuthError as exc:
             return [_auth_row(connection, exc, perf_counter() - start)]
-        except Exception as exc:  # noqa: BLE001 - any dial failure is a warning
+        except Exception as exc:  # any dial failure is a warning
             return [_unreachable_row(connection, exc, perf_counter() - start)]
 
         latency_ms = (perf_counter() - start) * 1000.0
@@ -239,7 +239,7 @@ def _probe(connection: GraphdbConnection) -> list[CheckResult]:
     finally:
         try:
             driver.close()
-        except Exception:  # noqa: BLE001 - closing is best-effort teardown
+        except Exception:  # closing is best-effort teardown
             pass
 
 
@@ -263,7 +263,7 @@ def _read_resource_count(driver: Any) -> tuple[int | None, str]:
         result = driver.execute_query(_RESOURCE_COUNT_QUERY)
         records = list(result.records)
         return (int(records[0]["count"]) if records else 0), ""
-    except Exception as exc:  # noqa: BLE001 - an unreadable count is a warning
+    except Exception as exc:  # an unreadable count is a warning
         return None, str(exc)
 
 
@@ -325,7 +325,7 @@ def _seed_row(driver: Any, count: int | None) -> CheckResult:
         record = records[0] if records else None
         sha256 = record["sha256"] if record is not None else None
         direction_source = record["direction_source"] if record is not None else None
-    except Exception as exc:  # noqa: BLE001 - an unreadable marker is a warning
+    except Exception as exc:  # an unreadable marker is a warning
         return CheckResult(
             _SEED_ROW,
             CATEGORY,

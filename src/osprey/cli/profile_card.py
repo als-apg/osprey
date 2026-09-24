@@ -633,7 +633,7 @@ def print_profile_card(
 
     try:
         lines = _card_segment_lines(profile, persona_deltas)
-    except Exception as exc:  # noqa: BLE001 — see docstring: the card is advisory
+    except Exception as exc:  # see docstring: the card is advisory
         logger.debug("Profile card skipped: %s", exc)
         return
     reporter = current_reporter()

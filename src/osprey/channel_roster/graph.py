@@ -152,7 +152,7 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
             ChannelRecord(address=address, source=source, direction=direction, readback=readback)
             for address, direction, readback in rows
         )
-    except Exception as e:  # noqa: BLE001 - an index we cannot read is data, not a crash
+    except Exception as e:  # an index we cannot read is data, not a crash
         # An index carrying our meta row can still carry a row that is not a
         # channel -- a readback on a readable address, an empty address. The
         # file is there and this build cannot use it, which is the corrupt

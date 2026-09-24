@@ -144,15 +144,15 @@ class FakeDriver:
         self.values = dict(values or {})
         self.calls: list[tuple[str, str, object]] = []
 
-    def setParam(self, reason: str, value: object) -> None:  # noqa: N802 - driver contract
+    def setParam(self, reason: str, value: object) -> None:  # driver contract
         self.values[reason] = value
         self.calls.append(("setParam", reason, value))
 
-    def getParam(self, reason: str) -> object:  # noqa: N802 - driver contract
+    def getParam(self, reason: str) -> object:  # driver contract
         self.calls.append(("getParam", reason, None))
         return self.values[reason]
 
-    def updatePV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def updatePV(self, reason: str) -> None:  # driver contract
         self.calls.append(("updatePV", reason, None))
 
     def posted(self) -> list[str]:
@@ -763,7 +763,7 @@ class TestBootReconciliation:
         would write into a spec nobody serves for the life of the process."""
 
         class ExplodingReadDriver(FakeDriver):
-            def getParam(self, reason: str) -> object:  # noqa: N802 - driver contract
+            def getParam(self, reason: str) -> object:  # driver contract
                 if reason == "X:1":
                     raise RuntimeError(f"driver read failed for {reason!r}")
                 return super().getParam(reason)

@@ -305,7 +305,7 @@ def _claim_cell() -> None:
         tmp.write_text(json.dumps(marker), encoding="utf-8")
         os.replace(tmp, path)
         _cell_marker = path
-    except Exception:  # noqa: BLE001 - an unclaimed cell is not worth the cell
+    except Exception:  # an unclaimed cell is not worth the cell
         logger.warning("Could not claim this cell against a target switch", exc_info=True)
 
 

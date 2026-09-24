@@ -500,7 +500,7 @@ def _terminal_theme(config: dict) -> str | None:
 
         entries, _ = load_theme_registry()
         return resolve_pinned_mode(str(configured), entries)
-    except Exception as exc:  # noqa: BLE001 — cosmetic key, never render-blocking
+    except Exception as exc:  # cosmetic key, never render-blocking
         logger.warning("Could not resolve web.theme %r for the terminal (%r)", configured, exc)
         return None
 

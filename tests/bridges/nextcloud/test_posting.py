@@ -765,7 +765,7 @@ def test_a_bare_mention_after_allowed_punctuation_is_neutralised(before, after):
     assert TALK_BARE_MENTION_RE_SAFE(after)
 
 
-def TALK_BARE_MENTION_RE_SAFE(text: str) -> bool:  # noqa: N802 - reads as a predicate
+def TALK_BARE_MENTION_RE_SAFE(text: str) -> bool:  # reads as a predicate
     """No bare mention the Talk server would parse is left in ``text``."""
     return neutralise_bare_mentions(text, members=lambda: None) == text
 

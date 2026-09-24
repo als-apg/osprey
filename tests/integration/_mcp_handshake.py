@@ -71,7 +71,7 @@ def list_mcp_tools(
         full_env.update(env)
 
     try:
-        proc = subprocess.Popen(  # noqa: S603 - command comes from generated .mcp.json
+        proc = subprocess.Popen(  # command comes from generated .mcp.json
             [command, *args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

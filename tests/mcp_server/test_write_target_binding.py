@@ -216,7 +216,7 @@ def _live_other_pid():
 
 def _dead_pid():
     """A PID that has certainly exited: a child run to completion and reaped."""
-    proc = subprocess.Popen([sys.executable, "-c", ""])  # noqa: S603 - fixed argv
+    proc = subprocess.Popen([sys.executable, "-c", ""])  # fixed argv
     proc.wait()
     return proc.pid
 

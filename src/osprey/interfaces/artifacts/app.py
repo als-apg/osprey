@@ -365,7 +365,7 @@ def _resolve_pinned_web_theme() -> str | None:
         # No config primed (standalone gallery, tests) — not a fault.
         logger.debug("No config available for web.theme; served pages are unpinned")
         return None
-    except Exception:  # noqa: BLE001 - config/registry trouble must not block startup
+    except Exception:  # config/registry trouble must not block startup
         logger.warning(
             "Could not resolve web.theme for served artifact pages; "
             "they will follow the viewer's own preference",

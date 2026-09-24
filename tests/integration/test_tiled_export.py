@@ -125,7 +125,7 @@ def _serving_uri(container: Any, timeout: float = 90.0) -> str:
             uri = f"http://{container.get_container_host_ip()}:{port}"
             if httpx.get(f"{uri}/healthz", timeout=2.0).status_code == 200:
                 return uri
-        except Exception:  # noqa: S110 - any failure here is "not up yet"
+        except Exception:  # any failure here is "not up yet"
             pass
         time.sleep(0.5)
     logs = ""

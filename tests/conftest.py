@@ -1792,7 +1792,7 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
                 graph_index_cache.entries[digest] = cached
             target.index_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(cached, target.index_path)
-        except Exception:  # noqa: BLE001 - the real hook decides what a failure costs
+        except Exception:  # the real hook decides what a failure costs
             return real_hook(shared, target, progress)
 
         # The build's own memo, kept consistent: a later render pass of the

@@ -80,8 +80,8 @@ def _free_port() -> int:
 def _http_get_json(
     url: str, timeout: float = 5.0, headers: dict[str, str] | None = None
 ) -> dict | list:
-    req = urllib.request.Request(url, method="GET", headers=headers or {})  # noqa: S310 - localhost only
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+    req = urllib.request.Request(url, method="GET", headers=headers or {})  # localhost only
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -107,8 +107,8 @@ def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
                 f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(proc)}"
             )
         try:
-            req = urllib.request.Request(url, method="GET")  # noqa: S310 - localhost only
-            with urllib.request.urlopen(req, timeout=3.0) as resp:  # noqa: S310
+            req = urllib.request.Request(url, method="GET")  # localhost only
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -306,13 +306,13 @@ def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
 def _fire_webhook(dispatcher_url: str, trigger: str, payload: dict) -> str:
     """Fire a trigger's webhook; return the dispatch_id of the queued run."""
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{dispatcher_url}/webhook/{trigger}",
         data=body,
         method="POST",
         headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=10.0) as resp:
         assert resp.status == 202, f"expected 202 from webhook, got {resp.status}"
         fired = json.loads(resp.read().decode("utf-8"))
     assert fired.get("dispatched") is True, fired

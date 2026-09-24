@@ -122,7 +122,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             now,
             timeout=int(timeout_s),
         )
-    except Exception as exc:  # noqa: BLE001 - any archiver failure becomes an error result
+    except Exception as exc:  # any archiver failure becomes an error result
         latency_ms = (perf_counter() - t0) * 1000.0
         return CheckResult(
             name,
@@ -184,7 +184,7 @@ def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
         from osprey.utils.config import get_config_value
 
         block = get_config_value("archiver", {})
-    except Exception:  # noqa: BLE001 - config unavailability degrades to no block
+    except Exception:  # config unavailability degrades to no block
         return {}
     return block if isinstance(block, Mapping) else {}
 

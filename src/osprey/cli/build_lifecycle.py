@@ -275,7 +275,7 @@ def _run_lifecycle_phase(
                     stderr=subprocess.STDOUT,
                     text=True,
                 )
-                assert proc.stdout is not None  # noqa: S101
+                assert proc.stdout is not None
 
                 stop_drain = threading.Event()
                 reader = threading.Thread(

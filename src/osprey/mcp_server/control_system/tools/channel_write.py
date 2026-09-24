@@ -197,7 +197,7 @@ def _project_observed_value(value: object) -> object:
         if array.ndim == 0 or array.size <= get_read_inline_max_elements():
             return array.tolist() if isinstance(value, np.ndarray) else value
         return _array_summary(array, np, ARTIFACT_REASON_PER_VALUE)
-    except Exception:  # noqa: BLE001 - a reading that cannot be measured is reported as it came
+    except Exception:  # a reading that cannot be measured is reported as it came
         logger.debug("Could not measure an observed value for projection", exc_info=True)
         return value
 

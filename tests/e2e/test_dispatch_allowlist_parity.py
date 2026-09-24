@@ -222,13 +222,13 @@ def worker(request) -> Iterator[str]:
 
 def _http_json(url: str, payload: dict | None = None) -> dict:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         url,
         data=body,
         method="POST" if body else "GET",
         headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=30.0) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=30.0) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

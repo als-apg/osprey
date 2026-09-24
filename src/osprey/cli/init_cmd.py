@@ -1520,7 +1520,7 @@ def _surviving_project_resources(target: Path, runtime: str) -> list[str]:
                 *probe.volumes_for_project(project),
             )
         ]
-    except Exception:  # noqa: BLE001 — see docstring: never mask the real failure
+    except Exception:  # see docstring: never mask the real failure
         return []
 
 

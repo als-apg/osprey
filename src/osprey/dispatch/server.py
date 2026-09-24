@@ -329,7 +329,7 @@ class _DispatcherTokenVerifier(TokenVerifier):
 
 
 @asynccontextmanager
-async def _dispatch_lifespan(_):  # noqa: ANN001, ANN202 - FastMCP passes the app instance
+async def _dispatch_lifespan(_):  # FastMCP passes the app instance
     """Register triggers and start sources once the serving loop is up.
 
     All route registration happens at factory time in ``create_server()``; this

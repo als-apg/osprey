@@ -102,7 +102,7 @@ def _preset_config() -> dict[str, Any]:
     Returns:
         The preset's ``config:`` mapping.
     """
-    import osprey.profiles  # noqa: PLC0415
+    import osprey.profiles
 
     path = Path(osprey.profiles.__file__).parent / "presets" / f"{PRESET}.yml"
     return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("config") or {}

@@ -180,7 +180,7 @@ def _pinned_cli_version(render_dir: Path) -> str | None:
         config = yaml.safe_load(config_path.read_text()) or {}
         version = (config.get("claude_code") or {}).get("cli_version")
         return version.strip() if isinstance(version, str) and version.strip() else None
-    except Exception as exc:  # noqa: BLE001 — a version is nice-to-have, never blocking
+    except Exception as exc:  # a version is nice-to-have, never blocking
         logger.warning("Could not read cli_version from %s (%r)", config_path, exc)
         return None
 
@@ -207,7 +207,7 @@ def _api_key_digest(render_dir: Path, env: Mapping[str, str]) -> str | None:
             (config.get("api") or {}).get("providers") or {},
             include_telemetry=False,
         )
-    except Exception as exc:  # noqa: BLE001 — the other seeds must still land
+    except Exception as exc:  # the other seeds must still land
         logger.warning("Could not resolve the provider spec from %s (%r)", config_path, exc)
         return None
     if spec is None or spec.auth_env_var != _PROMPTED_AUTH_ENV_VAR:

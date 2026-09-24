@@ -398,7 +398,7 @@ class MockQueueServer:
         one the real wrapper builds, not a name parsed out of the script text.
         """
         await self._enter("script_upload", **kwargs)
-        exec(kwargs["script"], self.namespace, self.namespace)  # noqa: S102
+        exec(kwargs["script"], self.namespace, self.namespace)
         return {"success": True, "task_uid": f"task-{len(self.kwargs_for('script_upload'))}"}
 
     async def task_result(self, **kwargs: Any) -> dict[str, Any]:

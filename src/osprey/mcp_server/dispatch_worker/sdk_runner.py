@@ -563,7 +563,7 @@ async def run_dispatch(
         from osprey_connectors.workspace import resolve_shared_data_root
 
         sdk_env[OSPREY_AGENT_DATA_ROOT] = str(resolve_shared_data_root())
-    except Exception:  # noqa: BLE001 — a dispatch must not fail on a config load
+    except Exception:  # a dispatch must not fail on a config load
         logger.warning(
             "Could not resolve the agent-data root for the dispatch agent's environment; "
             "readers below the spawn will derive it themselves",

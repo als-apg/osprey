@@ -939,7 +939,7 @@ def _names_a_profile(project_dir: Path) -> bool:
         from osprey.cli.templates.manifest import manifest_profile_path
 
         return manifest_profile_path(project_dir) is not None
-    except Exception as exc:  # noqa: BLE001 - the gallery must open regardless
+    except Exception as exc:  # the gallery must open regardless
         logger.warning("Could not read the manifest for %s: %s", project_dir, exc)
         return False
 
@@ -957,7 +957,7 @@ def _reachable_profile_root(project_dir: Path) -> Path | None:
 
     try:
         root = profile_root_or_none(project_dir)
-    except Exception as exc:  # noqa: BLE001 - the gallery must open regardless
+    except Exception as exc:  # the gallery must open regardless
         logger.warning("Could not resolve the profile for %s: %s", project_dir, exc)
         return None
     if root is None or not os.access(root, os.W_OK):
@@ -1022,7 +1022,7 @@ def profile_artifacts(profile_root: Path | None) -> dict[str, ProfileArtifact]:
         from osprey.cli.profile_conventions import plan_convention_copies
 
         copies = plan_convention_copies(profile_root)
-    except Exception as exc:  # noqa: BLE001 - the gallery must open regardless
+    except Exception as exc:  # the gallery must open regardless
         logger.warning("Could not read the profile at %s: %s", profile_root, exc)
         return {}
 
@@ -1185,7 +1185,7 @@ def is_pristine_from_image(
     """
     try:
         framework = render_framework(name)
-    except Exception as exc:  # noqa: BLE001 - a render failure must not clobber an edit
+    except Exception as exc:  # a render failure must not clobber an edit
         logger.warning("Could not render %s to check for local edits: %s", name, exc)
         return False
     return framework is not None and framework == current

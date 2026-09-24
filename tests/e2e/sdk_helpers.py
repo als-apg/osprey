@@ -204,7 +204,7 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
     try:
         with psycopg.connect(uri, connect_timeout=3) as conn:
             row = conn.execute("SELECT count(*) FROM enhanced_entries").fetchone()
-    except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
+    except Exception as exc:  # any failure means "not ready"
         return (
             f"ARIEL Postgres at {where} not reachable ({exc.__class__.__name__}) — scenario "
             "tests need a live, seeded ARIEL logbook DB. Bring it up with "

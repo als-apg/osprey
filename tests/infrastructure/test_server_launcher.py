@@ -157,7 +157,7 @@ class _Fake302Handler(urllib.request.HTTPHandler):
     which is what keeps this test off the network.
     """
 
-    def http_open(self, req):  # noqa: D102 - the class docstring says it
+    def http_open(self, req):  # the class docstring says it
         headers = email.message.Message()
         headers["Location"] = "http://127.0.0.1:9/somewhere-else"
         response = addinfourl(io.BytesIO(b""), headers, req.full_url, 302)

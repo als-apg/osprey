@@ -196,7 +196,7 @@ def sandbox_cause() -> tuple[str, str | None]:
         return CAUSE_DEPLOYMENT_READONLY, None
     try:
         return CAUSE_NARROWED_TARGET, recorded_control_target()
-    except Exception:  # noqa: BLE001 - the name degrades; the refusal does not
+    except Exception:  # the name degrades; the refusal does not
         logger.warning(
             "Could not name the active control target for the posture refusal",
             exc_info=True,
@@ -299,7 +299,7 @@ def recorded_control_target() -> str | None:
             )
 
         record = control_context.read_record()
-    except Exception:  # noqa: BLE001 — an unreadable record is "unknown"
+    except Exception:  # an unreadable record is "unknown"
         logger.debug(
             "Control-context record unavailable; the control target is unknown", exc_info=True
         )
@@ -329,6 +329,6 @@ def _target_is_sandboxed() -> bool:
         if target is None:
             return False
         return posture_store.target_posture(target) == posture_store.POSTURE_SANDBOX
-    except Exception:  # noqa: BLE001 — posture() is called on every tool call
+    except Exception:  # posture() is called on every tool call
         logger.debug("Control-context record unavailable; answering the environment", exc_info=True)
         return False

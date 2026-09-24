@@ -74,7 +74,7 @@ def _build_engine(
         lifecycle = HealthRuntimeLifecycle(restart_hint="restart the web terminal")
         engine = HealthCheckEngine(loader=loader, lifecycle=lifecycle, config_path=config_path)
         return engine, lifecycle
-    except Exception:  # noqa: BLE001 — degrade to guarded mode, never raise.
+    except Exception:  # degrade to guarded mode, never raise.
         logger.warning(
             "system-health: could not wire the refresh engine; serving guarded app "
             "(/checks returns a degraded envelope).",

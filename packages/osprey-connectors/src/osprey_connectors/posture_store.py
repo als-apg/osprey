@@ -558,7 +558,7 @@ def agent_data_root() -> Path | None:
         return stamped
     try:
         return resolve_shared_data_root()
-    except Exception:  # noqa: BLE001 — an unresolvable root is "no record", not a crash
+    except Exception:  # an unresolvable root is "no record", not a crash
         logger.debug("Could not resolve the shared data root for the control state", exc_info=True)
         return None
 
@@ -691,7 +691,7 @@ def recorded_posture() -> dict[str, str]:
         from osprey_connectors import control_context
 
         record = control_context.read_record()
-    except Exception:  # noqa: BLE001 — every reader here sits on a write path
+    except Exception:  # every reader here sits on a write path
         logger.debug("Control-context record unavailable; nothing is narrowed", exc_info=True)
         return {}
     return {} if record is None else record.posture
@@ -717,7 +717,7 @@ def invalidate_cache() -> None:
         from osprey_connectors import control_context
 
         control_context.invalidate_cache()
-    except Exception:  # noqa: BLE001 — dropping a cache must not raise into a caller
+    except Exception:  # dropping a cache must not raise into a caller
         logger.debug("Could not drop the control-context cache", exc_info=True)
 
 
@@ -994,7 +994,7 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
     except FileNotFoundError:
         # No record for this owner: the same answer as no directory.
         return _TreeRead({}, None)
-    except Exception as exc:  # noqa: BLE001 — every failure here REFUSES
+    except Exception as exc:  # every failure here REFUSES
         # Blanket on purpose, and the opposite of the one this reader avoids:
         # an unexpected failure on a present record leaves a narrowing that may
         # exist unread, so it answers unavailable rather than permitted.

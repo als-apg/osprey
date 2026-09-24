@@ -169,7 +169,7 @@ def check_venue(
 
     try:
         import_module(PVA_MODULE)
-    except Exception as exc:  # noqa: BLE001 - any import failure is the failure
+    except Exception as exc:  # any import failure is the failure
         raise AssertionError(f"{MISSING_VENUE_HINT} Import failed with: {exc!r}") from exc
 
     found = installed_version(PVA_MODULE)
@@ -206,7 +206,7 @@ def check_live_suite_runs(
         import_module(LIVE_SUITE_MODULE)
     except pytest.skip.Exception as exc:
         raise AssertionError(f"{SKIPPED_SUITE_HINT} It skipped with: {exc}") from exc
-    except Exception as exc:  # noqa: BLE001 - a suite that cannot import cannot run
+    except Exception as exc:  # a suite that cannot import cannot run
         raise AssertionError(f"{SKIPPED_SUITE_HINT} It failed to import with: {exc!r}") from exc
 
 

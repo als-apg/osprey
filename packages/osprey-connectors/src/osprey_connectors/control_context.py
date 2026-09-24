@@ -384,7 +384,7 @@ def parse_record(raw: Any) -> ControlContext | None:
     if isinstance(raw, str | bytes | bytearray):
         try:
             raw = json.loads(raw)
-        except Exception:  # noqa: BLE001 — an unreadable record is "no record"
+        except Exception:  # an unreadable record is "no record"
             logger.warning("Control-context record is not valid JSON; ignoring")
             return None
     if not isinstance(raw, dict):
@@ -960,7 +960,7 @@ def _read_payload(path: Path) -> dict[str, Any] | None:
         return None
     try:
         loaded = json.loads(raw)
-    except Exception:  # noqa: BLE001 — a half-written report is skipped, not fatal
+    except Exception:  # a half-written report is skipped, not fatal
         logger.debug("Server report %s is not valid JSON; skipping it", path.name)
         return None
     return loaded if isinstance(loaded, dict) else None

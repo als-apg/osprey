@@ -116,7 +116,7 @@ class _MediaObject:
 class _ChatHandler(_FakeHandler):
     fake: ClassVar[FakeChatServer]
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
+    def do_POST(self) -> None:  # http.server API
         path, params = self.split_path()
         match = _MESSAGES_COLLECTION.match(path)
         if match is None:
@@ -130,7 +130,7 @@ class _ChatHandler(_FakeHandler):
             return
         self.respond_json(200, message)
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:  # http.server API
         path, params = self.split_path()
 
         media = _MEDIA.match(path)
@@ -247,7 +247,9 @@ class FakeChatServer(FakeHttpService):
             self._media[resource_name] = _MediaObject(data, content_type)
         return resource_name
 
-    def add_member(self, space: str, user: str, *, type: str = "HUMAN") -> None:  # noqa: A002 - Chat's field name
+    def add_member(
+        self, space: str, user: str, *, type: str = "HUMAN"
+    ) -> None:  # Chat's field name
         """Seed one joined membership of ``space``: ``user`` is a ``users/…`` name.
         Seeded members survive :meth:`reset`, like registered media."""
         with self._lock:

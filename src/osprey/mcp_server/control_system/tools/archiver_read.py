@@ -205,13 +205,13 @@ async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _Cov
     """
     try:
         availability = await connector.check_availability(channels)
-    except Exception:  # noqa: BLE001 — any probe failure degrades, none propagate
+    except Exception:  # any probe failure degrades, none propagate
         availability = {}
     probes: dict[str, _CoverageProbe] = {}
     for ch in channels:
         try:
             md = await connector.get_metadata(ch)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             probes[ch] = _CoverageProbe(
                 available=availability.get(ch), metadata=None, note=f"metadata probe failed: {exc}"
             )

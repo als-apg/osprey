@@ -117,7 +117,7 @@ def _worker(request: dict) -> dict:
     for address in request["addresses"]:
         try:
             values[address] = connect(address).get(use_monitor=False, timeout=timeout)
-        except Exception as error:  # noqa: BLE001 - reported to the test, not raised here
+        except Exception as error:  # reported to the test, not raised here
             failed[address] = f"{type(error).__name__}: {error}"
     return {"values": values, "failed": failed}
 
@@ -482,7 +482,7 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
         try:
             if served.read(probe)[probe] is not None:
                 return
-        except Exception:  # noqa: BLE001 - "not up yet" is the expected case here
+        except Exception:  # "not up yet" is the expected case here
             pass
         time.sleep(2.0)
 

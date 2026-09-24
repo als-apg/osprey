@@ -72,7 +72,7 @@ class StoredObject:
 class _GcsHandler(_FakeHandler):
     fake: ClassVar[FakeGcsServer]
 
-    def do_PUT(self) -> None:  # noqa: N802 - http.server API
+    def do_PUT(self) -> None:  # http.server API
         path, _ = self.split_path()
         match = _OBJECT.match(path)
         if match is None:
@@ -86,7 +86,7 @@ class _GcsHandler(_FakeHandler):
         )
         self.respond_json(200, _metadata(stored))
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
+    def do_POST(self) -> None:  # http.server API
         path, params = self.split_path()
         match = _JSON_UPLOAD.match(path)
         if match is None:
@@ -106,10 +106,10 @@ class _GcsHandler(_FakeHandler):
         )
         self.respond_json(200, _metadata(stored))
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:  # http.server API
         self._read(write_body=True)
 
-    def do_HEAD(self) -> None:  # noqa: N802 - http.server API
+    def do_HEAD(self) -> None:  # http.server API
         self._read(write_body=False)
 
     def _read(self, *, write_body: bool) -> None:

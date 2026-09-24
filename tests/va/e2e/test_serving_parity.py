@@ -398,7 +398,7 @@ def _serving(prefix: str, *, seeded: bool):
             try:
                 if accelerator.value(REFERENCE_RB) is not None:
                     break
-            except Exception:  # noqa: BLE001 - not up yet is the expected case
+            except Exception:  # not up yet is the expected case
                 pass
             time.sleep(1.0)
         else:

@@ -67,7 +67,7 @@ def store_path() -> Path | None:
     """
     try:
         directory = posture_store.state_dir()
-    except Exception:  # noqa: BLE001 — an unresolvable root is "no file", not a crash
+    except Exception:  # an unresolvable root is "no file", not a crash
         logger.warning("The transcript map's location does not resolve", exc_info=True)
         return None
     return None if directory is None else directory / STORE_FILENAME

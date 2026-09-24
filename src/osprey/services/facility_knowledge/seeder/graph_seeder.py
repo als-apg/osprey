@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
     # Only imported at type-checking time so the runtime import stays lazy.
-    from neo4j import Session  # noqa: F401
+    from neo4j import Session
 
 # ---------------------------------------------------------------------------
 # Canonical n10s configuration (single source of truth)
@@ -179,7 +179,7 @@ def _server_identity(session: Session) -> str:
         for record in session.run(_COMPONENTS_CYPHER):
             if record["name"] == "Neo4j Kernel":
                 return f"{record['versions'][0]} {record['edition']}"
-    except Exception:  # noqa: BLE001 — see docstring
+    except Exception:  # see docstring
         pass
     return "<unknown version>"
 

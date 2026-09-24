@@ -152,7 +152,7 @@ def _close_all(opened: list[Any]) -> None:
     for publisher in reversed(opened):
         try:
             publisher.close()
-        except Exception:  # noqa: BLE001 — teardown reports, it does not fail
+        except Exception:  # teardown reports, it does not fail
             logging.getLogger(__name__).warning("publisher close failed", exc_info=True)
 
 

@@ -332,7 +332,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own so a
@@ -355,7 +355,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=5.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -405,11 +405,9 @@ def _request(
         headers["Content-Type"] = "application/json"
     if token:
         headers["X-Launch-Token"] = token
-    req = urllib.request.Request(  # noqa: S310
-        f"{BRIDGE_URL}{path}", data=data, method=method, headers=headers
-    )
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))

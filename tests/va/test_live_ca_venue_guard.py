@@ -146,7 +146,7 @@ def check_venue(
 
     try:
         import_module(LIVE_CA_MODULE)
-    except Exception as exc:  # noqa: BLE001 - any import failure is the failure
+    except Exception as exc:  # any import failure is the failure
         raise AssertionError(f"{MISSING_VENUE_HINT} Import failed with: {exc!r}") from exc
 
     found = installed_version(LIVE_CA_MODULE)

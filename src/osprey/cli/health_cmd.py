@@ -370,7 +370,7 @@ def health(
         except KeyboardInterrupt:
             output.warn("Health check interrupted")
             exit_code = 130
-        except Exception as exc:  # noqa: BLE001 - top-level guard: any failure is exit 3
+        except Exception as exc:  # top-level guard: any failure is exit 3
             output.fail("Health check failed", str(exc))
             if verbose:
                 # A traceback is a block, not a line: it goes at the one stderr

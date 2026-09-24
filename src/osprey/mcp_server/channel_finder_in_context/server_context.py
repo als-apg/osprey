@@ -183,7 +183,7 @@ class ChannelFinderICContext:
                 model=self._subagent_model_id,
                 text=self._system_prompt_with_db,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning(
                 "ChannelFinderICContext: token_counter failed for model %s "
                 "(%s) — input_tokens will be reported as user-query tokens only",

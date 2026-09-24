@@ -494,9 +494,7 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         # copy here would be free to drift from the file the engine actually
         # reads. Private only because nothing outside the engine needed it
         # before.
-        _names, anchor_epoch = SimulationEngine._parse_state(  # noqa: SLF001
-            path.read_text(encoding="utf-8")
-        )
+        _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
         if anchor_epoch is not None:
             return datetime.fromtimestamp(anchor_epoch, UTC)
         return None

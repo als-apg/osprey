@@ -70,8 +70,8 @@ from osprey.services.virtual_accelerator.bindings import load_bindings, setpoint
 pytest.importorskip("linkml_runtime")
 pytest.importorskip("duckdb")
 
-from tests.cli.test_mml_emit import VA_ARTIFACTS, VA_SKIPPED  # noqa: E402
-from tests.cli.test_mml_import_chain import FIXTURE_IMPORTS  # noqa: E402
+from tests.cli.test_mml_emit import VA_ARTIFACTS, VA_SKIPPED
+from tests.cli.test_mml_import_chain import FIXTURE_IMPORTS
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 

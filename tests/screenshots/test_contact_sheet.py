@@ -67,9 +67,9 @@ def _get(url: str) -> tuple[int, bytes]:
     from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
     from osprey.interfaces.web_auth import get_web_credentials
 
-    request = urllib.request.Request(url)  # noqa: S310 (loopback)
+    request = urllib.request.Request(url)  # loopback
     request.add_header(OPERATOR_SECRET_HEADER, get_web_credentials().operator_secret)
-    with urllib.request.urlopen(request, timeout=10) as resp:  # noqa: S310 (loopback)
+    with urllib.request.urlopen(request, timeout=10) as resp:  # loopback
         return resp.status, resp.read()
 
 

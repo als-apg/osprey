@@ -36,7 +36,7 @@ def panels_server():
     """Stub web terminal serving GET /api/panels on an ephemeral port."""
 
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - http.server API
+        def do_GET(self):  # http.server API
             body = json.dumps(PANELS_PAYLOAD).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

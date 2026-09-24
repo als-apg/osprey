@@ -263,7 +263,7 @@ class TestPretooluseHookFailClosed:
     async def test_hook_internal_error_denies_and_logs(self, caplog):
         # Arrange — a surfaces mapping that raises on lookup
         class Poisoned(dict):
-            def get(self, *a, **kw):  # noqa: D401
+            def get(self, *a, **kw):
                 raise RuntimeError("boom")
 
         hook = make_pretooluse_hook(TRIGGER_TOOLS, Poisoned(), DENIED)

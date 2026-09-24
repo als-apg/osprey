@@ -100,7 +100,7 @@ class _Sandbox:
         )
         script = self.execution_folder / "wrapped_script.py"
         script.write_text(wrapper, encoding="utf-8")
-        proc = subprocess.run(  # noqa: S603 - fixed argv, test-controlled script
+        proc = subprocess.run(  # fixed argv, test-controlled script
             [sys.executable, str(script)],
             capture_output=True,
             text=True,

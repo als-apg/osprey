@@ -547,7 +547,7 @@ def _prune_channel_history(store, address: str) -> None:
     """
     try:
         store.prune_channel_readings(address, get_channel_read_artifact_retention())
-    except Exception as exc:  # noqa: BLE001 - the reading itself is already saved
+    except Exception as exc:  # the reading itself is already saved
         logger.warning("Retention sweep failed for %s: %s", address, exc)
 
 
@@ -599,7 +599,7 @@ def _persist_oversized_reading(
         reason = "this array layout has no image rendering"
         try:
             png_bytes = _render_png(value, np, color_mode)
-        except Exception as exc:  # noqa: BLE001 - a preview is not worth the read
+        except Exception as exc:  # a preview is not worth the read
             logger.warning("Could not render a preview for %s: %s", address, exc)
             reason = f"rendering failed ({type(exc).__name__})"
 
@@ -748,7 +748,7 @@ async def channel_read(
                             color_mode=_color_mode(cv),
                         )
                     )
-                except Exception as exc:  # noqa: BLE001 - the machine did answer
+                except Exception as exc:  # the machine did answer
                     logger.warning("Could not store oversized reading for %s: %s", addr, exc)
                     summary_fields["artifact_error"] = f"{type(exc).__name__}: {exc}"
                 entry.update(summary_fields)

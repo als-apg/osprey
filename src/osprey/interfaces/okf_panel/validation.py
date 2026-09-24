@@ -77,7 +77,7 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
 
     try:
         entries = bundle.list_concepts()
-    except Exception as exc:  # noqa: BLE001 — warn-only sweep, never propagate.
+    except Exception as exc:  # warn-only sweep, never propagate.
         warnings.append(
             ValidationWarning(
                 concept_id="<bundle>",
@@ -102,7 +102,7 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
                 )
             )
             continue
-        except Exception as exc:  # noqa: BLE001 — never let one bad doc abort.
+        except Exception as exc:  # never let one bad doc abort.
             warnings.append(
                 ValidationWarning(
                     concept_id=concept_id,
@@ -123,7 +123,7 @@ def validate_bundle(bundle: OKFBundle) -> list[ValidationWarning]:
                     detail=str(exc),
                 )
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             warnings.append(
                 ValidationWarning(
                     concept_id=concept_id,
@@ -144,7 +144,7 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
 
     try:
         matches = list(_LINK_RE.finditer(body or ""))
-    except Exception:  # noqa: BLE001 — defensive; regex over str should not fail.
+    except Exception:  # defensive; regex over str should not fail.
         return found
 
     for match in matches:
@@ -173,7 +173,7 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
                 )
             )
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             found.append(
                 ValidationWarning(
                     concept_id=concept_id,
@@ -185,7 +185,7 @@ def _scan_links(bundle: OKFBundle, concept_id: str, body: str) -> list[Validatio
 
         try:
             exists = path.exists()
-        except Exception:  # noqa: BLE001
+        except Exception:
             exists = False
         if not exists:
             found.append(
@@ -230,7 +230,7 @@ def log_validation_summary(
                 return
             if callable(log):
                 log(message)
-        except Exception:  # noqa: BLE001 — logging must never break the sweep.
+        except Exception:  # logging must never break the sweep.
             pass
 
     try:
@@ -245,7 +245,7 @@ def log_validation_summary(
         _emit(f"OKF bundle validation: {len(warnings)} warning(s) ({breakdown}).")
         for w in warnings:
             _emit(f"  [{w.kind}] {w.concept_id}: {w.detail}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 

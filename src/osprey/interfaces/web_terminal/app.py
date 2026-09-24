@@ -193,7 +193,7 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
         await asyncio.to_thread(sidecar.preflight)
         sidecar.spawn()
         await asyncio.to_thread(sidecar.wait_ready, SIDECAR_READY_TIMEOUT)
-    except Exception as exc:  # noqa: BLE001 — a dead panel must not block startup
+    except Exception as exc:  # a dead panel must not block startup
         # The readiness failures already quote the tail in their own message;
         # the preflight ones carry none, so it is appended only when it is new.
         tail = getattr(sidecar, "stderr_tail", "")
@@ -242,7 +242,7 @@ async def _stop_sidecar(panel_id: str, sidecar: object) -> None:
     """
     try:
         await asyncio.to_thread(sidecar.stop)  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 — one stuck sidecar must not block the rest
+    except Exception:  # one stuck sidecar must not block the rest
         logger.warning("Could not stop the %s sidecar", panel_id, exc_info=True)
 
 
@@ -1033,7 +1033,7 @@ def resolve_config_flag(
         from osprey.utils.config import get_config_value
 
         raw = get_config_value(key, default, str(config_path) if config_path is not None else None)
-    except Exception:  # noqa: BLE001 — never let config load block startup
+    except Exception:  # never let config load block startup
         logger.warning(on_error, exc_info=True)
         raw = None
     return coerce_config_flag(key, raw, default)
@@ -1556,7 +1556,7 @@ def _load_bar_items(config_path: str | Path | None = None, *, context: dict | No
 
     try:
         raw = _load_web_ui_config(config_path).get("bar_items")
-    except Exception:  # noqa: BLE001 — an unreadable config renders the shipped bars
+    except Exception:  # an unreadable config renders the shipped bars
         logger.warning("web.bar_items could not be read; using the default layout.")
         return _default()
 
@@ -1856,7 +1856,7 @@ def _create_lifespan(
             chat_turn_timeout_s = float(get_config_value("web.chat_turn_timeout_s", 600))
             chat_idle_timeout_s = float(get_config_value("web.chat_idle_timeout_s", 1800))
             chat_max_sessions = int(get_config_value("web.chat_max_sessions", 5))
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.chat_* config keys; using defaults "
                 "(turn=600s, idle=1800s, max=5)",
@@ -1950,7 +1950,7 @@ def _create_lifespan(
 
             try:
                 restore_scaffold_bodies(Path(app.state.project_cwd))
-            except Exception as exc:  # noqa: BLE001 - never block startup on this
+            except Exception as exc:  # never block startup on this
                 logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
 
         # Resolve and store config_path for the settings API
@@ -1989,7 +1989,7 @@ def _create_lifespan(
             # Kept for the rail-position block below (an unconfigured rail
             # follows the family — see FAMILY_RAIL_DEFAULTS).
             app.state.web_theme_family = web_theme.family
-        except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
+        except Exception:  # never let config/theme-registry load block startup
             logger.warning(
                 "Could not resolve web.theme (config or theme-registry load failed); "
                 "server-rendering fallback theme 'dark'",
@@ -2012,7 +2012,7 @@ def _create_lifespan(
 
             configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
             app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.ui_mode (config load failed); "
                 "server-rendering fallback mode %r",
@@ -2033,7 +2033,7 @@ def _create_lifespan(
                 "OSPREY_WEB_TOUR", ""
             ).strip() or load_osprey_config().get("web", {}).get("tour", DEFAULT_TOUR_POLICY)
             app.state.web_tour_policy = resolve_tour_policy(configured_tour)
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.tour (config load failed); falling back to policy %r",
                 DEFAULT_TOUR_POLICY,
@@ -2059,7 +2059,7 @@ def _create_lifespan(
             # needs this to know if a live theme-family switch may move the
             # rail: an explicit config value outranks the family default.
             app.state.web_rail_position_configured = configured_rail in RAIL_POSITIONS
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.rail_position (config load failed); "
                 "server-rendering fallback position %r",
@@ -2150,7 +2150,7 @@ def _create_lifespan(
                         len(changed),
                         ", ".join(changed),
                     )
-        except Exception:  # noqa: BLE001 — never let regen block server startup
+        except Exception:  # never let regen block server startup
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 
         # ── Provider env injection ──
@@ -2299,7 +2299,7 @@ def _create_lifespan(
             raw_max_store_bytes = get_config_value(
                 "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
             )
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
@@ -2340,7 +2340,7 @@ def _create_lifespan(
             raw_preset = get_config_value("provenance.preset", None)
             raw_preset_hash = get_config_value("provenance.preset_hash", None)
             raw_finder_mode = get_config_value("channel_finder.pipeline_mode", None)
-        except Exception:  # noqa: BLE001 — an unreadable identity is not fatal
+        except Exception:  # an unreadable identity is not fatal
             logger.warning("Could not read the deployment identity keys", exc_info=True)
             raw_preset = raw_preset_hash = raw_finder_mode = None
         app.state.deployment_identity = resolve_deployment_identity(
@@ -2367,7 +2367,7 @@ def _create_lifespan(
             from osprey.utils.workspace import resolve_shared_data_root
 
             shared_data_root = resolve_shared_data_root()
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             shared_data_root = workspace_dir
             logger.warning(
                 "Could not resolve the shared data root; siting the feedback and "
@@ -2554,7 +2554,7 @@ def _create_lifespan(
                         logger.info("Idle chat reaper evicted %d session(s)", reaped)
                 except asyncio.CancelledError:
                     raise
-                except Exception:  # noqa: BLE001 — one bad cycle must not kill the reaper
+                except Exception:  # one bad cycle must not kill the reaper
                     logger.warning("Idle chat reaper cycle failed", exc_info=True)
 
         reaper_task = asyncio.create_task(_reap_idle_chats())

@@ -479,7 +479,7 @@ class EPICSConnector(ControlSystemConnector):
             # the PVA client is not installed, mirroring the pyepics guard above.
             try:
                 import p4p
-                import p4p.client.thread  # noqa: F401  (loads the client API)
+                import p4p.client.thread  # loads the client API
 
                 self._p4p = p4p
             except ImportError:

@@ -403,13 +403,13 @@ def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
         def put(self, value):
             writes.append(("put", value))
 
-        def putDouble(self, value):  # noqa: N802 — pvaPy's own spelling
+        def putDouble(self, value):  # pvaPy's own spelling
             writes.append(("putDouble", value))
 
-        def asyncPut(self, value, callback=None):  # noqa: ARG002, N802 - pvaPy asyncPut signature
+        def asyncPut(self, value, callback=None):  # noqa: ARG002 - pvaPy asyncPut signature
             writes.append(("asyncPut", value))
 
-        def parsePut(self, args):  # noqa: N802 — pvaPy's own spelling
+        def parsePut(self, args):  # pvaPy's own spelling
             writes.append(("parsePut", args))
 
         def get(self):

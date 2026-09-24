@@ -165,7 +165,7 @@ def _load_entrypoint(
 
     try:
         raw = entrypoint()
-    except Exception as exc:  # noqa: BLE001 - a raising entrypoint is a reported error row
+    except Exception as exc:  # a raising entrypoint is a reported error row
         errors.append(_error_row(path, f"health plugin '{path}' {_ENTRYPOINT}() raised: {exc}"))
         return None
 
@@ -195,7 +195,7 @@ def _import_plugin(
 
     try:
         return importlib.import_module(entry)
-    except Exception as exc:  # noqa: BLE001 - any import failure is a reported error row
+    except Exception as exc:  # any import failure is a reported error row
         errors.append(_error_row(entry, f"failed to import health plugin '{entry}': {exc}"))
         return None
 
@@ -206,7 +206,7 @@ def _import_plugin_file(
     """Load a ``.py`` plugin entry off disk under its synthetic module name."""
     try:
         resolved = _resolve_plugin_file(entry, project_root)
-    except Exception as exc:  # noqa: BLE001 - an unresolvable path is a reported error row
+    except Exception as exc:  # an unresolvable path is a reported error row
         # ``~`` with no resolvable home, a symlink cycle, an over-long name: the
         # entry never becomes a path, and that must degrade the suite by one row.
         errors.append(_error_row(entry, f"could not resolve health plugin path '{entry}': {exc}"))
@@ -231,7 +231,7 @@ def _import_plugin_file(
         # cannot carry module-level state across a refresh cycle.
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001 - any load failure is a reported error row
+    except Exception as exc:  # any load failure is a reported error row
         # A half-executed module must not be left behind for the next cycle to
         # find and treat as loaded.
         sys.modules.pop(module_name, None)

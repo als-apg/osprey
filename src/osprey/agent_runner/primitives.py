@@ -800,7 +800,7 @@ async def await_mcp_ready(
         try:
             status = await client.get_mcp_status()
             servers = status.get("mcpServers", []) if isinstance(status, dict) else (status or [])
-        except Exception:  # noqa: BLE001 — status not queryable yet; keep polling
+        except Exception:  # status not queryable yet; keep polling
             servers = servers or []
         if expected:
             terminal = {s.get("name") for s in servers if s.get("status") in _MCP_TERMINAL_STATUSES}

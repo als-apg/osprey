@@ -145,7 +145,7 @@ async def run_sync(fn: Callable[..., T], *args: Any, timeout_s: float) -> T:
     def _worker() -> None:
         try:
             result = fn(*args)
-        except Exception as exc:  # noqa: BLE001 - forwarded verbatim to the awaiter
+        except Exception as exc:  # forwarded verbatim to the awaiter
             _deliver(_set_exception, exc)
         else:
             _deliver(_set_result, result)

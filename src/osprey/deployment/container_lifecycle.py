@@ -5351,7 +5351,7 @@ def _wait_for_ariel_store(ariel_config: dict, deadline: float) -> None:
         try:
             with psycopg.connect(dsn, connect_timeout=5):
                 return
-        except Exception as exc:  # noqa: BLE001 — every failure here is "not yet"
+        except Exception as exc:  # every failure here is "not yet"
             last = exc
             if time.monotonic() >= deadline:
                 raise RuntimeError(
@@ -5434,7 +5434,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
     try:
         _wait_for_ariel_store(ariel_config, time.monotonic() + _ARIEL_HEALTH_TIMEOUT_S)
         _migrate_ariel_store(ariel_config)
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema could not be created, so its panel and MCP tools will "
             f"report the database as unavailable. Everything else in this deploy is "
@@ -5446,7 +5446,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
 
     try:
         seeded = simulation_apply.seed_active_logbook(config, project_dir, ariel_config)
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema is in place but its logbook could not be seeded, so the "
             f"panel will come up empty. Run `osprey sim apply` from {project_dir} to "
@@ -5601,7 +5601,7 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
             ) as session:
                 session.run(_GRAPHDB_PING_CYPHER).consume()
                 return
-        except Exception as exc:  # noqa: BLE001 — every failure here is "not yet"
+        except Exception as exc:  # every failure here is "not yet"
             last = exc
             if time.monotonic() >= deadline:
                 raise RuntimeError(
@@ -5713,7 +5713,7 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
 
     try:
         patched = prompt_snapshot.bake_snapshot(session, _graphdb_config_dir(project_dir))
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"The graph schema snapshot could not be baked into the agent prompt, so the "
             f"agent will read the schema through its tools instead. Cause: {exc}"
@@ -5773,7 +5773,7 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
         connection = _graphdb_connection(config, project_dir)
         _wait_for_graphdb_store(connection, time.monotonic() + _GRAPHDB_HEALTH_TIMEOUT_S)
         _bootstrap_and_seed_graphdb(config, project_dir, connection)
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"The graph store could not be bootstrapped or seeded, so graph queries will "
             f"return nothing. Everything else in this deploy is unaffected. Run "
@@ -7225,7 +7225,7 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
             name = str(raw[0]) if isinstance(raw, list) and raw else str(raw)
             if name:
                 names.append(name)
-    except Exception as exc:  # noqa: BLE001 - advisory: the card must not fail the verb
+    except Exception as exc:  # advisory: the card must not fail the verb
         logger.debug("Container health skipped: %s", exc)
         return []
     return sorted(names)

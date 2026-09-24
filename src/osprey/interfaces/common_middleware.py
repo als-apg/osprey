@@ -831,7 +831,7 @@ def _emit_audit_record(build: Callable[[], dict[str, Any] | None]) -> None:
         # ``actor`` is the writer's to fill: it resolves the same ladder the
         # ledger directory is keyed on, so the two cannot drift.
         record(**fields)
-    except Exception:  # noqa: BLE001 - the audit trail degrades; the request does not.
+    except Exception:  # the audit trail degrades; the request does not.
         logger.warning("Could not file an HTTP audit record", exc_info=True)
 
 

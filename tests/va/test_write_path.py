@@ -446,19 +446,19 @@ class FakeDriver:
         self.completed: list[str] = []
         self.alarms: list[tuple[str, Any, Any]] = []
 
-    def setParam(self, reason: str, value: Any) -> None:  # noqa: N802 - driver contract
+    def setParam(self, reason: str, value: Any) -> None:  # driver contract
         self.values[reason] = value
 
-    def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
+    def getParam(self, reason: str) -> Any:  # driver contract
         return self.values[reason]
 
-    def updatePV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def updatePV(self, reason: str) -> None:  # driver contract
         self.posted.append(reason)
 
-    def callbackPV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def callbackPV(self, reason: str) -> None:  # driver contract
         self.completed.append(reason)
 
-    def setParamStatus(  # noqa: N802 - driver contract
+    def setParamStatus(  # driver contract
         self, reason: str, alarm: Any, severity: Any
     ) -> None:
         self.alarms.append((reason, alarm, severity))
@@ -489,7 +489,7 @@ class FakeRunLoop:
             error = None
             try:
                 self.model.set(plain)
-            except Exception as exc:  # noqa: BLE001 - the loop reports, never raises
+            except Exception as exc:  # the loop reports, never raises
                 error = str(exc)
             if done is not None:
                 done(error)

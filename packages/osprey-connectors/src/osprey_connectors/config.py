@@ -953,7 +953,7 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
     try:
         try:
             _get_config(str(config_path), set_as_default=True)
-        except Exception as exc:  # noqa: BLE001 - an unusable anchor must not fail the caller
+        except Exception as exc:  # an unusable anchor must not fail the caller
             logger.warning(
                 f"Could not anchor configuration at {config_path} "
                 f"({type(exc).__name__}: {exc}). Values this process reads without an "
@@ -1146,7 +1146,7 @@ def get_facility_timezone() -> "ZoneInfo":
     try:
         tz_name = get_config_value("facility_timezone", "UTC")
         zone = ZoneInfo(tz_name)
-    except Exception as exc:  # noqa: BLE001 - any failure must degrade to UTC, not raise
+    except Exception as exc:  # any failure must degrade to UTC, not raise
         if not _tz_fallback_warned:
             _tz_fallback_warned = True
             logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
