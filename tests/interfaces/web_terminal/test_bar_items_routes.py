@@ -85,12 +85,14 @@ def no_companion_servers():
 def agent_data_root(tmp_path):
     """A throwaway agent-data root for the lifespan to site both stores under.
 
-    Patched at the resolver, not through ``OSPREY_AGENT_DATA_ROOT``:
+    The ``client`` fixture patches the resolver to answer this directory; this
+    fixture only creates it. Not through ``OSPREY_AGENT_DATA_ROOT``:
     :func:`~osprey_connectors.workspace.resolve_shared_data_root` reads
     ``agent_data.base_dir`` anchored on the project root and does not consult
-    that variable, so a test relying on it would write this suite's layouts
-    into the repository's own ``var/agent_data`` — shared by every test in the
-    session, which is exactly the pollution a per-test store must not have.
+    that variable, so a test relying on it would share one diverted root with
+    every other test in the worker, which is exactly the pollution a per-test
+    store must not have. The web-terminal ``conftest.py`` docstring says where
+    an unpatched lifespan's stores land.
     """
     root = tmp_path / "agent_data"
     root.mkdir()
