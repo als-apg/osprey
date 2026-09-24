@@ -2365,8 +2365,9 @@ def _create_lifespan(
         # Workspace-relative form of each store: the *file watcher's* form,
         # used below to drop change events for writes into them. The file
         # browser is not a consumer — routes/files.py derives its own predicate
-        # from ``feedback_dir``, because it must also handle symlink aliases and
-        # session-scoped roots that a single relative path cannot express.
+        # from ``feedback_dir`` and ``bar_items_dir``, because it must also
+        # handle symlink aliases and session-scoped roots that a single relative
+        # path cannot express.
         # ``None`` when a store lies outside the watched tree (the watch_dir
         # case above) — nothing to conceal there, and a bare relative_to()
         # would raise and abort startup. The derivation is case-folded on a
@@ -2387,12 +2388,9 @@ def _create_lifespan(
         # bar arrangement must be as silent as filing feedback: a layout PUT
         # writes one file, and an unconcealed store would push an SSE change
         # frame to every connected browser the moment anyone rearranged a bar.
-        # This seam does that and only that. It does NOT hide either store from
-        # the file panel — routes/files.py filters the listing and the content
-        # read through its own predicate, which knows about the feedback store
-        # alone — so bar_items/layout.json is still listed on a refresh. That is
-        # deliberate for now: a layout is the operator's own preference, not
-        # submitted session context, so it is clutter rather than disclosure.
+        # This seam silences the watcher and only that; the file panel's listing
+        # and content reads hide both stores through routes/files.py's own
+        # predicate.
         app.state.concealed_store_rels = tuple(
             rel for rel in (app.state.feedback_rel, app.state.bar_items_rel) if rel is not None
         )

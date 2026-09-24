@@ -1,12 +1,13 @@
-"""Concealment of the feedback store in the workspace file routes.
+"""Concealment of the server-side stores in the workspace file routes.
 
-The feedback store holds session context users submitted privately; it must
-not be browsable from the file tree, and reading a record must be
+The feedback store holds session context users submitted privately, and the
+bar-items store holds each operator's saved bar layout; neither may be
+browsable from the file tree, and reading a document in one must be
 indistinguishable from reading a path that was never there (404, never 403).
 
-The identity of the store is its *resolved path*, not its name — a directory a
-user legitimately called ``feedback`` somewhere else in the workspace stays
-visible.
+The identity of each store is its *resolved path*, not its name — a directory a
+user legitimately called ``feedback`` or ``bar_items`` somewhere else in the
+workspace stays visible.
 """
 
 from __future__ import annotations
@@ -43,7 +44,9 @@ def case_insensitive_fs(tmp_path):
         pytest.skip("case-sensitive filesystem: the case-variant bypass is not reachable here")
 
 
-def _make_client(workspace, feedback_dir, *, set_state: bool = True) -> TestClient:
+def _make_client(
+    workspace, feedback_dir, *, set_state: bool = True, bar_items_dir: object = None
+) -> TestClient:
     """Router-only app with just the state the files routes read."""
     app = FastAPI()
     app.include_router(router)
@@ -51,6 +54,8 @@ def _make_client(workspace, feedback_dir, *, set_state: bool = True) -> TestClie
     app.state.broadcaster = FileEventBroadcaster()
     if set_state:
         app.state.feedback_dir = feedback_dir
+    if bar_items_dir is not None:
+        app.state.bar_items_dir = bar_items_dir
     return TestClient(app)
 
 
@@ -72,6 +77,15 @@ def store(workspace):
     (workspace / "sub").mkdir()
     (workspace / "sub" / "nested.py").write_text("print(1)")
     return feedback_dir
+
+
+@pytest.fixture
+def bar_store(workspace):
+    """The bar-items store, sited directly under the workspace."""
+    bar_items_dir = workspace / "bar_items"
+    bar_items_dir.mkdir()
+    (bar_items_dir / "layout.json").write_text('{"version": 1}')
+    return bar_items_dir
 
 
 class TestTreeOmitsTheStore:
@@ -138,6 +152,58 @@ class TestTreeKeepsLookalikes:
         sub = _named(tree, "sub")
         assert "feedback" in _child_names(sub)
         assert _child_names(_named(sub, "feedback")) == ["survey.md"]
+
+
+class TestTheSavedBarLayoutIsConcealedToo:
+    def test_the_store_is_absent_from_the_tree(self, workspace, bar_store):
+        client = _make_client(workspace, None, bar_items_dir=bar_store)
+        assert "bar_items" not in _child_names(client.get("/api/files/tree").json())
+
+    def test_reading_the_layout_is_indistinguishable_from_absent(self, workspace, bar_store):
+        client = _make_client(workspace, None, bar_items_dir=bar_store)
+        concealed = client.get("/api/files/content/bar_items/layout.json")
+        absent = client.get("/api/files/content/bar_items/never.json")
+
+        assert concealed.status_code == 404
+        assert concealed.json() == absent.json()
+
+    def test_a_symlink_to_the_layout_is_pruned(self, workspace, bar_store):
+        (workspace / "alias.json").symlink_to(bar_store / "layout.json")
+        client = _make_client(workspace, None, bar_items_dir=bar_store)
+        assert "alias.json" not in _child_names(client.get("/api/files/tree").json())
+
+    def test_both_stores_are_concealed_at_once(self, workspace, store, bar_store):
+        client = _make_client(workspace, store, bar_items_dir=bar_store)
+        names = _child_names(client.get("/api/files/tree").json())
+        assert "feedback" not in names
+        assert "bar_items" not in names
+        assert "notes.md" in names
+        assert "sub" in names
+
+    @pytest.mark.usefixtures("bar_store")
+    def test_a_bar_store_outside_the_tree_conceals_nothing(self, workspace, tmp_path):
+        """A workspace directory named ``bar_items`` is NOT the store here."""
+        outside = tmp_path / "shared" / "bar_items"
+        outside.mkdir(parents=True)
+        client = _make_client(workspace, None, bar_items_dir=outside)
+
+        assert "bar_items" in _child_names(client.get("/api/files/tree").json())
+        resp = client.get("/api/files/content/bar_items/layout.json")
+        assert resp.status_code == 200
+
+    def test_an_unusable_value_fails_open_but_says_so(self, workspace, store, caplog):
+        """One unusable store does not switch off the other: the feedback store
+        stays concealed while the bar-items store fails open, out loud."""
+        client = _make_client(workspace, store, bar_items_dir=123)
+
+        with caplog.at_level(logging.WARNING, logger="osprey.interfaces.web_terminal.routes.files"):
+            tree = client.get("/api/files/tree")
+            assert tree.status_code == 200
+            assert client.get("/api/files/content/notes.md").status_code == 200
+
+        assert "feedback" not in _child_names(tree.json())
+        assert "bar-items store" in caplog.text
+        assert "will NOT be concealed" in caplog.text
 
 
 class TestContentReturns404:
@@ -260,12 +326,13 @@ class TestFeedbackDirUnset:
 
 
 class TestStateKeyContract:
-    """Every other test in this file *sets* ``app.state.feedback_dir`` itself, so
-    all of them would stay green if the lifespan stopped producing that key and
-    the store went un-concealed in production. This boots the real lifespan and
-    pins the attribute the routes read to the attribute app.py publishes."""
+    """Every other test in this file *sets* ``app.state.feedback_dir`` and
+    ``app.state.bar_items_dir`` itself, so all of them would stay green if the
+    lifespan stopped producing those keys and the stores went un-concealed in
+    production. These boot the real lifespan and pin the attributes the routes
+    read to the attributes app.py publishes."""
 
-    def test_the_lifespan_publishes_the_attribute_these_routes_read(self, tmp_path):
+    def test_the_lifespan_publishes_the_attributes_these_routes_read(self, tmp_path):
         from osprey.interfaces.web_terminal.app import create_app
 
         workspace_dir = tmp_path / "_agent_data"
@@ -283,6 +350,52 @@ class TestStateKeyContract:
         ):
             with TestClient(create_app(shell_command="echo")) as client:
                 assert client.app.state.feedback_dir == workspace_dir / "feedback"
+                assert client.app.state.bar_items_dir == workspace_dir / "bar_items"
+
+    def test_a_saved_bar_layout_never_reaches_the_file_panel(self, tmp_path):
+        from osprey.interfaces.web_terminal.app import BAR_LAYOUT_VERSION, create_app
+
+        workspace_dir = tmp_path / "_agent_data"
+        workspace_dir.mkdir()
+
+        def paths(node: dict) -> list[str]:
+            found = [node["path"]]
+            for child in node.get("children", []):
+                found.extend(paths(child))
+            return found
+
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ),
+            patch(
+                "osprey.utils.workspace.resolve_shared_data_root",
+                return_value=workspace_dir / "agent_data",
+            ),
+            # The artifact server would otherwise write under that root from a
+            # thread that outlives the test.
+            patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda key: None),
+        ):
+            with TestClient(create_app(shell_command="echo")) as client:
+                saved = client.put(
+                    "/api/bar-items",
+                    json={
+                        "version": BAR_LAYOUT_VERSION,
+                        "rev": 0,
+                        "header": [{"type": "logo"}],
+                        "status": [],
+                        "header_visible": True,
+                        "status_visible": True,
+                    },
+                )
+                assert saved.status_code == 200
+
+                tree = client.get("/api/files/tree").json()
+                assert [path for path in paths(tree) if "bar_items" in path] == []
+
+                resp = client.get("/api/files/content/agent_data/bar_items/layout.json")
+                assert resp.status_code == 404
 
 
 class TestSessionScopedWorkspace:
