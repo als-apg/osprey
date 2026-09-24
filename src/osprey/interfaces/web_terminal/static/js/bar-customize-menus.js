@@ -145,7 +145,8 @@ function optionRow(owner, key, spec, value, commit) {
 }
 
 /**
- * The popover's foot: where the item can go, and whether it can be taken away.
+ * The popover's foot: where the item can go, within its bar and across, and
+ * whether it can be taken away.
  * @param {Document} owner
  * @param {BarEditController} ctrl
  * @param {BarItemPlace} place
@@ -153,6 +154,26 @@ function optionRow(owner, key, spec, value, commit) {
  */
 function optionsFoot(owner, ctrl, place) {
   const foot = make(owner, 'div', 'bar-pop-foot');
+  const run = ctrl.hostItems(place.host);
+  const reorder = !ctrl.dropRefusal(place.type, place.host, place.host);
+  if (reorder && place.index > 0) {
+    foot.append(
+      button(owner, 'bar-btn', 'Move left', 'move-left', () => {
+        closeOptions();
+        void ctrl.moveItem(place.host, place.index, place.host, place.index - 1);
+      })
+    );
+  }
+  if (reorder && place.index < run.length - 1) {
+    foot.append(
+      button(owner, 'bar-btn', 'Move right', 'move-right', () => {
+        closeOptions();
+        // moveItem reads the target index before it removes the item, so the
+        // slot after the right-hand neighbour is two past this one.
+        void ctrl.moveItem(place.host, place.index, place.host, place.index + 2);
+      })
+    );
+  }
   const other = /** @type {BarHost} */ (place.host === 'header' ? 'status' : 'header');
   if (!ctrl.dropRefusal(place.type, other, place.host)) {
     foot.append(
