@@ -1488,6 +1488,7 @@ panel_presets: {}
 #
 # teams_bridge:
 #   trigger: teams-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 """
 
 #: Deployment coordinates, filled in. Where this repo runs once it leaves the

@@ -595,6 +595,13 @@ keys:
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.teams_bridge
+  services.teams_bridge.mentions:
+    rendered: false
+    evidence: 'services\.teams_bridge\.mentions is sameas false'
+    note: >-
+      Injected by the build from the profile's `teams_bridge.mentions`, which is
+      the one knob; rendered as TEAMS_MENTIONS.
+    default: true
   services.ariel_sync.image:
     rendered: false
     evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\)'

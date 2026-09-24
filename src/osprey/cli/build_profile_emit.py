@@ -488,6 +488,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #
 # teams_bridge:
 #   trigger: teams-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 """,
     "deploy": """
 # --- Deployment coordinates --------------------------------------------------

@@ -112,6 +112,26 @@ def test_teams_bridge_parse_round_trip() -> None:
     assert profile.teams_bridge.trigger == "desy-question"
 
 
+def test_teams_bridge_mentions_default_on() -> None:
+    """A block without the key keeps @mentions on."""
+    profile = _parse_profile({"name": "x", "teams_bridge": {}})
+    assert profile.teams_bridge is not None
+    assert profile.teams_bridge.mentions is True
+    assert TeamsBridgeProfileConfig().mentions is True
+
+
+def test_teams_bridge_mentions_false_parses() -> None:
+    profile = _parse_profile({"name": "x", "teams_bridge": {"mentions": False}})
+    assert profile.teams_bridge is not None
+    assert profile.teams_bridge.mentions is False
+
+
+@pytest.mark.parametrize("value", ["no", 0, None])
+def test_teams_bridge_mentions_non_bool_raises(value: object) -> None:
+    with pytest.raises(BuildProfileError, match=r"teams_bridge\.mentions"):
+        _parse_profile({"name": "x", "teams_bridge": {"mentions": value}})
+
+
 def test_no_teams_bridge_parses_to_none() -> None:
     """A profile without the block leaves the field None through the loader too."""
     assert _parse_profile({"name": "x"}).teams_bridge is None

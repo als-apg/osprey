@@ -5797,6 +5797,33 @@ def _teams_bridge_service(**kwargs: object) -> dict:
     return rendered["services"]["teams-bridge"]
 
 
+def _teams_services(**block: object) -> dict:
+    return {
+        "teams_bridge": {"trigger": "teams-question", **block},
+        "event_dispatcher": {},
+        "dispatch_worker": {},
+    }
+
+
+def test_teams_bridge_mentions_render_on_by_default() -> None:
+    """The helper's default services carry no key, and render mentions on."""
+    assert _teams_bridge_service()["environment"]["TEAMS_MENTIONS"] == "true"
+
+
+@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
+def test_teams_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
+    environment = _teams_bridge_service(services=_teams_services(mentions=value))["environment"]
+    assert environment["TEAMS_MENTIONS"] == rendered
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_teams_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
+    from osprey.bridges.teams.config import TeamsBridgeConfig
+
+    environment = _teams_bridge_service(services=_teams_services(mentions=value))["environment"]
+    assert TeamsBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
+
+
 def test_teams_bridge_image_follows_env_config_default_chain() -> None:
     """image = ${OSPREY_TEAMS_BRIDGE_IMAGE:-<project>-teams-bridge:local}.
 

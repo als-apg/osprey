@@ -1924,7 +1924,8 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
     # <project>-teams-bridge image on first ``osprey up`` (the template's own
     # ``| default`` supplies that tag). Override with
     # OSPREY_TEAMS_BRIDGE_IMAGE, or set ``services.teams_bridge.image`` here, to
-    # use a prebuilt/published image.
+    # use a prebuilt/published image. ``mentions`` is written on every build, so
+    # the template always has a value.
     config.setdefault("services", {})
     anchored_put(
         config["services"],
@@ -1935,6 +1936,7 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
             {
                 "path": "./services/teams_bridge",
                 "trigger": teams_bridge.trigger,
+                "mentions": teams_bridge.mentions,
             },
         ),
     )
