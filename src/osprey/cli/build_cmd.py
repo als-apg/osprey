@@ -1423,6 +1423,23 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
     return errors
 
 
+def _archiver_settings_errors(render_dir: Path) -> list[str]:
+    """Every block under the rendered ``archiver:`` section that no archiver reads, named.
+
+    Read after the injectors, for the same reason as :func:`_incomplete_limits_errors`:
+    a block a preset or a ``--set`` wrote is in the config a deployment runs.
+
+    Args:
+        render_dir: The rendered project directory, read after the injectors.
+
+    Returns:
+        One line per block no archiver reads; nothing for a runnable section.
+    """
+    from osprey_connectors.types import archiver_settings_errors
+
+    return archiver_settings_errors(_rendered_config(render_dir).get("archiver") or {})
+
+
 def _template_host_config(
     shared: _SharedRenderInputs,
     build_profile: Any,
@@ -2223,6 +2240,7 @@ def _render_project(
             *_resolve_rendered_execution_method(render_dir),
             *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
             *_incomplete_limits_errors(render_dir),
+            *_archiver_settings_errors(render_dir),
             # The posture floor, for the third time the same reason: with the
             # app templates gone, a key the profile does not state is not a
             # template default any more — it is silence, and each of these six

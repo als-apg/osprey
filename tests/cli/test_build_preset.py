@@ -1103,6 +1103,33 @@ def test_set_free_form_model_builds(
     assert cfg["claude_code"]["default_model"] == "anthropic/claude-opus"
 
 
+def test_an_archiver_block_nothing_reads_stops_the_build(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A block under ``archiver:`` that no archiver reads is named, not dropped."""
+    with caplog.at_level(logging.ERROR):
+        result = _materialize(
+            runner, str(tmp_path), "unread", "hello-world", "--set", "config.archiver.foo.server=x"
+        )
+    assert result.exit_code != 0
+    _assert_build_error_logged(caplog, "`foo:` under `archiver:`")
+
+
+def test_archiver_settings_reach_the_render(runner: CliRunner, tmp_path: Path) -> None:
+    """The dotted profile key lands on the block the factory reads."""
+    result = _materialize(
+        runner,
+        str(tmp_path),
+        "settled",
+        "hello-world",
+        "--set",
+        "config.archiver.settings.noise_level=0.01",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = _config_yaml(_project(tmp_path, "settled"))
+    assert cfg["archiver"]["settings"] == {"noise_level": 0.01}
+
+
 def test_set_value_invalid_yaml_raises() -> None:
     """A --set value that isn't valid YAML raises BuildProfileError, not a YAMLError."""
     with pytest.raises(BuildProfileError, match="is not valid YAML"):

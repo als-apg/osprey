@@ -284,6 +284,38 @@ def resolve_archiver_settings(section: Any) -> dict[str, Any]:
     return dict(value)
 
 
+def archiver_settings_errors(section: Any) -> list[str]:
+    """Every block under a rendered ``archiver:`` section that no archiver reads, named.
+
+    A lint, like :func:`incomplete_limits_blocks`, and read by the build over the
+    config a deployment runs. It reports, in section order: each mapping under a
+    key no reader takes (anything but :data:`ARCHIVER_SECTION_LEAVES`, a built-in
+    archiver's name, or the selected type's own name when it has no dot); then
+    the two refusals :func:`resolve_archiver_settings` raises, in its words. A
+    scalar is not a block and is not reported. Never raises.
+    """
+    if not isinstance(section, dict):
+        return []
+    selected = resolve_archiver_type(section)
+    own = _own_name_block(selected)
+    known = {*ARCHIVER_SECTION_LEAVES, *CLI_ARCHIVER_TYPES, *([own] if own else [])}
+    errors = [
+        f"`{key}:` under `archiver:` is a block no archiver reads; the selected "
+        f"archiver, {selected}, takes its settings from `archiver.settings`"
+        for key, value in section.items()
+        if isinstance(value, dict) and key not in known
+    ]
+    homes = _archiver_settings_homes(section)
+    if len(homes) > 1:
+        errors.append(_two_homes(homes[1][0]))
+    errors.extend(
+        _not_a_block(key, value)
+        for key, value in homes
+        if value is not None and not isinstance(value, dict)
+    )
+    return errors
+
+
 def resolve_target(section: Any, target: Any) -> str:
     """The connector type a session *target* selects, in a given deployment.
 
