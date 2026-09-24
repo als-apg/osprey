@@ -32,6 +32,7 @@ from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
     _copy_local_framework_for_override,
+    _dedupe_compose_files,
     clean_deployment,
     compose_base_cmd,
     compose_provider_env,
@@ -6688,35 +6689,6 @@ def as_built_compose_files(config: dict, repo_root: Path | str) -> list[str]:
 
     services = [str(service) for service in (config.get("deployed_services") or [])]
     return _dedupe_compose_files(find_existing_compose_files(config, services, base=repo_root))
-
-
-def _dedupe_compose_files(compose_files: list[str]) -> list[str]:
-    """Drop repeats from a ``-f`` list, keeping first-seen order.
-
-    Two deployed services can name ONE compose template: a two-lane Bluesky
-    deployment declares ``services.bluesky`` and ``services.bluesky_va`` with
-    the same ``path``, because one template renders both lanes rather than a
-    second copy of the directory being kept in step with the first. The lookup
-    walks ``deployed_services``, so it reports that file once per lane.
-
-    Passing it twice is not obviously harmful — compose merges a document with
-    itself — but it is a claim the deploy does not mean to make, it doubles up
-    in every log line and status listing that echoes the file list, and how a
-    given runtime treats a repeated ``-f`` is not a bet worth taking.
-
-    :param compose_files: Paths in ``-f`` order, possibly with repeats
-    :type compose_files: list[str]
-    :return: The same paths, first occurrence only
-    :rtype: list[str]
-    """
-    seen: set[str] = set()
-    unique: list[str] = []
-    for compose_file in compose_files:
-        if compose_file in seen:
-            continue
-        seen.add(compose_file)
-        unique.append(compose_file)
-    return unique
 
 
 def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:

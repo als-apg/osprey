@@ -4072,8 +4072,8 @@ def find_existing_compose_files(config, deployed_services, quiet=False, base=Non
         list: Paths to the existing compose files, RELATIVE to *base* (which is
         the anchor :func:`compose_base_cmd` resolves each ``-f`` against). Two
         services sharing one template ``path`` each report that file, so the
-        list can repeat; :func:`~osprey.deployment.container_lifecycle._dedupe_compose_files`
-        is what every caller building a ``-f`` list passes it through.
+        list can repeat; :func:`_dedupe_compose_files` is what every caller
+        building a ``-f`` list passes it through.
 
     Example:
         compose_files = find_existing_compose_files(config, ['openobserve'])
@@ -4111,6 +4111,40 @@ def find_existing_compose_files(config, deployed_services, quiet=False, base=Non
                 )
 
     return compose_files
+
+
+def _dedupe_compose_files(compose_files: list[str]) -> list[str]:
+    """Drop repeats from a ``-f`` list, keeping first-seen order.
+
+    Two deployed services can name ONE compose template. A two-lane Bluesky
+    deployment declares ``services.bluesky`` and ``services.bluesky_va`` with
+    the same ``path``, because one template renders both lanes rather than a
+    second copy of the directory being kept in step with the first. A live
+    stand-in declares ``services.live_standin`` with the virtual accelerator's
+    ``path``, because it is a second instance of that one service. Both
+    :func:`find_existing_compose_files` and :func:`prepare_compose_files` walk
+    ``deployed_services``, so each reports that file once per service.
+
+    Passing it twice is not obviously harmful — compose merges a document with
+    itself — but it is a claim the deploy does not mean to make, it doubles up
+    in every log line and status listing that echoes the file list, the
+    host-port preflight parses every entry and so reads each published port of
+    a repeated file as colliding with itself, and how a given runtime treats a
+    repeated ``-f`` is not a bet worth taking.
+
+    :param compose_files: Paths in ``-f`` order, possibly with repeats
+    :type compose_files: list[str]
+    :return: The same paths, first occurrence only
+    :rtype: list[str]
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for compose_file in compose_files:
+        if compose_file in seen:
+            continue
+        seen.add(compose_file)
+        unique.append(compose_file)
+    return unique
 
 
 def clean_deployment(compose_files, config=None, repo_root=None):

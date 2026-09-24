@@ -1276,7 +1276,7 @@ def test_one_template_serving_two_lanes_is_passed_to_compose_once() -> None:
     is a claim the deploy does not mean to make and doubles it up in every
     listing that echoes the file list.
     """
-    from osprey.deployment.container_lifecycle import _dedupe_compose_files
+    from osprey.deployment.compose_generator import _dedupe_compose_files
 
     assert _dedupe_compose_files(
         [
