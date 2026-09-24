@@ -19,6 +19,7 @@ The properties that get the most attention are the ones a live bridge breaks qui
 * no machine detail — above all ``result["error"]`` — ever reaches the space.
 """
 
+import time
 from typing import Any
 from unittest.mock import MagicMock, call
 
@@ -33,6 +34,7 @@ from osprey.bridges.google_chat.ops import (
     ERROR_TEXT,
     GIVEUP_TEXT,
     QUEUED_TEXT,
+    RESUMED_TEXT,
     SUPERSEDED_TEXT,
     GoogleChatOps,
 )
@@ -675,6 +677,44 @@ def test_a_failing_queued_notice_propagates_to_the_engine():
         ops.post_queued(ENTRY, {"status": "error"})
 
 
+def test_the_resume_notice_names_the_queue_time_in_the_questions_thread():
+    ops, service = make_ops()
+    ops.post_resumed(
+        {**ENTRY, "first_queued_at": time.time() - 3 * 3600, "queued_notified": True},
+        {"status": "completed"},
+    )
+
+    body = only_body(service)
+    assert body["thread"] == {"name": THREAD}
+    assert body["text"].startswith("▶️ Resuming your request queued at ")
+    assert "(3 h ago)" in body["text"]
+    assert body["text"].endswith("— service is restored, answer follows.")
+
+
+def test_the_resume_wording_claims_only_what_the_engine_guarantees():
+    # Posted right before the answer of a request the user was told was queued: the
+    # service is back and the answer follows. It promises nothing about the answer.
+    assert "{since}" in RESUMED_TEXT
+    assert "answer follows" in RESUMED_TEXT
+
+
+def test_a_resume_notice_without_a_usable_queue_time_still_says_resuming():
+    ops, service = make_ops()
+    ops.post_resumed({**ENTRY, "queued_notified": True}, {"status": "completed"})
+
+    body = only_body(service)
+    assert body["text"].startswith("▶️ Resuming your request queued ")
+    assert "None" not in body["text"]
+
+
+def test_a_failing_resume_notice_is_swallowed():
+    # Best-effort by contract: the answer follows whether or not this line landed.
+    ops, service = make_ops()
+    fail_every_create(service)
+
+    ops.post_resumed({**ENTRY, "first_queued_at": 1.0}, {"status": "completed"})
+
+
 def test_the_give_up_notice_uses_the_fixed_wording_in_the_questions_thread():
     ops, service = make_ops()
     ops.post_giveup({**ENTRY, "give_up_reason": "ceiling reached"})
@@ -718,7 +758,16 @@ def test_a_failing_superseded_note_is_swallowed():
 
 
 @pytest.mark.parametrize(
-    "wording", [ACK_TEXT, EMPTY_ANSWER_TEXT, ERROR_TEXT, QUEUED_TEXT, GIVEUP_TEXT, SUPERSEDED_TEXT]
+    "wording",
+    [
+        ACK_TEXT,
+        EMPTY_ANSWER_TEXT,
+        ERROR_TEXT,
+        QUEUED_TEXT,
+        RESUMED_TEXT,
+        GIVEUP_TEXT,
+        SUPERSEDED_TEXT,
+    ],
 )
 def test_no_space_facing_wording_is_empty(wording):
     # Chat rejects an empty body outright, so every constant that can become one has to

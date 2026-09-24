@@ -31,6 +31,7 @@ from osprey.bridges.core import pipeline
 from osprey.bridges.core.artifacts import FetchedArtifact
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
+from osprey.bridges.core.errors import UndeliverableError
 from osprey.bridges.core.history import HistoryStore
 from osprey.bridges.core.pipeline import (
     EXPIRED_NOTE,
@@ -379,6 +380,22 @@ def test_settle_survives_a_raising_file_delivery(tmp_path):
     assert [turn["answer"] for turn in deps.history.recent(HISTORY_KEY)] == [
         COMPLETED["text_output"]
     ]
+
+
+def test_an_undeliverable_post_answer_settles_terminal_instead_of_queueing(tmp_path):
+    """Parking an answer the channel permanently refuses would only hand the drain the
+    same refusal later; the entry settles now with the refusal on record."""
+    ops = RecordingChannelOps(parse_result=make_event())
+    ops.fail_next("post_answer", UndeliverableError("not a member of the space"))
+    deps = make_deps(tmp_path, ops)
+
+    assert handle_event({}, deps) == "handled"
+
+    entry = deps.dedup.get(MSG)
+    assert entry["status"] == "error"
+    assert entry["give_up_reason"] == "undeliverable: not a member of the space"
+    assert ops.count("deliver_files") == 0
+    assert deps.history.recent(HISTORY_KEY) == []
 
 
 def test_failed_post_answer_keeps_entry_queued_and_skips_history(tmp_path):

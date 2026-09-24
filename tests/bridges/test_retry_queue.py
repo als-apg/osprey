@@ -14,6 +14,7 @@ answering their second, with no notice for either — invisible in production.
 """
 
 import time
+from datetime import UTC
 
 import pytest
 
@@ -25,6 +26,7 @@ from osprey.bridges.core.retry_queue import (
     SUPERSEDED_STATUS,
     give_up,
     park,
+    queued_since,
     supersede_at_enqueue,
     supersede_note,
 )
@@ -207,6 +209,39 @@ def test_first_park_posts_the_queued_notice(dedup):
 
     assert ops.count("post_queued") == 1
     assert ops.of("post_queued")[0]["result"] == RETRYABLE
+
+
+def test_first_park_stamps_queued_notified_once_the_notice_landed(dedup):
+    """The resume notice keys off this flag, not off ``first_queued_at``: the answer
+    re-delivery path stamps the timestamps too, and never posts a queued notice."""
+    ops = _ops()
+    entry = _claim(dedup, "m1")
+
+    park(ops, dedup, "m1", entry, RETRYABLE)
+
+    assert dedup.get("m1")["queued_notified"] is True
+
+
+def test_a_failed_queued_notice_leaves_queued_notified_unset(dedup):
+    ops = _ops()
+    ops.fail_next("post_queued", RuntimeError("chat 503"))
+    entry = _claim(dedup, "m1")
+
+    with pytest.raises(RuntimeError):
+        park(ops, dedup, "m1", entry, RETRYABLE)
+
+    assert not dedup.get("m1").get("queued_notified")
+
+
+def test_repark_keeps_queued_notified(dedup):
+    ops = _ops()
+    entry = _claim(dedup, "m1")
+    park(ops, dedup, "m1", entry, RETRYABLE)
+    dedup.transition("m1", "queued", "in_flight", retried=True, attempts=1)
+
+    park(ops, dedup, "m1", dedup.get("m1"), RETRYABLE)
+
+    assert dedup.get("m1")["queued_notified"] is True
 
 
 def test_repark_is_silent(dedup):
@@ -615,3 +650,53 @@ def test_supersede_note_never_raises(dedup):
     supersede_note(ops, dedup, "old", entry)
 
     assert ops.count("post_superseded") == 1
+
+
+# ===========================================================================
+# Section 6 — queued_since: the resume notice's "queued at ... (N ago)" phrase
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    ("elapsed", "expected"),
+    [
+        (30.0, "moments ago"),
+        (59.0, "moments ago"),
+        (60.0, "1 min ago"),
+        (12 * 60 + 40, "12 min ago"),
+        (3 * 3600 + 20 * 60, "3 h ago"),
+        (47 * 3600, "47 h ago"),
+        (48 * 3600, "2 d ago"),
+        (9 * 86400 + 3600, "9 d ago"),
+    ],
+)
+def test_queued_since_reports_a_coarse_elapsed(elapsed, expected):
+    since = queued_since(
+        {"first_queued_at": 1_700_000_000.0}, now=lambda: 1_700_000_000.0 + elapsed, tz=UTC
+    )
+    assert since is not None
+    assert since.endswith(f"({expected})")
+
+
+def test_queued_since_names_the_first_park_in_the_given_zone():
+    since = queued_since(
+        {"first_queued_at": 1_700_000_000.0}, now=lambda: 1_700_000_000.0 + 3600, tz=UTC
+    )
+    assert since == "2023-11-14 22:13 UTC (1 h ago)"
+
+
+def test_queued_since_falls_back_to_queued_at_for_a_pre_anchor_entry():
+    since = queued_since({"queued_at": 1_700_000_000.0}, now=lambda: 1_700_000_000.0 + 120, tz=UTC)
+    assert since == "2023-11-14 22:13 UTC (2 min ago)"
+
+
+@pytest.mark.parametrize("entry", [{}, {"first_queued_at": None}, {"first_queued_at": "soon"}])
+def test_queued_since_is_none_without_a_usable_anchor(entry):
+    assert queued_since(entry, now=lambda: 1.0, tz=UTC) is None
+
+
+def test_queued_since_never_reports_a_negative_elapsed():
+    # Clock skew: an anchor in the future reads as "moments ago", never "-3 min ago".
+    since = queued_since({"first_queued_at": 1_700_000_200.0}, now=lambda: 1_700_000_000.0, tz=UTC)
+    assert since is not None
+    assert since.endswith("(moments ago)")

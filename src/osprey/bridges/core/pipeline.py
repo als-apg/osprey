@@ -56,6 +56,7 @@ from .capabilities import pair_supports
 from .config import CoreConfig
 from .dedup import DedupStore
 from .dispatch_client import DispatchClient
+from .errors import UndeliverableError
 from .history import HistoryStore
 from .ports import RESERVED_ENTRY_KEYS, ChannelOps, InputDownload
 
@@ -604,12 +605,16 @@ def _settle_terminal(
     it when the queued run completes). ``post_queued`` raising AFTER the park CAS
     committed is swallowed here: a lost notice never loses the request.
 
-    Every other result is final, in crash-safe order: send the answer FIRST
-    (``post_answer`` raises on a failed delivery — the entry is then re-queued with
-    its run id intact so the drain re-attaches and re-delivers next cycle, and no
-    terminal mark or history append happens), THEN record the terminal status, then
-    best-effort ``deliver_files`` (never raises), then the history append with the
-    returned ``{artifact_id: public_url}`` stamped onto this turn's descriptors.
+    Every other result is final, in crash-safe order: the resume line if the user was
+    told this request was queued (best-effort, see :func:`_notify_resumed`), then the
+    answer (``post_answer`` raises on a failed delivery — the entry is then re-queued
+    with its run id intact so the drain re-attaches and re-delivers next cycle, and no
+    terminal mark or history append happens; a permanent refusal of the destination,
+    :class:`~osprey.bridges.core.errors.UndeliverableError`, settles it terminal
+    instead, since no later cycle could deliver it either), THEN record the terminal
+    status, then best-effort ``deliver_files`` (never raises), then the history append
+    with the returned ``{artifact_id: public_url}`` stamped onto this turn's
+    descriptors.
     """
     if retry.is_retryable(result):
         try:
@@ -618,8 +623,13 @@ def _settle_terminal(
             logger.exception("queued notice failed for %s; entry stays parked", message_id)
         return
 
+    _notify_resumed(deps, message_id, entry, result)
     try:
         deps.ops.post_answer(entry, result)
+    except UndeliverableError as exc:
+        logger.warning("answer for %s is undeliverable (%s); settling terminal", message_id, exc)
+        _settle_undeliverable(deps, message_id, entry, result, exc)
+        return
     except Exception:
         logger.exception(
             "answer delivery failed for %s; re-queueing for the drain to re-deliver", message_id
@@ -650,6 +660,57 @@ def _deliver_files(
     except Exception:
         logger.exception("file delivery raised for %s; text already sent", message_id)
         return {}
+
+
+def _notify_resumed(
+    deps: PipelineDeps, message_id: str, entry: Mapping[str, Any], result: Mapping[str, Any]
+) -> None:
+    """Post the channel's "resuming your queued request" line ahead of a final post —
+    only when the queued notice actually landed (``queued_notified``, stamped by the
+    retry queue's park), so a delayed answer says what it is and a plain answer, or a
+    re-delivery after a failed post, gets no such preamble.
+
+    Best-effort twice over: the member's contract says never raise, and the call is
+    guarded here regardless — this line must never cost or delay the answer it
+    introduces. The one call site for every path that finally posts a parked entry's
+    result (the drain's redispatch settles through the pipeline; its re-attach delivery
+    binds this directly).
+    """
+    if not entry.get("queued_notified"):
+        return
+    try:
+        deps.ops.post_resumed(entry, result)
+    except Exception:
+        logger.warning(
+            "resume notice failed for %s; the answer follows regardless", message_id, exc_info=True
+        )
+
+
+def _settle_undeliverable(
+    deps: PipelineDeps,
+    message_id: str,
+    entry: Mapping[str, Any],
+    result: Mapping[str, Any],
+    exc: UndeliverableError,
+) -> None:
+    """Mark an entry whose destination the channel permanently refuses TERMINAL.
+
+    The counterpart of :func:`_requeue_for_redelivery` for the one raise that a retry
+    can never clear: the entry leaves the queue with the platform's reason on record
+    (``give_up_reason``), no file delivery is attempted and no history is written —
+    nothing reached the conversation, and nothing can.
+    """
+    reason = f"undeliverable: {exc}"
+    moved = deps.dedup.transition(
+        message_id,
+        str(entry.get("status") or "pending"),
+        "error",
+        run_id=result.get("run_id") or entry.get("run_id"),
+        give_up_reason=reason,
+    )
+    if not moved:
+        # The CAS lost to a racing actor; the terminal status still has to land.
+        deps.dedup.update_status(message_id, "error")
 
 
 def _requeue_for_redelivery(
