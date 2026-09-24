@@ -1175,6 +1175,12 @@ to end.
    corpus, which emit writes last, is not. The five virtual-accelerator files
    are the ones withheld. Fix the entries the command named, or remove them,
    and run emit again.
+   A coupled setpoint the export does not band finitely on both edges --- its
+   family states no ``Setpoint`` ``Range``, an infinite edge, or a non-finite
+   row for its device --- is refused at that same point, by family, device and
+   the row the export states, and the five files are withheld the same way.
+   Emit writes no band of its own for it and does not stop driving the family:
+   state a band in the export, or latch the family in the mapping.
 
 ``osprey mml verify``
    Check the emitted virtual accelerator against the exported response matrix,
