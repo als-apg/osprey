@@ -183,6 +183,21 @@ async def test_readonly_is_a_separate_child_on_the_same_target(pools):
     assert live.report["readonly_run"] is False
 
 
+async def test_a_project_env_file_puts_no_epics_variable_back_into_a_child(pools, writable):
+    # Reading the config file is what would load the .env beside it, after
+    # the child's own scrub.
+    section, config_file, _ = writable
+    (config_file.parent / ".env").write_text(
+        "EPICS_CA_ADDR_LIST=10.9.9.9\nEPICS_CA_MAX_ARRAY_BYTES=100000000\n"
+    )
+    pool = pools(section, config_file=config_file)
+
+    live = await pool.connector("live")
+
+    assert live.report["epics_env"] == {}
+    assert live.report["mode"] is None
+
+
 async def test_a_hung_call_on_one_target_does_not_hold_up_another(pools):
     pool = pools(_section(SLOW))
     live = await pool.connector("live")

@@ -20,6 +20,7 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
 
 __all__ = [
@@ -47,10 +48,18 @@ def host_env() -> dict[str, str]:
     line, and that is the scrub the design depends on. This one is the
     defense-in-depth half: an ambient gateway never reaches the process that
     could act on it, so no window exists between exec and scrub.
+
+    The child is stamped with
+    :data:`~osprey_connectors.dotenv.ENV_CHAIN_APPLIED_ENV`. Reading its config
+    file would otherwise load the project ``.env`` from its working directory
+    after the scrub, and an ``EPICS_*`` line there would put back what both
+    scrubs took out.
     """
-    return {
+    env = {
         name: value for name, value in os.environ.items() if not name.startswith(EPICS_ENV_PREFIXES)
     }
+    env[ENV_CHAIN_APPLIED_ENV] = "1"
+    return env
 
 
 async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
