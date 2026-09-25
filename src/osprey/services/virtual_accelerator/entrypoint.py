@@ -91,6 +91,7 @@ import math
 import os
 import signal
 import threading
+import time
 from collections.abc import Container
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -591,6 +592,39 @@ def _start_engine_source(engine_source: EngineSource, interval: float) -> thread
     return thread
 
 
+def _start_monitor_motion(runner: Any, bridge: Any, interval: float) -> threading.Thread:
+    """Re-serve the monitor readings once per telemetry interval.
+
+    A reading the machine file gives a motion of its own changes with time
+    and not only with a write, so it has to be re-served on the same cadence
+    as the rest of the telemetry. The re-serve reads the model, so it runs on
+    the run loop's thread, handed over one job at a time: the next is queued
+    only once the last has run, so a busy loop is never left a backlog of
+    them.
+
+    Daemon for the same reason the telemetry thread is: it holds nothing,
+    and the process must never wait on a loop that has no end.
+    """
+
+    def serve_forever() -> None:
+        while True:
+            served = threading.Event()
+
+            def tick(served: threading.Event = served) -> None:
+                try:
+                    bridge.tick()
+                finally:
+                    served.set()
+
+            runner.call_on_loop(tick)
+            served.wait()
+            time.sleep(interval)
+
+    thread = threading.Thread(target=serve_forever, name="monitor-motion", daemon=True)
+    thread.start()
+    return thread
+
+
 def main() -> None:
     from osprey.utils.logger import configure_logging
 
@@ -660,6 +694,12 @@ def main() -> None:
         else "Model writes disabled: VA_MODEL_WRITE_TOKEN unset",
         flush=True,
     )
+
+    # Loaded before the physics, because both halves of the served machine
+    # read it: the telemetry source serves its channels, and the bridge takes
+    # from it how each monitor's reading moves around the orbit it solves.
+    print(f"Loading simulation engine from {machine_path} ...", flush=True)
+    engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
 
     # The physics the runner serves: the ring in a lattice-backed boot, the
     # empty stub otherwise. One or the other, never both, and never none --
@@ -836,7 +876,10 @@ def main() -> None:
                 f"cannot produce: {exc}"
             ) from exc
 
-        bridge = PhysicsBridge(model=model)
+        # The engine is the machine file's own description of how a monitor
+        # moves, and the seeded archive history was synthesized from it: served
+        # through the bridge, the live readings carry the same motion.
+        bridge = PhysicsBridge(model=model, motion=engine)
         on_pyat_setpoint = bridge.on_setpoint
     else:
         if bpm_errors or corrector_gains:
@@ -874,9 +917,6 @@ def main() -> None:
         # runner exists, and it has to be: these are the values the Channel
         # Access server comes up serving.
         bridge.bind(records.pyat_coupled, physics_setpoints=records.physics_setpoints)
-
-    print(f"Loading simulation engine from {machine_path} ...", flush=True)
-    engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
 
     # With no lattice, the engine is the only physics in the process: sync
     # each sp-echo readback into it every tick so machine-file expression
@@ -945,6 +985,8 @@ def main() -> None:
     # posts monitor events to the server rather than editing boot specs
     # behind it.
     _start_engine_source(engine_source, poll_interval_s)
+    if bridge is not None and bridge.moves:
+        _start_monitor_motion(runner, bridge, poll_interval_s)
 
     _install_shutdown_signals()
     print(_ready_line(len(records.all)), flush=True)
