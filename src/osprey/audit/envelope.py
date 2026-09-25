@@ -1,14 +1,8 @@
 """The unified audit envelope — one record shape for every safety decision.
 
-Osprey's P1/P2 work left two separate refusal ledgers, each with its own ad-hoc
-record shape: ``readonly-refusals.jsonl`` (the python executor) and
-``protected-writes.jsonl`` (the framework writers). Neither could answer the
-question an operator actually asks — *who did what, under which posture, as
-which role* — because neither carried the actor, the posture, or the session
-that governed the decision.
-
-This module defines the single envelope that replaces both, and that MCP tool
-calls, HTTP mutations, hook decisions and logins all emit:
+An envelope answers the question an operator asks of a decision — *who did
+what, under which posture, as which role* — in one shape that MCP tool calls,
+HTTP mutations, hook decisions and logins all emit:
 
 ``{ts, surface, actor, posture, posture_source, session, subject, decision,
 reason, detail?, role?, tool_use_id?, source?}``
@@ -21,6 +15,12 @@ an agent message, a credential, or any other payload the record is merely
 executor surface, where the refused code *is* the artifact under audit and a
 record without it would be an alert rather than an audit trail; that field is
 therefore refused on every other surface (:data:`SURFACE_EXECUTOR`).
+
+The audit trail has two kinds of surface. The default surfaces are built from
+this envelope and are value-free by the rule above. The opt-in ``tool_call``
+surface (:mod:`osprey.audit.tool_call`) is the one place values are recorded —
+the full arguments and result of each tool call — and it does not use this
+envelope; the ``tool_use_id`` both carry is what joins them.
 
 **Provenance is stated, never inferred.** :attr:`~AuditEnvelope.posture_source`
 is a closed set (:data:`POSTURE_SOURCES`) that says *how* the posture in the
