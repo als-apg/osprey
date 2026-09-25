@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -561,9 +561,10 @@ both, a refused write moves neither. Only the completion differs, forced by
 the protocols: CA put-completion carries no status, so a refusal withholds the
 echo and raises an alarm; a PVAccess put completes with the model’s error
 string. The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> instance publishes two ports from its
-container: Channel Access (<code class="docutils literal notranslate"><span class="pre">5064/tcp</span></code>) and pvAccess (<code class="docutils literal notranslate"><span class="pre">5075/tcp</span></code>), the
-second of them for the model surface described below. A pvAccess client
-reaches that port by name server (<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_NAME_SERVERS=&lt;host&gt;:5075</span></code>),
+container: Channel Access (<code class="docutils literal notranslate"><span class="pre">5064/tcp</span></code>) and pvAccess (<code class="docutils literal notranslate"><span class="pre">5075/tcp</span></code> unless
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.pva_port</span></code> names another), the second of them for the
+model surface described below. A pvAccess client reaches that port by name
+server (<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_NAME_SERVERS=&lt;host&gt;:&lt;port&gt;</span></code>),
 which is TCP, so TCP is all that is published — there is no UDP search to
 answer. A stand-in instance publishes its Channel Access port alone: the model
 surface belongs to the <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> instance.</p>

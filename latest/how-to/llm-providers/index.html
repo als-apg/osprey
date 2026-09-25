@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -525,7 +526,7 @@ agent speaks the Anthropic Messages API, while the MCP tool servers call the
 same named providers directly through LiteLLM. Both draw endpoints and keys
 from one catalog – <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside the deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
 rendered into <code class="docutils literal notranslate"><span class="pre">api.providers</span></code> – so a key set there serves both. Which
-provider and model tier each one runs on is chosen separately: the profile’s
+provider and model each one runs on is chosen separately: the profile’s
 top-level <code class="docutils literal notranslate"><span class="pre">provider:</span></code> field for the agent, and each tool server’s own
 provider setting, some of which default to the agent’s.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -652,7 +653,9 @@ about the tools changes; only the machine behind them does.</p>
 <p>A deployment baselined on the stand-in
 (<code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">live_standin</span></code>) starts on <code class="docutils literal notranslate"><span class="pre">standin</span></code>, so
 going to the real machine is one tool call — the same call, and the same
-prompts, as on a deployment that never had a stand-in at all.</p>
+prompts, as on a deployment that never had a stand-in at all. The
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset starts on the simulator (<code class="docutils literal notranslate"><span class="pre">va</span></code>) instead, so there
+the stand-in is a switch of its own before the real machine.</p>
 <p>Read the roster before you ask for it, so you know what will happen:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target are we on, and where else could we go?
 </pre></div>
@@ -1001,7 +1004,9 @@ kernel.</p></td>
 <td><p>An earlier switch has not yet reached every control-system server. The
 refusal names the servers still working. Wait for the chip to settle and
 ask again; the request is refused rather than queued, so nothing lands
-later without you.</p></td>
+later without you. A server that has not launched a connector yet is
+not one of them — it has nothing to move off, so it holds up nobody
+else.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Already there</strong></p></td>
 <td><p>The deployment is on that target already. The active target always

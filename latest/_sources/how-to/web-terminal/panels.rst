@@ -105,6 +105,24 @@ is the named path: where the backing service is also reachable at an address of
 its own, a login there names nobody, and what it does is governed by nobody's
 chip — see :ref:`service door, not a terminal <web-terminal-service-door>`.
 
+A service hosted under a sub-path of its own writes its asset and API
+references root-absolute, and in the tab those would resolve against the
+terminal's address rather than the service's. The proxy rewrites them into the
+tab instead. The ``path`` you configured is rewritten for you; name any further
+prefix the service serves with ``rewrite_prefixes``:
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       pvinfo:
+         url: https://controls.example.org
+         path: /pvinfo/
+         rewrite_prefixes: ["/pvinfo"]   # the bundle's own router base
+
+Each list applies to the panel that declares it, so a prefix one service needs
+is never rewritten in another's pages.
+
 Theming a URL-backed panel
 --------------------------
 
@@ -322,6 +340,33 @@ Applying a layout with ``arrange_workspace`` does not ask; the
 approve each call on a stock build.
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
+
+Panel tools the agent uses
+--------------------------
+
+The panel tools come in two kinds: the ones that say what is on screen, which
+are auto-allowed, and the ones that change rail membership, which ask the
+operator first.
+
+What is on screen:
+
+- ``list_panels`` — the panels this deployment has, which of them are on
+  screen, and the configured layouts.
+- ``open_panel`` — put a panel on screen; it joins the rail if it was off it.
+- ``close_panel`` — take a panel's tile off screen, leaving it on the rail.
+- ``arrange_workspace`` — state a whole layout: exactly these tiles, in this
+  order.
+
+Rail membership, each one approved by the operator:
+
+- ``add_panel_to_rail`` — make a panel launchable from the rail in one click.
+- ``remove_panel_from_rail`` — take a panel off the rail, and off screen with
+  it.
+- ``register_panel`` — add a rail entry at runtime for an upstream URL the
+  terminal proxies.
+
+:doc:`/architecture/mcp-servers` lists these beside the rest of the workspace
+server's tools.
 
 .. dropdown:: Going deeper — how panels work
    :icon: package

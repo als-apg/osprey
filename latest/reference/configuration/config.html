@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -1124,10 +1124,13 @@ The <code class="docutils literal notranslate"><span class="pre">system-health</
 suite’s worst outcome in a word) and <code class="docutils literal notranslate"><span class="pre">detail</span></code> (<code class="docutils literal notranslate"><span class="pre">categories</span></code>, the default:
 its card lists one row per check category; <code class="docutils literal notranslate"><span class="pre">checks</span></code>: every check).</p>
 <p>Nothing here can stop the terminal from booting. An item name the build does
-not know, a second copy of an item that can only appear once (everything but <code class="docutils literal notranslate"><span class="pre">clock</span></code>, <code class="docutils literal notranslate"><span class="pre">stopwatch</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span></code>
-and <code class="docutils literal notranslate"><span class="pre">separator</span></code>), or a line that is not an item at all is reported in the log
-and skipped; the rest of the bar is rendered. Twenty items per bar is the
-ceiling, and extras past it are dropped.</p>
+not know, a second copy of an item that can only appear once (everything but
+<code class="docutils literal notranslate"><span class="pre">clock</span></code>, <code class="docutils literal notranslate"><span class="pre">stopwatch</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span></code> and <code class="docutils literal notranslate"><span class="pre">separator</span></code>), or a line that is not an
+item at all is reported in the log and skipped; the rest of the bar is
+rendered. An option the item does not take, or a value it does not accept
+(<code class="docutils literal notranslate"><span class="pre">zone:</span> <span class="pre">UTC</span></code> rather than <code class="docutils literal notranslate"><span class="pre">utc</span></code>, a <code class="docutils literal notranslate"><span class="pre">width</span></code> past <code class="docutils literal notranslate"><span class="pre">2000</span></code>), is reported the
+same way and dropped; the item keeps its default for that option. Twenty items
+per bar is the ceiling, and extras past it are dropped.</p>
 </section>
 <section id="how-often-the-file-watchers-re-read-the-tree">
 <span id="config-file-watch-reconcile"></span><h3>How often the file watchers re-read the tree<a class="headerlink" href="#how-often-the-file-watchers-re-read-the-tree" title="Link to this heading">#</a></h3>
@@ -1198,7 +1201,7 @@ workspace server start, so a new one arrives with <code class="docutils literal 
 restart.</p>
 <p>The four commented stanzas in the shipped presets have nothing to do but say
 this: a shipped value would be one facility’s vocabulary handed to every other.</p>
-<p>One other key sits in this block. <code class="docutils literal notranslate"><span class="pre">artifact_server.max_timeseries_file_mb</span></code>
+<p>Two other keys sit in this block. <code class="docutils literal notranslate"><span class="pre">artifact_server.max_timeseries_file_mb</span></code>
 (default 200) is the largest timeseries data file the gallery will draw as a
 chart or lay out as a table. Over it, those two views refuse with a <code class="docutils literal notranslate"><span class="pre">413</span></code> and
 say so; the file itself stays downloadable either way. The handler reads the
@@ -1206,9 +1209,14 @@ whole file into memory to build the view, so raising the number spends that
 much memory on the machine serving the gallery — which is why it is a facility’s
 to set rather than a fixed bound: how big an export gets is a property of your
 archiver, and how much memory the gallery host has is a property of your site.</p>
+<p><code class="docutils literal notranslate"><span class="pre">artifact_server.page_size</span></code> (default 20) is how many artifacts the gallery
+asks for at a time. It fetches the next page as the list is scrolled, so a
+store with thousands of entries opens as fast as one with twenty. The same
+number bounds any other reader of the listing; a request may name its own size
+up to 200, and a configured value above 200 is capped there.</p>
 </section>
-<section id="python-executor-how-long-one-agent-script-may-run">
-<span id="config-python-executor"></span><h2><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run<a class="headerlink" href="#python-executor-how-long-one-agent-script-may-run" title="Link to this heading">#</a></h2>
+<section id="python-executor-how-long-one-agent-script-may-run-and-what-it-inherits">
+<span id="config-python-executor"></span><h2><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits<a class="headerlink" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">python_executor.execution_timeout_seconds</span></code> is the wall-clock ceiling on a
 single agent Python run. It defaults to <code class="docutils literal notranslate"><span class="pre">600</span></code> — ten minutes — and a run that
 reaches it is killed and reported as a <strong>timeout</strong>, which the response
@@ -1223,6 +1231,42 @@ day of archived data, a scan reconstruction — and lower it where a runaway
 script holding the sandbox is the worse outcome. The value is read once in
 the sandbox’s MCP server process and held for that process’s lifetime, so a
 change lands after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart of the stack.</p>
+<p>Agent Python — the python executor, the visualization tools and plan
+validation — starts with a fixed set of environment variables from the host:
+paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
+control-system client settings (<code class="docutils literal notranslate"><span class="pre">EPICS_*</span></code>, <code class="docutils literal notranslate"><span class="pre">PYEPICS_*</span></code>, <code class="docutils literal notranslate"><span class="pre">TANGO_*</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ENSHOST</span></code>) and the osprey names the run itself reads. Nothing else from the
+host reaches it. <code class="docutils literal notranslate"><span class="pre">python_executor.child_env_passthrough</span></code> adds names to that
+set, for an analysis library that reads its own variable:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python_executor.child_env_passthrough</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">HDF5_PLUGIN_PATH</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">OMP_NUM_THREADS</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>The list takes exact names only. It cannot add a credential osprey itself
+holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
+naming one is an error, and the run does not start.</p>
+</section>
+<section id="audit-tool-call-the-full-record-of-every-tool-call">
+<span id="config-audit-tool-call"></span><h2><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call<a class="headerlink" href="#audit-tool-call-the-full-record-of-every-tool-call" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code> (default <code class="docutils literal notranslate"><span class="pre">false</span></code>) turns on the full record: every
+osprey tool call, reads included, is written whole to
+<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/tool_call.jsonl</span></code> and sent to the telemetry store as one
+log line — arguments, result, control target, approval answer. The
+control-assistant preset turns it on; delete the lines to opt out.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">audit.tool_call.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">audit.tool_call.max_inline_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">262144</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">audit.tool_call.max_inline_bytes</span></code> (default <code class="docutils literal notranslate"><span class="pre">262144</span></code>) bounds each payload,
+arguments and result on their own. A larger payload is saved as a JSON artifact
+and the record keeps <code class="docutils literal notranslate"><span class="pre">{&quot;size&quot;,</span> <span class="pre">&quot;sha256&quot;,</span> <span class="pre">&quot;artifact_id&quot;}</span></code> in its place. A value
+that is not a positive integer falls back to the default with a warning.</p>
+<p>Both keys are read once per MCP server process, so a change lands after
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart. Unlike the rest of the audit trail, this file
+and those artifacts hold values: treat them with the access you give the
+control system’s own data. The fields are listed in
+<a class="reference internal" href="../contracts/audit-trail.html#audit-trail-tool-call"><span class="std std-ref">The full tool-call record</span></a>.</p>
 </section>
 <section id="deployment-service-images-and-var-interpolation">
 <span id="config-deployment"></span><h2>Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation<a class="headerlink" href="#deployment-service-images-and-var-interpolation" title="Link to this heading">#</a></h2>
@@ -1236,7 +1280,7 @@ covered in <a class="reference internal" href="../../how-to/deploy-project/index
 <span id="deployment-image-overrides"></span><h3>Overriding Service Images<a class="headerlink" href="#overriding-service-images" title="Link to this heading">#</a></h3>
 <p>Every service image resolves through the same three-layer chain — an
 environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
-default. Sixteen images, one row each:</p>
+default. Seventeen images, one row each:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -1302,32 +1346,37 @@ default. Sixteen images, one row each:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.ariel_sync.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>bluesky</p></td>
+<tr class="row-even"><td><p>archive</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.archive.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-bridge</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>bluesky (Tiled sidecar)</p></td>
+<tr class="row-even"><td><p>bluesky (Tiled sidecar)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TILED_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-even"><td><p>bluesky (Redis sidecar)</p></td>
+<tr class="row-odd"><td><p>bluesky (Redis sidecar)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_REDIS_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.redis_image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-odd"><td><p>bluesky_web</p></td>
+<tr class="row-even"><td><p>bluesky_web</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_WEB_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-web</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>virtual_accelerator</p></td>
+<tr class="row-odd"><td><p>virtual_accelerator</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-va</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>qmd</p></td>
+<tr class="row-even"><td><p>qmd</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd</span></code></p></td>
@@ -1338,13 +1387,14 @@ default. Sixteen images, one row each:</p>
 <p>Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.</p>
-<p>Six of the sixteen are <strong>upstream pins</strong> — images somebody else publishes,
-named exactly as they publish them. The other ten are <strong>built by OSPREY</strong>
+<p>Six of the seventeen are <strong>upstream pins</strong> — images somebody else publishes,
+named exactly as they publish them. The other eleven are <strong>built by OSPREY</strong>
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.</p>
-<p><code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> share one row value on purpose: both run
-the bare project image, so both read <code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code>. Set that variable
-and both services move to the image you name.</p>
+<p><code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> and <code class="docutils literal notranslate"><span class="pre">archive</span></code> share one row value on
+purpose: all three run the bare project image, so all three read
+<code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code>. Set that variable and all three services move to the
+image you name.</p>
 <section id="the-two-image-axes">
 <span id="deployment-image-axes"></span><h4>The two image axes<a class="headerlink" href="#the-two-image-axes" title="Link to this heading">#</a></h4>
 <p>An OSPREY-built default is always spelled the same way:</p>
@@ -1554,7 +1604,8 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-tool-call-the-full-record-of-every-tool-call"><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#the-two-image-axes">The two image axes</a></li>

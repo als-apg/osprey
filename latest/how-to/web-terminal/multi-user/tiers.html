@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -532,7 +533,7 @@ each boundary are one link away wherever they matter.</p>
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">The two questions that decide a tier</p></li>
-<li><p class="sd-card-text">What the four tiers the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships can and
+<li><p class="sd-card-text">What the three tiers the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships can and
 cannot do, login by login</p></li>
 <li><p class="sd-card-text">That a tier is nothing more than a persona file — and what that means
 when you rename one or add one</p></li>
@@ -556,7 +557,7 @@ still passes the writes-check hook, the per-channel limits, and a human
 approval prompt before the connector executes it.</p>
 <p>Because the answer is per target, a tier can be armed on the simulator and
 read-only on the machine — the same session, the same tools, refused the moment
-it switches target. That is the <code class="docutils literal notranslate"><span class="pre">va-readwrite</span></code> tier below.</p>
+it switches target. That is the shape both write-capable tiers below have.</p>
 <p><strong>May this session change the deployment it runs in?</strong> That is a different
 capability altogether — the ability to rewrite the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every terminal
 of this tier runs under, through the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool, the web
@@ -581,22 +582,23 @@ takes this away from every tier built on it, and hands it back to exactly one.</
 <td><p>—</p></td>
 </tr>
 <tr class="row-odd"><th class="stub"><p><strong>Writes on the simulator only</strong> (supervised)</p></th>
-<td><p><strong>va-readwrite</strong></p></td>
-<td><p>—</p></td>
-</tr>
-<tr class="row-even"><th class="stub"><p><strong>Control-system writes on</strong> (supervised)</p></th>
 <td><p><strong>readwrite</strong></p></td>
 <td><p><strong>admin</strong></p></td>
+</tr>
+<tr class="row-even"><th class="stub"><p><strong>Control-system writes on</strong> (supervised)</p></th>
+<td><p>—</p></td>
+<td><p>—</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The preset ships the four named cells. The empty ones are not forbidden by
-anything in OSPREY — a persona could be written for either — they simply have
-no use the preset wanted to ship.</p>
+<p>The preset ships the three named cells, and no tier armed on the live machine:
+arming one is the facility’s own edit. The empty cells are not forbidden by
+anything in OSPREY — a persona could be written for any of them — the preset
+simply does not ship one.</p>
 </section>
-<section id="the-four-tiers-the-preset-ships">
-<span id="multi-user-tiers"></span><h2>The four tiers the preset ships<a class="headerlink" href="#the-four-tiers-the-preset-ships" title="Link to this heading">#</a></h2>
+<section id="the-three-tiers-the-preset-ships">
+<span id="multi-user-tiers"></span><h2>The three tiers the preset ships<a class="headerlink" href="#the-three-tiers-the-preset-ships" title="Link to this heading">#</a></h2>
 <p>Each tier is a self-contained OSPREY project with its <strong>own</strong> permissions,
 because permissions are a property of a project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the tiers
 are genuinely different agents, not one agent with a UI toggle.</p>
@@ -621,29 +623,26 @@ are genuinely different agents, not one agent with a UI toggle.</p>
 the scaffold gallery is readable but not writable</p></td>
 <td><p>Chat-first <code class="docutils literal notranslate"><span class="pre">simple</span></code> layout, without the EVENTS and BLUESKY panels</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>va-readwrite</strong></p></td>
-<td><p>On for the virtual accelerator, off for the live machine. Supervised on
-exactly the terms below; a write refuses the moment the session is
-switched to the machine, with no config edit either way</p></td>
+<tr class="row-odd"><td><p><strong>readwrite</strong> (alice)</p></td>
+<td><p>On for the virtual accelerator, off for both hardware-shaped targets —
+the live machine and its stand-in. A write refuses the moment the
+session is switched to either, with no config edit either way. On the
+simulator it is supervised: a channel write still passes the
+writes-check hook, the per-channel limits, and a human approval prompt
+before it executes</p></td>
 <td><p>No — the same floor as readonly</p></td>
 <td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace with the EVENTS and BLUESKY panels</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>readwrite</strong> (alice)</p></td>
-<td><p>On for every machine the session can reach, and supervised: a channel
-write still passes the writes-check hook, the per-channel limits, and a
-human approval prompt before it executes</p></td>
-<td><p>No — the same floor as readonly</p></td>
-<td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace with the EVENTS and BLUESKY panels</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>admin</strong> (carol)</p></td>
-<td><p>On, on exactly the supervised terms above</p></td>
+<tr class="row-even"><td><p><strong>admin</strong> (carol)</p></td>
+<td><p>On for the virtual accelerator, off for both hardware-shaped targets,
+on exactly the supervised terms above</p></td>
 <td><p>Yes, and only here: the <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code> skill, the <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code>
 tool, the web Config panel, and the gallery’s edit, create and delete
 surfaces</p></td>
-<td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace, with the Config panel and without the
-EVENTS and BLUESKY panels</p></td>
+<td><p>Full <code class="docutils literal notranslate"><span class="pre">expert</span></code> workspace with the EVENTS and BLUESKY panels, plus
+the Config panel</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>ariel</strong></p></td>
+<tr class="row-odd"><td><p><strong>ariel</strong></p></td>
 <td><p>No control system behind it at all, so there is no write posture to
 compare</p></td>
 <td><p>No — it inherits the same floor as the operator tiers</p></td>
@@ -657,12 +656,11 @@ about the deployment. The posture is a property of the <strong>session</strong>,
 person holding it: which teammates get a write-capable login is your roster’s
 call, and the point is that the framework provisions genuinely different
 postures out of one deployment.</p>
-<p>That the admin login has no EVENTS or BLUESKY panels looks like an oversight
-and is not one. Those two panels are declared only in the read-write delta
-(<code class="docutils literal notranslate"><span class="pre">personas/readwrite.yml</span></code>), so they reach that tier and no other — the admin
-delta never inherits them in the first place. It also suits what the admin
-card is for: queueing plans and watching the event dispatcher is operator
-work, done from an operator card.</p>
+<p>Only the read-only login is built without the EVENTS and BLUESKY panels. The
+base profile declares neither, and the two write-capable deltas,
+<code class="docutils literal notranslate"><span class="pre">personas/readwrite.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">personas/admin.yml</span></code>, each add both:
+queueing a plan and watching its results belong on a card that can arm a
+write. The admin card is the read-write operator desk plus deployment editing.</p>
 <p><strong>The default stays on the safe side.</strong> <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> is <code class="docutils literal notranslate"><span class="pre">readonly</span></code>,
 so a roster entry added in a hurry with no <code class="docutils literal notranslate"><span class="pre">persona</span></code> of its own gets the
 read-only tier.</p>
@@ -672,21 +670,20 @@ read-only tier.</p>
 <p class="sd-card-text">The same table, as the rendered projects spell it. The single-user column
 is the one worth knowing: a plain <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code>
 render is readwrite at the machine and floored at the deployment — no
-Config tab, no gallery writes. Admin in a single-user deployment means
-editing <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rebuilding.</p>
+Config tab, no gallery writes. It opens on the simulator, so reaching the
+machine is a deliberate target switch. Admin in a single-user deployment
+means editing <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rebuilding.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
-<col style="width: 13.0%" />
 <col style="width: 20.0%" />
-<col style="width: 13.0%" />
-<col style="width: 13.0%" />
-<col style="width: 19.0%" />
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+<col style="width: 18.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p class="sd-card-text">Capability</p></th>
 <th class="head"><p class="sd-card-text">readonly</p></th>
-<th class="head"><p class="sd-card-text">va-readwrite</p></th>
 <th class="head"><p class="sd-card-text">readwrite</p></th>
 <th class="head"><p class="sd-card-text">admin</p></th>
 <th class="head"><p class="sd-card-text">single-user base</p></th>
@@ -696,45 +693,40 @@ editing <code class="docutils literal notranslate"><span class="pre">profile.yml
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
-<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
-<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled</span></code></p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">false</span></code> for both connector types, so no later edit of the
 deployment-wide key can arm one</p></td>
-<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span> <span class="pre">true</span></code>; the live machine’s type is left
-unwritten, so it inherits that <code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
-<td><p class="sd-card-text">none — every type inherits the deployment-wide key</p></td>
-<td><p class="sd-card-text">none — every type inherits the deployment-wide key</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span> <span class="pre">true</span></code> and <code class="docutils literal notranslate"><span class="pre">epics:</span> <span class="pre">false</span></code>; the live
+machine’s block is pinned by name, so no per-type <code class="docutils literal notranslate"><span class="pre">true</span></code> lower in
+the chain can lift it</p></td>
+<td><p class="sd-card-text">the same two keys as readwrite</p></td>
 <td><p class="sd-card-text">none — every type inherits the deployment-wide key</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">mcp__controls__channel_write</span></code></p></td>
 <td><p class="sd-card-text">kill-switch deny</p></td>
 <td><p class="sd-card-text">neither denied nor asked in <code class="docutils literal notranslate"><span class="pre">settings.json</span></code>: ask + approval hook
-on the simulator, hook refusal on the live machine</p></td>
-<td><p class="sd-card-text">ask + approval hook</p></td>
-<td><p class="sd-card-text">ask + approval hook</p></td>
+on the simulator, hook refusal on both hardware-shaped targets</p></td>
+<td><p class="sd-card-text">as readwrite</p></td>
 <td><p class="sd-card-text">ask + approval hook</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text">Bluesky arming tools</p></td>
 <td><p class="sd-card-text">kill-switch deny</p></td>
-<td><p class="sd-card-text">per lane: ask on the simulator’s lane, <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code> on the
-live one</p></td>
-<td><p class="sd-card-text">ask</p></td>
-<td><p class="sd-card-text">ask</p></td>
+<td><p class="sd-card-text">per lane: ask on the simulator’s lane, <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code> on a
+hardware-shaped one</p></td>
+<td><p class="sd-card-text">as readwrite</p></td>
 <td><p class="sd-card-text">ask</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">mcp__python__execute</span></code></p></td>
 <td><p class="sd-card-text">read-only kernel only</p></td>
 <td><p class="sd-card-text">both kernels, but a read-write run is refused while the deployment
-is on the live machine</p></td>
-<td><p class="sd-card-text">both kernels</p></td>
-<td><p class="sd-card-text">both kernels</p></td>
+is on a hardware-shaped target</p></td>
+<td><p class="sd-card-text">as readwrite</p></td>
 <td><p class="sd-card-text">both kernels</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">mcp__osprey_workspace__setup_patch</span></code></p></td>
-<td><p class="sd-card-text">deny (floor)</p></td>
 <td><p class="sd-card-text">deny (floor)</p></td>
 <td><p class="sd-card-text">deny (floor)</p></td>
 <td><p class="sd-card-text">ask + approval hook</p></td>
@@ -743,12 +735,10 @@ is on the live machine</p></td>
 <tr class="row-even"><td><p class="sd-card-text">Config panel (<code class="docutils literal notranslate"><span class="pre">/api/config</span></code>)</p></td>
 <td><p class="sd-card-text">403</p></td>
 <td><p class="sd-card-text">403</p></td>
-<td><p class="sd-card-text">403</p></td>
 <td><p class="sd-card-text">enabled</p></td>
 <td><p class="sd-card-text">403</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text">Scaffold gallery edit / create / delete</p></td>
-<td><p class="sd-card-text">403 (read OK)</p></td>
 <td><p class="sd-card-text">403 (read OK)</p></td>
 <td><p class="sd-card-text">403 (read OK)</p></td>
 <td><p class="sd-card-text">enabled</p></td>
@@ -756,20 +746,18 @@ is on the live machine</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text">Control-target chip: <em>Turn writes on</em> for a machine</p></td>
 <td><p class="sd-card-text">locked (<em>kept read-only by the deployment</em>)</p></td>
-<td><p class="sd-card-text">confirm modal</p></td>
-<td><p class="sd-card-text">confirm modal</p></td>
-<td><p class="sd-card-text">confirm modal</p></td>
+<td><p class="sd-card-text">confirm modal on the simulator; <em>writes locked</em> on both
+hardware-shaped targets, which nothing in the browser lifts</p></td>
+<td><p class="sd-card-text">as readwrite</p></td>
 <td><p class="sd-card-text">confirm modal</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> owner in the container</p></td>
-<td><p class="sd-card-text">root</p></td>
 <td><p class="sd-card-text">root</p></td>
 <td><p class="sd-card-text">root</p></td>
 <td><p class="sd-card-text">osprey</p></td>
 <td><p class="sd-card-text">root</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">The protected set</span></a></p></td>
-<td><p class="sd-card-text">refused</p></td>
 <td><p class="sd-card-text">refused</p></td>
 <td><p class="sd-card-text">refused</p></td>
 <td><p class="sd-card-text">refused</p></td>
@@ -789,7 +777,7 @@ to be once it is built.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="tier-render-title tier-render-desc">
   <title id="tier-render-title">A tier is a persona file, rendered</title>
-  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each persona file under personas/ holds only its differences — readonly turns control-system writes off for every target, readwrite leaves them on for every target, admin leaves them on and lifts the floor; a delta may also arm one target only, which is what the bundled va-readwrite tier does. osprey build merges every delta over the base and renders one project per persona, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
+  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each persona file under personas/ holds only its differences — readonly turns control-system writes off for every target, readwrite arms them on the simulator alone, admin arms the simulator alone and lifts the floor. osprey build merges every delta over the base and renders one project per persona, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
   <defs>
     <marker id="tier-render-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -827,11 +815,11 @@ to be once it is built.</p>
   <rect class="mask" x="24" y="184" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="184" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="203" text-anchor="middle">personas/readwrite.yml</text>
-  <text class="ts" x="132" y="219" text-anchor="middle">writes_enabled: true · every target</text>
+  <text class="ts" x="132" y="219" text-anchor="middle">writes armed on the simulator only</text>
   <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="263" text-anchor="middle">personas/admin.yml</text>
-  <text class="ts" x="132" y="279" text-anchor="middle">writes_enabled: true · lifts the floor</text>
+  <text class="ts" x="132" y="279" text-anchor="middle">simulator writes · lifts the floor</text>
   <!-- the build -->
   <rect class="mask" x="392" y="136" width="184" height="56" rx="6"/>
   <rect class="nb-foc" x="392" y="136" width="184" height="56" rx="6"/>
@@ -855,8 +843,8 @@ to be once it is built.</p>
 <p>Each file under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> holds only that persona’s <strong>differences</strong> from
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The base profile carries the floor — the three
 deployment-editing surfaces switched off — and a persona sets what it needs on
-top: <code class="docutils literal notranslate"><span class="pre">readonly.yml</span></code> turns control-system writes off, <code class="docutils literal notranslate"><span class="pre">readwrite.yml</span></code> leaves
-them on, <code class="docutils literal notranslate"><span class="pre">admin.yml</span></code> leaves them on and lifts the floor. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+top: <code class="docutils literal notranslate"><span class="pre">readonly.yml</span></code> turns control-system writes off, <code class="docutils literal notranslate"><span class="pre">readwrite.yml</span></code> arms
+them on the simulator alone, <code class="docutils literal notranslate"><span class="pre">admin.yml</span></code> does the same and lifts the floor. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
 merges each delta over the base and renders it into its own project, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds one container image from each. Every arrow in the drawing
 is a build step, never a runtime lookup: the web server never asks <em>who is
@@ -945,14 +933,14 @@ before any OSPREY code runs, and no persona setting can subtract from that
 list. Tools a project adds under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> are not in that
 list in any render — they are refused by the writes-check hook, which is
 Layer 2.</p>
-<p>A tier armed on <em>some</em> targets, like <code class="docutils literal notranslate"><span class="pre">va-readwrite</span></code>, cannot get that static
-deny: <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> is rendered once, before any session has picked a
-target, and the same tool is legal on one machine and refused on the other. So
-that tier renders no deny at all and carries the boundary per call instead — the
-safety hook checks the session’s active target, and the connector refuses again
-behind it. Layer 1 is the stronger guarantee, which is why the read-only tier,
-and not the simulator-write tier, is the one to hand out when the requirement is
-“this login can never move anything”.</p>
+<p>A tier armed on <em>some</em> targets — <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> and <code class="docutils literal notranslate"><span class="pre">admin</span></code>, both armed on the
+simulator alone — cannot get that static deny: <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> is rendered
+once, before any session has picked a target, and the same tool is legal on one
+machine and refused on the other. So those tiers render no deny at all and carry
+the boundary per call instead — the safety hook checks the session’s active
+target, and the connector refuses again behind it. Layer 1 is the stronger
+guarantee, which is why the read-only tier, and not a write-capable one, is the
+one to hand out when the requirement is “this login can never move anything”.</p>
 <p><strong>Layer 2</strong> is the set of gates that give the agent a readable refusal —
 <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> denied by the floor, the Config panel and gallery refusing
 with a 403, the Python executor refusing to write into the render zone in
@@ -985,15 +973,20 @@ deployment’s administrator, and does not pretend to.</p>
 </section>
 <section id="watch-it-act">
 <h2>Watch it act<a class="headerlink" href="#watch-it-act" title="Link to this heading">#</a></h2>
-<p>The boundary is enforced, not asserted — so you can watch it act. Open alice’s
-and bob’s terminals and ask both agents to do the same two things:</p>
+<p>The boundary is enforced, not asserted — so you can watch it act. Both sessions
+open on the simulator, which is the target that decides the outcome below. Open
+alice’s and bob’s terminals and ask both agents to do the same two things:</p>
 <p><strong>Read.</strong> Ask either agent about a channel — a corrector setpoint, a BPM
 reading. Both sessions answer identically: reads are ungated on both tiers.</p>
-<p><strong>Write.</strong> Ask each agent to change a setpoint. In alice’s session the write
-goes to a human approval prompt, then executes. In bob’s session the same
-request is <strong>refused</strong>: the write tool is denied in his project’s rendered
-permissions, and the refusal states plainly that writes are disabled in his
-configuration.</p>
+<p><strong>Write.</strong> Ask each agent to change a setpoint on the simulator. In alice’s
+session the write goes to a human approval prompt, then executes. In bob’s
+session the same request is <strong>refused</strong>: the write tool is denied in his
+project’s rendered permissions, and the refusal states plainly that writes are
+disabled in his configuration.</p>
+<p><strong>Switch.</strong> In alice’s terminal, use the control-target chip to switch to the
+Real machine or the Rehearsal, and ask for the same write. It is refused in her
+own session — by the safety hook and the connector, not by a rendered deny,
+because her tier is armed on the simulator alone.</p>
 <p>Both agents carry the <em>same</em> tool surface — the readonly tier is not a
 stripped-down agent that never heard of writing. It is the same agent whose
 write path is switched off in its own project, which is exactly what you want
@@ -1184,7 +1177,7 @@ the floor is written so that one persona can lift it.</p></li>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-questions-decide-a-tier">Two questions decide a tier</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-four-tiers-the-preset-ships">The four tiers the preset ships</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-tiers-the-preset-ships">The three tiers the preset ships</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-tier-is-a-persona-file">A tier is a persona file</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-makes-it-hold">What makes it hold</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#watch-it-act">Watch it act</a></li>

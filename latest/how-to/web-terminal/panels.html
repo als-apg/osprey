@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -621,6 +622,21 @@ origin, so the browser never needs direct access to the backing port. The tab
 is the named path: where the backing service is also reachable at an address of
 its own, a login there names nobody, and what it does is governed by nobody’s
 chip — see <a class="reference internal" href="operate.html#web-terminal-service-door"><span class="std std-ref">service door, not a terminal</span></a>.</p>
+<p>A service hosted under a sub-path of its own writes its asset and API
+references root-absolute, and in the tab those would resolve against the
+terminal’s address rather than the service’s. The proxy rewrites them into the
+tab instead. The <code class="docutils literal notranslate"><span class="pre">path</span></code> you configured is rewritten for you; name any further
+prefix the service serves with <code class="docutils literal notranslate"><span class="pre">rewrite_prefixes</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pvinfo</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://controls.example.org</span>
+<span class="w">      </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/pvinfo/</span>
+<span class="w">      </span><span class="nt">rewrite_prefixes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;/pvinfo&quot;</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># the bundle&#39;s own router base</span>
+</pre></div>
+</div>
+<p>Each list applies to the panel that declares it, so a prefix one service needs
+is never rewritten in another’s pages.</p>
 </section>
 <section id="theming-a-url-backed-panel">
 <h2>Theming a URL-backed panel<a class="headerlink" href="#theming-a-url-backed-panel" title="Link to this heading">#</a></h2>
@@ -808,6 +824,31 @@ Applying a layout with <code class="docutils literal notranslate"><span class="p
 approve each call on a stock build.
 <code class="docutils literal notranslate"><span class="pre">list_panels</span></code> reports the configured layouts so the agent can honor a request
 like “set up for machine setup.”</p>
+</section>
+<section id="panel-tools-the-agent-uses">
+<h2>Panel tools the agent uses<a class="headerlink" href="#panel-tools-the-agent-uses" title="Link to this heading">#</a></h2>
+<p>The panel tools come in two kinds: the ones that say what is on screen, which
+are auto-allowed, and the ones that change rail membership, which ask the
+operator first.</p>
+<p>What is on screen:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> — the panels this deployment has, which of them are on
+screen, and the configured layouts.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> — put a panel on screen; it joins the rail if it was off it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">close_panel</span></code> — take a panel’s tile off screen, leaving it on the rail.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> — state a whole layout: exactly these tiles, in this
+order.</p></li>
+</ul>
+<p>Rail membership, each one approved by the operator:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> — make a panel launchable from the rail in one click.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> — take a panel off the rail, and off screen with
+it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">register_panel</span></code> — add a rail entry at runtime for an upstream URL the
+terminal proxies.</p></li>
+</ul>
+<p><a class="reference internal" href="../../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a> lists these beside the rest of the workspace
+server’s tools.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-package" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.878.392 5.25 3.045c.54.314.872.89.872 1.514v6.098a1.75 1.75 0 0 1-.872 1.514l-5.25 3.045a1.75 1.75 0 0 1-1.756 0l-5.25-3.045A1.75 1.75 0 0 1 1 11.049V4.951c0-.624.332-1.201.872-1.514L7.122.392a1.75 1.75 0 0 1 1.756 0ZM7.875 1.69l-4.63 2.685L8 7.133l4.755-2.758-4.63-2.685a.248.248 0 0 0-.25 0ZM2.5 5.677v5.372c0 .09.047.171.125.216l4.625 2.683V8.432Zm6.25 8.271 4.625-2.683a.25.25 0 0 0 .125-.216V5.677L8.75 8.432Z"></path></svg></span><span class="sd-summary-text">Going deeper — how panels work</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -913,6 +954,7 @@ shape of it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-layouts-presets">Panel layouts (“presets”)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-tools-the-agent-uses">Panel tools the agent uses</a></li>
 </ul>
   </nav></div>
 

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -513,8 +513,8 @@ The build aborts if none is set.</p></td>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
-<td><p>Default model: a tier name (<code class="docutils literal notranslate"><span class="pre">haiku</span></code>, <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>, <code class="docutils literal notranslate"><span class="pre">opus</span></code>) or a full
-provider model ID.</p></td>
+<td><p>A model id the provider serves. Omitted: the provider entry’s
+<code class="docutils literal notranslate"><span class="pre">default_model</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
 <td><p>string</p></td>
@@ -676,9 +676,10 @@ the framework reads and what it falls back to when no line spells it.</p>
 <p class="admonition-title">Warning</p>
 <p>Always write overrides as <strong>dotted keys</strong>, one per line — never as nested
 YAML. A nested block counts as <em>one</em> override whose value replaces the entire
-subtree. <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{claude_code:</span> <span class="pre">{model:</span> <span class="pre">opus}}</span></code> wipes out everything else
-under <code class="docutils literal notranslate"><span class="pre">claude_code</span></code> (servers, permissions, …), silently. The dotted form
-<code class="docutils literal notranslate"><span class="pre">claude_code.model:</span> <span class="pre">opus</span></code> changes just that setting.</p>
+subtree. <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{claude_code:</span> <span class="pre">{aliases:</span> <span class="pre">{opus:</span> <span class="pre">claude-opus-5}}}</span></code> wipes out
+everything else under <code class="docutils literal notranslate"><span class="pre">claude_code</span></code> (servers, permissions, …), silently.
+The dotted form <code class="docutils literal notranslate"><span class="pre">claude_code.aliases.opus:</span> <span class="pre">claude-opus-5</span></code> changes just that
+setting.</p>
 </div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># The channel-finder paradigm is a top-level field, not a `config:` key: the</span>
 <span class="c1"># build renders `channel_finder.pipeline_mode` and the per-mode pipelines</span>
@@ -688,7 +689,7 @@ under <code class="docutils literal notranslate"><span class="pre">claude_code</
 <span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="c1"># Control system: which backend the deployment talks to. Required — see</span>
 <span class="w">  </span><span class="c1"># the posture floor below.</span>
-<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">live_standin</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
 <span class="w">  </span><span class="c1"># The write posture every connector type inherits when it says nothing</span>
 <span class="w">  </span><span class="c1"># itself. Only a literal `true` arms writes, at either level.</span>
 <span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -836,17 +837,19 @@ top-level <code class="docutils literal notranslate"><span class="pre">provider:
 <span class="w">  </span><span class="nt">my-gateway</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${MY_GATEWAY_API_KEY}</span>
 <span class="w">    </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://my-gateway.example.org/v1</span>
+<span class="w">    </span><span class="nt">default_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
 <span class="w">    </span><span class="nt">models</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5</span>
-<span class="w">      </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
-<span class="w">      </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-5</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-opus-5</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-5</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-haiku-4-5</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">base_url</span></code> is required. <code class="docutils literal notranslate"><span class="pre">api_key</span></code> is optional and is normally an
-<code class="docutils literal notranslate"><span class="pre">${ENV_VAR}</span></code> reference resolved at run time from the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> —
-keys are never written into this file. <code class="docutils literal notranslate"><span class="pre">models</span></code> maps the <code class="docutils literal notranslate"><span class="pre">haiku</span></code> /
-<code class="docutils literal notranslate"><span class="pre">sonnet</span></code> / <code class="docutils literal notranslate"><span class="pre">opus</span></code> tiers onto the provider’s own model IDs, so <code class="docutils literal notranslate"><span class="pre">model:</span>
-<span class="pre">sonnet</span></code> means something whichever provider is selected. <code class="docutils literal notranslate"><span class="pre">api_protocol:</span>
+<p><code class="docutils literal notranslate"><span class="pre">base_url</span></code>, <code class="docutils literal notranslate"><span class="pre">default_model</span></code> and <code class="docutils literal notranslate"><span class="pre">models</span></code> are required. <code class="docutils literal notranslate"><span class="pre">api_key</span></code> is
+optional and is normally an <code class="docutils literal notranslate"><span class="pre">${ENV_VAR}</span></code> reference resolved at run time from
+the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> — keys are never written into this file. <code class="docutils literal notranslate"><span class="pre">models</span></code>
+lists the ids the gateway serves, spelled as it spells them, and
+<code class="docutils literal notranslate"><span class="pre">default_model</span></code> — one of them — answers when the profile names no <code class="docutils literal notranslate"><span class="pre">model:</span></code>.
+<code class="docutils literal notranslate"><span class="pre">api_protocol:</span>
 <span class="pre">anthropic</span></code> marks an Anthropic-native endpoint rather than an
 OpenAI-compatible one.</p>
 <p>Three rules follow from the catalog being the one home for these facts:</p>
@@ -1464,6 +1467,15 @@ its own, <code class="docutils literal notranslate"><span class="pre">standin</s
 <code class="docutils literal notranslate"><span class="pre">va_standin</span></code> slot (<code class="docutils literal notranslate"><span class="pre">10090</span></code> at the default base — see
 <a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>); a number pins it somewhere else. Absent means
 one machine, as before.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pva_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5075</span></code></p></td>
+<td><p>pvAccess port the simulator publishes its model surface on. Like
+<code class="docutils literal notranslate"><span class="pre">port</span></code> it is outside the deployment’s port block, so a second
+deployment on the same host that runs a simulator sets its own. The
+build writes it to <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.pva_port</span></code> and refuses
+that key in <code class="docutils literal notranslate"><span class="pre">config:</span></code>. A value that collides with <code class="docutils literal notranslate"><span class="pre">port</span></code>,
+<code class="docutils literal notranslate"><span class="pre">live_standin</span></code> or another port the profile spends is refused.</p></td>
 </tr>
 </tbody>
 </table>

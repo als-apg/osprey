@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -792,7 +793,7 @@ EPICS</label><div class="sd-tab-content docutils">
 <p>The EPICS Archiver Appliance:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
-<span class="w">  </span><span class="nt">epics_archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.edu:8443</span><span class="w">   </span><span class="c1"># required</span>
 <span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">                                </span><span class="c1"># seconds, default 60</span>
 <span class="w">    </span><span class="nt">retrieval_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/retrieval</span><span class="w">                 </span><span class="c1"># default; a reverse proxy may rename it</span>
@@ -810,7 +811,7 @@ DOOCS</label><div class="sd-tab-content docutils">
 needing the same environment-supplied <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doocs_archiver</span>
-<span class="w">  </span><span class="nt">doocs_archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">avg_window</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">    </span><span class="c1"># optional moving average, in samples</span>
 </pre></div>
 </div>
@@ -822,7 +823,7 @@ MongoDB</label><div class="sd-tab-content docutils">
 EPICS Archiver Appliance:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb_archiver</span>
-<span class="w">  </span><span class="nt">mongodb_archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb.facility.edu</span>
 <span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
 <span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_db</span>
@@ -858,7 +859,7 @@ needs only the type:</p>
 zone it reads query bounds in:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mya_archiver</span>
-<span class="w">  </span><span class="nt">mya_archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">myquery_server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myquery.facility.edu</span>
 <span class="w">    </span><span class="nt">deployment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops</span><span class="w">        </span><span class="c1"># MYA deployment to query</span>
 <span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">            </span><span class="c1"># seconds per request</span>
@@ -896,6 +897,19 @@ last change predates the window still reports that change, at the time
 it was recorded, instead of answering with nothing at all.</p>
 </div>
 </div>
+<p>Every archiver takes its settings from one block, <code class="docutils literal notranslate"><span class="pre">settings:</span></code>, beside the
+<code class="docutils literal notranslate"><span class="pre">type</span></code> that selects it. A connector of your own is selected by its dotted
+module path and configured the same way:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_facility.connectors.FacilityArchiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">history.facility.edu</span>
+</pre></div>
+</div>
+<p>In a profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block that is <code class="docutils literal notranslate"><span class="pre">archiver.settings.server:</span>
+<span class="pre">history.facility.edu</span></code>. The block is handed to the connector’s <code class="docutils literal notranslate"><span class="pre">connect()</span></code>
+whole. Any other block under <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> is one no archiver reads, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops and names it.</p>
 </section>
 <section id="contracts-and-custom-connectors">
 <h2>Contracts and Custom Connectors<a class="headerlink" href="#contracts-and-custom-connectors" title="Link to this heading">#</a></h2>

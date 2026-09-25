@@ -370,7 +370,8 @@ sends you to the wrong control:
 - The connector --- *"Write to '<channel>' blocked: writes are off for the
   '<target>' control target --- turned off from the control-target chip in the
   header; applies deployment-wide. Turn writes back on for '<target>' from the
-  chip if the write is intended; config.yml is not the gate here."*
+  chip if the write is intended; config.yml is not the gate here. The store
+  answered narrowing."*
 - The executor --- *"Writes are off for the '<target>' control target ---
   turned off from the control-target chip in the header; applies
   deployment-wide."* --- offering a re-run as ``readonly``, and saying to turn
@@ -392,12 +393,25 @@ different story and says so, because no click lifts that one:
 The chip shows the same thing: every button locked, with *the whole
 deployment is running read-only* as the reason.
 
-No writes-off refusal mentions the deployment's ``writes_enabled`` keys,
+A writes-off refusal from the chip mentions no ``writes_enabled`` key,
 deliberately: changing one would not lift it, and a message that pointed at
 one would send an operator to rebuild a deployment when a single click was
-the remedy. The reverse holds too --- a write refused because this target is
-not armed says so in its own words, names the key that would arm it, and
-says nothing about the chip.
+the remedy. A write refused because this target is not armed is the other way
+round --- it names the key that would arm it, and says nothing about the chip.
+
+A write refused because the recorded write state could not be read says so
+instead --- which folder or record could not be read, and what to do about
+it --- and says the chip does not lift it: nobody set that refusal, so no
+click undoes it.
+
+When more than one holds at once, the connector names every one, the
+deployment first: arming the chip alone would leave the write refused, and an
+operator who heard only about the key would rebuild and redeploy to be refused
+again. The same goes for a run that launched read-only or under a narrowed
+write state --- the reason that outlives the run is spoken first, then the
+run's own, then the chip's or the record's. A script that launched with writes
+off, and whose target has since been turned off from the chip, hears both:
+re-running it alone would meet the chip next.
 
 .. note::
 
@@ -454,11 +468,12 @@ there is, drawn as it will look in the bar. From there:
 - **Click an item** to open its options — the clock's zone, 24- or 12-hour
   format and seconds, a space's width, what the Bluesky queue shows and which
   of its controls it offers, what the system-health chip says and lists — along
-  with **Move to status bar** (or back to the
-  header) and **Remove**. Every item can go in either bar: the control-target
-  chip, the command palette button and the display menu work from the status
-  bar exactly as they do from the header, drawn smaller, and their cards open
-  upward from there.
+  with **Move left** and **Move right** within its bar, **Move to status bar**
+  (or back to the header) and **Remove**. Every item can go in either bar: the
+  control-target chip, the command palette button and the display menu work
+  from the status bar exactly as they do from the header, drawn smaller, and
+  their cards open upward from there. Move left and Move right do from the
+  keyboard what a drag does inside one bar.
 - **Drag either end of a space** to set its width. A space at width 0 takes
   whatever room is left in the bar; that is what pushes the items after it to
   the right.
@@ -473,6 +488,24 @@ there is, drawn as it will look in the bar. From there:
   back the one this deployment ships (``web.bar_items``).
 
 **Done** or **Esc** ends customizing. Every change applies as you make it.
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/customize_sheet_light.png
+         :alt: The Customize sheet open over the web terminal in the light Osprey theme
+         :width: 100%
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/customize_sheet_dark.png
+         :alt: The Customize sheet open over the web terminal in the dark Osprey theme
+         :width: 100%
+
+Customize bars in Expert view, light and dark. Captured with OSPREY
+|captured_customize_sheet|.
 
 Some edits are refused, and the sheet says why rather than failing quietly.
 Most items go in once: a tile that is already in a bar is dimmed, and says

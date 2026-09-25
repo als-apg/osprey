@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Control Systems" href="../control-systems/index.html" />
+    <link rel="next" title="Keep the Agent Record" href="agent-record.html" />
     <link rel="prev" title="Configure Health Checks" href="configure-health-checks.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Health and Monitoring</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -519,7 +520,7 @@
                   
   <section id="monitor-your-osprey-agent">
 <span id="how-to-monitor-agent"></span><h1>Monitor Your OSPREY Agent<a class="headerlink" href="#monitor-your-osprey-agent" title="Link to this heading">#</a></h1>
-<p>How to emit the OSPREY agent’s operational telemetry — logs and metrics — over
+<p>How to emit the OSPREY agent’s operational telemetry — logs, metrics and traces — over
 OpenTelemetry (OTLP), and optionally view it in a self-hosted store deployed
 alongside your project.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -540,8 +541,8 @@ account — and what each one can read</p></li>
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>The OSPREY agent can emit its operational telemetry — structured event logs and
-runtime metrics — over the OpenTelemetry Protocol (OTLP). Projects built from
+<p>The OSPREY agent can emit its operational telemetry — structured event logs,
+runtime metrics and traces — over the OpenTelemetry Protocol (OTLP). Projects built from
 the bundled presets ship with telemetry <strong>already enabled</strong> and pointed at the
 local OpenObserve store; the mechanism itself only stays off when a config has
 no <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block under <code class="docutils literal notranslate"><span class="pre">claude_code:</span></code>. There are two ways to consume
@@ -557,9 +558,9 @@ turn-key option when you have no existing observability stack.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Only logs and metrics are wired. Distributed <strong>tracing</strong> (and the
-<code class="docutils literal notranslate"><span class="pre">OTEL_LOG_TOOL_CONTENT</span></code> toggle) is intentionally left out of this
-configuration surface.</p>
+<p>Traces are exported to the same endpoint as logs and metrics. The exporter
+appends <code class="docutils literal notranslate"><span class="pre">/v1/traces</span></code> to it, which is OpenObserve’s traces route. A Phase 1
+collector must accept traces.</p>
 </div>
 </section>
 <section id="phase-1-emit-to-any-otlp-endpoint">
@@ -873,8 +874,8 @@ applies. Leave both unset on a plain host run. Hardcoding <code class="docutils 
 instead would point every context at the same address and silently drop
 records from the ones it doesn’t fit.</p>
 </div>
-<p>On its next run the agent emits to OpenObserve, and its logs and metrics appear
-in the UI.</p>
+<p>On its next run the agent emits to OpenObserve, and its logs, metrics and traces
+appear in the UI.</p>
 </section>
 </section>
 <section id="content-capture">
@@ -884,7 +885,7 @@ prompts, agent responses, tool calls, and raw provider bodies. Because the
 Phase 2 store is local and air-gapped, this full-fidelity posture is the
 default: nothing leaves the host, and complete transcripts make post-incident
 review far more useful.</p>
-<p>Four independent gates control it, all defaulting <strong>on</strong>. Set any to <code class="docutils literal notranslate"><span class="pre">false</span></code>
+<p>Five independent gates control it, all defaulting <strong>on</strong>. Set any to <code class="docutils literal notranslate"><span class="pre">false</span></code>
 to suppress that category from emitted telemetry:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
@@ -892,9 +893,18 @@ to suppress that category from emitted telemetry:</p>
 <span class="w">    </span><span class="nt">log_user_prompts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># operator chat prompts</span>
 <span class="w">    </span><span class="nt">log_assistant_responses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># agent replies</span>
 <span class="w">    </span><span class="nt">log_tool_details</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># tool names + arguments</span>
+<span class="w">    </span><span class="nt">log_tool_content</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># built-in tool output (Read, Bash; Edit and Write with log_tool_details)</span>
 <span class="w">    </span><span class="nt">log_raw_api_bodies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># raw provider request/response bodies</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">content_max_length</span></code> sets how many UTF-16 code units one content value may
+carry before Claude Code truncates it; Claude Code’s own limit, 61440, applies
+when it is unset. The control-assistant preset sets 262144. MCP tools, the
+osprey control-system tools among them, record no <code class="docutils literal notranslate"><span class="pre">tool.output</span></code> event, so
+their results are not in this feed.
+Their full arguments and results are in the osprey tool-call record
+(<code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code>, on in the control-assistant preset; see
+<a class="reference internal" href="../../reference/contracts/audit-trail.html"><span class="doc">Audit Trail Contract</span></a>).</p>
 <p>If you route telemetry to a shared or off-host backend (Phase 1), review these
 gates and disable the categories you do not want to leave the machine.</p>
 </section>
@@ -998,11 +1008,11 @@ changing either value takes effect at the next <code class="docutils literal not
       </div>
     </a>
     <a class="right-next"
-       href="../control-systems/index.html"
+       href="agent-record.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Control Systems</p>
+        <p class="prev-next-title">Keep the Agent Record</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -873,7 +874,8 @@ the header; config.yml is not the gate here.”</em></p></li>
 <li><p>The connector — <em>“Write to ‘&lt;channel&gt;’ blocked: writes are off for the
 ‘&lt;target&gt;’ control target — turned off from the control-target chip in the
 header; applies deployment-wide. Turn writes back on for ‘&lt;target&gt;’ from the
-chip if the write is intended; config.yml is not the gate here.”</em></p></li>
+chip if the write is intended; config.yml is not the gate here. The store
+answered narrowing.”</em></p></li>
 <li><p>The executor — <em>“Writes are off for the ‘&lt;target&gt;’ control target —
 turned off from the control-target chip in the header; applies
 deployment-wide.”</em> — offering a re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, and saying to turn
@@ -894,12 +896,23 @@ the deployment started without the variable.</p></li>
 </ul>
 <p>The chip shows the same thing: every button locked, with <em>the whole
 deployment is running read-only</em> as the reason.</p>
-<p>No writes-off refusal mentions the deployment’s <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> keys,
+<p>A writes-off refusal from the chip mentions no <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> key,
 deliberately: changing one would not lift it, and a message that pointed at
 one would send an operator to rebuild a deployment when a single click was
-the remedy. The reverse holds too — a write refused because this target is
-not armed says so in its own words, names the key that would arm it, and
-says nothing about the chip.</p>
+the remedy. A write refused because this target is not armed is the other way
+round — it names the key that would arm it, and says nothing about the chip.</p>
+<p>A write refused because the recorded write state could not be read says so
+instead — which folder or record could not be read, and what to do about
+it — and says the chip does not lift it: nobody set that refusal, so no
+click undoes it.</p>
+<p>When more than one holds at once, the connector names every one, the
+deployment first: arming the chip alone would leave the write refused, and an
+operator who heard only about the key would rebuild and redeploy to be refused
+again. The same goes for a run that launched read-only or under a narrowed
+write state — the reason that outlives the run is spoken first, then the
+run’s own, then the chip’s or the record’s. A script that launched with writes
+off, and whose target has since been turned off from the chip, hears both:
+re-running it alone would meet the chip next.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>The other surfaces.</strong> Simple mode’s chat and the operator websocket run
@@ -948,11 +961,12 @@ across to the other one.</p></li>
 <li><p><strong>Click an item</strong> to open its options — the clock’s zone, 24- or 12-hour
 format and seconds, a space’s width, what the Bluesky queue shows and which
 of its controls it offers, what the system-health chip says and lists — along
-with <strong>Move to status bar</strong> (or back to the
-header) and <strong>Remove</strong>. Every item can go in either bar: the control-target
-chip, the command palette button and the display menu work from the status
-bar exactly as they do from the header, drawn smaller, and their cards open
-upward from there.</p></li>
+with <strong>Move left</strong> and <strong>Move right</strong> within its bar, <strong>Move to status bar</strong>
+(or back to the header) and <strong>Remove</strong>. Every item can go in either bar: the
+control-target chip, the command palette button and the display menu work
+from the status bar exactly as they do from the header, drawn smaller, and
+their cards open upward from there. Move left and Move right do from the
+keyboard what a drag does inside one bar.</p></li>
 <li><p><strong>Drag either end of a space</strong> to set its width. A space at width 0 takes
 whatever room is left in the bar; that is what pushes the items after it to
 the right.</p></li>
@@ -967,6 +981,20 @@ is another way back in; editing shows every bar.</p></li>
 back the one this deployment ships (<code class="docutils literal notranslate"><span class="pre">web.bar_items</span></code>).</p></li>
 </ul>
 <p><strong>Done</strong> or <strong>Esc</strong> ends customizing. Every change applies as you make it.</p>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-2 sd-g-xs-2 sd-g-sm-2 sd-g-md-2 sd-g-lg-2 docutils">
+<div class="sd-col sd-d-flex-column docutils">
+<a class="reference internal image-reference" href="../../_images/customize_sheet_light.png"><img alt="The Customize sheet open over the web terminal in the light Osprey theme" src="../../_images/customize_sheet_light.png" style="width: 100%;" />
+</a>
+</div>
+<div class="sd-col sd-d-flex-column docutils">
+<a class="reference internal image-reference" href="../../_images/customize_sheet_dark.png"><img alt="The Customize sheet open over the web terminal in the dark Osprey theme" src="../../_images/customize_sheet_dark.png" style="width: 100%;" />
+</a>
+</div>
+</div>
+</div>
+<p>Customize bars in Expert view, light and dark. Captured with OSPREY
+v2026.9.0b3.post430+gffd37b151.d20260924.</p>
 <p>Some edits are refused, and the sheet says why rather than failing quietly.
 Most items go in once: a tile that is already in a bar is dimmed, and says
 where it is on hover. A tile for something this

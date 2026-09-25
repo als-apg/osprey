@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -458,8 +458,9 @@
 <p>The Python Execution Service runs user-provided code in a separate host
 subprocess with layered safety checks, a process boundary, and timeout
 enforcement. It is a process boundary on the host, not a sandbox or container:
-the code runs with the executor’s own environment (from which sensitive
-credentials are stripped), not inside an isolated machine. Code it runs can
+the code runs with an allowlisted copy of the executor’s environment, not the
+executor’s own, and not inside an isolated machine (see
+<a class="reference internal" href="#python-executor-secrets-zone"><span class="std std-ref">The secrets zone</span></a>). Code it runs can
 write anywhere the executor process can, apart from the deployment’s own
 sources and render — see <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>, which also
 says plainly how far that protection goes.
@@ -733,11 +734,8 @@ magnet; it buys no approval to rewrite <code class="docutils literal notranslate
 refusal changes — a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run is told the mode, a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run is
 told the path — and re-running as <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> never lifts it. To change any
 of these, edit the profile source yourself and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> is deliberately <strong>not</strong> in this set. What matters about the secrets
-zone is that executed code should not <em>read</em> it, and this is a write-side
-guard; listing the path here would advertise it while protecting nothing that
-matters. Read that omission as “a different problem, not yet solved”, not as a
-verdict that <code class="docutils literal notranslate"><span class="pre">.env</span></code> is safe for executed code to touch.</p>
+<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> is not in this set: the secrets zone is refused for reads as well
+(see <a class="reference internal" href="#python-executor-secrets-zone"><span class="std std-ref">The secrets zone</span></a>).</p>
 <p>Two layers enforce the set:</p>
 <ol class="arabic simple">
 <li><p><strong>Before the run.</strong> The submitted source is walked for write calls —
@@ -782,6 +780,24 @@ so. It intercepts only <code class="docutils literal notranslate"><span class="p
 modes alone: CPython routes <code class="docutils literal notranslate"><span class="pre">pathlib</span></code> through it, so guarding reads there
 would change what plotting code is allowed to <em>read</em> today.</p>
 </div>
+</section>
+<section id="the-secrets-zone">
+<span id="python-executor-secrets-zone"></span><h3>The secrets zone<a class="headerlink" href="#the-secrets-zone" title="Link to this heading">#</a></h3>
+<p>Executed code gets a fixed set of environment variables from the executor —
+paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
+control-system client settings and the osprey names the run reads — plus any
+names listed in <code class="docutils literal notranslate"><span class="pre">python_executor.child_env_passthrough</span></code> (see
+<a class="reference internal" href="../reference/configuration/config.html#config-python-executor"><span class="std std-ref">python_executor: — how long one agent script may run, and what it inherits</span></a>). A credential osprey holds cannot be listed
+there. The child does not load the project’s env chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>) itself.</p>
+<p>Opening one of the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> files, or any <code class="docutils literal notranslate"><span class="pre">/proc/*/environ</span></code> or
+<code class="docutils literal notranslate"><span class="pre">/proc/*/cmdline</span></code>, is refused in both modes, for reads and writes; the
+visualization sandbox refuses the same opens, <code class="docutils literal notranslate"><span class="pre">pathlib</span></code> reads included. A
+<code class="docutils literal notranslate"><span class="pre">readonly</span></code> refusal is reported like any other runtime refusal; a
+<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> one is refused and not audited, as for protected paths.</p>
+<p>This is the same in-process guard as the write side, so code that deliberately
+disarms it is contained only by the operating system: files the executing
+account can read stay readable to it.</p>
 </section>
 <section id="write-posture">
 <span id="python-executor-session-posture"></span><h3>Write posture<a class="headerlink" href="#write-posture" title="Link to this heading">#</a></h3>
@@ -935,6 +951,7 @@ executed code is usually written to perform.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security-model">Security Model</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-counts-as-a-control-system-write">What counts as a control-system write</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-executed-code-may-not-change">What executed code may not change</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-secrets-zone">The secrets zone</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-posture">Write posture</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-write-is-refused">When a write is refused</a></li>
 </ul>

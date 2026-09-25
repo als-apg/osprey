@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -861,8 +862,10 @@ same deployment knows about stays read-only.
 it says nothing about itself; a block under <code class="docutils literal notranslate"><span class="pre">connector:</span></code> answers for that type
 instead.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">          </span><span class="c1"># what every type inherits — the live machine</span>
+<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">          </span><span class="c1"># what every type inherits</span>
 <span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">      </span><span class="c1"># the live machine, pinned by name</span>
 <span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">       </span><span class="c1"># ... and the simulator alone is armed</span>
 </pre></div>
@@ -875,8 +878,9 @@ profile turns the deployment-wide key on.</p>
 <p>Switching to the live target (see
 <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>) therefore takes its writes away, with no config
 edit and no rebuild — the same write tool that moves the simulator is refused
-on the machine. The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-va-readwrite</span></code> persona ships
-exactly that pair of keys.</p>
+on the machine. The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control-assistant-admin</span></code> personas ship exactly those three keys: they pin
+the live block by name, so no later per-type <code class="docutils literal notranslate"><span class="pre">true</span></code> can lift it.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>On a deployment whose targets disagree like this, <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> denies

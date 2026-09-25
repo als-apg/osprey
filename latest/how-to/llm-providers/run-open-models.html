@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -549,22 +550,23 @@ through the translation proxy like any other OpenAI endpoint:</p>
 <span class="w">  </span><span class="nt">cborg-open</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${CBORG_OPEN_API_KEY}</span>
 <span class="w">    </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.cborg.lbl.gov/v1</span><span class="w">   </span><span class="c1"># keep the /v1</span>
+<span class="w">    </span><span class="nt">default_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
 <span class="w">    </span><span class="nt">models</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
-<span class="w">      </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
-<span class="w">      </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
 </pre></div>
 </div>
 <p>and in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg-open</span>
-<span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
 </pre></div>
 </div>
+<p>The entry names <code class="docutils literal notranslate"><span class="pre">gpt-oss-120b</span></code> as its default, so the profile needs no
+<code class="docutils literal notranslate"><span class="pre">model:</span></code>. The provider serves no Claude models, so the build prints one line
+saying Claude Code’s haiku, sonnet and opus aliases point at <code class="docutils literal notranslate"><span class="pre">gpt-oss-120b</span></code>.</p>
 <p>A provider you add yourself takes its key from <code class="docutils literal notranslate"><span class="pre">&lt;NAME&gt;_API_KEY</span></code> — uppercased,
 dashes to underscores — so <code class="docutils literal notranslate"><span class="pre">cborg-open</span></code> reads <code class="docutils literal notranslate"><span class="pre">CBORG_OPEN_API_KEY</span></code>. Put
 <code class="docutils literal notranslate"><span class="pre">CBORG_OPEN_API_KEY=&lt;your</span> <span class="pre">CBORG</span> <span class="pre">key&gt;</span></code> in the repo’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; the same CBORG
 key serves both entries.</p>
-<p>Any model ID from CBORG’s catalogue works in the <code class="docutils literal notranslate"><span class="pre">models</span></code> block — the
+<p>Any model ID from CBORG’s catalogue works in the <code class="docutils literal notranslate"><span class="pre">models</span></code> list — the
 <em>Benchmark snapshot</em> box on this page shows which ones hold up in practice. The
 provider list and the keys behind it are in <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
 </section>

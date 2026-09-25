@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -496,6 +496,7 @@ osprey<span class="w"> </span>knowledge<span class="w">          </span><span cl
 osprey<span class="w"> </span>mml<span class="w">                </span><span class="c1"># Install a facility from its MATLAB Middle Layer</span>
 osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
+osprey<span class="w"> </span>archive<span class="w">            </span><span class="c1"># Copy the agent record into var/archive</span>
 osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
 osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
 osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
@@ -596,7 +597,7 @@ reachable through custom connector packages — see
 <a class="reference internal" href="../how-to/control-systems/use-connectors.html"><span class="doc">Use Connectors</span></a>.) An EPICS gateway is written by
 its own dotted keys, which is the only spelling: OSPREY ships no table of
 facilities’ gateway addresses.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">model</span><span class="o">=</span>sonnet
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-5
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">tier</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.facility.name<span class="o">=</span><span class="s1">&#39;Storage Ring&#39;</span>
@@ -766,7 +767,7 @@ each. The same menu appears as commented entries in an emitted profile.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
-osprey<span class="w"> </span>init<span class="w"> </span>my-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>opus
+osprey<span class="w"> </span>init<span class="w"> </span>my-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-opus-5
 <span class="nb">cd</span><span class="w"> </span>my-facility
 osprey<span class="w"> </span>validate
 osprey<span class="w"> </span>build
@@ -1093,6 +1094,35 @@ each submission carries.</p>
 <a class="reference internal" href="contracts/health-json.html"><span class="doc">The osprey health --json Contract</span></a> for the <code class="docutils literal notranslate"><span class="pre">--json</span></code> document’s shape and the
 <code class="docutils literal notranslate"><span class="pre">jq</span></code> patterns for consuming it, and <a class="reference internal" href="../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a> for
 the <code class="docutils literal notranslate"><span class="pre">health:</span></code> config block.</p>
+</section>
+<section id="osprey-archive">
+<h2>osprey archive<a class="headerlink" href="#osprey-archive" title="Link to this heading">#</a></h2>
+<p>Copy the agent record into an append-only archive. See
+<a class="reference internal" href="../how-to/health-and-monitoring/agent-record.html"><span class="doc">Keep the Agent Record</span></a>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>archive<span class="w"> </span>--sources<span class="w"> </span>DIRECTORY<span class="w"> </span>--dest<span class="w"> </span>DIRECTORY<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--sources</span> <span class="pre">DIRECTORY</span></code> – Sources tree, <code class="docutils literal notranslate"><span class="pre">&lt;sources&gt;/&lt;kind&gt;/&lt;name&gt;/...</span></code>
+(environment: <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_SOURCES</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dest</span> <span class="pre">DIRECTORY</span></code> – Existing archive root the day directories are written
+into (environment: <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_DEST</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--once</span> <span class="pre">/</span> <span class="pre">--watch</span></code> – Run one pass and exit (default), or run a pass at once
+and then every <code class="docutils literal notranslate"><span class="pre">--interval</span></code> seconds.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--interval</span> <span class="pre">SECONDS</span></code> – Seconds between passes under <code class="docutils literal notranslate"><span class="pre">--watch</span></code>, at least 60
+(environment: <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_INTERVAL_SECONDS</span></code>, default <code class="docutils literal notranslate"><span class="pre">86400</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--openobserve-url</span> <span class="pre">URL</span></code> – Telemetry store to export completed days of logs
+and traces from; unset, none is exported (environment:
+<code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_OPENOBSERVE_URL</span></code>). The store is read as the ingest service
+account, <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code> and <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_SA_TOKEN</span></code> from the
+environment.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--openobserve-org</span> <span class="pre">NAME</span></code> – Telemetry store organization (environment:
+<code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_OPENOBSERVE_ORG</span></code>, default <code class="docutils literal notranslate"><span class="pre">default</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--openobserve-backfill-days</span> <span class="pre">N</span></code> – Most completed days a pass exports
+(environment: <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVE_OPENOBSERVE_BACKFILL_DAYS</span></code>, default <code class="docutils literal notranslate"><span class="pre">14</span></code>).</p>
+<p>Exit codes of <code class="docutils literal notranslate"><span class="pre">--once</span></code>: <code class="docutils literal notranslate"><span class="pre">0</span></code> the pass completed with no errors, <code class="docutils literal notranslate"><span class="pre">1</span></code> it
+completed with recorded errors, <code class="docutils literal notranslate"><span class="pre">2</span></code> it could not run (the destination is
+missing or unwritable). <code class="docutils literal notranslate"><span class="pre">--watch</span></code> exits <code class="docutils literal notranslate"><span class="pre">2</span></code> after five passes in a row that
+could not run.</p>
 </section>
 <section id="osprey-chat">
 <h2>osprey chat<a class="headerlink" href="#osprey-chat" title="Link to this heading">#</a></h2>
@@ -1491,7 +1521,13 @@ channel database, ontology, knowledge pages and, where <code class="docutils lit
 given, the DuckDB copy of the same run are already on the tree — the
 corpus, which emit writes last, is not. The five virtual-accelerator files
 are the ones withheld. Fix the entries the command named, or remove them,
-and run emit again.</p>
+and run emit again.
+A coupled setpoint the export does not band finitely on both edges — its
+family states no <code class="docutils literal notranslate"><span class="pre">Setpoint</span></code> <code class="docutils literal notranslate"><span class="pre">Range</span></code>, an infinite edge, or a non-finite
+row for its device — is refused at that same point, by family, device and
+the row the export states, and the five files are withheld the same way.
+Emit writes no band of its own for it and does not stop driving the family:
+state a band in the export, or latch the family in the mapping.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span> <span class="pre">verify</span></code></dt><dd><p>Check the emitted virtual accelerator against the exported response matrix,
 and write <code class="docutils literal notranslate"><span class="pre">data/mml/VA-REPORT.md</span></code>. Verify steers the model’s correctors
@@ -1679,7 +1715,7 @@ directories, and lifecycle scripts.</p>
 or pass <code class="docutils literal notranslate"><span class="pre">--build</span></code> to build the profile first.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--build</span></code> — Build a profile in a temp directory, then audit the result.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--model</span> <span class="pre">TEXT</span></code> — Model for the reviewer agent. Defaults to the project’s
-sonnet tier.</p>
+main model.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--budget</span> <span class="pre">FLOAT</span></code> — Maximum budget in USD.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code> — Show verbose output.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--json</span></code> — Output as JSON.</p>
@@ -1889,6 +1925,7 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-users">osprey users</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-feedback">osprey feedback</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-health">osprey health</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-archive">osprey archive</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-chat">osprey chat</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-query">osprey query</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-eject">osprey eject</a></li>

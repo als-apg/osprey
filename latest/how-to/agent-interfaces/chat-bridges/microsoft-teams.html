@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -585,12 +586,13 @@ say <code class="docutils literal notranslate"><span class="pre">azurewebsites.n
 </section>
 <section id="enable-it-in-a-profile">
 <h2>Enable It in a Profile<a class="headerlink" href="#enable-it-in-a-profile" title="Link to this heading">#</a></h2>
-<p>Add a <code class="docutils literal notranslate"><span class="pre">teams_bridge:</span></code> block to your build profile. The only setting is which
+<p>Add a <code class="docutils literal notranslate"><span class="pre">teams_bridge:</span></code> block to your build profile. Two settings: which
 dispatcher trigger the bridge fires — that trigger decides what the agent is
-allowed to do with a chat question — and the block is only meaningful next to a
-<code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
+allowed to do with a chat question — and whether the agent may &#64;mention people.
+The block is only meaningful next to a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">teams_bridge</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">trigger</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">teams-question</span><span class="w">        </span><span class="c1"># default; must exist in your triggers file</span>
+<span class="w">  </span><span class="nt">mentions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">            </span><span class="c1"># default; false posts @mentions as plain text</span>
 
 <span class="nt">dispatch</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_triggers.yml</span><span class="w">      </span><span class="c1"># the file that trigger must be declared in</span>
@@ -701,49 +703,58 @@ deployment its own queue, and its own relay writing to it.</p>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCH_TRIGGER</span></code></p></td>
 <td><p class="sd-card-text">The trigger to fire. Comes from the profile block.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>, <code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">TEAMS_MENTIONS</span></code></p></td>
+<td><p class="sd-card-text">Whether &#64;mentions are on. Comes from the profile block.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>, <code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code></p></td>
 <td><p class="sd-card-text">The two shared secrets the bridge needs to reach the dispatcher and
 the worker, generated for you when unset — see
 <a class="reference internal" href="../event-dispatch.html#event-dispatch-auth"><span class="std std-ref">Authentication</span></a>.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCHER_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">WORKER_URL</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCHER_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">WORKER_URL</span></code></p></td>
 <td><p class="sd-card-text">Where the dispatcher and worker are — the bridge collects answers and
 files from the worker directly. Filled in for you when they run in the
 same stack; when they run elsewhere you must set them, and the bridge
 refuses to start without them.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCH_TIMEOUT_SEC</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCH_TIMEOUT_SEC</span></code></p></td>
 <td><p class="sd-card-text">How long the worker may spend on one run. Comes from your project
 configuration, so raising it raises it for both halves at once.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">POLL_BUDGET</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">POLL_BUDGET</span></code></p></td>
 <td><p class="sd-card-text">How long the bridge waits for an answer before giving up on it.
 Defaults to 30 seconds more than the worker’s own limit, and may never
 be less than that limit — the bridge refuses to start if it is.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">POLL_INTERVAL</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">POLL_INTERVAL</span></code></p></td>
 <td><p class="sd-card-text">Seconds between checks on an answer in progress (default 2).</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DRAIN_INTERVAL</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DRAIN_INTERVAL</span></code></p></td>
 <td><p class="sd-card-text">Seconds between sweeps of the queue of questions that could not be
 handed off yet (default 60).</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_MIN_AGE</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_MIN_AGE</span></code></p></td>
 <td><p class="sd-card-text">How long a failed hand-off is held before it is retried, so a brief
 outage has time to clear (default 20 minutes).</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_GIVE_UP</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_GIVE_UP</span></code></p></td>
 <td><p class="sd-card-text">Age at which a question that still cannot be handed off is abandoned
 (default 48 hours).</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_LIFETIME_CAP</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_LIFETIME_CAP</span></code></p></td>
 <td><p class="sd-card-text">Hard ceiling on how long anything may sit in that queue, whatever its
 state (default 7 days).</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">BRIDGE_TRUST_ENV</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">BRIDGE_TRUST_ENV</span></code></p></td>
 <td><p class="sd-card-text">Set to <code class="docutils literal notranslate"><span class="pre">1</span></code> only if this host’s outbound calls must go through your
 site’s web proxy. Off by default, so a proxy inherited from a shell or
 a CI runner cannot quietly place itself in front of Microsoft.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">HISTORY_ANSWER_LIMIT</span></code></p></td>
+<td><p class="sd-card-text">Longest earlier answer, in characters, sent back in full with a
+follow-up (default 3000). A longer one is sent as its opening, and the
+agent reads the rest only if it needs it. <code class="docutils literal notranslate"><span class="pre">0</span></code> always sends every
+answer in full.</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code></p></td>
 <td><p class="sd-card-text">Where to file an issue when a question is finally given up on. Leave
@@ -950,6 +961,17 @@ nobody else to address, so every message there is a question.</p>
 colleague as well as the bot, the bot’s own mention is removed as addressing and
 every other mention becomes that person’s display name, so the agent sees who was
 named.</p>
+<p><strong>Who is in the conversation, and &#64;mentions.</strong> Each question reaches the agent
+with who asked it and who is in the conversation; for a channel that is the
+channel’s members. The bridge lists them with the bot’s own sign-in, so there is
+no extra permission to grant. A member’s name is the one Teams lists. If Teams
+lists none, it is the name the bridge has seen that person use or be &#64;mentioned
+under; otherwise the member is listed without a name, and the agent is told not
+to guess. The agent may &#64;mention a member of the same conversation only when
+someone in it asks the agent to pass something on or to notify someone. It
+never does so on its own. Anyone not in the conversation is written as plain
+text. Set <code class="docutils literal notranslate"><span class="pre">mentions:</span> <span class="pre">false</span></code> in the profile block to have every mention posted
+as plain text instead.</p>
 <p><strong>Plots come back inside the conversation.</strong> Each plot arrives as its own
 message directly after the answer, one image per message, attached inline rather
 than linked from anywhere else, so it is visible exactly to the people who can

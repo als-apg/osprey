@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -639,6 +640,13 @@ and (for Nextcloud Talk) how far it has read in each room.</p>
 arrives at the agent with the previous exchange attached. It is also what makes
 a restart safe: a question interrupted halfway through is picked up again rather
 than answered twice or lost.</p>
+<p>In a shared room it also remembers who asked each question. Every question
+reaches the agent with its asker’s name, and every remembered exchange keeps
+the name of the person who asked it, so a conversation among several people
+reads as one.</p>
+<p>A long earlier answer — a big table, say — goes back to the agent with a
+follow-up as its opening and a note. The agent reads the rest only when the
+follow-up needs it, and the bridge’s own copy keeps every answer in full.</p>
 </section>
 </section>
 <section id="who-can-ask">

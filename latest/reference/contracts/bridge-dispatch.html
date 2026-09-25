@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -481,8 +481,15 @@ actually in front of the agent.</p>
 token. The body is the question plus whatever context the engine assembled:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;question&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;now plot that over 24 hours&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;asker&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;users/111&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Alice&quot;</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;room&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;members&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;users/111&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Alice&quot;</span><span class="p">},</span>
+<span class="w">                       </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;users/222&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Carol&quot;</span><span class="p">},</span>
+<span class="w">                       </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;users/333&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">}],</span>
+<span class="w">           </span><span class="nt">&quot;mentions&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;To @mention a member of this room, write &lt;@ID&gt; ...&quot;</span><span class="p">},</span>
 <span class="w">  </span><span class="nt">&quot;conversation_so_far&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;question&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;answer&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1757000000.0</span><span class="p">,</span>
-<span class="w">                           </span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run-...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]}],</span>
+<span class="w">                           </span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run-...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">                           </span><span class="nt">&quot;asked_by&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;users/222&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Carol&quot;</span><span class="p">}}],</span>
+<span class="w">  </span><span class="nt">&quot;prior_answer_runs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;3f2b…&quot;</span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;reply_to&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;sender&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Alice&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;the vacuum trace from this morning&quot;</span><span class="p">},</span>
 <span class="w">  </span><span class="nt">&quot;input_files&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;filename&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;trace.png&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;mime&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;image/png&quot;</span><span class="p">,</span>
 <span class="w">                   </span><span class="nt">&quot;content_b64&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}],</span>
@@ -490,13 +497,64 @@ token. The body is the question plus whatever context the engine assembled:</p>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>Only <code class="docutils literal notranslate"><span class="pre">question</span></code> is always present. A text-only message in a fresh
-conversation sends that field and nothing else — the engine omits an empty
-context rather than sending empty containers, so such a dispatch is
-byte-identical to one made before any of this existed.</p>
+<p>Only <code class="docutils literal notranslate"><span class="pre">question</span></code> is always present. <code class="docutils literal notranslate"><span class="pre">asker</span></code> is present whenever the chat
+system told the bridge who sent the message. A text-only message whose sender
+is unknown, in a fresh conversation, sends <code class="docutils literal notranslate"><span class="pre">question</span></code> and nothing else. The
+engine omits an empty context rather than sending empty containers.</p>
 <p>The whole body becomes the agent’s context, exactly as it does for a webhook
 fired by hand. A trigger’s prompt does not have to name these fields for the
-agent to see them.</p>
+agent to see them. Two fields are the exception: the dispatcher takes
+<code class="docutils literal notranslate"><span class="pre">input_files</span></code> and <code class="docutils literal notranslate"><span class="pre">prior_answer_runs</span></code> out of the body and hands each to the
+worker as a field of its own.</p>
+</section>
+<section id="asker">
+<h2><code class="docutils literal notranslate"><span class="pre">asker</span></code><a class="headerlink" href="#asker" title="Link to this heading">#</a></h2>
+<p>Who sent this message, as <code class="docutils literal notranslate"><span class="pre">id</span></code> (the chat system’s stable identity for the
+person) and <code class="docutils literal notranslate"><span class="pre">name</span></code> (their display name). Either may be <code class="docutils literal notranslate"><span class="pre">null</span></code> when the chat
+system did not supply it.</p>
+<p>It is what the chat system reports, not a verified identity. The dispatcher
+folds the whole body into the agent’s prompt, so the agent reads the name the
+way it reads the question; what the agent may do is set by the trigger’s tool
+list, and that list, not the payload, is the security control.</p>
+</section>
+<section id="room">
+<h2><code class="docutils literal notranslate"><span class="pre">room</span></code><a class="headerlink" href="#room" title="Link to this heading">#</a></h2>
+<p>Who is in the conversation. Present only when the bridge can list the room
+(Google Chat, Microsoft Teams and Nextcloud Talk):</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">members[].id</span></code></p></td>
+<td><p>The chat system’s stable identity for the person, the same kind of
+string as <code class="docutils literal notranslate"><span class="pre">asker.id</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">members[].name</span></code></p></td>
+<td><p>The name the chat system’s member listing gives; else a name the bridge
+saw in that room (a sender, or someone mentioned in a message to it);
+<code class="docutils literal notranslate"><span class="pre">null</span></code> when it has neither. A name is never guessed.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mentions</span></code></p></td>
+<td><p>An instruction written for the agent: how to write <code class="docutils literal notranslate"><span class="pre">&lt;&#64;ID&gt;</span></code> with an id
+from <code class="docutils literal notranslate"><span class="pre">members</span></code>, and that it may do so only when a person in the room
+asked it to pass something on or to notify someone. When the deployment
+turned mentions off, it says so and asks for names in plain text.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">more_not_listed</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> when the bridge capped the list; absent otherwise.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The bridge renders <code class="docutils literal notranslate"><span class="pre">&lt;&#64;ID&gt;</span></code> into its chat system’s own mention only for an id
+in <code class="docutils literal notranslate"><span class="pre">members</span></code>. A mention of anyone not listed is posted as plain text.</p>
 </section>
 <section id="conversation-so-far">
 <h2><code class="docutils literal notranslate"><span class="pre">conversation_so_far</span></code><a class="headerlink" href="#conversation-so-far" title="Link to this heading">#</a></h2>
@@ -530,6 +588,14 @@ instead, so the referent survives even when the answer did not.</p></td>
 <td><p>Descriptors for the files that run produced — round-tripped opaquely by
 the bridge, capped per turn, newest kept.</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">asked_by</span></code></p></td>
+<td><p>Who asked this question, in the same shape as <code class="docutils literal notranslate"><span class="pre">asker</span></code>. Absent when the
+bridge did not know, including every turn recorded before the field
+existed.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">answer_chars</span></code></p></td>
+<td><p>Present only when <code class="docutils literal notranslate"><span class="pre">answer</span></code> was shortened: the full answer’s length.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -540,6 +606,19 @@ bridge saying it could not bring the artifact’s bytes back — swept, deleted,
 too large for the budget below — so the agent should say the file is no longer
 available rather than pretend to look at it. Nothing keys on the exact wording;
 it is written to be read.</p>
+<section id="shortened-answers">
+<h3>Shortened answers<a class="headerlink" href="#shortened-answers" title="Link to this heading">#</a></h3>
+<p>An answer longer than the bridge’s <code class="docutils literal notranslate"><span class="pre">HISTORY_ANSWER_LIMIT</span></code> (3000 characters by
+default) is sent as its opening and a note naming its run. The agent reads the
+whole answer with <code class="docutils literal notranslate"><span class="pre">prior_answer_read</span></code>. The bridge’s own copy keeps every
+answer in full. Against a dispatcher or worker that does not advertise
+<code class="docutils literal notranslate"><span class="pre">prior_answers</span></code>, every answer is sent in full.</p>
+</section>
+</section>
+<section id="prior-answer-runs">
+<h2><code class="docutils literal notranslate"><span class="pre">prior_answer_runs</span></code><a class="headerlink" href="#prior-answer-runs" title="Link to this heading">#</a></h2>
+<p>Present only when an answer was shortened: the run ids of those turns. The
+worker lets <code class="docutils literal notranslate"><span class="pre">prior_answer_read</span></code> read those runs and no others.</p>
 </section>
 <section id="reply-to">
 <h2><code class="docutils literal notranslate"><span class="pre">reply_to</span></code><a class="headerlink" href="#reply-to" title="Link to this heading">#</a></h2>
@@ -688,7 +767,13 @@ to write the trigger it fires.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-request">The request</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation-so-far"><code class="docutils literal notranslate"><span class="pre">conversation_so_far</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#asker"><code class="docutils literal notranslate"><span class="pre">asker</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#room"><code class="docutils literal notranslate"><span class="pre">room</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation-so-far"><code class="docutils literal notranslate"><span class="pre">conversation_so_far</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#shortened-answers">Shortened answers</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prior-answer-runs"><code class="docutils literal notranslate"><span class="pre">prior_answer_runs</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reply-to"><code class="docutils literal notranslate"><span class="pre">reply_to</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#input-files-and-skipped-attachments"><code class="docutils literal notranslate"><span class="pre">input_files</span></code> and <code class="docutils literal notranslate"><span class="pre">skipped_attachments</span></code></a></li>
 </ul>

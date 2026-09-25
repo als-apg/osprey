@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Health and Monitoring</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -651,6 +652,58 @@ tile on the web dashboard, graded against the bands you choose:</p>
 <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>), so a green canary also proves the connector
 configuration end to end.</p>
 </section>
+<section id="recipe-host-health-from-the-facility-s-own-host-ioc">
+<h2>Recipe: host health from the facility’s own host IOC<a class="headerlink" href="#recipe-host-health-from-the-facility-s-own-host-ioc" title="Link to this heading">#</a></h2>
+<p>The built-in suite reports on the deployment — containers, services,
+providers, the unit — and says exactly one thing about the machine underneath
+it: <code class="docutils literal notranslate"><span class="pre">file_system.disk_space</span></code>, how full the filesystem holding the project
+directory is. There is no CPU load and no memory reading, so a deploy host
+that is merely saturated still reports healthy while every terminal on it
+crawls.</p>
+<p>Most control-system facilities already measure that. A small statistics IOC on
+each host publishes CPU load, free memory and uptime as ordinary channels, and
+where the machine OSPREY runs on is one of them, nothing new has to be
+installed to see those readings here — they are channels, and <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>
+grades a channel:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">categories</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w">                     </span><span class="c1"># any name that is not a built-in category</span>
+<span class="w">      </span><span class="nt">checks</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_ioc</span><span class="w">      </span><span class="c1"># no bands: the row grades reachability</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:CPU_CNT</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cpu_load</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:SYS_CPU_LOAD</span>
+<span class="w">          </span><span class="nt">ok_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">70</span><span class="p p-Indicator">]</span><span class="w">        </span><span class="c1"># over 70 % busy is a warning</span>
+<span class="w">          </span><span class="nt">warn_range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">90</span><span class="p p-Indicator">]</span><span class="w">      </span><span class="c1"># over 90 % busy is an error</span>
+<span class="w">          </span><span class="nt">requires</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">host_ioc</span><span class="p p-Indicator">]</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory_free</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel_read</span>
+<span class="w">          </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">HOST01:MEM_FREE</span>
+<span class="w">          </span><span class="nt">requires</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">host_ioc</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Record names differ between facilities, so substitute the ones your host IOC
+publishes. The first check is the recipe’s one piece of structure: it names a
+reading with no bands, and the graded rows <code class="docutils literal notranslate"><span class="pre">requires:</span></code> it. A row with no
+bands can only be <code class="docutils literal notranslate"><span class="pre">ok</span></code> or <code class="docutils literal notranslate"><span class="pre">error</span></code>, so the values behind it are skipped when
+the IOC is unreachable and never merely because the host is busy — an IOC that
+is down costs one <code class="docutils literal notranslate"><span class="pre">error</span></code> row carrying the reason instead of three rows
+saying the same thing.</p>
+<p>Reads use the same connector the agent uses, so the channels have to be visible
+from the deployment: a gateway that does not export the statistics IOC’s
+records makes the row an <code class="docutils literal notranslate"><span class="pre">error</span></code>, because a read that cannot connect is a
+failure and not a skip — and one <code class="docutils literal notranslate"><span class="pre">error</span></code> row fails the whole run.</p>
+<p>Adopting the facility’s reading beats measuring the host a second time here:
+the tile then carries the same number the facility’s own displays, archiver and
+alarm handler carry, so the dashboard and the control room never disagree about
+whether the machine is busy. What it does not answer is <em>which</em> container is
+busy — the built-in <code class="docutils literal notranslate"><span class="pre">containers</span></code> category reports each service’s state, not
+its share of the machine. A facility whose hosts publish no such statistics has
+to measure them itself, which is a <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code> module rather than a YAML
+check.</p>
+</section>
 <section id="recipe-archive-freshness-without-declaring-a-check">
 <h2>Recipe: archive freshness, without declaring a check<a class="headerlink" href="#recipe-archive-freshness-without-declaring-a-check" title="Link to this heading">#</a></h2>
 <p>A project that deploys its own archive — one whose build profile carries a
@@ -785,6 +838,7 @@ nothing is shared across sessions.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cost-classes-and-full">Cost classes and <code class="docutils literal notranslate"><span class="pre">--full</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-a-control-system-smoke-test">Recipe: a control-system smoke test</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-host-health-from-the-facility-s-own-host-ioc">Recipe: host health from the facility’s own host IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-archive-freshness-without-declaring-a-check">Recipe: archive freshness, without declaring a check</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#checks-that-need-real-python">Checks that need real Python</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-web-dashboard-system-panel">The web dashboard (<code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> panel)</a></li>

@@ -70,9 +70,10 @@ both, a refused write moves neither. Only the completion differs, forced by
 the protocols: CA put-completion carries no status, so a refusal withholds the
 echo and raises an alarm; a PVAccess put completes with the model's error
 string. The ``virtual_accelerator`` instance publishes two ports from its
-container: Channel Access (``5064/tcp``) and pvAccess (``5075/tcp``), the
-second of them for the model surface described below. A pvAccess client
-reaches that port by name server (``EPICS_PVA_NAME_SERVERS=<host>:5075``),
+container: Channel Access (``5064/tcp``) and pvAccess (``5075/tcp`` unless
+``virtual_accelerator.pva_port`` names another), the second of them for the
+model surface described below. A pvAccess client reaches that port by name
+server (``EPICS_PVA_NAME_SERVERS=<host>:<port>``),
 which is TCP, so TCP is all that is published — there is no UDP search to
 answer. A stand-in instance publishes its Channel Access port alone: the model
 surface belongs to the ``virtual_accelerator`` instance.

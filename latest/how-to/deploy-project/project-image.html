@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -569,8 +570,8 @@ See <a class="reference internal" href="../build-profiles.html"><span class="doc
 assistant and its web terminal. The lifecycle verbs manage the deployment’s
 <em>service</em> containers (databases, MCP servers) — see <a class="reference internal" href="index.html"><span class="doc">Container Deployment</span></a>
 — but the two meet in one place: a deploy that includes the dispatch
-worker builds this same project image (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>) for
-the worker to run.</p>
+worker, the ARIEL sync service or the record archive builds this same
+project image (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>) for them to run.</p>
 </div>
 </section>
 <section id="quickstart">
@@ -662,7 +663,10 @@ by hand: <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV
 wheel, and <code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_PRE</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> when the pinned OSPREY version is a
 pre-release, so the <code class="docutils literal notranslate"><span class="pre">pip</span></code> resolve inside the image admits the pre-release of
 <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> that ships beside it. A hand-run build pinning a beta
-needs <code class="docutils literal notranslate"><span class="pre">--build-arg</span> <span class="pre">OSPREY_PIP_PRE=1</span></code> for the same reason.)</p>
+needs <code class="docutils literal notranslate"><span class="pre">--build-arg</span> <span class="pre">OSPREY_PIP_PRE=1</span></code> for the same reason. The
+<code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code> that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code> writes follows the same rule:
+its own <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> passes <code class="docutils literal notranslate"><span class="pre">--pre</span></code> when <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code> names
+a pre-release.)</p>
 <p>The <strong>host</strong> side of the build reads its own settings from the shell rather
 than from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> installs the project’s virtual
 environment with <code class="docutils literal notranslate"><span class="pre">uv</span></code> (or pip), so <code class="docutils literal notranslate"><span class="pre">UV_INDEX_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code> and a

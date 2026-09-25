@@ -74,15 +74,16 @@ question's first line so it is clear which message is being answered.
 Enable It in a Profile
 ======================
 
-Add a ``teams_bridge:`` block to your build profile. The only setting is which
+Add a ``teams_bridge:`` block to your build profile. Two settings: which
 dispatcher trigger the bridge fires — that trigger decides what the agent is
-allowed to do with a chat question — and the block is only meaningful next to a
-``dispatch:`` block:
+allowed to do with a chat question — and whether the agent may @mention people.
+The block is only meaningful next to a ``dispatch:`` block:
 
 .. code-block:: yaml
 
    teams_bridge:
      trigger: teams-question        # default; must exist in your triggers file
+     mentions: true            # default; false posts @mentions as plain text
 
    dispatch:
      triggers: my_triggers.yml      # the file that trigger must be declared in
@@ -178,6 +179,8 @@ the missing variables at once.
         - Meaning
       * - ``DISPATCH_TRIGGER``
         - The trigger to fire. Comes from the profile block.
+      * - ``TEAMS_MENTIONS``
+        - Whether @mentions are on. Comes from the profile block.
       * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
         - The two shared secrets the bridge needs to reach the dispatcher and
           the worker, generated for you when unset — see
@@ -212,6 +215,11 @@ the missing variables at once.
         - Set to ``1`` only if this host's outbound calls must go through your
           site's web proxy. Off by default, so a proxy inherited from a shell or
           a CI runner cannot quietly place itself in front of Microsoft.
+      * - ``HISTORY_ANSWER_LIMIT``
+        - Longest earlier answer, in characters, sent back in full with a
+          follow-up (default 3000). A longer one is sent as its opening, and the
+          agent reads the rest only if it needs it. ``0`` always sends every
+          answer in full.
       * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
         - Where to file an issue when a question is finally given up on. Leave
           unset if you have no such host: nothing is filed and nothing is
@@ -447,6 +455,18 @@ nobody else to address, so every message there is a question.
 colleague as well as the bot, the bot's own mention is removed as addressing and
 every other mention becomes that person's display name, so the agent sees who was
 named.
+
+**Who is in the conversation, and @mentions.** Each question reaches the agent
+with who asked it and who is in the conversation; for a channel that is the
+channel's members. The bridge lists them with the bot's own sign-in, so there is
+no extra permission to grant. A member's name is the one Teams lists. If Teams
+lists none, it is the name the bridge has seen that person use or be @mentioned
+under; otherwise the member is listed without a name, and the agent is told not
+to guess. The agent may @mention a member of the same conversation only when
+someone in it asks the agent to pass something on or to notify someone. It
+never does so on its own. Anyone not in the conversation is written as plain
+text. Set ``mentions: false`` in the profile block to have every mention posted
+as plain text instead.
 
 **Plots come back inside the conversation.** Each plot arrives as its own
 message directly after the answer, one image per message, attached inline rather

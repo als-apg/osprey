@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -731,6 +731,11 @@ serves EPICS on <code class="docutils literal notranslate"><span class="pre">506
 configured for a real facility reach it without being reconfigured. A second
 deployment on the same host that also runs a virtual accelerator has to move it
 by hand, with <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code>.</p>
+<p>Its pvAccess port is outside the block for the same reason. Instance 1
+publishes its model surface on <code class="docutils literal notranslate"><span class="pre">5075</span></code>, the pvAccess protocol port, and a
+second deployment on the same host that also runs a virtual accelerator moves
+it with <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.pva_port</span></code> in the build profile, which the build
+writes to <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.pva_port</span></code>.</p>
 <p>Every further virtual accelerator is inside the block, in the <code class="docutils literal notranslate"><span class="pre">va_standin</span></code>
 band, and moves with the base like everything else.</p>
 </section>

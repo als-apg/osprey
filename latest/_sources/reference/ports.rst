@@ -125,6 +125,12 @@ configured for a real facility reach it without being reconfigured. A second
 deployment on the same host that also runs a virtual accelerator has to move it
 by hand, with ``services.virtual_accelerator.port``.
 
+Its pvAccess port is outside the block for the same reason. Instance 1
+publishes its model surface on ``5075``, the pvAccess protocol port, and a
+second deployment on the same host that also runs a virtual accelerator moves
+it with ``virtual_accelerator.pva_port`` in the build profile, which the build
+writes to ``services.virtual_accelerator.pva_port``.
+
 Every further virtual accelerator is inside the block, in the ``va_standin``
 band, and moves with the base like everything else.
 

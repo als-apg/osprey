@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 24, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 25, 2026"/>
   </head>
   
   
@@ -425,6 +425,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -685,6 +686,10 @@ path minus the <code class="docutils literal notranslate"><span class="pre">.md<
 <li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> — report the bundle’s path, size and concept types</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> — author a new concept document (requires human approval)</p></li>
 </ul>
+<p>Each of the three read tools also names a <code class="docutils literal notranslate"><span class="pre">url</span></code> per concept — the link
+that opens it in the KNOWLEDGE panel. It is relative to the page the
+operator is on, so the agent can cite a concept as a markdown link on a
+single-user deployment and behind a per-user mount alike.</p>
 <p><strong>The facility-knowledge subagent.</strong> When it is enabled in a project’s
 config, the main OSPREY agent delegates facility knowledge questions to this
 dedicated specialist rather than handling them inline. The subagent has
