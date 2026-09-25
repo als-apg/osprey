@@ -525,6 +525,10 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
 
     def author_devices(repo: Path) -> None:
         nonlocal stack
+        # TOLERANCE_M sits below the machine file's BPM noise and rests on a
+        # stack whose monitors read the solved orbit exactly, so they serve it
+        # without the drift and noise the machine file gives them.
+        _orm_stack.still_monitor_motion(repo)
         records = _orm_stack.roster_records(repo)
         available_correctors, available_bpms = _horizontal_devices(records)
 

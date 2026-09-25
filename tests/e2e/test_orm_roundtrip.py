@@ -218,6 +218,10 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 
     def author_devices(repo: Path) -> None:
         nonlocal correctors, bpms
+        # The oracle is the noiseless model (see MATCH_RTOL), so the monitors
+        # serve the solved orbit without the drift and noise the machine file
+        # gives them.
+        _orm_stack.still_monitor_motion(repo)
         records = _orm_stack.roster_records(repo)
         correctors = _orm_stack.select_correctors(records, CORRECTOR_COUNT)
         bpms = _orm_stack.select_bpms(records)
