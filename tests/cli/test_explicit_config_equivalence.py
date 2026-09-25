@@ -539,6 +539,36 @@ _CONTROL_ASSISTANT_PERSONAS = tuple(
 )
 
 
+def _tool_call_record_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The full tool-call record the control-assistant preset turns on.
+
+    ``audit.tool_call.enabled`` and ``audit.tool_call.max_inline_bytes`` are
+    stated in the root preset and inherited by every persona, so every document
+    the family renders gains both leaves. The fixtures were frozen before the
+    keys existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        Two deltas per document.
+    """
+    return tuple(
+        delta
+        for document in documents
+        for delta in (
+            Delta(document=document, path="audit.tool_call.enabled", fixture=ABSENT, live=True),
+            Delta(
+                document=document,
+                path="audit.tool_call.max_inline_bytes",
+                fixture=ABSENT,
+                live=262144,
+            ),
+        )
+    )
+
+
 def _simulator_baseline_deltas() -> tuple[Delta, ...]:
     """The session baseline, moved from the live stand-in to the simulator.
 
@@ -768,7 +798,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
-    + _tool_content_deltas(),
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -781,7 +812,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
-    + _tool_content_deltas(),
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -794,7 +826,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
-    + _tool_content_deltas(),
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -807,7 +840,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
-    + _tool_content_deltas(),
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 

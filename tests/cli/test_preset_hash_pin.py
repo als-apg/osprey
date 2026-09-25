@@ -139,27 +139,30 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt project's agent exports built-in tool output as span events. The
     # five `extends` children inherit it; ariel-standalone,
     # channel-finder-standalone and hello-world stand still.
+    # The seventeenth move, and control-assistant's family alone: the root
+    # preset turns on the full tool-call record (`audit.tool_call.*`), which
+    # the five `extends` children inherit; the other three stand still.
     "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
     "channel-finder-standalone": (
         "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
     ),
     "control-assistant": (
-        "sha256:1f4f1f3848f6b5eb2027ed965e78177b8d5b6aca3062f18d4547d5cb5357f1e8"
+        "sha256:f053c6de8fd9497d272a068a03f8174b9ed9c1d9c21c6fb800ef60b641a2f3ce"
     ),
     "control-assistant-admin": (
-        "sha256:5aea7bf9784ee59c2497a5b482c43899e636c254443e71f99278f0a4374defd3"
+        "sha256:b27fb8d6fe3d79ba8ff5febdb28ccb70cbc117e3d8717b825002daa608694c57"
     ),
     "control-assistant-knowledge": (
-        "sha256:451b0caf8be8de3188a770d04c2fb88344276eed4ca534ccf9042bce6953cabe"
+        "sha256:53265269ecd689a2355c8c5bd892e68d022e0de03186ab4338104a805c54a6d0"
     ),
     "control-assistant-logbook": (
-        "sha256:638d0bdaa338144522388541e99bb5c482124b6b21db7ae2c7671524bd8ab881"
+        "sha256:cffa27c611273350222d9a3e064002435c36f670f7db8d383d94639002726437"
     ),
     "control-assistant-readonly": (
-        "sha256:0a0feb7deca677f0313a78cb31bac3e8223debd5bbbe93b1888b209993ad5cb5"
+        "sha256:251d61c019a064f0b5d3386d7744c2a68c35ca929f61caa9bd1cd1418b4f532a"
     ),
     "control-assistant-readwrite": (
-        "sha256:c9253e4f39ce056a27a269f64f54c7aa40e27d1794dbffbd94ef62789acf1462"
+        "sha256:88d62d2fdd672b4bf16d30ae9c72294e4b64f63a0819cdc0bc0e0be71a5746b6"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }

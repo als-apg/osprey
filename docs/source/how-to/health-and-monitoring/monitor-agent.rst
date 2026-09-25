@@ -350,6 +350,9 @@ carry before Claude Code truncates it; Claude Code's own limit, 61440, applies
 when it is unset. The control-assistant preset sets 262144. MCP tools, the
 osprey control-system tools among them, record no ``tool.output`` event, so
 their results are not in this feed.
+Their full arguments and results are in the osprey tool-call record
+(``audit.tool_call.enabled``, on in the control-assistant preset; see
+:doc:`/reference/contracts/audit-trail`).
 
 If you route telemetry to a shared or off-host backend (Phase 1), review these
 gates and disable the categories you do not want to leave the machine.

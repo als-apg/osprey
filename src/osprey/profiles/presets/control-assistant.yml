@@ -539,6 +539,15 @@ config:
   # in the environment forces it on regardless of this key.
   hooks.debug: true
 
+  # ── Full tool-call record ──────────────────────────────────────────────────
+  # On here. Every osprey tool call — reads included — is written whole to
+  # var/audit/<identity>/tool_call.jsonl and sent to the telemetry store as
+  # one log line: arguments, result, control target, approval answer. A
+  # payload over the bound below is stored as an artifact and recorded as its
+  # size and sha256. The value-free audit files are unchanged either way.
+  audit.tool_call.enabled: true
+  audit.tool_call.max_inline_bytes: 262144
+
   # ── ARIEL logbook search ───────────────────────────────────────────────────
   # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
   # below, so moving the database stays a one-place edit. Set it only to point

@@ -1759,6 +1759,10 @@ keys:
       before it truncates it, in UTF-16 code units. Unset, Claude Code's own
       limit (61440) applies.
     default: null
+  audit: {evidence: 'audit\.tool_call\.enabled', default: {}}
+  audit.tool_call: {covered-by: audit, default: {}}
+  audit.tool_call.enabled: {evidence: 'audit\.tool_call\.enabled', default: false}
+  audit.tool_call.max_inline_bytes: {evidence: 'audit\.tool_call\.max_inline_bytes', default: 262144}
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
@@ -2952,7 +2956,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 342
+  expected_union_size: 346
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

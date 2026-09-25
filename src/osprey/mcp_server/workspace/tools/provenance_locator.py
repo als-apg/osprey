@@ -31,6 +31,7 @@ import logging
 import os
 from datetime import UTC, datetime
 
+from osprey.audit.call import harness_session_id
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.provenance_locator")
@@ -58,12 +59,11 @@ def _telemetry_enabled() -> bool:
 
 
 def _resolve_session_id() -> str | None:
-    """The OSPREY-forced id, else the harness's own, else None."""
-    return (
-        os.environ.get(OSPREY_TELEMETRY_SESSION_ID_ENV)
-        or os.environ.get("CLAUDE_CODE_SESSION_ID")
-        or None
-    )
+    """The OSPREY-forced id, else the harness's own, else None.
+
+    One ladder, one place: :func:`osprey.audit.call.harness_session_id`.
+    """
+    return harness_session_id()
 
 
 def _service_name() -> str:
