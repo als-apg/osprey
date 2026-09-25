@@ -3035,6 +3035,101 @@ def test_the_skip_line_is_only_reported_where_a_build_was_actually_taken_away(
     assert steps == []
 
 
+@pytest.mark.parametrize("service", container_lifecycle._PROJECT_IMAGE_SERVICES)
+def test_every_project_image_service_builds_the_project_image_on_its_own(
+    monkeypatch, tmp_path, service
+):
+    """Each service on the project image is enough, alone, to build it."""
+
+    cmds, _steps = _project_image_build_calls(
+        monkeypatch, tmp_path, {"project_name": "myfacility", "deployed_services": [service]}
+    )
+
+    assert len(cmds) == 1
+    (cmd,) = cmds
+    assert cmd[:2] == ["docker", "build"]
+    assert cmd[cmd.index("-t") + 1] == "myfacility:local"
+
+
+def test_a_dev_run_builds_the_project_image_for_an_archive_without_the_worker(
+    monkeypatch, tmp_path
+):
+    """The ``osprey up -d --dev`` shape of a deployment with the archive and no worker."""
+    monkeypatch.setattr(
+        container_lifecycle, "_copy_local_framework_for_override", lambda project_root: True
+    )
+    monkeypatch.setattr(container_lifecycle, "_staged_dev_artifact_paths", lambda root: set())
+
+    cmds, _steps = _project_image_build_calls(
+        monkeypatch,
+        tmp_path,
+        {"project_name": "myfacility", "deployed_services": ["archive"]},
+        dev_mode=True,
+    )
+
+    assert len(cmds) == 1
+    (cmd,) = cmds
+    assert "OSPREY_DEV=1" in cmd
+    assert cmd[cmd.index("OSPREY_DEV=1") - 1] == "--build-arg"
+
+
+def test_a_pinned_archive_image_builds_nothing(monkeypatch, tmp_path):
+    """An archive pinned to another image, or an env override, needs no project build."""
+    pinned = {
+        "project_name": "myfacility",
+        "deployed_services": ["archive"],
+        "services": {"archive": {"image": "registry.example.org/x:1"}},
+    }
+
+    cmds, _steps = _project_image_build_calls(monkeypatch, tmp_path, pinned)
+
+    assert cmds == []
+    unpinned = {"project_name": "myfacility", "deployed_services": ["archive"]}
+    assert (
+        container_lifecycle._project_image_build_target(
+            unpinned, {"OSPREY_WORKER_IMAGE": "prebuilt:1"}
+        )
+        is None
+    )
+
+
+def test_a_pinned_worker_still_builds_for_an_archive_on_the_project_image():
+    """A worker on another image does not take the build away from the archive."""
+    config = {
+        "project_name": "myfacility",
+        "deployed_services": ["dispatch_worker", "archive"],
+        "services": {"dispatch_worker": {"image": "registry.example.org/worker:1"}},
+    }
+
+    assert container_lifecycle._project_image_build_target(config, {}) == "myfacility:local"
+
+
+def test_a_prebuilt_host_reports_the_skip_for_an_archive_only_deployment(monkeypatch, tmp_path):
+    """The prebuilt switch took a build away from the archive, so the skip is reported."""
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+
+    cmds, steps = _project_image_build_calls(
+        monkeypatch, tmp_path, {"project_name": "myfacility", "deployed_services": ["archive"]}
+    )
+
+    assert cmds == []
+    assert "skipped image build (prebuilt images)" in steps
+
+
+def test_every_template_on_the_project_image_is_a_project_image_service():
+    """A service template that falls back to the project image joins the build gate."""
+    import osprey.templates
+
+    services_root = Path(osprey.templates.__file__).parent / "services"
+    on_project_image = {
+        template.parent.name
+        for template in services_root.glob("*/docker-compose.yml.j2")
+        if "default(osprey_images.worker)" in template.read_text(encoding="utf-8")
+    }
+
+    assert on_project_image == set(container_lifecycle._PROJECT_IMAGE_SERVICES)
+
+
 def test_the_switch_answers_the_build_target_question_too(monkeypatch):
     """`_project_image_build_target` is what the preflight probe reads.
 

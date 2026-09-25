@@ -2326,13 +2326,20 @@ def _resolve_prebuilt_images(config: dict) -> bool:
     return bool(config.get("prebuilt_images", False))
 
 
-def _worker_image_target(config: dict, env: dict) -> str:
-    """The image the dispatch worker will actually run.
+#: The services whose compose image line falls back to the project image
+#: (``${OSPREY_WORKER_IMAGE:-<services.<name>.image | default(osprey_images.worker)>}``).
+#: None has a ``build:`` block, so :func:`_build_project_image` is the only thing
+#: that produces the image they run.
+_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
 
-    Resolution mirrors the worker compose service's
-    ``${OSPREY_WORKER_IMAGE:-<services.dispatch_worker.image | default>}``:
+
+def _service_image_target(config: dict, env: dict, service: str) -> str:
+    """The image ``service`` will actually run.
+
+    Resolution mirrors the service's compose line
+    ``${OSPREY_WORKER_IMAGE:-<services.<service>.image | default>}``:
     an ``OSPREY_WORKER_IMAGE`` env override wins, then a profile-pinned
-    ``services.dispatch_worker.image``, else the project image that
+    ``services.<service>.image``, else the project image that
     :func:`_build_project_image` builds — carrying whatever the registry and
     tag axes resolved to.
 
@@ -2345,11 +2352,16 @@ def _worker_image_target(config: dict, env: dict) -> str:
     override = env.get("OSPREY_WORKER_IMAGE")
     if override:
         return str(override)
-    worker_cfg = config.get("services", {}).get("dispatch_worker", {})
-    explicit = worker_cfg.get("image") if isinstance(worker_cfg, dict) else None
+    service_cfg = (config.get("services") or {}).get(service, {})
+    explicit = service_cfg.get("image") if isinstance(service_cfg, dict) else None
     if explicit:
         return str(explicit)
-    return resolve_image_defaults(config)["worker"]
+    return str(resolve_image_defaults(config)["worker"])
+
+
+def _worker_image_target(config: dict, env: dict) -> str:
+    """The image the dispatch worker will actually run (:func:`_service_image_target`)."""
+    return _service_image_target(config, env, "dispatch_worker")
 
 
 def _project_image_build_target(config: dict, env: dict) -> str | None:
@@ -2358,9 +2370,9 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     The gate in front of that build, split out so a caller can ask whether the
     build will happen at all without running it. Three ways it does not: this
     host says its images are prebuilt (:func:`_resolve_prebuilt_images`), this
-    deployment does not deploy the dispatch worker, or the worker's effective
-    image (:func:`_worker_image_target`) is a prebuilt one rather than this
-    project's own image.
+    deployment deploys none of the services that run the project image
+    (:data:`_PROJECT_IMAGE_SERVICES`), or every one it deploys names another
+    image (:func:`_service_image_target`).
 
     The prebuilt switch is asked first and outranks the rest, because it is a
     statement about the HOST rather than about the deployment: a machine with no
@@ -2383,13 +2395,14 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     """
     if _resolve_prebuilt_images(config):
         return None
+    project_image = str(resolve_image_defaults(config)["worker"])
     services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "dispatch_worker" not in services:
-        return None
-    project_image = resolve_image_defaults(config)["worker"]
-    if _worker_image_target(config, env) != project_image:
-        return None
-    return project_image
+    if any(
+        service in services and _service_image_target(config, env, service) == project_image
+        for service in _PROJECT_IMAGE_SERVICES
+    ):
+        return project_image
+    return None
 
 
 def _unreleased_pin_problem(config: dict, env: dict, dev_mode: bool) -> tuple[str, str] | None:
@@ -2490,17 +2503,17 @@ def _project_image_build_cmd(
 def _build_project_image(
     config: dict, dev_mode: bool, env: dict, build_context: Path | str | None = None
 ) -> None:
-    """Build the project image the dispatch worker references.
+    """Build the project image the dispatch worker, the ARIEL sync service and the record archive run.
 
-    The dispatch worker's compose service intentionally has no ``build:`` block
-    (a second builder for the same tag would race the event-dispatcher — see
+    None of those compose services has a ``build:`` block (a second builder for
+    the same tag would race the event-dispatcher — see
     ``dispatch_worker/docker-compose.yml.j2``), so nothing in ``compose up``
-    produces the image it runs. This builds it once, from the project root
+    produces the image they run. This builds it once, from the project root
     (context) and the rendered project ``Dockerfile``, before ``compose up``.
 
-    No-op unless the worker is deployed and its effective image is this
-    project's own axis-derived tag: an ``OSPREY_WORKER_IMAGE`` override or a
-    profile-pinned ``services.dispatch_worker.image`` means a prebuilt image is
+    No-op unless one of those services is deployed on this project's own
+    axis-derived tag: an ``OSPREY_WORKER_IMAGE`` override or a profile-pinned
+    ``services.<name>.image`` on every deployed one means a prebuilt image is
     wanted, so there is nothing to build. The event-dispatcher's own
     ``<project>-dispatch`` build (its compose ``build:`` block) is untouched.
 
@@ -2538,19 +2551,21 @@ def _build_project_image(
     """
     project_image = _project_image_build_target(config, env)
     if project_image is None:
-        # Only SOME of the no-op cases are worth a line. A deployment without
-        # the dispatch worker was never going to build this image and has
-        # nothing to explain; a deployment that has the worker but points it at
-        # another image took a decision the operator should see reflected back;
-        # and a prebuilt host gets the same line the compose build reports for
-        # the same switch — but only where the switch actually took a build
-        # away, which is the worker running this project's own tag. Saying it
-        # for a deployment that has no worker would report a skip of something
-        # that was never going to happen.
+        # Only SOME of the no-op cases are worth a line. A deployment with none
+        # of the project-image services was never going to build this image and
+        # has nothing to explain; a deployment that has the worker but points it
+        # at another image took a decision the operator should see reflected
+        # back; and a prebuilt host gets the same line the compose build reports
+        # for the same switch — but only where the switch actually took a build
+        # away, which is a deployed project-image service running this project's
+        # own tag. Saying it for any other deployment would report a skip of
+        # something that was never going to happen.
         services = {str(s) for s in (config.get("deployed_services") or [])}
         if _resolve_prebuilt_images(config):
-            if "dispatch_worker" in services and (
-                _worker_image_target(config, env) == resolve_image_defaults(config)["worker"]
+            project_tag = resolve_image_defaults(config)["worker"]
+            if any(
+                service in services and _service_image_target(config, env, service) == project_tag
+                for service in _PROJECT_IMAGE_SERVICES
             ):
                 _report_group("images")
                 _report_step("skipped image build (prebuilt images)")
@@ -2592,7 +2607,7 @@ def _build_project_image(
     cmd: list[str] = []
     try:
         cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
-        logger.debug("Building dispatch worker project image %s:", project_image)
+        logger.debug("Building project image %s:", project_image)
         logger.debug("Running command:\n    %s", " ".join(cmd))
         # Watched for the duration of the build and no longer; the step line
         # below is what reports the finished image.
@@ -6476,10 +6491,11 @@ def _start_stack(
     # itself; never aborts (see _stage_graphdb_store).
     _stage_graphdb_store(config, compose_files, env, Path(repo_root), provider=provider)
 
-    # Build the <project>:local image the dispatch worker references. The worker
-    # has no compose build block (that would race the event-dispatcher on the
-    # shared tag), so this is the only thing that produces its image. No-op
-    # unless the worker is deployed on the local project image. Run before
+    # Build the <project>:local image the dispatch worker, the ARIEL sync service
+    # and the record archive run. None of them has a compose build block (that
+    # would race the event-dispatcher on the shared tag), so this is the only
+    # thing that produces their image. No-op unless one of them is deployed on
+    # the local project image. Run before
     # `compose up` (which, non-detached, os.execvpe-replaces this process) and
     # AFTER the graph staging above: that step bakes the live store's schema
     # into the agent prompts inside this image's build context, and an image

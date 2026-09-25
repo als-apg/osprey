@@ -60,8 +60,8 @@ See :doc:`../build-profiles` for the profile's convention directories.
    assistant and its web terminal. The lifecycle verbs manage the deployment's
    *service* containers (databases, MCP servers) — see :doc:`index`
    — but the two meet in one place: a deploy that includes the dispatch
-   worker builds this same project image (tagged ``<project>:local``) for
-   the worker to run.
+   worker, the ARIEL sync service or the record archive builds this same
+   project image (tagged ``<project>:local``) for them to run.
 
 Quickstart
 ==========
