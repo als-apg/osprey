@@ -34,8 +34,14 @@ from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
 
 
 @pytest.fixture(autouse=True)
-def _stub_osprey_helpers(monkeypatch):
+def _stub_osprey_helpers(monkeypatch, tmp_path):
     """Stub the deferred OSPREY helper imports on their source modules."""
+    # The runner creates the agent's Claude state directory under the agent-data
+    # root; keep that inside the test's own directory.
+    monkeypatch.setattr(
+        "osprey.agent_runner.artifact_resolve.deployed_agent_data_root",
+        lambda: tmp_path / "stub-agent-data",
+    )
     monkeypatch.setattr(
         "osprey.agent_runner.clean_env.build_clean_env",
         lambda **kw: {},
@@ -760,6 +766,40 @@ async def test_the_agent_data_root_is_stamped_for_the_agent(monkeypatch, tmp_pat
     env = await _env_of_run(monkeypatch)
 
     assert env[OSPREY_AGENT_DATA_ROOT] == str(root)
+
+
+@pytest.mark.asyncio
+async def test_the_agent_config_dir_is_on_the_agent_data_volume(monkeypatch, tmp_path):
+    """The dispatched agent's transcripts outlive a recreate of the worker.
+
+    The container's own layer is discarded at every recreate; the agent-data
+    root is the worker's volume, so the Claude state directory goes there.
+    """
+    root = tmp_path / "var" / "agent_data"
+    monkeypatch.setattr(
+        "osprey.agent_runner.artifact_resolve.deployed_agent_data_root",
+        lambda: root,
+    )
+
+    env = await _env_of_run(monkeypatch)
+
+    assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "var/agent_data/claude-config")
+    assert (root / "claude-config").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_an_unresolvable_agent_data_root_falls_back_to_home(monkeypatch, tmp_path):
+    """A root that cannot be resolved costs the durable location, never the run."""
+
+    def _raise():
+        raise RuntimeError("no config here")
+
+    monkeypatch.setattr("osprey.agent_runner.artifact_resolve.deployed_agent_data_root", _raise)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    env = await _env_of_run(monkeypatch)
+
+    assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "home" / ".claude")
 
 
 @pytest.mark.asyncio

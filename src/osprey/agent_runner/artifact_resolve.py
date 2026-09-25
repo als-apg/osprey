@@ -210,6 +210,20 @@ def dispatch_log_dir() -> Path:
     return deployed_agent_data_root() / "dispatch"
 
 
+DISPATCH_CLAUDE_CONFIG_DIRNAME = "claude-config"
+
+
+def dispatch_claude_config_dir() -> Path:
+    """The Claude Code state root of the dispatched agent (transcripts under ``projects/``).
+
+    It sits on the worker's agent-data volume, so the dispatched agent's
+    transcripts outlive a recreate of the worker container. The single spelling
+    the runner that sets ``CLAUDE_CONFIG_DIR`` and the archive's source table
+    share.
+    """
+    return deployed_agent_data_root() / DISPATCH_CLAUDE_CONFIG_DIRNAME
+
+
 def _run_artifacts_dir(run_id: str) -> Path:
     """Deterministic, reused per-run scratch dir for converted (PNG) artifacts.
 

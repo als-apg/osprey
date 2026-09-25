@@ -18,7 +18,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.agent_runner.artifact_resolve import deployed_config_path, deployed_render_dir
+from osprey.agent_runner.artifact_resolve import (
+    deployed_config_path,
+    deployed_render_dir,
+    dispatch_claude_config_dir,
+)
 from osprey.agent_runner.primitives import (
     MCP_READY_TIMEOUT_S,
     await_mcp_ready,
@@ -504,11 +508,25 @@ async def run_dispatch(
     # current directory" on every dispatch.
     sdk_env["CONFIG_FILE"] = str(deployed_config_path())
 
-    # The container sets CLAUDE_CONFIG_DIR=/data/claude-config (root-owned, used
-    # by osprey-web).  The dispatch user can't write there, and the CLI hangs on
-    # startup if it can't write session data.  Override to dispatch user's home.
-    dispatch_home = os.environ.get("HOME", "/home/dispatch")
-    sdk_env["CLAUDE_CONFIG_DIR"] = os.path.join(dispatch_home, ".claude")
+    # The agent's Claude state (its transcripts) lives on the worker's agent-data
+    # volume: the container layer is discarded at every recreate. The image
+    # entrypoint hands the agent-data zone to the dropped user on every start,
+    # which is what makes the directory writable here, and the CLI hangs on
+    # startup if it can't write session data. A root that cannot be resolved or
+    # created falls back to the user's home rather than failing the dispatch.
+    try:
+        claude_config_dir = dispatch_claude_config_dir()
+        claude_config_dir.mkdir(parents=True, exist_ok=True)
+        sdk_env["CLAUDE_CONFIG_DIR"] = str(claude_config_dir)
+    except Exception:  # a dispatch must not fail on its transcript location
+        fallback = os.path.join(os.environ.get("HOME", "/home/dispatch"), ".claude")
+        logger.warning(
+            "Could not use the agent-data volume for the dispatch agent's Claude state; "
+            "falling back to %s, which a recreate of the worker discards",
+            fallback,
+            exc_info=True,
+        )
+        sdk_env["CLAUDE_CONFIG_DIR"] = fallback
 
     # Marks this CLI session as a headless dispatch run for the project's own
     # hooks: osprey_approval must not emit explicit allow decisions here (CLI
