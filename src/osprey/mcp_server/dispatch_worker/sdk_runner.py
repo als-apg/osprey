@@ -32,6 +32,11 @@ from osprey.agent_runner.primitives import (
 )
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
+from osprey.mcp_server.dispatch_worker.prior_answers import (
+    PRIOR_ANSWER_RUNS_ENV,
+    format_run_ids,
+    keep_run_ids,
+)
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
@@ -382,6 +387,7 @@ async def run_dispatch(
     surface_prompt: str | None = None,
     surface_tools: list[str] | None = None,
     owner: str | None = None,
+    prior_answer_runs: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run a prompt headlessly via the Claude Agent SDK.
 
@@ -395,6 +401,10 @@ async def run_dispatch(
         run_id: Dispatch run id. Exported to the agent (and the MCP tool
             subprocesses it spawns) as ``OSPREY_DISPATCH_RUN_ID`` so every
             artifact saved during the run is attributed to it.
+        prior_answer_runs: Run ids of earlier answers the caller replayed
+            shortened. Exported to the agent's MCP servers as
+            ``OSPREY_DISPATCH_PRIOR_ANSWER_RUNS``; ``prior_answer_read`` reads
+            these runs and no others. ``None`` or empty leaves it unset.
         surface_prompt: Optional static fragment appended to the system prompt
             (via ``build_system_prompt``'s ``extra``) to describe the surface
             this dispatch was triggered from. Not templated/interpolated per
@@ -541,6 +551,13 @@ async def run_dispatch(
     # session id — a dispatch run is not an interactive session.
     if run_id:
         sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
+
+    # ``build_clean_env`` copies the worker's own environment, so a stray value
+    # there would otherwise widen every run. The set is fixed at spawn and read
+    # by ``prior_answer_read``.
+    sdk_env.pop(PRIOR_ANSWER_RUNS_ENV, None)
+    if prior_answer_runs:
+        sdk_env[PRIOR_ANSWER_RUNS_ENV] = format_run_ids(keep_run_ids(prior_answer_runs))
 
     # Hand the agent the agent-data root this deployment resolved, the same
     # stamp an operator session puts on its own child. Everything below the

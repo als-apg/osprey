@@ -32,7 +32,7 @@ def test_health_capability_advertised(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["capabilities"] == ["input_files"]
+    assert body["capabilities"] == ["input_files", "prior_answers"]
     # boot_nonce already present on the worker — unchanged, still exposed.
     assert isinstance(body["boot_nonce"], (int, float))
 

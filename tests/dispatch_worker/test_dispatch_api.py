@@ -58,6 +58,7 @@ def client(monkeypatch):
         surface_prompt=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
         surface_tools=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
         owner=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        prior_answer_runs=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
     ):
         if event_queue is not None:
             await event_queue.put({"type": "done"})
@@ -845,3 +846,50 @@ def test_dispatch_request_owner_is_additive() -> None:
     request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
 
     assert request.owner is None
+
+
+# ---------------------------------------------------------------------------
+# Earlier answers the run may read back
+# ---------------------------------------------------------------------------
+
+_RUN = "3f2b6c1e-8a4d-4f0e-9b1a-2c3d4e5f6a7b"
+
+
+def test_dispatch_body_prior_answer_runs_reach_the_runner(client, monkeypatch):
+    captured = _capture_run_dispatch(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"], "prior_answer_runs": [_RUN]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    _wait_for_terminal(client, resp.json()["run_id"])
+
+    assert captured["prior_answer_runs"] == [_RUN]
+
+
+def test_dispatch_request_prior_answer_runs_is_additive() -> None:
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
+
+    assert request.prior_answer_runs is None
+
+
+def test_dispatch_request_drops_malformed_prior_answer_runs_instead_of_refusing(
+    client, monkeypatch
+):
+    captured = _capture_run_dispatch(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={
+            "prompt": "do it",
+            "allowed_tools": ["Read"],
+            "prior_answer_runs": [_RUN, "../etc"],
+        },
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    _wait_for_terminal(client, resp.json()["run_id"])
+
+    assert captured["prior_answer_runs"] == [_RUN]

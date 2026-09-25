@@ -104,6 +104,40 @@ async def test_dispatch_passthrough_empty_input_files_is_omitted():
     assert "input_files" not in captured["json"]
 
 
+_RUNS = ["3f2b6c1e-8a4d-4f0e-9b1a-2c3d4e5f6a7b"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passthrough_forwards_prior_answer_runs():
+    captured: dict[str, Any] = {}
+    transport = _capturing_transport(captured)
+    with _patch_asyncclient(transport):
+        await dispatch_to_worker(
+            url="http://worker:9190",
+            prompt="hi",
+            allowed_tools=[],
+            token="tok",
+            prior_answer_runs=_RUNS,
+        )
+    assert captured["json"]["prior_answer_runs"] == _RUNS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("runs", [None, []])
+async def test_dispatch_passthrough_omits_prior_answer_runs_when_absent_or_empty(runs):
+    captured: dict[str, Any] = {}
+    transport = _capturing_transport(captured)
+    with _patch_asyncclient(transport):
+        await dispatch_to_worker(
+            url="http://worker:9190",
+            prompt="hi",
+            allowed_tools=[],
+            token="tok",
+            prior_answer_runs=runs,
+        )
+    assert "prior_answer_runs" not in captured["json"]
+
+
 @pytest.mark.asyncio
 async def test_dispatch_upload_timeout_widens_connect_and_write():
     """An input_files upload can be ~24MB; connect/write timeouts must be generous."""

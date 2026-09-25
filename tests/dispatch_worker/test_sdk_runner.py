@@ -859,3 +859,33 @@ async def test_no_owner_sentinel_is_never_stamped(monkeypatch):
 
     assert CONTROL_OWNER_ENV_VAR not in env
     assert str(NO_OWNER) not in env.values()
+
+
+# ---------------------------------------------------------------------------
+# Earlier answers the run may read back
+# ---------------------------------------------------------------------------
+
+_PRIOR_RUN = "3f2b6c1e-8a4d-4f0e-9b1a-2c3d4e5f6a7b"
+
+
+@pytest.mark.asyncio
+async def test_prior_answer_runs_are_exported_to_the_agent_environment(monkeypatch):
+    env = await _env_of_run(monkeypatch, prior_answer_runs=[_PRIOR_RUN, "../x"])
+
+    assert env["OSPREY_DISPATCH_PRIOR_ANSWER_RUNS"] == _PRIOR_RUN
+
+
+@pytest.mark.asyncio
+async def test_no_prior_answer_runs_leaves_the_variable_absent(monkeypatch):
+    env = await _env_of_run(monkeypatch)
+
+    assert "OSPREY_DISPATCH_PRIOR_ANSWER_RUNS" not in env
+
+
+@pytest.mark.asyncio
+async def test_a_stray_worker_value_never_reaches_a_run_that_names_no_prior_answers(monkeypatch):
+    monkeypatch.setenv("OSPREY_DISPATCH_PRIOR_ANSWER_RUNS", _PRIOR_RUN)
+
+    env = await _env_of_run(monkeypatch)
+
+    assert "OSPREY_DISPATCH_PRIOR_ANSWER_RUNS" not in env
