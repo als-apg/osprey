@@ -622,6 +622,23 @@ keys:
       which is what distinguishes it from the dispatch worker's line.
     default: derived
     default_note: osprey_images.worker — the mirror runs the worker image
+  services.archive.image:
+    rendered: false
+    evidence: 'services\.archive \| default'
+    note: >-
+      OSPREY-built image, same layering as `services.ariel_sync.image`: the
+      archive runs the bare project image and shares `OSPREY_WORKER_IMAGE`
+      with it. The evidence anchors on the template's own alias line.
+    default: derived
+    default_note: osprey_images.worker — the archive runs the worker image
+  services.archive.interval_seconds:
+    rendered: false
+    evidence: '_resolve_archive_render_context'
+    note: >-
+      Seconds between two passes of the agent-record archive service. The
+      same value sets the archive_last_pass health row's threshold (twice
+      the interval).
+    default: 86400
   services.bluesky.image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_BRIDGE_IMAGE:-\{\{ svc\.image'
@@ -1713,8 +1730,8 @@ keys:
   claude_code.telemetry.log_assistant_responses: {evidence: 'log_assistant_responses', default: true}
   claude_code.telemetry.log_tool_details: {evidence: 'log_tool_details', default: true}
   claude_code.telemetry.log_raw_api_bodies: {evidence: 'log_raw_api_bodies', default: true}
+  claude_code.transcripts: {evidence: '\.get\("transcripts"\)', default: {}}
   claude_code.transcripts.retention_days:
-    rendered: false
     evidence: '_transcripts_retention_days'
     note: >-
       Days Claude Code keeps a session transcript before deleting it at
@@ -2915,7 +2932,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 338
+  expected_union_size: 340
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

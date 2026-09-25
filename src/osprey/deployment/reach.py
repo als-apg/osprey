@@ -1126,6 +1126,11 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         no_client_reach=True,
         note="a logbook poller that dials the store and the facility logbook; nothing in a container dials it",
     ),
+    "archive": ReachContract(
+        service="archive",
+        no_client_reach=True,
+        note="copies the deployment's volumes into var/archive; nothing in a container dials it",
+    ),
 }
 
 

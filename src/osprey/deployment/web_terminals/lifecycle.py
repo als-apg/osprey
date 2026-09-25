@@ -289,7 +289,13 @@ def decommission_user(
         # The reconcile's error still surfaces afterwards, so a failure to close
         # access stays fatal. Do NOT "simplify" this back to a plain call.
         _apply_volume_policy(
-            runtime, volumes, archive=archive, purge=purge, env=env, repo_root=repo_root
+            runtime,
+            volumes,
+            archive=archive,
+            purge=purge,
+            env=env,
+            repo_root=repo_root,
+            archive_container=_archive_container_name(config),
         )
 
 
@@ -401,6 +407,7 @@ def prune_users(
             purge=purge,
             env=env,
             repo_root=repo_root,
+            archive_container=_archive_container_name(config),
         )
 
     # Authentication (no-op when off): an orphan is already off the roster, so
@@ -1461,6 +1468,7 @@ def _apply_volume_policy(
     purge: bool,
     repo_root: Path,
     env: dict[str, str] | None = None,
+    archive_container: str | None = None,
 ) -> None:
     """Apply the retain(default)/archive/purge policy to exact-named volumes.
 
@@ -1481,9 +1489,17 @@ def _apply_volume_policy(
             by the caller from its ``config_path`` (see the module's REPO-ROOT
             CONTRACT).
         env: Environment for the subprocess calls.
+        archive_container: The deployment's agent-record archive container,
+            when it deploys one. That container mounts every user's volumes, so
+            a volume any container references cannot be removed: before any
+            removal it gets one last pass (best effort) and is removed.
     """
     if not (archive or purge):
         return  # retain (default): volumes are left in place
+
+    removed_archive = bool(volumes) and _remove_archive_container(
+        runtime, archive_container, env=env
+    )
 
     if archive:
         archive_dir = repo_root / _ARCHIVE_DIR_NAME
@@ -1493,6 +1509,58 @@ def _apply_volume_policy(
     else:  # purge
         for volume in volumes:
             remove_volume(runtime, volume, env=env)
+
+    if removed_archive:
+        report(
+            "The archive container was removed because it held the removed volumes. "
+            "Run `osprey build`, then `osprey up`, to start it without them."
+        )
+
+
+def _remove_archive_container(
+    runtime: str, container: str | None, *, env: dict[str, str] | None = None
+) -> bool:
+    """Remove the archive *container*; return whether it existed.
+
+    The archive container mounts the volumes about to be removed, and the
+    runtime refuses to remove a volume any container references, running or
+    not. A running container first runs one last pass, which copies whatever
+    the volumes gained since the previous one; its failure warns and the
+    removal goes on. The next ``osprey up`` recreates the container.
+    """
+    if container is None:
+        return False
+    inspected = subprocess.run(
+        [runtime, "inspect", "-f", "{{.State.Running}}", container],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if inspected.returncode != 0:
+        return False
+    if inspected.stdout.strip() == "true":
+        last_pass = subprocess.run(
+            [runtime, "exec", container, "osprey", "archive", "--once"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if last_pass.returncode != 0:
+            logger.warning(
+                "The last archive pass before removing the volumes exited %s; "
+                "removing them anyway.",
+                last_pass.returncode,
+            )
+    remove_container(runtime, container, env=env)
+    return True
+
+
+def _archive_container_name(config: dict[str, Any]) -> str | None:
+    """The deployment's archive container, when it deploys the archive service."""
+    deployed = {str(name) for name in config.get("deployed_services") or []}
+    if "archive" not in deployed:
+        return None
+    return f"{resolve_project_name(config)}-archive"
 
 
 def confirm_destroy(prompt: str, assume_yes: bool, *, expected: str) -> bool:

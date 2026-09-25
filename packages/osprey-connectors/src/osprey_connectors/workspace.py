@@ -66,6 +66,10 @@ DEFAULT_AGENT_DATA_BASE_DIR = f"{STATE_DIR_NAME}/agent_data"
 #: has to be the directory the refusal recorder writes into.
 AUDIT_DIR_RELPATH = f"{STATE_DIR_NAME}/audit"
 
+#: The append-only agent-record archive, relative to the repo root; nothing in
+#: OSPREY deletes under it.
+ARCHIVE_DIR_RELPATH = f"{STATE_DIR_NAME}/archive"
+
 #: The two directories that make up the state zone, created empty and otherwise
 #: the agent's to write. Both ``osprey init`` and ``osprey build`` guarantee they
 #: exist — a fresh clone carries no git-ignored directory, so whichever command

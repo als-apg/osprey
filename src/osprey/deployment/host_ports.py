@@ -192,12 +192,13 @@ _COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 # outbound-only bridges and pollers with no listening socket (their templates
 # say so) — nextcloud_bridge and gchat_bridge push notifications out,
 # teams_bridge pulls its queue and posts through the Bot Framework connector,
-# and ariel_sync polls ARIEL's API on an interval rather than listening for
-# inbound connections. Exempt from the "host-mode service escapes the
+# ariel_sync polls ARIEL's API on an interval rather than listening for
+# inbound connections, and archive copies volumes and dials only the telemetry
+# store. Exempt from the "host-mode service escapes the
 # preflight" warning, which exists for services that DO bind something the
 # framework cannot derive.
 _HOST_MODE_PORTLESS_SERVICES = frozenset(
-    {"nextcloud_bridge", "gchat_bridge", "teams_bridge", "ariel_sync"}
+    {"nextcloud_bridge", "gchat_bridge", "teams_bridge", "ariel_sync", "archive"}
 )
 
 # Config values the host-mode templates fall back on that are NOT ports. The

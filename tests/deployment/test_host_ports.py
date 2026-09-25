@@ -571,6 +571,14 @@ class TestHostNetworkDerivation:
         assert bindings == []
         assert "host network" not in caplog.text
 
+    def test_the_archive_neither_derives_nor_warns(self, caplog):
+        """``archive`` copies volumes and opens no listening socket; a warning
+        for it would be noise on a valid config."""
+        with caplog.at_level("WARNING"):
+            bindings = derive_host_network_bindings(_host_config(archive={"network": "host"}))
+        assert bindings == []
+        assert "host network" not in caplog.text
+
     def test_both_halves_on_host_derive_both(self):
         bindings = derive_host_network_bindings(
             _host_config(
