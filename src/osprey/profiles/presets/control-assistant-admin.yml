@@ -19,9 +19,8 @@
 # agent's user (Dockerfile.j2). No other tier's image does, so no other tier can
 # write the file that says what it may do.
 #
-# The control-system tiers are `control-assistant-readonly`,
-# `control-assistant-va-readwrite` and `control-assistant-readwrite`; the
-# standalone ones are `control-assistant-logbook` and
+# The control-system tiers are `control-assistant-readonly` and
+# `control-assistant-readwrite`; the standalone ones are `control-assistant-logbook` and
 # `control-assistant-knowledge`.
 
 name: Control Assistant (Admin)
@@ -54,14 +53,16 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The admin tier sits above readwrite: it keeps the write-armed control
-  # posture and adds deployment editing on top. This is the posture every
-  # connector type inherits when its own
-  # `control_system.connector.<type>.writes_enabled` block says nothing, and
-  # none is written here, so it is the answer for every machine the session can
-  # be pointed at. Pinned like the tiers beneath it pin their own side, so the
-  # boundary cannot drift if the base's default ever changes.
-  control_system.writes_enabled: true
+  # The admin tier carries readwrite's control posture exactly: armed on the
+  # simulator, read-only on both hardware-shaped targets. The flat key is what
+  # every connector type inherits when its own block says nothing, the epics
+  # block is pinned by name so no per-type `true` lower in the chain can lift
+  # the live ceiling, and the simulator's block is the one type armed. What
+  # makes this the admin tier is the deployment-editing block below, not a
+  # wider write surface.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
   # The axis this tier is defined by: the three privileges the base floors, all
   # lifted here and nowhere else.
   #

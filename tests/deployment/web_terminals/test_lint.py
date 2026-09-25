@@ -4414,14 +4414,13 @@ def test_lint_rendered_project_reports_no_write_hole(tmp_path) -> None:
         "control-assistant-readonly",
         "control-assistant-readwrite",
         "control-assistant-admin",
-        "control-assistant-va-readwrite",
     ],
 )
 def test_lint_shipped_write_posture_tiers_report_no_write_hole(preset: str) -> None:
     """Every shipped tier writes its own posture down in full — the read-only
-    one pins each block off beside the flat key, the simulator one arms the one
-    block it means to arm, and the two armed ones set the flat key true. A
-    finding against any of them would refuse our own reference stack."""
+    one pins each block off beside the flat key, and the two write-capable ones
+    pin the flat key false and arm the one block they mean to arm. A finding
+    against any of them would refuse our own reference stack."""
     # Arrange
     config = _profile_config(
         default_persona="tier",
@@ -4500,22 +4499,23 @@ def test_lint_preset_persona_inheriting_an_armed_block_is_an_error(tmp_path, mon
 def test_preset_authored_config_reads_the_layer_before_extends() -> None:
     """The seam the preset half of the check is built on: the preset's own
     `config:` block, not the one its `extends` chain resolves to. The shipped
-    simulator tier is the case that needs the distinction — it writes both of
-    its posture keys itself, and its parent writes the connector type."""
+    read-write tier is the case that needs the distinction — it writes all
+    three of its posture keys itself, and its parent writes the connector type."""
     # Arrange
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.cli.build_profile_resolve import preset_authored_config
 
     # Act
-    authored = preset_authored_config("control-assistant-va-readwrite")
-    resolved, _root = resolve_build_profile(None, "control-assistant-va-readwrite")
+    authored = preset_authored_config("control-assistant-readwrite")
+    resolved, _root = resolve_build_profile(None, "control-assistant-readwrite")
 
     # Assert
     assert authored["control_system.writes_enabled"] is False
+    assert authored["control_system.connector.epics.writes_enabled"] is False
     assert authored["control_system.connector.virtual_accelerator.writes_enabled"] is True
     # The parent's key: in the resolved document, absent from the authored one.
     assert "control_system.type" not in authored
-    assert resolved.config["control_system.type"] == "live_standin"
+    assert resolved.config["control_system.type"] == "virtual_accelerator"
 
 
 def _shipped_preset_names() -> list[str]:

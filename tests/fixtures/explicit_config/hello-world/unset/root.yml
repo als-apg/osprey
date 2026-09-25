@@ -36,7 +36,6 @@ claude_code:
       enabled: false
     logbook-search:
       enabled: false
-  default_model: haiku
   provider: anthropic
   servers:
     ariel:

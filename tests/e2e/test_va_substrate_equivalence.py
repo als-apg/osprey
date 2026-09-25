@@ -421,7 +421,10 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # (writes_enabled/limits_checking/connector gateways) is left alone.
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
-    # build than the VA image already is.
+    # build than the VA image already is. The preset's `services:` block holds
+    # the record archive, which runs the same project image, so it goes with the
+    # dispatch stack: `services: {}` is the spelling because a single service
+    # cannot be nulled.
     # `modules.web_terminals.enabled: false` scopes this deploy back to the VA +
     # bridge substrate: the control-assistant preset now ships the multi-user
     # web-terminal stack on by default, so an unqualified deploy would also
@@ -438,6 +441,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "modules.web_terminals.enabled": False,
         },
         "dispatch": None,
+        "services": {},
         **_orm_stack.VA_ARCHIVER_CI_KNOBS,
     }
 
@@ -455,6 +459,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             # This module's own thousand-port block (see
@@ -534,7 +540,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own so a
@@ -552,7 +558,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -593,9 +599,9 @@ def _minted_token(repo: Path) -> str:
 
 
 def _get(path: str) -> tuple[int, dict]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -632,12 +638,12 @@ def _published_pva_endpoint() -> str:
     every VA instance) and the host binding from ``docker port``, the P1
     precedent for "what was actually published".
 
-    Unlike ``VA_CA_PORT`` and ``BRIDGE_PORT`` this module cannot pin the value:
-    the deployment surface carries no ``virtual_accelerator.pva_port`` field, so
-    the template's own default is what gets published and a second VA (or a
-    stray PVA server) on this host takes the same host port. Reading it back and
-    failing loudly here turns that collision into a sentence instead of an RPC
-    timeout thirty seconds later.
+    The module pins the port through ``virtual_accelerator.pva_port``
+    (``_orm_stack.VA_PVA_PORT``), and this reads it back rather than trusting
+    the pin: a render that dropped the key would publish the template default
+    that every other VA on this host publishes too. Failing loudly here turns
+    that collision into a sentence instead of an RPC timeout thirty seconds
+    later.
     """
     env = _docker_inspect(VA_CONTAINER, "{{range .Config.Env}}{{println .}}{{end}}")
     ports = [
@@ -665,6 +671,10 @@ def _published_pva_endpoint() -> str:
     )
     assert binding.startswith("127.0.0.1:"), (
         f"the VA's PVAccess port must never leave loopback: {binding!r}"
+    )
+    assert binding == f"127.0.0.1:{_orm_stack.VA_PVA_PORT}", (
+        f"the VA publishes PVAccess on {binding!r}, not on the pinned "
+        f"virtual_accelerator.pva_port 127.0.0.1:{_orm_stack.VA_PVA_PORT}"
     )
     return binding
 

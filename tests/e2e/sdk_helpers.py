@@ -37,7 +37,7 @@ import yaml
 from osprey.port_layout import BLOCK_SIZE
 from tests import ci_diagnostics
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.provider import build_provider
+from tests.e2e.provider import build_model, build_provider
 
 # SDK imports — skip entire module if not installed
 try:
@@ -160,7 +160,21 @@ def has_als_apg_api_key() -> bool:
     return bool(os.environ.get("ALS_APG_API_KEY"))
 
 
+#: The ARIEL database a run uses when it names none: a Postgres on the host's
+#: standard port, the one tests/e2e/README.md tells a developer to run.
 _DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"
+
+
+def e2e_ariel_db_uri() -> str:
+    """The run's one ARIEL database: what the skip guard probes and every ARIEL project names.
+
+    ``OSPREY_ARIEL_DB_URI`` when it is set and non-empty (the model-matrix
+    runner provisions one database per (model, seed) cell and exports it),
+    otherwise :data:`_DEFAULT_ARIEL_DB_URI`. :func:`ariel_db_skip_reason` and
+    :func:`_ariel_db_pins` both read it here, so a guard that passes has checked
+    the database the agent and ``apply_scenarios`` are about to use.
+    """
+    return os.environ.get("OSPREY_ARIEL_DB_URI") or _DEFAULT_ARIEL_DB_URI
 
 
 def ariel_db_skip_reason(uri: str | None = None) -> str | None:
@@ -177,9 +191,12 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
 
     Returns ``None`` when the DB is reachable and has at least one entry,
     otherwise a human-readable reason string suitable for ``pytest.skip``.
-    Override the URI with ``OSPREY_ARIEL_DB_URI``.
+    The database is :func:`e2e_ariel_db_uri`, the one every ARIEL project
+    :func:`init_project` builds names, so a pass here means the agent's
+    database is ready. The reason names that database without its password.
     """
-    uri = uri or os.environ.get("OSPREY_ARIEL_DB_URI", _DEFAULT_ARIEL_DB_URI)
+    uri = uri or e2e_ariel_db_uri()
+    where = uri.rsplit("@", 1)[-1]
     try:
         import psycopg
     except ImportError:
@@ -187,51 +204,65 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
     try:
         with psycopg.connect(uri, connect_timeout=3) as conn:
             row = conn.execute("SELECT count(*) FROM enhanced_entries").fetchone()
-    except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
+    except Exception as exc:  # any failure means "not ready"
         return (
-            f"ARIEL Postgres not reachable ({exc.__class__.__name__}) — scenario "
+            f"ARIEL Postgres at {where} not reachable ({exc.__class__.__name__}) — scenario "
             "tests need a live, seeded ARIEL logbook DB. Bring it up with "
             "`osprey up && osprey ariel migrate && osprey ariel quickstart`."
         )
     count = row[0] if row else 0
     if count == 0:
-        return "ARIEL Postgres is reachable but empty — seed it with `osprey ariel quickstart`."
+        return (
+            f"ARIEL Postgres at {where} is reachable but empty — seed it with "
+            "`osprey ariel quickstart`."
+        )
     return None
 
 
-def _override_ariel_db_uri(render: Path) -> None:
-    """Point a freshly built deployment at the per-cell ARIEL database.
+def _ariel_db_pins(template: str) -> dict[str, str]:
+    """The ``config:`` pin that points a lane's deployment at the run's ARIEL database.
 
-    Takes the RENDER directory (``<repo>/build``) — the rewrite targets the
-    rendered ``config.yml``, which is what every MCP server is pointed at via
-    ``CONFIG_FILE`` and what ``apply_scenarios`` loads.
+    Every project this module builds with ARIEL names :func:`e2e_ariel_db_uri`,
+    the database :func:`ariel_db_skip_reason` probes, so a guard that passes has
+    checked the database the agent's ARIEL MCP server and ``apply_scenarios``
+    reach. Left to itself a render names no URI: the DSN is derived from
+    ``services.postgresql`` on this worker's port block, a Postgres no project
+    built here ever starts. In a model-matrix cell the database is the cell's
+    own, so a scenario test's logbook purge and its drop of the
+    ``text_embeddings_*`` tables cannot land in another cell's logbook test.
 
-    When ``OSPREY_ARIEL_DB_URI`` is set (the matrix runner provisions one
-    database per (model, seed) cell), rewrite the rendered ``config.yml`` so the
-    agent's ARIEL MCP server *and* ``apply_scenarios`` both talk to the per-cell
-    DB instead of the shared default. This is what makes concurrent cells
-    isolated: a scenario test in one cell purges only its own DB and can no
-    longer drop another cell's ``text_embeddings_*`` tables mid-test.
+    The pin is ``ariel.database.uri``, stated at ``osprey init`` like every other
+    lane pin, and an explicit ``uri`` wins over the derived DSN. A preset that
+    configures no ARIEL gets no pin: an ``ariel:`` block in its render would make
+    ``apply_scenarios`` seed a logbook the deployment does not have.
 
-    The default URI is a hardcoded literal in the template (not a profile
-    variable), so ``--set ariel.database.uri`` would not reach the rendered
-    config — a post-build text substitution is the reliable hook.
-
-    Projects that do not use a real ARIEL Postgres DB (e.g. the ``hello_world``
-    preset renders ``ariel: {enabled: false}`` and no DB URI) have nothing to
-    redirect, so the default URI is simply absent and this is a no-op. Template
-    *drift* for ARIEL-using presets is caught loudly elsewhere: the matrix
-    runner's per-cell provisioning patches a freshly built control-assistant
-    config and asserts the default URI is present before it can seed the DB.
+    Returns:
+        ``{"ariel.database.uri": <uri>}`` when the preset configures ARIEL,
+        otherwise an empty mapping.
     """
-    override = os.environ.get("OSPREY_ARIEL_DB_URI")
-    if not override or override == _DEFAULT_ARIEL_DB_URI:
-        return
+    if not _preset_configures_ariel(template):
+        return {}
+    return {"ariel.database.uri": e2e_ariel_db_uri()}
+
+
+def _assert_render_names_ariel_db(render: Path) -> None:
+    """Fail when a render that configures ARIEL does not name the run's ARIEL database.
+
+    Takes the RENDER directory (``<repo>/build``). Its ``config.yml`` is what
+    every MCP server is pointed at via ``CONFIG_FILE`` and what
+    ``apply_scenarios`` loads, so it is where :func:`_ariel_db_pins` has to have
+    landed. A render with no ``ariel`` section has no database to point anywhere.
+    """
+    uri = e2e_ariel_db_uri()
     config_path = render / "config.yml"
-    text = config_path.read_text(encoding="utf-8")
-    if _DEFAULT_ARIEL_DB_URI not in text:
+    ariel = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get("ariel")
+    if not ariel:
         return
-    config_path.write_text(text.replace(_DEFAULT_ARIEL_DB_URI, override), encoding="utf-8")
+    rendered = (ariel.get("database") or {}).get("uri")
+    assert rendered == uri, (
+        f"ariel.database.uri in {config_path} is {rendered!r}, not {uri!r}, "
+        "the ARIEL database ariel_db_skip_reason probes"
+    )
 
 
 #: First port of the block the projects of xdist worker 0 bind. Each worker
@@ -261,7 +292,7 @@ def init_project(
     template: str = "control_assistant",
     *,
     provider: str,
-    model: str = "haiku",
+    model: str | None = None,
     channel_finder_mode: str | None = None,
     tier: int | None = None,
     connector: str = "mock",
@@ -314,6 +345,12 @@ def init_project(
     accelerator with no channel database to build its namespace from — which
     the build refuses, correctly.
 
+    ``ariel.database.uri`` is pinned to :func:`e2e_ariel_db_uri` when the
+    preset configures ARIEL (see :func:`_ariel_db_pins`), so the agent reaches
+    the database :func:`ariel_db_skip_reason` probed, and the render is then
+    checked to name it: a pin that stops reaching the render fails here rather
+    than letting the agent talk to some other database.
+
     ``channel_finder_mode`` is pinned to ``hierarchical`` when the caller names
     no mode and the preset's own is ``graph`` — the same containerless fact a
     third time. The graph paradigm answers from the ``graphdb`` service the
@@ -357,6 +394,11 @@ def init_project(
 
     The suite-wide override of that pinned choice is resolved by
     :func:`tests.e2e.provider.build_provider`, which states the precedence.
+
+    ``model`` is always written to the profile. A call site that names none
+    builds with :data:`tests.e2e.provider.E2E_MODEL` (see
+    :func:`tests.e2e.provider.build_model`), because the suite's budgets are
+    sized for that model and the provider's catalog default is not.
     """
     from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
 
@@ -382,14 +424,14 @@ def init_project(
         "--set",
         f"provider={provider}",
         "--set",
-        f"model={model}",
-        "--set",
         f"connector={connector}",
     ]
+    init_args.extend(["--set", f"model={build_model(model)}"])
     # ``archiver.type`` is written in the literal dotted spelling the preset
     # already uses, so the edit replaces that entry instead of landing beside
-    # it. The stand-in pin rides along where the preset declares a VA.
-    pins: dict[str, Any] = {"config": {"archiver.type": archiver}}
+    # it. The stand-in pin rides along where the preset declares a VA, and the
+    # ARIEL database pin where the preset configures ARIEL.
+    pins: dict[str, Any] = {"config": {"archiver.type": archiver, **_ariel_db_pins(template)}}
     if _preset_declares_virtual_accelerator(template):
         pins["virtual_accelerator"] = {"live_standin": None}
     init_args.extend(set_pairs(pins))
@@ -408,7 +450,7 @@ def init_project(
     assert repo.is_dir(), f"Deployment repo not created: {repo}"
     render = render_dir(repo)
     assert (render / "config.yml").is_file(), f"Build produced no render at {render}"
-    _override_ariel_db_uri(render)
+    _assert_render_names_ariel_db(render)
     return repo
 
 
@@ -435,6 +477,28 @@ def _preset_declares_virtual_accelerator(template: str) -> bool:
 
     raw, _path = _load_preset_raw(template.replace("_", "-"))
     return raw.get("virtual_accelerator") is not None
+
+
+def _preset_configures_ariel(template: str) -> bool:
+    """Whether the packaged preset ``template``, or a preset it extends, sets ARIEL config.
+
+    Read from the presets the way ``osprey init`` reads them, following
+    ``extends:``, so the answer is the presets' own rather than a list of names
+    kept here. A ``config:`` key is ARIEL config when its first dotted segment
+    is ``ariel``.
+    """
+    from osprey.cli.build_profile_presets import _load_preset_raw
+
+    name: str | None = template.replace("_", "-")
+    seen: set[str] = set()
+    while name and name not in seen:
+        seen.add(name)
+        raw, _path = _load_preset_raw(name)
+        if any(str(key).split(".", 1)[0] == "ariel" for key in raw.get("config") or {}):
+            return True
+        extends = raw.get("extends")
+        name = extends if isinstance(extends, str) else None
+    return False
 
 
 def _run_osprey(verb: str, args: list[str], *, timeout: int) -> None:
@@ -719,7 +783,7 @@ def _default_opus_model(repo: Path) -> str:
     """
     spec = _resolve_project_spec(render_dir(repo))
     if spec is not None:
-        return spec.tier_to_model.get("opus", "claude-opus-5")
+        return spec.alias_models.get("opus", spec.default_model_id)
     return "claude-opus-5"
 
 
@@ -871,15 +935,15 @@ def _harvest_subagent_traces(
 def e2e_budget_scale() -> float:
     """Per-query budget multiplier for the model under test.
 
-    The base ``max_budget_usd`` caps across the e2e suite are tuned for the
-    haiku-tier default model. Pricier reference models (Sonnet, Opus) cost
-    several times more per token, so the same multi-step task blows the cap and
-    hard-errors mid-query (``Reached maximum budget``) — a cost artifact that
-    deflates their benchmark score for reasons unrelated to capability. The
-    model matrix runner (``scripts/run_e2e_for_model.sh``) sets
-    ``OSPREY_E2E_BUDGET_SCALE`` per model so the cap **and** the cost-ceiling
-    assertions scale together. Defaults to 1.0, so CI and ordinary local runs
-    are byte-for-byte unchanged.
+    The base ``max_budget_usd`` caps across the e2e suite are sized for
+    :data:`tests.e2e.provider.E2E_MODEL`, which every lane builds with when its
+    call site names no model. Pricier models (Sonnet, Opus) cost several times
+    more per token, so the same multi-step task reaches the cap and hard-errors
+    mid-query (``Reached maximum budget``) — a cost artifact that deflates their
+    benchmark score for reasons unrelated to capability. The model matrix runner
+    (``scripts/benchmark/run_e2e_for_model.sh``) sets ``OSPREY_E2E_BUDGET_SCALE``
+    per model so the cap **and** the cost-ceiling assertions scale together.
+    Unset, the scale is 1.0 and each call site's cap applies as written.
     """
     try:
         scale = float(os.environ.get("OSPREY_E2E_BUDGET_SCALE", "1.0"))
@@ -911,9 +975,9 @@ async def run_sdk_query(
         prompt: The user prompt to send.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
-        model: Model to use. Defaults to the project's haiku-tier model
-            resolved from ``config.yml`` (e.g. ``claude-haiku-4-5`` for
-            cborg, ``claude-haiku-4-5-20251001`` for direct anthropic).
+        model: Model to use. Defaults to the project's main model resolved
+            from ``config.yml``: ``claude_code.default_model``, else the
+            provider entry's ``default_model``.
         disallowed_tools: Optional list of tool names to forbid at the SDK
             level. Forwarded to the Claude Code CLI as ``--disallowedTools``,
             which takes precedence over ``permission_mode=bypassPermissions``
@@ -1106,8 +1170,8 @@ async def run_sdk_query_with_hooks(
         approval_policy: How to handle "ask" decisions from hooks.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
-        model: Model to use. Defaults to the project's haiku-tier model
-            resolved from ``config.yml``.
+        model: Model to use. Defaults to the project's main model resolved
+            from ``config.yml``.
         disallowed_tools: Optional list of tool names to forbid at the SDK level.
             Forwarded to the Claude Code CLI as ``--disallowedTools``. Use this to
             force a specific route when a test must *prove* one path works: the

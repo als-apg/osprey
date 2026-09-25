@@ -199,6 +199,22 @@ class TestFakeChatDiscoveryStandIn:
         assert isinstance(error, FakeChatApiError) or type(error).__name__ == "HttpError"
         assert chat.posted == []
 
+    def test_members_list_pages_seeded_members(self, chat: FakeChatServer) -> None:
+        members = chat.service().spaces().members()
+        assert members.list(parent=SPACE).execute() == {"memberships": []}
+
+        chat.add_member(SPACE, "users/111")
+        chat.add_member(SPACE, "users/222")
+        chat.add_member(SPACE, "users/333", type="BOT")
+
+        first = members.list(parent=SPACE, pageSize=2).execute()
+        assert [m["member"]["name"] for m in first["memberships"]] == ["users/111", "users/222"]
+        second = members.list(parent=SPACE, pageSize=2, pageToken=first["nextPageToken"]).execute()
+        assert [m["member"] for m in second["memberships"]] == [
+            {"name": "users/333", "type": "BOT"}
+        ]
+        assert "nextPageToken" not in second
+
 
 # ---------------------------------------------------------------------------
 # The fake GCS server

@@ -1530,20 +1530,20 @@ class RecordingDriver:
         self.values = dict(values)
         self.calls: list[tuple[str, str, Any]] = []
 
-    def setParam(self, reason: str, value: Any) -> None:  # noqa: N802 - driver contract
+    def setParam(self, reason: str, value: Any) -> None:  # driver contract
         self.calls.append(("setParam", reason, value))
         self.values[reason] = value
 
-    def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
+    def getParam(self, reason: str) -> Any:  # driver contract
         return self.values[reason]
 
-    def updatePV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def updatePV(self, reason: str) -> None:  # driver contract
         self.calls.append(("updatePV", reason, None))
 
-    def callbackPV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def callbackPV(self, reason: str) -> None:  # driver contract
         self.calls.append(("callbackPV", reason, None))
 
-    def setParamStatus(  # noqa: N802 - driver contract
+    def setParamStatus(  # driver contract
         self, reason: str, alarm: Any, severity: Any
     ) -> None:
         self.calls.append(("setParamStatus", reason, (alarm, severity)))
@@ -1611,7 +1611,7 @@ class Arrangement:
             error = None
             try:
                 self.routed.set({name: item["value"] for name, item in values.items()})
-            except Exception as exc:  # noqa: BLE001 - the loop reports, never raises
+            except Exception as exc:  # the loop reports, never raises
                 error = str(exc)
             if done is not None:
                 done(error)

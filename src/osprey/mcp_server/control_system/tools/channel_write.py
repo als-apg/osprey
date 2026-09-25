@@ -65,7 +65,9 @@ server's ``OSPREY_POSTURE_SESSION`` and the reports of the servers that are
 still running. It refuses in two shapes, and the difference is deliberate:
 
 * a swap **in flight** anywhere in the fleet refuses every session, because the
-  server holding the connector is between two targets;
+  server holding the connector is between two targets. A server that holds no
+  connector yet is acquiring its first rather than swapping one, and refuses
+  only its own session;
 * a swap this session's own server **failed** to follow, or one it is still
   behind on, refuses this session and nothing else. FR-8: a failed swap strands
   the one window whose server could not follow it, and leaves every other
@@ -105,10 +107,13 @@ from the child, and it is the reason taking the switch's lock here would
 serialise every write behind the supervisor for no additional guarantee.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
+from typing import Any
 
+from osprey.audit.call import note
 from osprey.audit.posture import posture_session
 from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system import target_state
@@ -195,7 +200,7 @@ def _project_observed_value(value: object) -> object:
         if array.ndim == 0 or array.size <= get_read_inline_max_elements():
             return array.tolist() if isinstance(value, np.ndarray) else value
         return _array_summary(array, np, ARTIFACT_REASON_PER_VALUE)
-    except Exception:  # noqa: BLE001 - a reading that cannot be measured is reported as it came
+    except Exception:  # a reading that cannot be measured is reported as it came
         logger.debug("Could not measure an observed value for projection", exc_info=True)
         return value
 
@@ -250,15 +255,56 @@ def _binding_from_record(record: object) -> tuple[str, int] | None:
         return None
 
 
+#: How long the old-value read for the full tool-call record may take, seconds.
+OLD_VALUE_READ_TIMEOUT_S = 2.0
+
+
+def _full_record_enabled() -> bool:
+    """Whether the opt-in full ``tool_call`` record is on for this server."""
+    try:
+        from osprey.audit import tool_call
+
+        return tool_call.settings()[0]
+    except Exception:  # pragma: no cover - defensive: settings never raises
+        return False
+
+
+async def _note_old_values(connector: Any, channels: list[str]) -> None:
+    """Note each channel's value before the write, for the full record. Never raises.
+
+    Bounded by :data:`OLD_VALUE_READ_TIMEOUT_S`; a channel that could not be
+    read is noted with the error type, and nothing here blocks the write.
+    """
+    old_values: dict[str, Any] = {}
+    try:
+        read = await asyncio.wait_for(
+            connector.read_multiple_channels(channels, timeout=OLD_VALUE_READ_TIMEOUT_S),
+            OLD_VALUE_READ_TIMEOUT_S,
+        )
+        for channel in channels:
+            value = read.get(channel) if isinstance(read, dict) else None
+            if value is None:
+                old_values[channel] = {"error": "unread"}
+                continue
+            stamp = getattr(value, "timestamp", None)
+            isoformat = getattr(stamp, "isoformat", None)
+            old_values[channel] = {
+                "value": _project_observed_value(getattr(value, "value", None)),
+                "timestamp": isoformat() if callable(isoformat) else stamp,
+            }
+    except Exception as exc:
+        old_values = {channel: {"error": type(exc).__name__} for channel in channels}
+    note(old_values=old_values)
+
+
 def _approval_stamp_key(operations: list[dict], confirm: bool | None) -> str | None:
     """The name the approval hook filed this write's stamp under, or ``None``.
 
     A SHA-256 over the canonical JSON of ``operations`` and ``confirm`` —
     every parameter the tool accepts, and exactly what the hook finds in the
-    ``tool_input`` it is handed. The hook and this server share no call
-    identifier (the hook is handed a tool-call payload, the tool is handed its
-    arguments), so the payload is the only thing that provably crosses the gap
-    between them. Both sides key on it. The hook restates this derivation in
+    ``tool_input`` it is handed. The payload is the key because it is what the
+    approval prompt showed: a stamp keyed on it cannot vouch for a write
+    carrying different arguments. Both sides key on it. The hook restates this derivation in
     stdlib-only Python (it runs outside this venv and cannot import this
     module); a test pins the two spellings against each other.
 
@@ -665,6 +711,10 @@ async def channel_write(
     # different target, which needs a fresh approval rather than a wait.
     _check_convergence(entry_record)
 
+    # The full tool-call record wants the limits verdict and the old values;
+    # nothing extra is done for them when that record is off.
+    full_record = _full_record_enabled()
+
     # Limits validation (additional safety layer inside the tool)
     try:
         from osprey.connectors.control_system.limits_validator import LimitsValidator
@@ -721,6 +771,14 @@ async def channel_write(
                     violation["current_value"] = exc.current_value
                 violations.append(violation)
 
+    if full_record:
+        if validator is None:
+            note(limits={"verdict": "not_checked"})
+        elif violations:
+            note(limits={"verdict": "violated", "violations": violations})
+        else:
+            note(limits={"verdict": "passed"})
+
     if violations:
         # Build a clear message with limits info for each violation
         parts = []
@@ -750,10 +808,16 @@ async def channel_write(
         registry = get_server_context()
         connector = await registry.control_system()
 
-        # The last thing before a value goes out: resolving the connector was
-        # the final await, so this read is as close to the write as the server
-        # can get. A switch completing after it is refused by the switch itself
-        # — see the module docstring — and not papered over here.
+        # The old values, for the full tool-call record only. When on, this
+        # read is the final await, so the execution-window check below still
+        # follows the last await before the write.
+        if full_record:
+            await _note_old_values(connector, [op["channel"] for op in operations])
+
+        # The last thing before a value goes out: this read is as close to the
+        # write as the server can get. A switch completing after it is refused
+        # by the switch itself — see the module docstring — and not papered
+        # over here.
         _check_execution_window(entry_binding)
 
         # Omission is a sentinel, not a value: forwarding None would override a

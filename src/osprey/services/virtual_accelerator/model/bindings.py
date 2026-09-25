@@ -57,12 +57,12 @@ from lume_pyat.actions import ElementBinding, PyATWritableScalarVariable
 
 from osprey.services.virtual_accelerator.bindings import BindingsError
 from osprey.services.virtual_accelerator.model.variables import (
+    CalibratedSetpoint,
     EnergyVariable,
     KickVariable,
     MonitorVariable,
     RFVariable,
     StrengthVariable,
-    _CalibratedSetpoint,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -105,7 +105,7 @@ class ScalarFields(TypedDict, total=False):
 #: what a kind writes and nothing more -- a weight is any finite non-zero
 #: factor for all of them -- which is why the construction below is one
 #: function rather than three.
-_SETPOINT_CLASS: dict[str, type[_CalibratedSetpoint]] = {
+_SETPOINT_CLASS: dict[str, type[CalibratedSetpoint]] = {
     "strength": StrengthVariable,
     "kick": KickVariable,
     "rf": RFVariable,

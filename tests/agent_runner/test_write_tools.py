@@ -394,6 +394,7 @@ def test_read_only_blocks_extends_clone_drive(tmp_path: Path) -> None:
         "phoebus_perceive_region",
         "phoebus_snapshot",
         "phoebus_list_displays",
+        "phoebus_panel_lookup",
     ):
         assert f"mcp__phoebus2__{read_tool}" not in result, (
             f"read tool {read_tool} must stay callable on the clone"

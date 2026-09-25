@@ -696,7 +696,7 @@ class TestVaSystemFacts:
         """Deck, element count, energy and exporter come from the deck and the block."""
         va = _va(_synthetic_census(ring_facts={"SR": {"cavities": 1}}))
         assert (va.system, va.exporter, va.deck) == ("SR", EXPORTER_VERSION, "quokka_sr_deck")
-        assert (va.elements, va.energy_gev, va.cavities) == (41, 2, 1)
+        assert (va.elements, va.energy_gev, va.cavities) == (43, 2, 1)
 
     def test_the_deck_name_falls_back_to_the_at_model(self):
         """A system whose OpsData states no lattice file is named by its AT model."""
@@ -711,7 +711,7 @@ class TestVaSystemFacts:
     def test_the_sampled_counts_of_the_synthetic_export(self):
         """Calibrations are counted by kind, nominals by block and by stand-in."""
         va = _va(_synthetic_census())
-        assert va.calibrations == (("linear", 20), ("table", 2))
+        assert va.calibrations == (("linear", 18), ("table", 4))
         assert (va.nominals, va.synthetic_nominals) == (15, 4)
 
     def test_the_refused_list_keeps_the_reason_matlab_gave(self):
@@ -766,16 +766,27 @@ class TestVaFamilyFacts:
         ``HC``'s setpoint states a ``Range`` too narrow for its own nominal.
         The grid is that range stretched far enough to hold the anchor, so its
         source is still the range; the symmetric fallback is for a field
-        stating no finite band at all.
+        stating no finite band at all. Its conversion bends, so both fields
+        are tables.
         """
         census = _synthetic_census()
         assert [
             (f.name, f.calibration_kind, f.grid_source)
             for f in _va_family_census(census, "HC").fields
-        ] == [("Setpoint", "linear", "range"), ("Monitor", "linear", "range")]
+        ] == [("Setpoint", "table", "range"), ("Monitor", "table", "range")]
         assert [(f.name, f.calibration_kind) for f in _va_family_census(census, "BEND").fields] == [
             ("Setpoint", "table"),
             ("Monitor", "table"),
+        ]
+
+    def test_a_mixed_band_is_read_as_the_fallback_it_is(self):
+        """A field banded for one device and not the other is gridded over the fallback."""
+        census = _synthetic_census()
+        assert [
+            (f.calibration_kind, f.grid_source) for f in _va_family_census(census, "BDM").fields
+        ] == [("linear", "fallback")]
+        assert [(r.family, r.field) for r in _system(census, "SR").hazards.non_finite_ranges] == [
+            ("BDM", "Setpoint")
         ]
 
     def test_the_nominal_source_of_each_field(self):

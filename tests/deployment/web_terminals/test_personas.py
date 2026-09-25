@@ -2963,6 +2963,24 @@ def test_config_archiver_password_env_refuses_a_name_compose_cannot_carry(bad: s
         config_archiver_password_env({"archiver": archiver})
 
 
+def test_config_archiver_password_env_reads_the_settings_block() -> None:
+    """A connector selected by dotted module path is configured from `archiver.settings`."""
+    archiver = {
+        "type": "my_facility.stores.Archive",
+        "settings": {"password_env": "FACILITY_DB_PW"},
+    }
+
+    assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
+
+
+def test_config_archiver_password_env_refusal_names_the_settings_key() -> None:
+    """The refusal names the block the operator wrote."""
+    archiver = {"type": "my_facility.stores.Archive", "settings": {"password_env": "PW NAME"}}
+
+    with pytest.raises(ValueError, match=r"archiver\.settings\.password_env"):
+        config_archiver_password_env({"archiver": archiver})
+
+
 def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tmp_path) -> None:
     """The grant is a persona -> variable-name map, so two personas reading two
     different stores each get their own line and a persona with no archiver gets none."""

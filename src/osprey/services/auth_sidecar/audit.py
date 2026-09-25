@@ -493,7 +493,7 @@ def _record(
 
     try:
         write_envelope(envelope)
-    except Exception:  # noqa: BLE001 - the audit trail degrades; the decision does not.
+    except Exception:  # the audit trail degrades; the decision does not.
         logger.warning("could not file an audit record for a login (%s)", reason)
         # The rung that keeps the ladder monotone: a zone that raised must not
         # be a worse degrade than a zone that was never configured. See
@@ -518,7 +518,7 @@ def _log_unfiled(envelope: AuditEnvelope) -> None:
     """
     try:
         logger.info("audit (unfiled): %s", json.dumps(envelope.to_dict(), sort_keys=True))
-    except Exception:  # noqa: BLE001 - the last rung cannot itself cost the decision.
+    except Exception:  # the last rung cannot itself cost the decision.
         logger.warning("could not log an unfiled audit record for a login")
 
 

@@ -150,7 +150,7 @@ def behavior_monitor_events(epics) -> tuple[bool, str]:
         try:
             pv.clear_callbacks()
             pv.disconnect()
-        except Exception:  # noqa: BLE001 - teardown must not mask the verdict
+        except Exception:  # teardown must not mask the verdict
             pass
 
 
@@ -184,7 +184,7 @@ def main() -> int:
     args = parser.parse_args()
 
     problems = report_env()
-    import epics  # noqa: PLC0415 - imported after the env is reported and checked
+    import epics  # imported after the env is reported and checked
 
     if args.expect_unreachable:
         return run_negative_control(epics)

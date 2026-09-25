@@ -13,13 +13,16 @@ source* reads this module rather than spelling a client library's name itself:
 * the write-surface section of ``docs/source/architecture/python-executor.rst``
   is written from it.
 
-The dotted target is resolved by importing its longest importable prefix and
-then walking attributes, so a module (``epics``), a module attribute
+A row is resolved by finding the module on its dotted path and walking
+attributes from there, so a module (``epics``), a module attribute
 (``epics.ca``) and a class (``p4p.client.thread.Context``) are all spelled the
-same way. Attributes that do not exist on the resolved object are skipped,
-which is what makes listing several client flavours free: an uninstalled or
-older library simply contributes nothing. Over-listing is therefore safe and
-under-listing is not.
+same way. A client or escape row is resolved by importing that prefix before
+the run starts; a framework row waits for the script's own import. Attributes
+that do not exist on the resolved object are skipped, which is what makes
+listing several client flavours free: an uninstalled or older library simply
+contributes nothing. Over-listing is therefore safe and under-listing is not.
+A framework row costs nothing until the library is imported, so over-listing
+is free for that group without qualification.
 
 Patching the object in ``sys.modules`` — rather than inspecting the source —
 is what makes the guard immune to spelling. ``importlib.import_module("epics")``,
@@ -182,7 +185,8 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: document and analysis libraries, and a readonly script reading a Tiled
 #: catalog or introspecting a device tree has a legitimate reason to import
 #: them. What it may not do is *move* anything, so the write entry points
-#: refuse at runtime.
+#: refuse at runtime. Being importable is also why their refusals are
+#: installed when the script imports the framework rather than ahead of the run.
 _FRAMEWORK_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # ophyd-async signals: ``set`` is the one method that puts a value on a
     # device, whichever backend is under it. The write-capable signal classes

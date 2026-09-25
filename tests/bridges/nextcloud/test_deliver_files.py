@@ -236,6 +236,23 @@ def test_a_document_artifact_keeps_the_workers_filename():
     assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/orbit_report.pdf")
 
 
+def test_a_tsv_table_keeps_its_own_extension():
+    tsv = b"time\tstate\n10:00\tOPEN\n"
+    ops, _, nc = _ops(FakeWorker({"t1": (tsv, "text/tab-separated-values; charset=utf-8")}))
+    ops.deliver_files(
+        ENTRY,
+        result(
+            {
+                "artifact_id": "t1",
+                "delivered_mime": "text/tab-separated-values",
+                "filename": "transitions.tsv",
+            }
+        ),
+    )
+    assert nc.of("PUT")[0].content == tsv
+    assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/transitions.tsv")
+
+
 def test_a_document_without_a_filename_is_named_from_its_id_and_mime():
     ops, _, nc = _ops(FakeWorker({"doc1": PDF}))
     ops.deliver_files(ENTRY, result({"artifact_id": "doc1", "delivered_mime": "application/pdf"}))

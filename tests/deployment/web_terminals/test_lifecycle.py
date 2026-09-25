@@ -293,6 +293,74 @@ def test_decommission_purge_removes_both_exact_volumes(tmp_path, monkeypatch, fa
     assert run_calls == []
 
 
+def test_removing_a_volume_the_archive_holds_runs_a_last_pass_and_removes_it(
+    tmp_path, monkeypatch, fake_runtime
+):
+    monkeypatch.chdir(tmp_path)
+    config = {**_config(["alice", "bob"]), "deployed_services": ["archive"]}
+    config_path = _write_config(tmp_path, config)
+    claude_vol, agent_vol = resolve_user_volume_names(config, "alice")
+
+    def _run(argv, **_kwargs):
+        fake_runtime.append(list(argv))
+        stdout = "true\n" if argv[1] == "inspect" else ""
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+
+    lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    archive_calls = [
+        c for c in fake_runtime if "demo-project-archive" in c or c[1:3] == ["volume", "rm"]
+    ]
+    assert archive_calls == [
+        ["docker", "inspect", "-f", "{{.State.Running}}", "demo-project-archive"],
+        ["docker", "exec", "demo-project-archive", "osprey", "archive", "--once"],
+        ["docker", "rm", "-f", "demo-project-archive"],
+        ["docker", "volume", "rm", claude_vol],
+        ["docker", "volume", "rm", agent_vol],
+    ]
+
+
+def test_a_stopped_archive_container_is_removed_without_a_last_pass(
+    tmp_path, monkeypatch, fake_runtime
+):
+    monkeypatch.chdir(tmp_path)
+    config = {**_config(["alice", "bob"]), "deployed_services": ["archive"]}
+    config_path = _write_config(tmp_path, config)
+    claude_vol, agent_vol = resolve_user_volume_names(config, "alice")
+
+    def _run(argv, **_kwargs):
+        fake_runtime.append(list(argv))
+        stdout = "false\n" if argv[1] == "inspect" else ""
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+
+    lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    archive_calls = [
+        c for c in fake_runtime if "demo-project-archive" in c or c[1:3] == ["volume", "rm"]
+    ]
+    assert archive_calls == [
+        ["docker", "inspect", "-f", "{{.State.Running}}", "demo-project-archive"],
+        ["docker", "rm", "-f", "demo-project-archive"],
+        ["docker", "volume", "rm", claude_vol],
+        ["docker", "volume", "rm", agent_vol],
+    ]
+
+
+def test_no_archive_container_means_no_extra_calls(tmp_path, monkeypatch, fake_runtime):
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice", "bob"])
+    config_path = _write_config(tmp_path, config)
+
+    lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    assert not [c for c in fake_runtime if c[1] in {"inspect", "exec", "stop"}]
+    assert ["docker", "rm", "-f", "demo-project-archive"] not in fake_runtime
+
+
 # =============================================================================
 # --archive
 # =============================================================================

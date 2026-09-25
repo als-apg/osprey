@@ -147,7 +147,7 @@ class EngineSource:
         for address, record in self._setpoint_echo_records.items():
             try:
                 self._engine.write(address, record.get())
-            except Exception:  # noqa: BLE001 -- same isolation rationale as below
+            except Exception:  # same isolation rationale as below
                 import traceback
 
                 print(
@@ -159,7 +159,7 @@ class EngineSource:
         for address, record in self._records.items():
             try:
                 record.set(self._read_value(address))
-            except Exception:  # noqa: BLE001 -- see run_forever docstring
+            except Exception:  # see run_forever docstring
                 import traceback
 
                 print(
@@ -205,7 +205,7 @@ class EngineSource:
             # same escape hatch SimulationEngine.set_active_scenarios() uses
             # internally ("Force a re-read even if filesystem mtime
             # granularity hides the write" -- osprey/simulation/engine.py).
-            self._engine._state_signature = ("", -1)  # noqa: SLF001
+            self._engine._state_signature = ("", -1)
 
         return changed
 

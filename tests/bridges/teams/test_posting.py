@@ -15,6 +15,7 @@ wording agree on is the one the posting path actually used.
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from typing import Any
 
@@ -154,12 +155,28 @@ class RecordingConnector:
     """A stand-in for :class:`~osprey.bridges.teams.client.ConnectorClient`.
 
     Records every ``reply`` and can be told to fail the next one, which is how
-    the swallow contracts are proven without a transport at all.
+    the swallow contracts are proven without a transport at all. ``members`` is what
+    ``list_members`` answers — a list, returned as ``(members, False)``, or an
+    exception to raise; its calls are recorded in ``member_calls``.
     """
 
-    def __init__(self, fail_with: BaseException | None = None) -> None:
+    def __init__(
+        self,
+        fail_with: BaseException | None = None,
+        members: list[dict[str, Any]] | BaseException = (),  # type: ignore[assignment]
+    ) -> None:
         self.calls: list[tuple[str, str, str, dict[str, Any]]] = []
         self.fail_with = fail_with
+        self.members = members
+        self.member_calls: list[tuple[str, str, int]] = []
+
+    def list_members(
+        self, service_url: str, conversation_id: str, *, limit: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        self.member_calls.append((service_url, conversation_id, limit))
+        if isinstance(self.members, BaseException):
+            raise self.members
+        return list(self.members), False
 
     def reply(
         self,
@@ -720,3 +737,142 @@ def test_coalesce_key_stands_alone_when_a_component_is_missing(field: str, value
     else:
         entry[field] = value
     assert ops.coalesce_key(entry) == ()
+
+
+# --- post_answer: @mentions ----------------------------------------------------
+
+CAROL = {"id": "29:222", "name": "Carol"}
+
+
+def carol_entity() -> dict[str, Any]:
+    return {
+        "type": "mention",
+        "text": "<at>Carol</at>",
+        "mentioned": {"id": "29:222", "name": "Carol"},
+    }
+
+
+def answer(text: str) -> dict[str, Any]:
+    return {"status": "completed", "text_output": text}
+
+
+def posted_activities(connector: RecordingConnector) -> list[dict[str, Any]]:
+    return [activity for _, _, _, activity in connector.calls]
+
+
+def test_an_answer_mentioning_a_member_posts_an_at_tag_and_its_entity() -> None:
+    ops, connector = make_ops(RecordingConnector(members=[CAROL]))
+
+    ops.post_answer(make_entry("channel"), answer("Carol, see above: <@29:222>"))
+
+    [posted] = posted_activities(connector)
+    assert posted["text"] == "Carol, see above: <at>Carol</at>"
+    assert posted["entities"] == [carol_entity()]
+    # The channel's own conversation is listed, never the thread's.
+    assert connector.member_calls == [(SERVICE_URL, "19:room@thread.tacv2", 200)]
+
+
+def test_an_answer_without_a_mention_never_lists_members() -> None:
+    ops, connector = make_ops(RecordingConnector(members=[CAROL]))
+
+    ops.post_answer(make_entry("channel"), answer("42 mA"))
+
+    assert connector.member_calls == []
+
+
+def test_a_members_list_failure_posts_the_mention_as_plain_text() -> None:
+    ops, connector = make_ops(RecordingConnector(members=RuntimeError("members down")))
+
+    ops.post_answer(make_entry("channel"), answer("cc <@29:222>"))
+
+    [posted] = posted_activities(connector)
+    assert posted["text"] == "cc @29:222"
+    assert "entities" not in posted
+
+
+def test_mentions_off_posts_plain_text() -> None:
+    connector = RecordingConnector(members=[CAROL])
+    ops = TeamsOps(dataclasses.replace(make_config(), mentions=False), connector)
+
+    ops.post_answer(make_entry("channel"), answer("cc <@29:222>"))
+
+    [posted] = posted_activities(connector)
+    assert posted["text"] == "cc @Carol"
+    assert "entities" not in posted
+
+
+def test_a_long_answer_never_splits_a_mention_across_chunks() -> None:
+    ops, connector = make_ops(RecordingConnector(members=[CAROL]))
+    text = "x" * (ANSWER_CHUNK_CHARS - 4) + "<@29:222> tail"
+
+    ops.post_answer(make_entry("channel"), answer(text))
+
+    posted = posted_activities(connector)
+    assert len(posted) == 2
+    assert posted[0]["text"] == "x" * (ANSWER_CHUNK_CHARS - 4)
+    assert "entities" not in posted[0]
+    assert posted[1]["text"] == "<at>Carol</at> tail"
+    assert posted[1]["entities"] == [carol_entity()]
+
+
+def test_each_chunk_carries_only_its_own_mention_entities() -> None:
+    alice = {"id": "29:111", "name": "Alice"}
+    ops, connector = make_ops(RecordingConnector(members=[alice, CAROL]))
+    first = "<@29:111> " + "a" * (ANSWER_CHUNK_CHARS - 20)
+    text = first + "\n" + "<@29:222> second"
+
+    ops.post_answer(make_entry("channel"), answer(text))
+
+    posted = posted_activities(connector)
+    assert len(posted) == 2
+    assert [e["mentioned"]["id"] for e in posted[0]["entities"]] == ["29:111"]
+    assert [e["mentioned"]["id"] for e in posted[1]["entities"]] == ["29:222"]
+
+
+def test_a_resplit_chunk_renders_each_half_with_its_own_entities() -> None:
+    alice = {"id": "29:111", "name": "Alice"}
+    connector = SizeRejectingConnector({1})
+    connector.members = [alice, CAROL]
+    ops, _ = make_ops(connector)
+    half = ANSWER_CHUNK_CHARS // 2
+    text = "<@29:111> " + "a" * (half - 20) + "\n" + "<@29:222> " + "b" * (half - 20)
+
+    ops.post_answer(make_entry("chat"), answer(text))
+
+    posted = posted_activities(connector)
+    assert len(posted) == 3  # the refused whole chunk, then its two halves
+    first, second = posted[1], posted[2]
+    assert first["text"].startswith(quote_prefix(make_entry("chat")))
+    assert not second["text"].startswith("> ")
+    assert [e["mentioned"]["id"] for e in first["entities"]] == ["29:111"]
+    assert [e["mentioned"]["id"] for e in second["entities"]] == ["29:222"]
+
+
+def test_a_placeholder_in_the_quoted_question_is_never_rendered() -> None:
+    ops, connector = make_ops(RecordingConnector(members=[CAROL]))
+    entry = make_entry("chat", text="tell <@29:222> about it")
+
+    ops.post_answer(entry, answer("done"))
+
+    [posted] = posted_activities(connector)
+    assert posted["text"].startswith("> tell <@29:222> about it")
+    assert "entities" not in posted
+    assert connector.member_calls == []
+
+
+def test_the_stored_text_output_keeps_the_placeholder() -> None:
+    ops, _ = make_ops(RecordingConnector(members=[CAROL]))
+    result = answer("cc <@29:222>")
+
+    ops.post_answer(make_entry("channel"), result)
+
+    assert result["text_output"] == "cc <@29:222>"
+
+
+def test_an_activity_without_a_mention_carries_no_entities_key() -> None:
+    ops, connector = make_ops()
+
+    ops.post_answer(make_entry("channel"), answer("42 mA"))
+    ops.post_ack(make_entry("channel"))
+
+    assert all("entities" not in activity for activity in posted_activities(connector))

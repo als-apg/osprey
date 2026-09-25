@@ -84,7 +84,7 @@ async def run(
             latency_ms=latency_ms,
             details=str(exc),
         )
-    except Exception as exc:  # noqa: BLE001 - any transport failure is an error result
+    except Exception as exc:  # any transport failure is an error result
         latency_ms = (perf_counter() - t0) * 1000.0
         return CheckResult(
             name,

@@ -203,7 +203,7 @@ def run_piped(argv: list[str], *, cwd: Path, env: dict[str, str]) -> PipedRun:
     failure the scenario can see. Inheriting pytest's stdin would leave it
     waiting for a keystroke nobody is going to send.
     """
-    result = subprocess.run(  # noqa: S603 - argv is built here, not by input
+    result = subprocess.run(  # argv is built here, not by input
         [sys.executable, "-c", CLI_BOOTSTRAP, *argv],
         cwd=str(cwd),
         env=env,

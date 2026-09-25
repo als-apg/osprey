@@ -103,7 +103,7 @@ def run_upload_script(namespace: dict[str, Any], name: str, source: str) -> None
     property `build_upload_script` relies on when it passes ``globals()``.
     """
     script = build_upload_script(name, source)
-    exec(script, namespace, namespace)  # noqa: S102
+    exec(script, namespace, namespace)
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +532,7 @@ async def test_upload_validated_pushes_the_current_bytes(
     # round-trip through the script's `repr` literal, quotes and all.
     motor = FakeDevice("motor")
     namespace = worker_namespace(motor=motor)
-    exec(backend.uploads[0], namespace, namespace)  # noqa: S102
+    exec(backend.uploads[0], namespace, namespace)
     assert list(namespace["sample_scan"](channel="motor", steps=4)) == [("move", motor, 4)]
 
 

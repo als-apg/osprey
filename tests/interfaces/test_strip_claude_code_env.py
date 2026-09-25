@@ -1,9 +1,9 @@
 """Tests for the shared ``CLAUDE_CODE_*`` env-strip helper.
 
 Verifies that both the operator (SDK) path and the interactive PTY path strip
-Claude Code internal session variables while preserving the telemetry master
-switch (``CLAUDE_CODE_ENABLE_TELEMETRY``) and unrelated variables (including
-``OTEL_*``, which does not carry the stripped prefix).
+Claude Code internal session variables while preserving the telemetry switches
+(every ``CLAUDE_CODE_*`` member of ``TELEMETRY_ENV_VARS``) and unrelated
+variables (including ``OTEL_*``, which does not carry the stripped prefix).
 
 Also verifies the second deny step in the same shared helper: the sensitive
 credential names owned by ``osprey.utils.sensitive_env`` are removed from every
@@ -32,6 +32,7 @@ from osprey.agent_runner.clean_env import (
     build_clean_env,
     strip_claude_code_env,
 )
+from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
 from osprey.interfaces.web_terminal.pty_manager import build_pty_env
 from osprey.port_layout import default_port
 
@@ -62,6 +63,21 @@ def test_preserves_telemetry_master_switch():
     )
     assert result["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
     assert "CLAUDE_CODE_FOO" not in result
+
+
+def test_preserves_every_telemetry_switch():
+    """Every prefixed telemetry switch survives; session markers do not."""
+    switches = {
+        "CLAUDE_CODE_ENABLE_TELEMETRY",
+        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+        "CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH",
+    }
+    result = strip_claude_code_env(
+        {**dict.fromkeys(switches, "1"), "CLAUDE_CODE_ENTRYPOINT": "cli"}
+    )
+    assert switches <= set(result)
+    assert "CLAUDE_CODE_ENTRYPOINT" not in result
+    assert {k for k in TELEMETRY_ENV_VARS if k.startswith("CLAUDE_CODE_")} == switches
 
 
 def test_preserves_otel_and_unrelated_keys():
@@ -115,6 +131,21 @@ def test_build_pty_env_retains_telemetry_switch(monkeypatch):
     # Behavior preserved: terminal type vars still set.
     assert env["TERM"] == "xterm-256color"
     assert env["COLORTERM"] == "truecolor"
+
+
+def test_build_pty_env_retains_the_tracing_switches(monkeypatch):
+    """The interactive PTY path keeps the switches that turn tracing on."""
+    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+    monkeypatch.setenv("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1")
+    monkeypatch.setenv("CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH", "262144")
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+
+    env = build_pty_env()
+
+    assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+    assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+    assert env["CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH"] == "262144"
+    assert "CLAUDE_CODE_ENTRYPOINT" not in env
 
 
 def test_build_pty_env_applies_extra_env_last(monkeypatch):

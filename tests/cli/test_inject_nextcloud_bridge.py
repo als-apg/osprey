@@ -46,7 +46,7 @@ extends: hello-world
 name: NcBridgeTest
 data: data
 provider: anthropic
-model: haiku
+model: claude-haiku-4-5
 dispatch:
   triggers: triggers.yml
 {nextcloud_bridge}
@@ -155,6 +155,7 @@ def test_inject_nextcloud_bridge_writes_service_config(tmp_path: Path) -> None:
     svc = config["services"]["nextcloud_bridge"]
     assert svc["path"] == "./services/nextcloud_bridge"
     assert svc["trigger"] == "nextcloud-question"
+    assert svc["mentions"] is True
     # No pinned image: the template's own `| default` supplies the local build
     # tag, matching the sibling injectors (_inject_bluesky, _inject_va).
     assert "image" not in svc
@@ -162,6 +163,19 @@ def test_inject_nextcloud_bridge_writes_service_config(tmp_path: Path) -> None:
     deployed = [str(s) for s in config["deployed_services"]]
     assert "postgresql" in deployed
     assert "nextcloud_bridge" in deployed
+
+
+def test_inject_nextcloud_bridge_writes_mentions_off(tmp_path: Path) -> None:
+    """``mentions: false`` in the profile reaches the service config."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_nextcloud_bridge(
+        NextcloudBridgeProfileConfig(mentions=False), project_path=project_path
+    )
+
+    assert _read_config(project_path)["services"]["nextcloud_bridge"]["mentions"] is False
 
 
 def test_inject_nextcloud_bridge_writes_custom_trigger(tmp_path: Path) -> None:
@@ -286,6 +300,7 @@ def test_full_build_with_bridge_renders_service_dir(runner: CliRunner, tmp_path:
     assert config["services"]["nextcloud_bridge"] == {
         "path": "./services/nextcloud_bridge",
         "trigger": "nextcloud-question",
+        "mentions": True,
     }
     deployed = config["deployed_services"]
     assert "nextcloud_bridge" in deployed
@@ -418,7 +433,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
         "extends: hello-world\nname: NcNoDispatch\ndata: data\nprovider: anthropic\n"
-        "model: haiku\nnextcloud_bridge: {}\n",
+        "model: claude-haiku-4-5\nnextcloud_bridge: {}\n",
         encoding="utf-8",
     )
     with caplog.at_level(logging.ERROR):

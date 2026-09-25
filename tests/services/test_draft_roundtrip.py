@@ -70,7 +70,7 @@ _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 _LAUNCH_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
 
-_TOKEN = "s3cr3t-integration-roundtrip-token"  # noqa: S105 - test fixture value, not a real secret
+_TOKEN = "s3cr3t-integration-roundtrip-token"  # test fixture value, not a real secret
 _BRIDGE_URL = "http://bridge.test"
 
 # `grid_scan` is a shipped-tier plan (`plans_core/`) -- always registered

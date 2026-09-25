@@ -25,10 +25,15 @@ deploy_services: false
 # after the template renders. Nested YAML under `config:` would deep-merge into
 # and clobber the base's rendered config subtree, so keep every override flat.
 config:
-  # The single axis this persona differs on. The tutorial base arms writes for
-  # its own single-user agent, so this tier boundary MUST be pinned explicitly
-  # here — it is what makes the read-only terminal read-only.
+  # The axis this persona hard-pins, and it takes three keys rather than one.
+  # The flat key is the posture a connector type inherits when its own block
+  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
+  # in the chain — the base, an overlay, a facility's own edit — would arm that
+  # type over it. So the read-only tier pins every block off as well as the key
+  # they inherit from, and a type that arms writes here has to be added by name.
   control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
   # Attached persona: the hosting project owns the web-terminal tier (nginx,
   # landing, per-user containers). Without this override the inherited roster
   # would make a persona-dir deploy try to host a second web tier on the same

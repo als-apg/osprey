@@ -198,7 +198,7 @@ function sourceOf(target, ctrl) {
   const tile = /** @type {HTMLButtonElement | null} */ (target.closest('.bar-tile'));
   if (tile) {
     const type = tile.dataset.barTile ?? '';
-    if (tile.disabled || !barItemType(type)) return null;
+    if (tile.getAttribute('aria-disabled') === 'true' || !barItemType(type)) return null;
     return { source: { kind: 'tile', type }, node: tile };
   }
   const shell = /** @type {HTMLElement | null} */ (target.closest('.bar-item[data-bar-item]'));

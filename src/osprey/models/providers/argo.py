@@ -20,7 +20,11 @@ from pydantic import BaseModel
 from osprey.utils.logger import get_logger
 
 from .base import BaseProvider
-from .litellm_adapter import check_litellm_health, execute_litellm_completion
+from .litellm_adapter import (
+    _structured_reply,
+    check_litellm_health,
+    execute_litellm_completion,
+)
 
 logger = get_logger("argo")
 
@@ -107,32 +111,30 @@ def _execute_argo_structured_output(
         "temperature": temperature,
     }
 
-    response = httpx.post(url, json=payload, headers=headers, timeout=120.0)
-    response.raise_for_status()
+    def ask() -> str:
+        response = httpx.post(url, json=payload, headers=headers, timeout=120.0)
+        response.raise_for_status()
 
-    data = response.json()
+        data = response.json()
 
-    # Extract content from OpenAI-compatible response
-    response_text = ""
-    if "choices" in data and data["choices"]:
-        response_text = data["choices"][0].get("message", {}).get("content", "")
+        # Extract content from OpenAI-compatible response
+        response_text = ""
+        if "choices" in data and data["choices"]:
+            response_text = data["choices"][0].get("message", {}).get("content", "")
 
-    if not response_text:
-        raise ValueError(f"Empty response from Argo API for model {model_id}")
+        if not response_text:
+            raise ValueError(f"Empty response from Argo API for model {model_id}")
 
-    response_text = _clean_json_response(response_text)
+        return response_text
 
-    # Parse and validate
-    try:
-        result = output_format.model_validate_json(response_text)
-        if is_typed_dict_output and hasattr(result, "model_dump"):
-            return result.model_dump()
-        return result
-    except Exception as e:
-        raise ValueError(
-            f"Failed to parse structured output from Argo ({model_id}): {e}\n"
-            f"Response: {response_text[:500]}"
-        ) from e
+    return _structured_reply(
+        ask,
+        output_format,
+        source=f"Argo ({model_id})",
+        clean=_clean_json_response,
+        is_typed_dict_output=is_typed_dict_output,
+        snippet=500,
+    )
 
 
 class ArgoProviderAdapter(BaseProvider):

@@ -21,25 +21,22 @@ CBORG_OSS_API_PROVIDERS = {
     "cborg-oss": {
         "api_key": "${CBORG_API_KEY}",
         "base_url": "https://api.cborg.lbl.gov/v1",  # OpenAI route, WITH /v1
-        "models": {
-            "haiku": "cborg-coder-fast",
-            "sonnet": "cborg-coder",
-            "opus": "cborg-deepthought",
-        },
+        "default_model": "cborg-coder",
+        "models": ["cborg-coder-fast", "cborg-coder", "cborg-deepthought"],
     }
 }
-CBORG_OSS_CC_CONFIG = {"provider": "cborg-oss", "default_model": "sonnet"}
+CBORG_OSS_CC_CONFIG = {"provider": "cborg-oss", "default_model": "cborg-coder"}
 
 
 def test_custom_provider_resolves_with_proxy():
     spec = ClaudeCodeModelResolver.resolve(CBORG_OSS_CC_CONFIG, CBORG_OSS_API_PROVIDERS)
     assert spec is not None
     assert spec.provider == "cborg-oss"
-    # Self-hosted model IDs from api.providers win:
-    assert spec.tier_to_model["sonnet"] == "cborg-coder"
-    assert spec.tier_to_model["haiku"] == "cborg-coder-fast"
-    assert spec.tier_to_model["opus"] == "cborg-deepthought"
-    # Default tier model is the selected ANTHROPIC_MODEL:
+    # Self-hosted model ids from api.providers are what it serves:
+    assert spec.served_models == ["cborg-coder-fast", "cborg-coder", "cborg-deepthought"]
+    # No Claude model is served, so Claude Code's aliases run the main model:
+    assert set(spec.alias_models.values()) == {"cborg-coder"}
+    # The main model is the selected ANTHROPIC_MODEL:
     assert spec.env_block["ANTHROPIC_MODEL"] == "cborg-coder"
     # Crucially: a custom (non-native) provider needs the translation proxy:
     assert spec.needs_proxy is True
@@ -50,13 +47,13 @@ def test_custom_provider_resolves_with_proxy():
 
 
 def test_builtin_cborg_is_anthropic_native_no_proxy():
-    """Contrast: the built-in `cborg` provider talks Anthropic natively (Claude tiers)."""
+    """Contrast: the built-in `cborg` provider talks Anthropic natively (Claude models)."""
     spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"}, {})
     assert spec is not None
     assert spec.needs_proxy is False
     assert spec.upstream_base_url is None
     # Built-in cborg pins Claude models, not self-hosted ones:
-    assert spec.tier_to_model["sonnet"] == "claude-sonnet-5"
+    assert spec.alias_models["sonnet"] == "claude-sonnet-5"
 
 
 def test_auth_secret_env_is_derived_from_provider_name():
@@ -92,13 +89,16 @@ def test_inject_provider_env_wires_auth_and_scrubs_managed_vars():
     assert "ANTHROPIC_BASE_URL" in injected
 
 
-def test_per_agent_tier_overrides_resolve_to_self_hosted_models():
+def test_per_agent_models_name_self_hosted_ids():
     cc = {
         "provider": "cborg-oss",
-        "default_model": "sonnet",
-        "agent_models": {"channel-finder": "haiku", "logbook-deep-research": "opus"},
+        "default_model": "cborg-coder",
+        "agent_models": {
+            "channel-finder": "cborg-coder-fast",
+            "logbook-deep-research": "cborg-deepthought",
+        },
     }
     spec = ClaudeCodeModelResolver.resolve(cc, CBORG_OSS_API_PROVIDERS)
-    assert spec.agent_model("channel-finder") == "cborg-coder-fast"  # haiku tier
-    assert spec.agent_model("logbook-deep-research") == "cborg-deepthought"  # opus tier
-    assert spec.agent_model("data-visualizer") == "cborg-coder"  # default sonnet tier
+    assert spec.agent_model("channel-finder") == "cborg-coder-fast"
+    assert spec.agent_model("logbook-deep-research") == "cborg-deepthought"
+    assert spec.agent_model("data-visualizer") == "cborg-coder"  # the main model

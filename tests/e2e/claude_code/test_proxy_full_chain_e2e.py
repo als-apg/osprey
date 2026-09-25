@@ -43,10 +43,11 @@ def running_proxy():
         "local-oss": {
             "api_key": "${LOCAL_OSS_API_KEY}",
             "base_url": OLLAMA_BASE,
-            "models": {"haiku": OLLAMA_MODEL, "sonnet": OLLAMA_MODEL, "opus": OLLAMA_MODEL},
+            "default_model": OLLAMA_MODEL,
+            "models": [OLLAMA_MODEL],
         }
     }
-    cc_config = {"provider": "local-oss", "default_model": "sonnet"}
+    cc_config = {"provider": "local-oss"}
 
     spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
     assert spec.needs_proxy and spec.upstream_base_url == OLLAMA_BASE

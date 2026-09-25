@@ -234,8 +234,9 @@ def session_posture_leak_guard(monkeypatch):
 _REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
 
 #: The lane that asserts where ``audit_dir()`` resolves to, rather than writing
-#: through it. :func:`_isolate_audit_zone` leaves it alone; it pins its own zone
-#: wherever it records, and the repo guard below still watches it.
+#: through it. :func:`_isolate_audit_zone` and :func:`_isolate_module_audit_zone`
+#: leave it alone; it pins its own zone wherever it records, and the repo guard
+#: below still watches it.
 _AUDIT_RESOLVER_LANE = "tests/audit/"
 
 #: ``<repo>/var/agent_data`` — the directory :func:`no_agent_data_in_the_repo`
@@ -562,6 +563,10 @@ def _isolate_audit_zone(request, tmp_path, monkeypatch):
     Returned so a test that wants to *read* what it filed can, without knowing
     where the zone was put.
 
+    Its module-scoped twin, :func:`_isolate_module_audit_zone`, holds the seam
+    for what a module-scoped fixture builds; the zone set here sits on top of it
+    for the test body and unwinds to it.
+
     Named privately so the ``audit_zone`` and ``_audit_zone`` fixtures several
     modules define still win: a fixture declared closer to the test is set up
     after this one and re-points the same seam.
@@ -581,6 +586,44 @@ def _isolate_audit_zone(request, tmp_path, monkeypatch):
         return zone
     monkeypatch.setattr(writer, "audit_dir", lambda: zone)
     return zone
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _isolate_module_audit_zone(request, tmp_path_factory):
+    """Hold the ledger's seam redirected for a whole test module.
+
+    :func:`_isolate_audit_zone` does this per test, which covers every app built
+    in a test body. It cannot cover an app built by a MODULE-scoped fixture:
+    pytest sets every higher-scoped fixture up first, so such an app enters its
+    lifespan, serves requests and is torn down while the per-test redirection
+    has not been made. Suite-wide for the per-test twin's reason: the modules
+    that build an app at module scope are spread across the interfaces,
+    dispatch, MCP and integration trees, and a directory-local copy covers only
+    the directory it sits in.
+
+    Module-scoped rather than session-scoped on purpose. A session-scoped
+    redirection would still be installed for every module that runs after the
+    one that needed it in the same worker, including the suites in
+    ``tests/audit`` that call the real ``writer.audit_dir()`` and assert what
+    it resolves to. A module-scoped one is torn down with its module.
+
+    Exempt exactly where the per-test twin is, by the same predicate, so a
+    lane cannot be redirected at one scope and left alone at the other.
+
+    ``pytest.MonkeyPatch.context()`` rather than the ``monkeypatch`` fixture,
+    which is function-scoped and cannot be requested here.
+    """
+    from osprey.audit import writer
+
+    zone = tmp_path_factory.mktemp("module-audit-zone") / "var" / "audit"
+    if _is_real_deployment_item(request.node) or request.node.nodeid.startswith(
+        _AUDIT_RESOLVER_LANE
+    ):
+        yield zone
+        return
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(writer, "audit_dir", lambda: zone)
+        yield zone
 
 
 # ===================================================================
@@ -1253,8 +1296,9 @@ def pytest_collection_modifyitems(items):
 # to read. See tests/ci_diagnostics.py for the file formats and for why
 # faulthandler must target a file rather than a worker's stderr.
 #
-# Entirely gated on OSPREY_CI_DIAG_DIR, which only the CI lanes set: with the
-# variable unset this installs nothing and costs nothing.
+# Entirely gated on OSPREY_CI_DIAG_DIR, which only the CI lanes set, as is the
+# snapshot of a failing test's containers that joins the event log there: with
+# the variable unset this installs nothing and costs nothing.
 
 _CI_DIAGNOSTICS: ci_diagnostics.DiagnosticsRecorder | None = None
 
@@ -1291,6 +1335,10 @@ def pytest_configure(config):
     _CI_DIAGNOSTICS = ci_diagnostics.recorder_from_env()
     if _CI_DIAGNOSTICS is not None:
         _CI_DIAGNOSTICS.start()
+
+    # A failing test's containers are snapshotted before its module's fixtures
+    # remove them. See tests/ci_diagnostics.py.
+    ci_diagnostics.register_container_snapshots(config.pluginmanager)
 
 
 def pytest_runtest_logstart(nodeid):
@@ -1744,7 +1792,7 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
                 graph_index_cache.entries[digest] = cached
             target.index_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(cached, target.index_path)
-        except Exception:  # noqa: BLE001 - the real hook decides what a failure costs
+        except Exception:  # the real hook decides what a failure costs
             return real_hook(shared, target, progress)
 
         # The build's own memo, kept consistent: a later render pass of the

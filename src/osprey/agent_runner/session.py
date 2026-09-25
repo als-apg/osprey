@@ -210,7 +210,7 @@ async def agent_session(
         max_turns: Maximum agentic turns per response.
         max_budget_usd: Session budget, enforced across all turns and passed to
             the SDK as a backstop.
-        model: Model id; resolved from the project's haiku tier when ``None``.
+        model: Model id; the project's main model when ``None``.
         permission_mode: SDK permission mode (``"bypassPermissions"`` for a
             read-only run; ``"default"`` when an approval callback mediates).
 
@@ -262,7 +262,7 @@ async def run_turns(
         disallowed_tools: Tool names forbidden at the SDK level.
         max_turns: Maximum agentic turns per response.
         max_budget_usd: Session budget across all turns.
-        model: Model id; resolved from the project's haiku tier when ``None``.
+        model: Model id; the project's main model when ``None``.
         permission_mode: SDK permission mode.
 
     Returns:

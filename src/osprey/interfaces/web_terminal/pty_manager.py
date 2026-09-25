@@ -28,7 +28,7 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     """Build the environment for the PTY child process.
 
     Layers the PTY-specific keys on top of :func:`build_base_child_env` (which
-    strips Claude Code session vars while preserving the telemetry master switch,
+    strips Claude Code session vars while preserving the telemetry switches,
     drops the sensitive credentials named by
     :mod:`osprey.utils.sensitive_env`, resolves the auth-token conflict, and
     augments ``PATH``): sets the terminal type variables, then applies any

@@ -8,6 +8,8 @@ process, serves nobody, and its teardown races the interpreter's exit.
 
 from __future__ import annotations
 
+import os
+import socket
 from unittest.mock import patch
 
 import pytest
@@ -87,3 +89,43 @@ def test_a_store_built_without_auto_launch_saves_without_starting_the_gallery(
 
     assert store.get_entry(entry.id) is not None
     launch.assert_not_called()
+
+
+@pytest.mark.real_server_launch
+def test_a_save_behind_the_proxy_does_not_consume_the_panel_token(agent_data_root, monkeypatch):
+    """An agent-side save in the multi-user shape keeps the process's panel token.
+
+    The process holds no operator secret, so the gallery app it would build
+    refuses to be built, and the refusal takes the panel-token carrier with it.
+    The real launch path runs here, against a fresh launcher so no earlier
+    test's launched state decides the outcome.
+    """
+    from osprey.infrastructure import server_launcher
+    from osprey.interfaces.web_auth import (
+        BIND_HOST_ENV,
+        OPERATOR_SECRET_ENV,
+        PANEL_TOKEN_ENV,
+        peek_web_credentials,
+    )
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    defn = FRAMEWORK_WEB_SERVERS["artifact"]
+    fresh = server_launcher.ServerLauncher(
+        name=defn.name,
+        config_reader=lambda: ("127.0.0.1", port),
+        auto_launch_checker=lambda: True,
+        app_factory=server_launcher._make_app_factory(defn),
+        pass_workspace=defn.pass_workspace,
+    )
+    monkeypatch.setitem(server_launcher._launchers, "artifact", fresh)
+    monkeypatch.setenv(BIND_HOST_ENV, "127.0.0.1")
+    monkeypatch.delenv(OPERATOR_SECRET_ENV, raising=False)
+    monkeypatch.setenv(PANEL_TOKEN_ENV, "pty-supplied-token")
+
+    _save_file(ArtifactStore(workspace_root=agent_data_root))
+
+    assert os.environ.get(PANEL_TOKEN_ENV) == "pty-supplied-token"
+    assert peek_web_credentials() is None

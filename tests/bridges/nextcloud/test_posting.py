@@ -14,6 +14,7 @@ courtesy message) and the **chunk-2 failure** pair: the raise reaches the engine
 retry re-posts from chunk 1 — duplicate earlier chunks are at-least-once by design.
 """
 
+import dataclasses
 import time
 from dataclasses import dataclass
 from urllib.parse import parse_qs
@@ -35,8 +36,11 @@ from osprey.bridges.nextcloud_talk.ops import (
     QUEUED_TEXT,
     RESUMED_TEXT,
     SUPERSEDED_TEXT,
+    TALK_MENTION_RE,
     NextcloudTalkOps,
     _chunk,
+    _talk_mention,
+    neutralise_bare_mentions,
 )
 
 CFG = NextcloudBridgeConfig(
@@ -82,14 +86,18 @@ class FakeTalk:
 
     ``fail_on`` holds 1-based post indices that answer with ``status`` instead of
     succeeding. A failing post is still recorded *before* it fails, so a test can assert
-    what was attempted as well as what landed.
+    what was attempted as well as what landed. ``participants`` is what the participants
+    listing answers (a list, or an exception marker for a lobby ``412``); each listing is
+    counted in ``listed`` and never recorded as a post.
     """
 
-    def __init__(self, *, fail_on=(), status=503, exc=None):
+    def __init__(self, *, fail_on=(), status=503, exc=None, participants=None):
         self.posts: list[Post] = []
         self.fail_on = set(fail_on)
         self.status = status
         self.exc = exc
+        self.participants = participants
+        self.listed = 0
 
     @property
     def texts(self) -> list[str]:
@@ -97,6 +105,13 @@ class FakeTalk:
         return [post.text for post in self.posts]
 
     def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/participants"):
+            self.listed += 1
+            if isinstance(self.participants, Exception):
+                return httpx.Response(412, text="lobby")
+            return httpx.Response(
+                200, json={"ocs": {"meta": {"status": "ok"}, "data": self.participants or []}}
+            )
         form = parse_qs(request.content.decode())
         reply_to = form["replyTo"][0] if "replyTo" in form else None
         self.posts.append(
@@ -329,19 +344,19 @@ def test_every_chunk_goes_to_the_same_room():
     assert {post.room for post in talk.posts} == {"roomA"}
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "short",
-        "x" * MAX_MESSAGE_CHARS,
-        "x" * (MAX_MESSAGE_CHARS + 1),
-        "x" * (3 * MAX_MESSAGE_CHARS + 7),
-        ("line\n" * 20_000),
-        ("a" * 40_000 + "\n" + "b" * 40_000),
-        "\n" * (MAX_MESSAGE_CHARS + 5),
-        "\n" + "q" * (MAX_MESSAGE_CHARS + 5),
-    ],
-)
+CHUNK_INPUTS = [
+    "short",
+    "x" * MAX_MESSAGE_CHARS,
+    "x" * (MAX_MESSAGE_CHARS + 1),
+    "x" * (3 * MAX_MESSAGE_CHARS + 7),
+    ("line\n" * 20_000),
+    ("a" * 40_000 + "\n" + "b" * 40_000),
+    "\n" * (MAX_MESSAGE_CHARS + 5),
+    "\n" + "q" * (MAX_MESSAGE_CHARS + 5),
+]
+
+
+@pytest.mark.parametrize("text", CHUNK_INPUTS)
 def test_chunking_splits_without_reflowing(text):
     # _chunk splits and never rewrites: markdown survives byte-for-byte, so the
     # concatenation is the identity and no chunk is empty or oversized.
@@ -563,3 +578,250 @@ def test_ops_builds_its_own_talk_client_when_none_is_injected():
         assert isinstance(ops._client, TalkClient)
     finally:
         ops._client.close()
+
+
+# ==========================================================================
+# post_answer — @mentions and bare mentions
+# ==========================================================================
+
+CAROL = {"actorType": "users", "actorId": "carol", "displayName": "Carol"}
+ALICE = {"actorType": "users", "actorId": "alice", "displayName": "Alice"}
+
+
+def _mention_ops(participants=None, *, mentions=True) -> tuple[NextcloudTalkOps, FakeTalk]:
+    talk = FakeTalk(participants=[CAROL, ALICE] if participants is None else participants)
+    cfg = dataclasses.replace(CFG, mentions=mentions)
+    client = TalkClient(cfg, client=httpx.Client(transport=httpx.MockTransport(talk.handler)))
+    return NextcloudTalkOps(cfg, client), talk
+
+
+def _post(text: str, **kwargs) -> tuple[str, FakeTalk]:
+    ops, talk = _mention_ops(**kwargs)
+    ops.post_answer(entry(), {"status": "completed", "text_output": text})
+    return "".join(talk.texts), talk
+
+
+def test_an_answer_mentioning_a_participant_posts_talk_mention_syntax():
+    assert _post("please tell <@carol>")[0] == 'please tell @"carol"'
+
+
+def test_a_mention_after_punctuation_gets_a_leading_space():
+    assert _post("(<@carol>)")[0] == '( @"carol")'
+
+
+def test_a_mention_at_the_start_or_after_whitespace_gets_no_extra_space():
+    assert _post("<@carol> and\n<@alice>")[0] == '@"carol" and\n@"alice"'
+
+
+def test_talk_mention_quotes_ids_with_spaces_and_at_signs():
+    assert _talk_mention("first last") == '@"first last"'
+    assert _talk_mention("carol@example.org") == '@"carol@example.org"'
+    assert _talk_mention('ca"rol') is None
+    assert _talk_mention("group/admins") is None
+
+
+def test_an_email_style_id_renders_as_a_quoted_talk_mention():
+    member = {"actorType": "users", "actorId": "carol@example.org", "displayName": "Carol"}
+    text, _ = _post("cc <@carol@example.org>", participants=[member])
+    assert text == 'cc @"carol@example.org"'
+
+
+def test_a_mention_outside_the_roster_is_its_name_without_an_at_sign():
+    # Mentions off keeps the roster name for a member; an id outside it is its own id.
+    assert _post("cc <@carol>", mentions=False)[0] == "cc Carol"
+    assert _post("cc <@dave>")[0] == "cc dave"
+
+
+def test_an_unknown_id_is_posted_as_the_bare_id():
+    assert _post("cc <@zed>")[0] == "cc zed"
+
+
+def test_mentions_off_posts_names_without_an_at_sign():
+    assert _post("<@carol> and <@alice>", mentions=False)[0] == "Carol and Alice"
+
+
+def test_everyone_never_renders():
+    everyone = {"actorType": "users", "actorId": "all", "displayName": "Everyone"}
+    assert _post("hey <@all>", participants=[everyone, CAROL])[0] == "hey all"
+
+
+def test_an_answer_without_a_mention_never_lists_participants():
+    text, talk = _post("the orbit is flat")
+    assert text == "the orbit is flat"
+    assert talk.listed == 0
+
+
+def test_a_participants_failure_posts_the_mention_as_plain_text():
+    text, talk = _post("cc <@carol>", participants=RuntimeError("lobby"))
+    assert text == "cc carol"
+    assert talk.listed >= 1
+
+
+def test_a_long_answer_never_splits_a_mention_across_chunks():
+    ops, talk = _mention_ops()
+    text = "x" * (MAX_MESSAGE_CHARS - 3) + " <@carol> tail"
+    ops.post_answer(entry(), {"status": "completed", "text_output": text})
+    assert talk.texts == ["x" * (MAX_MESSAGE_CHARS - 3) + " ", '@"carol" tail']
+
+
+def test_the_stored_text_output_keeps_the_placeholder():
+    ops, _ = _mention_ops()
+    result = {"status": "completed", "text_output": "cc <@carol> and @dave"}
+    snapshot = dict(result)
+    ops.post_answer(entry(), result)
+    assert result == snapshot
+
+
+def test_notices_are_never_rendered():
+    ops, talk = _mention_ops()
+    ops.post_answer(entry(), {"status": "completed", "text_output": "cc <@carol>"})
+    talk.posts.clear()
+    ops.post_ack(entry())
+    ops.post_queued(entry(), RESULT_ERROR)
+    ops.post_giveup(entry())
+    ops.post_superseded(entry())
+    assert talk.texts[0].startswith(ACK_TEXT)
+    assert talk.texts[1:] == [QUEUED_TEXT, GIVEUP_TEXT, SUPERSEDED_TEXT]
+
+
+def test_a_bare_at_name_in_an_answer_loses_its_at_sign():
+    assert _post("ask @alice")[0] == "ask alice"
+
+
+def test_a_quoted_bare_mention_loses_its_at_sign():
+    assert _post('ask @"first last"')[0] == 'ask "first last"'
+
+
+def test_at_all_in_an_answer_loses_its_at_sign():
+    assert _post("@all please look")[0] == "all please look"
+
+
+def test_bare_mentions_are_neutralised_with_mentions_off():
+    assert _post("ask @alice", mentions=False)[0] == "ask alice"
+
+
+def test_bare_mentions_are_neutralised_in_an_answer_without_a_placeholder():
+    text, talk = _post("ask @alice and @bob")
+    assert text == "ask alice and bob"
+    assert talk.listed == 0
+
+
+def test_a_permitted_placeholder_still_renders_beside_a_neutralised_bare_name():
+    assert _post("<@carol> and @dave")[0] == '@"carol" and dave'
+
+
+def test_an_email_address_and_a_placeholder_keep_their_at_signs():
+    text = "mail carol@example.org or ask <@carol>"
+    assert neutralise_bare_mentions(text, members=lambda: None) == text
+
+
+def test_inline_code_keeps_the_at_of_a_non_member():
+    assert _post("use `@dataclass` here")[0] == "use `@dataclass` here"
+
+
+def test_a_fenced_block_keeps_the_at_of_a_non_member():
+    code = "```python\n@dataclass\nclass Point:\n    x: int\n```\n"
+    assert _post(code)[0] == code
+
+
+def test_code_drops_the_at_of_a_room_member():
+    text = 'see `@alice` and\n```\n@alice\nprint(@"Alice")\n```\n'
+    assert _post(text)[0] == 'see `alice` and\n```\nalice\nprint("Alice")\n```\n'
+
+
+def test_code_neutralisation_is_the_same_with_mentions_off():
+    text = "`@alice` `@dataclass`"
+    assert _post(text)[0] == _post(text, mentions=False)[0] == "`alice` `@dataclass`"
+
+
+def test_code_drops_every_at_when_the_roster_is_unavailable():
+    assert _post("`@dataclass`", participants=RuntimeError("lobby"))[0] == "`dataclass`"
+
+
+def test_outside_code_a_non_member_still_loses_its_at():
+    assert _post("decorate with @dataclass")[0] == "decorate with dataclass"
+
+
+def test_an_answer_with_no_bare_mention_in_code_never_lists_participants():
+    text, talk = _post("ask @alice")
+    assert text == "ask alice"
+    assert talk.listed == 0
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("@alice hi", "alice hi"),
+        ("x @alice", "x alice"),
+        ("x\n@alice", "x\nalice"),
+        ("x -@alice", "x -alice"),
+        ("x .@alice", "x .alice"),
+        ("x '@alice", "x 'alice"),
+        ("x @@alice", "x alice"),
+    ],
+)
+def test_a_bare_mention_after_allowed_punctuation_is_neutralised(before, after):
+    assert neutralise_bare_mentions(before, members=lambda: None) == after
+    assert TALK_BARE_MENTION_RE_SAFE(after)
+
+
+def TALK_BARE_MENTION_RE_SAFE(text: str) -> bool:  # reads as a predicate
+    """No bare mention the Talk server would parse is left in ``text``."""
+    return neutralise_bare_mentions(text, members=lambda: None) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "kwargs", "posted"),
+    [
+        ("ask @<@dave>", {}, "ask dave"),
+        ("cc @<@carol>", {"mentions": False}, "cc Carol"),
+        ("cc @@<@carol>", {"mentions": False}, "cc Carol"),
+        ("cc @<@carol>", {}, 'cc @"carol"'),
+        ("<@@dave>", {}, "dave"),
+    ],
+)
+def test_an_at_sign_around_a_placeholder_never_leaves_a_bare_mention(text, kwargs, posted):
+    assert _post(text, **kwargs)[0] == posted
+
+
+def test_the_render_bug_fallback_drops_an_at_sign_before_a_placeholder(monkeypatch):
+    from osprey.bridges.nextcloud_talk import ops as ops_module
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("render bug")
+
+    monkeypatch.setattr(ops_module, "render_mentions", broken)
+    text, _ = _post("ask @<@dave> and <@@erin>")
+    assert text == "ask dave and erin"
+    assert TALK_BARE_MENTION_RE_SAFE(text)
+
+
+def test_the_render_bug_fallback_neutralises_too(monkeypatch):
+    from osprey.bridges.nextcloud_talk import ops as ops_module
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("render bug")
+
+    monkeypatch.setattr(ops_module, "render_mentions", broken)
+    text, _ = _post("ask @alice about <@carol>")
+    assert text == "ask alice about carol"
+    assert TALK_BARE_MENTION_RE_SAFE(text)
+
+
+@pytest.mark.parametrize("text", CHUNK_INPUTS)
+def test_chunking_with_keep_whole_still_reassembles_exactly(text):
+    chunks = _chunk(text, keep_whole=TALK_MENTION_RE)
+    assert "".join(chunks) == text
+    assert all(0 < len(chunk) <= MAX_MESSAGE_CHARS for chunk in chunks)
+
+
+def test_keep_whole_does_not_change_a_split_that_misses_every_span():
+    text = '@"carol" ' + "a" * 200 + "\n" + "b" * 120
+    assert _chunk(text, 100, keep_whole=TALK_MENTION_RE) == _chunk(text, 100)
+
+
+def test_a_keep_whole_span_at_offset_zero_that_overflows_is_hard_split():
+    text = '@"' + "c" * 200 + '"'
+    chunks = _chunk(text, 100, keep_whole=TALK_MENTION_RE)
+    assert [len(chunk) for chunk in chunks] == [100, 100, 3]
+    assert "".join(chunks) == text

@@ -1401,6 +1401,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
        ``deployed_services`` (so ``find_service_config`` resolves it,
        mirroring ``_inject_bluesky``) — plus a second ``services.live_standin``
        instance of the same service when ``va.live_standin`` names a port.
+       Instance 1's block carries ``pva_port`` only when the profile names one.
     3. Make sure the deployed soft-IOC has a target block pointing at it —
        ``control_system.connector.virtual_accelerator.gateways`` — when the
        config carries none (see :func:`_ensure_va_connector_gateways`, which
@@ -1463,9 +1464,10 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     # soft-IOC container on its own Channel Access port, reached as the
     # deployment's ``standin`` target. The compose template reads the instance
     # list off ``deployed_services``, so both keys have to land in both places.
-    instances: list[tuple[str, dict[str, Any]]] = [
-        ("virtual_accelerator", {"path": "./services/virtual_accelerator", "port": va.port})
-    ]
+    primary: dict[str, Any] = {"path": "./services/virtual_accelerator", "port": va.port}
+    if va.pva_port is not None:
+        primary["pva_port"] = va.pva_port
+    instances: list[tuple[str, dict[str, Any]]] = [("virtual_accelerator", primary)]
     if va.live_standin is not None:
         instances.append(
             (
@@ -1721,7 +1723,8 @@ def _inject_nextcloud_bridge(
     # <project>-nextcloud-bridge image on first ``osprey up`` (the
     # template's own ``| default`` supplies that tag). Override with
     # OSPREY_NEXTCLOUD_BRIDGE_IMAGE, or set ``services.nextcloud_bridge.image``
-    # here, to use a prebuilt/published image.
+    # here, to use a prebuilt/published image. ``mentions`` is written on every
+    # build, so the template always has a value.
     config.setdefault("services", {})
     anchored_put(
         config["services"],
@@ -1732,6 +1735,7 @@ def _inject_nextcloud_bridge(
             {
                 "path": "./services/nextcloud_bridge",
                 "trigger": nextcloud_bridge.trigger,
+                "mentions": nextcloud_bridge.mentions,
             },
         ),
     )
@@ -1819,7 +1823,8 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     # <project>-gchat-bridge image on first ``osprey up`` (the template's
     # own ``| default`` supplies that tag). Override with
     # OSPREY_GCHAT_BRIDGE_IMAGE, or set ``services.gchat_bridge.image`` here, to
-    # use a prebuilt/published image.
+    # use a prebuilt/published image. ``mentions`` is written on every build, so
+    # the template always has a value.
     config.setdefault("services", {})
     config["services"]["gchat_bridge"] = _carry_authored_keys(
         config["services"],
@@ -1827,6 +1832,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         {
             "path": "./services/gchat_bridge",
             "trigger": gchat_bridge.trigger,
+            "mentions": gchat_bridge.mentions,
         },
     )
     deployed = config.get("deployed_services", []) or []
@@ -1920,7 +1926,8 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
     # <project>-teams-bridge image on first ``osprey up`` (the template's own
     # ``| default`` supplies that tag). Override with
     # OSPREY_TEAMS_BRIDGE_IMAGE, or set ``services.teams_bridge.image`` here, to
-    # use a prebuilt/published image.
+    # use a prebuilt/published image. ``mentions`` is written on every build, so
+    # the template always has a value.
     config.setdefault("services", {})
     anchored_put(
         config["services"],
@@ -1931,6 +1938,7 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
             {
                 "path": "./services/teams_bridge",
                 "trigger": teams_bridge.trigger,
+                "mentions": teams_bridge.mentions,
             },
         ),
     )

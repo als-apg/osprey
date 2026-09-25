@@ -10,7 +10,7 @@ project layout, the port layout, ``providers.yml``, or a profile FIELD
 
 A ``config:`` entry for one of them is a second home for one fact, and the
 losing copy is the silent one: the render overwrites it, so the profile says
-``opus`` and the deployment runs whatever ``model:`` names, with nothing on
+``claude-opus-5`` and the deployment runs whatever ``model:`` names, with nothing on
 screen to say which won. :func:`derived_key_errors` refuses that spelling in
 :meth:`osprey.cli.build_profile_model.BuildProfile.validate`, naming the field
 to set instead.

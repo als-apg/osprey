@@ -26,7 +26,6 @@ channel_finder:
         type: template
       subagent_model: null
 claude_code:
-  default_model: haiku
   provider: anthropic
   servers:
     ariel:

@@ -1275,7 +1275,7 @@ def test_enumeration_snippet_drops_mypyc_shims(monkeypatch):
 
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
-        exec(_ENUMERATION_SNIPPET, {})  # noqa: S102 - runs the shipped probe verbatim
+        exec(_ENUMERATION_SNIPPET, {})  # runs the shipped probe verbatim
 
     assert json.loads(captured.getvalue()) == ["numpy"]
 

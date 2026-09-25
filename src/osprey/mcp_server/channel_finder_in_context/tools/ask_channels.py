@@ -33,7 +33,7 @@ def _safe_token_count(model: str, text: str) -> int:
     """Tokenize ``text`` for ``model``; return 0 if litellm has no tokenizer for it."""
     try:
         return int(litellm.token_counter(model=model, text=text))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 0
 
 

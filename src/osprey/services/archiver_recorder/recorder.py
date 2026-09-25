@@ -193,7 +193,7 @@ class Recorder:
         timestamp = datetime.fromtimestamp(slot, tz=UTC)
         try:
             await asyncio.to_thread(self._writer.write_sample, timestamp, values)
-        except Exception as exc:  # noqa: BLE001 — see below
+        except Exception as exc:  # see below
             # Never let one failed write end the loop. The store may be
             # restarting, and the next tick is seconds away; a crash here would
             # instead take the Channel Access channel cache down with it and

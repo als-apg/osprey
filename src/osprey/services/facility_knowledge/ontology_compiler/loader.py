@@ -68,7 +68,7 @@ def load_schema(source: Path) -> SchemaView:
             not parse, or ``linkml_runtime`` rejects its contents.  The
             underlying message is carried through unchanged.
     """
-    from linkml_runtime import SchemaView  # noqa: PLC0415 - keeps rdflib off the import path
+    from linkml_runtime import SchemaView  # keeps rdflib off the import path
 
     try:
         view = SchemaView(str(source))

@@ -64,24 +64,22 @@ differences, each load-bearing:
   resolving to the last stable release; the beta is reached only by
   `--pre` or an exact `==` pin. That opt-in IS the beta channel — nothing
   else has to be built for it.
-- **The connectors floor needs a pre-release-admitting specifier — not a
-  pre-release floor.** Range specifiers exclude pre-releases, so with the
-  plain stable floor a beta framework wheel pairs with the OLD stable
-  connectors. But a plain `>=YYYY.M.PbN` floor is worse: every same-checkout
-  dev wheel (`<last-stable>.postN`) sorts *below* the beta, so `osprey up
-  --dev` and every image-building CI lane breaks until the tag exists (found
-  live on the v2026.9.0b1 release PR). The shape that satisfies both is
-  `osprey-connectors>=<last-stable>,!=<last-stable>a0`: the `!=` clause names
-  a pre-release, which under PEP 440 admits pre-release candidates to the
-  whole set, so pip pairs beta with beta while dev wheels still satisfy the
-  floor. uv admits transitive pre-releases only with `--prerelease allow`:
-  even an exact `==` pin on the framework fails without it, with a hint that
-  names the flag. The installation page carries the command under
-  *Pre-releases*; repeat the exact command at the top of the GitHub Release
-  body, because a reader who follows the stable instructions from the
-  pre-release's own docs directory gets the last stable release and not the
-  beta. Run `uv lock --check` after the edit. The final release afterwards restores
-  the plain floor at its own stable version.
+- **The connectors floor stays on the last stable release — never a
+  pre-release floor.** A plain `>=YYYY.M.PbN` floor refuses every
+  same-checkout dev wheel (`<last-stable>.postN` sorts *below* the beta), so
+  `osprey up --dev` and every image-building CI lane breaks until the tag
+  exists (found live on the v2026.9.0b1 release PR). No clause added to the
+  stable floor makes it admit pre-releases either: an `!=` exclusion never
+  does. A beta framework pairs with the beta connectors through the install:
+  `pip install --pre` admits pre-releases for the whole resolve, and pip also
+  takes a pre-release when no stable release satisfies the floor. uv admits
+  transitive pre-releases only with `--prerelease allow`: even an exact `==`
+  pin on the framework fails without it, with a hint that names the flag.
+  The installation page carries the command under *Pre-releases*; repeat the
+  exact command at the top of the GitHub Release body, because a reader who
+  follows the stable instructions from the pre-release's own docs directory
+  gets the last stable release and not the beta. The final release moves the
+  floor to its own stable version; run `uv lock --check` after that edit.
 - **The GitHub Release is marked pre-release automatically.** `release.yml`
   classifies the tag (exactly `X.Y.Z` = stable, anything else = pre-release)
   and sets the flag, so the beta never shows as "Latest".

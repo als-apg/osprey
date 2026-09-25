@@ -128,7 +128,7 @@ concurrency:
 # be re-run whenever the pin in
 # src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
 env:
-  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
+  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.92.2
   # ALS-APG endpoint. The probes address the gateway themselves rather than
   # through the provider catalog, so every LLM-touching job (probes and pytest
   # alike) reads its endpoint from here. This line is where a fork's own
@@ -148,6 +148,13 @@ env:
   # has not set the variable would get an empty value and refuse every e2e lane
   # rather than run them.
   OSPREY_E2E_PROVIDER: als-apg
+  # Every pytest step writes its diagnostics here (tests/ci_diagnostics.py): the
+  # per-worker event log, the stack samples, and the container snapshot a test's
+  # first failure in a module takes while its stack is still up. The capture
+  # step uploads this directory; it cannot take that snapshot itself, because a
+  # lane's module fixtures remove their containers inside the pytest step.
+  # Stated once here so a new container lane cannot forget it.
+  OSPREY_CI_DIAG_DIR: ci-diag
 
 jobs:
   test:
@@ -1030,7 +1037,9 @@ jobs:
     # that renders it, the dependency that ships the component. A step that
     # could be skipped reports as a step success and a job whose steps all
     # skipped reports as a job success, which `all-checks-passed` reads as a
-    # lane that ran. The lane costs one chromium install, so it always runs.
+    # lane that ran. The lane costs a chromium and a WebKit install, so it always
+    # runs; the WebKit one is there because the bar-items suite runs its
+    # gestures in both engines.
     # The default GITHUB_TOKEN is read-only repo-wide; this job's last step
     # pushes regenerated Linux baselines back to the PR branch, so it alone
     # needs contents: write (matches docs.yml's workflow-level grant for the
@@ -1058,6 +1067,9 @@ jobs:
 
     - name: Install Playwright chromium
       run: uv run playwright install chromium --with-deps
+
+    - name: Install Playwright webkit
+      run: uv run playwright install webkit --with-deps
 
     - name: Run behavioral theming suite
       run: |
@@ -1921,8 +1933,12 @@ jobs:
         # Two steps, because they are two things: `init` writes the source
         # zone, `build` renders it. --skip-deps/--skip-lifecycle belong to the
         # render and so live on `build`.
+        #
+        # The model is named by the id the gateway serves: the build refuses
+        # an alias word such as haiku. It is the smallest model the gateway
+        # serves, and the lane makes no model call.
         uv run osprey init hello-world-test --preset hello-world \
-          --set provider=als-apg --set model=haiku
+          --set provider=als-apg --set model=claude-haiku-4-5-20251001
         cd hello-world-test
         uv run osprey build --skip-deps --skip-lifecycle
         ls -la
@@ -2801,7 +2817,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Deploys the control-assistant preset, so the bring-up builds that preset's
     # images (qmd ~3.4GB, bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
-    # and the ghcr.io/bluesky/tiled:0.2.12 pull it actually tests. ~6.5min with
+    # and the Tiled image pull it actually tests. ~6.5min with
     # images cached, ~9-11min on a warm runner, but a fully cold one has been
     # observed still building at 15min with every build progressing normally —
     # so the caps below are sized for that worst case, not the median.

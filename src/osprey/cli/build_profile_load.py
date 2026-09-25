@@ -1109,6 +1109,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         virtual_accelerator = VAConfig(
             port=va_raw.get("port", VAConfig.port),
             live_standin=live_standin,
+            pva_port=va_raw.get("pva_port"),
         )
 
     bluesky_web_raw = raw.get("bluesky_web")
@@ -1125,8 +1126,12 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if nextcloud_bridge_raw is not None:
         if not isinstance(nextcloud_bridge_raw, dict):
             raise BuildProfileError("Profile 'nextcloud_bridge' must be a mapping")
+        mentions = nextcloud_bridge_raw.get("mentions", True)
+        if not isinstance(mentions, bool):
+            raise BuildProfileError("Profile 'nextcloud_bridge.mentions' must be true or false")
         nextcloud_bridge = NextcloudBridgeProfileConfig(
             trigger=nextcloud_bridge_raw.get("trigger", "nextcloud-question"),
+            mentions=mentions,
         )
 
     gchat_bridge_raw = raw.get("gchat_bridge")
@@ -1134,8 +1139,12 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if gchat_bridge_raw is not None:
         if not isinstance(gchat_bridge_raw, dict):
             raise BuildProfileError("Profile 'gchat_bridge' must be a mapping")
+        mentions = gchat_bridge_raw.get("mentions", True)
+        if not isinstance(mentions, bool):
+            raise BuildProfileError("Profile 'gchat_bridge.mentions' must be true or false")
         gchat_bridge = GChatBridgeProfileConfig(
             trigger=gchat_bridge_raw.get("trigger", "gchat-question"),
+            mentions=mentions,
         )
 
     teams_bridge_raw = raw.get("teams_bridge")
@@ -1143,8 +1152,12 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if teams_bridge_raw is not None:
         if not isinstance(teams_bridge_raw, dict):
             raise BuildProfileError("Profile 'teams_bridge' must be a mapping")
+        mentions = teams_bridge_raw.get("mentions", True)
+        if not isinstance(mentions, bool):
+            raise BuildProfileError("Profile 'teams_bridge.mentions' must be true or false")
         teams_bridge = TeamsBridgeProfileConfig(
             trigger=teams_bridge_raw.get("trigger", "teams-question"),
+            mentions=mentions,
         )
 
     provenance_raw = raw.get("provenance")

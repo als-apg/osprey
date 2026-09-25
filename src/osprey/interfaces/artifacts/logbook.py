@@ -20,7 +20,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from osprey.mcp_server.session import gather_session_metadata
-from osprey.models.tiers import VALID_TIERS
 from osprey.utils.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
@@ -52,7 +51,7 @@ class ComposeRequest(BaseModel):
     include_session_log: bool = True
     artifact_ids: list[str] | None = None  # overrides artifact_id when provided
     # Model selection
-    model: str | None = None  # "haiku" | "sonnet" | "opus" → maps to config
+    model: str | None = None  # a model id the composition provider serves
 
 
 class ComposeResponse(BaseModel):
@@ -332,32 +331,16 @@ def _clean_llm_json(text: str) -> str:
     return text
 
 
-# Tier used when logbook.composition names none. Provider and model ID have no
-# built-in default: a wrong provider silently bills the wrong account, and a
-# tier name is not a model ID, so both are resolved from config or fail loudly.
-_DEFAULT_COMPOSITION_TIER = "haiku"
+def _composition_provider() -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """The composition provider's name, its ``api.providers`` entry, and ``logbook.composition``.
 
-
-def _resolve_composition_model(
-    model: str | None = None,
-) -> tuple[str, str]:
-    """Resolve provider and model_id for logbook composition.
-
-    Resolution order:
-    1. Provider: ``logbook.composition.provider``, falling back to the
-       project's ``claude_code.provider``.
-    2. Tier: *model* when it names a tier (haiku/sonnet/opus), otherwise
-       ``logbook.composition.default_tier``.
-    3. Model ID: ``api.providers[provider].models[tier]``. A facility whose
-       provider has no entry for the tier can pin a literal ID with
-       ``logbook.composition.model_id``.
-
-    Returns:
-        (provider, model_id) tuple
+    The provider is ``logbook.composition.provider``, falling back to the
+    project's ``claude_code.provider``. There is no built-in one: a wrong
+    provider silently bills the wrong account.
 
     Raises:
-        HTTPException: 503 when no provider is configured, the provider is
-            absent from ``api.providers``, or the tier maps to no model ID.
+        HTTPException: 503 when no provider is configured or the provider is
+            absent from ``api.providers``.
     """
     from osprey.models.config import get_provider_config
     from osprey.utils.config import get_config_value
@@ -377,9 +360,6 @@ def _resolve_composition_model(
             ),
         )
 
-    default_tier = comp.get("default_tier", _DEFAULT_COMPOSITION_TIER)
-    tier = model if model and model in VALID_TIERS else default_tier
-
     provider_cfg = get_provider_config(provider)
     if not provider_cfg:
         raise HTTPException(
@@ -389,19 +369,83 @@ def _resolve_composition_model(
                 "Check logbook.composition.provider in config.yml."
             ),
         )
+    return provider, provider_cfg, comp
 
-    model_id = provider_cfg.get("models", {}).get(tier) or comp.get("model_id")
-    if not model_id:
+
+def _served_ids(provider_cfg: dict[str, Any]) -> list[str]:
+    models = provider_cfg.get("models") or []
+    return [str(m) for m in models] if isinstance(models, list) else []
+
+
+def _default_composition_model(
+    provider: str, provider_cfg: dict[str, Any], comp: dict[str, Any]
+) -> str:
+    """``logbook.composition.model``, else the deployment's main model.
+
+    Raises:
+        HTTPException: 503 when neither names a model.
+    """
+    from osprey.models.config import main_model_id
+    from osprey.utils.config import get_config_value
+
+    if comp.get("model"):
+        return str(comp["model"])
+    config = {
+        "claude_code": {
+            "provider": get_config_value("claude_code.provider", None),
+            "default_model": get_config_value("claude_code.default_model", None),
+        },
+        "api": {"providers": {provider: provider_cfg}},
+    }
+    try:
+        return main_model_id(config, provider)
+    except ValueError as exc:
         raise HTTPException(
             status_code=503,
             detail=(
-                f"Provider '{provider}' defines no '{tier}' model. Add it under "
-                f"api.providers.{provider}.models, or pin a literal model ID with "
-                "logbook.composition.model_id."
+                f"No model named for logbook composition on provider '{provider}'. Set "
+                f"logbook.composition.model, claude_code.default_model, or "
+                f"api.providers.{provider}.default_model in config.yml."
             ),
-        )
+        ) from exc
 
-    return provider, model_id
+
+def _resolve_composition_model(
+    model: str | None = None,
+) -> tuple[str, str]:
+    """Resolve provider and model_id for logbook composition.
+
+    Resolution order:
+    1. Provider: ``logbook.composition.provider``, falling back to the
+       project's ``claude_code.provider``.
+    2. Model id: *model* — the compose panel's choice — when given; it comes
+       from a browser, so an id ``api.providers[provider].models`` does not list
+       is refused. Otherwise ``logbook.composition.model``, else the
+       deployment's main model (:func:`osprey.models.config.main_model_id`).
+
+    Returns:
+        (provider, model_id) tuple
+
+    Raises:
+        HTTPException: 400 when *model* is not an id the provider serves; 503
+            when no provider is configured, the provider is absent from
+            ``api.providers``, or no model is named anywhere.
+    """
+    provider, provider_cfg, comp = _composition_provider()
+
+    if model:
+        served = _served_ids(provider_cfg)
+        if model not in served:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Provider '{provider}' does not serve '{model}'. It serves: "
+                    f"{', '.join(served) or 'no listed models'}."
+                ),
+            )
+        return provider, model
+
+    return provider, _default_composition_model(provider, provider_cfg, comp)
 
 
 async def compose_entry(
@@ -413,13 +457,12 @@ async def compose_entry(
 
     Uses ``aget_chat_completion()`` with provider + model_id resolved by
     :func:`_resolve_composition_model` from ``logbook.composition`` (or the
-    project's ``claude_code.provider``) and ``api.providers`` tier mappings.
+    project's ``claude_code.provider``) and the provider's served models.
 
     If *system_prompt* is provided it is used directly; otherwise the fixed
     ``SYSTEM_PROMPT`` is used.
 
-    If *model* is a tier name (haiku/sonnet/opus) the corresponding model_id
-    is looked up from the provider's models mapping.
+    *model* is the compose panel's choice, a model id the provider serves.
     """
     from osprey.models.completion import aget_chat_completion
     from osprey.models.messages import ChatCompletionRequest, ChatMessage
@@ -471,6 +514,34 @@ async def compose_entry(
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+class ServedModel(BaseModel):
+    id: str
+    name: str
+
+
+class ModelsResponse(BaseModel):
+    provider: str
+    default: str
+    models: list[ServedModel]
+
+
+@logbook_router.get("/models", response_model=ModelsResponse)
+async def models_endpoint():
+    """The models the compose panel offers: what the composition provider serves."""
+    from osprey.models.display import display_model_name
+
+    provider, provider_cfg, comp = _composition_provider()
+    default = _default_composition_model(provider, provider_cfg, comp)
+    ids = _served_ids(provider_cfg)
+    if default not in ids:
+        ids = [default, *ids]
+    return ModelsResponse(
+        provider=provider,
+        default=default,
+        models=[ServedModel(id=model_id, name=display_model_name(model_id)) for model_id in ids],
+    )
 
 
 @logbook_router.post("/assemble-prompt", response_model=AssembleResponse)

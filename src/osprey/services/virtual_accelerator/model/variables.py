@@ -98,7 +98,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 EV_PER_GEV: float = 1.0e9
 
 
-class _CalibratedSetpoint(PyATWritableScalarVariable):
+class CalibratedSetpoint(PyATWritableScalarVariable):
     """A hardware setpoint written onto lattice elements through a calibration.
 
     The shared half of the three writable kinds. What separates them is the
@@ -236,7 +236,7 @@ class _CalibratedSetpoint(PyATWritableScalarVariable):
         return float(to_hardware(self.monitor_inverse, physics))
 
 
-class StrengthVariable(_CalibratedSetpoint):
+class StrengthVariable(CalibratedSetpoint):
     """One magnet setpoint, onto a polynomial coefficient of every slice.
 
     The slices of a strength are the pieces a split magnet is modelled as and
@@ -248,7 +248,7 @@ class StrengthVariable(_CalibratedSetpoint):
     """
 
 
-class KickVariable(_CalibratedSetpoint):
+class KickVariable(CalibratedSetpoint):
     """One corrector setpoint, over the slices it is bound to.
 
     A kick *is* divisible: a corrector modelled as ``n`` pieces bends the beam
@@ -259,7 +259,7 @@ class KickVariable(_CalibratedSetpoint):
     """
 
 
-class RFVariable(_CalibratedSetpoint):
+class RFVariable(CalibratedSetpoint):
     """The cavity frequency, written to every cavity in the ring.
 
     One setpoint over every cavity, each of them carrying the whole frequency:
@@ -335,7 +335,7 @@ class EnergyVariable(PyATLatticeScalarVariable):
     # variable's declared shape: the first is a ring-sized object graph that
     # has no business in a model_dump, the second lives only for the duration
     # of one write.
-    _scaled: tuple[_CalibratedSetpoint, ...] = PrivateAttr(default=())
+    _scaled: tuple[CalibratedSetpoint, ...] = PrivateAttr(default=())
     _energy_before_write: float | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
@@ -374,7 +374,7 @@ class EnergyVariable(PyATLatticeScalarVariable):
         self._scaled = tuple(
             variable
             for variable in variables
-            if isinstance(variable, _CalibratedSetpoint) and variable.energy_scaling == "brho"
+            if isinstance(variable, CalibratedSetpoint) and variable.energy_scaling == "brho"
         )
         return tuple(variable.name for variable in self._scaled)
 
@@ -598,6 +598,7 @@ class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
 
 __all__ = [
     "EV_PER_GEV",
+    "CalibratedSetpoint",
     "EnergyVariable",
     "KickVariable",
     "MonitorVariable",

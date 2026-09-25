@@ -33,7 +33,9 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.deployment.compose_generator import repo_relative_mount_source
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
 # Rooted at the templates/ PROJECT root, not services/, because service
 # templates import the shared axis macros as "services/_*.j2" — the spelling
@@ -207,6 +209,10 @@ def _context(
         # the context, decides which lane mounts the tree.
         "osprey_control_tree_mount_source": CONTROL_TREE_SOURCE,
         "osprey_container_control_tree_dir": _control_tree_target(),
+        # Both halves of a queueserver's audit bind, injected unconditionally
+        # for the same reason.
+        "osprey_audit_mount_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
+        "osprey_lane_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
     }
     if any(posture.values()):
         context["limits_mount"] = LIMITS_MOUNT
@@ -1276,7 +1282,7 @@ def test_one_template_serving_two_lanes_is_passed_to_compose_once() -> None:
     is a claim the deploy does not mean to make and doubles it up in every
     listing that echoes the file list.
     """
-    from osprey.deployment.container_lifecycle import _dedupe_compose_files
+    from osprey.deployment.compose_generator import _dedupe_compose_files
 
     assert _dedupe_compose_files(
         [

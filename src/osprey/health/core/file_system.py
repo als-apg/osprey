@@ -212,7 +212,7 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
                             f"Registry file not found: {registry_path}",
                         )
                     )
-    except Exception:  # noqa: BLE001 - don't fail if we can't check registry
+    except Exception:  # don't fail if we can't check registry
         pass
 
     # Check disk space. Container volumes (incl. the OpenObserve telemetry
@@ -242,7 +242,7 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
                     f"Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)",
                 )
             )
-    except Exception as e:  # noqa: BLE001 - disk sampling is best-effort
+    except Exception as e:  # disk sampling is best-effort
         results.append(
             CheckResult("disk_space", _CATEGORY, Status.WARNING, f"Could not check disk space: {e}")
         )
@@ -347,7 +347,7 @@ def _check_project_paths(config: dict[str, Any]) -> list[CheckResult]:
                     )
                 )
 
-    except Exception as e:  # noqa: BLE001 - any resolution failure becomes a single error row
+    except Exception as e:  # any resolution failure becomes a single error row
         results.append(
             CheckResult(
                 "project_paths", _CATEGORY, Status.ERROR, f"Error checking project paths: {e}"

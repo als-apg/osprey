@@ -91,7 +91,7 @@ class _FakeHandler(BaseHTTPRequestHandler):
         query = {k: v[-1] for k, v in urllib.parse.parse_qs(parsed.query).items()}
         return parsed.path, query
 
-    def log_message(self, *args: Any) -> None:  # noqa: A003 - http.server API
+    def log_message(self, *args: Any) -> None:  # http.server API
         """Silence per-request logging; failures surface through assertions."""
 
 

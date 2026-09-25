@@ -97,6 +97,14 @@
 #                       off the 5075 the compose template names, for the same
 #                       reason OSPREY_VA_CA_PORT defaults off 5064.
 #   OSPREY_VA_RUNTIME   Container runtime. Auto-detected when unset.
+#   OSPREY_VA_BOOT_TIMEOUT_SECS
+#                       Seconds to wait for the ready log line, a positive
+#                       whole number. Defaults to 240, the budget
+#                       tests/va/e2e/test_mml_trees_boot.py gives the same
+#                       image: the image is linux/amd64 only, so an arm64 host
+#                       boots it under emulation, which is slower than a
+#                       native boot. A boot that makes it prints its measured
+#                       time.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -114,7 +122,11 @@ CONTAINER="osprey-va-full-gate"
 # port this gate has been run clean on end to end. Overridable, including back
 # to 5064 to certify the shipped default on a host where nothing else holds it.
 CA_PORT="${OSPREY_VA_CA_PORT:-5164}"
-BOOT_TIMEOUT_SECS=60
+BOOT_TIMEOUT_SECS="${OSPREY_VA_BOOT_TIMEOUT_SECS:-240}"
+if [[ ! "${BOOT_TIMEOUT_SECS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "FATAL: OSPREY_VA_BOOT_TIMEOUT_SECS must be a positive whole number of seconds, got '${BOOT_TIMEOUT_SECS}'" >&2
+    exit 1
+fi
 READY_LOG_MARKER="virtual accelerator IOC serving PVs"
 
 # The PVAccess server's port, bound and published on the same number for the

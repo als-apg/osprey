@@ -90,7 +90,7 @@ class TestLaunchArgvCarriesNoPermissionBypass:
             ({}, False),
             ({"cli_version": "2.1.146"}, False),
             ({"cli_version": "2.1.146"}, True),
-            ({"provider": "anthropic", "default_model": "haiku"}, False),
+            ({"provider": "anthropic", "default_model": "claude-haiku-4-5"}, False),
         ],
     )
     def test_argv_contains_no_bypass_token(self, cc_config, no_pin):

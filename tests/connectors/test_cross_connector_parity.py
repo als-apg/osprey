@@ -1,4 +1,4 @@
-"""Every connector confirms a write the same way.
+"""Every connector answers the same way — one write contract, one read contract.
 
 The write contract's claim is not that each connector *has* a confirm flow —
 it is that the four of them report the **same word** for the same situation.
@@ -26,6 +26,14 @@ deliberately the ones the connector authors left:
 Writes are enabled through each file's existing config-patch idiom, and no
 limits validator is installed anywhere: limits are a different contract, and
 leaving them out keeps the subject of this file on confirmation alone.
+
+The read half is one claim rather than a table: a read that cannot reach its
+channel raises ``ConnectionError`` naming the channel. That word is what the
+control-system tools branch on — the connection branch of the shared error
+handler drops the connector so the next call rebuilds it, while an
+untranslated error reaches the unexpected-error branch and leaves a stale
+connector in place. Mock has no row: it accepts every channel name and
+serves a value for each, so it has no transport to fail.
 """
 
 import sys
@@ -46,6 +54,7 @@ VALUE_HELD_INSTEAD = 4.7
 
 READ_ERROR = "confirming read exploded"
 PUT_ERROR = "control system refused the put"
+UNREACHABLE = "the channel is not reachable"
 
 _LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
 _TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
@@ -464,3 +473,135 @@ class TestEpicsOnlyConfirmation:
         await connector.write_channel("SR:CH", VALUE_SENT)
 
         assert pv.get.call_args.kwargs["use_monitor"] is False
+
+
+# ---------------------------------------------------------------------------
+# The read contract — a channel that cannot be reached
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ReadFailure:
+    """How one connector answered a read it could not serve.
+
+    ``transport_message`` is what the transport itself said, for the
+    connectors whose failure arrives as a raised exception. EPICS' Channel
+    Access path reports an unreachable PV as a *state* — the PV simply never
+    connects — so there is no underlying error to carry and no message to
+    keep.
+    """
+
+    exception: BaseException
+    channel: str
+    transport_message: str | None
+
+
+async def _capture_read_failure(connector, channel: str, message: str | None) -> ReadFailure:
+    """Run one read that must fail, and hand the exception back unclassified."""
+    try:
+        await connector.read_channel(channel)
+    except Exception as exc:
+        return ReadFailure(exception=exc, channel=channel, transport_message=message)
+    raise AssertionError(f"the read of {channel!r} did not fail")
+
+
+async def _unreachable_epics(monkeypatch) -> ReadFailure:
+    """A PV that never connects — the CA path's own unreachable channel."""
+    pv = _fake_pv(VALUE_SENT)
+    pv.wait_for_connection.return_value = False
+    pv.connected = False
+    connector = _epics_connector(monkeypatch, pv=pv)
+
+    return await _capture_read_failure(connector, "SR:CH", None)
+
+
+async def _unreachable_doocs(_monkeypatch) -> ReadFailure:
+    """A doocs4py ``get`` that raises — the property could not be read."""
+    mock_d4py = _fake_doocs4py(VALUE_SENT)
+    mock_d4py.get.side_effect = RuntimeError(UNREACHABLE)
+
+    with (
+        patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+        patch(_LIMITS_PATCH, return_value=None),
+        patch(_TZ_PATCH, return_value=UTC),
+    ):
+        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+
+        conn = DOOCSConnector()
+        await conn.connect({})
+        failure = await _capture_read_failure(conn, "FAC/DEV/LOC/PROP", UNREACHABLE)
+        await conn.disconnect()
+
+    return failure
+
+
+async def _unreachable_tango(_monkeypatch) -> ReadFailure:
+    """A ``DeviceProxy`` that cannot be built — the device is not exported."""
+    mock_tango, _ = _fake_tango(VALUE_SENT)
+    mock_tango.DeviceProxy.side_effect = RuntimeError(UNREACHABLE)
+
+    with (
+        patch.dict(sys.modules, {"tango": mock_tango}),
+        patch(_TANGO_LIMITS_PATCH, return_value=None),
+        patch(_TANGO_TZ_PATCH, return_value=UTC),
+    ):
+        from osprey.connectors.control_system.tango_connector import TangoConnector
+
+        conn = TangoConnector()
+        await conn.connect({})
+        failure = await _capture_read_failure(conn, "sr/power_supply/ps01/Current", UNREACHABLE)
+        await conn.disconnect()
+
+    return failure
+
+
+_UNREACHABLE_DRIVERS = {
+    "epics": _unreachable_epics,
+    "doocs": _unreachable_doocs,
+    "tango": _unreachable_tango,
+}
+
+#: The two connectors whose transport reports the failure by raising.
+_TRANSLATING = ["doocs", "tango"]
+
+
+@pytest.mark.parametrize(
+    "connector_name", list(_UNREACHABLE_DRIVERS), ids=list(_UNREACHABLE_DRIVERS)
+)
+class TestUnreachableChannelParity:
+    """A channel that cannot be reached is a connection error on every connector."""
+
+    async def test_a_read_that_cannot_reach_its_channel_is_a_connection_error(
+        self, connector_name, monkeypatch
+    ):
+        failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
+
+        assert isinstance(failure.exception, ConnectionError)
+        # The contract's other failure word is a sibling of this one, and the
+        # two are answered differently: a timeout leaves the connector in
+        # place, a connection failure retires it. Neither may stand in for
+        # the other.
+        assert not isinstance(failure.exception, TimeoutError)
+
+    async def test_the_connection_error_names_the_channel(self, connector_name, monkeypatch):
+        """The operator is told which channel, not that something failed."""
+        failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
+
+        assert failure.channel in str(failure.exception)
+
+
+@pytest.mark.parametrize("connector_name", _TRANSLATING, ids=_TRANSLATING)
+class TestTranslatedReadFailures:
+    """Translating the word must not lose what the transport said."""
+
+    async def test_the_transports_own_message_is_kept(self, connector_name, monkeypatch):
+        failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
+
+        assert failure.transport_message is not None
+        assert failure.transport_message in str(failure.exception)
+
+    async def test_the_transports_own_exception_is_the_cause(self, connector_name, monkeypatch):
+        """``raise ... from exc``, so the traceback still reaches the transport."""
+        failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
+
+        assert isinstance(failure.exception.__cause__, RuntimeError)

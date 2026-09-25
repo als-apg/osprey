@@ -177,7 +177,9 @@ def test_drift_names_what_moved_and_that_the_start_verbs_refuse(lifecycle_repo):
     """The same verdict ``up`` refuses on, so a refusal is never a surprise here."""
     render_build(lifecycle_repo)
     profile = lifecycle_repo / "profile.yml"
-    profile.write_text(profile.read_text(encoding="utf-8") + "\nmodel: opus\n", encoding="utf-8")
+    profile.write_text(
+        profile.read_text(encoding="utf-8") + "\nmodel: claude-opus-5\n", encoding="utf-8"
+    )
 
     text = report(lifecycle_repo)
 
@@ -793,25 +795,77 @@ def test_the_per_agent_model_table_is_opt_in(lifecycle_repo):
 
     assert "agent models" not in default
     assert "agent models" in with_agents
-    assert "model tiers" in default
+    assert "Claude Code aliases" in default
+    assert "model tiers" not in default
 
 
 @pytest.mark.usefixtures("runtime")
-def test_the_agent_table_lists_every_framework_agent(lifecycle_repo):
-    """The table is the agent catalog, not the subset the tier map names.
+def test_each_alias_names_its_model_and_where_it_came_from(lifecycle_repo):
+    render_build(lifecycle_repo)
 
-    An agent absent from ``AGENT_DEFAULT_TIERS`` still runs — it takes the
-    resolver's ``sonnet`` fallback — so leaving it out of the report would make
-    status the one place its model went unsaid.
-    """
-    from osprey.registry.mcp import FRAMEWORK_AGENTS
+    text = report(lifecycle_repo)
 
+    assert "claude-sonnet-5 (derived)" in text
+    assert "claude-opus-5-5 (derived)" in text
+
+
+def _agent_file(build: Path, name: str, model: str | None) -> None:
+    """Write ``build/.claude/agents/<name>.md``, with a ``model:`` line when *model* is given."""
+    agents = build / ".claude" / "agents"
+    agents.mkdir(parents=True, exist_ok=True)
+    model_line = f"model: {model}\n" if model is not None else ""
+    (agents / f"{name}.md").write_text(
+        f"---\nname: {name}\ndescription: Test agent.\n{model_line}---\n", encoding="utf-8"
+    )
+
+
+@pytest.mark.usefixtures("runtime")
+def test_the_agent_table_lists_every_agent_the_build_ships(lifecycle_repo):
+    """The table is the agent files the build ships, each with the model its file names."""
+    build = render_build(lifecycle_repo)
+    _agent_file(build, "channel-finder", "claude-sonnet-5")
+    _agent_file(build, "logbook-search", "claude-sonnet-5")
+
+    text = report(lifecycle_repo, show_agents=True)
+
+    assert "channel-finder" in text
+    assert "logbook-search" in text
+    assert "claude-sonnet-5  (main model)" in text
+    assert "pyat-specialist" not in text
+
+
+@pytest.mark.usefixtures("runtime")
+def test_a_pinned_agent_names_its_pin(lifecycle_repo):
+    build = render_build(
+        lifecycle_repo,
+        config=_RENDERED_CONFIG + "  agent_models:\n    logbook-search: claude-haiku-4-5\n",
+    )
+    _agent_file(build, "logbook-search", "claude-haiku-4-5")
+
+    text = report(lifecycle_repo, show_agents=True)
+
+    assert "claude-haiku-4-5  (claude_code.agent_models)" in text
+
+
+@pytest.mark.usefixtures("runtime")
+def test_an_agent_file_of_the_deployment_names_its_own_model(lifecycle_repo):
+    build = render_build(lifecycle_repo)
+    _agent_file(build, "site-helper", "claude-opus-5-5")
+    _agent_file(build, "site-notes", None)
+
+    text = report(lifecycle_repo, show_agents=True)
+
+    assert "claude-opus-5-5  (agents/site-helper.md)" in text
+    assert "no model: line (Claude Code chooses)" in text
+
+
+@pytest.mark.usefixtures("runtime")
+def test_a_build_with_no_agent_files_says_so(lifecycle_repo):
     render_build(lifecycle_repo)
 
     text = report(lifecycle_repo, show_agents=True)
 
-    for agent_name in FRAMEWORK_AGENTS:
-        assert agent_name in text, agent_name
+    assert "none in build/.claude/agents" in text
 
 
 # ---------------------------------------------------------------------------

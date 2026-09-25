@@ -27,7 +27,6 @@ channel_finder:
         enabled: true
         store_path: var/agent_data/feedback/hierarchical_feedback.json
 claude_code:
-  default_model: haiku
   provider: anthropic
   servers:
     ariel:

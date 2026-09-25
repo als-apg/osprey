@@ -277,12 +277,14 @@
        rules. Plus `data-follows`, naming the preceding item's type — the one
        thing a bar item is allowed to know about its neighbours, and the reason
        no rule in bars.css uses a sibling combinator.
+       Shells whose entry carries options also carry them, as the JSON options
+       attribute bar-host.js merges over the type's defaults.
        Hidden by html[data-header-bar="hidden"], stamped on <html> above, the
        same way the status bar is. -->
   <header class="header">
     <div class="header-actions" data-bar-host="header">
       {%- for item in bar_header %}
-      <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
+      <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}{% if item.options %} data-bar-options='{{ item.options|tojson }}'{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
       {%- endfor %}
     </div>
   </header>
@@ -417,7 +419,7 @@
        reflowing after it. -->
   <footer class="status-bar" data-bar-host="status">
     {%- for item in bar_status %}
-    <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
+    <div class="bar-item" data-bar-item="{{ item.type }}"{% if item.follows %} data-follows="{{ item.follows }}"{% endif %}{% if item.options %} data-bar-options='{{ item.options|tojson }}'{% endif %}>{% if item.adopted %}{{ bar_body(item.type) }}{% endif %}</div>
     {%- endfor %}
   </footer>
 

@@ -82,7 +82,7 @@ def _ranked_backend_kwargs():
             "qmd_client": QMDClient(resolve_qmd_service_config(config)),
             "search_settings": OKFSearchSettings.from_config(config),
         }
-    except Exception:  # noqa: BLE001 — see above; degrade, never kill the panel.
+    except Exception:  # see above; degrade, never kill the panel.
         logger.warning(
             "okf panel: qmd search is misconfigured; serving substring search only.",
             exc_info=True,
@@ -115,7 +115,7 @@ def _load_bundle(bundle_path):
 
     try:
         bundle = OKFBundle(resolve_bundle_path(bundle_path), **_ranked_backend_kwargs())
-    except Exception:  # noqa: BLE001 — a bad path must degrade, not kill the thread.
+    except Exception:  # a bad path must degrade, not kill the thread.
         logger.warning(
             "okf panel: could not open bundle at %s; serving guarded app.",
             bundle_path,

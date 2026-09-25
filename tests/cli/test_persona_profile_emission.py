@@ -247,15 +247,19 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
         # The big sections are inherited, not restated.
         for inherited_key in ("app_template", "provider", "model", "requires_osprey_version"):
             assert inherited_key not in parsed, (persona_file.name, inherited_key)
-        postures[persona_file.stem] = parsed["config"]["control_system.writes_enabled"]
-    # admin joined the catalog with the tier floor: it sits above readwrite
-    # and keeps the write-armed posture.
+        config = parsed["config"]
+        postures[persona_file.stem] = (
+            config["control_system.writes_enabled"],
+            config.get("control_system.connector.virtual_accelerator.writes_enabled"),
+        )
+    # Every persona pins the flat key off; readwrite and admin arm the
+    # simulator's own block and nothing else.
     assert postures == {
-        "admin": True,
-        "knowledge": False,
-        "logbook": False,
-        "readonly": False,
-        "readwrite": True,
+        "admin": (False, True),
+        "knowledge": (False, False),
+        "logbook": (False, None),
+        "readonly": (False, False),
+        "readwrite": (False, True),
     }
 
 
@@ -344,7 +348,7 @@ def test_baked_model_selection_reaches_every_persona_by_inheritance(
         "--set",
         "provider=cborg",
         "--set",
-        "model=opus",
+        "model=claude-opus-5",
         "--set",
         "channel_finder_mode=in_context",
         "--set",
@@ -353,10 +357,10 @@ def test_baked_model_selection_reaches_every_persona_by_inheritance(
 
     assert result.exit_code == 0, result.output
     host = yaml.safe_load((target / "profile.yml").read_text())
-    assert (host["provider"], host["model"]) == ("cborg", "opus")
+    assert (host["provider"], host["model"]) == ("cborg", "claude-opus-5")
     assert host["tier"] == 1
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert (resolved.provider, resolved.model) == ("cborg", "opus")
+    assert (resolved.provider, resolved.model) == ("cborg", "claude-opus-5")
     assert resolved.channel_finder_mode == "in_context"
     assert resolved.tier == 1
     persona_files = sorted((target / "personas").iterdir())

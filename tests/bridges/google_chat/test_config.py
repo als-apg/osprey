@@ -76,6 +76,7 @@ def test_dataclass_defaults_match_from_env_defaults():
     cfg = GoogleChatBridgeConfig()
     assert (cfg.sa_key, cfg.subscription, cfg.app_id) == ("", "", "")
     assert (cfg.gcs_bucket, cfg.gcs_project, cfg.version_tag) == ("", "", "")
+    assert cfg.mentions is True
 
 
 def test_from_env_reads_os_environ_when_no_mapping_given(monkeypatch):
@@ -346,3 +347,26 @@ def test_an_unset_subscription_does_not_warn_about_its_shape(caplog):
     with caplog.at_level(logging.WARNING, logger=CONFIG_LOGGER):
         GoogleChatBridgeConfig.from_env({})
     assert not [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+
+
+# --- mentions --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("env", [{}, {"GCHAT_MENTIONS": ""}])
+def test_mentions_default_on_when_unset_or_empty(env):
+    assert GoogleChatBridgeConfig.from_env(complete(**env)).mentions is True
+
+
+@pytest.mark.parametrize("raw", ["false", "0", "no", "off", "ture"])
+def test_mentions_turn_off_for_a_false_spelling(raw):
+    assert GoogleChatBridgeConfig.from_env(complete(GCHAT_MENTIONS=raw)).mentions is False
+
+
+@pytest.mark.parametrize("raw", ["true", "1", "yes", "on"])
+def test_mentions_stay_on_for_a_true_spelling(raw):
+    assert GoogleChatBridgeConfig.from_env(complete(GCHAT_MENTIONS=raw)).mentions is True
+
+
+def test_mentions_are_not_a_startup_requirement():
+    GoogleChatBridgeConfig.from_env(complete(GCHAT_MENTIONS="false")).require_startup()
+    GoogleChatBridgeConfig.from_env(complete()).require_startup()  # no raise

@@ -4,7 +4,7 @@
 Monitor Your OSPREY Agent
 =========================
 
-How to emit the OSPREY agent's operational telemetry — logs and metrics — over
+How to emit the OSPREY agent's operational telemetry — logs, metrics and traces — over
 OpenTelemetry (OTLP), and optionally view it in a self-hosted store deployed
 alongside your project.
 
@@ -27,8 +27,8 @@ alongside your project.
 Overview
 ========
 
-The OSPREY agent can emit its operational telemetry — structured event logs and
-runtime metrics — over the OpenTelemetry Protocol (OTLP). Projects built from
+The OSPREY agent can emit its operational telemetry — structured event logs,
+runtime metrics and traces — over the OpenTelemetry Protocol (OTLP). Projects built from
 the bundled presets ship with telemetry **already enabled** and pointed at the
 local OpenObserve store; the mechanism itself only stays off when a config has
 no ``telemetry:`` block under ``claude_code:``. There are two ways to consume
@@ -44,9 +44,9 @@ it:
 
 .. note::
 
-   Only logs and metrics are wired. Distributed **tracing** (and the
-   ``OTEL_LOG_TOOL_CONTENT`` toggle) is intentionally left out of this
-   configuration surface.
+   Traces are exported to the same endpoint as logs and metrics. The exporter
+   appends ``/v1/traces`` to it, which is OpenObserve's traces route. A Phase 1
+   collector must accept traces.
 
 Phase 1 — Emit to any OTLP endpoint
 ===================================
@@ -319,8 +319,8 @@ name rather than a secret.
    instead would point every context at the same address and silently drop
    records from the ones it doesn't fit.
 
-On its next run the agent emits to OpenObserve, and its logs and metrics appear
-in the UI.
+On its next run the agent emits to OpenObserve, and its logs, metrics and traces
+appear in the UI.
 
 Content capture
 ===============
@@ -331,7 +331,7 @@ Phase 2 store is local and air-gapped, this full-fidelity posture is the
 default: nothing leaves the host, and complete transcripts make post-incident
 review far more useful.
 
-Four independent gates control it, all defaulting **on**. Set any to ``false``
+Five independent gates control it, all defaulting **on**. Set any to ``false``
 to suppress that category from emitted telemetry:
 
 .. code-block:: yaml
@@ -342,7 +342,17 @@ to suppress that category from emitted telemetry:
        log_user_prompts: true          # operator chat prompts
        log_assistant_responses: true   # agent replies
        log_tool_details: true          # tool names + arguments
+       log_tool_content: true          # built-in tool output (Read, Bash; Edit and Write with log_tool_details)
        log_raw_api_bodies: true        # raw provider request/response bodies
+
+``content_max_length`` sets how many UTF-16 code units one content value may
+carry before Claude Code truncates it; Claude Code's own limit, 61440, applies
+when it is unset. The control-assistant preset sets 262144. MCP tools, the
+osprey control-system tools among them, record no ``tool.output`` event, so
+their results are not in this feed.
+Their full arguments and results are in the osprey tool-call record
+(``audit.tool_call.enabled``, on in the control-assistant preset; see
+:doc:`/reference/contracts/audit-trail`).
 
 If you route telemetry to a shared or off-host backend (Phase 1), review these
 gates and disable the categories you do not want to leave the machine.

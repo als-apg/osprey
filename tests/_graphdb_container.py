@@ -2,10 +2,11 @@
 
 Every graph lane's store comes from here. What they differ in is not how the
 store is built but what they want back from it, and what an unstartable
-container means for them — and those two differences are the two entry points:
+container means for them — and those two differences are the entry points:
 :func:`graphdb_store` yields a bolt URI and skips when the container will not
-start, :func:`graphdb_store_published_port` yields the published host port and
-fails.
+start, :func:`watched_graphdb_store` yields the same store as a
+:class:`WatchedStore` and skips alike, and
+:func:`graphdb_store_published_port` yields the published host port and fails.
 
 **Why the plugins are mounted rather than downloaded by the server.** The
 shipped compose template sets ``NEO4J_PLUGINS`` and the Neo4j entrypoint honours
@@ -28,6 +29,18 @@ never mount.
 half and its content does not depend on the lane. The *store* is deliberately
 not shared: the lanes that wipe it between corpora start their own
 module-scoped container from this same recipe.
+
+**A store that stops answering.** A started store can still stop answering
+mid-module, most often because the host is saturated. The driver then raises
+``ServiceUnavailable`` from its socket layer, and a test that reads through
+the raw session reports that as its own failure. :class:`WatchedStore` and
+:class:`WatchedSession` make each such read fail as
+:class:`GraphStoreUnavailable`, naming the store. They do not stop later
+reads from contacting it: a stalled store can come back, and a later read
+that gets an answer is a real result. A store started by
+:func:`watched_graphdb_store` also says what state its container was in when
+the read failed, which is what tells a stalled store on a loaded host from one
+that exited.
 """
 
 from __future__ import annotations
@@ -36,14 +49,18 @@ import io
 import logging
 import os
 import tarfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 import pytest
 import requests
+from neo4j.exceptions import ServiceUnavailable
 
 from tests._container_support import (
+    container_state,
     is_docker_available,
     is_image_present,
     start_or_fail,
@@ -302,5 +319,142 @@ def graphdb_store_published_port(
     logger.info(f"{label}: bolt published on host port {port}")
     try:
         yield port
+    finally:
+        stop_quietly(container)
+
+
+# ---------------------------------------------------------------------------
+# A store that stops answering
+# ---------------------------------------------------------------------------
+
+
+class GraphStoreUnavailable(AssertionError):
+    """A store read got no answer because the store stopped answering after it started.
+
+    It subclasses :class:`AssertionError` so that a caller that does nothing
+    special reports it as the real failure it is, never as a skip. It is its
+    own type so that a reader can tell it apart from a parity assertion in the
+    short summary.
+    """
+
+
+class WatchedStore:
+    """Watches a started store's reads and turns ``ServiceUnavailable`` into
+    :class:`GraphStoreUnavailable`.
+
+    It keeps a count of losses for the message and does not stop later reads
+    from contacting the store.
+
+    Args:
+        uri: The bolt URI the store is reached on.
+        label: Human-readable name for the store, used in the failure.
+        inspect: Returns one line saying what state the store's container is
+            in. Called once per read that gets no answer, and its line added to
+            the failure. Without it the failure says nothing about the
+            container.
+    """
+
+    def __init__(self, uri: str, *, label: str, inspect: Callable[[], str] | None = None) -> None:
+        self.uri = uri
+        self.label = label
+        self.losses: list[str] = []
+        self._inspect = inspect
+
+    @contextmanager
+    def reading(self) -> Iterator[None]:
+        """Run the block as a read of this store.
+
+        Raises:
+            GraphStoreUnavailable: When the block raises ``ServiceUnavailable``.
+                Every other exception passes through untouched.
+        """
+        try:
+            yield
+        except ServiceUnavailable as exc:
+            where = os.environ.get("PYTEST_CURRENT_TEST", "a read outside any test")
+            self.losses.append(f"{where}: {type(exc).__name__}: {exc}")
+            message = (
+                f"{self.label} at {self.uri} stopped answering during {self.losses[-1]}\n"
+                "No answer came back to compare, so this is not a parity result. The "
+                "container started before this read; look at the container and the host "
+                "it runs on (docker ps -a, daemon load), not at the code under test."
+            )
+            if self._inspect is not None:
+                message += f"\nContainer state when the read failed: {_read_state(self._inspect)}"
+            if len(self.losses) > 1:
+                message += (
+                    f"\nThis store has stopped answering {len(self.losses)} times in this "
+                    f"module; the first was during {self.losses[0]}"
+                )
+            raise GraphStoreUnavailable(message) from exc
+
+
+def _read_state(inspect: Callable[[], str]) -> str:
+    """*inspect*'s line, or what stopped it; never raises."""
+    try:
+        return inspect()
+    except Exception as exc:
+        # The lost read is the failure to report, not the inspector's.
+        return f"could not be read ({type(exc).__name__}: {exc})"
+
+
+class WatchedSession:
+    """A driver session whose every read, record fetch included, runs inside
+    :meth:`WatchedStore.reading`.
+
+    The records are fetched inside the guard because the driver pulls them
+    lazily: a result handed back unread would fail outside it.
+
+    Args:
+        session: The driver session to read through.
+        store: The store the session is on.
+    """
+
+    def __init__(self, session: Any, store: WatchedStore) -> None:
+        self._session = session
+        self._store = store
+
+    def single(self, cypher: str, params: Mapping[str, Any] | None = None) -> Any:
+        """Run *cypher* and return the driver's ``.single()`` of its result."""
+        with self._store.reading():
+            return self._session.run(cypher, dict(params or {})).single()
+
+    def records(self, cypher: str, params: Mapping[str, Any] | None = None) -> list[Any]:
+        """Run *cypher* and return every record of its result."""
+        with self._store.reading():
+            return list(self._session.run(cypher, dict(params or {})))
+
+
+@contextmanager
+def watched_graphdb_store(
+    plugin_dir: Path,
+    *,
+    label: str = "graphdb (neo4j + n10s)",
+) -> Iterator[WatchedStore]:
+    """Start a throwaway graph store and yield it watched, with its container's state.
+
+    :func:`graphdb_store` for a lane that reads through :class:`WatchedStore`:
+    the same start, skip and teardown, but the store it yields can say what
+    state its container was in when a read got no answer, because this is the
+    one place that holds both the container and the URI.
+
+    Args:
+        plugin_dir: Directory holding n10s + APOC, from :func:`resolve_plugin_dir`.
+        label: Human-readable name for the store, used in skip messages and
+            in the failure.
+
+    Yields:
+        The started store, watched.
+
+    Raises:
+        Skipped: Via ``pytest.skip`` when the container will not start.
+    """
+    container = start_or_skip(lambda: _neo4j_container(plugin_dir), label=label)
+    try:
+        yield WatchedStore(
+            container.get_connection_url(),
+            label=label,
+            inspect=partial(container_state, container),
+        )
     finally:
         stop_quietly(container)

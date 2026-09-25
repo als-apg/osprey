@@ -47,6 +47,11 @@ dedup claim, so every Pub/Sub redelivery pays for it again, and any payload this
 module cannot make sense of is answered with ``None`` rather than an exception
 that would leave the message unacknowledged and redelivered forever.
 
+**Names are recorded from what the space itself shows.** :func:`people_seen` reads
+the people a message names — its human sender and every human it @mentions — so
+the room roster can name a member the member listing left unnamed. It is the same
+kind of pure read as the parse, and it never guesses.
+
 **Reply context is the one part that makes calls**, and it runs after the claim,
 so it is paid for once. Chat's native quote-reply arrives as
 ``quotedMessageMetadata`` on the Message resource, whose inline snapshot carries
@@ -470,6 +475,47 @@ def parse_event(raw: Any, cfg: GoogleChatBridgeConfig) -> InboundEvent | None:
         # Adapter-internal; never persisted.
         raw=message,
     )
+
+
+def people_seen(raw: Any) -> tuple[str, dict[str, str]]:
+    """The space and ``{user id: display name}`` for the people a Chat event names.
+
+    Two sources, both what the space itself shows: the message's sender (unless it
+    is a bot) and every ``USER_MENTION`` annotation's user (unless its ``type`` is
+    ``BOT``). An entry missing its id or its name is skipped. Free of I/O and never
+    raising: an event this cannot read gives ``("", {})``.
+
+    Args:
+        raw: One decoded Chat event, in either wire shape.
+
+    Returns:
+        The space resource name and the names seen, keyed by ``users/…`` id.
+    """
+    try:
+        event = _mapping(raw)
+        message = _extract_message(event) if event else None
+        if message is None:
+            return "", {}
+        space = _text(_mapping(message.get("space") or event.get("space")).get("name"))
+        seen: dict[str, str] = {}
+        sender = _mapping(message.get("sender"))
+        if sender.get("type") != BOT_SENDER_TYPE:
+            ident, name = _text(sender.get("name")), _text(sender.get("displayName"))
+            if ident and name:
+                seen[ident] = name
+        for annotation in _sequence(message.get("annotations")):
+            annotation = _mapping(annotation)
+            if annotation.get("type") != USER_MENTION:
+                continue
+            user = _mapping(_mapping(annotation.get("userMention")).get("user"))
+            if user.get("type") == BOT_SENDER_TYPE:
+                continue
+            ident, name = _text(user.get("name")), _text(user.get("displayName"))
+            if ident and name:
+                seen[ident] = name
+        return space, seen
+    except Exception:
+        return "", {}
 
 
 # --- reply context ---------------------------------------------------------

@@ -904,7 +904,7 @@ def emit_cmd(duckdb_path: str | None, repo: Path | None) -> None:
         try:
             duck.parent.mkdir(parents=True, exist_ok=True)
             import_to_duckdb(str(db_path), str(duck))
-        except Exception as exc:  # noqa: BLE001 - duckdb raises its own hierarchy
+        except Exception as exc:  # duckdb raises its own hierarchy
             raise click.ClickException(
                 f"Cannot import {db_path} into {duck} ({exc}); "
                 "check the path is writable and emit again."
@@ -1553,6 +1553,7 @@ def _emit_va(
 
     from osprey.services.mml.canonical import write_if_changed
     from osprey.services.mml.emit.va import (
+        UnbandedSetpointError,
         emit_bindings,
         emit_channel_limits,
         emit_lattice,
@@ -1608,6 +1609,8 @@ def _emit_va(
             views=lane.views,
             system=lane.system,
         )
+    except UnbandedSetpointError as exc:
+        raise click.ClickException(f"{exc} No virtual-accelerator file was written.") from exc
     except ValueError as exc:
         raise _disagrees(exc) from exc
 

@@ -43,7 +43,11 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import coerce_config_flag, create_app
+from osprey.interfaces.web_terminal.app import (
+    coerce_config_flag,
+    create_app,
+    resolve_config_flag,
+)
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 
@@ -62,7 +66,7 @@ COSMETIC_KEY = "claude_code.default_model"
 BASE_CONFIG = {
     "project_name": "config-panel-gate",
     "control_system": {"writes_enabled": False},
-    "claude_code": {"default_model": "sonnet"},
+    "claude_code": {"default_model": "claude-sonnet-5"},
 }
 
 
@@ -331,6 +335,65 @@ class TestCoerceConfigFlag:
     def test_uninterpretable_value_warns_and_takes_the_default(self, caplog):
         with caplog.at_level(logging.WARNING):
             result = coerce_config_flag(CONFIG_PANEL_KEY, {"enabled": True}, True)
+
+        assert result is True
+        assert any(
+            CONFIG_PANEL_KEY in record.message and record.levelno == logging.WARNING
+            for record in caplog.records
+        ), "expected a WARNING naming the key"
+
+
+class TestResolveConfigFlagFromANamedFile:
+    """The reader answers out of the file it is handed, expansion included."""
+
+    ON_ERROR = "Could not read web.config_panel.enabled; leaving the Config panel enabled"
+
+    @staticmethod
+    def _write(tmp_path, enabled):
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(yaml.dump({"web": {"config_panel": {"enabled": enabled}}}))
+        return config_file
+
+    def test_a_named_file_answers_the_read(self, tmp_path):
+        config_file = self._write(tmp_path, False)
+
+        result = resolve_config_flag(CONFIG_PANEL_KEY, True, self.ON_ERROR, config_path=config_file)
+
+        assert result is False
+
+    def test_no_named_file_reads_the_process_default(self, tmp_path):
+        self._write(tmp_path, False)
+
+        assert resolve_config_flag(CONFIG_PANEL_KEY, True, self.ON_ERROR) is True
+
+    @pytest.mark.parametrize(
+        ("value", "variable", "expected"),
+        [
+            ("${OSPREY_TEST_CONFIG_PANEL:-false}", None, False),
+            ("${OSPREY_TEST_CONFIG_PANEL}", "false", False),
+            ("${OSPREY_TEST_CONFIG_PANEL}", None, True),
+        ],
+    )
+    def test_a_variable_reference_is_expanded(
+        self, tmp_path, monkeypatch, value, variable, expected
+    ):
+        if variable is None:
+            monkeypatch.delenv("OSPREY_TEST_CONFIG_PANEL", raising=False)
+        else:
+            monkeypatch.setenv("OSPREY_TEST_CONFIG_PANEL", variable)
+        config_file = self._write(tmp_path, value)
+
+        result = resolve_config_flag(CONFIG_PANEL_KEY, True, self.ON_ERROR, config_path=config_file)
+
+        assert result is expected
+
+    def test_an_uninterpretable_value_still_fails_open(self, tmp_path, caplog):
+        config_file = self._write(tmp_path, {"nested": 1})
+
+        with caplog.at_level(logging.WARNING):
+            result = resolve_config_flag(
+                CONFIG_PANEL_KEY, True, self.ON_ERROR, config_path=config_file
+            )
 
         assert result is True
         assert any(

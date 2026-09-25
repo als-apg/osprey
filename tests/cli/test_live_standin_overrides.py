@@ -485,15 +485,18 @@ class TestTheRenderedDeploymentDialsTheStandIn:
     def test_live_standin_overrides_refuse_a_baseline_with_no_stand_in(
         self, runner, lifecycle_repo, caplog
     ) -> None:
-        """Dropping the key alone leaves the baseline naming a machine nobody serves.
+        """A baseline on the stand-in with no stand-in built names a machine nobody serves.
 
-        The exemplar starts every session on the stand-in, so ``live_standin``
-        is both a connector block and a baseline — and the two are one decision.
-        Removing the port without moving the baseline is the incoherent middle
-        state, and it is refused naming both keys rather than built into a
-        deployment whose every session dials a dead port.
+        A profile that starts every session on the stand-in makes
+        ``live_standin`` both a connector block and a baseline, and the two are
+        one decision. The exemplar opens on the sandbox simulator, so the
+        baseline is set here by hand. Removing the port without moving that
+        baseline is the incoherent middle state, and it is refused naming both
+        keys rather than built into a deployment whose every session dials a
+        dead port.
         """
         _set_live_standin(lifecycle_repo, None)
+        _add_config_entry(lifecycle_repo, "control_system.type", "live_standin")
 
         with caplog.at_level(logging.ERROR):
             result = _build(runner, lifecycle_repo)
@@ -508,12 +511,12 @@ class TestTheRenderedDeploymentDialsTheStandIn:
     ) -> None:
         """No stand-in: no third target, and the shipped production block stands.
 
-        The baseline moves back to the sandbox VA with the port, because the two
-        are one decision (see the refusal above) — this is the deployment an
-        operator who never asked for a stand-in actually has.
+        The exemplar opens on the sandbox simulator, so dropping the port is the
+        whole edit: the baseline never named the stand-in and stays where it
+        was. This is the deployment an operator who never asked for a stand-in
+        actually has.
         """
         _set_live_standin(lifecycle_repo, None)
-        _add_config_entry(lifecycle_repo, "control_system.type", "virtual_accelerator")
 
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
@@ -521,6 +524,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         rendered = (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
         config = yaml.safe_load(rendered)
         control_system = config["control_system"]
+        assert control_system["type"] == "virtual_accelerator"
         assert "live_standin" not in control_system["connector"]
         assert control_system["connector"]["epics"] == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in control_system["connector"]["epics"]

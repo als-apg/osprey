@@ -57,6 +57,10 @@ from osprey.mcp_server.dispatch_worker.input_files_policy import (
     sanitize_filename,
     validate_input_files,
 )
+from osprey.mcp_server.dispatch_worker.prior_answers import (
+    PRIOR_ANSWERS_CAPABILITY,
+    keep_run_ids,
+)
 from osprey.utils.bearer import credential_bytes
 from osprey.utils.tool_rules import matches_denylist
 
@@ -85,7 +89,7 @@ MAX_REQUEST_BYTES = 32 * 1024 * 1024
 # Capabilities this worker advertises on /health. A downstream bridge gates
 # feature use on BOTH the dispatcher's and the worker's /health carrying the
 # capability, so the list is a plain JSON array on both bodies.
-_CAPABILITIES: list[str] = ["input_files"]
+_CAPABILITIES: list[str] = ["input_files", PRIOR_ANSWERS_CAPABILITY]
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -156,7 +160,7 @@ def _load_persisted_runs() -> None:
 
 
 def _inject_provider_env_once() -> None:
-    """Inject OSPREY provider env vars (auth, base URL, model tiers) into os.environ.
+    """Inject OSPREY provider env vars (auth, base URL, Claude Code alias models) into os.environ.
 
     Replicates what the OSPREY web server does at startup so the dispatch
     worker's SDK sessions use the same auth and model configuration.
@@ -233,6 +237,7 @@ def _inject_provider_env_once() -> None:
                 port = start_proxy(
                     spec.upstream_base_url,
                     os.environ.get(spec.auth_env_var),
+                    provider=spec.provider,
                 )
                 os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
                 logger.info("Translation proxy on :%d (provider=%s)", port, spec.provider)
@@ -271,7 +276,7 @@ app = FastAPI(title="dispatch-worker", version="1.0.0", lifespan=_lifespan)
 
 
 @app.middleware("http")
-async def _limit_request_body(request: Request, call_next):  # noqa: ANN001, ANN202
+async def _limit_request_body(request: Request, call_next):
     """Reject an over-size request body (413) before the route reads it.
 
     Guards every route from the declared Content-Length; only /dispatch carries a
@@ -494,6 +499,12 @@ class DispatchRequest(BaseModel):
     declared here to survive at all — an undeclared key is dropped silently, and
     the run would be judged against nobody's narrowing while the fire was
     attributed to a person.
+
+    ``prior_answer_runs`` is additive and defaults to ``None``: the run ids of
+    earlier answers the bridge replayed shortened, and the only runs
+    ``prior_answer_read`` will read for this run. Malformed ids are dropped
+    rather than refused — the list is enrichment, and a dispatch must not fail
+    over it.
     """
 
     prompt: str
@@ -503,6 +514,16 @@ class DispatchRequest(BaseModel):
     surface_tools: list[str] | None = None
     input_files: list[InputFile] | None = None
     owner: str | None = None
+    prior_answer_runs: list[str] | None = None
+
+    @field_validator("prior_answer_runs", mode="before")
+    @classmethod
+    def _keep_valid_prior_answer_runs(cls, value: Any) -> list[str] | None:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            return None
+        return keep_run_ids(value) or None
 
 
 class DispatchResponse(BaseModel):
@@ -672,6 +693,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,
                 owner=request.owner,
+                prior_answer_runs=request.prior_answer_runs,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )
@@ -936,7 +958,8 @@ async def get_dispatch_artifact(run_id: str, artifact_id: str) -> FileResponse:
     collapse to the same 404 — so a caller holding one run_id can neither read
     nor probe for another run's output. ``artifact_id`` is resolved through the
     store index, never joined into a path. HTML/notebook/etc. artifacts are
-    converted to PNG here (only the requested one); images/PDFs pass through.
+    converted to PNG here (only the requested one); images, PDFs and CSV/TSV
+    tables pass through.
     """
     ref = await resolve_single_run_artifact(run_id, artifact_id)
     if ref is None:

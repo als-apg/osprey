@@ -6,7 +6,7 @@ MCP tool calls → (optionally) submit_response.
 Covers the in-core sub-agents shipped by the ``control_assistant`` preset:
 
 - logbook-search (ARIEL/PostgreSQL)
-- logbook-deep-research (ARIEL/PostgreSQL, opus model)
+- logbook-deep-research (ARIEL/PostgreSQL)
 - data-visualizer (workspace plotting/LaTeX tools, no facility backend)
 
 Facility-specific sub-agents (literature/wiki/matlab/graph) are not

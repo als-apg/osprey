@@ -7,8 +7,9 @@ Python Executor
 The Python Execution Service runs user-provided code in a separate host
 subprocess with layered safety checks, a process boundary, and timeout
 enforcement. It is a process boundary on the host, not a sandbox or container:
-the code runs with the executor's own environment (from which sensitive
-credentials are stripped), not inside an isolated machine. Code it runs can
+the code runs with an allowlisted copy of the executor's environment, not the
+executor's own, and not inside an isolated machine (see
+:ref:`python-executor-secrets-zone`). Code it runs can
 write anywhere the executor process can, apart from the deployment's own
 sources and render --- see :ref:`python-executor-protected-paths`, which also
 says plainly how far that protection goes.
@@ -286,11 +287,8 @@ refusal changes --- a ``readonly`` run is told the mode, a ``readwrite`` run is
 told the path --- and re-running as ``readwrite`` never lifts it. To change any
 of these, edit the profile source yourself and run ``osprey build``.
 
-``.env`` is deliberately **not** in this set. What matters about the secrets
-zone is that executed code should not *read* it, and this is a write-side
-guard; listing the path here would advertise it while protecting nothing that
-matters. Read that omission as "a different problem, not yet solved", not as a
-verdict that ``.env`` is safe for executed code to touch.
+``.env`` is not in this set: the secrets zone is refused for reads as well
+(see :ref:`python-executor-secrets-zone`).
 
 Two layers enforce the set:
 
@@ -337,6 +335,29 @@ Two layers enforce the set:
    so. It intercepts only ``open`` and ``io.open``, and ``io.open`` for write
    modes alone: CPython routes ``pathlib`` through it, so guarding reads there
    would change what plotting code is allowed to *read* today.
+
+.. _python-executor-secrets-zone:
+
+The secrets zone
+----------------
+
+Executed code gets a fixed set of environment variables from the executor ---
+paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
+control-system client settings and the osprey names the run reads --- plus any
+names listed in ``python_executor.child_env_passthrough`` (see
+:ref:`config-python-executor`). A credential osprey holds cannot be listed
+there. The child does not load the project's env chain (``.env.shared``,
+``.env``) itself.
+
+Opening one of the project's ``.env`` files, or any ``/proc/*/environ`` or
+``/proc/*/cmdline``, is refused in both modes, for reads and writes; the
+visualization sandbox refuses the same opens, ``pathlib`` reads included. A
+``readonly`` refusal is reported like any other runtime refusal; a
+``readwrite`` one is refused and not audited, as for protected paths.
+
+This is the same in-process guard as the write side, so code that deliberately
+disarms it is contained only by the operating system: files the executing
+account can read stay readable to it.
 
 .. _python-executor-session-posture:
 

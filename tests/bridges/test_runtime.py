@@ -26,15 +26,15 @@ from typing import Any
 
 import pytest
 
-from osprey.bridges.core import runtime
+from osprey.bridges.core import pipeline, runtime
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.dispatch_client import DispatchClient
 from osprey.bridges.core.history import HistoryStore
 from osprey.bridges.core.pipeline import PipelineDeps
-from osprey.bridges.core.ports import InputDownload
+from osprey.bridges.core.ports import InboundEvent, InputDownload, RoomMember, RoomPeople
 from osprey.bridges.core.reconcile import ReconcileDeps
-from tests.bridges.conftest import RecordingChannelOps
+from tests.bridges.conftest import RecordingChannelOps, RosterChannelOps
 
 QUESTION = "what is the orbit doing?"
 HISTORY_KEY = "room/AAA"
@@ -583,6 +583,46 @@ def test_rebuild_extra_is_empty_for_a_text_only_entry(tmp_path):
     assert runtime.rebuild_extra(deps, deps.dedup.get("m1")) == {}
 
 
+def test_rebuild_extra_carries_the_same_asker_the_live_path_sent(tmp_path):
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    ops = RecordingChannelOps(parse_result=event)
+    deps = _deps(tmp_path, ops)
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["asker"] == {"id": "users/111", "name": "Alice"}
+    assert runtime.rebuild_extra(deps, deps.dedup.get("m1"))["asker"] == live_extra["asker"]
+
+
+def test_rebuild_extra_ships_the_same_room_as_the_live_path(tmp_path):
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    room = RoomPeople(members=(RoomMember("users/111", "Alice"), RoomMember("users/222")))
+    ops = RosterChannelOps(parse_result=event, room_people=room)
+    deps = _deps(tmp_path, ops)
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["room"]["members"] == [
+        {"id": "users/111", "name": "Alice"},
+        {"id": "users/222", "name": None},
+    ]
+    assert runtime.rebuild_extra(deps, deps.dedup.get("m1"))["room"] == live_extra["room"]
+
+
 # --- the adapter entry point --------------------------------------------------
 
 
@@ -637,3 +677,36 @@ def test_package_exports_the_documented_engine_surface():
     assert core.RESERVED_ENTRY_KEYS is ports.RESERVED_ENTRY_KEYS
     assert core.handle_event is pipeline.handle_event
     assert core.run_forever is runtime.run_forever
+
+
+def test_rebuild_extra_ships_the_same_shortened_history_as_the_live_path(tmp_path):
+    long_run = "3f2b6c1e-8a4d-4f0e-9b1a-2c3d4e5f6a7b"
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    ops = RecordingChannelOps(parse_result=event)
+    deps = _deps(tmp_path, ops)
+    deps.history.append(HISTORY_KEY, "the table?", "| row |\n" * 2000, run_id=long_run)
+    rebuilt: list[dict[str, Any]] = []
+
+    class RebuildingDispatcher(FakeDispatcher):
+        """Rebuilds the payload at dispatch time, before the answer joins the history."""
+
+        def run(self, question, extra=None, *, on_run_id=None):
+            rebuilt.append(runtime.rebuild_extra(deps, deps.dedup.get("m1")))
+            return super().run(question, extra, on_run_id=on_run_id)
+
+    deps = dataclasses.replace(deps, dispatcher=RebuildingDispatcher(ops))
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["prior_answer_runs"] == [long_run]
+    assert "answer_chars" in live_extra["conversation_so_far"][0]
+    [again] = rebuilt
+    assert again["conversation_so_far"] == live_extra["conversation_so_far"]
+    assert again["prior_answer_runs"] == live_extra["prior_answer_runs"]

@@ -50,6 +50,7 @@ Header line, then one box per group in this order, then the question.
  │ agents     <native list>                                             │
  │ skills     <native list>                                             │
  │ custom     <list, each `custom (shadows <name>)` where it shadows>   │
+ │ models     main <id> · pinned <agent> <id> · … | none pinned         │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ WEB ── <n> panels · <n> users · <n> personas · auth <method> ────────┐
  │ panels     <native list> · configured: <list>                        │
@@ -302,6 +303,64 @@ what an adopted area lands; `leaves` lists what a `later` or `never` area leaves
  │ leaves     dispatch service · events panel                           │
  └──────────────────────────────────────────────────────────────────────┘
  Adopt as shown, or change an area?
+```
+
+## MODELS
+
+Drawn in BUILD step 9, once the ports in step 5 have made the agent list final, and again
+after every answer.
+
+```
+ MODELS — <name> · <provider> · main <model id>
+ ┌ AGENTS ── <n> enabled · <n> pinned ──────────────────────────────────┐
+ │ <agent>                    main model                                │
+ │                            <purpose>                                 │
+ │ <agent>                    <pinned id>                               │
+ │                            <purpose>                                 │
+ │                            ⚠ not in <provider>'s models list         │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ SERVED ── <provider> ────────────────────────────────────────────────┐
+ │ <id> · <id> · <id>                                                   │
+ └──────────────────────────────────────────────────────────────────────┘
+ Every agent on the main model?  yes / pin <agent>=<id> … / modify
+```
+
+Where each line comes from:
+
+- The header's provider is the profile's `provider:`. Its model is `model:`, else that
+  entry's `default_model` in `providers.yml` beside the profile.
+- The AGENTS names are the profile's `agents:` list plus the `agents/` directory.
+  `<purpose>` is the agent's line in `osprey profile artifacts`, or a deployment file's
+  `description:`. The model is `main model`, a `claude_code.agent_models.<agent>` value,
+  or a deployment file's `model:` line. The `⚠` continuation marks a pinned id the
+  entry's `models` list lacks.
+- SERVED is the entry's `models` list, verbatim.
+
+The question:
+
+- `yes` is the default and writes nothing.
+- A pin is written with `osprey set config.claude_code.agent_models.<agent>=<id>`, which
+  refuses a name that is no agent and a bare alias word, and notes an unlisted id.
+- Offer ids from SERVED. An id outside it is the user's to name.
+- A deployment's own agent file takes no pin: its `model:` line is edited instead.
+- Then `osprey validate --drift=warn`, and the card is drawn again.
+
+Worked example:
+
+```
+ MODELS — quokka · cborg · main claude-haiku-4-5
+ ┌ AGENTS ── 3 enabled · 1 pinned ──────────────────────────────────────┐
+ │ channel-finder             main model                                │
+ │                            Channel-finder sub-agent                  │
+ │ logbook-deep-research      claude-opus-5                             │
+ │                            Logbook deep-research sub-agent           │
+ │ logbook-search             main model                                │
+ │                            Logbook search sub-agent                  │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ SERVED ── cborg ─────────────────────────────────────────────────────┐
+ │ claude-opus-5 · claude-sonnet-5 · claude-haiku-4-5                   │
+ └──────────────────────────────────────────────────────────────────────┘
+ Every agent on the main model?  yes / pin <agent>=<id> … / modify
 ```
 
 ## LEDGER GATE

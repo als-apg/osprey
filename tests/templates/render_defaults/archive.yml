@@ -1,0 +1,80 @@
+# The archive service keeps an append-only copy of this deployment's agent
+# record in the host directory var/archive/. It runs `osprey archive --watch`:
+# one pass at start, then one every `services.archive.interval_seconds`. A pass
+# copies what changed since the last one — web-terminal and dispatch
+# transcripts, dispatch run records, artifact stores, plan-queue history, the
+# audit ledger — and, when the deployment runs OpenObserve, every completed day
+# of its logs and traces. Every source is mounted read-only; the archive never
+# deletes or rewrites a copy.
+#
+# It runs the PROJECT image (<project>:local) that `osprey up` builds from the
+# project root, and overrides only its entrypoint. OSPREY_WORKER_IMAGE
+# overrides with a prebuilt/published image. There is deliberately NO `build:`
+# block: the project image is built once by `osprey up` before `docker compose
+# up` runs, and a second `build:` for the same tag would race the sole builder.
+
+services:
+  archive:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run an archive on one host.
+    container_name: golden-project-archive
+    # The image entrypoint always drops to the unprivileged `osprey` user
+    # before it runs anything; this bypasses it on purpose. Container root is
+    # the invoking user under rootless podman, so a 0700 archive root that user
+    # owns is writable and every copy lands owned by that user; under rootful
+    # docker the command hands what it writes to the archive root's owner. It
+    # is also the only identity that can read every source volume — the Redis
+    # files belong to the redis uid. The agent never runs in this container.
+    entrypoint: ["osprey", "archive", "--watch"]
+    user: "0:0"
+    security_opt: ["no-new-privileges:true"]
+    # DAC_OVERRIDE reads files other uids own; CHOWN and FOWNER hand created
+    # files to the archive root's owner and set their modes.
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST), carried by every labelled service. This
+      # container mounts no config file; its interval and sources are rendered
+      # from that config into this document.
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+      # Content fingerprint of the env chain (runtime_helper's
+      # env_chain_digest, carried in by OSPREY_ENV_DIGEST). The telemetry
+      # store's ingest credentials arrive through the chain, so a rotated token
+      # has to recreate this container.
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+    # No `ports:` and no `healthcheck:`: this service opens no socket. Its
+    # liveness is the `archive_last_pass` health row reading the archive's own
+    # manifests, as `ariel_last_ingestion` is for the mirror.
+
+    # The deployment's env is a CHAIN of files at the repo root, in ASCENDING
+    # precedence; a later entry wins on any key an earlier one also sets. The
+    # telemetry store's ingest credentials (ZO_INGEST_USER_EMAIL,
+    # ZO_INGEST_SA_TOKEN) arrive this way — never on the command line, where
+    # the process list would show them. Only files that exist at render time
+    # are listed.
+    env_file:
+      - ./.env
+
+    environment:
+      OSPREY_ARCHIVE_SOURCES: /archive/sources
+      OSPREY_ARCHIVE_DEST: /archive/dest
+      OSPREY_ARCHIVE_INTERVAL_SECONDS: "86400"
+      TZ: UTC
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT. Every source is read-only; the one
+    # writable mount is the archive root.
+    volumes:
+      - ./var/archive:/archive/dest
+      - ./var/audit:/archive/sources/audit:ro
+    networks:
+      - osprey-network
+
+networks:
+  osprey-network:

@@ -229,7 +229,7 @@ def test_the_rendered_entry_announces_when_it_is_ready(runner: CliRunner, tmp_pa
     env = dict(os.environ)
     env.update(entry.get("env") or {})
 
-    proc = subprocess.Popen(  # noqa: S603 - command comes from the generated .mcp.json
+    proc = subprocess.Popen(  # command comes from the generated .mcp.json
         [entry["command"], *entry["args"]],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

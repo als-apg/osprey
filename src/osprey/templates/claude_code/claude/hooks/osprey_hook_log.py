@@ -303,13 +303,17 @@ def get_repo_root(hook_input=None):
        service actually runs in.
     3. The nearest ancestor holding ``profile.yml``, found the way every OSPREY
        verb finds a repo. Reached only when the config named no usable root and
-       does not exist, where the framework has nothing left to consult either.
+       does not exist. The framework takes the same walk at the same point,
+       from its working directory.
     4. The recorded ``project_root`` after all, unqualified. A build rendered
        with ``--runtime-root`` records a path that exists only on the machine it
        will run on, and with no config file to unwrap there is nothing better to
        anchor on — the framework keeps the same value as its own late rung.
     5. The project directory itself. A legacy flat layout has no zones to
-       separate, so anchoring on it is the right answer.
+       separate, so anchoring on it is the right answer. The framework's last
+       rung is its working directory instead. It does not read the harness
+       variable, so the two agree whenever that variable is unset or names the
+       working directory.
 
     Returns:
         The repo root as a string, matching :func:`get_project_dir`'s type.
@@ -448,7 +452,9 @@ def log_hook(hook_name, hook_input, status="ok", detail=""):
 # minimal subset is restated here in the standard library, and
 # `tests/hooks/test_hook_audit_emitter.py` pins every constant below against
 # `osprey.audit.envelope`, `osprey.audit.writer` and `osprey.audit.posture` so
-# the two cannot drift into two formats sharing one directory.
+# the two cannot drift into two formats sharing one directory — the timestamp
+# format and the tool-use id shape (`_AUDIT_TOOL_USE_ID`, pinned against
+# `osprey.audit.call`) included.
 #
 # Nothing here may cost a decision. Hooks fail OPEN — an uncaught exception
 # exits non-zero with no JSON and the tool proceeds — so `emit_audit` swallows
@@ -505,6 +511,16 @@ POSTURE_WRITES = "writes"
 #: recording it as either would be a false statement about what happened.
 AUDIT_DECISION_REFUSED = "refused"
 AUDIT_DECISION_ASK = "ask"
+
+#: An ask's answer is its own record, on the same ``tool_use_id`` as the ask:
+#: ``approved`` when the harness reports the call ran, ``denied`` when the turn
+#: ended without it. The envelope spells both the same way.
+AUDIT_DECISION_APPROVED = "approved"
+AUDIT_DECISION_DENIED = "denied"
+
+#: The shape a tool-use id is recorded in, restated from ``osprey.audit.call``.
+#: Anything else in the hook input is dropped rather than recorded.
+_AUDIT_TOOL_USE_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")
 
 #: Record fields that are always present, in envelope order after ``ts``.
 AUDIT_REQUIRED_FIELDS = (
@@ -656,7 +672,14 @@ def _audit_line(record):
     return _audit_encode(record)
 
 
-def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None):
+def _audit_tool_use_id(value):
+    """*value* when it is a well-formed tool-use id, else ``None``."""
+    if isinstance(value, str) and _AUDIT_TOOL_USE_ID.match(value):
+        return value
+    return None
+
+
+def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, tool_use_id=None):
     """Record one hook decision in the deployment's audit ledger.
 
     Call this at a deny or an ask, before the ``sys.exit(0)`` that carries the
@@ -670,6 +693,8 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None):
     :param reason: Short machine-ish reason (``posture``, ``writes_disabled``).
     :param detail: Optional supplementary context. Identifiers and config keys
         only: never a config value, a channel value, a prompt or agent text.
+    :param tool_use_id: The tool call this record is about; defaults to the
+        hook input's ``tool_use_id``. A malformed id is left off the record.
     :returns: The ledger path as a string, or ``None`` when nothing was stored.
 
     Never raises, and never blocks a decision on the audit trail: an unwritable
@@ -677,7 +702,7 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None):
     nothing else.
     """
     try:
-        record = {"ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        record = {"ts": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
         identity = acting_identity()
         session = _audit_component(os.environ.get(POSTURE_SESSION_ENV))
         sandboxed = os.environ.get(EXECUTION_MODE_ENV) == READONLY_MODE
@@ -691,6 +716,11 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None):
         record["reason"] = _audit_field(reason or UNKNOWN_IDENTITY, AUDIT_MAX_FIELD_CHARS)
         if detail:
             record["detail"] = _audit_field(detail, AUDIT_MAX_DETAIL_CHARS)
+        if tool_use_id is None and isinstance(hook_input, dict):
+            tool_use_id = hook_input.get("tool_use_id")
+        tool_use_id = _audit_tool_use_id(tool_use_id)
+        if tool_use_id:
+            record["tool_use_id"] = _audit_field(tool_use_id, AUDIT_MAX_FIELD_CHARS)
 
         path = audit_ledger_path(hook_name, hook_input, identity=identity)
         line = _audit_line(record)

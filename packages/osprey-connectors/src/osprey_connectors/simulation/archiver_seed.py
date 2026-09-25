@@ -437,7 +437,7 @@ def synthesize_documents(
     # no test of the shipped whole-second cadences would ever surface, and one
     # that would break bit-equality for any caller that seeds a finer grid.
     reader_epoch_s = epoch_seconds_array(stamps)
-    assert reader_epoch_s is not None  # noqa: S101 - datetimes always convert
+    assert reader_epoch_s is not None  # datetimes always convert
 
     for channel in channels:
         address = str(channel["address"])

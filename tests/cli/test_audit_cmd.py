@@ -372,14 +372,13 @@ class TestReviewerProvider:
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
     @pytest.mark.usefixtures("stub_reviewer_options")
-    def test_default_model_is_the_projects_sonnet_tier(
+    def test_default_model_is_the_projects_main_model(
         self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch
     ):
         mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
         seen: dict = {}
 
-        def fake_resolve(project_dir, tier="haiku"):
-            seen["tier"] = tier
+        def fake_resolve(project_dir):
             seen["project_dir"] = project_dir
             return "gateway/claude-sonnet"
 
@@ -390,7 +389,6 @@ class TestReviewerProvider:
         result = runner.invoke(self._get_audit_cmd(), [str(tmp_project)])
 
         assert result.exit_code == 0
-        assert seen["tier"] == "sonnet"
         assert seen["project_dir"] == tmp_project
         assert "gateway/claude-sonnet" in result.output
 
@@ -403,7 +401,7 @@ class TestReviewerProvider:
         mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
         monkeypatch.setattr(
             "osprey.agent_runner.primitives.resolve_default_model",
-            lambda project_dir, tier="haiku": "should-not-be-used",
+            lambda project_dir: "should-not-be-used",
             raising=True,
         )
 
@@ -439,7 +437,7 @@ class TestReviewerProvider:
         mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
         seen: dict = {}
 
-        def fake_resolve(project_dir, tier="haiku"):  # noqa: ARG001 - the tier keyword audit_cmd resolves a model with
+        def fake_resolve(project_dir):
             seen["project_dir"] = project_dir
             return "resolved-model"
 

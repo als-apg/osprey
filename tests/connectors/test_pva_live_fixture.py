@@ -41,13 +41,13 @@ import pytest
 
 pytest.importorskip("p4p", reason="p4p is required to serve a live PVAccess fixture")
 
-from p4p.nt import NTEnum, NTNDArray, NTScalar  # noqa: E402
-from p4p.server import Server  # noqa: E402
-from p4p.server.thread import SharedPV  # noqa: E402
+from p4p.nt import NTEnum, NTNDArray, NTScalar
+from p4p.server import Server
+from p4p.server.thread import SharedPV
 
-from osprey.connectors.control_system.base import WriteOutcome  # noqa: E402
-from osprey.connectors.control_system.epics_connector import EPICSConnector  # noqa: E402
-from tests.mcp_server.conftest import extract_response_dict, get_tool_fn  # noqa: E402
+from osprey.connectors.control_system.base import WriteOutcome
+from osprey.connectors.control_system.epics_connector import EPICSConnector
+from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 # The served namespace, kept to one prefix so a single glob routes all of it
 # over PVAccess and nothing else in the suite can collide with it.

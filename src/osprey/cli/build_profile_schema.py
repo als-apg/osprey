@@ -861,6 +861,13 @@ class VAConfig:
     base; the field stays an ``int | None`` because a facility may still name an
     absolute port, and every consumer downstream reads one number either way."""
 
+    pva_port: int | None = None
+    """pvAccess TCP port virtual-accelerator instance 1 publishes its model
+    surface on. Absent (the default) leaves the compose template's own default,
+    the pvAccess protocol port :data:`~osprey.port_layout.PVA_DEFAULT_PORT`.
+    Like ``port`` it is outside the deployment's port block, so a second
+    deployment on one host that runs a virtual accelerator names its own here."""
+
 
 @dataclass
 class BlueskyWebConfig:
@@ -911,6 +918,12 @@ class NextcloudBridgeProfileConfig:
     trigger declared in the ``dispatch.triggers`` file.
     """
 
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    room participant, rendered as ``NEXTCLOUD_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
+    """
+
 
 @dataclass
 class GChatBridgeProfileConfig:
@@ -939,6 +952,12 @@ class GChatBridgeProfileConfig:
     hand-rolled (non-build) deployment still fails loudly on a missing trigger
     rather than silently firing a name nobody declared. The value must name a
     trigger declared in the ``dispatch.triggers`` file.
+    """
+
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    space member, rendered as ``GCHAT_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
     """
 
 
@@ -971,4 +990,10 @@ class TeamsBridgeProfileConfig:
     hand-rolled (non-build) deployment still fails loudly on a missing trigger
     rather than silently firing a name nobody declared. The value must name a
     trigger declared in the ``dispatch.triggers`` file.
+    """
+
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    conversation member, rendered as ``TEAMS_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
     """

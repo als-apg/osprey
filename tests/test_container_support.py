@@ -9,6 +9,7 @@ and executes none of its assertions: it looks green while proving nothing.
 """
 
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -16,6 +17,7 @@ import requests
 from tests import _container_support
 from tests._container_support import (
     ContainerExitedError,
+    container_state,
     docker_cli_unavailable_reason,
     start_or_skip,
     wait_until_ready,
@@ -470,3 +472,65 @@ def test_an_unreadable_container_leaves_the_wait_on_the_probe_alone():
     wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=UnreadableContainer())
 
     assert probe.calls == 3
+
+
+# container_state: one line for what a started container is doing
+
+
+class _FakeDockerClient:
+    """Answers ``containers.get`` with a scripted ``State`` or error and records the call."""
+
+    def __init__(self, state: dict | None = None, error: Exception | None = None):
+        self._state = state
+        self._error = error
+        self.asked: list[str] = []
+        self.closed = False
+        self.containers = self
+
+    def get(self, container_id: str):
+        self.asked.append(container_id)
+        if self._error is not None:
+            raise self._error
+        return SimpleNamespace(attrs={"State": self._state})
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize(
+    ("state", "error", "expected"),
+    [
+        ({"Status": "running", "ExitCode": 0, "OOMKilled": False}, None, "running"),
+        ({"Status": "paused", "ExitCode": 0, "OOMKilled": False}, None, "paused"),
+        ({"Status": "exited", "ExitCode": 1, "OOMKilled": False}, None, "exited (code 1)"),
+        (
+            {"Status": "exited", "ExitCode": 137, "OOMKilled": True},
+            None,
+            "exited (code 137, out of memory)",
+        ),
+        ({"Status": "dead", "ExitCode": 255, "OOMKilled": False}, None, "dead (code 255)"),
+        (None, docker_errors.NotFound("No such container: c0ffee"), "gone"),
+        (
+            None,
+            requests.exceptions.ReadTimeout("read timed out"),
+            "unreadable (ReadTimeout: read timed out)",
+        ),
+    ],
+    ids=["running", "paused", "exited", "oom-killed", "dead", "gone", "slow-daemon"],
+)
+def test_container_state_says_what_the_daemon_says_in_one_line(monkeypatch, state, error, expected):
+    """The daemon's state comes back as one line, read on a bounded client of its own."""
+    client = _FakeDockerClient(state=state, error=error)
+    timeouts: list[float] = []
+
+    def from_env(*, timeout):
+        timeouts.append(timeout)
+        return client
+
+    monkeypatch.setattr("docker.from_env", from_env)
+    container = SimpleNamespace(get_wrapped_container=lambda: SimpleNamespace(id="c0ffee"))
+
+    assert container_state(container, timeout=4.0) == expected
+    assert client.asked == ["c0ffee"]
+    assert timeouts == [4.0]
+    assert client.closed

@@ -3539,6 +3539,88 @@ def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> Non
 
 
 # ---------------------------------------------------------------------------
+# (h4) every browser engine a fixture launches is installed by the lane: a
+# fixture whose engine binary is absent skips every test that asks for it, and
+# a lane whose tests all skipped reports green having proved nothing.
+# ---------------------------------------------------------------------------
+
+_INTERFACES_CONFTEST = TESTS_ROOT / "interfaces" / "conftest.py"
+
+
+def _browser_engines() -> tuple[str, ...]:
+    """``BROWSER_ENGINES`` from the interfaces conftest, read with ``ast``.
+
+    Not imported, for the reason :func:`_module_marks` gives: the conftest pulls
+    in playwright and the interface servers, which a workflow-wiring check has
+    no business loading.
+    """
+    for node in ast.parse(_INTERFACES_CONFTEST.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        elif isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "BROWSER_ENGINES" for t in targets):
+            continue
+        assert isinstance(value, ast.Tuple), "BROWSER_ENGINES is not a tuple literal"
+        return tuple(
+            elt.value
+            for elt in value.elts
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        )
+    raise AssertionError(f"no BROWSER_ENGINES in {_INTERFACES_CONFTEST}")
+
+
+def _engines_the_lane_installs(wf: dict[str, Any]) -> set[str]:
+    """Every engine named after ``playwright install`` in the browser job's steps.
+
+    Flags (``--with-deps``) are dropped, so an option is never read as an engine.
+    """
+    engines: set[str] = set()
+    for step in _jobs(wf)[BROWSER_JOB].get("steps", []):
+        run = step.get("run")
+        if not isinstance(run, str):
+            continue
+        for match in re.finditer(r"playwright install([^\n;&|]*)", run):
+            engines.update(tok for tok in match.group(1).split() if not tok.startswith("-"))
+    return engines
+
+
+def test_browser_engine_discovery_finds_both_engines() -> None:
+    """The floor: a mis-parse that found nothing would make the next guard vacuous."""
+    assert _browser_engines() == ("chromium", "webkit")
+
+
+def test_every_engine_a_fixture_launches_is_installed_by_the_browser_lane(
+    workflow: dict[str, Any],
+) -> None:
+    missing = set(_browser_engines()) - _engines_the_lane_installs(workflow)
+    assert missing == set(), (
+        f"browser engines the '{BROWSER_JOB}' lane never installs: {sorted(missing)}. "
+        "An engine the lane does not install skips every test that asks for it, "
+        "and the lane still reports green."
+    )
+
+
+def test_every_engine_is_installed__mutation_drops_the_webkit_install() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[BROWSER_JOB]
+    job["steps"] = [s for s in job["steps"] if s.get("name") != "Install Playwright webkit"]
+    assert set(_browser_engines()) - _engines_the_lane_installs(mutated) == {"webkit"}
+
+
+def test_every_browser_engine_has_its_fixture() -> None:
+    functions = {
+        node.name
+        for node in ast.parse(_INTERFACES_CONFTEST.read_text(encoding="utf-8")).body
+        if isinstance(node, ast.FunctionDef)
+    }
+    missing = [e for e in _browser_engines() if f"{e}_browser" not in functions]
+    assert missing == [], f"engines in BROWSER_ENGINES with no <engine>_browser fixture: {missing}"
+
+
+# ---------------------------------------------------------------------------
 # (i) bluesky-queue-e2e: the queue stack's own lane, secret-free
 # ---------------------------------------------------------------------------
 
@@ -3983,6 +4065,11 @@ def test_all_checks_passed_needs_archiver_world__mutation_drops_check_pr_lane_li
 # option costs no test failure of its own. Hence these pins.
 
 CAPTURE_ACTION = "./.github/actions/capture-ci-diagnostics"
+CAPTURE_ACTION_YML = REPO_ROOT / ".github" / "actions" / "capture-ci-diagnostics" / "action.yml"
+DIAG_DIR_ENV = "OSPREY_CI_DIAG_DIR"
+#: A step that runs pytest. Plain ``\bpytest\b`` would also match the shell
+#: comments in the skip-gate steps.
+_PYTEST_RUN = re.compile(r"\b(?:uv run(?: --no-sync)?|python3? -m) pytest\b")
 CAPTURE_STEP = "Capture failure diagnostics"
 WRITEBACK_JOB = "deploy-writeback-e2e"
 PODMAN_LIFECYCLE_JOB = "multi-user-deploy-lifecycle-e2e-podman"
@@ -4123,6 +4210,70 @@ def test_podman_lane_captures_with_podman__mutation_asks_for_docker() -> None:
     job["steps"][_capture_step_index(job)]["with"]["engine"] = "docker"
     with pytest.raises(AssertionError):
         test_podman_lane_captures_with_podman(mutated)
+
+
+def _capture_upload_dir() -> str:
+    """The directory the capture action uploads, read from the action itself."""
+    for step in _load_action_yml(CAPTURE_ACTION_YML)["runs"]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/upload-artifact"):
+            return str(step["with"]["path"]).rstrip("/")
+    raise AssertionError(f"{CAPTURE_ACTION_YML} has no upload-artifact step")
+
+
+def _resolved_env(
+    wf: dict[str, Any], job: dict[str, Any], step: dict[str, Any], key: str
+) -> str | None:
+    """``key`` as Actions resolves it for ``step``: step, then job, then workflow."""
+    for scope in (step, job, wf):
+        env = scope.get("env") or {}
+        if key in env:
+            return None if env[key] is None else str(env[key])
+    return None
+
+
+def test_container_lanes_write_diagnostics_where_the_capture_uploads(
+    workflow: dict[str, Any],
+) -> None:
+    """Every pytest step in a container lane arms the failure-time snapshot.
+
+    That snapshot is the only record of a failing test's containers: the
+    module's fixtures remove them inside the pytest step, before any step after
+    it runs, so the capture step can only upload what pytest wrote.
+    """
+    expected = _capture_upload_dir()
+    offenders = [
+        (name, step.get("name"), _resolved_env(workflow, job, step, DIAG_DIR_ENV))
+        for name, job in _jobs(workflow).items()
+        if name in _container_jobs(workflow)
+        for step in job.get("steps") or []
+        if _PYTEST_RUN.search(str(step.get("run", "")))
+        and _resolved_env(workflow, job, step, DIAG_DIR_ENV) != expected
+    ]
+    assert not offenders, (
+        f"pytest steps whose {DIAG_DIR_ENV} is not {expected!r}: {offenders}. "
+        "Such a step leaves no failure-time container snapshot for the capture "
+        "step to upload."
+    )
+
+
+def test_container_lanes_write_diagnostics_where_the_capture_uploads__mutation_drops_the_workflow_default() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["env"].pop(DIAG_DIR_ENV, None)
+    with pytest.raises(AssertionError):
+        test_container_lanes_write_diagnostics_where_the_capture_uploads(mutated)
+
+
+def test_container_lanes_write_diagnostics_where_the_capture_uploads__mutation_points_a_lane_elsewhere() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, TILED_JOB, "Run Tiled roundtrip E2E").setdefault("env", {})[
+        DIAG_DIR_ENV
+    ] = "elsewhere"
+    with pytest.raises(AssertionError):
+        test_container_lanes_write_diagnostics_where_the_capture_uploads(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -7754,3 +7905,62 @@ def test_ci_check_reports_twines_own_verdict__mutation_restores_the_grep() -> No
     )
     assert mutated != source, "the twine invocation moved; this mutation is stale"
     assert _twine_verdict_missing(mutated) != []
+
+
+# ---------------------------------------------------------------------------
+# a broken documentation link fails the local run, and names itself
+# ---------------------------------------------------------------------------
+#
+# The same rule the package step above it follows, for the other checker in
+# this script whose verdict was read through a grep. Two clauses, because a
+# check can fail open in two independent ways: the status a pipeline reports
+# is its LAST command's, and a step that records nothing in FAILED_CHECKS
+# cannot reach the summary that decides the script's exit code.
+
+LINKCHECK_COMMAND = "uv run make linkcheck"
+LINKCHECK_FAILURE_RECORD = 'FAILED_CHECKS+=("docs-linkcheck")'
+
+
+def _linkcheck_verdict_missing(source: str) -> list[str]:
+    """What the link check is missing (empty = sphinx's own status blocks a push)."""
+    lines = _command_lines(source)
+    checks = [i for i, line in enumerate(lines) if LINKCHECK_COMMAND in line]
+    if not checks:
+        return ["a link check"]
+    missing = [
+        f"the checker's own status on {lines[i].strip()!r}" for i in checks if "|" in lines[i]
+    ]
+    branch = lines[checks[0] + 1 :]
+    end = next((j for j, line in enumerate(branch) if line.strip() in {"else", "fi"}), len(branch))
+    if not any(LINKCHECK_FAILURE_RECORD in line for line in branch[:end]):
+        missing.append("a recorded failure")
+    return missing
+
+
+def test_ci_check_blocks_on_a_broken_documentation_link() -> None:
+    """The documentation step's two checks answer to the same rule. A build failure
+    is recorded and fails the run; a link the docs publish and no reader can follow
+    must be too, by the checker's own status and in words that name the link."""
+    assert _linkcheck_verdict_missing(_script_source(CI_CHECK_SCRIPT)) == [], (
+        f"{CI_CHECK_SCRIPT}'s link check cannot fail the run: "
+        f"{_linkcheck_verdict_missing(_script_source(CI_CHECK_SCRIPT))}"
+    )
+
+
+def test_ci_check_blocks_on_a_broken_documentation_link__mutation_restores_the_grep() -> None:
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = source.replace(
+        f"{LINKCHECK_COMMAND};", f'{LINKCHECK_COMMAND} 2>&1 | grep -q "build succeeded";'
+    )
+    assert mutated != source, "the linkcheck invocation moved; this mutation is stale"
+    assert _linkcheck_verdict_missing(mutated) != []
+
+
+def test_ci_check_blocks_on_a_broken_documentation_link__mutation_drops_the_record() -> None:
+    """A step that only prints its verdict is advisory, whatever the verdict says."""
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = "\n".join(
+        line for line in source.splitlines() if LINKCHECK_FAILURE_RECORD not in line
+    )
+    assert mutated != source, f"no linkcheck failure record in {CI_CHECK_SCRIPT}; mutation is stale"
+    assert _linkcheck_verdict_missing(mutated) == ["a recorded failure"]

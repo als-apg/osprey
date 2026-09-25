@@ -94,6 +94,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_f
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context
+from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -253,14 +254,14 @@ def _request(
     a status-code-only assertion passes while the refusal code drifts.
     """
     payload = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(  # noqa: S310 - loopback only
+    request = urllib.request.Request(  # loopback only
         f"{base}{path}",
         data=payload,
         method=method,
         headers={"Content-Type": "application/json"} if payload else {},
     )
     try:
-        with urllib.request.urlopen(  # noqa: S310 - loopback only
+        with urllib.request.urlopen(  # loopback only
             request, timeout=timeout or HTTP_TIMEOUT_S
         ) as response:
             return response.status, json.loads(response.read() or b"null")
@@ -278,7 +279,7 @@ def _wait_for_bridge(base: str, timeout: float) -> None:
     while time.monotonic() < deadline:
         try:
             status, body = _request(base, "/health", timeout=5.0)
-        except Exception as exc:  # noqa: BLE001 - any transport failure is "not up yet"
+        except Exception as exc:  # any transport failure is "not up yet"
             last = repr(exc)
         else:
             if status == 200:
@@ -413,7 +414,10 @@ def _profile_edits() -> dict[str, Any]:
     """Host hygiene, CI sizing, and the VA baseline -- never the lane axis.
 
     ``dispatch: null`` and ``modules.web_terminals.enabled: false`` drop two
-    stacks nothing here touches and both slow to build. The port keys move
+    stacks nothing here touches and both slow to build. The preset's
+    ``services:`` block holds the record archive, which runs the same project
+    image, so it goes with the dispatch stack: ``services: {}`` is the spelling
+    because a single service cannot be nulled. The port keys move
     services the preset deploys unconditionally, with no profile knob, off
     defaults a locally-running stack routinely holds. ``va_archiver`` is shrunk
     to a CI-sized archive -- a sizing change, not a behavioral one: the store
@@ -440,6 +444,7 @@ def _profile_edits() -> dict[str, Any]:
             "services.qmd.port": QMD_PORT,
         },
         "dispatch": None,
+        "services": {},
         "va_archiver": {
             "retention_days": 2,
             "hot_span_hours": 2,
@@ -469,6 +474,8 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
         *set_pairs(_profile_edits()),
         "--set",
         f"virtual_accelerator.port={VA_CA_PORT}",
+        "--set",
+        f"virtual_accelerator.pva_port={VA_PVA_PORT}",
         "--set",
         f"bluesky.port={BRIDGE_PORT}",
         "--set",
@@ -637,7 +644,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
     finally:
         down = _run([str(_osprey_bin()), "down"], cwd=repo, timeout=DEPLOY_DOWN_TIMEOUT_S)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in the run log
+            print(  # surface teardown issues in the run log
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own, or a

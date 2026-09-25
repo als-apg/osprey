@@ -293,7 +293,6 @@ class TestCreateNamerFromConfig:
             assert absent not in message
 
     def test_builds_namer_from_config_values(self, monkeypatch):
-        import osprey.models.tiers as tiers_mod
         import osprey.utils.config as config_mod
 
         config = {
@@ -302,7 +301,7 @@ class TestCreateNamerFromConfig:
                     "llm_batch_size": 7,
                     "llm_model": {
                         "provider": "als-apg",
-                        "model_id": "haiku",
+                        "model_id": "claude-haiku-4-5-20251001",
                         "max_tokens": 555,
                     },
                 }
@@ -317,20 +316,46 @@ class TestCreateNamerFromConfig:
             },
         }
         monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: config)
-        monkeypatch.setattr(
-            tiers_mod, "resolve_model_id", lambda provider, mid: f"{provider}/{mid}"
-        )
 
         namer = create_namer_from_config()
         assert namer.provider == "als-apg"
-        assert namer.model_id == "als-apg/haiku"
+        assert namer.model_id == "claude-haiku-4-5-20251001"
         assert namer.max_tokens == 555
         assert namer.batch_size == 7
         assert namer.base_url == "https://als/api"
         assert namer.api_key == "k"
 
+    @pytest.mark.parametrize(
+        ("claude_code", "expected"),
+        [
+            ({"provider": "als-apg", "default_model": "claude-sonnet-5"}, "claude-sonnet-5"),
+            ({"provider": "als-apg"}, "claude-haiku-4-5-20251001"),
+        ],
+        ids=["deployment-main-model", "provider-default"],
+    )
+    def test_no_model_id_runs_on_the_deployments_main_model(
+        self, monkeypatch, claude_code, expected
+    ):
+        import osprey.utils.config as config_mod
+
+        config = {
+            "claude_code": claude_code,
+            "channel_finder": {"channel_name_generation": {"llm_model": {"provider": "als-apg"}}},
+            "api": {
+                "providers": {
+                    "als-apg": {
+                        "base_url": "https://als/api",
+                        "default_model": "claude-haiku-4-5-20251001",
+                        "models": ["claude-sonnet-5", "claude-haiku-4-5-20251001"],
+                    }
+                }
+            },
+        }
+        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: config)
+
+        assert create_namer_from_config().model_id == expected
+
     def test_uses_explicit_config_path(self, monkeypatch, tmp_path):
-        import osprey.models.tiers as tiers_mod
         import osprey.utils.config as config_mod
 
         seen: list = []
@@ -338,11 +363,14 @@ class TestCreateNamerFromConfig:
         def fake_load(path=None):
             seen.append(path)
             return {
-                "channel_finder": {"channel_name_generation": {"llm_model": {"provider": "cborg"}}}
+                "channel_finder": {
+                    "channel_name_generation": {
+                        "llm_model": {"provider": "cborg", "model_id": "claude-haiku-4-5"}
+                    }
+                }
             }
 
         monkeypatch.setattr(config_mod, "load_config", fake_load)
-        monkeypatch.setattr(tiers_mod, "resolve_model_id", lambda p, m: m)
         cfg_path = tmp_path / "config.yml"
         create_namer_from_config(str(cfg_path))
         assert seen == [str(cfg_path)]

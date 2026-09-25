@@ -78,8 +78,9 @@ files describe a fleet, and one bad file must not blank the others.
 pointed; the reports say who has got there. :func:`converged` is the one place
 those two are compared, and it is what the executor's stamp, a notebook cell
 and a controls server's write tools ask before they touch a machine: a swap in
-flight stops everyone, a server that could not follow stops only its own
-session, and nothing else stops anybody.
+flight stops everyone, a server acquiring its first connector stops only its
+own session, a server that could not follow stops only its own session, and
+nothing else stops anybody.
 
 Every file in that directory is named for the process that owns it, which is
 what lets a reader judge one without opening it: :func:`is_process_alive` and
@@ -383,7 +384,7 @@ def parse_record(raw: Any) -> ControlContext | None:
     if isinstance(raw, str | bytes | bytearray):
         try:
             raw = json.loads(raw)
-        except Exception:  # noqa: BLE001 — an unreadable record is "no record"
+        except Exception:  # an unreadable record is "no record"
             logger.warning("Control-context record is not valid JSON; ignoring")
             return None
     if not isinstance(raw, dict):
@@ -959,7 +960,7 @@ def _read_payload(path: Path) -> dict[str, Any] | None:
         return None
     try:
         loaded = json.loads(raw)
-    except Exception:  # noqa: BLE001 — a half-written report is skipped, not fatal
+    except Exception:  # a half-written report is skipped, not fatal
         logger.debug("Server report %s is not valid JSON; skipping it", path.name)
         return None
     return loaded if isinstance(loaded, dict) else None
@@ -1167,6 +1168,24 @@ def _bound_off_record(report: ServerReport, record: ControlContext) -> bool:
     return (report.applied_target, report.applied_generation) != (record.target, record.generation)
 
 
+def _holds_no_connector(report: ServerReport) -> bool:
+    """Whether *report* states no connector on any of the three axes that could.
+
+    A server between two targets is holding one of them, which is why a swap
+    in flight stops the whole deployment. A server that has never got
+    anywhere is holding nothing, so nothing it is doing can reach a target
+    another session's launch would not.
+
+    All three axes have to say so, and they say so together: the binding pair
+    and the child PIDs are published in one write once a child has answered
+    its init frame, so a report stating a connector on any one of them is not
+    a server acquiring its first.
+    """
+    return (
+        not report.children and report.applied_target is None and report.applied_generation is None
+    )
+
+
 def blocking_pids(
     record: ControlContext,
     reports: Iterable[ServerReport],
@@ -1202,13 +1221,15 @@ def blocking_pids(
     for report in fleet:
         block = _switch_at(report, record.generation) or {}
         status = block.get("status")
-        if status == REPORT_APPLYING:
+        if status == REPORT_APPLYING and not _holds_no_connector(report):
             bound = _bound_epoch(block)
             if bound is None or reference <= bound:
                 # A swap in flight: nobody launches anywhere until it lands,
                 # because the server holding the connector is between two
                 # targets. Past its bound it has stopped being in flight, and
                 # only the session whose server it is is still held up by it.
+                # A server holding no connector is not between two targets and
+                # falls out above, on the same terms.
                 blocked.add(report.server_pid)
                 continue
         if not session or report.session != session:
@@ -1236,6 +1257,9 @@ def converged(
     would reach whichever one it happens to be holding. Past the bound the
     server is stuck rather than working, and it stops only its own session —
     a process killed mid-swap must not refuse a deployment for ever.
+    A server that reports ``applying`` while it holds no connector at all —
+    no children, nothing bound — is acquiring its first rather than swapping
+    one, and stops only its own session.
 
     **The reader's own server is not there.** A live report carrying this
     *session* that is bound somewhere other than the record's

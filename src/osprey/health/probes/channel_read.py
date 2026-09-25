@@ -72,7 +72,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     try:
         connector = await ctx.runtime.get_connector()
         channel = await connector.read_channel(address, timeout=timeout_s)
-    except Exception as exc:  # noqa: BLE001 - any read failure becomes an error result
+    except Exception as exc:  # any read failure becomes an error result
         latency_ms = (perf_counter() - t0) * 1000.0
         return CheckResult(
             name,

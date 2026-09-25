@@ -20,8 +20,8 @@ Two environments are dispatched by :func:`run`:
   Postgres never ready) it raises :class:`ScreenshotSkip` so a ``--stack`` run
   degrades to a clean one-line notice instead of a traceback.
 
-The whole run shares one browser; missing chromium/Playwright is reported as a
-one-line skip rather than a traceback.
+The whole run shares one browser; missing chromium/Playwright, or a Playwright driver
+that does not start, is reported as a one-line skip rather than a traceback.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,7 +78,8 @@ _MIN_HERO_PNG_BYTES = 1024
 class ScreenshotSkip(Exception):
     """Raised when capture cannot proceed for a benign, expected reason.
 
-    Used for absent optional dependencies (Playwright, the chromium binary) and
+    Used for absent optional dependencies (Playwright, a Playwright driver that
+    starts, the chromium binary) and
     for the not-yet-available ``tutorial_stack`` provider, so callers can print a
     clear one-line notice instead of surfacing a traceback.
     """
@@ -147,21 +148,47 @@ def stamp_manifest(name: str, kind: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _driver_start_failure(exc: AttributeError | OSError) -> str:
+    """Return the skip reason for a Playwright driver that did not start."""
+    if isinstance(exc, OSError):
+        return f"playwright driver did not start: {exc}"
+    reason = "playwright driver exited before its handshake"
+    node_options = os.environ.get("NODE_OPTIONS")
+    if node_options:
+        # The driver is a node process that inherits this environment, and NODE_OPTIONS
+        # acts before any Playwright code runs, so it is the host setting worth naming.
+        reason += f" (NODE_OPTIONS={node_options!r})"
+    return reason
+
+
 @contextmanager
 def chromium_context() -> Iterator[Browser]:
     """Yield a headless chromium ``Browser``, stopping Playwright on every exit.
 
     Raises :class:`ScreenshotSkip` (never a traceback) when Playwright is not
-    installed or the chromium binary is unavailable. ``sync_playwright().start()``
-    spins an asyncio loop on the main thread, so it is stopped on *every* exit
-    path — including the skip taken when the binary is absent.
+    installed, its driver does not start, or the chromium binary is unavailable.
+    ``sync_playwright().start()`` spins an asyncio loop on the main thread, so it
+    is stopped on *every* exit path — including the skip taken when the binary is
+    absent.
     """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise ScreenshotSkip("playwright is not installed") from exc
 
-    pw = sync_playwright().start()
+    manager = sync_playwright()
+    try:
+        pw = manager.start()
+    # The sync API reports a driver that exited before its handshake as a missing
+    # ``_playwright`` attribute and one it cannot spawn as an OSError; only those two are
+    # an absent browser stack. ``__exit__`` is best-effort: an unspawned driver has no pipe.
+    except (AttributeError, OSError) as exc:
+        if isinstance(exc, AttributeError) and exc.name != "_playwright":
+            raise
+        with suppress(Exception):
+            manager.__exit__(None, None, None)
+        raise ScreenshotSkip(_driver_start_failure(exc)) from exc
+
     try:
         browser = pw.chromium.launch(headless=True)
     except Exception as exc:
@@ -342,6 +369,26 @@ def _capture_static_page(browser: Browser, shot: DocShot) -> list[Path]:
         thread.join(timeout=5)
 
 
+def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
+    """Boot the contact sheet's hermetic web terminal and capture a recipe from it.
+
+    One stack serves every theme. Each theme loads in ``shot.hub_mode`` and is
+    driven into ``shot.stage`` before the shot, through the same routine the
+    contact sheet uses, so the doc image and the review card cannot drift apart.
+    """
+    from docs.screenshots.contact_sheet import capture_hub_view, hermetic_hub
+
+    dest_dir = output_dir()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    with hermetic_hub() as hub:
+        for theme in shot.themes:
+            dest = dest_dir / _output_filename(shot.name, theme, len(shot.themes))
+            capture_hub_view(browser, hub, theme, shot.hub_mode, dest, stage=shot.stage)
+            paths.append(dest)
+    return paths
+
+
 def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
     """Run one project-scoped lifecycle command, mapping failure to a skip.
 
@@ -494,7 +541,7 @@ def _fetch_artifacts(artifact_port: int) -> list[dict]:
     """Return the artifact-server's current artifact list ([] on any error)."""
     url = f"http://127.0.0.1:{artifact_port}/api/artifacts"
     try:
-        with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 (loopback only)
+        with urllib.request.urlopen(url, timeout=5.0) as resp:  # loopback only
             return json.loads(resp.read().decode()).get("artifacts", [])
     except (urllib.error.URLError, json.JSONDecodeError, OSError):
         return []
@@ -836,6 +883,7 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
 
     ``standalone_interface`` recipes are booted and captured directly;
     ``static_page`` recipes are served from their committed HTML file;
+    ``hermetic_hub`` recipes boot the contact sheet's seeded web terminal;
     ``tutorial_stack`` recipes are delegated to :func:`capture_tutorial_stack`
     and skipped per-recipe (with a clear notice) where its runtime is absent.
     Absent chromium/Playwright skips the whole run gracefully. One manifest
@@ -854,6 +902,12 @@ def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> 
                 elif shot.environment == "static_page":
                     try:
                         paths = _capture_static_page(browser, shot)
+                    except ScreenshotSkip as exc:
+                        print(f"skipped {shot.name}: {exc}", file=sys.stderr)
+                        continue
+                elif shot.environment == "hermetic_hub":
+                    try:
+                        paths = _capture_hermetic_hub(browser, shot)
                     except ScreenshotSkip as exc:
                         print(f"skipped {shot.name}: {exc}", file=sys.stderr)
                         continue

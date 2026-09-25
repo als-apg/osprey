@@ -100,6 +100,11 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from osprey.utils.call_attribution import (
+    CONVERSATION_HEADER,
+    TOOL_USE_HEADER,
+    attribution_from_headers,
+)
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 from . import document_plane, draft, runs
@@ -876,8 +881,11 @@ def _public_item(item: Any) -> Any:
     outside OSPREY, and such an item is attributed to nobody.
 
     ``RUN_ID_META_KEY`` stays, because it is what joins a queue row to its run
-    (`itemRunId()` in `queue-client.js` reads it), and any other metadata is
-    somebody else's — an item enqueued out of band keeps it.
+    (`itemRunId()` in `queue-client.js` reads it). The two call-attribution
+    stamps (`SESSION_META_KEY`, `TOOL_USE_META_KEY`) stay for the same reason:
+    they join a queue row to the audit record of the tool call that queued it.
+    Any other metadata is somebody else's — an item enqueued out of band keeps
+    it.
     """
     if not isinstance(item, dict):
         return item
@@ -1082,6 +1090,8 @@ async def add_queue_item(
     body: QueueAddRequest,
     x_launch_token: str = Header(default=""),
     x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+    x_osprey_conversation: str | None = Header(default=None, alias=CONVERSATION_HEADER),
+    x_osprey_tool_use_id: str | None = Header(default=None, alias=TOOL_USE_HEADER),
 ) -> dict[str, Any]:
     """Enqueue the shared draft at a pinned revision.
 
@@ -1132,6 +1142,12 @@ async def add_queue_item(
     manager's state, so naming an owner neither earns a caller anything nor
     costs it anything.
 
+    The tool call that sent the add — its conversation id and ``tool_use_id``
+    — is read the same way from the ``X-Osprey-Conversation`` and
+    ``X-Osprey-Tool-Use-Id`` headers through `attribution_from_headers`, and
+    stamped into the item's metadata. Attribution only: a malformed value
+    costs the stamp, never the add.
+
     The response's ``armed`` says whether this add sent the plan toward
     hardware: true when the status the arming pre-check was decided on had
     the queue draining or autostart on (the item runs with no further
@@ -1151,6 +1167,7 @@ async def add_queue_item(
 
     armed = _token_is_valid(x_launch_token)
     owner = owner_from_header(x_osprey_owner)
+    session_id, tool_use_id = attribution_from_headers(x_osprey_conversation, x_osprey_tool_use_id)
 
     checked = await draft.check_launchable(body.draft_revision)
     if isinstance(checked, draft.LaunchRejected):
@@ -1200,7 +1217,13 @@ async def add_queue_item(
                 except SessionPlanNotReadyError as exc:
                     raise _session_refusal(exc) from exc
 
-                result = await backend.add_item(item, run_id=run_id, owner=owner)
+                result = await backend.add_item(
+                    item,
+                    run_id=run_id,
+                    owner=owner,
+                    session_id=session_id,
+                    tool_use_id=tool_use_id,
+                )
 
                 if not armed:
                     added_uid = _added_item_uid(result)
@@ -1296,7 +1319,7 @@ def _record_removal(action: str, owner: str | None, item: Any = None) -> None:
     """
     try:
         removal_log().append(action, owner, item)
-    except Exception as exc:  # noqa: BLE001 - a record must not fail the write
+    except Exception as exc:  # a record must not fail the write
         logger.warning("could not record a %s on the queue removal log: %s", action, exc)
 
 

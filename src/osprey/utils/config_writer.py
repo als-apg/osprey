@@ -426,7 +426,7 @@ def config_backup_path(config_path: Path) -> Path:
 
     try:
         config = load_config_document(config_path)
-    except Exception:  # noqa: BLE001 -- an unreadable config still deserves a backup
+    except Exception:  # an unreadable config still deserves a backup
         # Falls back to the framework default rather than to the file's own
         # directory: a config too broken to name its own state zone is precisely
         # the one worth having a copy of, and the default is where every other

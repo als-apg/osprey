@@ -103,32 +103,68 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # so the staleness advisory firing on already-deployed projects is the
     # correct signal. The six `extends` children inherit it; every preset that
     # declares no `dispatch:` block stands still.
-    "ariel-standalone": ("sha256:389fad6bd826efc4b53ea263800110585867aab31c92d9931206897c75548643"),
+    # The eleventh move, and two presets: the write-capable tiers,
+    # control-assistant-readwrite and control-assistant-admin, went from one
+    # posture key to three — the flat key false, the epics block pinned false
+    # by name, the virtual_accelerator block armed. A rebuilt project refuses a
+    # write on both hardware-shaped targets, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. Every other preset
+    # stands still: the edits to the root and read-only presets are comments,
+    # which the hash does not see.
+    # The twelfth move, and control-assistant's family alone: the root preset's
+    # session baseline moved from the live stand-in to the sandbox simulator
+    # (`control_system.type: virtual_accelerator`). A rebuilt project opens on a
+    # different machine and gains the EPICS-family agent rules, so the
+    # staleness advisory firing on already-deployed projects is the correct
+    # signal. The six `extends` children inherit it; ariel-standalone,
+    # channel-finder-standalone and hello-world stand still.
+    # The thirteenth move, and every preset: none sets `model:`, so the
+    # provider's default_model answers, and none names a composition tier. A
+    # rebuilt project may run a different main model, so the staleness advisory
+    # firing on already-deployed projects is the correct signal.
+    # The fourteenth move, and control-assistant's family alone: the root preset
+    # stopped pinning three helper agents to Claude ids, so every agent runs the
+    # deployment's main model. A rebuilt project renders a different `model:`
+    # line in those agents' frontmatter, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. The five `extends`
+    # children inherit it.
+    # The fifteenth move, and control-assistant's family alone: the root
+    # preset keeps transcripts ten years (`claude_code.transcripts.retention_days:
+    # 3650`) and deploys the record archive (`services.archive`). The five
+    # `extends` children inherit both; they build no services, so only the
+    # retention reaches them. ariel-standalone, channel-finder-standalone and
+    # hello-world stand still.
+    # The sixteenth move, and control-assistant's family alone: the root
+    # preset turned on the tool-content gate and set the content limit, so a
+    # rebuilt project's agent exports built-in tool output as span events. The
+    # five `extends` children inherit it; ariel-standalone,
+    # channel-finder-standalone and hello-world stand still.
+    # The seventeenth move, and control-assistant's family alone: the root
+    # preset turns on the full tool-call record (`audit.tool_call.*`), which
+    # the five `extends` children inherit; the other three stand still.
+    "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
     "channel-finder-standalone": (
-        "sha256:2dfc06f64433fcb1d8393931dccf76550e75ac76dc12f5011029010e02aa9448"
+        "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
     ),
     "control-assistant": (
-        "sha256:4d0535dedc232b7789bccc7c8dd3b5a69b75f14c12e1298238c20389697f4079"
+        "sha256:f053c6de8fd9497d272a068a03f8174b9ed9c1d9c21c6fb800ef60b641a2f3ce"
     ),
     "control-assistant-admin": (
-        "sha256:1db4d29c24d03ed8a23a4c3a64c880d56efa063ff3e651b7b51139eea1c41e58"
+        "sha256:b27fb8d6fe3d79ba8ff5febdb28ccb70cbc117e3d8717b825002daa608694c57"
     ),
     "control-assistant-knowledge": (
-        "sha256:d1ae41025ee01bc4b869601e597eeabd4e9ab89faa6244d0aad271385b00c609"
+        "sha256:53265269ecd689a2355c8c5bd892e68d022e0de03186ab4338104a805c54a6d0"
     ),
     "control-assistant-logbook": (
-        "sha256:4ac79e2c234e9507f20bdf734f6b9ca3414f4d7de47b52de4d74ddeaea97df0e"
+        "sha256:cffa27c611273350222d9a3e064002435c36f670f7db8d383d94639002726437"
     ),
     "control-assistant-readonly": (
-        "sha256:f0e722d9ed690a96b851694fa6107c3587c341954808f580b346ee176c1fd72a"
+        "sha256:251d61c019a064f0b5d3386d7744c2a68c35ca929f61caa9bd1cd1418b4f532a"
     ),
     "control-assistant-readwrite": (
-        "sha256:b89110ccb97fe18e5a89a1aae7c5e541cac04ca6d43826b067a7538eb4b05087"
+        "sha256:88d62d2fdd672b4bf16d30ae9c72294e4b64f63a0819cdc0bc0e0be71a5746b6"
     ),
-    "control-assistant-va-readwrite": (
-        "sha256:6f78bbc4db54c0bfb3b4855f84a0b2444ce4d960367d9e868ed6f1ae72247129"
-    ),
-    "hello-world": ("sha256:3ce9623f1874a11a5500eb0a2b5a29bbfc324cf0e6ed95678ea13feadfefecb4"),
+    "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }
 
 
@@ -160,6 +196,6 @@ def test_hashing_does_not_mutate_the_callers_dict(tmp_path):
     to build what it digests, and every caller keeps using the dict it passed
     in afterwards.
     """
-    raw = {"name": "Demo", "provider": "anthropic", "model": "haiku"}
+    raw = {"name": "Demo", "provider": "anthropic", "model": "claude-haiku-4-5"}
     _hash_resolved_profile(raw, tmp_path / "profile.yml")
-    assert raw == {"name": "Demo", "provider": "anthropic", "model": "haiku"}
+    assert raw == {"name": "Demo", "provider": "anthropic", "model": "claude-haiku-4-5"}

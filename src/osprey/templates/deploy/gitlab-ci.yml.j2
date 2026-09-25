@@ -86,7 +86,13 @@ render-build:
   before_script:
     # The floor the profile itself declares (requires_osprey_version), so the
     # pipeline can never run an OSPREY that does not understand it.
-    - pip install --no-cache-dir "{{ ctx.requirement }}"
+    {% if ctx.requirement_pins_prerelease %}
+    # The floor names a pre-release. OSPREY and its connectors ship as a pair
+    # from one tag, and pip never picks a pre-release for a requirement that
+    # names none — the framework's own connectors requirement — so the install
+    # resolves as a whole with --pre.
+    {% endif %}
+    - pip install --no-cache-dir {% if ctx.requirement_pins_prerelease %}--pre {% endif %}"{{ ctx.requirement }}"
   script:
     - osprey validate
     - osprey build --skip-lifecycle --skip-deps

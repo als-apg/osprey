@@ -37,7 +37,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.provider import e2e_provider
+from tests.e2e.provider import build_model, e2e_provider
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
     e2e_port_base,
@@ -97,7 +97,7 @@ def init_project(
     template: str = "control_assistant",
     *,
     provider: str,
-    model: str = "haiku",
+    model: str | None = None,
 ) -> Path:
     """Create and build a deployment repo at ``tmp_path/name``; return the repo root.
 
@@ -119,7 +119,8 @@ def init_project(
     ``epics`` gateways at that never-started container and turns limits
     checking strict to meet it. The channel finder is pinned to the
     hierarchical database for the fourth: the preset's graph mode answers
-    from a ``graphdb`` container this harness never starts.
+    from a ``graphdb`` container this harness never starts. ``model``
+    follows :func:`tests.e2e.provider.build_model`, as it does in that helper.
     """
     runner = CliRunner()
     repo = tmp_path / name
@@ -131,12 +132,11 @@ def init_project(
         "--set",
         f"provider={provider}",
         "--set",
-        f"model={model}",
-        "--set",
         "connector=mock",
         "--set",
         "channel_finder_mode=hierarchical",
     ]
+    init_args.extend(["--set", f"model={build_model(model)}"])
     # ``archiver.type`` is written in the literal dotted spelling the preset
     # already uses, so the edit replaces that entry instead of landing beside it.
     init_args.extend(

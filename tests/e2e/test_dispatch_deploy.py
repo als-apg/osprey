@@ -22,12 +22,13 @@ are asserted on top:
 
   T1 topology:      nginx + both per-user containers come up healthy and the
                     landing page lists both roster users.
-  T2 readonly tier:  the rendered READ-ONLY persona project pins
-                     ``control_system.writes_enabled: false`` and its rendered
-                     ``settings.json`` denies the channel-write tool.
-  T3 readwrite tier: the rendered READ-WRITE persona project arms writes and
-                     keeps the tool on the ask (human-approval) path — the
-                     positive control that T2 is a real posture difference.
+  T2 readonly tier:  the rendered READ-ONLY persona project arms writes for no
+                     control target and its rendered ``settings.json`` denies
+                     the channel-write tool.
+  T3 readwrite tier: the rendered READ-WRITE persona project arms writes on the
+                     simulator only and keeps the tool on the ask
+                     (human-approval) path — the positive control that T2 is a
+                     real posture difference.
   T4 same surface:   both persona projects declare the IDENTICAL ``.mcp.json``
                      server set — the tier boundary is enforcement, never a
                      quietly different tool surface.
@@ -114,7 +115,13 @@ from osprey.deployment.compose_generator import (
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.posture_store import POSTURE_SANDBOX
-from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
+from osprey_connectors.types import (
+    CONTROL_TARGETS,
+    TARGET_LIVE,
+    TARGET_STANDIN,
+    TARGET_VA,
+    target_writes_enabled,
+)
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
@@ -187,7 +194,7 @@ READWRITE_IMAGE = f"{READWRITE_PROJECT}:local"
 
 # The write tool the readonly tier's rendered settings.json must deny and the
 # readwrite tier's must not (write tools land in permissions.deny when
-# writes_enabled is false — see osprey.cli.templates.claude_code).
+# no control target may write — see osprey.cli.templates.claude_code).
 CHANNEL_WRITE_TOOL = "mcp__controls__channel_write"
 
 # EVERY published web port follows :data:`PORT_BASE` rather than the preset
@@ -568,10 +575,12 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5-20251001",
             # The Channel Access port PORT_BASE cannot move (see VA_CA_PORT).
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
         ],
         cwd=base,
         timeout=300,
@@ -684,7 +693,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # images.
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         for user in (READONLY_USER, READWRITE_USER):
@@ -702,7 +711,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -761,14 +770,14 @@ def _wait_for_worker_feed(timeout: float) -> None:
     """
     deadline = time.monotonic() + timeout
     last = "(no response yet)"
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{DISPATCHER_URL}/dashboard/runs",
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
                 if resp.status == 200:
                     return
                 last = f"HTTP {resp.status}"
@@ -785,13 +794,13 @@ def _wait_for_worker_feed(timeout: float) -> None:
 
 def _fire(trigger: str, payload: dict) -> None:
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{DISPATCHER_URL}/webhook/{trigger}",
         data=body,
         method="POST",
         headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=15.0) as resp:
         assert resp.status == 202, f"{trigger}: expected 202 from webhook, got {resp.status}"
         fired = json.loads(resp.read().decode("utf-8"))
     assert fired.get("dispatched") is True, f"{trigger}: {fired}"
@@ -943,13 +952,13 @@ def _runs_by_trigger() -> dict[str, dict]:
     run with the trigger_name that produced it. It is a bearer-gated read endpoint,
     so the snapshot must send the same EVENT_DISPATCHER_TOKEN written to .env above.
     """
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{DISPATCHER_URL}/dashboard/runs",
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             runs = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         # A transient gateway error means the dispatcher momentarily could not
@@ -1114,15 +1123,31 @@ def _persona_dir(repo: Path, persona_project: str) -> Path:
     return persona_dir
 
 
-def _writes_enabled(render: Path) -> bool:
+def _write_posture(render: Path) -> dict[str, bool]:
+    """Whether the render arms writes, per control target, read the way the
+    connector and the settings render read it."""
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
-    return bool((config.get("control_system") or {}).get("writes_enabled", False))
+    section = config.get("control_system") or {}
+    return {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
 
 
 def _permissions(render: Path) -> dict:
     settings_path = render / ".claude" / "settings.json"
     assert settings_path.is_file(), f"no settings.json rendered at {settings_path}"
     return json.loads(settings_path.read_text(encoding="utf-8")).get("permissions", {})
+
+
+def _pre_tool_hooks(render: Path, matcher: str) -> list[str]:
+    """The commands of every PreToolUse hook the render registers for *matcher*."""
+    settings_path = render / ".claude" / "settings.json"
+    assert settings_path.is_file(), f"no settings.json rendered at {settings_path}"
+    entries = json.loads(settings_path.read_text(encoding="utf-8")).get("hooks", {})
+    return [
+        hook.get("command", "")
+        for entry in entries.get("PreToolUse", [])
+        if entry.get("matcher") == matcher
+        for hook in entry.get("hooks", [])
+    ]
 
 
 def test_web_tier_topology(deployed_stack: Path) -> None:
@@ -1166,8 +1191,8 @@ def test_readonly_persona_denies_writes(deployed_stack: Path) -> None:
     assert (config.get("claude_code") or {}).get("provider") == "als-apg", (
         "the deployment's `--set provider=als-apg` did not reach the rendered persona project"
     )
-    assert _writes_enabled(readonly_dir) is False, (
-        "readonly tier must render control_system.writes_enabled: false"
+    assert _write_posture(readonly_dir) == dict.fromkeys(CONTROL_TARGETS, False), (
+        f"readonly tier must arm writes for no target: {_write_posture(readonly_dir)}"
     )
     perms = _permissions(readonly_dir)
     assert CHANNEL_WRITE_TOOL in perms.get("deny", []), (
@@ -1180,20 +1205,31 @@ def test_readwrite_persona_arms_writes(deployed_stack: Path) -> None:
     """T3: positive control for T2 — the same render pipeline does NOT deny the
     write tool for the readwrite tier (so T2's deny is a real posture
     difference, not a render that denied the tool everywhere), and the write
-    path stays supervised: the tool remains on the ask (human-approval) path."""
+    path stays supervised. Writes are armed on the simulator only, so the
+    targets disagree and the render carries no static ``ask`` entry for the
+    tool (one would prompt for a write the live target refuses); the
+    per-call writes check and the approval hook gate it instead."""
     readwrite_dir = _persona_dir(deployed_stack, READWRITE_PROJECT)
-    assert _writes_enabled(readwrite_dir) is True, (
-        "readwrite tier must render control_system.writes_enabled: true"
-    )
+    assert _write_posture(readwrite_dir) == {
+        TARGET_LIVE: False,
+        TARGET_VA: True,
+        TARGET_STANDIN: False,
+    }, f"readwrite tier must arm writes on the simulator only: {_write_posture(readwrite_dir)}"
     perms = _permissions(readwrite_dir)
     assert CHANNEL_WRITE_TOOL not in perms.get("deny", []), (
         f"readwrite tier must not deny {CHANNEL_WRITE_TOOL!r}, but deny list is: "
         f"{perms.get('deny', [])}"
     )
-    assert CHANNEL_WRITE_TOOL in perms.get("ask", []), (
-        f"readwrite tier must keep {CHANNEL_WRITE_TOOL!r} on the ask path, but ask "
-        f"list is: {perms.get('ask', [])}"
+    assert CHANNEL_WRITE_TOOL not in perms.get("ask", []), (
+        f"readwrite tier's mixed posture must leave {CHANNEL_WRITE_TOOL!r} off the static "
+        f"ask list, but ask list is: {perms.get('ask', [])}"
     )
+    hooks = _pre_tool_hooks(readwrite_dir, CHANNEL_WRITE_TOOL)
+    for hook in ("osprey_writes_check.py", "osprey_approval.py"):
+        assert any(hook in command for command in hooks), (
+            f"readwrite tier must gate {CHANNEL_WRITE_TOOL!r} through {hook}, but its "
+            f"PreToolUse hooks are: {hooks}"
+        )
 
 
 def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:

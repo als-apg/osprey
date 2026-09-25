@@ -6,6 +6,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
-from _stub_main import main  # noqa: E402
+from _stub_main import main
 
 sys.exit(main())

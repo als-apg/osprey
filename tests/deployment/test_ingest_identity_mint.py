@@ -33,7 +33,7 @@ obvious thing to do and each fails silently or fatally:
   exactly as designed.
 
 The API shapes quoted here are the ones verified live against the pinned
-``v0.14.4`` image in ``research/d5-spike.md``.
+image.
 """
 
 from __future__ import annotations

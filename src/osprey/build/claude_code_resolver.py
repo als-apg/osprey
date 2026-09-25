@@ -1,14 +1,17 @@
 """Model provider resolution for Claude Code agent deployments.
 
-Maps canonical model tiers (haiku/sonnet/opus) to provider-specific model IDs
-and generates the env block for settings.json. ``ClaudeCodeModelResolver`` does
-no file or network I/O; the ``load_provider_spec`` and ``inject_provider_env``
-helpers in this module do read ``config.yml`` / ``.env`` from disk.
+Resolves the deployment's main model, each agent's model and Claude Code's own
+three alias models from the ids the provider serves, and builds the env block
+injected into the agent's process environment at launch.
+``ClaudeCodeModelResolver`` does no file or network I/O; the
+``load_provider_spec`` and ``inject_provider_env`` helpers in this module do
+read ``config.yml`` / ``.env`` from disk.
 
-Design: model IDs and endpoints are owned by the provider and live in
-``api.providers`` in config.yml.  ``CLAUDE_CODE_PROVIDERS`` defines the auth
-pattern and default tier, plus fallback model IDs and base URLs for configs
-that name none — config always wins over the built-in table.
+Design: model ids and endpoints are owned by the provider and live in
+``api.providers`` in config.yml — each entry lists the ids its gateway serves
+and names its ``default_model``. ``CLAUDE_CODE_PROVIDERS`` defines the auth
+pattern and fallback base URLs for configs that name none — config always wins
+over the built-in table.
 """
 
 from __future__ import annotations
@@ -31,8 +34,8 @@ from osprey.build.claude_code_telemetry import (
     _running_in_container,
     resolve_openobserve_port,
 )
+from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candidates
 from osprey.models.spend_attribution import apply_attribution_env, gateway_for
-from osprey.models.tiers import VALID_TIERS
 from osprey.utils.dotenv import chain_files
 from osprey_connectors import yaml_loader
 from osprey_connectors.config import is_unresolved_placeholder
@@ -44,30 +47,11 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "auth_env_var": "ANTHROPIC_API_KEY",  # Claude Code env var that receives the key
         "auth_secret_env": "ANTHROPIC_API_KEY",  # Shell env var holding the actual secret
         "base_url": None,  # No base URL for direct Anthropic
-        "default_model_tier": "sonnet",
-        # Fallback model IDs (used when api.providers.anthropic.models is absent)
-        "models": {
-            "haiku": "claude-haiku-4-5",
-            "sonnet": "claude-sonnet-5",
-            "opus": "claude-opus-5",
-        },
     },
     "cborg": {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
         "auth_secret_env": "CBORG_API_KEY",  # Shell env var holding the secret
         "base_url": "https://api.cborg.lbl.gov",  # Well-known URL (no /v1)
-        "default_model_tier": "haiku",
-        # Fallback model IDs (used when api.providers.cborg.models is absent).
-        # Pinned to versioned ids so Claude Code can pattern-match the model and
-        # send the thinking/effort schema that model accepts. CBORG also serves
-        # floating aliases ("claude-opus", "anthropic/claude-opus"); those carry
-        # no version for the harness to match, so capability detection falls
-        # through and the Vertex-backed models answer 400.
-        "models": {
-            "haiku": "claude-haiku-4-5",
-            "sonnet": "claude-sonnet-5",
-            "opus": "claude-opus-5",
-        },
     },
     "als-apg": {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
@@ -82,15 +66,12 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         # be pointed at a fallback gateway without a rebuild (mirrors the
         # provider adapter's base_url_env_var).
         "base_url_env_var": "ALS_APG_BASE_URL",
-        "default_model_tier": "haiku",
-        # Fallback model IDs (used when api.providers.als-apg.models is absent)
-        "models": {
-            "haiku": "claude-haiku-4-5-20251001",
-            "sonnet": "claude-sonnet-4-6",
-            "opus": "claude-opus-4-6",
-        },
     },
 }
+
+#: The main model of direct Anthropic when neither ``api.providers.anthropic``
+#: nor the packaged catalog names one.
+_DIRECT_ANTHROPIC_DEFAULT = "claude-sonnet-5"
 
 
 class ProviderEndpointError(ValueError):
@@ -150,35 +131,26 @@ def provider_auth_secret_env(provider_name: str, api_providers: dict | None = No
     return None
 
 
-AGENT_DEFAULT_TIERS: dict[str, str] = {
-    "channel-finder": "haiku",
-    "logbook-search": "sonnet",
-    "logbook-deep-research": "opus",
-    "data-visualizer": "sonnet",
-    "facility-knowledge": "sonnet",
-    "facility-knowledge-graph": "haiku",
-    "pyat-specialist": "sonnet",
-}
-
-# Single source of truth for the Claude Code tier→model env vars.
+# The three env vars Claude Code reads for its own alias names — the model it
+# runs when it, or an agent's ``model:`` frontmatter, asks for haiku, sonnet or
+# opus, and the model behind its own background calls. The alias words and the
+# var names are Claude Code's contract; OSPREY fills them and names its own
+# models by id.
 #
 # MANAGED_ENV_VARS (scrub, below), resolve() (inject), and
-# _apply_e2e_overrides() (e2e-force) all derive the model-tier env-var names
-# from this one map, so adding a tier is a one-line change here that cannot
-# desync those sites — the drift class behind #350 (a fifth model var reached
-# env_block but not the e2e force-tuple).
+# _apply_e2e_overrides() (e2e-force) all derive the alias env-var names from
+# this one map, so the three sites cannot desync.
 TIER_MODEL_ENV_VARS: dict[str, str] = {
     "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "sonnet": "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "opus": "ANTHROPIC_DEFAULT_OPUS_MODEL",
 }
 
-# Invariant: the tier map covers exactly the canonical tiers. A drift (a tier
-# added to models/tiers.py but not mirrored here, or vice versa) is a module-
-# load error, not a silently partial env block.
-assert set(TIER_MODEL_ENV_VARS) == VALID_TIERS, (
-    "TIER_MODEL_ENV_VARS keys must equal VALID_TIERS "
-    f"({sorted(TIER_MODEL_ENV_VARS)} != {sorted(VALID_TIERS)})"
+# Invariant: one env var per Claude Code alias name, in the same order. A drift
+# is a module-load error, not a silently partial env block.
+assert tuple(TIER_MODEL_ENV_VARS) == CLAUDE_CODE_ALIASES, (
+    "TIER_MODEL_ENV_VARS keys must be Claude Code's alias names "
+    f"({list(TIER_MODEL_ENV_VARS)} != {list(CLAUDE_CODE_ALIASES)})"
 )
 
 # Env vars that settings.json controls — scrubbed from shell before launch
@@ -199,11 +171,11 @@ MANAGED_ENV_VARS = frozenset(
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
-        # Model selectors. The per-tier ANTHROPIC_DEFAULT_*_MODEL names derive
+        # Model selectors. The per-alias ANTHROPIC_DEFAULT_*_MODEL names derive
         # from the single TIER_MODEL_ENV_VARS source above, so the scrub set
         # cannot drift from what resolve() injects. (ANTHROPIC_SMALL_FAST_MODEL
         # is deprecated upstream but still honored; CLAUDE_CODE_SUBAGENT_MODEL
-        # overrides AGENT_DEFAULT_TIERS.)
+        # overrides every agent's model: frontmatter.)
         "ANTHROPIC_MODEL",
         *TIER_MODEL_ENV_VARS.values(),
         "ANTHROPIC_DEFAULT_FABLE_MODEL",
@@ -554,7 +526,7 @@ def load_provider_spec(
     literal ``${VAR}`` written into ``settings.json`` for deferred runtime
     expansion, and the model-id-only readers (``benchmarks/sdk.py``,
     ``channel_finder_in_context/server_context.py``) consume only
-    ``tier_to_model`` wire ids, which never contain ``${VAR}``.
+    model ids, which never contain ``${VAR}``.
     ``benchmarks/backends/react_backend.py`` keeps its own resolver — its
     contract is a synthetic config plus litellm ``api_base``, not a spec — but
     expands and refuses the same way this does.
@@ -621,19 +593,21 @@ class ClaudeCodeModelSpec:
 
     Attributes:
         provider: Provider name (e.g. "cborg", "anthropic").
-        env_block: Key-value pairs to inject into settings.json ``env``.
-            Contains only literal values (no ``${VAR}`` references, since
-            Claude Code's env block does not expand them).
-        tier_to_model: Maps canonical tiers to concrete model IDs.
-        agent_overrides: Per-agent tier overrides from config.
-        default_model_tier: Default model tier for settings.json ``model`` key.
-            Always a canonical tier, even when ``claude_code.default_model``
-            named a concrete model ID — see :func:`_resolve_default_tier`.
-        default_model_id: The verbatim ``claude_code.default_model`` value when
-            it named a model ID outside the tier map (it is what
-            ``ANTHROPIC_MODEL`` carries); ``None`` whenever the default
-            resolved through a tier. Consumers wanting the effective default
-            model read ``default_model_id or tier_to_model[default_model_tier]``.
+        default_model_id: The deployment's main model — ``claude_code.default_model``
+            when set, else the provider entry's ``default_model``. It is what
+            ``ANTHROPIC_MODEL`` carries and what every agent without a model of
+            its own runs.
+        env_block: Key-value pairs injected into the agent's process
+            environment at launch. Contains only literal values (no ``${VAR}``
+            references).
+        alias_models: Claude Code's three alias names (haiku, sonnet, opus) →
+            the model id each resolves to. Always carries all three.
+        alias_origin: Per alias, where its model came from:
+            ``"claude_code.aliases"``, ``"catalog"`` (the entry's
+            ``claude_code_aliases``), ``"derived"`` (the newest served id of
+            that family) or ``"main model"``.
+        agent_models: Agent name → model id, from ``claude_code.agent_models``.
+        served_models: The ids the provider entry lists as served.
         shell_exports: Shell export lines the user must add to their profile
             (e.g. ``export ANTHROPIC_AUTH_TOKEN="$CBORG_API_KEY"``).
         gateway: ``"litellm"`` when a LiteLLM proxy fronts the provider, else
@@ -642,11 +616,12 @@ class ClaudeCodeModelSpec:
     """
 
     provider: str
+    default_model_id: str
     env_block: dict[str, str] = field(default_factory=dict)
-    tier_to_model: dict[str, str] = field(default_factory=dict)
-    agent_overrides: dict[str, str] = field(default_factory=dict)
-    default_model_tier: str = "sonnet"
-    default_model_id: str | None = None
+    alias_models: dict[str, str] = field(default_factory=dict)
+    alias_origin: dict[str, str] = field(default_factory=dict)
+    agent_models: dict[str, str] = field(default_factory=dict)
+    served_models: list[str] = field(default_factory=list)
     shell_exports: tuple[str, ...] = ()
     auth_env_var: str = ""
     auth_secret_env: str = ""
@@ -657,24 +632,12 @@ class ClaudeCodeModelSpec:
     #: onto the agent's requests — see :mod:`osprey.models.spend_attribution`.
     gateway: str | None = None
 
-    def agent_tier(self, name: str) -> str:
-        """Resolve the tier alias for a named agent (for Claude Code model: frontmatter).
-
-        Resolution order:
-        1. Per-agent override from config
-        2. Default tier from AGENT_DEFAULT_TIERS
-        3. Falls back to "sonnet" for unknown agents
-        """
-        if name in self.agent_overrides:
-            return self.agent_overrides[name]
-        elif name in AGENT_DEFAULT_TIERS:
-            return AGENT_DEFAULT_TIERS[name]
-        return "sonnet"
-
     def agent_model(self, name: str) -> str:
-        """Resolve the concrete model ID for a named agent."""
-        tier = self.agent_tier(name)
-        return self.tier_to_model.get(tier, tier)
+        """The model id a named agent runs (its ``model:`` frontmatter).
+
+        ``claude_code.agent_models.<name>`` when set, else the main model.
+        """
+        return self.agent_models.get(name, self.default_model_id)
 
     def detect_env_conflicts(self, environ: dict[str, str]) -> dict[str, tuple[str, str]]:
         """Return {var: (shell_value, settings_value)} for vars where shell != settings.json.
@@ -693,70 +656,170 @@ class ClaudeCodeModelSpec:
         return conflicts
 
 
-def _warn_dropped_tier_keys(source: str, models: Mapping[str, Any]) -> None:
-    """Warn when a ``models:`` map carries keys that are not canonical tiers.
+def _warn_dropped_alias_keys(source: str, aliases: Mapping[str, Any]) -> None:
+    """Warn when an alias map carries keys that are not Claude Code alias names.
 
     The keys are still dropped — only haiku/sonnet/opus reach the env block —
-    but dropping them silently turns a typo like ``sonet:`` into a tier that
+    but dropping them silently turns a typo like ``sonet:`` into an alias that
     quietly falls back to another model. Name the dropped keys instead.
     """
-    dropped = [key for key in models if key not in VALID_TIERS]
+    dropped = [key for key in aliases if key not in TIER_MODEL_ENV_VARS]
     if dropped:
         logger.warning(
-            "%s: ignoring non-tier key(s) %s — only the canonical tiers (%s) are used.",
+            "%s: ignoring key(s) %s — Claude Code's alias names are %s.",
             source,
             ", ".join(str(key) for key in dropped),
             ", ".join(TIER_MODEL_ENV_VARS),
         )
 
 
-def _resolve_default_tier(
-    configured: str | None,
-    provider_name: str,
-    provider_default_tier: str,
-    tier_to_model: dict[str, str],
-) -> tuple[str, str | None]:
-    """Resolve ``claude_code.default_model`` to a tier plus an optional raw ID.
+def _served_models(
+    provider_name: str, api_providers: Mapping[str, Any]
+) -> tuple[list[str], str | None, dict[str, str]]:
+    """The ids a provider serves, its default model, and its catalog alias map.
 
-    Four branches, none refusing:
-
-    1. Unset → the provider's own default tier.
-    2. A canonical tier name (``haiku``/``sonnet``/``opus``) → that tier.
-    3. An explicit model ID that the effective provider map actually serves →
-       the tier carrying it, so ``ANTHROPIC_MODEL`` ends up as exactly the ID
-       the operator wrote.
-    4. Any other model ID → passed through verbatim as the second element.
-       The provider is trusted to serve it: refusing here would keep every
-       model the tier map does not name — a newly released ID, a gateway-only
-       alias — unusable until the map caught up. A misspelt ID therefore
-       fails at the provider (a 404 naming the ID), not at resolution.
-
-    Returning a tier as the first element keeps
-    :attr:`ClaudeCodeModelSpec.default_model_tier` a valid key into
-    ``tier_to_model`` for every consumer that indexes it; in branch 4 that
-    tier is the provider's default, and the verbatim ID travels separately in
-    :attr:`ClaudeCodeModelSpec.default_model_id`.
-
-    Returns:
-        ``(tier, model_id)`` — ``model_id`` is ``None`` except in branch 4,
-        where it is the ID that must become ``ANTHROPIC_MODEL``.
+    Read from the provider's ``api.providers`` entry. A built-in provider with
+    no entry there (direct Anthropic configured by name alone) reads its
+    packaged catalog entry instead, and a built-in the packaged catalog does not
+    carry reads its own :data:`CLAUDE_CODE_PROVIDERS` row.
     """
-    if configured is None:
-        return provider_default_tier, None
-    if configured in VALID_TIERS:
-        return configured, None
-    # Iterate the canonical tier order so a provider that maps two tiers to the
-    # same model ID still resolves deterministically.
-    for tier in TIER_MODEL_ENV_VARS:
-        if tier_to_model.get(tier) == configured:
-            return tier, None
-    logger.info(
-        "claude_code.default_model: %r is not a tier and not in provider %r's "
-        "tier map — passing it through verbatim as ANTHROPIC_MODEL.",
-        configured,
-        provider_name,
+    entry = api_providers.get(provider_name) or {}
+    if "models" not in entry and "default_model" not in entry:
+        if provider_name in CLAUDE_CODE_PROVIDERS:
+            from osprey.profiles.providers import load_provider_catalog
+
+            entry = (
+                load_provider_catalog(None).entries.get(provider_name)
+                or (CLAUDE_CODE_PROVIDERS[provider_name])
+            )
+    models = entry.get("models") or []
+    if not isinstance(models, list):
+        raise ValueError(
+            f"api.providers.{provider_name}.models must be a list of the model ids "
+            f"the gateway serves, got {type(models).__name__}. `osprey profile expand "
+            f"--providers` refreshes a copied catalog to the packaged entries."
+        )
+    default = entry.get("default_model")
+    if default is None and provider_name == "anthropic":
+        default = _DIRECT_ANTHROPIC_DEFAULT
+    aliases = entry.get("claude_code_aliases") or {}
+    return [str(m) for m in models], default, dict(aliases)
+
+
+def _checked_model_id(key: str, value: Any, provider_name: str, served: list[str]) -> str:
+    """A configured model id, refused when it is a bare alias word.
+
+    ``haiku``/``sonnet``/``opus`` are Claude Code's alias names, never a model
+    id, so a value spelled as one is refused with the ids the provider serves.
+    An id the served list does not carry is trusted: refusing it would keep
+    every model the list does not name yet — a newly released id, a
+    gateway-only alias — unusable until the catalog caught up, so a misspelt id
+    fails at the gateway (a 404 naming it), not here.
+    """
+    model_id = str(value)
+    if model_id in TIER_MODEL_ENV_VARS:
+        served_text = ", ".join(served) if served else "no listed models"
+        raise ValueError(
+            f"`{key}: {model_id}` is not a model id. Provider '{provider_name}' "
+            f"serves: {served_text}."
+        )
+    if served and model_id not in served:
+        logger.info(
+            "%s: %r is not in the served list of provider %r — trusting the gateway.",
+            key,
+            model_id,
+            provider_name,
+        )
+    return model_id
+
+
+def _resolve_aliases(
+    provider_name: str,
+    served: list[str],
+    catalog_aliases: Mapping[str, Any],
+    configured_aliases: Mapping[str, Any],
+    main_model: str,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Claude Code's three alias models and where each came from.
+
+    Derived from the served list by family name (newest version wins); a
+    catalog entry's ``claude_code_aliases`` beats derivation; a deployment's
+    ``claude_code.aliases`` beats both. An alias nothing resolves runs the main
+    model, and one INFO record names every such substitution. The record is for
+    the sinks: the verbs an operator reads promote the same sentence from the
+    resolved spec (:func:`alias_substitution`), once per run.
+    """
+    models: dict[str, str] = {}
+    origin: dict[str, str] = {}
+    for alias, model_id in claude_code_alias_candidates(served).items():
+        models[alias], origin[alias] = model_id, "derived"
+    _warn_dropped_alias_keys(f"api.providers.{provider_name}.claude_code_aliases", catalog_aliases)
+    for alias in TIER_MODEL_ENV_VARS:
+        if alias in catalog_aliases:
+            models[alias], origin[alias] = str(catalog_aliases[alias]), "catalog"
+    _warn_dropped_alias_keys("claude_code.aliases", configured_aliases)
+    for alias in TIER_MODEL_ENV_VARS:
+        if alias in configured_aliases:
+            models[alias] = _checked_model_id(
+                f"claude_code.aliases.{alias}", configured_aliases[alias], provider_name, served
+            )
+            origin[alias] = "claude_code.aliases"
+    missing = [alias for alias in TIER_MODEL_ENV_VARS if alias not in models]
+    if missing:
+        logger.info(
+            "%s %s",
+            _alias_substitution_text(missing, main_model, provider_name),
+            ALIAS_SUBSTITUTION_REMEDY,
+        )
+        for alias in missing:
+            models[alias], origin[alias] = main_model, "main model"
+    ordered = {alias: models[alias] for alias in TIER_MODEL_ENV_VARS}
+    return ordered, {alias: origin[alias] for alias in TIER_MODEL_ENV_VARS}
+
+
+#: What to do about an alias substitution, printed as its remedy.
+ALIAS_SUBSTITUTION_REMEDY = "Set claude_code.aliases.<name> to choose."
+
+
+def _alias_substitution_text(missing: list[str], main_model: str, provider_name: str) -> str:
+    """The one sentence naming the aliases that run the main model, and why."""
+    what = (
+        "no Claude models"
+        if len(missing) == len(TIER_MODEL_ENV_VARS)
+        else ("no model of " + ("that family" if len(missing) == 1 else "those families"))
     )
-    return provider_default_tier, configured
+    names = f"{', '.join(missing)} aliases run" if len(missing) > 1 else f"{missing[0]} alias runs"
+    return f"Claude Code's {names} the main model {main_model}: '{provider_name}' serves {what}."
+
+
+def alias_substitution(spec: ClaudeCodeModelSpec) -> str | None:
+    """The alias substitution a resolved spec carries, as one sentence, or ``None``.
+
+    Read off ``alias_origin`` rather than kept from the resolve that made the
+    spec, so a verb that resolved several times still has one sentence to say.
+    """
+    missing = [alias for alias, origin in spec.alias_origin.items() if origin == "main model"]
+    if not missing:
+        return None
+    return _alias_substitution_text(missing, spec.default_model_id, spec.provider)
+
+
+def unserved_model_ids(spec: ClaudeCodeModelSpec) -> list[str]:
+    """Configured model ids the provider's served list does not carry, sorted.
+
+    The main model, every alias set by ``claude_code.aliases`` and every
+    ``claude_code.agent_models`` value. Empty when the provider lists no models,
+    because then there is no list to be outside of.
+    """
+    if not spec.served_models:
+        return []
+    configured = [spec.default_model_id, *spec.agent_models.values()]
+    configured += [
+        model_id
+        for alias, model_id in spec.alias_models.items()
+        if spec.alias_origin.get(alias) == "claude_code.aliases"
+    ]
+    return sorted({model_id for model_id in configured if model_id not in spec.served_models})
 
 
 class ClaudeCodeModelResolver:
@@ -774,14 +837,14 @@ class ClaudeCodeModelResolver:
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
 
-        Model ID resolution order (highest to lowest priority):
-        1. ``claude_code.models`` per-tier overrides in config.yml
-        2. ``api.providers[name].models`` — the provider's own model IDs
-        3. Built-in ``models`` in CLAUDE_CODE_PROVIDERS (fallback)
-
-        This means providers own their model naming: set models under
-        ``api.providers`` and the framework picks them up automatically.
-        No model IDs need to be hardcoded in Python.
+        Models are named by the id the gateway serves. The provider's
+        ``api.providers`` entry lists those ids (``models``) and names its
+        ``default_model``; the main model is ``claude_code.default_model`` when
+        set, else that default. Each agent runs ``claude_code.agent_models.<name>``
+        or the main model. Claude Code's own alias names (haiku, sonnet, opus)
+        are filled from the served list — see :func:`_resolve_aliases`. A
+        configured value spelled as a bare alias word is refused; an id the
+        served list does not carry is trusted (:func:`_checked_model_id`).
 
         ``base_url`` follows the same rule: ``api.providers[name].base_url``
         overrides the built-in URL, so a facility can front a built-in provider
@@ -801,14 +864,8 @@ class ClaudeCodeModelResolver:
         names one, rather than falling through to Claude Code's native backend
         with the gateway's bearer token.
 
-        A tier that all three sources leave unmapped falls back to the
-        resolved default model, with a warning naming each substitution — the
-        framework never substitutes another provider's model IDs. Only a
-        provider with no models *and* no default model at all is refused.
-
-        ``claude_code.default_model`` accepts a canonical tier or any model
-        ID; an ID outside the provider's tier map is passed through verbatim
-        as ``ANTHROPIC_MODEL`` (see :func:`_resolve_default_tier`).
+        A provider that lists no models and names no default model, with no
+        ``claude_code.default_model`` either, is refused.
 
         Args:
             claude_code_config: The ``claude_code`` section of config.yml.
@@ -835,8 +892,8 @@ class ClaudeCodeModelResolver:
         Raises:
             ValueError: If the provider name is not in CLAUDE_CODE_PROVIDERS
                 and not in api_providers, if a provider that declares
-                ``requires_base_url`` resolves no endpoint, or if the provider
-                maps no models and no ``default_model`` is set to fall back on.
+                ``requires_base_url`` resolves no endpoint, if no main model can
+                be named, or if a configured model is a bare alias word.
         """
         provider_name = claude_code_config.get("provider")
         if not provider_name:
@@ -869,15 +926,13 @@ class ClaudeCodeModelResolver:
             provider_def: dict[str, Any] = {
                 "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
                 "auth_secret_env": provider_auth_secret_env(provider_name, api_providers),
-                "default_model_tier": "opus",
-                "models": {},
             }
         else:
             provider_def = CLAUDE_CODE_PROVIDERS[provider_name]
 
         # ── Base URL ─────────────────────────────────────────────
-        # Same precedence rule as the model map: a base_url under api.providers
-        # wins over the built-in CLAUDE_CODE_PROVIDERS entry. A facility that
+        # A base_url under api.providers wins over the built-in
+        # CLAUDE_CODE_PROVIDERS entry. A facility that
         # fronts a built-in provider with its own gateway therefore points the
         # agent at the endpoint `osprey health` already probes, instead of
         # having the built-in URL silently win. The built-in URL is the
@@ -915,89 +970,36 @@ class ClaudeCodeModelResolver:
                 f"to be named: set {sources}."
             )
 
-        # ── Build tier → model mapping ───────────────────────────
-        # Priority: built-in fallback < api.providers models < claude_code.models
-
-        # Start with built-in fallbacks (configs that map no models of their own)
-        tier_to_model = dict(provider_def.get("models", {}))
-
-        # Override with models defined in api.providers[name].models
-        # This is the authoritative source: providers own their model naming.
-        provider_api_models = api_providers.get(provider_name, {}).get("models", {})
-        _warn_dropped_tier_keys(f"api.providers.{provider_name}.models", provider_api_models)
-        for tier, model_id in provider_api_models.items():
-            if tier in VALID_TIERS:
-                tier_to_model[tier] = model_id
-
-        # Apply explicit per-tier overrides from claude_code.models
-        model_overrides = claude_code_config.get("models", {})
-        _warn_dropped_tier_keys("claude_code.models", model_overrides or {})
-        for tier, model_id in (model_overrides or {}).items():
-            if tier in VALID_TIERS:
-                tier_to_model[tier] = model_id
-
-        # ── Default model ────────────────────────────────────────
-        # Resolved before the tier map is completed: the default model is the
-        # fallback that fills any unmapped tier below.
-        default_tier, default_model_id = _resolve_default_tier(
-            claude_code_config.get("default_model"),
+        # ── Models ───────────────────────────────────────────────
+        served, catalog_default, catalog_aliases = _served_models(provider_name, api_providers)
+        configured_default = claude_code_config.get("default_model")
+        if configured_default:
+            main_model = _checked_model_id(
+                "claude_code.default_model", configured_default, provider_name, served
+            )
+        elif catalog_default:
+            main_model = str(catalog_default)
+        else:
+            raise ValueError(
+                f"Provider '{provider_name}' lists no models and names no default_model; "
+                f"add `models:` (a list of the ids it serves) and `default_model:` under "
+                f"api.providers.{provider_name} — under `config:` in profile.yml for "
+                f"profile-built projects, or in the providers.yml beside it — then run "
+                f"`osprey build`."
+            )
+        alias_models, alias_origin = _resolve_aliases(
             provider_name,
-            provider_def["default_model_tier"],
-            tier_to_model,
+            served,
+            catalog_aliases,
+            claude_code_config.get("aliases") or {},
+            main_model,
         )
-
-        # A tier no source maps falls back to the resolved default model — with
-        # a warning that names every substitution. Never fill a missing tier
-        # with Anthropic's own direct IDs: a proxy that ships no map would
-        # launch the agent asking it for "claude-opus-4-6" — a 404 if the proxy
-        # is strict, and silently the wrong model if it is not (#350/#357). The
-        # default model is the one ID the operator chose for this provider, so
-        # it is the only defensible substitute; the warning keeps the
-        # substitution from being silent. Refusal remains only for the case
-        # with nothing to fall back to: no map and no default model at all.
-        missing = [tier for tier in TIER_MODEL_ENV_VARS if tier not in tier_to_model]
-        if missing:
-            fallback_model = default_model_id or tier_to_model.get(default_tier)
-            if fallback_model is None:
-                # Default tier itself unmapped: first mapped tier, canonical order.
-                fallback_model = next(
-                    (tier_to_model[t] for t in TIER_MODEL_ENV_VARS if t in tier_to_model),
-                    None,
-                )
-            if fallback_model is None:
-                raise ValueError(
-                    f"Provider '{provider_name}' defines no models mapping. Claude Code "
-                    f"needs one model ID per tier ({', '.join(TIER_MODEL_ENV_VARS)}). "
-                    f"Add them under api.providers.{provider_name}.models — under "
-                    f"`config:` in profile.yml for profile-built projects, then run "
-                    f"`osprey build`:\n"
-                    f"  api:\n"
-                    f"    providers:\n"
-                    f"      {provider_name}:\n"
-                    f"        models:\n"
-                    f"          haiku: <fast model ID as this provider names it>\n"
-                    f"          sonnet: <balanced model ID>\n"
-                    f"          opus: <most capable model ID>\n"
-                    f"Individual tiers can also be set under claude_code.models, or set "
-                    f"claude_code.default_model to a model ID the provider serves."
-                )
-            substitutions = "\n".join(
-                f"    {tier} -> {fallback_model}  ({TIER_MODEL_ENV_VARS[tier]})" for tier in missing
+        agent_models = {
+            str(name): _checked_model_id(
+                f"claude_code.agent_models.{name}", model_id, provider_name, served
             )
-            logger.warning(
-                "Provider '%s' defines no model for tier(s): %s.\n"
-                "Each unmapped tier falls back to the default model:\n%s\n"
-                "Every agent pinned to a tier listed above will run '%s', NOT a "
-                "tier-appropriate model. If that is not intended, map the tier(s) "
-                "under api.providers.%s.models and rebuild.",
-                provider_name,
-                ", ".join(missing),
-                substitutions,
-                fallback_model,
-                provider_name,
-            )
-            for tier in missing:
-                tier_to_model[tier] = fallback_model
+            for name, model_id in (claude_code_config.get("agent_models") or {}).items()
+        }
 
         # ── Build env block (literals only — no ${VAR} refs) ────
         # Claude Code's settings.json env block does NOT expand
@@ -1016,14 +1018,12 @@ class ClaudeCodeModelResolver:
         if base_url:
             env_block["ANTHROPIC_BASE_URL"] = base_url.rstrip("/").removesuffix("/v1")
 
-        # Tier model env vars (all providers) — derived from the single
+        # Claude Code's alias env vars (all providers) — derived from the single
         # TIER_MODEL_ENV_VARS declaration so this key set can never drift from
-        # the e2e-force and scrub-agreement paths (#357). tier_to_model is known
-        # to carry all three tiers (the fallback fill above), and the map's
-        # insertion order is haiku→sonnet→opus, so both the key set and the
-        # insertion order are byte-identical to the prior literal block.
-        for tier, env_var in TIER_MODEL_ENV_VARS.items():
-            env_block[env_var] = tier_to_model[tier]
+        # the e2e-force and scrub-agreement paths. alias_models always carries
+        # all three names, in TIER_MODEL_ENV_VARS order.
+        for alias, env_var in TIER_MODEL_ENV_VARS.items():
+            env_block[env_var] = alias_models[alias]
 
         # ── Shell exports (auth key — must be set in user's profile) ──
         auth_env_var = provider_def["auth_env_var"]
@@ -1036,13 +1036,8 @@ class ClaudeCodeModelResolver:
             shell_exports = (f'export {auth_env_var}="${auth_secret_env}"',)
 
         # ANTHROPIC_MODEL: override any shell-level value so the project's
-        # chosen model is authoritative. A free-form default_model (an ID
-        # outside the tier map) passes through verbatim; otherwise the
-        # resolved default tier's ID is used.
-        env_block["ANTHROPIC_MODEL"] = default_model_id or tier_to_model[default_tier]
-
-        # ── Agent overrides ──────────────────────────────────────
-        agent_overrides = dict(claude_code_config.get("agent_models", {}) or {})
+        # main model is authoritative.
+        env_block["ANTHROPIC_MODEL"] = main_model
 
         # ── Proxy detection ───────────────────────────────────────
         from osprey.infrastructure.proxy.lifecycle import is_proxy_needed
@@ -1059,7 +1054,7 @@ class ClaudeCodeModelResolver:
         # itself stays pure. Telemetry keys are deliberately excluded from
         # MANAGED_ENV_VARS (they are not backend/model selectors).
         # Telemetry is an observability concern, not a provider/model selector.
-        # Callers that only read tier_to_model (model-id readers) or that must
+        # Callers that only read model ids (model-id readers) or that must
         # not let a telemetry misconfig abort provider resolution pass
         # include_telemetry=False; a raised TelemetryConfigError then cannot
         # poison the rest of the spec.
@@ -1077,11 +1072,12 @@ class ClaudeCodeModelResolver:
 
         return ClaudeCodeModelSpec(
             provider=provider_name,
+            default_model_id=main_model,
             env_block=env_block,
-            tier_to_model=tier_to_model,
-            agent_overrides=agent_overrides,
-            default_model_tier=default_tier,
-            default_model_id=default_model_id,
+            alias_models=alias_models,
+            alias_origin=alias_origin,
+            agent_models=agent_models,
+            served_models=served,
             shell_exports=tuple(shell_exports),
             auth_env_var=auth_env_var,
             auth_secret_env=auth_secret_env,

@@ -41,6 +41,8 @@ Each target below is Google Chat's documented formatting subset for that constru
     inline link            ``[t](u)``             ``t: u``   (bare ``u`` when t==u)
     reference link         ``[t][r]`` + ``[r]: u``  ``t: u``
     bare URL               ``https://…``          unchanged (Chat auto-links)
+    mention                ``<@users/1>``         ``<users/1>``, only for a member of
+                                                  this space (:func:`render_mentions`)
 
 Chat's own single-underscore-italic means ``snake_case`` / URL underscores can render
 oddly in the client; we deliberately leave them untouched (a known Chat limitation,
@@ -50,6 +52,36 @@ not something the transform should mangle).
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+
+CHAT_MENTION_RE = re.compile(r"<users/[^\s<>]+>")
+"""Chat's rendered mention, ``<users/ID>``: the span the chunker keeps whole."""
+
+
+def render_mentions(
+    text: str,
+    roster: Mapping[str, str | None],
+    *,
+    enabled: bool,
+    placeholder: re.Pattern[str],
+) -> str:
+    """Render the agent's mention placeholders in ``text`` for Chat.
+
+    Runs on the posted copy, after :func:`markdown_to_chat`. A placeholder whose id is
+    a key of ``roster`` (the members of this space) becomes Chat's ``<ID>`` mention
+    when ``enabled``; anything else becomes plain ``@name`` (or ``@id`` when the
+    roster has no name). The Chat "everyone" id ``users/all`` is never a roster key,
+    so it never renders. ``placeholder`` is passed in (group 1 is the id) so this
+    module stays free of osprey imports.
+    """
+
+    def one(m: re.Match[str]) -> str:
+        ident = m.group(1)
+        if enabled and ident in roster:
+            return f"<{ident}>"
+        return "@" + (roster.get(ident) or ident)
+
+    return placeholder.sub(one, text)
 
 
 def _make_sentinel(name: str) -> tuple[str, re.Pattern[str]]:

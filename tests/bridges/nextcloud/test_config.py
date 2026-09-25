@@ -48,6 +48,7 @@ def test_from_env_defaults_when_unset():
     # Same bridge volume as the core stores, and the same naming shape as
     # dedup_path/history_path.
     assert cfg.offsets_path == "/data/offsets.json"
+    assert cfg.mentions is True
 
 
 def test_dataclass_defaults_match_from_env_defaults():
@@ -56,6 +57,7 @@ def test_dataclass_defaults_match_from_env_defaults():
     cfg = NextcloudBridgeConfig()
     assert (cfg.base_url, cfg.bot_account, cfg.app_password, cfg.rooms) == ("", "", "", ())
     assert cfg.offsets_path == "/data/offsets.json"
+    assert cfg.mentions is True
 
 
 def test_from_env_reads_os_environ_when_no_mapping_given(monkeypatch):
@@ -250,3 +252,26 @@ def test_unset_base_url_does_not_warn_about_https(caplog):
     with caplog.at_level(logging.WARNING, logger=CONFIG_LOGGER):
         NextcloudBridgeConfig.from_env({})
     assert not [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+
+
+# --- mentions --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("env", [{}, {"NEXTCLOUD_MENTIONS": ""}])
+def test_mentions_default_on_when_unset_or_empty(env):
+    assert NextcloudBridgeConfig.from_env(complete(**env)).mentions is True
+
+
+@pytest.mark.parametrize("raw", ["false", "0", "no", "off", "ture"])
+def test_mentions_turn_off_for_a_false_spelling(raw):
+    assert NextcloudBridgeConfig.from_env(complete(NEXTCLOUD_MENTIONS=raw)).mentions is False
+
+
+@pytest.mark.parametrize("raw", ["true", "1", "yes", "on", " TRUE "])
+def test_mentions_stay_on_for_a_true_spelling(raw):
+    assert NextcloudBridgeConfig.from_env(complete(NEXTCLOUD_MENTIONS=raw)).mentions is True
+
+
+def test_mentions_are_not_a_startup_requirement():
+    assert "NEXTCLOUD_MENTIONS" not in COMPLETE_ENV
+    NextcloudBridgeConfig.from_env(complete()).require_startup()  # no raise

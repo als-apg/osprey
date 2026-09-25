@@ -42,6 +42,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -302,7 +303,7 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # ``osprey down`` keeps volumes; drop this project's own (legacy name
@@ -348,7 +349,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -396,14 +397,14 @@ def _auth_header_from_resolver(user: str = OO_EMAIL, password: str = OO_PASSWORD
 
 
 def _otlp_post(path: str, payload: dict, auth: str) -> tuple[int, str]:
-    req = urllib.request.Request(  # noqa: S310 - localhost
+    req = urllib.request.Request(  # localhost
         f"{OO_BASE_URL}{path}",
         data=json.dumps(payload).encode(),
         method="POST",
         headers={"Content-Type": "application/json", "Authorization": auth},
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             return resp.status, resp.read().decode()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode()
@@ -411,14 +412,14 @@ def _otlp_post(path: str, payload: dict, auth: str) -> tuple[int, str]:
 
 def _query(path: str, payload: dict | None, auth: str, method: str = "POST") -> tuple[int, dict]:
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(  # noqa: S310 - localhost
+    req = urllib.request.Request(  # localhost
         f"{OO_BASE_URL}{path}",
         data=data,
         method=method,
         headers={"Content-Type": "application/json", "Authorization": auth},
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
         # Error bodies are not reliably JSON (e.g. a bare "Unauthorized Access"
@@ -482,6 +483,49 @@ def _synthetic_event(now_ns: int) -> dict:
                                     {
                                         "key": "event.name",
                                         "value": {"stringValue": "user_prompt"},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _synthetic_span(now_ns: int, trace_id: str) -> dict:
+    """One ``claude_code.tool`` span carrying a ``tool.output`` event."""
+    return {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [{"key": "service.name", "value": {"stringValue": "claude-code"}}]
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "com.anthropic.claude_code.tracing"},
+                        "spans": [
+                            {
+                                "traceId": trace_id,
+                                "spanId": trace_id[:16],
+                                "name": "claude_code.tool",
+                                "kind": 1,
+                                "startTimeUnixNano": str(now_ns),
+                                "endTimeUnixNano": str(now_ns + 1_000_000),
+                                "attributes": [
+                                    {"key": "tool_name", "value": {"stringValue": "Read"}}
+                                ],
+                                "events": [
+                                    {
+                                        "timeUnixNano": str(now_ns + 500_000),
+                                        "name": "tool.output",
+                                        "attributes": [
+                                            {
+                                                "key": "content",
+                                                "value": {"stringValue": "line one\nline two"},
+                                            }
+                                        ],
                                     }
                                 ],
                             }
@@ -671,6 +715,46 @@ def test_synthetic_otlp_roundtrip_via_the_ingest_identity(deployed_openobserve: 
     assert event_total >= 1, "no record visible after ingest via the ingest identity"
 
 
+def test_synthetic_trace_roundtrip_via_the_ingest_identity(deployed_openobserve: Path) -> None:
+    """A tool span with its output event lands through the traces route.
+
+    The base endpoint the resolver emits plus the exporter's ``/v1/traces`` is
+    this route, on the pinned image, authenticated as the provisioned ingest
+    identity with the resolver's header.
+    """
+    email, token = _ingest_credentials(deployed_openobserve)
+    auth = _auth_header_from_resolver(user=email, password=token)
+
+    now_ns = int(time.time() * 1_000_000_000)
+    trace_id = secrets.token_hex(16)
+    status, body = _otlp_post(f"/api/{OO_ORG}/v1/traces", _synthetic_span(now_ns, trace_id), auth)
+    assert status == 200, f"trace ingest rejected: {status} {body} — {_container_cred_diagnosis()}"
+
+    start_us = (now_ns // 1_000) - 3_600_000_000
+    end_us = (now_ns // 1_000) + 60_000_000
+    deadline = time.monotonic() + INGEST_QUERY_TIMEOUT_SEC
+    total = 0
+    while time.monotonic() < deadline:
+        _, tres = _query(
+            f"/api/{OO_ORG}/_search?type=traces",
+            {
+                "query": {
+                    "sql": f"SELECT * FROM \"default\" WHERE trace_id = '{trace_id}'",
+                    "start_time": start_us,
+                    "end_time": end_us,
+                    "size": 5,
+                }
+            },
+            auth,
+        )
+        total = tres.get("total", 0)
+        if total >= 1:
+            break
+        time.sleep(2.0)
+
+    assert total >= 1, f"trace {trace_id} not visible in OpenObserve after ingest"
+
+
 def test_a_wrong_token_for_the_ingest_account_is_rejected(deployed_openobserve: Path) -> None:
     """The negative half, aimed at the identity that now carries the traffic.
 
@@ -722,7 +806,7 @@ def test_live_agent_metric_lands(deployed_openobserve: Path) -> None:
     config_path = repo / "build" / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["claude_code"]["provider"] = "als-apg"
-    config["claude_code"]["default_model"] = "haiku"
+    config["claude_code"]["default_model"] = "claude-haiku-4-5-20251001"
     config["claude_code"]["telemetry"] = {
         "enabled": True,
         "backend": "openobserve",

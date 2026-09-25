@@ -34,9 +34,11 @@ from osprey.interfaces.common_middleware import (
 )
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.bar_items_store import (
+    BarLayoutInvalid,
     BarVocabulary,
     layout_path,
     load_layout,
+    validate_option,
 )
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.feedback_destination import (
@@ -191,7 +193,7 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
         await asyncio.to_thread(sidecar.preflight)
         sidecar.spawn()
         await asyncio.to_thread(sidecar.wait_ready, SIDECAR_READY_TIMEOUT)
-    except Exception as exc:  # noqa: BLE001 — a dead panel must not block startup
+    except Exception as exc:  # a dead panel must not block startup
         # The readiness failures already quote the tail in their own message;
         # the preflight ones carry none, so it is appended only when it is new.
         tail = getattr(sidecar, "stderr_tail", "")
@@ -240,7 +242,7 @@ async def _stop_sidecar(panel_id: str, sidecar: object) -> None:
     """
     try:
         await asyncio.to_thread(sidecar.stop)  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 — one stuck sidecar must not block the rest
+    except Exception:  # one stuck sidecar must not block the rest
         logger.warning("Could not stop the %s sidecar", panel_id, exc_info=True)
 
 
@@ -777,7 +779,8 @@ class BarRenderPlan(NamedTuple):
     """Everything ``index.html`` needs to render both hosts and the pool.
 
     Attributes:
-        header: Ordered header shells, each ``{"type", "adopted", "follows"}``.
+        header: Ordered header shells, each
+            ``{"type", "adopted", "follows", "options"}``.
         status: Ordered status-bar shells, same shape.
         pooled: Adopted types this deployment renders but this layout does not
             place — their nodes go into ``#bar-item-pool``.
@@ -921,6 +924,13 @@ def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
     a shell rendered for it would be an empty box the first reconcile takes
     away again.
 
+    **Options are painted, not deferred.** Each shell carries the options its
+    entry was placed with, so the first reconcile renders the configured item —
+    the zone of a clock, the width of a space. Without them it would render the
+    type's defaults and correct them when the stored document arrives. An entry
+    whose ``options`` is not a mapping paints with none, which is also what the
+    client's normalizer does with it.
+
     ``follows`` chains off the previous EMITTED item rather than the previous
     layout entry, so a skipped item cannot leave the middot stranded on a shell
     that is no longer next to the logo.
@@ -960,7 +970,15 @@ def bar_render_plan(layout: dict, *, context: dict) -> BarRenderPlan:
                 if item_type in seen:
                     continue
                 seen.add(item_type)
-            shells.append({"type": item_type, "adopted": adopted, "follows": previous})
+            options = raw.get("options")
+            shells.append(
+                {
+                    "type": item_type,
+                    "adopted": adopted,
+                    "follows": previous,
+                    "options": dict(options) if isinstance(options, dict) else {},
+                }
+            )
             previous = item_type
         runs[host] = shells
 
@@ -986,7 +1004,9 @@ _FALSE_WORDS = frozenset({"false", "no", "off", "0"})
 _TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
 
 
-def resolve_config_flag(key: str, default: bool, on_error: str) -> bool:
+def resolve_config_flag(
+    key: str, default: bool, on_error: str, *, config_path: str | Path | None = None
+) -> bool:
     """Read a configured boolean switch at startup, failing OPEN to *default*.
 
     The read and the coercion are one step because the two failure modes want
@@ -1000,6 +1020,11 @@ def resolve_config_flag(key: str, default: bool, on_error: str) -> bool:
         default: Posture for a deployment that never mentions the key.
         on_error: Warning logged when the config cannot be read at all; it says
             which switch was left at its default and what that means.
+        config_path: The config file to answer from. A surface that resolved its
+            own config file names it here, so the switch is read out of that file
+            rather than out of whichever one this process defaults to. None reads
+            the process default (``CONFIG_FILE``, else ``config.yml`` in the
+            working directory).
 
     Returns:
         The configured boolean, or *default*.
@@ -1007,8 +1032,8 @@ def resolve_config_flag(key: str, default: bool, on_error: str) -> bool:
     try:
         from osprey.utils.config import get_config_value
 
-        raw = get_config_value(key, default)
-    except Exception:  # noqa: BLE001 — never let config load block startup
+        raw = get_config_value(key, default, str(config_path) if config_path is not None else None)
+    except Exception:  # never let config load block startup
         logger.warning(on_error, exc_info=True)
         raw = None
     return coerce_config_flag(key, raw, default)
@@ -1221,6 +1246,10 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     # for backends whose SPA bootstraps its API base from a
                     # JSON config endpoint.
                     "rewriteJsonPaths": spec.get("rewrite_json_paths") or [],
+                    # Root-absolute prefixes rewritten in this panel's responses on top
+                    # of its own `path` (see routes/proxy.py) — for a backend that
+                    # serves a prefix its `path` does not cover.
+                    "rewritePrefixes": spec.get("rewrite_prefixes") or [],
                 }
             )
 
@@ -1412,10 +1441,17 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
 
     Two spellings are accepted, because both read naturally in YAML: a bare
     string (``- clock``) for an item with no options, and a mapping
-    (``- {type: clock, options: {zone: utc}}``) for one with them. Option
-    VALUES are not validated here — the catalog owns each type's option spec
-    and the browser applies it — but a non-mapping ``options`` is dropped,
-    since nothing downstream could read it.
+    (``- {type: clock, options: {zone: utc}}``) for one with them.
+
+    Each option is judged against :data:`BAR_ITEM_OPTIONS` by
+    :func:`~osprey.interfaces.web_terminal.bar_items_store.validate_option`,
+    the rule a save is judged by. An option the type does not take, or a value
+    outside its spec, is warned about and dropped while the item keeps its
+    other options: the browser completes a missing option from its default
+    without complaint, but reads an undeclared key or an out-of-spec value in
+    the deployment default as lost content and latches every operator's bars
+    read-only. A non-mapping ``options`` is dropped whole, since nothing
+    downstream could read it.
 
     Args:
         host: The bar the entry was written under, for the warning text.
@@ -1424,7 +1460,8 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
         raw: The entry, exactly as YAML produced it.
 
     Returns:
-        A ``{"type": ...}`` item, optionally carrying ``options``; ``None``
+        A ``{"type": ...}`` item, its optional ``options`` carrying only the
+        options its type takes, at values their specs allow; ``None``
         when the entry is malformed or names a type this build does not know.
     """
     where = f"web.bar_items.{host}[{index}]"
@@ -1445,7 +1482,22 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
     item: dict = {"type": item_type}
     if options is not None:
         if isinstance(options, dict):
-            item["options"] = dict(options)
+            specs = BAR_ITEM_OPTIONS.get(item_type, {})
+            kept: dict = {}
+            for name, value in options.items():
+                if name not in specs:
+                    logger.warning(
+                        "%s.options.%s is not an option %r takes; dropping it.",
+                        where,
+                        name,
+                        item_type,
+                    )
+                    continue
+                try:
+                    kept[name] = validate_option(value, specs[name], f"{where}.options.{name}")
+                except BarLayoutInvalid as exc:
+                    logger.warning("%s; dropping it.", exc)
+            item["options"] = kept
         else:
             logger.warning("%s has non-mapping options; dropping them.", where)
     return item
@@ -1504,7 +1556,7 @@ def _load_bar_items(config_path: str | Path | None = None, *, context: dict | No
 
     try:
         raw = _load_web_ui_config(config_path).get("bar_items")
-    except Exception:  # noqa: BLE001 — an unreadable config renders the shipped bars
+    except Exception:  # an unreadable config renders the shipped bars
         logger.warning("web.bar_items could not be read; using the default layout.")
         return _default()
 
@@ -1804,7 +1856,7 @@ def _create_lifespan(
             chat_turn_timeout_s = float(get_config_value("web.chat_turn_timeout_s", 600))
             chat_idle_timeout_s = float(get_config_value("web.chat_idle_timeout_s", 1800))
             chat_max_sessions = int(get_config_value("web.chat_max_sessions", 5))
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.chat_* config keys; using defaults "
                 "(turn=600s, idle=1800s, max=5)",
@@ -1898,7 +1950,7 @@ def _create_lifespan(
 
             try:
                 restore_scaffold_bodies(Path(app.state.project_cwd))
-            except Exception as exc:  # noqa: BLE001 - never block startup on this
+            except Exception as exc:  # never block startup on this
                 logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
 
         # Resolve and store config_path for the settings API
@@ -1937,7 +1989,7 @@ def _create_lifespan(
             # Kept for the rail-position block below (an unconfigured rail
             # follows the family — see FAMILY_RAIL_DEFAULTS).
             app.state.web_theme_family = web_theme.family
-        except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
+        except Exception:  # never let config/theme-registry load block startup
             logger.warning(
                 "Could not resolve web.theme (config or theme-registry load failed); "
                 "server-rendering fallback theme 'dark'",
@@ -1960,7 +2012,7 @@ def _create_lifespan(
 
             configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
             app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.ui_mode (config load failed); "
                 "server-rendering fallback mode %r",
@@ -1981,7 +2033,7 @@ def _create_lifespan(
                 "OSPREY_WEB_TOUR", ""
             ).strip() or load_osprey_config().get("web", {}).get("tour", DEFAULT_TOUR_POLICY)
             app.state.web_tour_policy = resolve_tour_policy(configured_tour)
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.tour (config load failed); falling back to policy %r",
                 DEFAULT_TOUR_POLICY,
@@ -2007,7 +2059,7 @@ def _create_lifespan(
             # needs this to know if a live theme-family switch may move the
             # rail: an explicit config value outranks the family default.
             app.state.web_rail_position_configured = configured_rail in RAIL_POSITIONS
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not resolve web.rail_position (config load failed); "
                 "server-rendering fallback position %r",
@@ -2098,7 +2150,7 @@ def _create_lifespan(
                         len(changed),
                         ", ".join(changed),
                     )
-        except Exception:  # noqa: BLE001 — never let regen block server startup
+        except Exception:  # never let regen block server startup
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 
         # ── Provider env injection ──
@@ -2182,6 +2234,7 @@ def _create_lifespan(
                     proxy_port = start_proxy(
                         _spec.upstream_base_url,
                         os.environ.get(_spec.auth_env_var),
+                        provider=_spec.provider,
                     )
                     os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
                     logger.info(
@@ -2246,7 +2299,7 @@ def _create_lifespan(
             raw_max_store_bytes = get_config_value(
                 "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
             )
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             logger.warning(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
@@ -2287,7 +2340,7 @@ def _create_lifespan(
             raw_preset = get_config_value("provenance.preset", None)
             raw_preset_hash = get_config_value("provenance.preset_hash", None)
             raw_finder_mode = get_config_value("channel_finder.pipeline_mode", None)
-        except Exception:  # noqa: BLE001 — an unreadable identity is not fatal
+        except Exception:  # an unreadable identity is not fatal
             logger.warning("Could not read the deployment identity keys", exc_info=True)
             raw_preset = raw_preset_hash = raw_finder_mode = None
         app.state.deployment_identity = resolve_deployment_identity(
@@ -2314,7 +2367,7 @@ def _create_lifespan(
             from osprey.utils.workspace import resolve_shared_data_root
 
             shared_data_root = resolve_shared_data_root()
-        except Exception:  # noqa: BLE001 — never let config load block startup
+        except Exception:  # never let config load block startup
             shared_data_root = workspace_dir
             logger.warning(
                 "Could not resolve the shared data root; siting the feedback and "
@@ -2329,8 +2382,9 @@ def _create_lifespan(
         # Workspace-relative form of each store: the *file watcher's* form,
         # used below to drop change events for writes into them. The file
         # browser is not a consumer — routes/files.py derives its own predicate
-        # from ``feedback_dir``, because it must also handle symlink aliases and
-        # session-scoped roots that a single relative path cannot express.
+        # from ``feedback_dir`` and ``bar_items_dir``, because it must also
+        # handle symlink aliases and session-scoped roots that a single relative
+        # path cannot express.
         # ``None`` when a store lies outside the watched tree (the watch_dir
         # case above) — nothing to conceal there, and a bare relative_to()
         # would raise and abort startup. The derivation is case-folded on a
@@ -2351,12 +2405,9 @@ def _create_lifespan(
         # bar arrangement must be as silent as filing feedback: a layout PUT
         # writes one file, and an unconcealed store would push an SSE change
         # frame to every connected browser the moment anyone rearranged a bar.
-        # This seam does that and only that. It does NOT hide either store from
-        # the file panel — routes/files.py filters the listing and the content
-        # read through its own predicate, which knows about the feedback store
-        # alone — so bar_items/layout.json is still listed on a refresh. That is
-        # deliberate for now: a layout is the operator's own preference, not
-        # submitted session context, so it is clutter rather than disclosure.
+        # This seam silences the watcher and only that; the file panel's listing
+        # and content reads hide both stores through routes/files.py's own
+        # predicate.
         app.state.concealed_store_rels = tuple(
             rel for rel in (app.state.feedback_rel, app.state.bar_items_rel) if rel is not None
         )
@@ -2503,7 +2554,7 @@ def _create_lifespan(
                         logger.info("Idle chat reaper evicted %d session(s)", reaped)
                 except asyncio.CancelledError:
                     raise
-                except Exception:  # noqa: BLE001 — one bad cycle must not kill the reaper
+                except Exception:  # one bad cycle must not kill the reaper
                     logger.warning("Idle chat reaper cycle failed", exc_info=True)
 
         reaper_task = asyncio.create_task(_reap_idle_chats())

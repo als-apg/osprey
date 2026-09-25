@@ -13,14 +13,17 @@ platform's number, and this package holds no channel knowledge by design (see
 or wraps this function with it.
 
 The split is fence-aware because half a ``` code block in each of two messages
-renders as garbage in both. That is the only markup this module knows; everything
-else is treated as plain text, so it runs safely over text a caller has already
-transformed for its own channel.
+renders as garbage in both. That is the only markup this module knows; any other
+span that must travel whole (a rendered mention) is named by the caller through
+``keep_whole``. Everything else is treated as plain text, so it runs safely over
+text a caller has already transformed for its own channel.
 
 Pure stdlib, pure functions, no state.
 """
 
 from __future__ import annotations
+
+import re
 
 
 def _fence_spans(text: str) -> list[tuple[int, int]]:
@@ -55,28 +58,30 @@ def _fence_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-def chunk_text(text: str, limit: int) -> list[str]:
+def chunk_text(text: str, limit: int, *, keep_whole: re.Pattern[str] | None = None) -> list[str]:
     """Split ``text`` into ``<=limit``-character chunks, preferring newline boundaries.
 
     Three properties, in priority order:
 
     1. every chunk fits the limit — this is the one the platform enforces, so it is
        never traded away;
-    2. a ``` fenced block is never bisected — a split landing inside one is backed
-       up to the block's opening fence, so the block travels whole in the next
-       chunk (half a code block in each of two messages renders as garbage in
-       both);
+    2. a ``` fenced block, or a span the caller names in ``keep_whole``, is never
+       bisected — a split landing inside one is backed up to its start, so it
+       travels whole in the next chunk (half a code block in each of two messages
+       renders as garbage in both, and half a mention mentions nobody);
     3. otherwise the split is taken at the last newline in the window, so prose
        breaks between lines rather than mid-word.
 
-    A single line — or a single fence — longer than ``limit`` cannot satisfy 2 or 3
-    and is hard-split at the limit; a fence starting at offset 0 that overflows is
-    the case where backing up would make no progress at all.
+    A single line — or a single fence or span — longer than ``limit`` cannot satisfy
+    2 or 3 and is hard-split at the limit; a fence or span starting at offset 0 that
+    overflows is the case where backing up would make no progress at all.
 
     Args:
         text: The message text, already transformed for its channel by the caller.
         limit: Maximum characters per chunk. Required, and deliberately so: the
             ceiling belongs to a channel, and this module knows none.
+        keep_whole: A pattern whose matches must never be split across chunks,
+            such as a channel's rendered mention. ``None`` names no span.
 
     Returns:
         The chunks in order, none of them empty — so a caller can never post an
@@ -116,6 +121,15 @@ def chunk_text(text: str, limit: int) -> list[str]:
                 if fence_start > 0:
                     split = fence_start
                 break
+        if keep_whole is not None:
+            for m in keep_whole.finditer(remaining):
+                if m.start() >= split:
+                    break
+                if m.start() < split < m.end():
+                    # Same backing-up rule as a fence, and the same offset-0 exception.
+                    if m.start() > 0:
+                        split = m.start()
+                    break
         chunks.append(remaining[:split].rstrip("\n"))
         remaining = remaining[split:].lstrip("\n")
     if remaining:

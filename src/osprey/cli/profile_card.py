@@ -398,10 +398,29 @@ def _enabled_mcp_servers(profile: BuildProfile) -> list[str]:
     return names
 
 
+def _model_label(profile: BuildProfile) -> str | None:
+    """The model as a person reads it: its display name, then the id it is sent as.
+
+    A profile that names no model runs its provider's ``default_model``; the
+    card says so, from the packaged catalog.
+    """
+    from osprey.models.display import display_model_name
+
+    if profile.model:
+        name = display_model_name(profile.model)
+        return profile.model if name == profile.model else f"{name} ({profile.model})"
+    if not profile.provider:
+        return None
+    from osprey.profiles.providers import load_provider_catalog
+
+    default = (load_provider_catalog(None).entries.get(profile.provider) or {}).get("default_model")
+    return f"(provider default) {default}" if default else None
+
+
 def _agent_group(profile: BuildProfile) -> CardGroup | None:
     """What thinks: the model, its tool surface, and its bundled toolkit."""
     rows: list[list[Cell]] = []
-    model_bits = [bit for bit in (profile.provider, profile.model) if bit]
+    model_bits = [bit for bit in (profile.provider, _model_label(profile)) if bit]
     if model_bits:
         rows.append([[("model", Styles.DIM)], _dotted_list(model_bits)])
     servers = _enabled_mcp_servers(profile)
@@ -614,7 +633,7 @@ def print_profile_card(
 
     try:
         lines = _card_segment_lines(profile, persona_deltas)
-    except Exception as exc:  # noqa: BLE001 — see docstring: the card is advisory
+    except Exception as exc:  # see docstring: the card is advisory
         logger.debug("Profile card skipped: %s", exc)
         return
     reporter = current_reporter()

@@ -11,6 +11,10 @@ re-implements "what does this config select" is a guard that can disagree with
 the answer, and the disagreement is a bypass rather than a discrepancy — see
 :mod:`osprey_connectors.honesty`.
 
+:func:`resolve_archiver_settings` is the same arrangement for the other half of
+an archiver selection: which block its ``connect()`` is handed. The build
+refuses what it would refuse, from the same helpers.
+
 :func:`resolve_target` extends that to the run-time question "which machine is
 this session pointed at". It is the same shape of answer for the same reason:
 several holders follow a control target — the connector-host process, its child,
@@ -196,6 +200,120 @@ def resolve_archiver_type(section: Any) -> str:
 def resolve_control_system_type(section: Any) -> str:
     """The control system a ``control_system:`` config section actually selects."""
     return _resolve_type(section, MOCK)
+
+
+#: The one block under ``archiver:`` a connector's settings are read from,
+#: whichever route selected the connector. It has no dot in it, so a profile's
+#: ``archiver.settings.<leaf>`` renders to exactly the block the factory reads.
+ARCHIVER_SETTINGS_LEAF = "settings"
+
+#: Keys of the ``archiver:`` section that are not a connector's settings block:
+#: the selector, the settings block itself, and archiver_read's point budget.
+ARCHIVER_SECTION_LEAVES = ("type", ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
+
+
+def _own_name_block(connector_type: str) -> str | None:
+    """The older spelling of a short-named archiver's settings, or ``None``.
+
+    A built-in, or a connector registered under a short name, may still keep
+    its settings in a block carrying its own name (``archiver.epics_archiver``).
+    A dotted module path has no such block: a profile splits keys on every dot,
+    so a block keyed by one could never have been written from ``config:``.
+    """
+    return None if "." in connector_type else connector_type
+
+
+def _archiver_settings_homes(section: Any) -> list[tuple[str, Any]]:
+    """Every block in *section* that configures the selected archiver, in order."""
+    if not isinstance(section, dict):
+        return []
+    homes: list[tuple[str, Any]] = []
+    if ARCHIVER_SETTINGS_LEAF in section:
+        homes.append((ARCHIVER_SETTINGS_LEAF, section[ARCHIVER_SETTINGS_LEAF]))
+    own = _own_name_block(resolve_archiver_type(section))
+    if own is not None and own != ARCHIVER_SETTINGS_LEAF and own in section:
+        homes.append((own, section[own]))
+    return homes
+
+
+def _two_homes(own: str) -> str:
+    return (
+        f"`archiver.settings` and `archiver.{own}` both configure {own}; keep one "
+        f"— `archiver.settings` is the spelling for every archiver"
+    )
+
+
+def _not_a_block(key: str, value: Any) -> str:
+    return (
+        f"`archiver.{key}` is {value!r}, not a block; it holds the selected "
+        f"archiver's settings as a mapping"
+    )
+
+
+def archiver_settings_key(section: Any) -> str:
+    """The dotted key of the block that configures *section*'s archiver.
+
+    ``archiver.<type>`` when a short-named archiver is configured by its own-name
+    block alone, else ``archiver.settings`` — so a message about a setting names
+    the line an operator actually wrote.
+    """
+    homes = _archiver_settings_homes(section)
+    home = homes[0][0] if len(homes) == 1 else ARCHIVER_SETTINGS_LEAF
+    return f"archiver.{home}"
+
+
+def resolve_archiver_settings(section: Any) -> dict[str, Any]:
+    """The settings block the selected archiver's ``connect()`` is handed.
+
+    ``archiver.settings`` for every archiver; for a short-named one, its own-name
+    block when ``settings`` is absent. Absent, or a bare ``settings:``, is ``{}``.
+
+    Raises:
+        ValueError: when both spellings are present, or the block is not a
+            mapping. :func:`archiver_settings_errors` refuses the same configs
+            at build time, with the same words.
+    """
+    homes = _archiver_settings_homes(section)
+    if len(homes) > 1:
+        raise ValueError(_two_homes(homes[1][0]))
+    if not homes or homes[0][1] is None:
+        return {}
+    key, value = homes[0]
+    if not isinstance(value, dict):
+        raise ValueError(_not_a_block(key, value))
+    return dict(value)
+
+
+def archiver_settings_errors(section: Any) -> list[str]:
+    """Every block under a rendered ``archiver:`` section that no archiver reads, named.
+
+    A lint, like :func:`incomplete_limits_blocks`, and read by the build over the
+    config a deployment runs. It reports, in section order: each mapping under a
+    key no reader takes (anything but :data:`ARCHIVER_SECTION_LEAVES`, a built-in
+    archiver's name, or the selected type's own name when it has no dot); then
+    the two refusals :func:`resolve_archiver_settings` raises, in its words. A
+    scalar is not a block and is not reported. Never raises.
+    """
+    if not isinstance(section, dict):
+        return []
+    selected = resolve_archiver_type(section)
+    own = _own_name_block(selected)
+    known = {*ARCHIVER_SECTION_LEAVES, *CLI_ARCHIVER_TYPES, *([own] if own else [])}
+    errors = [
+        f"`{key}:` under `archiver:` is a block no archiver reads; the selected "
+        f"archiver, {selected}, takes its settings from `archiver.settings`"
+        for key, value in section.items()
+        if isinstance(value, dict) and key not in known
+    ]
+    homes = _archiver_settings_homes(section)
+    if len(homes) > 1:
+        errors.append(_two_homes(homes[1][0]))
+    errors.extend(
+        _not_a_block(key, value)
+        for key, value in homes
+        if value is not None and not isinstance(value, dict)
+    )
+    return errors
 
 
 def resolve_target(section: Any, target: Any) -> str:
@@ -461,9 +579,8 @@ def type_writes_enabled(section: Any, connector_type: str) -> bool:
         section that is not a mapping is a deployment that has said nothing,
         and a deployment that has said nothing is not armed.
     """
-    connector = section.get("connector") if isinstance(section, dict) else None
-    block = connector.get(connector_type) if isinstance(connector, dict) else None
-    if not isinstance(block, dict) or TYPE_WRITES_ENABLED_LEAF not in block:
+    block = _type_writes_block(section, connector_type)
+    if block is None:
         return _global_writes_enabled(section)
     return block[TYPE_WRITES_ENABLED_LEAF] is True
 
@@ -517,7 +634,23 @@ def writes_enabled_key(connector_type: str | None) -> str:
     return f"control_system.connector.{connector_type}.{TYPE_WRITES_ENABLED_LEAF}"
 
 
-def writes_enabled_remedy(connector_type: str | None) -> str:
+def writes_enabled_answering_key(section: Any, connector_type: str | None) -> str:
+    """The config key whose value refused a write for *connector_type*.
+
+    The per-type key when that block carries the leaf, and
+    :data:`WRITES_ENABLED_KEY` when it does not — the key a type inherits when
+    it says nothing about itself. This is the key a refusal names as the REASON,
+    and it is not always :func:`writes_enabled_key`, which names the line an
+    operator edits to arm one type and leave the others alone. The two differ
+    exactly when a deployment states its posture once for everything, which is
+    the shape a deployment has before anyone splits it per machine.
+    """
+    if _type_writes_block(section, connector_type) is None:
+        return WRITES_ENABLED_KEY
+    return writes_enabled_key(connector_type)
+
+
+def writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False) -> str:
     """The edit that arms writes for one connector *type*, as an operator makes it.
 
     :func:`writes_enabled_key` names the key; this names the CHANGE, and for a
@@ -533,7 +666,22 @@ def writes_enabled_remedy(connector_type: str | None) -> str:
     applies verbatim: ``control_system.connector:`` with the type as one key
     under it. A registered name has no dots to be split on, and keeps the
     one-line form.
+
+    *one_line* asks for that mapping in YAML's flow spelling, which a profile
+    accepts as readily as the block one. A caller wants it when the remedy
+    shares a message with something else: a message a reader takes one line of
+    at a time loses whatever a block form pushes onto the lines below.
     """
+    if connector_type and "." in connector_type and one_line:
+        return (
+            "Arm this connector in the build profile (profile.yml on the host) by its "
+            "own key, which is the connector type in full - a dotted type is one "
+            "mapping key and is never split on its dots, as "
+            f"control_system.connector: {{{connector_type}: "
+            f"{{{TYPE_WRITES_ENABLED_LEAF}: true}}}} "
+            f"— ({WRITES_ENABLED_KEY} is what a type inherits when it says nothing "
+            "about itself.)"
+        )
     if connector_type and "." in connector_type:
         return (
             "Arm this connector in the build profile (profile.yml on the host) by its "
@@ -1065,6 +1213,23 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
                     f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
                 )
     return errors
+
+
+def _type_writes_block(section: Any, connector_type: str | None) -> dict[str, Any] | None:
+    """The connector block that answers the write posture for *connector_type*.
+
+    ``None`` when no block answers — no connector table, no block for this type,
+    a block that is not a mapping, or a mapping without the leaf — which is the
+    deployment saying nothing about this type. The type is one key and is never
+    split on its dots.
+    """
+    if not connector_type:
+        return None
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = connector.get(connector_type) if isinstance(connector, dict) else None
+    if not isinstance(block, dict) or TYPE_WRITES_ENABLED_LEAF not in block:
+        return None
+    return block
 
 
 def _global_writes_enabled(section: Any) -> bool:

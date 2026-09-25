@@ -26,8 +26,6 @@ from urllib.parse import urlsplit
 import pytest
 import yaml
 
-from osprey.audit import writer
-
 # The port/uvicorn helpers now live in a supported module shared with the docs
 # screenshot runner; re-export them under their historical underscore names so
 # every ``tests/interfaces`` importer stays byte-for-byte unchanged.
@@ -47,9 +45,11 @@ __all__ = [
     "_free_port",
     "_run_app_server",
     "_wait_for_port",
+    "BROWSER_ENGINES",
     "chromium_browser",
     "launch_graph_channel_finder",
     "use_process_web_credentials",
+    "webkit_browser",
     "write_graph_config",
 ]
 
@@ -376,6 +376,12 @@ def launch_graph_channel_finder(
             yield base_url
 
 
+#: The Playwright engines this tree launches, with one ``<engine>_browser``
+#: fixture each. The browser lane installs exactly these, and
+#: ``tests/deployment/test_ci_workflow_wiring.py`` holds it there.
+BROWSER_ENGINES: tuple[str, ...] = ("chromium", "webkit")
+
+
 # ---------------------------------------------------------------------------
 # Function-scoped chromium fixture
 # ---------------------------------------------------------------------------
@@ -478,14 +484,15 @@ def _install_auth_seam(browser: Browser) -> None:
     browser.new_page = new_page
 
 
-@pytest.fixture
-def chromium_browser() -> Iterator[Browser]:
-    """Function-scoped Playwright browser, pre-authorized against the auth gate.
+@contextmanager
+def _launched_browser(engine: str) -> Iterator[Browser]:
+    """Launch one Playwright engine headless, pre-authorized against the auth gate.
 
-    Skips if the chromium binary is absent. The yielded browser's
-    ``new_context``/``new_page`` are wrapped by :func:`_install_auth_seam` so
-    every page opened from it carries a valid operator session cookie for the
-    in-process interface servers these suites drive.
+    Skips if the engine's binary is absent. The yielded browser's
+    ``new_context``/``new_page`` are wrapped by :func:`_install_auth_seam`.
+
+    Args:
+        engine: A name from :data:`BROWSER_ENGINES`.
     """
     if not _PLAYWRIGHT_AVAILABLE:
         pytest.skip("playwright package not installed")
@@ -497,10 +504,10 @@ def chromium_browser() -> Iterator[Browser]:
     # session raise "Runner.run() cannot be called from a running event loop".
     pw = sync_playwright().start()
     try:
-        browser = pw.chromium.launch(headless=True)
+        browser = getattr(pw, engine).launch(headless=True)
     except Exception as exc:  # pragma: no cover
         pw.stop()
-        pytest.skip(f"Chromium binary not available: {exc}")
+        pytest.skip(f"{engine} binary not available: {exc}")
         return  # unreachable — present only to satisfy type checkers
 
     _install_auth_seam(browser)
@@ -511,31 +518,27 @@ def chromium_browser() -> Iterator[Browser]:
         pw.stop()
 
 
-@pytest.fixture(autouse=True, scope="module")
-def _isolate_module_audit_zone(tmp_path_factory):
-    """Hold the ledger's seam redirected for a whole test module.
+@pytest.fixture
+def chromium_browser() -> Iterator[Browser]:
+    """Function-scoped Playwright browser, pre-authorized against the auth gate.
 
-    ``tests/conftest.py::_isolate_audit_zone`` does this per test, which covers
-    every app built in a test body. It cannot cover an app built by a
-    MODULE-scoped fixture: pytest sets every higher-scoped fixture up first, so
-    such an app enters its lifespan, serves requests and is torn down while the
-    per-test redirection has not been made. ``web_terminal``'s notebook-panel
-    module is that shape, and every record it fires — ``http_mutation`` per
-    state-changing request, ``web_auth`` per authenticated one — is filed in
-    that window.
-
-    Module-scoped rather than session-scoped on purpose. A session-scoped
-    redirection made anywhere under this directory could not be undone at the
-    directory's edge: it would still be installed for every test that runs
-    after this tree in the same worker, including the suites in
-    ``tests/audit`` that call the real ``writer.audit_dir()`` and assert what
-    it resolves to. A module-scoped one is torn down with the module that
-    needed it.
-
-    ``pytest.MonkeyPatch.context()`` rather than the ``monkeypatch`` fixture,
-    which is function-scoped and cannot be requested here.
+    Skips if the chromium binary is absent. The yielded browser's
+    ``new_context``/``new_page`` are wrapped by :func:`_install_auth_seam` so
+    every page opened from it carries a valid operator session cookie for the
+    in-process interface servers these suites drive.
     """
-    zone = tmp_path_factory.mktemp("module-audit-zone") / "var" / "audit"
-    with pytest.MonkeyPatch.context() as patched:
-        patched.setattr(writer, "audit_dir", lambda: zone)
-        yield zone
+    with _launched_browser("chromium") as browser:
+        yield browser
+
+
+@pytest.fixture
+def webkit_browser() -> Iterator[Browser]:
+    """Function-scoped WebKit browser, pre-authorized against the auth gate.
+
+    WebKit is Safari's engine; this fixture exists so code built on pointer
+    gestures gets proof in that engine as well as in Chromium. Skips if the
+    webkit binary is absent, and wraps ``new_context``/``new_page`` exactly as
+    :func:`chromium_browser` does.
+    """
+    with _launched_browser("webkit") as browser:
+        yield browser

@@ -113,7 +113,7 @@ def resolve_agent_data_root(app: Any = None) -> str:
         from osprey_connectors.workspace import resolve_shared_data_root
 
         return str(resolve_shared_data_root())
-    except Exception:  # noqa: BLE001 — a spawn must not fail on a config load
+    except Exception:  # a spawn must not fail on a config load
         state = getattr(app, "state", None)
         fallback = getattr(state, "workspace_dir", None) or Path.cwd()
         logger.warning(

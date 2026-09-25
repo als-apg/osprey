@@ -506,7 +506,7 @@ class TestMockArchiverReproducibility:
         runs = []
         for seed in ("0", "1", "12345"):
             env = {**os.environ, "PYTHONHASHSEED": seed}
-            proc = subprocess.run(  # noqa: S603
+            proc = subprocess.run(
                 [sys.executable, "-c", script],
                 capture_output=True,
                 text=True,

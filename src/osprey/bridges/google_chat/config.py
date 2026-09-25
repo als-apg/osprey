@@ -12,7 +12,7 @@ are handed ``cfg.core``, so nothing Google-specific can leak into them.
 neutral name to :meth:`CoreConfig.from_env` **unprefixed** — a deployment sets
 ``POLL_BUDGET``/``DEDUP_PATH``/``DISPATCH_TRIGGER``, not ``GCHAT_``-prefixed
 spellings of them, so the two adapters read one set of names for the settings
-they genuinely share.
+they genuinely share. ``GCHAT_MENTIONS`` is optional and defaults on.
 
 Two values deliberately have **no code default**:
 
@@ -34,7 +34,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from osprey.bridges.core import CoreConfig
+from osprey.bridges.core import CoreConfig, env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,12 @@ class GoogleChatBridgeConfig:
     shows which release answered. Unset renders the ack without it — never a
     startup requirement."""
 
+    mentions: bool = True
+    """Whether an agent's ``<@ID>`` becomes a real Chat @mention for a member of the
+    space. On by default. Off, every mention is posted as plain text and the agent is
+    told to name people instead. Set from the build profile's
+    ``gchat_bridge.mentions``, rendered as ``GCHAT_MENTIONS``."""
+
     core: CoreConfig = field(default_factory=CoreConfig)
     """The channel-neutral half, handed to the engine's collaborators as-is."""
 
@@ -134,6 +140,7 @@ class GoogleChatBridgeConfig:
             gcs_bucket=e.get("GCS_BUCKET", ""),
             gcs_project=e.get("GCS_PROJECT", ""),
             version_tag=e.get("APP_VERSION_DISPLAY", ""),
+            mentions=env_flag(e.get("GCHAT_MENTIONS"), True),
             core=CoreConfig.from_env(e),
         )
 

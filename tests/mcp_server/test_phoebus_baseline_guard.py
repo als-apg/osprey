@@ -326,3 +326,12 @@ async def test_read_tools_add_nothing_on_baseline(tmp_path, tool):
     assert result.startswith("{")
     assert "pinned to the deployment baseline" not in result
     json.loads(result)  # still a single parseable JSON document
+
+
+@pytest.mark.usefixtures("switched")
+async def test_panel_lookup_announces_nothing_while_switched(tmp_path):
+    """A registry read reaches no bridge, so it carries no target line."""
+    result = await bridge_fn("phoebus_panel_lookup")(path=str(tmp_path / "x.bob"))
+    assert result.startswith("{")
+    assert "pinned to the deployment baseline" not in result
+    assert json.loads(result)["openable"] is False

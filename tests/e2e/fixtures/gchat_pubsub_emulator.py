@@ -113,7 +113,7 @@ PULL_TIMEOUT_SEC = 900.0
 
 def _runtime(*args: str, check: bool = True, timeout: float = 120.0) -> subprocess.CompletedProcess:
     """Run one container-runtime command."""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+    proc = subprocess.run(  # fixed argv, no shell
         [RUNTIME, *args], capture_output=True, text=True, timeout=timeout, check=False
     )
     if check and proc.returncode != 0:

@@ -1274,3 +1274,114 @@ async def test_unlisted_write_is_refused_on_a_target_the_deployment_block_govern
         "control_system.limits_checking.allow_unlisted_channels" in data["details"][0]["reason"]
     ), data["details"][0]["reason"]
     assert connector.write_channel.await_count == 0
+
+
+# ---------------------------------------------------------------------------
+# The full tool-call record: the limits verdict and the old values
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def full_record(monkeypatch):
+    """Turn the opt-in full ``tool_call`` record on for this server."""
+    from osprey.audit import tool_call
+
+    monkeypatch.setattr(tool_call, "settings", lambda: (True, tool_call.DEFAULT_MAX_INLINE_BYTES))
+
+
+@pytest.mark.usefixtures("full_record")
+async def test_the_limits_verdict_is_noted(tmp_path, monkeypatch):
+    from osprey.audit.call import call_scope
+    from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey.errors import ChannelLimitsViolationError
+
+    _prepare(tmp_path, monkeypatch)
+
+    passing = MagicMock(spec=LimitsValidator)
+    with call_scope("toolu_ok", None) as call:
+        await _run_single(_make_write_result(channel="TEST:PV", value=1.0), validator=passing)
+    assert call.facts["limits"] == {"verdict": "passed"}
+
+    with call_scope("toolu_none", None) as call:
+        await _run_single(_make_write_result(channel="TEST:PV", value=1.0), validator=None)
+    assert call.facts["limits"] == {"verdict": "not_checked"}
+
+    violating = MagicMock(spec=LimitsValidator)
+    violating.validate_without_step_check.side_effect = ChannelLimitsViolationError(
+        channel_address="TEST:PV",
+        value=9999.0,
+        violation_type="MAX_EXCEEDED",
+        violation_reason="Value 9999.0 above maximum 100.0",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    with call_scope("toolu_bad", None) as call:
+        with assert_raises_error(error_type="limits_violation"):
+            await _run_single(_make_write_result(channel="TEST:PV", value=9999.0), violating)
+    assert call.facts["limits"]["verdict"] == "violated"
+    assert call.facts["limits"]["violations"][0]["channel"] == "TEST:PV"
+
+
+@pytest.mark.usefixtures("full_record")
+async def test_old_values_are_read_before_the_window_check(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from osprey.audit.call import call_scope
+    from osprey.connectors.control_system.base import ChannelValue
+    from osprey.mcp_server.control_system.tools import channel_write as cw
+
+    _prepare(tmp_path, monkeypatch)
+    order: list[str] = []
+    real_window = cw._check_execution_window
+
+    def window(binding):
+        order.append("window")
+        return real_window(binding)
+
+    monkeypatch.setattr(cw, "_check_execution_window", window)
+
+    connector = AsyncMock()
+    stamp = datetime(2026, 1, 1, tzinfo=UTC)
+
+    async def read(channels, **_kwargs):
+        order.append("read")
+        return {channel: ChannelValue(value=3.5, timestamp=stamp) for channel in channels}
+
+    connector.read_multiple_channels.side_effect = read
+    connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=4.0)
+    with _patched(connector):
+        with call_scope("toolu_old", None) as call:
+            await _get_channel_write()(operations=[{"channel": "TEST:PV", "value": 4.0}])
+
+    assert order == ["read", "window"]
+    assert call.facts["old_values"] == {"TEST:PV": {"value": 3.5, "timestamp": stamp.isoformat()}}
+
+
+@pytest.mark.usefixtures("full_record")
+async def test_an_unreadable_old_value_never_blocks_the_write(tmp_path, monkeypatch):
+    from osprey.audit.call import call_scope
+
+    _prepare(tmp_path, monkeypatch)
+    connector = AsyncMock()
+    connector.read_multiple_channels.side_effect = ConnectionError("dead IOC")
+    connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=4.0)
+    with _patched(connector):
+        with call_scope("toolu_dead", None) as call:
+            raw = await _get_channel_write()(operations=[{"channel": "TEST:PV", "value": 4.0}])
+
+    assert extract_response_dict(raw)["status"] == "success"
+    connector.write_channel.assert_awaited_once()
+    assert call.facts["old_values"] == {"TEST:PV": {"error": "ConnectionError"}}
+
+
+async def test_nothing_extra_is_read_with_the_surface_off(tmp_path, monkeypatch):
+    from osprey.audit import tool_call
+    from osprey.audit.call import call_scope
+
+    monkeypatch.setattr(tool_call, "settings", lambda: (False, tool_call.DEFAULT_MAX_INLINE_BYTES))
+    _prepare(tmp_path, monkeypatch)
+    with call_scope("toolu_off", None) as call:
+        _data, connector = await _run_single(_make_write_result(channel="TEST:PV", value=1.0))
+
+    connector.read_multiple_channels.assert_not_called()
+    assert call.facts == {}

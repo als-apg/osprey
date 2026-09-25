@@ -29,7 +29,13 @@ import inspect
 import httpx
 import pytest
 
-from osprey.bridges.core import RESERVED_ENTRY_KEYS, ChannelOps, InboundEvent, ReplyContext
+from osprey.bridges.core import (
+    RESERVED_ENTRY_KEYS,
+    ChannelOps,
+    InboundEvent,
+    ReplyContext,
+    RoomRoster,
+)
 from osprey.bridges.nextcloud_talk import (
     NextcloudBridgeConfig,
     RoomDirectory,
@@ -44,6 +50,7 @@ from osprey.bridges.nextcloud_talk.ops import (
     NC_ROOM,
     NextcloudTalkOps,
     _static_conformance,
+    _static_room_conformance,
 )
 from tests.bridges.test_ports import PROTOCOL_MEMBERS
 
@@ -191,6 +198,23 @@ def test_static_conformance_helper_is_the_type_check_seam():
     assert _static_conformance(ops) is ops
 
 
+def test_the_adapter_satisfies_the_room_roster_protocol():
+    assert isinstance(_ops(), RoomRoster)
+
+
+def test_static_room_conformance_helper_is_the_type_check_seam():
+    """The same guard for the optional room-roster seam."""
+    ops = _ops()
+    assert _static_room_conformance(ops) is ops
+
+
+def test_parse_event_records_names_and_still_propagates_room_type_unresolved():
+    ops = _ops()
+    with pytest.raises(RoomTypeUnresolved):
+        ops.parse_event(_msg(token=UNRESOLVED))
+    assert ops._roster._seen[UNRESOLVED] == {"alice": "Alice"}
+
+
 # ==========================================================================
 # Constructor: explicit, injectable collaborators
 # ==========================================================================
@@ -227,7 +251,8 @@ def test_a_room_directory_is_built_from_the_talk_client_when_none_is_injected():
 def test_no_per_dispatch_instance_state_exists():
     """The engine shares ONE instance across every room thread and the drain thread.
 
-    So the instance dict must hold nothing but the injected collaborators: any
+    So the instance dict must hold nothing but the injected collaborators and the one
+    cross-call state, the participant roster, which is lock-guarded and bounded: any
     per-dispatch field (a "current room", a cached entry) would be written by one thread
     and read by another, and the corruption would be intermittent and load-dependent.
     Asserted structurally, since a race cannot be asserted directly.
@@ -239,13 +264,13 @@ def test_no_per_dispatch_instance_state_exists():
     copies).
     """
     ops = _ops()
-    assert set(vars(ops)) == {"_cfg", "_client", "_http", "_rooms"}
+    assert set(vars(ops)) == {"_cfg", "_client", "_http", "_rooms", "_roster"}
 
     # And a full dispatch's worth of calls adds none.
     ops.parse_event(_msg())
     ops.coalesce_key({"history_key": "nextcloud:group1", "sender_id": "alice"})
     ops.post_ack({NC_ROOM: GROUP, NC_MESSAGE_ID: 42})  # swallows the 502
-    assert set(vars(ops)) == {"_cfg", "_client", "_http", "_rooms"}
+    assert set(vars(ops)) == {"_cfg", "_client", "_http", "_rooms", "_roster"}
 
 
 # ==========================================================================

@@ -328,7 +328,7 @@ def _hints() -> list[str]:
 
         qmd_config = resolve_qmd_service_config(load_osprey_config())
         base_url = qmd_config.base_url if qmd_config is not None else None
-    except Exception:  # noqa: BLE001 — a config fault must not replace the real error.
+    except Exception:  # a config fault must not replace the real error.
         logger.debug("could not resolve services.qmd while building hybrid_search hints")
 
     if base_url is None:

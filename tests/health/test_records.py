@@ -63,6 +63,7 @@ class TestPolicySets:
                 "graphdb",
                 "web_panels",
                 "reach",
+                "archive",
             }
         )
 

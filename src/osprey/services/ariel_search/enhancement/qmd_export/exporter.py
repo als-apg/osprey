@@ -275,7 +275,7 @@ def mirror_entry_best_effort(config: Any, entry: Mapping[str, Any]) -> bool:
         module = QmdExportModule()
         module.configure(config.get_enhancement_module_config("qmd_export") or {})
         return module.mirror_now(entry)
-    except Exception as e:  # noqa: BLE001 — see docstring: never fail the write path.
+    except Exception as e:  # see docstring: never fail the write path.
         logger.warning(
             f"qmd_export: could not mirror entry {entry.get('entry_id')!r} inline: {e} — "
             "it stays searchable by keyword and will reach the mirror on the next "

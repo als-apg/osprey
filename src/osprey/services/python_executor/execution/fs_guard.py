@@ -32,6 +32,14 @@ Two postures, spelled precisely:
     *out of* the protected set, which is how the wrapper keeps writing its own
     metadata and artifacts under a protected parent.
 
+Both postures (the secrets zone)
+    Any open, read or write, of a ``.env`` or ``.env.*`` file under
+    ``secret_roots`` (at any depth) or of a ``/proc/<...>/environ`` or
+    ``/proc/<...>/cmdline`` file raises ``PermissionError``. This check runs
+    before the bypass markers and the permitted roots, so nothing carves a
+    secret file back out, and under ``write_modes_only_targets`` it still
+    applies to reads.
+
 ``write_modes_only_targets`` exists for one specific reason: CPython's
 ``pathlib`` routes through ``io.open``, not ``builtins.open``. Patching
 ``io.open`` outright would change pathlib *read* behaviour, which the
@@ -214,6 +222,7 @@ DEFAULT_DENYLIST_PREFIX = "Protected path:"
 _WRITE_DETAIL_ALLOWLIST = "Writes are only allowed in permitted directories."
 _ACCESS_DETAIL_ALLOWLIST = "Only permitted and read-only directories are allowed."
 _WRITE_DETAIL_DENYLIST = "This location is protected and cannot be modified by executed code."
+_SECRET_DETAIL = "Secret files and process environments cannot be opened by executed code."
 
 
 def _root_tuple(roots: Iterable[str | Path]) -> tuple[str, ...]:
@@ -236,6 +245,7 @@ def render_fs_guard(
     patch_targets: Iterable[str] = EXECUTOR_PATCH_TARGETS,
     write_modes_only_targets: Iterable[str] = (),
     refusal_prefix: str | None = None,
+    secret_roots: Iterable[str | Path] = (),
 ) -> str:
     """Render the filesystem guard as source code to embed in a child script.
 
@@ -256,6 +266,10 @@ def render_fs_guard(
         write modes only; reads pass through untouched.
     :param refusal_prefix: Leading text on every refusal. Defaults to
         ``Sandbox:`` under ``default_deny`` and ``Protected path:`` otherwise.
+    :param secret_roots: Both postures — a ``.env`` or ``.env.*`` file at any
+        depth under one of these is refused for read and write, ahead of every
+        other rule. ``/proc/<...>/environ`` and ``/proc/<...>/cmdline`` are
+        refused whatever this holds.
     :returns: Left-aligned Python source. Indent it yourself
         (``textwrap.indent``) if it lands inside a block.
     :raises ValueError: On an unknown target, a non-mode-bearing name in
@@ -343,6 +357,8 @@ def render_fs_guard(
         _OSPREY_FS_WRITE_DETAIL = {write_detail!r}
         _OSPREY_FS_ACCESS_DETAIL = {_ACCESS_DETAIL_ALLOWLIST!r}
         _OSPREY_FS_WRITE_MODE_CHARS = {_WRITE_MODE_CHARS!r}
+        _OSPREY_FS_SECRET_ROOTS = {_root_tuple(secret_roots)!r}
+        _OSPREY_FS_SECRET_DETAIL = {_SECRET_DETAIL!r}
         _OSPREY_FS_TARGETS = {tuple(table)!r}
         _OSPREY_FS_MODULES = {{{modules_literal}}}
         # A write for os.open purposes: any flag that can create, extend or
@@ -381,8 +397,36 @@ def render_fs_guard(
             return False
 
 
+        def _osprey_fs_is_secret(path):
+            """True for an env-chain file under a secret root or a /proc environment."""
+            _name = path.name
+            if _name == ".env" or _name.startswith(".env."):
+                if _osprey_fs_under(path, _OSPREY_FS_SECRET_ROOTS):
+                    return True
+            _parts = path.parts
+            return len(_parts) > 2 and _parts[1] == "proc" and _name in ("environ", "cmdline")
+
+
+        def _osprey_fs_secret_check(candidate, is_write):
+            """Refuse *candidate* when it names a secret file, in either posture."""
+            if isinstance(candidate, int):
+                return
+            try:
+                path = _OspreyGuardPath(_osprey_os.fsdecode(candidate)).resolve()
+            except (TypeError, ValueError):
+                return
+            if _osprey_fs_is_secret(path):
+                _action = "write" if is_write else "read"
+                raise PermissionError(
+                    f"{{_OSPREY_FS_PREFIX}} {{_action}} denied for '{{path}}'. "
+                    f"{{_OSPREY_FS_SECRET_DETAIL}}"
+                )
+
+
         def _osprey_fs_check(candidate, is_write):
             """Refuse *candidate* or return quietly. The whole policy is here."""
+            # First, so no bypass marker or permitted root reopens a secret file.
+            _osprey_fs_secret_check(candidate, is_write)
             if isinstance(candidate, int):
                 # An already-open file descriptor. It names no path, so there
                 # is nothing to judge and nothing to refuse; the call goes
@@ -440,6 +484,8 @@ def render_fs_guard(
                 _is_write = _osprey_fs_is_write_mode(mode)
                 if _is_write or not write_modes_only:
                     _osprey_fs_check(file, _is_write)
+                else:
+                    _osprey_fs_secret_check(file, False)
                 return _original(file, mode, *args, **kwargs)
 
             return _osprey_guarded_open

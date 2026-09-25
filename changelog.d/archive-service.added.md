@@ -1,0 +1,1 @@
+The bundled `archive` service (`template: osprey.archive`) runs `osprey archive --watch` once a day into the host directory `var/archive/`, created at mode 0700, and `osprey health` warns when its last pass is stale. The control-assistant preset deploys it and keeps transcripts for 3650 days.

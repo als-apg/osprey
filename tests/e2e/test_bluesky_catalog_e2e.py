@@ -206,7 +206,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -217,9 +217,9 @@ def _wait_for_health(url: str, timeout: float) -> None:
 
 
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -232,14 +232,14 @@ def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any
     normal result here rather than an exception to propagate.
     """
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{BRIDGE_URL}{path}",
         data=data,
         method=method,
         headers={"Content-Type": "application/json"} if data is not None else {},
     )
     try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=20.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -252,11 +252,11 @@ def _post_raw(path: str, data: bytes, content_type: str) -> tuple[int, Any]:
     ones no well-behaved client would send, so a test of that promise has to be
     able to send them.
     """
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{BRIDGE_URL}{path}", data=data, method="POST", headers={"Content-Type": content_type}
     )
     try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=20.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -397,7 +397,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own so a

@@ -48,7 +48,7 @@ def _h5py_importable() -> bool:
     a ``skipif`` expression) so collection never pays for the spawn.
     """
     return (
-        subprocess.run(  # noqa: S603 - fixed argv
+        subprocess.run(  # fixed argv
             [sys.executable, "-c", "import h5py"], capture_output=True
         ).returncode
         == 0
@@ -64,7 +64,7 @@ def _run(tmp_path: Path, guard: str, probe: str) -> str:
     """
     script = tmp_path / "probe_script.py"
     script.write_text(guard + "\n" + textwrap.dedent(probe) + "\n", encoding="utf-8")
-    proc = subprocess.run(  # noqa: S603 - fixed argv, test-authored script
+    proc = subprocess.run(  # fixed argv, test-authored script
         [sys.executable, str(script)],
         capture_output=True,
         text=True,

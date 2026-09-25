@@ -245,7 +245,7 @@ def install_session_plan(
     # at its first enqueue with "`PARAMS` is not fully defined". The plan file's
     # own `__future__` imports still apply; only this module's leak is cut.
     code = compile(source, f"<session plan {name}>", "exec", dont_inherit=True)
-    exec(code, module_namespace)  # noqa: S102
+    exec(code, module_namespace)
 
     build_plan = module_namespace.get("build_plan")
     if not callable(build_plan):

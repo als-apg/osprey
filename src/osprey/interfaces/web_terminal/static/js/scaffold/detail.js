@@ -332,9 +332,9 @@ export function createScaffoldGalleryDetail(gallery) {
    * Render the content pane for the current mode.
    *
    * Every renderer here fetches before it draws, so two renders can be in
-   * flight against the same pane at once -- the claim-on-first-edit flow
-   * starts a Preview (openDetail) and an Edit back to back, and a mode click
-   * during a slow fetch does the same. The two GETs are independent and
+   * flight against the same pane at once: a mode click during a slow fetch
+   * starts a second render (taking ownership opens straight in Edit, one
+   * render and one GET, so it races nothing). The two GETs are independent and
    * nothing orders their responses, so without a claim on the pane the render
    * that finishes last wins, whatever the operator last asked for. Each render
    * takes the next sequence number and every renderer re-checks it after its

@@ -391,7 +391,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             row = con.execute(f"SELECT {', '.join(META_KEYS)} FROM meta").fetchone()
         finally:
             con.close()
-    except Exception as exc:  # noqa: BLE001 - any duckdb error degrades to a warning
+    except Exception as exc:  # any duckdb error degrades to a warning
         return CheckResult(
             _SEARCH_INDEX_ROW,
             CATEGORY,
@@ -565,7 +565,7 @@ def _count_row(duckdb_path: Path) -> CheckResult:
             row = con.execute(f"SELECT COUNT(*) FROM {_CHANNELS_TABLE}").fetchone()
         finally:
             con.close()
-    except Exception as exc:  # noqa: BLE001 - any duckdb error degrades to a warning
+    except Exception as exc:  # any duckdb error degrades to a warning
         return CheckResult(
             "channel_finder_channels",
             CATEGORY,

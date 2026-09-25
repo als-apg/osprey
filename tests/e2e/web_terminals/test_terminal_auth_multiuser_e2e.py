@@ -726,14 +726,14 @@ def _request(
     omit it for the unauthenticated probes, which must carry nothing — and which
     is every probe in the open lane, where carrying nothing is the point.
     """
-    req = urllib.request.Request(  # noqa: S310 - loopback only
+    req = urllib.request.Request(  # loopback only
         f"http://127.0.0.1:{lane.nginx_port}{target}", method=method, data=data
     )
     for key, value in (headers or {}).items():
         req.add_header(key, value)
     open_it = opener.open if opener is not None else urllib.request.urlopen
     try:
-        with open_it(req, timeout=20) as resp:  # noqa: S310 - loopback only
+        with open_it(req, timeout=20) as resp:  # loopback only
             return resp.status, dict(resp.headers), resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, dict(exc.headers), exc.read().decode("utf-8", "replace")

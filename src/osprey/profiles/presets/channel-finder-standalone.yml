@@ -16,11 +16,13 @@ app_template: channel_finder_standalone
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+# model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
+#                          # default_model from providers.yml answers
 
 # `provider:` names an entry in providers.yml, the provider catalog beside this
-# file. To use a gateway of your own, add its entry there (api_key, base_url and
-# a models tier map) and name it here; the key goes in this repo's .env under the
+# file. To use a gateway of your own, add its entry there (api_key, base_url,
+# default_model and the models it serves) and name it here; the key goes in this
+# repo's .env under the
 # variable the entry's `api_key` references. A `config: api.providers.*` key is
 # refused: the catalog is the one home for provider endpoints.
 
@@ -124,9 +126,10 @@ config:
   # Descriptive names for channels that belong to no device family, generated
   # offline by `osprey channel-finder build-database --use-llm`. That flag
   # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # tier or a model ID the provider serves. Build-time only.
+  # model id the provider serves; omitted, the deployment's main model.
+  # Build-time only.
   # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: haiku
+  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
   # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
   # channel_finder.channel_name_generation.llm_batch_size: 10
   # No benchmark query set ships here. `osprey channel-finder benchmark` still
@@ -187,6 +190,10 @@ config:
   # memory on the machine serving the gallery. Over the cap the browser views
   # refuse with a 413; the file itself stays downloadable either way.
   # artifact_server.max_timeseries_file_mb: 200
+  # How many artifacts the gallery loads at a time.
+  # It fetches more as the list is scrolled.
+  # Lowering it suits a slow link; raising it suits a small store.
+  # artifact_server.page_size: 20
   # Extra artifact categories on top of the ones the gallery ships, so a badge
   # reads in this facility's own vocabulary. One dotted line per category, each
   # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
@@ -271,6 +278,10 @@ config:
   # analyses legitimately run long and lower it to keep a runaway script from
   # holding the sandbox.
   # python_executor.execution_timeout_seconds: 600
+  # Agent Python gets a fixed set of environment variables (paths, locale,
+  # proxies, control-system client settings) and nothing else from the host.
+  # List a name here when an analysis library needs it.
+  # python_executor.child_env_passthrough: []
   # Facility timezone: how operator times are read and every timestamp is
   # rendered. Pinned to UTC for reproducibility; set your real zone in
   # production (e.g. America/Los_Angeles).

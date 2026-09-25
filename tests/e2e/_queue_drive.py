@@ -88,11 +88,11 @@ def request(
         data = b""
     if token:
         headers[LAUNCH_TOKEN_HEADER] = token
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{base_url}{path}", data=data, method=method, headers=headers
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
             try:
                 return resp.status, json.loads(raw.decode("utf-8"))

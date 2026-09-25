@@ -239,3 +239,32 @@ def test_proxy_forwards_litellm_attribution_headers(monkeypatch):
     assert sent["x-litellm-tags"] == "osprey,surface:terminal"
     assert "x-corp-trace" not in sent
     assert sent["authorization"] == "Bearer secret-key"
+
+
+def test_proxy_sends_the_upstream_its_declared_request_shape(monkeypatch):
+    """An upstream that takes max_completion_tokens and no temperature gets exactly that."""
+    captured = _install_fake_upstream(
+        monkeypatch,
+        {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
+    )
+    app = create_proxy_app(
+        "https://api.example.com/v1",
+        upstream_api_key="secret-key",
+        max_tokens_param="max_completion_tokens",
+        accepts_temperature=False,
+    )
+    client = TestClient(app)
+
+    resp = client.post(
+        "/v1/messages",
+        json={
+            "model": "gpt-6-sol",
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 16,
+            "temperature": 0.0,
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["json"]["max_completion_tokens"] == 16
+    assert "max_tokens" not in captured["json"]
+    assert "temperature" not in captured["json"]

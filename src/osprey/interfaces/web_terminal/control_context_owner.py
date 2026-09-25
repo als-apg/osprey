@@ -276,7 +276,7 @@ class ControlContextOwner:
 
         try:
             write_record(replace(mutation.record, owner=self._identity), path=path)
-        except Exception as exc:  # noqa: BLE001 — reported to the operator as a 503
+        except Exception as exc:  # reported to the operator as a 503
             logger.warning(
                 "Could not write the control-context record to %s; nothing was changed",
                 path,
@@ -461,7 +461,7 @@ class ControlContextOwnerTask:
                 await self.tick_once()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 — one bad tick must not end the claim
+            except Exception:  # one bad tick must not end the claim
                 logger.warning("The control-context owner tick failed", exc_info=True)
 
     async def tick_once(self) -> None:
@@ -594,7 +594,7 @@ class ControlContextOwnerTask:
 
         try:
             paths = sorted(target_state.state_dir().glob(target_state.REQUEST_FILE_GLOB))
-        except Exception:  # noqa: BLE001 — an unreachable state dir is "no requests"
+        except Exception:  # an unreachable state dir is "no requests"
             logger.debug("Could not list the control-context directory", exc_info=True)
             return None
         if not paths:
@@ -689,7 +689,7 @@ class ControlContextOwnerTask:
 
         try:
             verdict = self._gate(record, request)
-        except Exception as exc:  # noqa: BLE001 — reported to the requester as a refusal
+        except Exception as exc:  # reported to the requester as a refusal
             logger.exception("Switch request %r could not be judged", request.request_id)
             return self._terminus(
                 record,
@@ -840,7 +840,7 @@ async def start_control_context_owner(
     task = ControlContextOwnerTask(app, interval_s=interval_s)
     try:
         await task.tick_once()
-    except Exception:  # noqa: BLE001 — never let the claim block startup
+    except Exception:  # never let the claim block startup
         logger.warning(
             "Could not claim the control context at startup; this terminal serves the control "
             "roster read-only until an owner tick takes it",

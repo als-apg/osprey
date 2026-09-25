@@ -64,11 +64,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+from osprey.mcp_server.sandbox_env import (
+    configured_child_env_passthrough,
+    scrub_sandbox_child_env,
+)
 from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sandbox_code
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
+from osprey.utils.workspace import load_osprey_config
 from osprey_connectors.ipc.host import scrub_epics_env
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plan_validation")
@@ -375,7 +379,7 @@ class ValidationResult:
 # Stage 3: mock-RunEngine dry-run, in a subprocess with EPICS addressing inert
 # ---------------------------------------------------------------------------
 # Set (not merely deleted) in the dry-run subprocess's environment, on top of
-# the shared `scrub_sensitive_env` deny-list and the connector package's own
+# the shared `scrub_sandbox_child_env` allowlist and the connector package's own
 # `scrub_epics_env` (which removes every inherited variable in the two EPICS
 # addressing families). Deleting these keys outright would be actively WORSE
 # than leaving them alone: a client that sees neither an address list nor an
@@ -687,8 +691,8 @@ async def _dry_run(
     why it happens there rather than here.
 
     Runs in a subprocess (its own interpreter, own event loop) with the
-    shared `scrub_sensitive_env` deny-list applied, the connector package's
-    `scrub_epics_env` run over what is left, AND every `_EPICS_INERT_ENV`
+    environment built by the shared `scrub_sandbox_child_env` allowlist, the
+    connector package's `scrub_epics_env` run over what is left, AND every `_EPICS_INERT_ENV`
     variable set to an inert value (never merely deleted — see that constant's
     docstring for why deleting would be worse) on top of that. Authoring-QUALITY gate only — "does it actually run" — not
     a containment boundary (see module docstring).
@@ -718,7 +722,9 @@ async def _dry_run(
             encoding="utf-8",
         )
 
-        env = scrub_sensitive_env(os.environ.copy())
+        env = scrub_sandbox_child_env(
+            os.environ, passthrough=configured_child_env_passthrough(load_osprey_config())
+        )
         # Every inherited EPICS addressing variable goes first — a configured
         # server port, a repeater port, anything this dict does not name — and
         # the inert values go back on top of the emptied families.

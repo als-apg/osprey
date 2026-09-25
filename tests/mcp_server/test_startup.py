@@ -27,7 +27,7 @@ from osprey.mcp_server import channel_finder_common, startup
 # mock. Pre-importing puts it in ``sys.modules``, so the lazy import resolves
 # from there. The import-closure tests below use subprocesses precisely so this
 # process's own imports cannot mask a regression.
-from osprey.mcp_server.audit_middleware import AuditMiddleware  # noqa: E402
+from osprey.mcp_server.audit_middleware import AuditMiddleware
 
 # ---------------------------------------------------------------------------
 # startup_timer

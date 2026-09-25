@@ -118,10 +118,28 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: simply three leaves shorter. The same three are declared in
 #: ``test_explicit_config_equivalence.CELL_DELTAS`` — that table is what pins
 #: the divergence; this set only keeps the partition reading the render as it
-#: is produced today.
+#: is produced today. The three ``claude_code.agent_models`` leaves are the
+#: helper-agent pins control-assistant carried; it pins none now, so every agent
+#: runs the deployment's main model, and no preset renders the key.
 _RETIRED_SINCE_THE_FREEZE = frozenset(
-    {"web.docs_url", "web.feedback.email", "web.feedback.github_repo"}
+    {
+        "web.docs_url",
+        "web.feedback.email",
+        "web.feedback.github_repo",
+        "claude_code.agent_models.channel-finder",
+        "claude_code.agent_models.facility-knowledge-graph",
+        "claude_code.agent_models.logbook-deep-research",
+    }
 )
+
+#: Leaves a preset still states whose VALUE moved since the freeze, mapped to
+#: the value the frozen renders carry. ``control-assistant`` baselined its
+#: sessions on the live stand-in when the fixtures were frozen and opens them on
+#: the sandbox simulator now, so the frozen render holds the old value. The
+#: frozen value is asserted before the key is skipped, so the exception proves
+#: the freeze rather than blinding the comparison; the difference itself is
+#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``.
+_VALUE_MOVED_SINCE_THE_FREEZE = {"control_system.type": "live_standin"}
 
 #: The same, for a leaf one cell alone retired, keyed by fixture directory.
 #:
@@ -285,7 +303,13 @@ def test_root_render_is_partitioned_between_its_sources(
     # verbs, which decide what an operator can launch at all and were likewise
     # gated nowhere then; and every preset that carries a `channel_finder`
     # block gains `channel_finder.query_max_rows`, the middle-layer SQL row
-    # cap, which was a number fixed in the tool.
+    # cap, which was a number fixed in the tool; every preset that keeps
+    # transcripts past Claude Code's own 30 days gains
+    # `claude_code.transcripts.retention_days`; control-assistant gains
+    # the tool-content gate and the content limit, which the telemetry block
+    # did not carry when the freeze ran; and every preset that turns on the
+    # full tool-call record gains its two `audit.tool_call.*` keys, which
+    # did not exist when the freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -295,6 +319,17 @@ def test_root_render_is_partitioned_between_its_sources(
             expected_gain = expected_gain | {f"approval.tools.{tool}"}
     if "channel_finder.query_max_rows" in config:
         expected_gain = expected_gain | {"channel_finder.query_max_rows"}
+    if "claude_code.transcripts.retention_days" in config:
+        expected_gain = expected_gain | {"claude_code.transcripts.retention_days"}
+    for key in (
+        "claude_code.telemetry.log_tool_content",
+        "claude_code.telemetry.content_max_length",
+    ):
+        if key in config:
+            expected_gain = expected_gain | {key}
+    for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
+        if key in config:
+            expected_gain = expected_gain | {key}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )
@@ -318,6 +353,11 @@ def test_preset_values_reach_the_render_unchanged(
         if key not in render:
             continue
         if _VALUE_REWRITTEN_BY_INIT_PATTERN.match(key):
+            continue
+        if key in _VALUE_MOVED_SINCE_THE_FREEZE and render[key] != value:
+            assert render[key] == _VALUE_MOVED_SINCE_THE_FREEZE[key], (
+                f"{directory}: {key}: frozen {render[key]!r}"
+            )
             continue
         if key == "container_runtime":
             assert value == "auto"

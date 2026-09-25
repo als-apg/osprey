@@ -48,6 +48,7 @@ from osprey.cli.build_profile_merge import merge_persona_delta
 from osprey.cli.build_profile_ports import layout_port_fill
 from osprey.deployment.reach import REACH_CONTRACTS, render_local_keys
 from osprey.port_layout import DEFAULT_PORT_BASE
+from tests.cli.test_explicit_config_equivalence import CELL_DELTAS
 from tests.fixtures.explicit_config.freeze import (
     FIXTURE_ROOT,
     PROJECT_NAME,
@@ -92,6 +93,29 @@ def _baseline_root() -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def _expected_deployed_services() -> list[str]:
+    """The baseline ``deployed_services``, moved by the equivalence module's declared delta.
+
+    The frozen list, replaced by the ``live`` value of the one delta
+    :data:`~tests.cli.test_explicit_config_equivalence.CELL_DELTAS` declares for
+    this cell's root ``deployed_services``, so the two modules cannot disagree
+    about the order. The delta must be exact: a list-gains spelling says nothing
+    about order and would be misread here.
+
+    Returns:
+        The ordered list the deploying render must carry.
+    """
+    deltas = [
+        delta
+        for delta in CELL_DELTAS.get(f"{PRESET}/{MODE}", ())
+        if delta.key == ("root", "deployed_services")
+    ]
+    assert len(deltas) == 1, f"expected one root deployed_services delta, found {deltas}"
+    (delta,) = deltas
+    assert delta.added is None, "the deployed_services delta must be exact to pin an order"
+    return list(delta.live)
+
+
 def _preset_config() -> dict[str, Any]:
     """The packaged preset's own ``config:`` block, unresolved.
 
@@ -102,7 +126,7 @@ def _preset_config() -> dict[str, Any]:
     Returns:
         The preset's ``config:`` mapping.
     """
-    import osprey.profiles  # noqa: PLC0415
+    import osprey.profiles
 
     path = Path(osprey.profiles.__file__).parent / "presets" / f"{PRESET}.yml"
     return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("config") or {}
@@ -243,15 +267,16 @@ def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str,
 def test_deploying_render_lists_the_baseline_services_in_order(
     rendered: dict[str, dict[str, Any]],
 ) -> None:
-    """The deployment's ``deployed_services`` still equals the frozen baseline's.
+    """The deployment's ``deployed_services`` equals the baseline's, in order.
 
-    Order and all: it is the order the injectors ran in, and two of them read it
+    The baseline is the frozen list as the equivalence module's declared deltas
+    move it (:func:`_expected_deployed_services`). Order and all: it is the order the injectors ran in, and two of them read it
     back — the chat bridges gate their dispatcher URLs on the dispatch pair
     already being listed, the recorder gates its image and addressing on the
     virtual accelerator being listed — so a reordering is a behaviour change,
     not a formatting one.
     """
-    assert rendered["root"]["deployed_services"] == _baseline_root()["deployed_services"]
+    assert rendered["root"]["deployed_services"] == _expected_deployed_services()
 
 
 @pytest.mark.slow

@@ -72,8 +72,8 @@ async def run_query(
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD (not scaled — this is the literal
             ceiling passed to the SDK).
-        model: Model identifier.  When ``None``, resolved from the project's
-            ``config.yml`` haiku-tier entry via ``resolve_default_model``.
+        model: Model identifier.  When ``None``, the project's main model via
+            ``resolve_default_model``.
 
     Returns:
         SDKWorkflowResult with all collected tool traces, text blocks,

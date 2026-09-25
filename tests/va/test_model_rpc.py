@@ -18,10 +18,10 @@ import pytest
 
 pytest.importorskip("p4p")  # p4p arrives with the virtual-accelerator extra
 
-from p4p.nt import NTURI, NTScalar  # noqa: E402
+from p4p.nt import NTURI, NTScalar
 
-from osprey.services.virtual_accelerator.serving import model_rpc  # noqa: E402
-from osprey.services.virtual_accelerator.serving.model_rpc import (  # noqa: E402
+from osprey.services.virtual_accelerator.serving import model_rpc
+from osprey.services.virtual_accelerator.serving.model_rpc import (
     ERR_NOT_READY,
     ERR_TIMEOUT,
     REQUEST_TYPE,

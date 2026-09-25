@@ -594,9 +594,10 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
 
   afterEach(() => {
     // Close the modal (if the test opened one) so logbook.js's module-level
-    // `modal`/`allArtifacts` singleton state doesn't leak into a later test.
+    // `modal` singleton state doesn't leak into a later test.
     const closeBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-modal-close'));
     if (closeBtn) closeBtn.click();
+    setArtifacts([]);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -619,25 +620,21 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
     const logbookBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-action-btn'));
     expect(logbookBtn).not.toBeNull();
     if (logbookBtn === null) throw new Error('unreachable: logbookBtn asserted non-null above');
+    // Opening the modal fills its model selector from /api/logbook/models.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ provider: 'anthropic', default: '', models: [] }),
+    }));
     logbookBtn.click(); // opens the compose modal, phase = steering
 
     const chooseRadio = /** @type {HTMLInputElement | null} */ (document.querySelector('input[name="logbook-artifact-scope"][value="choose"]'));
     expect(chooseRadio).not.toBeNull();
     if (chooseRadio === null) throw new Error('unreachable: chooseRadio asserted non-null above');
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({
-        artifacts: [{ id: HOSTILE_PICKER_ID, title: 'Hostile Artifact', artifact_type: 'json' }],
-      }),
-    }));
+    setArtifacts([{ id: HOSTILE_PICKER_ID, title: 'Hostile Artifact', artifact_type: 'json' }]);
 
     chooseRadio.checked = true;
     chooseRadio.dispatchEvent(new Event('change', { bubbles: true }));
-
-    // loadArtifactPicker() -> fetch().then(json).then(renderArtifactPicker):
-    // two microtask turns to flush the promise chain.
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
 
     const list = document.getElementById('logbook-artifact-picker-list');
     expect(list).not.toBeNull();

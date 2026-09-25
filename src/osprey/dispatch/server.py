@@ -55,7 +55,10 @@ logger = logging.getLogger("osprey.dispatch.server")
 # Capabilities this dispatcher advertises on /health. A downstream bridge gates
 # feature use on BOTH the dispatcher's and the worker's /health carrying the
 # capability, so the list is a plain JSON array on both bodies.
-_CAPABILITIES: list[str] = ["input_files"]
+# ``"prior_answers"`` must equal the worker's ``PRIOR_ANSWERS_CAPABILITY``
+# (``osprey.mcp_server.dispatch_worker.prior_answers``); the dispatcher is a
+# separately deployed image and imports nothing from ``mcp_server``.
+_CAPABILITIES: list[str] = ["input_files", "prior_answers"]
 
 # Boot nonce: this dispatcher process's start timestamp, captured once at import.
 # Stable for the process lifetime and different across restarts, mirroring the
@@ -65,6 +68,10 @@ _BOOT_NONCE: float = time.time()
 # Sentinel: distinguishes "no input_files threaded yet" (first call) from an
 # explicit ``None`` payload once popped, so retries reuse the already-popped batch.
 _INPUT_FILES_UNSET: Any = object()
+
+# Sentinel: distinguishes "no prior_answer_runs threaded yet" (first call) from an
+# explicit ``None`` once popped, so retries reuse the already-popped list.
+_PRIOR_ANSWER_RUNS_UNSET: Any = object()
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +108,7 @@ async def _dispatch_with_policy(
     attempt: int = 1,
     input_files: Any = _INPUT_FILES_UNSET,
     owner: str | None = None,
+    prior_answer_runs: Any = _PRIOR_ANSWER_RUNS_UNSET,
 ) -> dict | None:
     """Execute the trigger action and handle on_error policy.
 
@@ -113,17 +121,28 @@ async def _dispatch_with_policy(
     a cron tick or a remote webhook makes. It rides the retry recursion, because
     a re-dispatch is the same fire: a second attempt that fell to owner-less
     would run unchecked where the first was checked.
+
+    ``prior_answer_runs`` carries the run ids of earlier answers the caller
+    replayed shortened; it leaves the payload on the first call and is handed to
+    the worker as a field of its own.
     """
     # Pop the caller's input-file batch OUT of the payload on the FIRST call,
     # before the payload is folded into the prompt or persisted to history — the
     # base64 bytes must never land in either. Threaded through the retry
     # recursion via ``input_files`` so a re-dispatch still carries the files
-    # (the payload dict no longer holds them after the pop).
+    # (the payload dict no longer holds them after the pop). ``prior_answer_runs``
+    # is the second structured field: it too leaves the payload before the fold
+    # and before ``record_event``, and rides the retry recursion the same way.
     if input_files is _INPUT_FILES_UNSET:
         popped = payload.pop("input_files", None)
         input_files = popped if isinstance(popped, list) else None
         if input_files:
             _log_input_files(trigger.name, input_files)
+    if prior_answer_runs is _PRIOR_ANSWER_RUNS_UNSET:
+        popped = payload.pop("prior_answer_runs", None)
+        prior_answer_runs = (
+            [r for r in popped if isinstance(r, str)] if isinstance(popped, list) else None
+        )
 
     action = trigger.action
     prompt = action.get("prompt", "")
@@ -166,6 +185,7 @@ async def _dispatch_with_policy(
             input_files=input_files,
             max_turns=max_turns,
             owner=owner,
+            prior_answer_runs=prior_answer_runs,
         )
         await registry.record_event(trigger.name, payload, "dispatched")
         return result
@@ -225,6 +245,7 @@ async def _dispatch_with_policy(
                 attempt + 1,
                 input_files=input_files,
                 owner=owner,
+                prior_answer_runs=prior_answer_runs,
             )
         else:
             # drop (or retry exhausted)
@@ -329,7 +350,7 @@ class _DispatcherTokenVerifier(TokenVerifier):
 
 
 @asynccontextmanager
-async def _dispatch_lifespan(_):  # noqa: ANN001, ANN202 - FastMCP passes the app instance
+async def _dispatch_lifespan(_):  # FastMCP passes the app instance
     """Register triggers and start sources once the serving loop is up.
 
     All route registration happens at factory time in ``create_server()``; this

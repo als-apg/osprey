@@ -89,6 +89,7 @@ from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, w
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
+from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -335,9 +336,11 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
             "--set",
             "provider=als-apg",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5-20251001",
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={VA_PVA_PORT}",
         ],
         cwd=base,
         timeout=300,
@@ -407,7 +410,7 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # Volumes are deliberately kept by `down`; remove this project's own via
@@ -420,7 +423,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -479,14 +482,14 @@ def _wait_for_worker_feed(timeout: float) -> None:
     """Wait until the dispatcher can proxy the worker run feed (HTTP 200)."""
     deadline = time.monotonic() + timeout
     last = "(no response yet)"
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{DISPATCHER_URL}/dashboard/runs",
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
                 if resp.status == 200:
                     return
                 last = f"HTTP {resp.status}"
@@ -511,14 +514,14 @@ def _mcp_post(body: dict, *, owner: str | None, session: str | None = None) -> t
         headers["X-Osprey-Owner"] = owner
     if session:
         headers["Mcp-Session-Id"] = session
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         DISPATCHER_MCP_URL,
         data=json.dumps(body).encode("utf-8"),
         method="POST",
         headers=headers,
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=60) as resp:
             raw = resp.read().decode("utf-8", "replace")
             return resp.status, {k.lower(): v for k, v in resp.headers.items()}, raw
     except urllib.error.HTTPError as exc:
@@ -610,13 +613,13 @@ def _bearer_get(path: str, timeout: float) -> object | None:
     over. Returning None for "nothing to read yet" keeps that decision with the
     caller.
     """
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{DISPATCHER_URL}{path}",
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status != 200:
                 return None
             return json.loads(resp.read().decode("utf-8"))

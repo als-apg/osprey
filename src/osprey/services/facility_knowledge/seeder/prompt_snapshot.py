@@ -241,7 +241,7 @@ def collect_vocabulary(run: RunCypher) -> list[dict[str, Any]]:
     """
     try:
         rows = run(VOCABULARY_CYPHER, None)
-    except Exception:  # noqa: BLE001 - any store failure degrades to no vocabulary
+    except Exception:  # any store failure degrades to no vocabulary
         logger.warning("Could not capture class synonyms from the store", exc_info=True)
         return []
 
@@ -309,7 +309,7 @@ def resolve_example_values(run: RunCypher) -> dict[str, Any]:
     """
     try:
         rows = run(SPECIMEN_VALUES_CYPHER, None)
-    except Exception:  # noqa: BLE001 - any store failure degrades to shipped defaults
+    except Exception:  # any store failure degrades to shipped defaults
         logger.warning("Could not resolve example parameter values from the store", exc_info=True)
         return {}
 

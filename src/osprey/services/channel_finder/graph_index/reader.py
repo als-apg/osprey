@@ -640,12 +640,12 @@ def open_graph_index(path: Path) -> GraphIndex | GraphIndexAbsence:
 
     try:
         connection = duckdb.connect(str(path), read_only=True)
-    except Exception as exc:  # noqa: BLE001 - any driver refusal is an absence
+    except Exception as exc:  # any driver refusal is an absence
         return GraphIndexAbsence("unreadable", path, f"Could not open {path}: {exc}")
 
     try:
         row: Any = connection.execute(_META_SELECT).fetchone()
-    except Exception as exc:  # noqa: BLE001 - a file that is not one of our indexes
+    except Exception as exc:  # a file that is not one of our indexes
         connection.close()
         return GraphIndexAbsence(
             "unreadable", path, f"Could not read the meta row of {path}: {exc}"

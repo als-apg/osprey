@@ -36,41 +36,41 @@ import pytest
 pytest.importorskip("bluesky")
 pytest.importorskip("ophyd_async")
 
-from bluesky import RunEngine  # noqa: E402
-from bluesky.utils import FailedStatus, RequestAbort  # noqa: E402
-from ophyd_async.core import AsyncStatus  # noqa: E402
-from pydantic import ValidationError  # noqa: E402
+from bluesky import RunEngine
+from bluesky.utils import FailedStatus, RequestAbort
+from ophyd_async.core import AsyncStatus
+from pydantic import ValidationError
 
-from osprey.services.bluesky_bridge import plan_loader  # noqa: E402
-from osprey.services.bluesky_bridge.devices._connect import connect_all  # noqa: E402
-from osprey.services.bluesky_bridge.devices.mock import (  # noqa: E402
+from osprey.services.bluesky_bridge import plan_loader
+from osprey.services.bluesky_bridge.devices._connect import connect_all
+from osprey.services.bluesky_bridge.devices.mock import (
     MockReadable,
     MockSettable,
     build_devices,
 )
-from osprey.services.bluesky_bridge.plan_fields import (  # noqa: E402
+from osprey.services.bluesky_bridge.plan_fields import (
     CHANNEL_ROLE_KEY,
     MOVABLE_ROLE,
     READABLE_ROLE,
     channel_roles,
 )
-from osprey.services.bluesky_bridge.plan_metadata import parse_plan_metadata_dict  # noqa: E402
-from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep  # noqa: E402
-from osprey.services.bluesky_bridge.plans_core.grid_scan import (  # noqa: E402
+from osprey.services.bluesky_bridge.plan_metadata import parse_plan_metadata_dict
+from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep
+from osprey.services.bluesky_bridge.plans_core.grid_scan import (
     PARAMS as GridScanParams,
 )
-from osprey.services.bluesky_bridge.plans_core.grid_scan import GridAxis  # noqa: E402
-from osprey.services.bluesky_bridge.plans_core.grid_scan import (  # noqa: E402
+from osprey.services.bluesky_bridge.plans_core.grid_scan import GridAxis
+from osprey.services.bluesky_bridge.plans_core.grid_scan import (
     build_plan as grid_scan_plan,
 )
-from osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep import (  # noqa: E402
+from osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep import (
     PARAMS as BumpParams,
 )
-from osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep import (  # noqa: E402
+from osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep import (
     build_plan as bump_plan,
 )
-from osprey.services.bluesky_bridge.plans_core.orm import PARAMS as ORMParams  # noqa: E402
-from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan  # noqa: E402
+from osprey.services.bluesky_bridge.plans_core.orm import PARAMS as ORMParams
+from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
 
 # =========================================================================
 # GridScanParams (plans_core/grid_scan.py)

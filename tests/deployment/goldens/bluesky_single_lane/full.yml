@@ -380,6 +380,7 @@ services:
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
+      OSPREY_AUDIT_IDENTITY: queueserver
       TZ: UTC
 
       # The read-only control-context tree, mounted below. The per-put reference
@@ -474,6 +475,7 @@ services:
       NO_PROXY: ${NO_PROXY}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
+      - ./var/audit/queueserver:/app/project/var/audit/queueserver
       # Plan/device permissions for the RE Manager. Without this file the
       # manager knows only a `root` group and rejects every request the bridge
       # makes as "Unknown user group: 'primary'" — see the file's own header
@@ -589,8 +591,9 @@ services:
     # Public upstream image, overridable like every other service image
     # (env → config → default): set OSPREY_TILED_IMAGE, or
     # services.bluesky.tiled_image in config.yml, to point at a mirror or a
-    # pinned digest.
-    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
+    # pinned digest. The tag is a published bluesky/tiled release no older than
+    # the `tiled[client]` floor in the framework's own dependencies.
+    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.18}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy Tiled on one host without colliding on one
     # name. The bridge reaches this service by its compose service key `tiled`

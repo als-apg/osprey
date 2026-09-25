@@ -235,17 +235,6 @@ def test_write_record_mints_its_own_id_when_none_is_supplied(
     assert (feedback_dir / feedback_store.header_filename(record_id)).is_file()
 
 
-def test_atomic_write_unlinks_the_temp_file_when_serialization_fails(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    feedback_dir.mkdir()
-    target = feedback_dir / "fb-1-aaaaaaaa.json"
-
-    with pytest.raises(TypeError):
-        feedback_store._atomic_write(target, {"ok": 1, ("bad", "key"): 2})
-
-    assert list(feedback_dir.iterdir()) == []
-
-
 # ── list_headers ───────────────────────────────────────────────────────────
 
 

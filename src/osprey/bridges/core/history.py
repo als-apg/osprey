@@ -19,14 +19,23 @@ age-prune; ``run_id`` ties the turn back to the run that produced it; and
 ``artifacts`` carries up to :data:`MAX_ARTIFACTS_PER_TURN` opaque descriptor
 dicts (produced elsewhere — this store round-trips them without inspecting
 their shape) so a follow-up can refer to a plot/file the agent already made.
+When the bridge knew who asked, the turn also carries ``asked_by`` =
+``{id, name}``. A turn with no ``asked_by`` means the asker is unknown: that
+covers turns written before the field existed and channels that parse no
+sender.
+
+:meth:`HistoryStore.recent` can replay a long answer shortened: its opening and
+a note naming the run that answered it, so the agent can read the whole answer
+back when a follow-up needs it. The shortened copy is what is sent; the stored
+turn is never changed.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Any, TypeGuard
 
 from .store import JsonFileStore
 
@@ -89,6 +98,36 @@ MAX_ARTIFACTS_PER_TURN = 10
 # is honestly told the thread is empty. The marker is a NON-answer: it must never
 # read as a fabricated result the agent could cite.
 FAILED_TURN_ANSWER = "[This request did not produce an answer — it timed out or errored.]"
+
+# The note that ends a long answer replayed shortened. Prose for a reader, not a
+# token: nothing matches on the wording. The payload it rides in is documented
+# at docs/source/reference/contracts/bridge-dispatch.rst.
+SHORTENED_ANSWER_NOTE = (
+    "[Answer shortened; it is {chars:,} characters in full. "
+    'prior_answer_read(run_id="{run_id}") returns the whole answer.]'
+)
+
+
+def shorten_answer(answer: str, run_id: str, limit: int) -> str | None:
+    """Return ``answer`` as its opening and a note naming ``run_id``, or ``None``.
+
+    ``None`` when ``limit`` is not positive, when the answer is at or under it,
+    or when the shortened form would not be shorter. One key sets both numbers:
+    the opening is half the threshold. A line break in the second half of the
+    opening ends it there, so a table keeps whole rows.
+    """
+    if limit <= 0 or len(answer) <= limit:
+        return None
+    keep = limit // 2
+    cut = answer.rfind("\n", 0, keep + 1)
+    if cut < keep // 2:
+        cut = keep
+    shortened = (
+        answer[:cut].rstrip()
+        + "\n"
+        + SHORTENED_ANSWER_NOTE.format(chars=len(answer), run_id=run_id)
+    )
+    return shortened if len(shortened) < len(answer) else None
 
 
 class HistoryStore(JsonFileStore):
@@ -162,16 +201,23 @@ class HistoryStore(JsonFileStore):
         artifacts = turn.get("artifacts")
         if not isinstance(artifacts, list):
             artifacts = []
-        return {
+        coerced: dict[str, Any] = {
             "question": question if isinstance(question, str) else "",
             "answer": answer if isinstance(answer, str) else "",
             "ts": ts,
             "run_id": run_id,
             "artifacts": _cap_artifacts(artifacts),
         }
+        # A turn with no asker stays in the five-field shape, so a current file is
+        # not rewritten on load; a malformed asker is dropped (and marks the store
+        # dirty through the caller's ``normalized != turn`` rule).
+        asked_by = turn.get("asked_by")
+        if _valid_asker(asked_by):
+            coerced["asked_by"] = _asker_record(asked_by)
+        return coerced
 
     # --- API ---------------------------------------------------------------
-    def recent(self, key: str) -> list[dict[str, Any]]:
+    def recent(self, key: str, *, shorten_over: int = 0) -> list[dict[str, Any]]:
         """Return the replayable turns for a conversation, oldest first.
 
         Applies the turn cap and then the char budget (dropping oldest first),
@@ -179,10 +225,27 @@ class HistoryStore(JsonFileStore):
         serialized turn — descriptors included — because the whole turn is what
         rides the payload, so an answer with many/large artifact descriptors
         must be charged for them, not just its question+answer text.
+
+        ``shorten_over`` > 0 replays each answer longer than that many
+        characters as :func:`shorten_answer` builds it, with ``answer_chars``
+        set to the full length. Only a turn with a ``run_id`` is shortened,
+        since nothing else could be read back. Shortening comes before the char
+        budget, so one long answer costs fewer whole turns. It works on per-call
+        copies: ``recent(key)`` is always the stored history unchanged.
         """
         with self._lock:
             turns = [dict(t) for t in self._data.get(key, [])]
         turns = turns[-self.max_turns :]
+        if shorten_over > 0:
+            for turn in turns:
+                run_id = turn.get("run_id")
+                answer = turn.get("answer")
+                if not (isinstance(run_id, str) and run_id and isinstance(answer, str)):
+                    continue
+                shortened = shorten_answer(answer, run_id, shorten_over)
+                if shortened is not None:
+                    turn["answer"] = shortened
+                    turn["answer_chars"] = len(answer)
         # Enforce the char budget from the tail (newest) backwards.
         kept: list[dict[str, Any]] = []
         used = 0
@@ -202,11 +265,14 @@ class HistoryStore(JsonFileStore):
         answer: str,
         run_id: str | None = None,
         artifacts: list[dict[str, Any]] | None = None,
+        asked_by: Mapping[str, Any] | None = None,
     ) -> None:
         """Record one completed exchange for a conversation.
 
-        ``run_id`` and ``artifacts`` are optional so pre-existing 3-arg callers
-        keep working unchanged. ``artifacts`` is capped to
+        ``run_id``, ``artifacts`` and ``asked_by`` are optional so pre-existing
+        3-arg callers keep working unchanged. ``asked_by`` (``{id, name}``) is
+        recorded only when it names someone; otherwise the turn has no
+        ``asked_by`` key at all. ``artifacts`` is capped to
         :data:`MAX_ARTIFACTS_PER_TURN` (tail kept). Appending also age-prunes the
         conversation, dropping turns whose ``ts`` is older than
         ``max_age_seconds`` relative to now.
@@ -214,13 +280,15 @@ class HistoryStore(JsonFileStore):
         if not key:
             return
         now = self._now()
-        turn = {
+        turn: dict[str, Any] = {
             "question": question,
             "answer": answer,
             "ts": now,
             "run_id": run_id,
             "artifacts": _cap_artifacts(list(artifacts) if artifacts else []),
         }
+        if _valid_asker(asked_by):
+            turn["asked_by"] = _asker_record(asked_by)
         cutoff = now - self.max_age_seconds
         with self._lock:
             turns = self._data.setdefault(key, [])
@@ -234,13 +302,32 @@ class HistoryStore(JsonFileStore):
                 del turns[: len(turns) - self.max_turns]
             self._flush_locked()
 
-    def append_failed(self, key: str, question: str) -> None:
+    def append_failed(
+        self, key: str, question: str, asked_by: Mapping[str, Any] | None = None
+    ) -> None:
         """Record a failed turn: the question with the :data:`FAILED_TURN_ANSWER`
         marker, so the next question in this conversation can still resolve its
-        referent. An empty question carries no referent, so it is not recorded."""
+        referent. An empty question carries no referent, so it is not recorded.
+        ``asked_by`` is recorded as :meth:`append` records it."""
         if not question:
             return
-        self.append(key, question, FAILED_TURN_ANSWER)
+        self.append(key, question, FAILED_TURN_ANSWER, asked_by=asked_by)
+
+
+def _valid_asker(value: Any) -> TypeGuard[Mapping[str, Any]]:
+    """A mapping whose ``id`` and ``name`` are each ``str`` or ``None``, with at least
+    one a non-empty ``str``."""
+    if not isinstance(value, Mapping):
+        return False
+    ident, name = value.get("id"), value.get("name")
+    if not all(v is None or isinstance(v, str) for v in (ident, name)):
+        return False
+    return bool(ident) or bool(name)
+
+
+def _asker_record(value: Mapping[str, Any]) -> dict[str, str | None]:
+    """Normalise a valid asker to exactly ``{"id", "name"}``."""
+    return {"id": value.get("id"), "name": value.get("name")}
 
 
 def _cap_artifacts(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:

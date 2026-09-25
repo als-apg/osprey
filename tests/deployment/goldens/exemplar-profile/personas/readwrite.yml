@@ -25,10 +25,15 @@ deploy_services: false
 # after the template renders. Nested YAML under `config:` would deep-merge into
 # and clobber the base's rendered config subtree, so keep every override flat.
 config:
-  # The single axis this persona differs on. Inherited true from the tutorial
-  # base's template default, but pinned explicitly here: this key IS the tier
-  # boundary, so it must not drift silently if the base's default ever changes.
-  control_system.writes_enabled: true
+  # The tier boundary, and it takes three keys. Armed on the simulator alone.
+  # The flat key is what every connector type inherits when its own block says
+  # nothing, so its false is what the stand-in reads. The epics block is pinned
+  # by name so a per-type `true` added anywhere lower in the chain cannot lift
+  # the live machine's ceiling. Only a literal `true` arms a type, and a
+  # per-type value never falls back to the flat key.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
   # Attached persona: the hosting project owns the web-terminal tier (nginx,
   # landing, per-user containers). Without this override the inherited roster
   # would make a persona-dir deploy try to host a second web tier on the same

@@ -175,6 +175,9 @@ def _iso(offset_s=0.0):
 def _applying(generation, *, expires_in_s=60.0):
     """An ``applying`` switch block for *generation*, bounded from now.
 
+    A block alone does not say the server holds a connector; the binding
+    beside it does.
+
     A negative *expires_in_s* is the stuck server: the block is past the bound
     its own publisher wrote, which stops holding up the deployment and holds up
     only the session whose server it is.
@@ -213,7 +216,7 @@ def _live_other_pid():
 
 def _dead_pid():
     """A PID that has certainly exited: a child run to completion and reaped."""
-    proc = subprocess.Popen([sys.executable, "-c", ""])  # noqa: S603 - fixed argv
+    proc = subprocess.Popen([sys.executable, "-c", ""])  # fixed argv
     proc.wait()
     return proc.pid
 
@@ -936,7 +939,13 @@ async def test_a_swap_in_flight_on_another_session_refuses_this_one_too(tmp_path
     _prepare(tmp_path, monkeypatch, session=THIS_SESSION)
     _write_record("live", 4)
     _write_report(session=THIS_SESSION, applied_target="live", applied_generation=4)
-    _write_report(other, session=OTHER_SESSION, last_switch=_applying(4))
+    _write_report(
+        other,
+        session=OTHER_SESSION,
+        applied_target="live",
+        applied_generation=3,
+        last_switch=_applying(4),
+    )
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
@@ -957,7 +966,9 @@ async def test_a_swap_in_flight_refuses_a_session_that_owns_no_report(tmp_path, 
     """
     _prepare(tmp_path, monkeypatch)
     _write_record("live", 4)
-    _write_report(session=OTHER_SESSION, last_switch=_applying(4))
+    _write_report(
+        session=OTHER_SESSION, applied_target="live", applied_generation=3, last_switch=_applying(4)
+    )
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
@@ -1163,7 +1174,13 @@ async def test_a_dead_servers_swap_does_not_refuse(tmp_path, monkeypatch):
     """
     _prepare(tmp_path, monkeypatch, session=THIS_SESSION)
     _write_record("live", 4)
-    _write_report(_dead_pid(), session=OTHER_SESSION, last_switch=_applying(4))
+    _write_report(
+        _dead_pid(),
+        session=OTHER_SESSION,
+        applied_target="live",
+        applied_generation=3,
+        last_switch=_applying(4),
+    )
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
@@ -1182,7 +1199,9 @@ async def test_without_a_record_there_is_no_convergence_to_judge(tmp_path, monke
     unswitched one every other test in this file's first section describes.
     """
     _prepare(tmp_path, monkeypatch, session=THIS_SESSION)
-    _write_report(session=THIS_SESSION, last_switch=_applying(4))
+    _write_report(
+        session=THIS_SESSION, applied_target="live", applied_generation=3, last_switch=_applying(4)
+    )
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
@@ -1206,7 +1225,9 @@ async def test_a_stale_approval_is_reported_before_an_unsettled_fleet(tmp_path, 
     operations = [{"channel": "TEST:PV", "value": 42.0}]
     _stamp_approval(operations, target="va", generation=3)
     _write_record("live", 4)
-    _write_report(session=THIS_SESSION, last_switch=_applying(4))
+    _write_report(
+        session=THIS_SESSION, applied_target="live", applied_generation=3, last_switch=_applying(4)
+    )
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()

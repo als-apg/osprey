@@ -33,6 +33,20 @@ TERMINAL_STATUSES = frozenset({"completed", "error", "post_failed", "superseded"
 # repo (``osprey.interfaces.vendor``, ``osprey.services.bluesky_bridge``).
 _TRUTHY = {"1", "true", "yes", "on"}
 
+
+def env_flag(raw: str | None, default: bool) -> bool:
+    """Read an on/off environment variable: the one reading across the bridges.
+
+    Unset or blank (after ``strip()``) gives ``default``; anything else is on only for
+    a spelling in the truthy set (``1``, ``true``, ``yes``, ``on``, any case), so a
+    typo reads as off. Every bridge config reads its switches through this, so the
+    spelling set lives once.
+    """
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in _TRUTHY
+
+
 #: Where a bridge reaches the dispatch pair when nothing tells it otherwise: the
 #: layout's ``dispatcher`` slot and worker 1 of its ``worker`` band, both at the
 #: layout's DEFAULT base — the one place that base is legitimate, because a
@@ -126,6 +140,12 @@ class CoreConfig:
     history_path: str = "/data/history.json"
     """Path to the persisted per-conversation transcript store (same volume)."""
 
+    history_answer_limit: int = 3000
+    """The longest earlier answer, in characters, replayed in full with a
+    follow-up. A longer one is replayed as its opening and a note naming its
+    run, and the agent reads the rest with ``prior_answer_read``. ``0`` replays
+    every answer in full. Set from ``HISTORY_ANSWER_LIMIT``."""
+
     def __post_init__(self) -> None:
         # The worker caps runs at `worker_timeout`; polling must outlast that to
         # observe the terminal (timeout) result instead of racing it.
@@ -146,6 +166,8 @@ class CoreConfig:
             value = getattr(self, name)
             if value <= 0:
                 raise ValueError(f"{name} must be > 0; got {value}")
+        if self.history_answer_limit < 0:
+            raise ValueError(f"history_answer_limit must be >= 0; got {self.history_answer_limit}")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> CoreConfig:
@@ -163,11 +185,11 @@ class CoreConfig:
                 return default
             return float(raw)
 
-        def _b(name: str, default: bool) -> bool:
+        def _i(name: str, default: int) -> int:
             raw = e.get(name)
             if raw is None or raw == "":
                 return default
-            return raw.strip().lower() in _TRUTHY
+            return int(raw)
 
         return cls(
             dispatcher_url=e.get("DISPATCHER_URL", _DEFAULT_DISPATCHER_URL).rstrip("/"),
@@ -180,7 +202,7 @@ class CoreConfig:
             # Same var the worker itself reads, so a deployment that raises the
             # cap raises it for both halves from one setting.
             worker_timeout=_f("DISPATCH_TIMEOUT_SEC", 300.0),
-            trust_env=_b("BRIDGE_TRUST_ENV", False),
+            trust_env=env_flag(e.get("BRIDGE_TRUST_ENV"), False),
             drain_interval=_f("DRAIN_INTERVAL", 60.0),
             retry_min_age=_f("RETRY_MIN_AGE", 1200.0),
             retry_give_up=_f("RETRY_GIVE_UP", 172800.0),
@@ -190,6 +212,7 @@ class CoreConfig:
             gitlab_issues_token=e.get("GITLAB_ISSUES_TOKEN", ""),
             dedup_path=e.get("DEDUP_PATH", "/data/dedup.json"),
             history_path=e.get("HISTORY_PATH", "/data/history.json"),
+            history_answer_limit=_i("HISTORY_ANSWER_LIMIT", 3000),
         )
 
     def require(self, *names: str) -> None:

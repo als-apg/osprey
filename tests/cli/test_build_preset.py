@@ -143,10 +143,12 @@ def test_preset_hello_world_creates_project(runner: CliRunner, tmp_path: Path) -
 
 
 def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
-    result = _materialize(runner, str(tmp_path), "smoke", "hello-world", "--set", "model=sonnet")
+    result = _materialize(
+        runner, str(tmp_path), "smoke", "hello-world", "--set", "model=claude-sonnet-5"
+    )
     assert result.exit_code == 0, result.output
     config = _config_yaml(_project(tmp_path, "smoke"))
-    assert config["claude_code"]["default_model"] == "sonnet"
+    assert config["claude_code"]["default_model"] == "claude-sonnet-5"
 
 
 def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_path: Path) -> None:
@@ -301,18 +303,21 @@ def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
     assert r_under.exit_code == 0, r_under.output
     cfg_a = _config_yaml(_project(out_a, "smoke"))
     cfg_b = _config_yaml(_project(out_b, "smoke"))
-    # Same preset → same default_model in rendered config.
-    # NB: the rendered key lives at claude_code.default_model, NOT top-level
+    # Same preset → same provider and model in rendered config.
+    # NB: the rendered keys live under claude_code, NOT top-level
     # (a top-level lookup would make this assertion vacuous).
-    assert cfg_a["claude_code"]["default_model"] == cfg_b["claude_code"]["default_model"]
+    assert cfg_a["claude_code"]["provider"] == "anthropic"
+    assert cfg_a["claude_code"] == cfg_b["claude_code"]
 
 
 def test_preset_drift_guard() -> None:
     """Bundled presets must NOT depend on profile-dir-relative paths.
 
-    services/env.file resolve relative to profile_dir, which for presets is the
-    wheel-installed package directory. Any preset adding these will silently
-    fail at install time. Catch it here.
+    A service template path and env.file resolve relative to profile_dir,
+    which for presets is the wheel-installed package directory. Any preset
+    adding these will silently fail at install time. Catch it here. A service
+    that names a bundled template (``template: osprey.<name>``) carries no path
+    and is resolved from the framework's own templates.
     """
     import importlib.resources
 
@@ -322,9 +327,12 @@ def test_preset_drift_guard() -> None:
     assert yml_files, "no preset YAML files found"
     for yml in yml_files:
         raw = yaml.safe_load(yml.read_text(encoding="utf-8")) or {}
-        assert raw.get("services", {}) == {}, (
-            f"{yml.name}: services must be empty (templates would break in the wheel)"
-        )
+        for name, service in (raw.get("services") or {}).items():
+            template = (service or {}).get("template", "")
+            assert str(template).startswith("osprey."), (
+                f"{yml.name}: service {name!r} must name a bundled template "
+                f"(a template path would break in the wheel)"
+            )
         env = raw.get("env", {}) or {}
         assert env.get("file") is None, (
             f"{yml.name}: env.file must be unset (path would break in the wheel)"
@@ -525,7 +533,7 @@ def test_set_path_through_scalar_aborts(runner: CliRunner, tmp_path: Path) -> No
         "smoke",
         "hello-world",
         "--set",
-        "model=haiku",
+        "model=claude-haiku-4-5",
         "--set",
         "model.flavor=fast",
     )
@@ -968,7 +976,7 @@ class TestMirroredLogbookSeedNotMutated:
         profile = profile_dir / "profile.yml"
         profile.write_text(
             "extends: hello-world\nname: SeedVerbatim\ndata: data\n"
-            "provider: anthropic\nmodel: haiku\n"
+            "provider: anthropic\nmodel: claude-haiku-4-5\n"
         )
 
         result = _render_from(runner, str(profile))
@@ -1006,7 +1014,7 @@ class TestDeployServicesKnob:
         "data: data\n"
         "va_archiver: null\n"
         "provider: anthropic\n"
-        "model: haiku\n"
+        "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
         "bluesky:\n"
         "  port: 10080\n"
@@ -1100,6 +1108,33 @@ def test_set_free_form_model_builds(
     assert cfg["claude_code"]["default_model"] == "anthropic/claude-opus"
 
 
+def test_an_archiver_block_nothing_reads_stops_the_build(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A block under ``archiver:`` that no archiver reads is named, not dropped."""
+    with caplog.at_level(logging.ERROR):
+        result = _materialize(
+            runner, str(tmp_path), "unread", "hello-world", "--set", "config.archiver.foo.server=x"
+        )
+    assert result.exit_code != 0
+    _assert_build_error_logged(caplog, "`foo:` under `archiver:`")
+
+
+def test_archiver_settings_reach_the_render(runner: CliRunner, tmp_path: Path) -> None:
+    """The dotted profile key lands on the block the factory reads."""
+    result = _materialize(
+        runner,
+        str(tmp_path),
+        "settled",
+        "hello-world",
+        "--set",
+        "config.archiver.settings.noise_level=0.01",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = _config_yaml(_project(tmp_path, "settled"))
+    assert cfg["archiver"]["settings"] == {"noise_level": 0.01}
+
+
 def test_set_value_invalid_yaml_raises() -> None:
     """A --set value that isn't valid YAML raises BuildProfileError, not a YAMLError."""
     with pytest.raises(BuildProfileError, match="is not valid YAML"):
@@ -1143,9 +1178,9 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     )
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: sonnet\ndata: data\n"
+        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
     )
-    (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: haiku\n")
+    (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
 
     result = _render_from(runner, str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
@@ -1155,10 +1190,10 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     assert _config_yaml(project)["claude_code"]["provider"] == "anthropic"
     assert (project / "data" / "FACILITY_MARKER.txt").is_file()
     # ...and the delta's own override still wins.
-    assert _config_yaml(project)["claude_code"]["default_model"] == "haiku"
+    assert _config_yaml(project)["claude_code"]["default_model"] == "claude-haiku-4-5"
     # The deployment's own render is beside it and keeps the root's model, so
     # the assertion above cannot pass by reading the wrong directory.
-    assert _config_yaml(root / "build")["claude_code"]["default_model"] == "sonnet"
+    assert _config_yaml(root / "build")["claude_code"]["default_model"] == "claude-sonnet-5"
 
 
 def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
@@ -1201,7 +1236,7 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
         "---\ndescription: profile-shipped namespaced command\n---\n\nBody.\n"
     )
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: sonnet\ndata: data\n"
+        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
     )
     (root / "personas" / "narrow.yml").write_text(
         "name: Narrow\n"
@@ -1262,7 +1297,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
         "name: RootProfile\n"
         "data: data\n"
         "provider: anthropic\n"
-        "model: haiku\n"
+        "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
         "hooks: [memory-guard]\n"
         "web_panels: [okf, lattice, grafana]\n"
@@ -1297,6 +1332,58 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     assert wide["lattice"]["enabled"] is True
     assert wide["grafana"]["enabled"] is True
     assert wide["okf"]["enabled"] is True
+
+
+def test_a_dotted_panel_id_is_projected_into_its_own_block(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A dotted id is switched on or off under its own key and nowhere else.
+
+    The render keeps ``beam.viewer`` whole as a key of ``web.panels``, so the
+    projection has to index it by that key: a switch written through the id's
+    first segment would land in a stray ``beam`` block and leave the tab on.
+    Asserted on both renders of one build and on the terminal's own reader.
+    """
+    from osprey.interfaces.web_terminal.app import _load_panel_config
+
+    root = tmp_path / "prof"
+    (root / "personas").mkdir(parents=True)
+    _facility_data(root, "control_assistant")
+    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "profile.yml").write_text(
+        "name: RootProfile\n"
+        "data: data\n"
+        "provider: anthropic\n"
+        "model: claude-haiku-4-5\n"
+        "channel_finder_mode: hierarchical\n"
+        "hooks: [memory-guard]\n"
+        "web_panels: [okf, beam.viewer]\n"
+        "config:\n" + _POSTURE_FLOOR + "  web.panels:\n"
+        "    beam.viewer:\n"
+        "      label: BEAM\n"
+        "      url: http://beam.local:9000\n"
+    )
+    (root / "personas" / "narrow.yml").write_text(
+        "name: Narrow\nexclude:\n  web_panels:\n    - beam.viewer\n"
+    )
+
+    result = _render_from(runner, str(root / "profile.yml"))
+    assert result.exit_code == 0, result.output
+
+    wide_config = _config_yaml(root / "build")
+    narrow_config = _config_yaml(_persona_project(root, "narrow"))
+    wide = wide_config["web"]["panels"]
+    narrow = narrow_config["web"]["panels"]
+    assert wide["beam.viewer"]["enabled"] is True
+    assert narrow["beam.viewer"]["enabled"] is False
+    assert "beam" not in wide
+    assert "beam" not in narrow
+
+    # Custom panels are in the custom list, never in the enabled set.
+    for config, expected in ((wide_config, ["beam.viewer"]), (narrow_config, [])):
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=config):
+            _enabled, custom, _default = _load_panel_config()
+        assert [panel["id"] for panel in custom] == expected
 
 
 class TestGraphModeRequiresAGraphStore:

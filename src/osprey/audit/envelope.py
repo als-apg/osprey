@@ -1,17 +1,11 @@
 """The unified audit envelope — one record shape for every safety decision.
 
-Osprey's P1/P2 work left two separate refusal ledgers, each with its own ad-hoc
-record shape: ``readonly-refusals.jsonl`` (the python executor) and
-``protected-writes.jsonl`` (the framework writers). Neither could answer the
-question an operator actually asks — *who did what, under which posture, as
-which role* — because neither carried the actor, the posture, or the session
-that governed the decision.
-
-This module defines the single envelope that replaces both, and that MCP tool
-calls, HTTP mutations, hook decisions and logins all emit:
+An envelope answers the question an operator asks of a decision — *who did
+what, under which posture, as which role* — in one shape that MCP tool calls,
+HTTP mutations, hook decisions and logins all emit:
 
 ``{ts, surface, actor, posture, posture_source, session, subject, decision,
-reason, detail?, role?, source?}``
+reason, detail?, role?, tool_use_id?, source?}``
 
 **What may go in an envelope.** Every field carries an *identifier* or a
 *config key* — a surface name, a username, a tool name, a dotted config key, a
@@ -21,6 +15,12 @@ an agent message, a credential, or any other payload the record is merely
 executor surface, where the refused code *is* the artifact under audit and a
 record without it would be an alert rather than an audit trail; that field is
 therefore refused on every other surface (:data:`SURFACE_EXECUTOR`).
+
+The audit trail has two kinds of surface. The default surfaces are built from
+this envelope and are value-free by the rule above. The opt-in ``tool_call``
+surface (:mod:`osprey.audit.tool_call`) is the one place values are recorded —
+the full arguments and result of each tool call — and it does not use this
+envelope; the ``tool_use_id`` both carry is what joins them.
 
 **Provenance is stated, never inferred.** :attr:`~AuditEnvelope.posture_source`
 is a closed set (:data:`POSTURE_SOURCES`) that says *how* the posture in the
@@ -99,6 +99,13 @@ DECISION_ALLOWED = "allowed"
 DECISION_REFUSED = "refused"
 DECISIONS: tuple[str, ...] = (DECISION_ALLOWED, DECISION_REFUSED)
 
+#: The answer to an approval prompt, each filed as its own record on the
+#: approval hook's surface: ``approved`` when the call the prompt asked about
+#: ran, ``denied`` when the turn ended without it. Canonical spellings only,
+#: like the two above.
+DECISION_APPROVED = "approved"
+DECISION_DENIED = "denied"
+
 # --------------------------------------------------------------------------
 # Bounds
 # --------------------------------------------------------------------------
@@ -128,12 +135,12 @@ MAX_SOURCE_CHARS = 8000
 def utc_timestamp() -> str:
     """Return the current UTC time in Osprey's audit timestamp format.
 
-    Second resolution with a literal ``Z``, matching the two P1/P2 ledgers this
-    envelope subsumes, so records from before and after the migration sort and
-    parse the same way. Deliberately not :meth:`~datetime.datetime.isoformat`,
-    whose microseconds and ``+00:00`` offset would break that continuity.
+    ``YYYY-MM-DDTHH:MM:SS.mmmZ``: millisecond resolution, so records from
+    different processes order within one second, with a literal ``Z``.
+    :meth:`datetime.datetime.fromisoformat` parses both this and the older
+    second-resolution stamps a ledger may still hold.
     """
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _truncate(value: str, limit: int) -> tuple[str, bool]:
@@ -180,6 +187,10 @@ class AuditEnvelope:
         :data:`MAX_DETAIL_CHARS`. Identifiers and config keys only — never a
         config value, a prompt, or an agent message.
     :param role: The role the actor held, where the decision was identity-bound.
+    :param tool_use_id: The agent harness's id for the tool call this decision
+        is about — an identifier that joins this record to the full
+        ``tool_call`` record and to the harness's own telemetry. Omitted where
+        no tool call exists (HTTP, login, restore).
     :param source: The offending code, on :data:`SURFACE_EXECUTOR` only.
         Bounded to :data:`MAX_SOURCE_CHARS`; a :class:`ValueError` on any other
         surface, which is the schema's guard against payload leaking into the
@@ -202,6 +213,7 @@ class AuditEnvelope:
     reason: str
     detail: str | None = None
     role: str | None = None
+    tool_use_id: str | None = None
     source: str | None = None
     ts: str = field(default_factory=utc_timestamp)
 
@@ -253,8 +265,10 @@ class AuditEnvelope:
             if value is not None:
                 object.__setattr__(self, name, _truncate(value, MAX_FIELD_CHARS)[0])
 
-        if self.session is not None:
-            object.__setattr__(self, "session", _truncate(self.session, MAX_FIELD_CHARS)[0])
+        for name in ("session", "tool_use_id"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _truncate(value, MAX_FIELD_CHARS)[0])
 
         if self.detail is not None:
             object.__setattr__(self, "detail", _truncate(self.detail, MAX_DETAIL_CHARS)[0])
@@ -281,6 +295,8 @@ class AuditEnvelope:
             record["detail"] = self.detail
         if self.role is not None:
             record["role"] = self.role
+        if self.tool_use_id is not None:
+            record["tool_use_id"] = self.tool_use_id
         if self.source is not None:
             record["source"] = self.source
         if self.source_truncated:

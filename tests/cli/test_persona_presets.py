@@ -2,24 +2,20 @@
 
 The ``control-assistant`` preset hosts its own multi-user web tier — nginx,
 the landing page, and one terminal container per roster user — alongside the
-full plan stack. Five persona presets extend it. Four of them are capability
-TIERS over the same deployment, and one is a standalone service that happens to
+full plan stack. Five persona presets extend it. Three of them are capability
+TIERS over the same deployment, and two are standalone services that happen to
 live on the same landing page:
 
 * ``control-assistant-readonly`` — read-only tier; simple chat-first surface;
   every write surface refuses on every target; built without the EVENTS/BLUESKY
   panels.
-* ``control-assistant-va-readwrite`` — the rung between the two: armed on the
-  virtual accelerator and read-only on the live machine, because write posture
-  is per connector type. Not on the shipped roster — a facility points a
-  persona at it — so the tier-contract comparisons below stay a statement about
-  the three tiers the stack actually builds, and the posture claim is pinned in
-  its own section instead.
 * ``control-assistant-readwrite`` — write-capable tier; expert workspace;
-  channel writes pass the ordinary safety chain (writes-check, limits, human
-  approval); declares the EVENTS/BLUESKY panels.
+  armed on the virtual accelerator alone and read-only on both hardware-shaped
+  targets, because write posture is per connector type; channel writes pass the
+  ordinary safety chain (writes-check, limits, human approval); declares the
+  EVENTS/BLUESKY panels.
 * ``control-assistant-admin`` — deployment-editing tier; readwrite's write
-  posture over the MACHINE (``writes_enabled``, ``ui_mode``) and its
+  posture over the MACHINE (armed on the simulator alone, ``ui_mode``) and its
   operator panels, plus the privileges the base floors off: the
   ``setup_patch`` tool, the web Config panel, the scaffold gallery's editors,
   and the ``setup-mode`` skill that drives them.
@@ -31,9 +27,11 @@ live on the same landing page:
 
 The tier contract therefore has two halves, and both are asserted wholesale
 below rather than key-by-key. The MACHINE axes separate readonly from
-readwrite: enforcement (``control_system.writes_enabled``), surface
-(``web.ui_mode``), and the write-oriented panel declarations (EVENTS +
-BLUESKY, declared by every write-armed tier and absent from readonly). The
+readwrite: enforcement (the simulator's own
+``control_system.connector.virtual_accelerator.writes_enabled`` leaf, the one
+posture key the two tiers set differently), surface (``web.ui_mode``), and
+the write-oriented panel declarations (EVENTS + BLUESKY, declared by every
+write-armed tier and absent from readonly). The
 DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
 ``web.config_panel.enabled``, ``web.scaffold_gallery.write_enabled``, and the
@@ -131,6 +129,11 @@ WRITES_KEY = "control_system.writes_enabled"
 # to write to keep an inherited per-type `true` from arming one over its head.
 VA_WRITES_KEY = "control_system.connector.virtual_accelerator.writes_enabled"
 EPICS_WRITES_KEY = "control_system.connector.epics.writes_enabled"
+#: The reference deployment's persona deltas, hand-kept copies of the persona
+#: presets' ``config:`` layers that other suites validate and parse.
+EXEMPLAR_PERSONAS_DIR = (
+    Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exemplar-profile" / "personas"
+)
 UI_MODE_KEY = "web.ui_mode"
 # The agent's deployment-editing tool: denied by the base for every tier, and
 # subtracted back by the admin tier alone. A deny rather than an ask because
@@ -152,7 +155,7 @@ ADMIN_LIFTED_FLOOR_KEYS = (CONFIG_PANEL_KEY, GALLERY_WRITE_KEY)
 # The skill that drives those surfaces from the agent side.
 ADMIN_ONLY_SKILL = "setup-mode"
 # The write-oriented panels: declared by every write-armed persona's
-# `web_panels` list (readwrite, va-readwrite, admin) and by none other, so the
+# `web_panels` list (readwrite, admin) and by none other, so the
 # readonly build genuinely lacks them (a persona delta can only add;
 # `enabled: false` is inert for URL panels). Their URL, path and label are NOT
 # preset config — the build projects them from the hosting deployment's render
@@ -631,6 +634,47 @@ def _own_config(name: str) -> dict:
     return raw.get("config") or {}
 
 
+#: The page that tells a deployer what each tier's screen looks like.
+TIERS_PAGE = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "source"
+    / "how-to"
+    / "web-terminal"
+    / "multi-user"
+    / "tiers.rst"
+)
+#: The anchor above the page's tier table. Rows are read from it to the next anchor
+#: or, when the page has none, to its end.
+TIERS_TABLE_ANCHOR = ".. _multi-user-tiers:"
+#: A tier row's first cell, ``* - **<tier>** (<login>)``.
+_TIER_ROW = re.compile(r"^\s*\* - \*\*(\w+)\*\*")
+#: A later cell of the same row, written ``- `` at the row's indent.
+_ROW_CELL = re.compile(r"^\s*- (.*)$")
+#: What a screen cell says about the write-oriented panels, by their tab labels.
+_PANEL_CLAIM = re.compile(r"\b(with|without) the EVENTS and BLUESKY panels\b")
+
+
+def _tier_screen_cells() -> dict[str, str]:
+    """Each tier row's last cell in the tiers page's table, whitespace-collapsed."""
+    lines = TIERS_PAGE.read_text(encoding="utf-8").splitlines()
+    assert TIERS_TABLE_ANCHOR in lines, f"{TIERS_PAGE} lost its {TIERS_TABLE_ANCHOR} anchor"
+    cells: dict[str, list[str]] = {}
+    tier = None
+    for line in lines[lines.index(TIERS_TABLE_ANCHOR) + 1 :]:
+        if line.startswith(".. _"):
+            break
+        row = _TIER_ROW.match(line)
+        if row is not None:
+            tier = row.group(1)
+            cells[tier] = [""]
+        elif tier is not None and (cell := _ROW_CELL.match(line)) is not None:
+            cells[tier].append(cell.group(1))
+        elif tier is not None and line.strip():
+            cells[tier][-1] += " " + line.strip()
+    return {name: " ".join(parts[-1].split()) for name, parts in cells.items()}
+
+
 class TestControlAssistantPersonas:
     """The three tiers: identical projects except for the tier contract.
 
@@ -652,16 +696,17 @@ class TestControlAssistantPersonas:
         # Flat dotted key, never nested YAML under config:.
         assert "control_system" not in profile.config
 
-    def test_readwrite_extends_base_and_enables_writes(self) -> None:
+    def test_readwrite_extends_base_and_arms_the_simulator(self) -> None:
         profile = resolve_preset("control-assistant-readwrite")
         assert profile.name == "Control Assistant (Read-Write)"
         assert _profile_data_bundle(profile) == "control_assistant"
-        assert profile.config.get(WRITES_KEY) is True
+        assert profile.config.get(WRITES_KEY) is False
+        assert profile.config.get(VA_WRITES_KEY) is True
         assert "control_system" not in profile.config
 
     def test_admin_extends_base_and_lifts_the_deployment_floor(self) -> None:
         """The admin tier is readwrite plus deployment editing, not a fourth
-        write posture: it pins the same ``writes_enabled: true`` and
+        write posture: it pins the same three posture keys and
         ``ui_mode: expert``, and adds the three keys that lift the base floor.
 
         ``remove_deny`` rather than a bare absence of the deny is the whole
@@ -672,7 +717,9 @@ class TestControlAssistantPersonas:
         profile = resolve_preset("control-assistant-admin")
         assert profile.name == "Control Assistant (Admin)"
         assert _profile_data_bundle(profile) == "control_assistant"
-        assert profile.config.get(WRITES_KEY) is True
+        assert profile.config.get(WRITES_KEY) is False
+        assert profile.config.get(EPICS_WRITES_KEY) is False
+        assert profile.config.get(VA_WRITES_KEY) is True
         assert profile.config.get(UI_MODE_KEY) == "expert"
         assert "control_system" not in profile.config
 
@@ -730,8 +777,9 @@ class TestControlAssistantPersonas:
 
         rw_cfg = dict(readwrite.config)
         ad_cfg = dict(admin.config)
-        # Shared machine posture: both tiers are write-armed expert desks.
-        assert rw_cfg[WRITES_KEY] is True and ad_cfg[WRITES_KEY] is True
+        # Shared machine posture: both tiers are expert desks armed on the
+        # simulator and read-only on both hardware-shaped targets.
+        assert rw_cfg[WRITES_KEY] is False and ad_cfg[WRITES_KEY] is False
         assert rw_cfg[UI_MODE_KEY] == "expert" and ad_cfg[UI_MODE_KEY] == "expert"
         # Deployment axis 1 — the agent's tool. The base's deny reaches BOTH
         # tiers identically; what makes admin different is the subtraction.
@@ -759,17 +807,18 @@ class TestControlAssistantPersonas:
         overrides — a representative base override survives both merges.
 
         The representative is the base's session baseline, which is the
-        stand-in: the hosting preset declares ``virtual_accelerator.
-        live_standin`` and baselines itself on the soft IOC that behaves like
-        hardware. No persona names ``control_system.type``, so every tier
-        inherits that baseline through ``extends``."""
+        sandbox simulator: the one machine on this deployment where a write is
+        harmless, while the stand-in the preset also declares is a target the
+        operator switches to on purpose. No persona names
+        ``control_system.type``, so every tier inherits that baseline through
+        ``extends``."""
         for name in (
             "control-assistant-readonly",
             "control-assistant-readwrite",
             "control-assistant-admin",
         ):
             profile = resolve_preset(name)
-            assert profile.config.get("control_system.type") == "live_standin"
+            assert profile.config.get("control_system.type") == "virtual_accelerator"
 
     def test_personas_differ_only_on_the_tier_contract(self) -> None:
         readonly = resolve_preset("control-assistant-readonly")
@@ -777,27 +826,22 @@ class TestControlAssistantPersonas:
 
         ro_cfg = dict(readonly.config)
         rw_cfg = dict(readwrite.config)
-        # Axis 1 — enforcement: the write posture. Asymmetric in shape as well
-        # as in value, and deliberately so. The write-armed tier states the
-        # posture once, because the flat key is what every connector type
-        # inherits when its own block says nothing. The read-only tier cannot
-        # rely on that: a per-type `true` inherited from anywhere would answer
-        # for its type instead and never fall back, so the tier that must
-        # refuse everywhere pins each block off by name. What the two mean by
-        # the axis is compared through the resolver, per target, in
-        # TestWritePostureMatrix. Only the WRITE leaf is tier-specific: the
-        # base's per-type limits block rides along on every tier by design,
-        # so the predicate names the leaf rather than the connector namespace.
+        # Axis 1 — enforcement: the write posture. Both tiers state it with the
+        # same three keys — the flat key every connector type inherits when its
+        # own block says nothing, and the epics and virtual_accelerator blocks
+        # pinned by name so a per-type `true` inherited from anywhere cannot
+        # answer over them. They differ in one leaf only: the simulator's. What
+        # the two mean by the axis is compared through the resolver, per
+        # target, in TestWritePostureMatrix. Only the WRITE leaf is
+        # tier-specific: the base's per-type limits block rides along on every
+        # tier by design, so the pops name the leaf rather than the connector
+        # namespace.
         assert ro_cfg.pop(WRITES_KEY) is False
         assert ro_cfg.pop(EPICS_WRITES_KEY) is False
         assert ro_cfg.pop(VA_WRITES_KEY) is False
-        assert rw_cfg.pop(WRITES_KEY) is True
-        assert not [
-            key
-            for key in rw_cfg
-            if str(key).startswith("control_system.connector.")
-            and str(key).endswith(".writes_enabled")
-        ]
+        assert rw_cfg.pop(WRITES_KEY) is False
+        assert rw_cfg.pop(EPICS_WRITES_KEY) is False
+        assert rw_cfg.pop(VA_WRITES_KEY) is True
         # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
         assert ro_cfg.pop(UI_MODE_KEY) == "simple"
         assert rw_cfg.pop(UI_MODE_KEY) == "expert"
@@ -849,6 +893,23 @@ class TestControlAssistantPersonas:
         assert readonly.web_panels == base.web_panels
         for tier in (readwrite, admin):
             assert set(tier.web_panels) == set(base.web_panels) | {"events", "bluesky"}
+
+    @pytest.mark.parametrize("tier", ["readonly", "readwrite", "admin"])
+    def test_tiers_page_names_the_panels_each_tier_declares(self, tier: str) -> None:
+        """The tiers page's "What the screen looks like" column says, per tier,
+        whether the write-oriented panels are there, and the preset decides it.
+
+        The page is what a deployer reads to choose a login for a teammate. A
+        preset that gains or drops the panels changes that answer, so the row
+        has to move with it. Read by tab label, because that is what the
+        page names."""
+        profile = resolve_preset(f"control-assistant-{tier}")
+        declared = set(WRITE_TIER_PANELS) <= set(profile.web_panels)
+        cell = _tier_screen_cells()[tier]
+        assert _PANEL_CLAIM.findall(cell) == (["with"] if declared else ["without"]), (
+            f"the tiers page's {tier} row says {cell!r}, but control-assistant-{tier} "
+            f"{'declares' if declared else 'does not declare'} the EVENTS and BLUESKY panels"
+        )
 
     def test_safety_chain_hooks_are_shipped(self) -> None:
         """The write-capable tier is supervised, not unguarded: the hooks that
@@ -1010,13 +1071,9 @@ class TestControlAssistantPersonas:
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
             "openobserve": {"port": host["services"]["openobserve"]["port"]},
-            # `target` rides along because the hosting render's single lane
-            # declares one: the preset baselines on the stand-in, and that lane
-            # is pointed at it explicitly rather than left to the VA fallback.
-            "bluesky": {
-                "port": host["services"]["bluesky"]["port"],
-                "target": host["services"]["bluesky"]["target"],
-            },
+            # The single lane declares no `target`: it is addressed by the
+            # fallback, the simulator the baseline names.
+            "bluesky": {"port": host["services"]["bluesky"]["port"]},
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
             "archiver_recorder": {"path": host["services"]["archiver_recorder"]["path"]},
@@ -1177,17 +1234,18 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     "channel-finder-standalone": {"live": False, "va": False, "standin": False},
     # The hosting preset arms the flat key and pins no per-type block, so every
     # target inherits the arming — the stand-in included, which is the point:
-    # its baseline IS the stand-in, and a stand-in that refused writes could
-    # not rehearse anything. The read-only tier is what pins it back off, and
-    # this row is what makes that tier's pin load-bearing rather than
-    # decorative.
+    # the stand-in is a target the operator switches to in order to rehearse,
+    # and a stand-in that refused writes could not rehearse anything. The
+    # read-only tier is what pins it back off, and this row is what makes that
+    # tier's pin load-bearing rather than decorative.
     "control-assistant": {"live": True, "va": True, "standin": True},
     "hello-world": {"live": False, "va": False, "standin": False},
-    # The write-armed tiers. Their flat ``true`` is what every type inherits,
-    # so the posture is the same on all three machines — the stand-in
-    # included, which is what makes a rehearsal there the real thing.
-    "control-assistant-admin": {"live": True, "va": True, "standin": True},
-    "control-assistant-readwrite": {"live": True, "va": True, "standin": True},
+    # The write-capable tiers. Their flat key is ``false`` and the simulator's
+    # own block is what arms them; the epics block is pinned off by name, and
+    # the stand-in has no block of its own and reaches ``False`` through the
+    # flat key. One machine armed, the two hardware-shaped ones not.
+    "control-assistant-admin": {"live": False, "va": True, "standin": False},
+    "control-assistant-readwrite": {"live": False, "va": True, "standin": False},
     # The standalone logbook tier pins the flat key off and writes no per-type
     # block, so every target inherits the off.
     "control-assistant-logbook": {"live": False, "va": False, "standin": False},
@@ -1200,8 +1258,6 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     # anywhere can arm those two over it. The stand-in has no block to pin and
     # reaches ``False`` through the flat key.
     "control-assistant-readonly": {"live": False, "va": False, "standin": False},
-    # The rung this whole matrix exists for: one machine armed, two not.
-    "control-assistant-va-readwrite": {"live": False, "va": True, "standin": False},
 }
 
 
@@ -1261,8 +1317,9 @@ class TestWritePostureMatrix:
         The flat key is what a type inherits when its block says nothing, so on
         its own it is not a floor: a ``control_system.connector.<type>.
         writes_enabled: true`` added anywhere in the chain would arm that type
-        over it, and per-type values never fall back to the flat key. The
-        read-only tier therefore pins each block off by name."""
+        over it, and per-type values never fall back to the flat key. Every
+        control-system tier therefore pins each block by name; what makes this
+        one read-only is that the simulator's leaf is off here too."""
         profile = resolve_preset("control-assistant-readonly")
 
         assert profile.config.get(WRITES_KEY) is False
@@ -1272,63 +1329,82 @@ class TestWritePostureMatrix:
         # would replace the rendered subtree and drop the sibling keys.
         assert "control_system" not in profile.config
 
-    def test_va_readwrite_is_armed_on_the_simulator_alone(self, tmp_path: Path) -> None:
-        """The rung: the same tool call writes on one machine and refuses on the
-        other, decided by the recorded control target rather than by a rebuild."""
-        section = _rendered_control_system(tmp_path, "control-assistant-va-readwrite")
+    def test_readwrite_is_armed_on_the_simulator_alone(self, tmp_path: Path) -> None:
+        """The same tool call writes on one machine and refuses on the other
+        two, decided by the recorded control target rather than by a rebuild."""
+        section = _rendered_control_system(tmp_path, "control-assistant-readwrite")
 
         assert target_writes_enabled(section, "va") is True
         assert target_writes_enabled(section, "live") is False
+        assert target_writes_enabled(section, "standin") is False
 
-    def test_va_readwrite_extends_the_base_and_arms_one_type(self) -> None:
-        """Its two posture keys, and the live block it deliberately does not
-        write: leaving that block unwritten is what keeps the live machine on
-        the flat ``false``."""
-        profile = resolve_preset("control-assistant-va-readwrite")
+    def test_readwrite_pins_the_live_ceiling_by_name(self) -> None:
+        """Its three posture keys: the flat ``false`` every type inherits, the
+        simulator's block armed, and the live block written ``false`` by name
+        so a per-type ``true`` lower in the chain cannot lift it."""
+        profile = resolve_preset("control-assistant-readwrite")
 
-        assert profile.name == "Control Assistant (VA Read-Write)"
+        assert profile.name == "Control Assistant (Read-Write)"
         assert _profile_data_bundle(profile) == "control_assistant"
         assert profile.config.get(WRITES_KEY) is False
         assert profile.config.get(VA_WRITES_KEY) is True
-        assert EPICS_WRITES_KEY not in profile.config
+        assert profile.config.get(EPICS_WRITES_KEY) is False
         assert "control_system" not in profile.config
 
-    def test_va_readwrite_is_an_attached_render_like_its_siblings(self) -> None:
-        """It builds a terminal image only, hosts no second web tier, declares
-        the write-oriented panels its writes travel over, and pins no service
-        address — the same attached shape the other tiers carry."""
-        profile = resolve_preset("control-assistant-va-readwrite")
+    def test_readwrite_is_an_attached_render_like_its_siblings(self) -> None:
+        """Its own ``config:`` layer pins no service address.
 
-        assert profile.deploy_services is False
-        assert profile.config.get("modules.web_terminals.enabled") is False
-        assert profile.config.get(UI_MODE_KEY) == "expert"
-        assert set(profile.web_panels) == set(resolve_preset("control-assistant").web_panels) | set(
-            WRITE_TIER_PANELS
-        )
+        The rest of the attached shape — ``deploy_services``, the web tier it
+        does not host, its surface and its panels — is asserted beside its
+        siblings in the persona tests above; this is the one clause with no
+        sibling assertion."""
         assert [
             key
-            for key in _own_config("control-assistant-va-readwrite")
+            for key in _own_config("control-assistant-readwrite")
             if str(key).startswith("services.")
         ] == []
 
-    def test_the_flat_tiers_are_armed_on_every_target(self, tmp_path: Path) -> None:
-        """readwrite and admin write no per-type WRITE key at all, so both
-        machines read their flat ``true`` (the base's per-type limits block is
-        a separate concern and rides along). Asserted through the resolver so
-        that the claim survives the key stopping being the whole answer."""
+    def test_the_write_capable_tiers_state_the_posture_the_same_way(self, tmp_path: Path) -> None:
+        """readwrite and admin differ on deployment editing and on nothing about
+        the machine: the same three posture keys, the two per-type WRITE keys
+        the only ones they spell, and the same answer on every target."""
         for preset in ("control-assistant-readwrite", "control-assistant-admin"):
             profile = resolve_preset(preset)
-            assert profile.config.get(WRITES_KEY) is True
-            assert [
+            assert profile.config.get(WRITES_KEY) is False
+            assert profile.config.get(EPICS_WRITES_KEY) is False
+            assert profile.config.get(VA_WRITES_KEY) is True
+            assert sorted(
                 key
                 for key in profile.config
                 if str(key).startswith("control_system.connector.")
                 and str(key).endswith(".writes_enabled")
-            ] == []
+            ) == sorted([EPICS_WRITES_KEY, VA_WRITES_KEY])
 
             section = _rendered_control_system(tmp_path, preset)
-            for target in CONTROL_TARGETS:
-                assert target_writes_enabled(section, target) is True, (preset, target)
+            resolved = {
+                target: target_writes_enabled(section, target) for target in CONTROL_TARGETS
+            }
+            assert resolved == {"live": False, "va": True, "standin": False}, preset
+
+    @pytest.mark.parametrize("persona", ["readonly", "readwrite"])
+    def test_the_reference_deployments_persona_deltas_carry_their_presets_posture(
+        self, persona: str
+    ) -> None:
+        """A hand-kept persona delta states the posture its preset ships.
+
+        Nothing renders these deltas, so no build notices when a preset's
+        posture moves and the copy does not: this is the one place that holds
+        the copy to its source."""
+        preset = f"control-assistant-{persona}"
+        text = (EXEMPLAR_PERSONAS_DIR / f"{persona}.yml").read_text(encoding="utf-8")
+        assert f"source preset: {preset}" in text
+
+        delta = yaml.safe_load(text)["config"]
+        shipped = resolve_preset(preset).config
+        posture_keys = (WRITES_KEY, EPICS_WRITES_KEY, VA_WRITES_KEY)
+        assert {key: delta.get(key) for key in posture_keys} == {
+            key: shipped.get(key) for key in posture_keys
+        }
 
 
 # ---------------------------------------------------------------------------

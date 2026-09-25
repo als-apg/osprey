@@ -70,7 +70,7 @@ import nbformat
 
 from osprey.jupyter_kernel import JUPYTER_SHARED_SUBTREE
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
-from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
+from osprey.mcp_server.sandbox_env import drop_sandbox_denied_env
 
 logger = logging.getLogger(__name__)
 
@@ -499,7 +499,7 @@ class JupyterSidecar:
             )
         try:
             example_channel = starter_read_channel(_deployment_config())
-        except Exception:  # noqa: BLE001 — the read line is cosmetic, the panel is not
+        except Exception:  # the read line is cosmetic, the panel is not
             logger.debug("Starter notebook: config load failed", exc_info=True)
             example_channel = None
         seed_starter_notebook(self.notebooks_dir, example_channel)
@@ -554,12 +554,17 @@ class JupyterSidecar:
     def _child_env(self, token: str, runtime_dir: Path, config_dir: Path) -> dict[str, str]:
         """The sidecar's environment: the scrubbed parent's, plus the Jupyter directories.
 
+        Not the execution sandboxes' allowlist: the sidecar and its kernels run
+        code the operator types, like the PTY child, so they keep the
+        operator's environment minus the credential set and the sandbox-only
+        drop.
+
         Args:
             token: The per-launch token the server requires on every request.
             runtime_dir: The per-launch ``JUPYTER_RUNTIME_DIR``.
             config_dir: The per-launch ``JUPYTER_CONFIG_DIR``.
         """
-        env = scrub_sandbox_child_env(os.environ)
+        env = drop_sandbox_denied_env(os.environ)
         env.update(
             {
                 "JUPYTER_TOKEN": token,

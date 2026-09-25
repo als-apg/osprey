@@ -38,6 +38,7 @@ from osprey.bridges.google_chat.events import (
     GC_THREAD,
     parse_attachments,
     parse_event,
+    people_seen,
 )
 
 APP_ID = "users/999"
@@ -752,3 +753,41 @@ def test_a_message_field_that_is_not_a_string_is_read_as_absent():
     event = parse_event(_classic(name=17), CFG)
 
     assert event is None
+
+
+# ==========================================================================
+# Names the space shows, for the room roster
+# ==========================================================================
+
+
+def _user_mention(name, display, kind="HUMAN"):
+    return {
+        "type": "USER_MENTION",
+        "userMention": {"user": {"name": name, "displayName": display, "type": kind}},
+    }
+
+
+def test_people_seen_records_the_sender_and_mentioned_users():
+    event = _classic(annotations=[_mention(), _user_mention("users/222", "Carol")])
+    assert people_seen(event) == (SPACE, {"users/111": "Alice", "users/222": "Carol"})
+
+
+def test_people_seen_skips_bots():
+    event = _classic(
+        sender={"name": "users/555", "displayName": "Other bot", "type": "BOT"},
+        annotations=[_mention(), _user_mention("users/666", "A bot", kind="BOT")],
+    )
+    assert people_seen(event) == (SPACE, {})
+
+
+def test_people_seen_reads_the_addon_shape():
+    event = _addon(space_in_message=False, annotations=[_user_mention("users/222", "Carol")])
+    assert people_seen(event) == (SPACE, {"users/111": "Alice", "users/222": "Carol"})
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [None, "junk", [], {"type": "MESSAGE", "message": "nope"}, {"type": "ADDED_TO_SPACE"}],
+)
+def test_people_seen_on_junk_is_empty(raw):
+    assert people_seen(raw) == ("", {})

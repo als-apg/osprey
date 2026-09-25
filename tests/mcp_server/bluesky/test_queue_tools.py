@@ -1080,6 +1080,28 @@ def test_every_refusal_code_this_module_handles_is_documented_for_the_agent():
     assert not undocumented, f"refusal codes handled but never explained: {undocumented}"
 
 
+def test_every_status_key_the_queue_read_returns_is_documented_for_the_agent(monkeypatch):
+    """``queue_list`` relays ``GET /queue``'s ``status`` verbatim, so every
+    key the bridge's summary writes is one the agent will see — and a key
+    its tool description never names is one it cannot interpret.
+
+    The key set is read off ``_status_summary`` itself rather than spelled
+    here, so a key the bridge adds tomorrow fails this test until the
+    docstring explains it. The two removal stores are stubbed empty: only
+    the keys matter, and the real stores would touch the bridge's writable
+    directory.
+    """
+    from osprey.services.bluesky_bridge import queue as bridge_queue
+
+    monkeypatch.setattr(bridge_queue, "removed_runs", tuple)
+    monkeypatch.setattr(bridge_queue, "removal_log", tuple)
+    keys = set(bridge_queue._status_summary({}))
+
+    doc = get_tool_fn(queue.queue_list).__doc__ or ""
+    undocumented = sorted(key for key in keys if f"``{key}``" not in doc)
+    assert not undocumented, f"status keys returned but never explained: {undocumented}"
+
+
 # =========================================================================
 # queue_remove — drop one pending item; the interrupted-item way out
 # =========================================================================
@@ -1269,3 +1291,42 @@ async def test_an_owner_less_stop_sends_no_headers_at_all(tmp_path, monkeypatch)
         await _stop_fn()()
 
     assert m.call_args.kwargs["headers"] is None
+
+
+# =========================================================================
+# the call-attribution stamps — which tool call queued this work
+# =========================================================================
+
+
+async def test_queue_add_sends_the_call_ids(tmp_path, monkeypatch):
+    """Inside a tool call's scope, the add names that call's conversation and id."""
+    from osprey.audit.call import call_scope
+    from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
+
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            with call_scope("toolu_queue1", "conv-7"):
+                await _add_fn()(draft_revision=3)
+
+    assert m.call_args.kwargs["headers"] == {
+        "X-Launch-Token": _TOKEN,
+        OWNER_HEADER: "rosterbob",
+        CONVERSATION_HEADER: "conv-7",
+        TOOL_USE_HEADER: "toolu_queue1",
+    }
+
+
+async def test_no_scope_sends_no_call_headers(tmp_path, monkeypatch):
+    from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
+
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _add_fn()(draft_revision=3)
+
+    headers = m.call_args.kwargs["headers"]
+    assert CONVERSATION_HEADER not in headers
+    assert TOOL_USE_HEADER not in headers

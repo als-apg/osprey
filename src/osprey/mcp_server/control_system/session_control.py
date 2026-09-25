@@ -842,5 +842,5 @@ class SessionControlReconciler:
                     f"requested_by={requested_by} request_id={request_id}"
                 ),
             )
-        except Exception:  # noqa: BLE001 — the audit trail degrades; the switch does not
+        except Exception:  # the audit trail degrades; the switch does not
             logger.warning("Could not record the target-switch gesture for audit", exc_info=True)

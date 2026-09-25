@@ -73,6 +73,7 @@ RETIRED_KEYS: dict[str, tuple[str, ...]] = {
         "archiver.mock_archiver.simulation_file",
     ),
     "P5 — behavior honesty": ("logbook.composition.model_id",),
+    "Model ids": ("claude_code.models", "logbook.composition.default_tier"),
 }
 
 

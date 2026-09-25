@@ -36,12 +36,14 @@ _REPO_CATALOG = {
         "house": {
             "api_key": "${HOUSE_API_KEY}",
             "base_url": "https://gateway.example.org/v1",
-            "models": {"haiku": "h-small", "sonnet": "h-mid", "opus": "h-large"},
+            "default_model": "h-mid",
+            "models": ["h-small", "h-mid", "h-large"],
         },
         "anthropic": {
             "api_key": "${ANTHROPIC_API_KEY}",
             "base_url": "https://api.anthropic.com",
-            "models": {"haiku": "claude-haiku-4-5", "sonnet": "claude-sonnet-5"},
+            "default_model": "claude-sonnet-5",
+            "models": ["claude-haiku-4-5", "claude-sonnet-5"],
         },
     }
 }

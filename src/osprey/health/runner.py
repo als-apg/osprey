@@ -127,7 +127,7 @@ async def _run_check(
             timeout_status,
             f"{spec_name} timed out after {timeout_s:g}s",
         )
-    except Exception as exc:  # noqa: BLE001 - isolation: any failure is one error row
+    except Exception as exc:  # isolation: any failure is one error row
         return CheckResult(
             spec_name,
             category,
@@ -246,7 +246,7 @@ def _accepts_runtime(func: Any) -> bool:
     """
     try:
         param = inspect.signature(func).parameters.get("runtime")
-    except Exception:  # noqa: BLE001 - an unreadable signature is the zero-arg shape
+    except Exception:  # an unreadable signature is the zero-arg shape
         # ``signature()`` documents TypeError and ValueError, but it also reads
         # ``__signature__`` and follows ``__wrapped__``, and plugin code owns
         # both. This runs outside the per-callable isolation, so anything it
@@ -325,7 +325,7 @@ async def _run_callable(
             ],
             True,
         )
-    except Exception as exc:  # noqa: BLE001 - isolation: one error row per failing category
+    except Exception as exc:  # isolation: one error row per failing category
         return (
             [
                 CheckResult(

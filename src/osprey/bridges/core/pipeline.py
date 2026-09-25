@@ -58,7 +58,8 @@ from .dedup import DedupStore
 from .dispatch_client import DispatchClient
 from .errors import UndeliverableError
 from .history import HistoryStore
-from .ports import RESERVED_ENTRY_KEYS, ChannelOps, InputDownload
+from .people import asker_of, room_payload
+from .ports import RESERVED_ENTRY_KEYS, ChannelOps, InputDownload, RoomRoster
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ __all__ = [
     "MAX_FILES",
     "MAX_TOTAL_BYTES",
     "OVER_BUDGET_REASON",
+    "PRIOR_ANSWERS_CAPABILITY",
+    "PRIOR_ANSWER_RUNS_KEY",
     "REINJECT_MAX_IMAGES",
     "REINJECT_MAX_TOTAL_BYTES",
     "SERVER_TOO_OLD_REASON",
@@ -112,6 +115,15 @@ OVER_BUDGET_REASON = "attachments exceed the total size budget; this file was no
 # dropped. The payload it rides in is documented at
 # docs/source/reference/contracts/bridge-dispatch.rst.
 EXPIRED_NOTE = "may have expired"
+
+# The capability both halves of the pair advertise when the agent can read a
+# shortened earlier answer back. Equals the worker's ``PRIOR_ANSWERS_CAPABILITY``;
+# core carries no osprey dispatch imports, so the name is spelled here.
+PRIOR_ANSWERS_CAPABILITY = "prior_answers"
+
+# The payload key naming the runs whose answers were replayed shortened. The
+# dispatcher takes it out of the body and hands it to the worker as a field.
+PRIOR_ANSWER_RUNS_KEY = "prior_answer_runs"
 
 # Belt-and-suspenders mirror of ``HistoryStore.MAX_ARTIFACTS_PER_TURN``: the store
 # already caps (keeping the tail), but we assemble OLDEST-first so its tail-keep
@@ -200,21 +212,22 @@ def _dispatch(
     return dispatcher.run(text, on_run_id=persist)
 
 
-def _capability_probe(deps: PipelineDeps) -> Callable[[], bool]:
-    """A memoized ``input_files`` capability probe for ONE dispatch.
+def _capability_probe(deps: PipelineDeps, capability: str) -> Callable[[], bool]:
+    """A memoized probe of one ``capability`` for ONE dispatch.
 
     Returns a zero-arg callable that runs :attr:`PipelineDeps.probe_capability` at
-    most once and caches the verdict, so the attachment fold and the prior-image
-    re-injection — every feature that gates on the pair advertising ``input_files`` —
-    share a SINGLE probe per dispatch. The probe fires lazily on first call, so a
-    dispatch that ships no bytes never probes at all; and the memo lives only for
-    this dispatch, so a mid-session downgrade is observed on the next one.
+    most once and caches the verdict: one memo per capability per dispatch. The
+    attachment fold and the prior-image re-injection — every feature that gates on
+    the pair advertising ``input_files`` — share a SINGLE probe. The probe fires
+    lazily on first call, so a dispatch that ships no bytes never probes at all; and
+    the memo lives only for this dispatch, so a mid-session downgrade is observed on
+    the next one.
     """
     verdict: dict[str, bool] = {}
 
     def probe() -> bool:
         if "v" not in verdict:
-            verdict["v"] = bool(deps.probe_capability(deps.cfg, "input_files"))
+            verdict["v"] = bool(deps.probe_capability(deps.cfg, capability))
         return verdict["v"]
 
     return probe
@@ -232,24 +245,32 @@ def build_extra(
     The single payload assembler: :func:`handle_event` calls it on the live path (with
     the just-resolved ``reply_to``) and :func:`osprey.bridges.core.runtime.rebuild_extra`
     calls it for every RE-dispatch (with the persisted one), so a replayed question can
-    never quietly ship less than the live one did. In order: the conversation-so-far, so
-    follow-ups ("now plot it over 24h") resolve their referents; the reply context, which
+    never quietly ship less than the live one did. In order: who asked; who is in the
+    room; the conversation-so-far, so follow-ups ("now plot it over 24h") resolve their
+    referents, with a long earlier answer shortened when the pair can read it back; the
+    reply context, which
     the quoted-attachment fold then folds provenance into; this message's attachments;
     and the newest prior image artifacts — the last two off ONE memoized capability
     probe, so a dispatch shipping no bytes never probes at all.
 
     ``history_key`` is passed rather than read off ``entry`` because the live path knows
     it from the parsed event; empty means "no conversation history for this message".
-    Returns ``{}`` for a text-only entry with no history, leaving the payload
-    byte-identical to the no-attachment path.
+    Returns ``{}`` only for an entry with no known sender, no history and nothing
+    attached, which leaves that payload byte-identical to a bare question.
     """
     extra: dict[str, Any] = {}
+    asker = asker_of(entry)
+    if asker:
+        extra["asker"] = asker
+    room = _room(deps, entry)
+    if room:
+        extra["room"] = room
 
-    turns: list[dict[str, Any]] = []
-    if deps.history is not None and history_key:
-        turns = deps.history.recent(history_key)
-        if turns:
-            extra["conversation_so_far"] = turns
+    turns, readable = _replayed_history(deps, history_key)
+    if turns:
+        extra["conversation_so_far"] = turns
+    if readable:
+        extra[PRIOR_ANSWER_RUNS_KEY] = readable
 
     # A COPY: the quoted-attachment fold mutates ``reply_to``, and handing out either
     # the store's own nested dict or the adapter's mapping would let per-dispatch keys
@@ -257,10 +278,56 @@ def build_extra(
     if reply_to:
         extra["reply_to"] = dict(reply_to)
 
-    probe = _capability_probe(deps)
+    probe = _capability_probe(deps, "input_files")
     _fold_inputs(deps.ops.download_inputs(entry), extra, probe)
     _reinject_prior_images(deps, extra, turns, probe)
     return extra
+
+
+def _replayed_history(
+    deps: PipelineDeps, history_key: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """The conversation-so-far to replay, and the runs whose answers it shortened.
+
+    No history store or no key gives ``([], [])``. A ``history_answer_limit`` of 0
+    gives the full history and no runs. Otherwise a long answer is replayed as its
+    opening and a note naming its run, and those runs are returned — unless the pair
+    does not advertise :data:`PRIOR_ANSWERS_CAPABILITY`, in which case the full
+    history goes out as it always has, because nothing on the other end could read a
+    shortened answer back. The probe runs only when something would be shortened.
+    """
+    if deps.history is None or not history_key:
+        return [], []
+    limit = deps.cfg.history_answer_limit
+    if limit == 0:
+        return deps.history.recent(history_key), []
+    turns = deps.history.recent(history_key, shorten_over=limit)
+    readable = [t["run_id"] for t in turns if "answer_chars" in t]
+    if readable and not _capability_probe(deps, PRIOR_ANSWERS_CAPABILITY)():
+        return deps.history.recent(history_key), []
+    return turns, readable
+
+
+def _room(deps: PipelineDeps, entry: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Who is in the entry's conversation, as the payload's ``room``, or ``None``.
+
+    Asked only of an adapter that implements the optional
+    :class:`~osprey.bridges.core.ports.RoomRoster` port. A roster that raises breaks its
+    contract; the raise is logged and the question goes out with its asker only, so a
+    misbehaving adapter can never fail the question.
+    """
+    if not isinstance(deps.ops, RoomRoster):
+        return None
+    try:
+        people = deps.ops.room_people(entry)
+    except Exception:
+        logger.warning(
+            "room roster failed for %s; dispatching with the asker only",
+            entry.get("history_key"),
+            exc_info=True,
+        )
+        return None
+    return room_payload(people) if people is not None else None
 
 
 def handle_event(event: Any, deps: PipelineDeps) -> str:
@@ -759,6 +826,7 @@ def _append_history(
         return
     question = entry.get("text", "")
     answer = result.get("text_output") or ""
+    asked_by = asker_of(entry)
     try:
         if result.get("status") == "completed" and answer:
             deps.history.append(
@@ -767,9 +835,10 @@ def _append_history(
                 answer,
                 run_id=result.get("run_id"),
                 artifacts=_turn_descriptors(result, artifact_urls),
+                asked_by=asked_by,
             )
         else:
-            deps.history.append_failed(key, question)
+            deps.history.append_failed(key, question, asked_by=asked_by)
     except Exception:
         logger.exception("history append failed for %s; continuing", key)
 

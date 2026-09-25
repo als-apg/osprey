@@ -462,6 +462,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/archive",
+            template_path="archive",
+            output_path="services/archive",
+            description="Agent-record archive compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/bluesky",
             template_path="bluesky",
             output_path="services/bluesky",

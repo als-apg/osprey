@@ -24,6 +24,7 @@ from osprey.mcp_server.sandbox_env import (
     scrub_sensitive_env,
 )
 from osprey.mcp_server.workspace.execution.sandbox_executor import execute_sandbox_code
+from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 
 # ---------------------------------------------------------------------------
 # scrub_sensitive_env — pure function
@@ -154,7 +155,7 @@ def test_shared_helper_drops_the_web_terminal_address_book():
         "PATH": "/usr/bin",
     }
     scrubbed = scrub_sandbox_child_env(env)
-    assert scrubbed == {"PATH": "/usr/bin"}
+    assert scrubbed == {"PATH": "/usr/bin", ENV_CHAIN_APPLIED_ENV: "1"}
 
 
 def test_shared_helper_drops_the_perimeter_stamp():
@@ -165,7 +166,7 @@ def test_shared_helper_drops_the_perimeter_stamp():
         "PATH": "/usr/bin",
     }
     scrubbed = scrub_sandbox_child_env(env)
-    assert scrubbed == {"PATH": "/usr/bin"}
+    assert scrubbed == {"PATH": "/usr/bin", ENV_CHAIN_APPLIED_ENV: "1"}
 
 
 def test_shared_helper_does_not_mutate_input():

@@ -31,67 +31,80 @@ def _resolve_workspace(request: Request) -> Path:
     return workspace_base
 
 
-def _concealed_feedback_dir(request: Request, workspace_root: Path) -> Path | None:
-    """Resolve the feedback store when it lies inside the served tree.
+#: The server-side stores the file routes never show, each named by the
+#: ``app.state`` attribute its directory is published under and by what a
+#: warning calls it. Both are the server's own state, written through their own
+#: routes: the feedback store holds session context users submitted privately,
+#: and the bar-items store holds each operator's saved bar layout.
+_CONCEALED_STORES: tuple[tuple[str, str], ...] = (
+    ("feedback_dir", "feedback store"),
+    ("bar_items_dir", "bar-items store"),
+)
 
-    The feedback store holds session context users submitted privately, so it
-    is kept out of the file browser entirely. Returns the *resolved* store path
-    when it sits inside ``workspace_root`` (itself already resolved), else
-    ``None`` — the store being unset, unresolvable, or sited outside the served
-    tree (as it is when ``web_terminal.watch_dir`` points elsewhere) all mean
-    there is nothing to conceal here and the routes behave exactly as they
-    would without it.
+
+def _concealed_stores(request: Request, workspace_root: Path) -> tuple[Path, ...]:
+    """Resolve every concealed store that lies inside the served tree.
+
+    Returns the *resolved* path of each store in :data:`_CONCEALED_STORES` that
+    sits inside ``workspace_root`` (itself already resolved). A store being
+    unset, unresolvable, or sited outside the served tree (as it is when
+    ``web_terminal.watch_dir`` points elsewhere) means there is nothing of it to
+    conceal here, and the routes behave for it exactly as they would without
+    it. An empty tuple conceals nothing.
 
     Identity is the resolved path, never the directory name, so a directory a
-    user legitimately named ``feedback`` elsewhere in the workspace stays
-    browsable.
+    user legitimately named ``feedback`` or ``bar_items`` elsewhere in the
+    workspace stays browsable.
     """
-    feedback_dir = getattr(request.app.state, "feedback_dir", None)
-    if feedback_dir is None:
-        return None
-    try:
-        resolved = Path(feedback_dir).resolve()
-    except (OSError, TypeError, ValueError):
-        # ``TypeError`` is the realistic one: a non-path value on app.state.
-        # Non-strict ``resolve()`` swallows ENOENT and ELOOP, so ``OSError`` is
-        # belt-and-braces. Fail open — there is no path to compare against — but
-        # never quietly: this is a privacy control, and a silent skip looks
-        # exactly like success.
-        logger.warning(
-            "Could not resolve the feedback store path %r; it will NOT be "
-            "concealed from the file browser",
-            feedback_dir,
-            exc_info=True,
-        )
-        return None
-    # A lexical test is sound for siting: both paths come from ``app.state``,
-    # derived from one config read, so they share their spelling. It also holds
-    # before the store directory has been created, which ``samefile`` cannot.
-    if not resolved.is_relative_to(workspace_root):
-        return None
-    return resolved
+    stores: list[Path] = []
+    for attribute, label in _CONCEALED_STORES:
+        store_dir = getattr(request.app.state, attribute, None)
+        if store_dir is None:
+            continue
+        try:
+            resolved = Path(store_dir).resolve()
+        except (OSError, TypeError, ValueError):
+            # ``TypeError`` is the realistic one: a non-path value on app.state.
+            # Non-strict ``resolve()`` swallows ENOENT and ELOOP, so ``OSError`` is
+            # belt-and-braces. Fail open — there is no path to compare against — but
+            # never quietly: this is a privacy control, and a silent skip looks
+            # exactly like success.
+            logger.warning(
+                "Could not resolve the %s path %r; it will NOT be concealed from the file browser",
+                label,
+                store_dir,
+                exc_info=True,
+            )
+            continue
+        # A lexical test is sound for siting: both paths come from ``app.state``,
+        # derived from one config read, so they share their spelling. It also holds
+        # before the store directory has been created, which ``samefile`` cannot.
+        if resolved.is_relative_to(workspace_root):
+            stores.append(resolved)
+    return tuple(stores)
 
 
-def _is_within_feedback_store(path: Path, feedback_dir: Path, workspace_root: Path) -> bool:
-    """Whether ``path`` *is* the feedback store or lives underneath it.
+def _is_within_concealed_store(path: Path, stores: tuple[Path, ...], workspace_root: Path) -> bool:
+    """Whether ``path`` *is* one of ``stores`` or lives underneath one.
 
     Compares filesystem identity while walking ``path``'s ancestors up to
     ``workspace_root``, because comparing path parts is not sound here:
     :meth:`Path.resolve` follows symlinks but does **not** canonicalize case, so
-    on a case-insensitive filesystem (APFS, NTFS) a request for
-    ``FEEDBACK/fb-1.json`` resolves to itself, compares unequal to ``feedback/``,
-    and would otherwise be served.
+    on a case-insensitive filesystem (APFS, NTFS) a request for a store spelled
+    in another case resolves to itself, compares unequal to the store, and
+    would otherwise be served.
 
     :meth:`Path.samefile` raises ``OSError`` when a path does not exist — the
-    ordinary case for the leaf of a miss — so a failing candidate is skipped and
-    the walk continues to its parents.
+    ordinary case for the leaf of a miss — so a failing comparison is skipped
+    and the walk continues to its parents.
     """
     for candidate in (path, *path.parents):
-        try:
-            if candidate.samefile(feedback_dir):
-                return True
-        except OSError:
-            pass
+        for store in stores:
+            try:
+                if candidate.samefile(store):
+                    return True
+            except OSError:
+                pass
         # Stop at the served root, and at the filesystem root for a path that
         # resolved outside it — neither has an ancestor worth stat-ing.
         if candidate == workspace_root or candidate == candidate.parent:
@@ -103,17 +116,15 @@ def _is_within_feedback_store(path: Path, feedback_dir: Path, workspace_root: Pa
 async def file_tree(request: Request):
     """Return the workspace directory tree as JSON.
 
-    The feedback store is omitted when it lies inside the served tree, as is any
-    symlink leading into it — see :func:`_concealed_feedback_dir`.
+    A concealed store is omitted when it lies inside the served tree, as is any
+    symlink leading into one — see :func:`_concealed_stores`.
     """
     workspace_dir: Path = _resolve_workspace(request)
     workspace_root = workspace_dir.resolve()
-    feedback_dir = _concealed_feedback_dir(request, workspace_root)
+    stores = _concealed_stores(request, workspace_root)
 
     def conceals(entry: Path) -> bool:
-        return feedback_dir is not None and _is_within_feedback_store(
-            entry.resolve(), feedback_dir, workspace_root
-        )
+        return bool(stores) and _is_within_concealed_store(entry.resolve(), stores, workspace_root)
 
     if not workspace_dir.exists():
         return {"name": workspace_dir.name, "type": "directory", "children": []}
@@ -147,11 +158,12 @@ async def file_tree(request: Request):
                     continue
                 children.append(build_tree(entry, depth + 1))
             else:
-                # A symlink is the case worth paying for: the store directory
-                # is pruned above, so its records are never walked into. A
-                # hardlink to a record would still be listed — no path-based
-                # predicate can see that, and making one costs write access to
-                # the workspace, which grants more than this leaks.
+                # A symlink is the case worth paying for: a concealed store's
+                # directory is pruned above, so its documents are never walked
+                # into. A hardlink to a document in one would still be listed —
+                # no path-based predicate can see that, and making one costs
+                # write access to the workspace, which grants more than this
+                # leaks.
                 if entry.is_symlink() and conceals(entry):
                     continue
                 children.append(
@@ -172,7 +184,7 @@ async def file_tree(request: Request):
 async def file_content(filepath: str, request: Request):
     """Return file content with path traversal protection.
 
-    Anything under the feedback store answers 404 — byte-for-byte what a path
+    Anything under a concealed store answers 404 — byte-for-byte what a path
     that was never there returns, so a probe cannot confirm the store exists.
     """
     workspace_dir: Path = _resolve_workspace(request)
@@ -182,10 +194,8 @@ async def file_content(filepath: str, request: Request):
     if not resolved.is_relative_to(workspace_root):
         raise HTTPException(status_code=403, detail="Path traversal blocked")
 
-    feedback_dir = _concealed_feedback_dir(request, workspace_root)
-    if feedback_dir is not None and _is_within_feedback_store(
-        resolved, feedback_dir, workspace_root
-    ):
+    stores = _concealed_stores(request, workspace_root)
+    if stores and _is_within_concealed_store(resolved, stores, workspace_root):
         raise HTTPException(status_code=404, detail="File not found")
 
     if not resolved.exists():

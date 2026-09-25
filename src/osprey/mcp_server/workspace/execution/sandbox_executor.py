@@ -31,7 +31,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
+from osprey.mcp_server.sandbox_env import (
+    configured_child_env_passthrough,
+    scrub_sandbox_child_env,
+)
 from osprey.services.python_executor.execution.fs_guard import (
     SANDBOX_PATCH_TARGETS,
     SANDBOX_WRITE_MODES_ONLY_TARGETS,
@@ -41,9 +44,10 @@ from osprey.stores.artifact_manifest import SAVE_ARTIFACT_SOURCE, collect_artifa
 
 logger = logging.getLogger("osprey.mcp_server.workspace.execution.sandbox_executor")
 
-# scrub_sensitive_env's deny-list lives in osprey.mcp_server.sandbox_env
-# (imported above), shared with python_executor/executor.py's identical
-# local-subprocess seam so the two sandboxes cannot drift.
+# The child's environment policy (an allowlist, with the credential set and the
+# sandbox-only drop on top) lives in osprey.mcp_server.sandbox_env (imported
+# above), shared with python_executor/executor.py's identical local-subprocess
+# seam so the two sandboxes cannot drift.
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +253,8 @@ def _create_sandbox_wrapper(
     execution_folder: Path,
     workspace_root: Path,
     project_root: Path,
+    *,
+    secret_roots: tuple[Path, ...] = (),
 ) -> str:
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
@@ -258,7 +264,9 @@ def _create_sandbox_wrapper(
         with ``default_deny=True``): reads of the Python environment and the
         project tree are allowed, reads and writes under the execution folder,
         workspace, tempdir and the HOME cache dirs are allowed, everything else
-        raises ``PermissionError``
+        raises ``PermissionError``; opening a ``.env`` file under
+        ``secret_roots`` or a ``/proc/<...>/environ`` or ``cmdline`` raises
+        ``PermissionError`` for reads too, including a ``Path.read_text``
       - Injects ``save_artifact()`` for subprocess artifact creation
       - Captures stdout/stderr via StringIO
       - Writes ``execution_metadata.json`` for the caller to read
@@ -288,6 +296,7 @@ def _create_sandbox_wrapper(
         bypass_prefixes=("site-packages", "lib/python", sys.prefix),
         patch_targets=SANDBOX_PATCH_TARGETS,
         write_modes_only_targets=SANDBOX_WRITE_MODES_ONLY_TARGETS,
+        secret_roots=secret_roots,
     )
 
     return f'''\
@@ -460,6 +469,7 @@ async def execute_sandbox_code(
         )
 
     # 2. Generate wrapper
+    from osprey.mcp_server.python_executor.executor import resolve_secret_roots
     from osprey.utils.workspace import (
         load_osprey_config,
         resolve_project_root,
@@ -476,8 +486,15 @@ async def execute_sandbox_code(
     # copy that had not been repointed. It matters twice over here: it is the
     # subprocess `cwd` below, and it is what sandboxed user code is told its
     # project root is.
-    project_root = resolve_project_root(load_osprey_config())
-    wrapped_code = _create_sandbox_wrapper(code, execution_folder, workspace_root, project_root)
+    osprey_config = load_osprey_config()
+    project_root = resolve_project_root(osprey_config)
+    wrapped_code = _create_sandbox_wrapper(
+        code,
+        execution_folder,
+        workspace_root,
+        project_root,
+        secret_roots=resolve_secret_roots(project_root),
+    )
 
     # 3. Write script and spawn subprocess
     script_path = execution_folder / "wrapped_script.py"
@@ -485,11 +502,13 @@ async def execute_sandbox_code(
 
     start_time = time.time()
     # The same environment the python-executor sandbox gets, built by the same
-    # shared helper: the credential scrub plus the web-terminal address book and
-    # the navigation-only perimeter stamp. This child renders visualizations and
-    # has no more business resolving a terminal URL — or reading the deny-list it
-    # is not the one enforcing — than the general-purpose sandbox does.
-    sandbox_env = scrub_sandbox_child_env(os.environ)
+    # shared helper: the allowlist plus the deployment's passthrough names, with
+    # the credential set, the web-terminal address book and the navigation-only
+    # perimeter stamp dropped on top. This child renders visualizations and has
+    # no more business with the host's secrets than the general-purpose sandbox.
+    sandbox_env = scrub_sandbox_child_env(
+        os.environ, passthrough=configured_child_env_passthrough(osprey_config)
+    )
 
     try:
         proc = await asyncio.create_subprocess_exec(

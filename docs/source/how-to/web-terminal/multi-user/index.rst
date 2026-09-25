@@ -100,7 +100,7 @@ configuration volume automatically — no per-user setup steps.
 a property of a project, the tiers are genuinely different agents — not one
 agent with a UI toggle. The ``control-assistant`` preset ships three of them:
 a *read-only* and a *read-write* tier, separated by whether the session may
-move hardware, and an *admin* tier, separated by whether it may change the
+move the simulator, and an *admin* tier, separated by whether it may change the
 deployment it runs in. :doc:`Privilege Tiers <tiers>` lays out what each one
 carries and what makes the boundary hold.
 

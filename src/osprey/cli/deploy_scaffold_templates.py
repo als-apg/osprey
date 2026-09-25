@@ -34,6 +34,7 @@ from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.utils.shell_resolver import resolve_shell_command
+from osprey.version import pins_prerelease
 
 from .build_profile_deploy import DeployConfig
 from .build_profile_emit import effective_web_terminals
@@ -276,6 +277,25 @@ class CIContext:
     def has_images_stage(self) -> bool:
         """Whether anything is built or pulled between validate and deploy."""
         return bool(self.registry_url) and bool(self.service_images or self.external_projects)
+
+    @property
+    def requirement_pins_prerelease(self) -> bool:
+        """Whether the declared floor names a pre-release.
+
+        OSPREY and ``osprey-connectors`` ship as a pair from one tag, and pip
+        admits a pre-release for the requirement that names one but not for
+        that requirement's own dependencies — so an install driven by a
+        pre-release floor has to admit them for the whole resolve. An
+        exclusion (``!=``) names a version without pinning one and does not
+        count, which is why this asks
+        :func:`osprey.version.pins_prerelease` rather than reading the
+        specifier here.
+
+        Derived from :attr:`requirement` rather than stored beside it: a
+        stored flag is one that can disagree with the requirement it
+        describes.
+        """
+        return pins_prerelease(self.requirement)
 
 
 @dataclass

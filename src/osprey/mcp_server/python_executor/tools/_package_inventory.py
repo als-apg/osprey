@@ -167,7 +167,7 @@ def describe_available_packages() -> str:
     try:
         interpreter = resolve_agent_interpreter()
         names = _enumerate_top_level_packages(interpreter)
-    except Exception:  # noqa: BLE001 - description generation must never break startup
+    except Exception:  # description generation must never break startup
         logger.warning(
             "Could not enumerate the agent execution environment; "
             "tool description will not name packages",

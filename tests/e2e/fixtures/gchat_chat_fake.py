@@ -15,6 +15,11 @@ Surface implemented
 ``POST   /v1/{space}/messages``       ``spaces.messages.create``
 ``GET    /v1/{space}/messages/{id}``  ``spaces.messages.get``
 ``GET    /v1/{space}/messages``       ``spaces.messages.list``
+``GET    /v1/{space}/members``        ``spaces.members.list``, serving the
+                                      memberships a test seeds with
+                                      :meth:`FakeChatServer.add_member` (empty
+                                      by default), paged by ``pageSize`` /
+                                      ``pageToken``
 ``GET    /v1/media/{resourceName}``   media download (``?alt=media``), the route
                                       the inbound attachment path fetches with
 
@@ -59,6 +64,7 @@ __all__ = ["FakeChatServer", "PostedMessage", "FakeChatApiError"]
 _MESSAGES_COLLECTION = re.compile(r"^/v1/(?P<space>spaces/[^/]+)/messages$")
 _MESSAGE_NAME = re.compile(r"^/v1/(?P<name>spaces/[^/]+/messages/[^/]+)$")
 _MEDIA = re.compile(r"^/v1/media/(?P<resource>.+)$")
+_MEMBERS_COLLECTION = re.compile(r"^/v1/(?P<space>spaces/[^/]+)/members$")
 
 REPLY_FALLBACK = "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"
 """The ``messageReplyOption`` under which an unknown thread name is not an error."""
@@ -110,7 +116,7 @@ class _MediaObject:
 class _ChatHandler(_FakeHandler):
     fake: ClassVar[FakeChatServer]
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
+    def do_POST(self) -> None:  # http.server API
         path, params = self.split_path()
         match = _MESSAGES_COLLECTION.match(path)
         if match is None:
@@ -124,7 +130,7 @@ class _ChatHandler(_FakeHandler):
             return
         self.respond_json(200, message)
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:  # http.server API
         path, params = self.split_path()
 
         media = _MEDIA.match(path)
@@ -135,6 +141,11 @@ class _ChatHandler(_FakeHandler):
         collection = _MESSAGES_COLLECTION.match(path)
         if collection is not None:
             self.respond_json(200, self.fake._list_messages(collection.group("space"), params))
+            return
+
+        members = _MEMBERS_COLLECTION.match(path)
+        if members is not None:
+            self.respond_json(200, self.fake._list_members(members.group("space"), params))
             return
 
         single = _MESSAGE_NAME.match(path)
@@ -174,6 +185,7 @@ class FakeChatServer(FakeHttpService):
         self._threads: set[str] = set()
         self._media: dict[str, _MediaObject] = {}
         self._media_requests: list[str] = []
+        self._members: dict[str, list[dict[str, Any]]] = {}
         self._counter = 0
         super().__init__()
 
@@ -234,6 +246,20 @@ class FakeChatServer(FakeHttpService):
         with self._lock:
             self._media[resource_name] = _MediaObject(data, content_type)
         return resource_name
+
+    def add_member(
+        self, space: str, user: str, *, type: str = "HUMAN"
+    ) -> None:  # Chat's field name
+        """Seed one joined membership of ``space``: ``user`` is a ``users/…`` name.
+        Seeded members survive :meth:`reset`, like registered media."""
+        with self._lock:
+            self._members.setdefault(space, []).append(
+                {
+                    "name": f"{space}/members/{user.rsplit('/', 1)[-1]}",
+                    "state": "JOINED",
+                    "member": {"name": user, "type": type},
+                }
+            )
 
     def media_url(self, resource_name: str) -> str:
         """The download URL for ``resource_name`` on THIS fake."""
@@ -304,6 +330,21 @@ class FakeChatServer(FakeHttpService):
             messages = messages[:page_size]
         return {"messages": messages}
 
+    def _list_members(self, space: str, params: dict[str, str]) -> dict[str, Any]:
+        """One page of the seeded memberships; the page token is the next offset."""
+        with self._lock:
+            members = [dict(m) for m in self._members.get(space, [])]
+        try:
+            size = int(params.get("pageSize", "100"))
+            offset = int(params.get("pageToken", "0"))
+        except ValueError:
+            size, offset = 100, 0
+        size = size if size > 0 else 100
+        page: dict[str, Any] = {"memberships": members[offset : offset + size]}
+        if offset + size < len(members):
+            page["nextPageToken"] = str(offset + size)
+        return page
+
     def _take_media(self, resource: str) -> _MediaObject | None:
         unquoted = urllib.parse.unquote(resource)
         with self._lock:
@@ -320,6 +361,7 @@ class FakeChatServer(FakeHttpService):
             service.spaces().messages().create(parent=..., body=..., **params).execute()
             service.spaces().messages().get(name=...).execute()
             service.spaces().messages().list(parent=..., **params).execute()
+            service.spaces().members().list(parent=..., **params).execute()
 
         Every call is a real HTTP request against this server, so assertions read
         the recorded state rather than a mock's call log.
@@ -374,6 +416,17 @@ class _Spaces:
 
     def messages(self) -> _Messages:
         return _Messages(self.base_url)
+
+    def members(self) -> _Members:
+        return _Members(self.base_url)
+
+
+@dataclass(frozen=True)
+class _Members:
+    base_url: str
+
+    def list(self, *, parent: str, **params: Any) -> _Call:
+        return _Call("GET", f"{self.base_url}/v1/{parent}/members", _str_params(params), None)
 
 
 @dataclass(frozen=True)

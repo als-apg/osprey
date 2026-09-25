@@ -307,7 +307,7 @@ def read_database_roster(
         addresses = _record_addresses(_load_channel_records(pipeline_type, db_config, source.path))
     except PipelineModeError:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(f"Could not read the channel database at {source.path} ({exc}).")
         return RosterResult(
             absence=RosterAbsence(

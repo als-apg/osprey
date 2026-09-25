@@ -236,11 +236,30 @@ class TangoConnector(ControlSystemConnector):
         return labels
 
     def _read_channel_sync(self, channel_address: str) -> ChannelValue:
-        """Synchronous TANGO read (runs in a thread)."""
-        device_name, attribute = _split_address(channel_address)
-        proxy = self._get_proxy(device_name)
+        """Synchronous TANGO read (runs in a thread).
 
-        attr = proxy.read_attribute(attribute)
+        Building the proxy and reading the attribute are the two device round
+        trips, and a failure in either is reported as :class:`ConnectionError`
+        naming the attribute, with PyTango's own error kept as the cause — the
+        word the base contract owns for a channel that cannot be reached, and
+        the one the MCP error envelope answers by retiring the connector.
+
+        The address parse above the guard and the mapping below it are outside
+        it on purpose: a malformed address is a ``ValueError`` and a reading
+        that cannot be mapped is neither — only the transport is translated.
+        """
+        device_name, attribute = _split_address(channel_address)
+
+        try:
+            proxy = self._get_proxy(device_name)
+            attr = proxy.read_attribute(attribute)
+        except TimeoutError:
+            raise
+        except Exception as exc:
+            raise ConnectionError(
+                f"Failed to read TANGO attribute '{channel_address}': {exc}"
+            ) from exc
+
         value = attr.value
         quality = getattr(attr, "quality", None)
         alarm_status, severity = _quality_fields(quality)
@@ -292,8 +311,9 @@ class TangoConnector(ControlSystemConnector):
             attributes) the state labels
 
         Raises:
-            ValueError: If the address does not name a device and an attribute
+            ConnectionError: If the device or its attribute cannot be reached
             TimeoutError: If the per-call ceiling elapses
+            ValueError: If the address does not name a device and an attribute
         """
         call = asyncio.to_thread(self._read_channel_sync, channel_address)
         if timeout is not None:

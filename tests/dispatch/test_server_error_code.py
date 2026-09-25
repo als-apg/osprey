@@ -114,6 +114,73 @@ async def test_dispatch_passthrough_no_input_files_forwards_none():
             _trigger(), {"question": "hi"}, registry, "http://worker", "tok"
         )
     assert captured["input_files"] is None
+    assert captured["prior_answer_runs"] is None
+
+
+_RUNS = ["3f2b6c1e-8a4d-4f0e-9b1a-2c3d4e5f6a7b"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passthrough_pops_prior_answer_runs_before_fold_and_record():
+    registry = AsyncMock()
+    captured: dict[str, Any] = {}
+
+    async def _fake_dispatch(**kwargs):
+        captured.update(kwargs)
+        return {"run_id": "r1", "status": "accepted"}
+
+    payload = {"question": "hello", "prior_answer_runs": list(_RUNS)}
+    with patch.object(server, "dispatch_to_worker", _fake_dispatch):
+        await server._dispatch_with_policy(_trigger(), payload, registry, "http://worker", "tok")
+
+    assert captured["prior_answer_runs"] == _RUNS
+    assert "prior_answer_runs" not in payload
+    assert "prior_answer_runs" not in captured["prompt"]
+    recorded_payload = registry.record_event.await_args.args[1]
+    assert "prior_answer_runs" not in recorded_payload
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passthrough_retry_rethreads_prior_answer_runs():
+    registry = AsyncMock()
+    calls: list = []
+
+    async def _fake_dispatch(**kwargs):
+        calls.append(kwargs["prior_answer_runs"])
+        if len(calls) == 1:
+            from osprey.dispatch.worker_client import WorkerUnreachableError
+
+            raise WorkerUnreachableError("transient")
+        return {"run_id": "r2", "status": "accepted"}
+
+    trigger = TriggerConfig(
+        name="deploy",
+        source="webhook",
+        action={"prompt": "p", "allowed_tools": []},
+        on_error={"action": "retry", "max_retries": 1, "backoff_sec": 0.0},
+    )
+    with patch.object(server, "dispatch_to_worker", _fake_dispatch):
+        result = await server._dispatch_with_policy(
+            trigger, {"prior_answer_runs": list(_RUNS)}, registry, "http://worker", "tok"
+        )
+    assert result == {"run_id": "r2", "status": "accepted"}
+    assert calls == [_RUNS, _RUNS]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passthrough_non_list_prior_answer_runs_forwards_none():
+    registry = AsyncMock()
+    captured: dict[str, Any] = {}
+
+    async def _fake_dispatch(**kwargs):
+        captured.update(kwargs)
+        return {"run_id": "r1", "status": "accepted"}
+
+    payload = {"question": "hi", "prior_answer_runs": _RUNS[0]}
+    with patch.object(server, "dispatch_to_worker", _fake_dispatch):
+        await server._dispatch_with_policy(_trigger(), payload, registry, "http://worker", "tok")
+    assert captured["prior_answer_runs"] is None
+    assert "prior_answer_runs" not in payload
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +314,7 @@ def test_health_capability_advertised(app):
         resp = client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["capabilities"] == ["input_files"]
+    assert body["capabilities"] == ["input_files", "prior_answers"]
     assert isinstance(body["boot_nonce"], (int, float))
 
 

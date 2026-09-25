@@ -28,6 +28,7 @@ from osprey.bridges.teams.client import (
     MessageSizeTooBig,
     TokenError,
     TokenSource,
+    members_url,
     token_url,
 )
 from osprey.bridges.teams.config import TeamsBridgeConfig
@@ -548,3 +549,135 @@ def test_the_connector_client_builds_its_own_http_client_by_default():
 
     assert isinstance(client._http, httpx.Client)
     assert client._http.timeout.read == CONNECTOR_TIMEOUT_SEC
+
+
+# --- the paged member listing -------------------------------------------------
+
+CHANNEL = "19:aaaabbbbcccc@thread.tacv2"
+
+
+class MembersEndpoint:
+    """A recording stand-in for ``GET /v3/conversations/{id}/pagedmembers``, serving
+    scripted pages by call number (an ``int`` page is that status, an exception is
+    raised, a ``bytes`` page is a raw body)."""
+
+    def __init__(self, *pages: object) -> None:
+        self.pages = list(pages)
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        page = self.pages[min(len(self.requests) - 1, len(self.pages) - 1)]
+        if isinstance(page, BaseException):
+            raise page
+        if isinstance(page, int):
+            return httpx.Response(page, text="nope")
+        if isinstance(page, bytes):
+            return httpx.Response(200, content=page)
+        return httpx.Response(200, json=page)
+
+    def params(self, index: int = 0) -> dict[str, str]:
+        return dict(self.requests[index].url.params)
+
+
+def members_client(endpoint: MembersEndpoint) -> ConnectorClient:
+    cfg = make_config()
+    http = httpx.Client(transport=httpx.MockTransport(endpoint))
+    return ConnectorClient(cfg, make_source(TokenEndpoint(), cfg=cfg), http)
+
+
+def person(n: int) -> dict[str, str]:
+    return {"id": f"29:{n}", "name": f"P{n}"}
+
+
+def test_list_members_gets_the_paged_members_route_with_the_bots_bearer():
+    endpoint = MembersEndpoint({"members": [person(1)]})
+
+    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200)
+
+    assert (members, more) == ([person(1)], False)
+    request = endpoint.requests[0]
+    assert request.method == "GET"
+    assert request.url.path == f"/amer/v3/conversations/{CHANNEL}/pagedmembers"
+    assert request.headers["authorization"] == "Bearer token-1"
+
+
+def test_list_members_follows_the_continuation_token():
+    endpoint = MembersEndpoint(
+        {"members": [person(1)], "continuationToken": "c2"}, {"members": [person(2)]}
+    )
+
+    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200)
+
+    assert [m["id"] for m in members] == ["29:1", "29:2"]
+    assert more is False
+    assert "continuationToken" not in endpoint.params(0)
+    assert endpoint.params(1)["continuationToken"] == "c2"
+
+
+def test_list_members_stops_at_the_limit_and_reports_more():
+    endpoint = MembersEndpoint(
+        {"members": [person(1), person(2)], "continuationToken": "c2"},
+        {"members": [person(3)]},
+    )
+
+    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=2)
+
+    assert [m["id"] for m in members] == ["29:1", "29:2"]
+    assert more is True
+    assert len(endpoint.requests) == 1
+
+
+def test_list_members_stops_on_a_repeated_token():
+    endpoint = MembersEndpoint(
+        {"members": [person(1)], "continuationToken": "loop"},
+        {"members": [person(2)], "continuationToken": "loop"},
+        {"members": [person(3)], "continuationToken": "loop"},
+    )
+
+    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200)
+
+    assert [m["id"] for m in members] == ["29:1", "29:2"]
+    assert more is False
+    assert len(endpoint.requests) == 2
+
+
+def test_list_members_takes_a_bare_list_body_as_one_page():
+    endpoint = MembersEndpoint([person(1), "junk", person(2)])
+
+    members, more = members_client(endpoint).list_members(SERVICE_URL, "a:chat", limit=200)
+
+    assert [m["id"] for m in members] == ["29:1", "29:2"]
+    assert more is False
+    assert len(endpoint.requests) == 1
+
+
+@pytest.mark.parametrize("body", ["a string", b"7", {"members": "nope"}, b"null"])
+def test_list_members_treats_a_non_object_page_as_empty(body):
+    endpoint = MembersEndpoint(body)
+    assert members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200) == ([], False)
+
+
+@pytest.mark.parametrize(("limit", "asked"), [(10, "50"), (200, "200"), (1000, "500")])
+def test_list_members_page_size_stays_inside_the_documented_bounds(limit, asked):
+    endpoint = MembersEndpoint({"members": []})
+    members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=limit)
+    assert endpoint.params(0)["pageSize"] == asked
+
+
+def test_list_members_raises_connector_error_on_a_non_2xx():
+    endpoint = MembersEndpoint(403)
+    with pytest.raises(ConnectorError, match="HTTP 403"):
+        members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200)
+
+
+def test_list_members_raises_connector_error_on_a_transport_failure():
+    endpoint = MembersEndpoint(httpx.ConnectError("down"))
+    with pytest.raises(ConnectorError, match="down"):
+        members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200)
+
+
+def test_members_url_keeps_the_conversation_id_as_sent():
+    assert members_url(SERVICE_URL, CHANNEL_CONVERSATION) == (
+        f"https://smba.trafficmanager.net/amer/v3/conversations/{CHANNEL_CONVERSATION}/pagedmembers"
+    )

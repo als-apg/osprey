@@ -137,7 +137,7 @@ def run_app_server(app: FastAPI) -> Iterator[str]:
     def _serve() -> None:
         try:
             server.run(sockets=[sock])
-        except BaseException as exc:  # noqa: BLE001 - surfaced to the caller as the cause
+        except BaseException as exc:  # surfaced to the caller as the cause
             # Includes the SystemExit uvicorn raises when startup fails.
             thread_error.append(exc)
 

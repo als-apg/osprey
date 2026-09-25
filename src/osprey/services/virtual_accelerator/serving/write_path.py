@@ -59,7 +59,7 @@ that, which is what lets one write path serve every facility:
 :func:`physics_setpoint_addresses` is the same set as the served database
 states it. The conversion itself is never respelled here either -- an
 ``inverse`` readback is the model variable's own
-:meth:`~osprey.services.virtual_accelerator.model.variables._CalibratedSetpoint.readback`,
+:meth:`~osprey.services.virtual_accelerator.model.variables.CalibratedSetpoint.readback`,
 so the value a client reads back and the physics the lattice took come from
 one calibration and not from two spellings of it.
 """
@@ -174,19 +174,19 @@ class WriteDriver(Protocol):
     enough that the whole write path can be driven against a fake one.
     """
 
-    def setParam(self, reason: str, value: Any) -> None:  # noqa: N802 - driver contract
+    def setParam(self, reason: str, value: Any) -> None:  # driver contract
         """Record ``value`` as the served value of ``reason``."""
 
-    def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
+    def getParam(self, reason: str) -> Any:  # driver contract
         """Return the currently served value of ``reason``."""
 
-    def updatePV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def updatePV(self, reason: str) -> None:  # driver contract
         """Post a monitor event for ``reason`` alone."""
 
-    def callbackPV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def callbackPV(self, reason: str) -> None:  # driver contract
         """Complete the asynchronous write in flight on ``reason``."""
 
-    def setParamStatus(  # noqa: N802 - driver contract
+    def setParamStatus(  # driver contract
         self, reason: str, alarm: Any, severity: Any
     ) -> None:
         """Set ``reason``'s alarm condition without changing its value."""

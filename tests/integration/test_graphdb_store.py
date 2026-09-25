@@ -20,12 +20,15 @@ The container recipe — the pinned image, the n10s jar (from the pinned release
 or from ``OSPREY_TEST_N10S_JAR``), the APOC jar copied out of the image, and the
 procedure allowlist that replaces ``NEO4J_PLUGINS`` — lives in
 :mod:`tests._graphdb_container`, which every graph lane shares.  Without Docker,
-without the image, or without the jar this module skips and says which.
+without the image, or without the jar this module skips and says which.  A
+store that stops answering after it started is not a skip: the read fails naming
+the store.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from importlib.resources import files
 from pathlib import Path
 
@@ -35,7 +38,9 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
-    graphdb_store,
+    WatchedSession,
+    WatchedStore,
+    watched_graphdb_store,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,6 +74,9 @@ EXPECTED_MAGNETS = 382
 #: Ontology root the magnet rollup walks up to.  A driver parameter here, where
 #: the prototype's Browser-oriented file inlines it as a literal.
 MAGNET_CLASS_URI = "https://narad.example.org/schema/shared_semantics/Magnet"
+
+#: What the throwaway store is called in its skip and failure messages.
+SEEDER_STORE_LABEL = "graphdb (neo4j + n10s) for the seeder lifecycle"
 
 
 # ---------------------------------------------------------------------------
@@ -118,14 +126,15 @@ RETURN count(DISTINCT d) AS n
 
 
 @pytest.fixture(scope="session")
-def graphdb_uri(graphdb_plugin_dir: Path):
-    """Start the graph store and yield its bolt URI.
+def seeder_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
+    """Start the graph store and yield it watched.
 
     Session-scoped: this module reads the store rather than wiping it, so one
-    seeded container serves every test here.
+    seeded container serves every test here. A read that gets no answer fails
+    naming this store and the state its container was in.
     """
-    with graphdb_store(graphdb_plugin_dir) as uri:
-        yield uri
+    with watched_graphdb_store(graphdb_plugin_dir, label=SEEDER_STORE_LABEL) as store:
+        yield store
 
 
 @pytest.fixture(scope="session")
@@ -151,9 +160,9 @@ def demo_ttl() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _scalar(session, cypher: str, **params) -> int:
+def _scalar(session: WatchedSession, cypher: str, **params) -> int:
     """Run a single-column count query and return the number."""
-    record = session.run(cypher, **params).single()
+    record = session.single(cypher, params)
     assert record is not None, f"query returned no row: {cypher}"
     return int(record["n"])
 
@@ -163,7 +172,7 @@ def _scalar(session, cypher: str, **params) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, demo_ttl: str) -> None:
+def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: str) -> None:
     """Drive the real seeder through a store's whole life against real n10s.
 
     One test rather than five, deliberately: every step's precondition is the
@@ -171,17 +180,25 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, demo_ttl: str) -> Non
     a store this test bootstrapped, and ``--force`` can only be proven to
     recover a *seeded* store), and splitting them would either re-seed the
     corpus per test or leave the order dependency implicit between functions.
+
+    Every step runs inside the store's watch, the session's close included, so
+    a store that stops answering fails this test naming the store rather than
+    as a count that came out wrong.
     """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
     expected_sha = graph_seeder.ttl_sha256(demo_ttl)
 
-    with graph_seeder.open_session(
-        graphdb_uri,
-        GRAPHDB_TEST_USERNAME,
-        GRAPHDB_TEST_PASSWORD,
-        database=GRAPHDB_TEST_DATABASE,
-    ) as session:
+    with (
+        seeder_store.reading(),
+        graph_seeder.open_session(
+            seeder_store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        watched = WatchedSession(session, seeder_store)
         # --- 1. Bootstrap a fresh store -------------------------------------
         first = graph_seeder.bootstrap(session)
         assert first.status is graph_seeder.BootstrapStatus.INITIALIZED, first.message
@@ -224,7 +241,7 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, demo_ttl: str) -> Non
         )
 
         # --- 3. The verified counts -----------------------------------------
-        _assert_verified_counts(session)
+        _assert_verified_counts(watched)
         seeded_resources = graph_seeder.resource_count(session)
 
         # --- 4. Re-bootstrap is a no-op -------------------------------------
@@ -258,10 +275,10 @@ def test_bootstrap_seed_and_force_reseed(graphdb_uri: str, demo_ttl: str) -> Non
 
         assert graph_seeder.read_marker(session) == expected_sha
         assert graph_seeder.read_direction_source(session) == "limits"
-        _assert_verified_counts(session)
+        _assert_verified_counts(watched)
 
 
-def _assert_verified_counts(session) -> None:
+def _assert_verified_counts(session: WatchedSession) -> None:
     """Assert the four verified counts for this corpus.
 
     Factored out because ``--force`` has to land on the *same* graph the first
@@ -271,7 +288,7 @@ def _assert_verified_counts(session) -> None:
     assert _scalar(session, DEVICE_COUNT_CYPHER) == EXPECTED_DEVICES
     assert _scalar(session, BINDING_COUNT_CYPHER) == EXPECTED_BINDINGS
 
-    directions = session.run(BINDING_DIRECTION_CYPHER).single()
+    directions = session.single(BINDING_DIRECTION_CYPHER)
     assert directions is not None
     assert directions["write_only"] == EXPECTED_WRITE_ONLY
     assert directions["read_only"] == EXPECTED_READ_ONLY

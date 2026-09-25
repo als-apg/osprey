@@ -23,7 +23,7 @@ from osprey.utils.config_writer import (
 
 SAMPLE = """\
 claude_code:
-  default_model: haiku
+  default_model: claude-haiku-4-5
   timeout: 300
 
 # ============================================================
@@ -216,10 +216,10 @@ class TestConfigUpdateFields:
         path = _write_sample(tmp_path)
         before = path.read_text(encoding="utf-8")
 
-        config_update_fields(path, {"claude_code.default_model": "sonnet"})
+        config_update_fields(path, {"claude_code.default_model": "claude-sonnet-5"})
 
         after = path.read_text(encoding="utf-8")
-        assert after.replace("sonnet", "haiku") == before
+        assert after.replace("claude-sonnet-5", "claude-haiku-4-5") == before
 
 
 class TestUpdateYamlFile:

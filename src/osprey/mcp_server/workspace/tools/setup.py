@@ -4,6 +4,7 @@ Diagnostic tools for inspecting and modifying OSPREY agent configuration.
 Used by the /setup-mode skill to help operators troubleshoot setup issues.
 """
 
+import enum
 import json
 import logging
 import os
@@ -30,6 +31,24 @@ logger = logging.getLogger("osprey.mcp_server.tools.setup")
 
 # Keys whose values should be masked in environment output
 _SENSITIVE_PATTERNS = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD)", re.IGNORECASE)
+
+# How a key name is read for secrets: split on separators and on camel-case
+# boundaries, then match a component against the vocabularies below. A
+# component counts when it IS one of the words or ENDS with one, so `APIKEY`
+# and `adminpassword` name their secret while `keyword`, `keystore` and
+# `keyfile` do not --- there the word is a prefix modifying another noun.
+_KEY_WORD_SPLIT = re.compile(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])")
+
+# Words that name a credential and nothing else. A value under one of these is
+# never a quantity or a flag, so a number or a boolean there is masked too.
+_CREDENTIAL_WORDS = frozenset({"password", "passwords", "secret", "secrets"})
+
+# Words that name a credential in most keys and a quantity in some
+# (`max_tokens`, `claims_in_id_token`), so only a string under one is masked.
+_SECRET_BEARING_WORDS = frozenset({"key", "keys", "token", "tokens"})
+
+# What a masked value reads as.
+_MASK = "***"
 
 # Files that setup_patch is allowed to modify
 _PATCHABLE_FILES = {"config.yml", ".mcp.json"}
@@ -100,8 +119,54 @@ _COLD_CHANGE_NOTES = {
 }
 
 
+class _Masking(enum.IntEnum):
+    """How much of a value a key name makes secret.
+
+    Ordered, and compared with ``max``: a node inherits the strongest level any
+    key above it carries, so a subtree can only become more masked as the walk
+    descends into it.
+    """
+
+    NOTHING = 0
+    STRINGS = 1
+    EVERY_SCALAR = 2
+
+
+def _names_one_of(word: str, vocabulary: frozenset[str]) -> bool:
+    """Whether *word* is one of *vocabulary* or is a compound ending in one."""
+    return word in vocabulary or any(word.endswith(entry) for entry in vocabulary)
+
+
+def _masking_for_key(key: str) -> _Masking:
+    """How much a value found under *key* is masked, by the key's own name.
+
+    Args:
+        key: A mapping key from the document being walked.
+
+    Returns:
+        The level *key* carries on its own, before anything it inherits.
+    """
+    level = _Masking.NOTHING
+    for raw in _KEY_WORD_SPLIT.split(key):
+        if not raw:
+            continue
+        word = raw.lower()
+        if _names_one_of(word, _CREDENTIAL_WORDS):
+            return _Masking.EVERY_SCALAR
+        if _names_one_of(word, _SECRET_BEARING_WORDS):
+            level = _Masking.STRINGS
+    return level
+
+
 def _mask_env(env: dict[str, str]) -> dict[str, str]:
-    """Return a copy of env vars with sensitive values replaced by '***'."""
+    """Return a copy of env vars with sensitive values replaced by '***'.
+
+    Keyed on the substring rule rather than on :func:`_masking_for_key`,
+    because here the key IS the variable: a name that mentions a secret at all
+    names a value that holds one. A document key can instead name the variable
+    (``password_env``) or name a module (``keyword``), which is the distinction
+    the word rule draws.
+    """
     masked = {}
     for key, value in env.items():
         if _SENSITIVE_PATTERNS.search(key):
@@ -111,13 +176,22 @@ def _mask_env(env: dict[str, str]) -> dict[str, str]:
     return masked
 
 
-def _mask_document(value: object, key: str | None = None) -> object:
+def _mask_document(
+    value: object, key: str | None = None, masking: _Masking = _Masking.NOTHING
+) -> object:
     """Return *value* with literal secrets under sensitive key names masked.
 
-    Walks a parsed document — the config, the ``.mcp.json`` blob — and replaces
-    the value of any key matching :data:`_SENSITIVE_PATTERNS` with ``***``.
+    Walks a parsed document --- the config, the ``.mcp.json`` blob --- and
+    masks the literals a key name makes secret. A key that names a secret makes
+    its whole value secret: the level is inherited by everything beneath it, so
+    a literal nested under ``api_key`` is masked by that key however deep it
+    sits, through mappings and sequences alike. A masked subtree keeps its
+    shape and loses only its leaves, because the names inside it say what is
+    configured while the values are the secret.
+
     A ``${VAR}`` placeholder survives: it names the variable a secret comes
-    from, which is the diagnostic, not the secret.
+    from, which is the diagnostic, not the secret. So does ``None``, which says
+    the key is unset, and an empty string, which says the same.
 
     This is the second line, not the first. The document reported here is the
     UNEXPANDED one, so a well-formed deployment has nothing but placeholders
@@ -127,23 +201,23 @@ def _mask_document(value: object, key: str | None = None) -> object:
     Args:
         value: The node being walked.
         key: The mapping key *value* was found under, or None at the root and
-            inside sequences.
+            for sequence elements, whose level comes from *masking*.
+        masking: The level inherited from the keys above *value*.
 
     Returns:
         The masked copy.
     """
+    here: _Masking = masking if key is None else max(masking, _masking_for_key(key))
     if isinstance(value, dict):
-        return {k: _mask_document(v, str(k)) for k, v in value.items()}
+        return {k: _mask_document(v, str(k), here) for k, v in value.items()}
     if isinstance(value, list):
-        return [_mask_document(item, key) for item in value]
-    if (
-        key is not None
-        and isinstance(value, str)
-        and value
-        and _SENSITIVE_PATTERNS.search(key)
-        and "${" not in value
-    ):
-        return "***"
+        return [_mask_document(item, None, here) for item in value]
+    if isinstance(value, str):
+        if here >= _Masking.STRINGS and value and "${" not in value:
+            return _MASK
+        return value
+    if here >= _Masking.EVERY_SCALAR and value is not None:
+        return _MASK
     return value
 
 
@@ -223,9 +297,10 @@ async def setup_inspect() -> str:
     environment variables, and workspace structure.
 
     The config is reported UNEXPANDED --- ``${VAR}`` placeholders intact ---
-    so a resolved secret never reaches the transcript. Environment variables
-    and any literal value in the config or ``.mcp.json`` whose key contains
-    KEY, TOKEN, SECRET or PASSWORD are masked on top of that.
+    so a resolved secret never reaches the transcript. On top of that, a key
+    that names a secret --- key, token, secret or password --- masks every
+    literal beneath it in the config and in ``.mcp.json``. Environment
+    variables are masked by the same names.
 
     Returns:
         JSON object with all configuration sections.

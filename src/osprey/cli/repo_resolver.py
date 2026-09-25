@@ -95,6 +95,9 @@ SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
 #: the profile or built project named on its command line. Recorded for the
 #: same reason as the sets above: the exemption picture is only useful if it is
 #: complete, and a command absent from every set reads as one nobody looked at.
+#: ``archive`` copies from the sources directory to the destination it is handed
+#: — inside the bundled service those are mounts, run by hand they are whatever
+#: the operator names — and discovers no deployment.
 #:
 #: The entry names a GROUP, and one verb under it does not need the exemption:
 #: ``profile card`` reports on the deployment the operator is standing in, so it
@@ -107,6 +110,7 @@ EXPLICIT_TARGET_COMMANDS: frozenset[str] = frozenset(
     {
         "profile",
         "audit",
+        "archive",
     }
 )
 

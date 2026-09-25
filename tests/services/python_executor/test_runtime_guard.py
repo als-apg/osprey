@@ -107,7 +107,7 @@ class _Project:
 
         script = self.root / "probe_script.py"
         script.write_text(self.guard(execution_mode) + "\n" + body + "\n", encoding="utf-8")
-        proc = subprocess.run(  # noqa: S603 - fixed argv, test-authored script
+        proc = subprocess.run(  # fixed argv, test-authored script
             [sys.executable, str(script)],
             capture_output=True,
             text=True,
@@ -440,7 +440,7 @@ def _run_full_wrapper(project: _Project, user_code: str, mode: str = "readonly")
     src_root = str(Path(__file__).resolve().parents[3] / "src")
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [src_root, env.get("PYTHONPATH")]))
 
-    return subprocess.run(  # noqa: S603 - fixed argv, generated script
+    return subprocess.run(  # fixed argv, generated script
         [sys.executable, str(script)],
         capture_output=True,
         text=True,
@@ -553,7 +553,7 @@ def test_profile_source_entries_match_the_convention_table():
     A convention directory added there and forgotten here would be a silently
     writable hole, so the drift is a test failure instead.
     """
-    from osprey.cli.profile_conventions import (  # noqa: PLC0415 - test-only import
+    from osprey.cli.profile_conventions import (  # test-only import
         _SOURCE_ZONE_ENTRIES,
         CONVENTION_SOURCES,
     )

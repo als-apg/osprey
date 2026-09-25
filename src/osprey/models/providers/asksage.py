@@ -4,11 +4,12 @@ import json
 from typing import Any
 
 import openai
+from openai.types.chat import ChatCompletion
 
 from osprey.utils.logger import get_logger
 
 from .base import BaseProvider
-from .litellm_adapter import _clean_json_response
+from .litellm_adapter import _clean_json_response, _structured_reply
 
 logger = get_logger("asksage")
 
@@ -154,30 +155,28 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
         else:
             messages = [{"role": "user", "content": message}]
 
-        response = client.chat.completions.create(
-            model=model_id,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            extra_body=asksage_body_args,
+        def create() -> ChatCompletion:
+            return client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                extra_body=asksage_body_args,
+            )
+
+        if output_format is None:
+            return create().choices[0].message.content
+
+        def ask() -> str:
+            return create().choices[0].message.content or ""
+
+        return _structured_reply(
+            ask,
+            output_format,
+            source="AskSage",
+            clean=_clean_json_response,
+            is_typed_dict_output=is_typed_dict_output,
         )
-        content = response.choices[0].message.content
-
-        if output_format is not None:
-            response_text = _clean_json_response(content)
-            try:
-                result = output_format.model_validate_json(response_text)
-
-                if is_typed_dict_output and hasattr(result, "model_dump"):
-                    return result.model_dump()
-                return result
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to parse structured output from AskSage: {e}\n"
-                    f"Response: {response_text[:200]}"
-                ) from e
-        else:
-            return content
 
     def check_health(
         self,

@@ -214,7 +214,7 @@ def test_a_built_project_reads_the_mode_the_deploy_block_named(
 ) -> None:
     body = _profile({**DEPLOY_BLOCK, "image_source": "local"}, None)
     body["provider"] = "anthropic"
-    body["model"] = "haiku"
+    body["model"] = "claude-haiku-4-5"
     body["config"] = {
         "facility.prefix": "demo",
         "modules.web_terminals": dict(WEB_TERMINALS_LOCAL),
@@ -232,7 +232,7 @@ def test_the_propagated_leaf_does_not_displace_the_rest_of_the_module(
     inside the subtree those wrote rather than replacing it."""
     body = _profile({**DEPLOY_BLOCK, "image_source": "local"}, None)
     body["provider"] = "anthropic"
-    body["model"] = "haiku"
+    body["model"] = "claude-haiku-4-5"
     body["config"] = {
         "facility.prefix": "demo",
         "modules.web_terminals": dict(WEB_TERMINALS_LOCAL),
@@ -250,7 +250,7 @@ def test_a_project_with_no_web_stack_gains_no_web_terminals_module(
 ) -> None:
     body = _profile({**DEPLOY_BLOCK, "image_source": "local"}, None)
     body["provider"] = "anthropic"
-    body["model"] = "haiku"
+    body["model"] = "claude-haiku-4-5"
 
     config = _build_project(runner, tmp_path, body)
 

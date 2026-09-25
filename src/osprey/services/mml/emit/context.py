@@ -220,7 +220,7 @@ def require_knowledge_extra() -> None:
         click.ClickException: ``linkml_runtime`` cannot be imported.
     """
     try:
-        import linkml_runtime  # noqa: F401, PLC0415
+        import linkml_runtime  # noqa: F401
     except ImportError as exc:
         raise click.ClickException(
             f"The 'knowledge' extra is required for emit: {exc}\n"

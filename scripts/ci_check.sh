@@ -186,9 +186,17 @@ else
 fi
 
 echo ""
+# sphinx exits non-zero when a link is broken or timed out, names every one as
+# it goes, and lists them again in build/linkcheck/output.txt, so its status is
+# the check and is read directly. Funnelled through a grep for the happy word,
+# the verdict becomes the grep's and the report is consumed, so the one thing a
+# red owes the reader — which link — never arrives. An address no checker can
+# reach belongs in linkcheck_ignore in docs/source/conf.py, not tolerated here.
 echo "→ Checking for broken links..."
-if ! uv run make linkcheck 2>&1 | grep -q "build succeeded"; then
-    echo "⚠️  Link check found issues (not blocking)"
+if ! uv run make linkcheck; then
+    FAILED_CHECKS+=("docs-linkcheck")
+    echo "❌ Link check failed"
+    echo "💡 Every broken link is listed in docs/build/linkcheck/output.txt"
 else
     echo "✅ Link check passed"
 fi

@@ -240,7 +240,7 @@ def _control_assistant_persona_deltas() -> tuple[Delta, ...]:
     """
     return (
         # knowledge persona runs with `claude_code.servers.ariel.enabled: false`,
-        # and the framework template gates these three on that flag. Their only readers
+        # and the framework template gates these two on that flag. Their only readers
         # are the ARIEL surfaces, which are off for this persona, so dropping them
         # changes nothing it does.
         Delta(
@@ -253,12 +253,6 @@ def _control_assistant_persona_deltas() -> tuple[Delta, ...]:
             document="knowledge",
             path="ariel.enhancement_modules.semantic_processor.provider",
             fixture="anthropic",
-            live=ABSENT,
-        ),
-        Delta(
-            document="knowledge",
-            path="ariel.enhancement_modules.semantic_processor.model.model_id",
-            fixture="haiku",
             live=ABSENT,
         ),
         # logbook persona: the app template wrote `pipeline_mode: {{ default_pipeline }}`
@@ -489,6 +483,45 @@ def _dispatch_host_network_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _tier_write_posture_deltas() -> tuple[Delta, ...]:
+    """The write-capable tiers' posture, now armed on the simulator alone.
+
+    ``readwrite`` and ``admin`` stated their posture with the flat
+    ``control_system.writes_enabled: true``, which every connector type inherits
+    when its own block says nothing, so both were armed on every target. They
+    now pin the flat key false, the epics block false by name, and arm the
+    virtual_accelerator block. The fixtures were frozen under the flat key, so
+    each of the two documents reads as one leaf flipped and two gained.
+
+    Returns:
+        Three deltas for each of the two write-capable documents.
+    """
+    return tuple(
+        delta
+        for document in ("admin", "readwrite")
+        for delta in (
+            Delta(
+                document=document,
+                path="control_system.writes_enabled",
+                fixture=True,
+                live=False,
+            ),
+            Delta(
+                document=document,
+                path="control_system.connector.epics.writes_enabled",
+                fixture=ABSENT,
+                live=False,
+            ),
+            Delta(
+                document=document,
+                path="control_system.connector.virtual_accelerator.writes_enabled",
+                fixture=ABSENT,
+                live=True,
+            ),
+        )
+    )
+
+
 #: The documents a control-assistant cell renders: the root config plus one per
 #: persona in the preset's roster.
 _CONTROL_ASSISTANT_DOCUMENTS = (
@@ -504,6 +537,81 @@ _CONTROL_ASSISTANT_DOCUMENTS = (
 _CONTROL_ASSISTANT_PERSONAS = tuple(
     document for document in _CONTROL_ASSISTANT_DOCUMENTS if document != "root"
 )
+
+
+def _tool_call_record_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The full tool-call record the control-assistant preset turns on.
+
+    ``audit.tool_call.enabled`` and ``audit.tool_call.max_inline_bytes`` are
+    stated in the root preset and inherited by every persona, so every document
+    the family renders gains both leaves. The fixtures were frozen before the
+    keys existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        Two deltas per document.
+    """
+    return tuple(
+        delta
+        for document in documents
+        for delta in (
+            Delta(document=document, path="audit.tool_call.enabled", fixture=ABSENT, live=True),
+            Delta(
+                document=document,
+                path="audit.tool_call.max_inline_bytes",
+                fixture=ABSENT,
+                live=262144,
+            ),
+        )
+    )
+
+
+def _simulator_baseline_deltas() -> tuple[Delta, ...]:
+    """The session baseline, moved from the live stand-in to the simulator.
+
+    ``control_system.type`` was ``live_standin`` when the fixtures were frozen
+    and is ``virtual_accelerator`` now, in the root and in every persona that
+    inherits it. The single plan lane followed: the build writes a lane's
+    ``target`` and CA name servers only on a stand-in baseline, so the lane is
+    now addressed by the fallback — the co-deployed simulator — and the root
+    loses both leaves while the three attached tiers that copy the target lose
+    it too.
+
+    Returns:
+        One ``type`` delta per document, one ``target`` delta per document
+        that carried it, and the root's ``ca_name_servers`` delta.
+    """
+    return (
+        tuple(
+            Delta(
+                document=document,
+                path="control_system.type",
+                fixture="live_standin",
+                live="virtual_accelerator",
+            )
+            for document in _CONTROL_ASSISTANT_DOCUMENTS
+        )
+        + tuple(
+            Delta(
+                document=document,
+                path="services.bluesky.target",
+                fixture="standin",
+                live=ABSENT,
+            )
+            for document in ("admin", "readonly", "readwrite", "root")
+        )
+        + (
+            Delta(
+                document="root",
+                path="services.bluesky.ca_name_servers",
+                fixture="live-standin:10090",
+                live=ABSENT,
+            ),
+        )
+    )
 
 
 def _persona_corpus_deltas() -> tuple[Delta, ...]:
@@ -529,6 +637,125 @@ def _persona_corpus_deltas() -> tuple[Delta, ...]:
             live="./data/demo_machine.ttl",
         )
         for persona in _CONTROL_ASSISTANT_PERSONAS
+    )
+
+
+#: The three helper agents the fixtures pin, and the Claude id each was pinned to.
+_FROZEN_HELPER_PINS = (
+    ("channel-finder", "claude-sonnet-5"),
+    ("facility-knowledge-graph", "claude-sonnet-5"),
+    ("logbook-deep-research", "claude-opus-5-5"),
+)
+
+
+def _helper_agent_model_deltas() -> tuple[Delta, ...]:
+    """The helper-agent pins every control-assistant document lost.
+
+    The fixtures were frozen while the preset pinned three helper agents to a
+    model each. The preset pins none now, so every agent runs the deployment's
+    main model, and every document it renders loses those three leaves.
+
+    Returns:
+        One delta per document per pinned agent.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path=f"claude_code.agent_models.{agent}",
+            fixture=model_id,
+            live=ABSENT,
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+        for agent, model_id in _FROZEN_HELPER_PINS
+    )
+
+
+def _agent_record_deltas() -> tuple[Delta, ...]:
+    """Transcript retention in every document, and the record archive in the root.
+
+    The control-assistant preset keeps transcripts ten years rather than Claude
+    Code's 30 days, which every document inherits, and deploys the bundled
+    archive service, which only the root builds (the personas build no
+    services). The fixtures were frozen before either existed.
+
+    Returns:
+        One retention delta per document, and the root's service deltas.
+    """
+    return (
+        *(
+            Delta(
+                document=document,
+                path="claude_code.transcripts.retention_days",
+                fixture=ABSENT,
+                live=3650,
+            )
+            for document in _CONTROL_ASSISTANT_DOCUMENTS
+        ),
+        Delta(
+            document="root", path="services.archive.path", fixture=ABSENT, live="./services/archive"
+        ),
+        # The service is listed where the preset's own `services:` block lands:
+        # after the stores the preset spells, before the ones sections inject.
+        Delta(
+            document="root",
+            path="deployed_services",
+            fixture=[*_DEPLOYED_BEFORE_ARCHIVE, *_DEPLOYED_AFTER_ARCHIVE],
+            live=[*_DEPLOYED_BEFORE_ARCHIVE, "archive", *_DEPLOYED_AFTER_ARCHIVE],
+        ),
+    )
+
+
+#: The control-assistant root's ``deployed_services`` as the fixtures froze it,
+#: split where the record archive now lands.
+_DEPLOYED_BEFORE_ARCHIVE = ("postgresql", "openobserve", "qmd", "graphdb")
+_DEPLOYED_AFTER_ARCHIVE = (
+    "event_dispatcher",
+    "dispatch_worker",
+    "bluesky",
+    "bluesky_web",
+    "virtual_accelerator",
+    "live_standin",
+    "mongodb",
+    "archiver_recorder",
+)
+
+#: Build-relative ``config.yml`` documents a cell's build gains over the count
+#: its freeze recorded, keyed by cell directory — the completeness twin of
+#: :data:`CELL_DELTAS`. The record archive is a bundled service, so the build
+#: stages a config beside its compose file like every other one.
+BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {
+    f"control-assistant/{mode}": ("services/archive/config.yml",)
+    for mode in ("graph", "hierarchical", "in_context", "middle_layer")
+}
+
+
+def _tool_content_deltas() -> tuple[Delta, ...]:
+    """The tool-content gate and content limit every control-assistant document gains.
+
+    The fixtures were frozen before the control-assistant preset recorded
+    built-in tool output, so every document it renders gains the gate and the
+    content limit.
+
+    Returns:
+        Two deltas per control-assistant document.
+    """
+    return tuple(
+        delta
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+        for delta in (
+            Delta(
+                document=document,
+                path="claude_code.telemetry.log_tool_content",
+                fixture=ABSENT,
+                live=True,
+            ),
+            Delta(
+                document=document,
+                path="claude_code.telemetry.content_max_length",
+                fixture=ABSENT,
+                live=262144,
+            ),
+        )
     )
 
 
@@ -566,7 +793,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas()
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -574,7 +807,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas()
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -582,7 +821,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas()
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -590,7 +835,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas()
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas()
+    + _tool_content_deltas()
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 
@@ -1103,10 +1354,16 @@ def test_live_render_is_as_complete_as_the_baseline(
         f"{cell.directory}: captured documents changed. "
         f"frozen={expected['documents']} live={documents}"
     )
-    assert len(rendered.build_configs_checked) == expected["build_configs_checked"], (
+    gains = BUILD_CONFIG_GAINS.get(cell.directory, ())
+    missing_gains = sorted(set(gains) - set(rendered.build_configs_checked))
+    assert not missing_gains, (
+        f"{cell.directory}: declared build-config gains are absent: {missing_gains}"
+    )
+    expected_count = expected["build_configs_checked"] + len(gains)
+    assert len(rendered.build_configs_checked) == expected_count, (
         f"{cell.directory}: the build tree holds "
         f"{len(rendered.build_configs_checked)} config.yml documents, the baseline "
-        f"{expected['build_configs_checked']}. Live paths: "
+        f"{expected['build_configs_checked']} plus {len(gains)} declared. Live paths: "
         f"{sorted(rendered.build_configs_checked)}"
     )
 

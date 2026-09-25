@@ -67,7 +67,7 @@ MODEL_MATRIX: dict[str, list[tuple[str, str]]] = {
     ],
     "als-apg": [
         ("claude-haiku-4-5-20251001", "haiku"),
-        ("claude-sonnet-4-6", "sonnet"),
+        ("claude-sonnet-5", "sonnet"),
     ],
     "ollama": [
         ("ministral-3:8b", "ministral"),

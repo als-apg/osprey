@@ -282,7 +282,7 @@ def start_or_fail(
         try:
             container.start()  # type: ignore[attr-defined]
             return container, int(container.get_exposed_port(port))  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001 — every start failure is retried alike
+        except Exception as exc:  # every start failure is retried alike
             stop_quietly(container)
             failures.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
             logger.warning("%s: start attempt %d failed (%s)", label, attempt, exc)
@@ -430,7 +430,7 @@ def wait_until_ready(
         attempts += 1
         try:
             probe()
-        except Exception as exc:  # noqa: BLE001 — any failure means "not ready yet"
+        except Exception as exc:  # any failure means "not ready yet"
             last = exc
             only_refusals = only_refusals and _is_refused_connection(exc)
         else:
@@ -501,7 +501,7 @@ def _container_liveness(container: object) -> tuple[str | None, bytes | None]:
         wrapped.reload()
         status = str(wrapped.status)
         tail = wrapped.logs(tail=_PROGRESS_TAIL_LINES)
-    except Exception as exc:  # noqa: BLE001 — an unreadable container is not a verdict
+    except Exception as exc:  # an unreadable container is not a verdict
         logger.debug("could not read container state: %s", exc)
         return None, None
     return status, tail if isinstance(tail, bytes) else b""
@@ -515,7 +515,7 @@ def _container_exit_detail(container: object) -> str:
         code = state.get("ExitCode")
         error = str(state.get("Error") or "").strip()
         tail = wrapped.logs(tail=20).decode("utf-8", "replace").strip()
-    except Exception as exc:  # noqa: BLE001 — diagnosis is best-effort
+    except Exception as exc:  # diagnosis is best-effort
         logger.debug("could not read container exit detail: %s", exc)
         return ""
     detail = f"\nexit code: {code}"
@@ -567,3 +567,58 @@ def _skip_message(label: str, exc: BaseException, attempt: int) -> str:
         f"{label}: container failed to start after {attempt} attempt(s) — "
         f"{type(exc).__name__}: {exc}"
     )
+
+
+#: Seconds a state read may take. It runs at the moment a store has stopped
+#: answering, which is often a moment the daemon is slow too, so it is bounded
+#: rather than left to the client's default minute.
+CONTAINER_STATE_TIMEOUT = 10.0
+
+#: States that end a container's run, for which the exit code is the fact.
+_STOPPED_STATES = frozenset({"exited", "dead"})
+
+
+def container_state(container: object, *, timeout: float = CONTAINER_STATE_TIMEOUT) -> str:
+    """Say in one line what state a started container is in right now.
+
+    ``running`` or ``paused`` for a live container, ``exited (code N)`` or
+    ``dead (code N)`` for one that stopped, with ``, out of memory`` added when
+    the kernel killed it for memory, and ``gone`` when the daemon no longer
+    knows it. It is read from the daemon on a client of its own, so a slow
+    daemon costs *timeout* seconds at most.
+
+    Never raises: it is called while another failure is being reported, and
+    that failure is the one to report. A state it cannot read comes back as
+    ``unreadable (<error>)``, which is itself a fact about the daemon.
+
+    Args:
+        container: The started testcontainers container.
+        timeout: Seconds the daemon may take to answer.
+
+    Returns:
+        The state line.
+    """
+    try:
+        import docker
+        import docker.errors
+    except ImportError as exc:
+        return f"unreadable ({type(exc).__name__}: {exc})"
+    try:
+        container_id = container.get_wrapped_container().id  # type: ignore[attr-defined]
+        client = docker.from_env(timeout=timeout)
+        try:
+            state = client.containers.get(container_id).attrs.get("State") or {}
+        finally:
+            client.close()
+    except docker.errors.NotFound:
+        return "gone"
+    except Exception as exc:
+        # Reported as the state, never raised over the failure being reported.
+        return f"unreadable ({type(exc).__name__}: {exc})"
+    status = str(state.get("Status") or "unknown")
+    if status not in _STOPPED_STATES:
+        return status
+    line = f"{status} (code {state.get('ExitCode')}"
+    if state.get("OOMKilled"):
+        line += ", out of memory"
+    return line + ")"

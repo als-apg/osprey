@@ -1,15 +1,14 @@
-"""Tests for the ``control-assistant`` preset's live stand-in default.
+"""Tests for the ``control-assistant`` preset's simulator default.
 
-The preset's ``control_system.type`` defaults to ``live_standin``: it declares
+The preset's ``control_system.type`` defaults to ``virtual_accelerator``: a
+fresh project starts on the sandbox simulator, the one machine in the
+deployment where a write is harmless. The preset also declares
 ``virtual_accelerator.live_standin``, so a second copy of the simulator ships
-and is deployed as the deployment's own third control target, and the baseline
-a fresh project starts on is that hardware-shaped soft IOC — approval prompts,
-strict-limit refusals and the LIVE MACHINE (stand-in) banner, on something that
-cannot move a magnet. ``virtual_accelerator`` remains the sandbox simulator
-beside it, reachable via ``osprey set connector=virtual_accelerator``, and
-``mock`` is the documented fallback for environments with no containers to
-depend on — its non-tracking readbacks make plans browse-only — reachable via
-``osprey set connector=mock``.
+and is deployed as the deployment's own third control target — the
+hardware-shaped soft IOC an operator switches to on purpose to rehearse under
+approval prompts and strict-limit refusals. ``mock`` is the documented fallback
+for environments with no containers to depend on — its non-tracking readbacks
+make plans browse-only — reachable via ``osprey set connector=mock``.
 
 The module also pins the preset's TIER FLOOR: the privileges the base preset
 takes away from every tier built on it (the ``setup_patch`` deployment-editing
@@ -20,9 +19,9 @@ Covers six angles:
 
 1. In-process profile resolution: the base preset and its two extends
    children (``control-assistant-readonly``, ``control-assistant-readwrite``)
-   all carry the ``live_standin`` override (fast, no build).
+   all carry the ``virtual_accelerator`` baseline (fast, no build).
 2. A full ``osprey build`` of the bare preset: the rendered ``config.yml``
-   carries ``control_system.type: live_standin``.
+   carries ``control_system.type: virtual_accelerator``.
 3. The same rendered build's ``deployed_services`` list is unchanged by the
    flip — it is driven by the ``bluesky:``/``virtual_accelerator:``/
    ``bluesky_web:`` injector blocks, not by ``control_system.type``.
@@ -96,20 +95,20 @@ def resolve_preset(name: str) -> BuildProfile:
 
 
 class TestControlAssistantPresetDefault:
-    """The base preset and its extends children all default to the stand-in."""
+    """The base preset and its extends children all default to the simulator."""
 
-    def test_base_preset_defaults_to_the_live_standin(self) -> None:
+    def test_base_preset_defaults_to_the_simulator(self) -> None:
         base = resolve_preset("control-assistant")
-        assert base.config.get(CONTROL_SYSTEM_TYPE_KEY) == "live_standin"
+        assert base.config.get(CONTROL_SYSTEM_TYPE_KEY) == "virtual_accelerator"
 
     @pytest.mark.parametrize(
         "preset_name", ["control-assistant-readonly", "control-assistant-readwrite"]
     )
-    def test_extends_children_inherit_the_live_standin_default(self, preset_name: str) -> None:
+    def test_extends_children_inherit_the_simulator_default(self, preset_name: str) -> None:
         """Neither persona overrides ``control_system.type`` — both inherit the
         base preset's baseline through their ``extends:`` chain."""
         profile = resolve_preset(preset_name)
-        assert profile.config.get(CONTROL_SYSTEM_TYPE_KEY) == "live_standin"
+        assert profile.config.get(CONTROL_SYSTEM_TYPE_KEY) == "virtual_accelerator"
 
 
 @pytest.fixture(scope="module")
@@ -152,10 +151,10 @@ class TestControlAssistantRenderedConfig:
     """A real ``osprey build`` of the bare preset carries the flip through to
     the rendered ``config.yml`` — not just the in-process profile object."""
 
-    def test_rendered_control_system_type_is_the_live_standin(
+    def test_rendered_control_system_type_is_the_simulator(
         self, rendered_preset_config: dict
     ) -> None:
-        assert rendered_preset_config["control_system"]["type"] == "live_standin"
+        assert rendered_preset_config["control_system"]["type"] == "virtual_accelerator"
 
     def test_rendered_deployed_services_unchanged_by_the_flip(
         self, rendered_preset_config: dict

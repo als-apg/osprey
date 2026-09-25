@@ -37,15 +37,16 @@ so anything sent while the bridge was down is waiting when it comes back.
 Enable It in a Profile
 ======================
 
-Add a ``gchat_bridge:`` block to your build profile. The only setting is which
+Add a ``gchat_bridge:`` block to your build profile. Two settings: which
 dispatcher trigger the bridge fires — that trigger decides what the agent is
-allowed to do with a chat question — and the block is only meaningful next to a
-``dispatch:`` block:
+allowed to do with a chat question — and whether the agent may @mention people.
+The block is only meaningful next to a ``dispatch:`` block:
 
 .. code-block:: yaml
 
    gchat_bridge:
      trigger: gchat-question        # default; must exist in your triggers file
+     mentions: true            # default; false posts @mentions as plain text
 
    dispatch:
      triggers: my_triggers.yml      # the file that trigger must be declared in
@@ -130,6 +131,8 @@ These are the ones you create and set yourself.
         - Meaning
       * - ``DISPATCH_TRIGGER``
         - The trigger to fire. Comes from the profile block.
+      * - ``GCHAT_MENTIONS``
+        - Whether @mentions are on. Comes from the profile block.
       * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
         - The two shared secrets the bridge needs to reach the dispatcher and
           the worker, generated for you when unset — see
@@ -164,6 +167,11 @@ These are the ones you create and set yourself.
         - Set to ``1`` only if this host's outbound calls must go through your
           site's web proxy. Off by default, so a proxy inherited from a shell or
           a CI runner cannot quietly place itself in front of Google.
+      * - ``HISTORY_ANSWER_LIMIT``
+        - Longest earlier answer, in characters, sent back in full with a
+          follow-up (default 3000). A longer one is sent as its opening, and the
+          agent reads the rest only if it needs it. ``0`` always sends every
+          answer in full.
       * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
         - Where to file an issue when a question is finally given up on. Leave
           unset if you have no such host: nothing is filed and nothing is
@@ -232,6 +240,25 @@ like a mention of itself.
    recent conversation — in a named volume mounted at ``/data``. Do not remove
    that volume. Without it, a restart in the middle of a question can answer it
    twice or drop it, and conversations lose their thread of context.
+
+Who Is in the Space, and @Mentions
+==================================
+
+Each question reaches the agent with who asked it and who is in the space. The
+bridge lists the space's members with the app's own sign-in, so there is no
+extra permission to grant.
+
+A member's name is the one Google's member list gives. When Google gives none,
+it is the name the bridge saw when that person wrote to the app or was
+@mentioned in a message to it. Anyone with neither is listed without a name,
+and the agent is told not to guess.
+
+The agent may @mention a member of the same space only when someone in the
+space asks it to pass something on or to notify someone. It never does so on
+its own. Anyone not in the space is written as plain text.
+
+Set ``mentions: false`` in the profile block to have every mention posted as
+plain text instead.
 
 .. _what-is-shared-gchat:
 

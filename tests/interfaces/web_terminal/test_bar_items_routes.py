@@ -50,6 +50,7 @@ from osprey.interfaces.web_terminal import bar_items_store
 from osprey.interfaces.web_terminal.app import (
     BAR_LAYOUT_VERSION,
     MAX_BAR_ITEMS_PER_HOST,
+    bar_item_vocabulary,
     create_app,
 )
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
@@ -84,12 +85,14 @@ def no_companion_servers():
 def agent_data_root(tmp_path):
     """A throwaway agent-data root for the lifespan to site both stores under.
 
-    Patched at the resolver, not through ``OSPREY_AGENT_DATA_ROOT``:
+    The ``client`` fixture patches the resolver to answer this directory; this
+    fixture only creates it. Not through ``OSPREY_AGENT_DATA_ROOT``:
     :func:`~osprey_connectors.workspace.resolve_shared_data_root` reads
     ``agent_data.base_dir`` anchored on the project root and does not consult
-    that variable, so a test relying on it would write this suite's layouts
-    into the repository's own ``var/agent_data`` — shared by every test in the
-    session, which is exactly the pollution a per-test store must not have.
+    that variable, so a test relying on it would share one diverted root with
+    every other test in the worker, which is exactly the pollution a per-test
+    store must not have. The web-terminal ``conftest.py`` docstring says where
+    an unpatched lifespan's stores land.
     """
     root = tmp_path / "agent_data"
     root.mkdir()
@@ -174,6 +177,30 @@ def types(layout: dict, host: str) -> list[str]:
 def error_of(response: httpx.Response) -> str:
     """The machine-readable reason a refusal names."""
     return response.json()["detail"]["error"]
+
+
+def _widest_value(spec: dict):
+    """The value *spec* allows that is widest by encoded length, which the ceiling counts."""
+    kind = spec["kind"]
+    if kind == "enum":
+        candidates = tuple(spec["values"])
+    elif kind == "boolean":
+        candidates = (True, False)
+    else:
+        candidates = (spec["min"], spec["max"])
+    return max(candidates, key=lambda value: len(json.dumps(value)))
+
+
+def _widest_item(specs) -> dict:
+    """The item any of *specs* can produce that is widest by encoded length."""
+    items = (
+        {
+            "type": item_type,
+            "options": {name: _widest_value(s) for name, s in spec["options"].items()},
+        }
+        for item_type, spec in specs
+    )
+    return max(items, key=lambda item: len(json.dumps(item)))
 
 
 # ── GET ────────────────────────────────────────────────────────────────────
@@ -412,6 +439,55 @@ class TestPut:
             response = client.put("/api/bar-items", json=oversized)
 
         assert response.status_code == 413
+
+
+class TestTheCeilingHasHeadroom:
+    """``MAX_REQUEST_BYTES`` promises an order of magnitude over two full bars.
+
+    Its docstring sizes the ceiling against two bars of
+    ``MAX_BAR_ITEMS_PER_HOST`` items, each carrying its completed options, and
+    claims ten times that much room. These tests hold the claim as option
+    specs grow.
+    """
+
+    def test_no_legal_layout_comes_within_a_tenth_of_the_ceiling(self):
+        """The widest item of any type, repeated to the cap in both bars, is an upper bound.
+
+        Repeating a single-node type makes the document illegal, but no legal
+        document has a wider item or more of them, so the check holds for every
+        layout the store accepts. Python's default separators are wider than the
+        browser's ``JSON.stringify``, so the bound is conservative.
+        """
+        widest = _widest_item(bar_item_vocabulary().items.items())
+        bound = {
+            "version": BAR_LAYOUT_VERSION,
+            "rev": 2**53 - 1,
+            "header": [widest] * MAX_BAR_ITEMS_PER_HOST,
+            "status": [widest] * MAX_BAR_ITEMS_PER_HOST,
+            "header_visible": False,
+            "status_visible": False,
+        }
+        body = json.dumps(bound).encode("utf-8")
+
+        assert 10 * len(body) <= MAX_REQUEST_BYTES, (
+            f"a legal layout can reach {len(body)} bytes, within a tenth of the "
+            f"{MAX_REQUEST_BYTES}-byte ceiling"
+        )
+
+    def test_a_full_layout_at_its_widest_options_saves(self, client):
+        multi = [
+            (item_type, spec)
+            for item_type, spec in bar_item_vocabulary().items.items()
+            if spec["multi"]
+        ]
+        full = [_widest_item(multi)] * MAX_BAR_ITEMS_PER_HOST
+
+        response = client.put("/api/bar-items", json=document(0, header=full, status=full))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["rev"] == 1
+        assert len(body["header"]) == len(body["status"]) == MAX_BAR_ITEMS_PER_HOST
 
 
 # ── DELETE ─────────────────────────────────────────────────────────────────

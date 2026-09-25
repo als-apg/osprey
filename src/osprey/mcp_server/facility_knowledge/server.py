@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -39,10 +40,47 @@ mcp = FastMCP(
     instructions=(
         "Read and draft OKF facility knowledge documents: list concepts, read a concept "
         "by ID, search the bundle for a query string, or draft/update a concept document. "
+        "Every concept comes with a url that opens it in the KNOWLEDGE panel; cite it as a "
+        "markdown link. "
         "draft_concept requires human approval via the PreToolUse hook before the write "
         "is committed to disk."
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Concept links
+# ---------------------------------------------------------------------------
+
+#: Where the KNOWLEDGE panel sits under the page the operator is on, with no
+#: leading slash. Relative on purpose: the browser resolves it against that
+#: page, so one spelling reaches the panel from a deployment served at ``/``
+#: and from a per-user mount at ``/u/<user>/`` alike, and this server needs to
+#: know neither. The web terminal reverse-proxies the panel at this path;
+#: ``tests/registry/test_okf_panel_registration.py`` holds the two spellings
+#: against each other.
+KNOWLEDGE_PANEL_PATH = "panel/okf"
+
+
+def concept_url(concept_id: str) -> str:
+    """The link that opens *concept_id* in the KNOWLEDGE panel.
+
+    The id travels in the fragment, which the panel reads at boot and
+    percent-decodes, so it is encoded here with ``/`` left intact — the
+    separator the panel's own in-page links already use, which leaves an
+    ordinary id spelled exactly as it reads.
+
+    The result carries no scheme, no host, no leading slash and no per-user
+    mount prefix, and it never will: the page that supplies those is the
+    browser's, and it is the half this server does not have.
+
+    Args:
+        concept_id: OKF §2 path-minus-extension identifier.
+
+    Returns:
+        ``panel/okf#<concept id, percent-encoded>``.
+    """
+    return f"{KNOWLEDGE_PANEL_PATH}#{quote(concept_id, safe='/')}"
+
 
 # ---------------------------------------------------------------------------
 # Bundle resolution
@@ -180,12 +218,12 @@ def _resolve_bundle_path(config: dict, config_dir: Path) -> Path | None:
     is the ordinary shape for a deployment that runs this server without a
     bundle yet; so, less obviously, is a block present but empty
     (``facility_knowledge:`` with nothing under it) or one whose
-    ``bundle_path`` was emptied but left in place. Subscripting turned the
-    first of those into a ``KeyError`` and the other two into a ``TypeError``
-    that nothing caught, so the same missing configuration either logged a
-    warning or crashed the server at startup depending on how it was spelled.
-    The caller says so once, clearly, and the tools then refuse with
-    ``server_not_initialised``.
+    ``bundle_path`` was emptied but left in place. Every one of those spellings
+    is the same missing configuration and answers ``None`` here, so
+    :func:`create_server` warns once naming the config file and records
+    ``bundle_not_configured``; every tool then refuses with that code, which
+    names the key an operator has to set rather than telling them to start a
+    server that is already running.
 
     Args:
         config: Parsed OSPREY config dict.
@@ -375,7 +413,9 @@ async def list_concepts() -> str:
 
     Returns:
         JSON object with a ``concepts`` list, each entry containing
-        ``concept_id``, ``title``, and ``description``.
+        ``concept_id``, ``title``, ``description``, and ``url`` — the concept's
+        link in the KNOWLEDGE panel, relative to the page the operator is on
+        (see :func:`concept_url`).
     """
     with _tool_error_envelope("list_concepts"):
         bundle = _get_bundle()
@@ -387,6 +427,7 @@ async def list_concepts() -> str:
                         "concept_id": e.concept_id,
                         "title": e.title,
                         "description": e.description,
+                        "url": concept_url(e.concept_id),
                     }
                     for e in sorted(entries, key=lambda e: e.concept_id)
                 ],
@@ -409,7 +450,9 @@ async def read_concept(concept_id: str) -> str:
         concept_id: OKF §2 path-minus-extension identifier.
 
     Returns:
-        JSON object with ``concept_id``, ``frontmatter``, and ``body``.
+        JSON object with ``concept_id``, ``frontmatter``, ``body``, and ``url``
+        — the concept's link in the KNOWLEDGE panel, relative to the page the
+        operator is on (see :func:`concept_url`).
     """
     from osprey.services.facility_knowledge.okf.bundle import OKFBundleError
 
@@ -433,6 +476,7 @@ async def read_concept(concept_id: str) -> str:
                 "concept_id": concept_id,
                 "frontmatter": doc.frontmatter,
                 "body": doc.body,
+                "url": concept_url(concept_id),
             }
         )
 
@@ -468,7 +512,9 @@ async def search(query: str) -> str:
     Returns:
         JSON object with ``query``, ``count``, and a ``results`` list.  Each
         entry has ``concept_id``, ``title``, ``description``, ``score``
-        (number when ranked, ``null`` in fallback mode), and ``snippet``.
+        (number when ranked, ``null`` in fallback mode), ``snippet``, and
+        ``url`` — the concept's link in the KNOWLEDGE panel, relative to the
+        page the operator is on (see :func:`concept_url`).
     """
     with _tool_error_envelope(f"search for query {query!r}"):
         bundle = _get_bundle()
@@ -485,6 +531,7 @@ async def search(query: str) -> str:
                         # The ranked backend centres its excerpt on the match;
                         # the fallback produces none, so lead with the body.
                         "snippet": m.snippet or m.document.body[:200].strip(),
+                        "url": concept_url(m.concept_id),
                     }
                     for m in matches
                 ],

@@ -61,6 +61,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from osprey.audit import writer
+from osprey.audit.tool_call import SURFACE_TOOL_CALL
 from osprey.audit.writer import LEDGER_SUFFIX, MAX_RECORD_BYTES
 from osprey.interfaces.web_terminal.routes.config import _require_config_panel
 from osprey.utils.identity import acting_identity
@@ -244,12 +245,20 @@ def _ledgers(directory: Path) -> list[Path]:
     ledger included. ``is_symlink()`` does not follow, so the pair keeps the
     read inside the directory the container is allowed to serve: a ledger is a
     real file that lives here, not a name that resolves elsewhere.
+
+    The full ``tool_call`` ledger is never served: its lines exceed the tail
+    window this reader sizes from ``MAX_RECORD_BYTES`` and carry payloads the
+    recent-activity list is not for, so ``surface=tool_call`` answers nothing.
     """
+    skipped = f"{SURFACE_TOOL_CALL}{LEDGER_SUFFIX}"
     try:
         found = [
             entry
             for entry in directory.iterdir()
-            if entry.name.endswith(LEDGER_SUFFIX) and not entry.is_symlink() and entry.is_file()
+            if entry.name.endswith(LEDGER_SUFFIX)
+            and entry.name != skipped
+            and not entry.is_symlink()
+            and entry.is_file()
         ]
     except OSError:
         return []

@@ -308,7 +308,7 @@ independently of the control system:
 
          archiver:
            type: epics_archiver
-           epics_archiver:
+           settings:
              url: https://archiver.facility.edu:8443   # required
              timeout: 60                                # seconds, default 60
              retrieval_path: /retrieval                 # default; a reverse proxy may rename it
@@ -328,7 +328,7 @@ independently of the control system:
 
          archiver:
            type: doocs_archiver
-           doocs_archiver:
+           settings:
              avg_window: 20    # optional moving average, in samples
 
    .. tab-item:: MongoDB
@@ -341,7 +341,7 @@ independently of the control system:
 
          archiver:
            type: mongodb_archiver
-           mongodb_archiver:
+           settings:
              host: mongodb.facility.edu
              port: 27017
              name: archiver_db
@@ -381,7 +381,7 @@ independently of the control system:
 
          archiver:
            type: mya_archiver
-           mya_archiver:
+           settings:
              myquery_server: myquery.facility.edu
              deployment: ops        # MYA deployment to query
              timeout: 60            # seconds per request
@@ -419,6 +419,22 @@ independently of the control system:
       next update. Reads therefore ask for the prior point, so a channel whose
       last change predates the window still reports that change, at the time
       it was recorded, instead of answering with nothing at all.
+
+Every archiver takes its settings from one block, ``settings:``, beside the
+``type`` that selects it. A connector of your own is selected by its dotted
+module path and configured the same way:
+
+.. code-block:: yaml
+
+   archiver:
+     type: my_facility.connectors.FacilityArchiver
+     settings:
+       server: history.facility.edu
+
+In a profile's ``config:`` block that is ``archiver.settings.server:
+history.facility.edu``. The block is handed to the connector's ``connect()``
+whole. Any other block under ``archiver:`` is one no archiver reads, and
+``osprey build`` stops and names it.
 
 Contracts and Custom Connectors
 -------------------------------

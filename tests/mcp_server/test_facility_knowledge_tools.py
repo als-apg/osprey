@@ -139,6 +139,39 @@ class TestListConcepts:
             assert "description" in entry
 
     @pytest.mark.asyncio
+    async def test_each_entry_carries_the_concept_url(self):
+        from osprey.mcp_server.facility_knowledge.server import list_concepts
+
+        result = json.loads(await get_tool_fn(list_concepts)())
+        by_id = {c["concept_id"]: c for c in result["concepts"]}
+
+        for entry in result["concepts"]:
+            assert entry["url"] == f"panel/okf#{entry['concept_id']}"
+        assert by_id["tables/beam_params"]["url"] == "panel/okf#tables/beam_params"
+
+    @pytest.mark.asyncio
+    async def test_a_discovered_id_with_a_space_is_encoded_in_its_url(self, fixture_bundle: Path):
+        _write(
+            fixture_bundle / "procedures" / "orbit correction.md",
+            """\
+            ---
+            type: procedure
+            title: Orbit Correction
+            description: How the orbit is corrected.
+            ---
+            Steps for correcting the orbit.
+            """,
+        )
+        from osprey.mcp_server.facility_knowledge.server import list_concepts
+
+        result = json.loads(await get_tool_fn(list_concepts)())
+        by_id = {c["concept_id"]: c for c in result["concepts"]}
+
+        assert by_id["procedures/orbit correction"]["url"] == (
+            "panel/okf#procedures/orbit%20correction"
+        )
+
+    @pytest.mark.asyncio
     async def test_index_md_not_in_results(self):
         """Reserved files must never appear as concepts."""
         from osprey.mcp_server.facility_knowledge.server import list_concepts
@@ -184,6 +217,14 @@ class TestReadConcept:
         result = json.loads(await get_tool_fn(read_concept)(concept_id="tables/beam_params"))
 
         assert result["frontmatter"]["title"] == "Beam Parameters"
+
+    @pytest.mark.asyncio
+    async def test_carries_the_concept_url(self):
+        from osprey.mcp_server.facility_knowledge.server import read_concept
+
+        result = json.loads(await get_tool_fn(read_concept)(concept_id="tables/beam_params"))
+
+        assert result["url"] == "panel/okf#tables/beam_params"
 
     @pytest.mark.asyncio
     async def test_not_found_returns_error_envelope(self):
@@ -292,6 +333,17 @@ class TestSearch:
             assert "description" in r
             assert "score" in r
             assert "snippet" in r
+            assert "url" in r
+
+    @pytest.mark.asyncio
+    async def test_results_carry_the_concept_url(self):
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        result = json.loads(await get_tool_fn(search)(query="beam"))
+
+        assert result["results"]
+        for r in result["results"]:
+            assert r["url"] == f"panel/okf#{r['concept_id']}"
 
     @pytest.mark.asyncio
     async def test_fallback_results_score_null(self):
@@ -438,6 +490,43 @@ class TestSearchRanked:
 
         assert result["results"][0]["concept_id"] == "tables/beam_params"
         assert result["results"][0]["title"] == "Beam Parameters"
+
+    @pytest.mark.asyncio
+    async def test_ranked_entry_carries_the_concept_url(self, ranked_bundle):
+        """The url names the concept the hit resolved to, never the sidecar's file path."""
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        ranked_bundle(ranked_bundle.hit("tables/beam_params.md", score=0.33, snippet="1: epics"))
+
+        result = json.loads(await get_tool_fn(search)(query="control system"))
+
+        assert result["results"][0]["url"] == "panel/okf#tables/beam_params"
+
+
+# ---------------------------------------------------------------------------
+# concept_url
+# ---------------------------------------------------------------------------
+
+
+class TestConceptUrl:
+    """The link a concept is cited by is relative to the operator's page."""
+
+    def test_the_url_is_relative_and_names_the_panel(self):
+        from osprey.mcp_server.facility_knowledge.server import concept_url
+
+        url = concept_url("tables/beam_params")
+
+        assert url == "panel/okf#tables/beam_params"
+        assert not url.startswith("/")
+        assert "://" not in url
+
+    def test_a_character_the_fragment_cannot_carry_is_encoded(self):
+        from osprey.mcp_server.facility_knowledge.server import concept_url
+
+        assert concept_url("a#b") == "panel/okf#a%23b"
+        assert concept_url("procedures/orbit correction") == (
+            "panel/okf#procedures/orbit%20correction"
+        )
 
 
 # ---------------------------------------------------------------------------

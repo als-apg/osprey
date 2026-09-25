@@ -9,12 +9,28 @@ a container engine or without the neo4j extra, since each of the lanes
 concerned skips there. So they are read off the tree instead, which works
 wherever the suite is collected. This file exempts itself from the scan,
 because the guards below name what they forbid.
+
+The module also pins, against a fake driver session, how a store read that
+gets no answer fails: as :class:`tests._graphdb_container.GraphStoreUnavailable`,
+naming the store, with the next read still asking it. The fast lane has no
+container, so a fake stands in for the driver there.
 """
 
 from __future__ import annotations
 
+import ast
+from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
+from neo4j.exceptions import ClientError, ServiceUnavailable
+
+from tests._graphdb_container import (
+    GraphStoreUnavailable,
+    WatchedSession,
+    WatchedStore,
+    watched_graphdb_store,
+)
 from tests._tree_scan import python_sources
 
 #: Construction of a graph container. One call site, in the recipe. The
@@ -33,6 +49,29 @@ SUPERSEDED_MODULE = "testcontainers.neo4j"
 
 #: The one module allowed to build a graph container, relative to ``tests/``.
 RECIPE = "_graphdb_container.py"
+
+#: Every lane that reads a real graph store, relative to ``tests/``. Each one
+#: reads it only through :class:`tests._graphdb_container.WatchedSession` or
+#: inside :meth:`tests._graphdb_container.WatchedStore.reading`.
+REAL_STORE_LANES = (
+    "integration/test_graph_index_parity_ties.py",
+    "integration/test_graphdb_store.py",
+    "integration/test_graph_mcp.py",
+)
+
+#: The lanes that hand the seeder a session opened in the lane itself, so they
+#: open every such session beside ``store.reading()`` in one ``with``. The
+#: tie-parity module is not one: its seeding does that through its own
+#: ``_session`` helper, and its module-long session is read only through the
+#: watched one.
+SEEDER_SESSION_LANES = (
+    "integration/test_graphdb_store.py",
+    "integration/test_graph_mcp.py",
+)
+
+#: A raw driver read. The watched session's methods are ``single`` and
+#: ``records``, so a module that reads only through it never spells this.
+RAW_DRIVER_READ = ".run("
 
 #: The private halves of the plugin recipe. A lane that assembles its own
 #: plugin directory has to call one of these, so naming them names every way
@@ -83,3 +122,293 @@ def test_only_the_shared_recipe_resolves_the_plugins() -> None:
         f"copy has already dropped a probe by the time it is noticed — depend on "
         f"the session fixture ``graphdb_plugin_dir`` instead."
     )
+
+
+def _lane_text(lane: str) -> str:
+    """The source of *lane*, a path relative to ``tests/``."""
+    texts = [text for rel, text in python_sources(Path(__file__)) if rel == lane]
+
+    assert len(texts) == 1, f"{lane} is not in the tree"
+    return texts[0]
+
+
+def _is_call_to(node: ast.AST, attribute: str) -> bool:
+    """Whether *node* calls a method or module attribute named *attribute*."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == attribute
+    )
+
+
+def _seeder_sessions(text: str) -> list[tuple[int, bool]]:
+    """Every ``open_session(...)`` call in *text*, as ``(line, watched)``.
+
+    A call is watched when it is an item of a ``with`` that also enters a
+    ``.reading()``, so everything done on the session, its close included,
+    runs inside the store's watch.
+    """
+    tree = ast.parse(text)
+    watched = {
+        id(item.context_expr)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.With)
+        and any(_is_call_to(item.context_expr, "reading") for item in node.items)
+        for item in node.items
+    }
+    return sorted(
+        (node.lineno, id(node) in watched)
+        for node in ast.walk(tree)
+        if _is_call_to(node, "open_session")
+    )
+
+
+@pytest.mark.parametrize("lane", REAL_STORE_LANES)
+def test_a_real_store_lane_reads_only_through_the_watch(lane: str) -> None:
+    """A raw read there would fail a stalled store as the test's own result."""
+    assert RAW_DRIVER_READ not in _lane_text(lane), (
+        f"a store read in {lane} bypasses WatchedSession, so a store that stops "
+        f"answering would fail it as the test's own result. Read through "
+        f"WatchedSession.single / .records."
+    )
+
+
+@pytest.mark.parametrize("lane", SEEDER_SESSION_LANES)
+def test_a_lane_opens_its_seeder_sessions_inside_the_watch(lane: str) -> None:
+    """The seeder reads a raw session, so the session is opened inside the watch."""
+    sessions = _seeder_sessions(_lane_text(lane))
+
+    assert sessions, f"{lane} opens no seeder session, so this guard proves nothing there"
+    unwatched = [line for line, watched in sessions if not watched]
+    assert not unwatched, (
+        f"{lane} opens a seeder session outside the store's watch at line(s) "
+        f"{unwatched}, so a stalled store would fail a seeder call there as a driver "
+        f"traceback. Open it as ``with store.reading(), "
+        f"graph_seeder.open_session(...) as session:``."
+    )
+
+
+# ---------------------------------------------------------------------------
+# A store read that gets no answer fails as the store
+# ---------------------------------------------------------------------------
+
+#: The store's name in the failures below.
+LABEL = "graphdb (neo4j + n10s)"
+
+#: The store's address in the failures below.
+URI = "bolt://localhost:50769"
+
+
+class _FakeResult:
+    """A driver result over scripted rows; a row that is an exception is raised."""
+
+    def __init__(self, rows: list[object]) -> None:
+        self.rows = rows
+
+    def single(self) -> object:
+        return self.rows[0] if self.rows else None
+
+    def __iter__(self) -> Iterator[object]:
+        for row in self.rows:
+            if isinstance(row, BaseException):
+                raise row
+            yield row
+
+
+class _FakeSession:
+    """A driver session that answers each ``run`` with the next scripted outcome."""
+
+    def __init__(self, outcomes: list[object]) -> None:
+        self.outcomes = list(outcomes)
+        self.calls: list[tuple[str, dict]] = []
+
+    def run(self, cypher: str, params: dict) -> _FakeResult:
+        self.calls.append((cypher, params))
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return _FakeResult(outcome)
+
+
+def _watched(outcomes: list[object]) -> tuple[WatchedStore, _FakeSession, WatchedSession]:
+    """A watched session on a fake driver session scripted with *outcomes*."""
+    store = WatchedStore(URI, label=LABEL)
+    fake = _FakeSession(outcomes)
+    return store, fake, WatchedSession(fake, store)
+
+
+def test_a_read_that_gets_no_answer_fails_naming_the_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The failure names the store, its address and the test that was reading."""
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/x.py::test_a[shape] (call)")
+    lost = ServiceUnavailable("Failed to read from defunct connection")
+    _store, _fake, session = _watched([[{"n": 1}], lost])
+
+    assert session.single("RETURN 1 AS n") == {"n": 1}
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    assert isinstance(raised.value, AssertionError)
+    assert raised.value.__cause__ is lost
+    message = str(raised.value)
+    for fragment in (
+        LABEL,
+        URI,
+        "tests/x.py::test_a[shape] (call)",
+        "ServiceUnavailable",
+        "Failed to read from defunct connection",
+        "not a parity result",
+    ):
+        assert fragment in message, f"{fragment!r} is missing from: {message}"
+    assert "stopped answering 2 times" not in message
+
+
+def test_a_store_that_stopped_answering_is_asked_again() -> None:
+    """A stalled store can come back, so a loss does not fail the reads after it."""
+    _store, fake, session = _watched([ServiceUnavailable("defunct"), [{"n": 2}]])
+
+    with pytest.raises(GraphStoreUnavailable):
+        session.single("RETURN 2 AS n")
+    assert session.single("RETURN 2 AS n") == {"n": 2}
+
+    assert len(fake.calls) == 2
+
+
+def test_a_second_loss_names_the_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A repeated loss says how often the store stopped answering, and when first."""
+    _store, _fake, session = _watched([ServiceUnavailable("defunct"), ServiceUnavailable("gone")])
+
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/x.py::test_a (call)")
+    with pytest.raises(GraphStoreUnavailable):
+        session.single("RETURN 1 AS n")
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/x.py::test_b (call)")
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    message = str(raised.value)
+    assert "test_b (call)" in message.splitlines()[0]
+    assert "stopped answering 2 times" in message
+    assert "the first was during tests/x.py::test_a (call)" in message
+
+
+def test_a_result_that_breaks_while_it_is_read_fails_the_same_way() -> None:
+    """The records are fetched inside the guard, so a mid-stream loss is caught too."""
+    _store, _fake, session = _watched([[{"n": 1}, ServiceUnavailable("defunct mid-stream")]])
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.records("MATCH (n) RETURN n")
+
+    assert "defunct mid-stream" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ClientError("Invalid input 'MATCH'"), AssertionError("a test's own check")],
+    ids=["client-error", "assertion"],
+)
+def test_any_other_read_failure_is_left_as_it_is(error: Exception) -> None:
+    """Only a store that stops answering is renamed; every other failure is its own."""
+    store, _fake, session = _watched([error])
+
+    with pytest.raises(type(error)) as raised:
+        session.single("MATCH (n) RETURN n")
+
+    assert raised.value is error
+    assert not isinstance(raised.value, GraphStoreUnavailable)
+    assert store.losses == []
+
+
+class _Inspector:
+    """Says a fixed container state and counts how often it was asked."""
+
+    def __init__(self, state: str) -> None:
+        self.state = state
+        self.calls = 0
+
+    def __call__(self) -> str:
+        self.calls += 1
+        return self.state
+
+
+def test_the_failure_says_what_state_the_container_was_in() -> None:
+    """A lost read adds its container's state, read once, after the first line."""
+    inspector = _Inspector("exited (code 137, out of memory)")
+    store = WatchedStore(URI, label=LABEL, inspect=inspector)
+    session = WatchedSession(_FakeSession([ServiceUnavailable("defunct"), [{"n": 1}]]), store)
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+    assert session.single("RETURN 1 AS n") == {"n": 1}
+
+    lines = str(raised.value).splitlines()
+    assert lines[0].startswith(f"{LABEL} at {URI} stopped answering during ")
+    assert "Container state when the read failed: exited (code 137, out of memory)" in lines
+    assert inspector.calls == 1
+
+
+def test_without_an_inspector_the_failure_says_nothing_about_the_container() -> None:
+    """A store built from a URI and a label alone keeps the message it had."""
+    _store, _fake, session = _watched([ServiceUnavailable("defunct")])
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    message = str(raised.value)
+    assert "Container state" not in message
+    assert message.endswith("not at the code under test.")
+
+
+def test_an_inspector_that_fails_leaves_the_lost_read_as_the_failure() -> None:
+    """An inspector that raises is reported in the line, never over the lost read."""
+
+    def inspect() -> str:
+        raise RuntimeError("daemon went away")
+
+    lost = ServiceUnavailable("defunct")
+    store = WatchedStore(URI, label=LABEL, inspect=inspect)
+    session = WatchedSession(_FakeSession([lost]), store)
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    assert raised.value.__cause__ is lost
+    assert (
+        "Container state when the read failed: could not be read (RuntimeError: daemon went away)"
+        in str(raised.value).splitlines()
+    )
+
+
+def test_the_watched_store_inspects_its_own_container(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The store it yields reads the state of the container it started, then stops it."""
+
+    class _StartedContainer:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def get_connection_url(self) -> str:
+            return URI
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    started = _StartedContainer()
+    inspected: list[object] = []
+
+    def container_state(container: object) -> str:
+        inspected.append(container)
+        return "paused"
+
+    monkeypatch.setattr("tests._graphdb_container.start_or_skip", lambda factory, *, label: started)
+    monkeypatch.setattr("tests._graphdb_container.container_state", container_state)
+
+    with watched_graphdb_store(Path("plugins"), label=LABEL) as store:
+        session = WatchedSession(_FakeSession([ServiceUnavailable("defunct")]), store)
+        with pytest.raises(GraphStoreUnavailable) as raised:
+            session.single("RETURN 1 AS n")
+
+    assert store.uri == URI
+    assert store.label == LABEL
+    assert inspected == [started]
+    assert "Container state when the read failed: paused" in str(raised.value).splitlines()
+    assert started.stopped

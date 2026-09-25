@@ -545,7 +545,7 @@ class CohostRunner(Runner):
             # see ``ModelSurface._refusal`` -- so it is not recorded again
             # here, where a refused read would be recorded as a write.
             reply = error_reply(str(exc))
-        except Exception as exc:  # noqa: BLE001 - the client is owed an answer, whatever failed
+        except Exception as exc:  # the client is owed an answer, whatever failed
             text = f"the model surface failed on {request.verb}: {str(exc) or type(exc).__name__}"
             if request.verb in MODEL_WRITE_VERBS:
                 surface.record_refusal(text)

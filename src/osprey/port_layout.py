@@ -29,6 +29,8 @@ Virtual-accelerator instance 1 stays on :data:`CA_DEFAULT_PORT` (5064), the
 Channel Access protocol port, and is the one port ``port_base`` cannot move. A
 second deployment that also runs a VA sets ``services.virtual_accelerator.port``
 by hand. Every *further* VA instance is in-block, at the ``va_standin`` band.
+Its pvAccess port, :data:`PVA_DEFAULT_PORT`, is outside the block for the same
+reason, and a second deployment moves it with ``virtual_accelerator.pva_port``.
 
 Ordering and tiers
 ------------------
@@ -58,7 +60,9 @@ __all__ = [
     "INDEX_MAX",
     "LAYOUT",
     "PORT_BASE_CONFIG_KEY",
+    "PVA_DEFAULT_PORT",
     "SLOTS_BY_NAME",
+    "VA_PVA_PORT_CONFIG_KEY",
     "VA_STANDIN_MAX",
     "WORKER_MAX",
     "PortSlot",
@@ -105,6 +109,16 @@ FACILITY_MAX = 99
 #: not move: virtual-accelerator instance 1 serves EPICS here so that clients
 #: configured for a real facility reach it unchanged.
 CA_DEFAULT_PORT = 5064
+
+#: The pvAccess protocol port, and the second host port ``port_base`` does not
+#: move: virtual-accelerator instance 1 publishes its model surface here unless
+#: the deployment names another with :data:`VA_PVA_PORT_CONFIG_KEY`.
+PVA_DEFAULT_PORT = 5075
+
+#: The rendered-config key that moves instance 1's pvAccess port. Spelled once
+#: so the build that writes it, the preflight that names it as a remedy and the
+#: docs all say the same key.
+VA_PVA_PORT_CONFIG_KEY = "services.virtual_accelerator.pva_port"
 
 #: The dotted config key this module resolves. Spelled once so a refusal, a
 #: remedy line and the docs page all name the same key.

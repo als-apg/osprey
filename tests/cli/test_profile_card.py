@@ -104,10 +104,7 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     band rather than at whatever the profile happened to spell.
     """
     alice = line_with(exemplar_lines, "alice")
-    assert (
-        "readwrite · live rights approval-gated · va rights approval-gated"
-        " · standin rights approval-gated"
-    ) in alice
+    assert "readwrite · live read-only · va rights approval-gated" in alice
     assert "password" in alice
     assert alice.rstrip().endswith(f":{_PORTS['web']}")
 
@@ -289,15 +286,33 @@ def test_the_agent_group_names_servers_and_counts_its_toolkit(
     assert re.search(r"\d+ agents", toolkit)
 
 
+def test_the_model_row_names_the_provider_default_when_the_profile_names_none(
+    exemplar_lines: list[str],
+) -> None:
+    """The preset names no model, so the card says which one answers and why."""
+    model = line_with(exemplar_lines, "model ")
+    assert "anthropic" in model
+    assert "(provider default) claude-sonnet-5" in model
+
+
+def test_the_model_row_shows_a_named_model_without_its_vendor_prefix() -> None:
+    lines = format_profile_card(
+        BuildProfile(name="named", provider="als-apg", model="claude-haiku-4-5-20251001"), {}
+    )
+    model = line_with(lines, "model ")
+    assert "Haiku 4.5 (claude-haiku-4-5-20251001)" in model
+    assert "Claude" not in model
+
+
 def test_the_machine_group_reads_connector_archiver_and_channels(
     exemplar_lines: list[str],
 ) -> None:
     control = line_with(exemplar_lines, "control ")
     # The baseline connector type, spelled the way the card spells one
     # (underscores to spaces), then the two simulator ports the preset
-    # declares: the sandbox on 5064 and the stand-in the baseline names, which
-    # `live_standin: true` places at the layout's stand-in slot.
-    assert "live standin" in control
+    # declares: the sandbox on 5064, which the baseline names, and the
+    # stand-in, which `live_standin: true` places at the layout's stand-in slot.
+    assert control.split()[1:3] == ["virtual", "accelerator"]
     assert "EPICS :5064" in control
     assert f"live stand-in :{default_port('va_standin')}" in control
     archiver = line_with(exemplar_lines, "archiver")

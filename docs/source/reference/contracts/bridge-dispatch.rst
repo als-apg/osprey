@@ -24,22 +24,73 @@ token. The body is the question plus whatever context the engine assembled:
 
    {
      "question": "now plot that over 24 hours",
+     "asker": {"id": "users/111", "name": "Alice"},
+     "room": {"members": [{"id": "users/111", "name": "Alice"},
+                          {"id": "users/222", "name": "Carol"},
+                          {"id": "users/333", "name": null}],
+              "mentions": "To @mention a member of this room, write <@ID> ..."},
      "conversation_so_far": [{"question": "...", "answer": "...", "ts": 1757000000.0,
-                              "run_id": "run-...", "artifacts": []}],
+                              "run_id": "run-...", "artifacts": [],
+                              "asked_by": {"id": "users/222", "name": "Carol"}}],
+     "prior_answer_runs": ["3f2b…"],
      "reply_to": {"sender": "Alice", "text": "the vacuum trace from this morning"},
      "input_files": [{"filename": "trace.png", "mime": "image/png",
                       "content_b64": "...", "ingest": true}],
      "skipped_attachments": [{"filename": "scan.h5", "reason": "..."}]
    }
 
-Only ``question`` is always present. A text-only message in a fresh
-conversation sends that field and nothing else — the engine omits an empty
-context rather than sending empty containers, so such a dispatch is
-byte-identical to one made before any of this existed.
+Only ``question`` is always present. ``asker`` is present whenever the chat
+system told the bridge who sent the message. A text-only message whose sender
+is unknown, in a fresh conversation, sends ``question`` and nothing else. The
+engine omits an empty context rather than sending empty containers.
 
 The whole body becomes the agent's context, exactly as it does for a webhook
 fired by hand. A trigger's prompt does not have to name these fields for the
-agent to see them.
+agent to see them. Two fields are the exception: the dispatcher takes
+``input_files`` and ``prior_answer_runs`` out of the body and hands each to the
+worker as a field of its own.
+
+``asker``
+=========
+
+Who sent this message, as ``id`` (the chat system's stable identity for the
+person) and ``name`` (their display name). Either may be ``null`` when the chat
+system did not supply it.
+
+It is what the chat system reports, not a verified identity. The dispatcher
+folds the whole body into the agent's prompt, so the agent reads the name the
+way it reads the question; what the agent may do is set by the trigger's tool
+list, and that list, not the payload, is the security control.
+
+``room``
+========
+
+Who is in the conversation. Present only when the bridge can list the room
+(Google Chat, Microsoft Teams and Nextcloud Talk):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Field
+     - Meaning
+   * - ``members[].id``
+     - The chat system's stable identity for the person, the same kind of
+       string as ``asker.id``.
+   * - ``members[].name``
+     - The name the chat system's member listing gives; else a name the bridge
+       saw in that room (a sender, or someone mentioned in a message to it);
+       ``null`` when it has neither. A name is never guessed.
+   * - ``mentions``
+     - An instruction written for the agent: how to write ``<@ID>`` with an id
+       from ``members``, and that it may do so only when a person in the room
+       asked it to pass something on or to notify someone. When the deployment
+       turned mentions off, it says so and asks for names in plain text.
+   * - ``more_not_listed``
+     - ``true`` when the bridge capped the list; absent otherwise.
+
+The bridge renders ``<@ID>`` into its chat system's own mention only for an id
+in ``members``. A mention of anyone not listed is posted as plain text.
 
 ``conversation_so_far``
 =======================
@@ -65,6 +116,12 @@ The recent exchanges in this conversation, **oldest first**. This is what makes
    * - ``artifacts``
      - Descriptors for the files that run produced — round-tripped opaquely by
        the bridge, capped per turn, newest kept.
+   * - ``asked_by``
+     - Who asked this question, in the same shape as ``asker``. Absent when the
+       bridge did not know, including every turn recorded before the field
+       existed.
+   * - ``answer_chars``
+     - Present only when ``answer`` was shortened: the full answer's length.
 
 The bridge caps the list by turn count and by total serialized size, dropping
 oldest first, so the newest exchanges always survive.
@@ -74,6 +131,21 @@ bridge saying it could not bring the artifact's bytes back — swept, deleted, o
 too large for the budget below — so the agent should say the file is no longer
 available rather than pretend to look at it. Nothing keys on the exact wording;
 it is written to be read.
+
+Shortened answers
+-----------------
+
+An answer longer than the bridge's ``HISTORY_ANSWER_LIMIT`` (3000 characters by
+default) is sent as its opening and a note naming its run. The agent reads the
+whole answer with ``prior_answer_read``. The bridge's own copy keeps every
+answer in full. Against a dispatcher or worker that does not advertise
+``prior_answers``, every answer is sent in full.
+
+``prior_answer_runs``
+=====================
+
+Present only when an answer was shortened: the run ids of those turns. The
+worker lets ``prior_answer_read`` read those runs and no others.
 
 ``reply_to``
 ============

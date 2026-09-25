@@ -197,13 +197,13 @@ def _build_records(**kwargs: Any) -> Any:
 class _RunLoop:
     """The model's thread. See ``test_record_factory.py`` for why it exists."""
 
-    def __init__(self, on_setpoint) -> None:  # noqa: ANN001 - test-local callable
+    def __init__(self, on_setpoint) -> None:  # test-local callable
         self._on_setpoint = on_setpoint
         self._queue: Queue = Queue()
         self.thread = threading.Thread(target=self._run, daemon=True, name="va-fault-run-loop")
         self.thread.start()
 
-    def enqueue(self, values: dict, *, done) -> None:  # noqa: ANN001 - test-local callable
+    def enqueue(self, values: dict, *, done) -> None:  # test-local callable
         self._queue.put((values, done))
 
     def _run(self) -> None:
@@ -213,7 +213,7 @@ class _RunLoop:
             try:
                 for address, item in values.items():
                     self._on_setpoint(address, item["value"])
-            except Exception as exc:  # noqa: BLE001 - the loop reports, never raises
+            except Exception as exc:  # the loop reports, never raises
                 error = str(exc)
             done(error)
 
@@ -231,7 +231,7 @@ class _PhysicsHook:
 class LiveNamespace:
     """A served namespace with one faulted channel in each partition."""
 
-    def __init__(self, records, hook, loop) -> None:  # noqa: ANN001
+    def __init__(self, records, hook, loop) -> None:
         self.records = records
         self.hook = hook
         self.loop = loop
@@ -265,7 +265,7 @@ def live() -> Any:
     class LiveDriver(pcaspy.Driver):
         """The production driver's whole body: delegate to the write path."""
 
-        def write(self, reason: str, value: Any) -> bool:  # noqa: D102 - pcaspy contract
+        def write(self, reason: str, value: Any) -> bool:  # pcaspy contract
             accepted: bool = path.write(self, reason, value)
             return accepted
 
@@ -293,7 +293,7 @@ def live() -> Any:
     thread.join(timeout=5)
 
 
-def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:  # noqa: ANN001
+def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = predicate()

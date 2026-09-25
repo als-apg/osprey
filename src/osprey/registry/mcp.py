@@ -267,6 +267,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             # actuates nothing — allow.
             "phoebus_open_panel",
             "phoebus_open_databrowser",
+            # Asking whether a display path is registered for this terminal
+            # reads the panel registry and reaches no bridge — allow.
+            "phoebus_panel_lookup",
         ],
         # Driving a live panel actuates hardware-facing controls — a widget
         # write is a control-system write, so it carries the writes kill
@@ -341,6 +344,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "artifact_delete",
             "artifact_delete_all",
             "provenance_locator",
+            "prior_answer_read",
             "session_log",
             "session_summary",
             "archiver_downsample",

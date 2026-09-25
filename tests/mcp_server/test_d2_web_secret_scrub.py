@@ -25,9 +25,9 @@ that module is probed by these tests on the day it is added rather than the
 day someone remembers to widen them.
 
 ``PATH`` and ``OSPREY_WEB_PORT`` are asserted present in every child
-environment as negative controls — except the python-executor sandbox child,
-which deliberately drops ``OSPREY_WEB_PORT`` (executor-local drop; the PTY
-child keeps it) and therefore uses ``PATH`` alone. Without them a bug that handed a child an
+environment as negative controls — except the three sandbox children, which
+deliberately drop ``OSPREY_WEB_PORT`` (sandbox-only drop; the PTY child keeps
+it) and therefore use ``PATH`` alone. Without them a bug that handed a child an
 empty environment would make every absence assertion below pass while proving
 nothing at all.
 
@@ -391,6 +391,22 @@ def test_audit_identity_env_is_on_no_scrub_list() -> None:
     )
 
 
+def test_audit_identity_env_is_allowlisted() -> None:
+    """``OSPREY_AUDIT_IDENTITY`` is on the allowlist every sandbox child is built from.
+
+    Being on no drop list is not enough once the child starts from an
+    allowlist: a name missing from it is dropped just as silently.
+    """
+    from osprey.mcp_server.sandbox_env import (
+        SANDBOX_CHILD_ENV_ALLOW_NAMES,
+        scrub_sandbox_child_env,
+    )
+    from osprey_connectors.identity import AUDIT_IDENTITY_ENV
+
+    assert AUDIT_IDENTITY_ENV in SANDBOX_CHILD_ENV_ALLOW_NAMES
+    assert scrub_sandbox_child_env({AUDIT_IDENTITY_ENV: "alice"})[AUDIT_IDENTITY_ENV] == "alice"
+
+
 # --------------------------------------------------------------------------- #
 # Spawn path: the Bluesky plan-validation dry run (real subprocess)
 # --------------------------------------------------------------------------- #
@@ -438,9 +454,16 @@ async def test_plan_validation_dry_run_subprocess_gets_no_sensitive_credential(
         "plan validation spawned no dry-run subprocess, so its environment was never "
         "observed — stages 1/2 must have rejected the probe body"
     )
+    # Plan validation builds its child with the shared scrub_sandbox_child_env,
+    # like the two sandboxes above, which drops OSPREY_WEB_PORT. PATH is the
+    # negative control; the drop itself is pinned as expected behaviour.
     for env in captured:
         _assert_no_sensitive_names(env, sensitive_parent_env, "plan-validation dry run")
-        _assert_negative_controls(env, "plan-validation dry run")
+        _assert_negative_controls(env, "plan-validation dry run", controls=("PATH",))
+        assert "OSPREY_WEB_PORT" not in env, (
+            "plan-validation dry run: OSPREY_WEB_PORT must be dropped from the child env "
+            "(see SANDBOX_CHILD_ENV_DROP_NAMES in mcp_server/sandbox_env.py)"
+        )
 
 
 # --------------------------------------------------------------------------- #

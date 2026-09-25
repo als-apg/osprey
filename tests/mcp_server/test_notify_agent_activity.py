@@ -46,7 +46,7 @@ class TestStoppedServer:
 class _CaptureHandler(BaseHTTPRequestHandler):
     captured: list[tuple[str, dict]] = []
 
-    def do_POST(self):  # noqa: N802 - http.server API
+    def do_POST(self):  # http.server API
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length))
         type(self).captured.append((self.path, body))

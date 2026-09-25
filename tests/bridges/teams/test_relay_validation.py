@@ -118,25 +118,35 @@ class _Response:
 
 
 def _metadata_source(record, *, payload: bytes | None = None, error: Exception | None = None):
-    """A stand-in for the module's own ``urlopen``: the metadata GET."""
+    """A stand-in for the module's own ``urlopen``: the metadata GET.
+
+    Given neither ``payload`` nor ``error``, reaching it fails the test.
+    """
 
     def _open(url, timeout=None):
         record.metadata.append((url, timeout))
         if error is not None:
             raise error
-        return _Response(payload or b"")
+        if payload is None:
+            raise AssertionError(f"unexpected metadata fetch: {url}")
+        return _Response(payload)
 
     return _open
 
 
 def _jwks_source(record, *, payload: bytes | None = None, error: Exception | None = None):
-    """A stand-in for ``urllib.request.urlopen``: PyJWT's JWKS GET."""
+    """A stand-in for ``urllib.request.urlopen``: PyJWT's JWKS GET.
+
+    Given neither ``payload`` nor ``error``, reaching it fails the test.
+    """
 
     def _open(request, timeout=None, context=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
         record.jwks.append((request.full_url, timeout))
         if error is not None:
             raise error
-        return _Response(payload or b"")
+        if payload is None:
+            raise AssertionError(f"unexpected JWKS fetch: {request.full_url}")
+        return _Response(payload)
 
     return _open
 
@@ -145,17 +155,8 @@ def _jwks_source(record, *, payload: bytes | None = None, error: Exception | Non
 def network(monkeypatch):
     """Stub both fetch seams; by default reaching either one fails the test."""
     record = SimpleNamespace(metadata=[], jwks=[])
-
-    def _metadata(url, timeout=None):
-        record.metadata.append((url, timeout))
-        raise AssertionError(f"unexpected metadata fetch: {url}")
-
-    def _jwks_fetch(request, timeout=None, context=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
-        record.jwks.append((request.full_url, timeout))
-        raise AssertionError(f"unexpected JWKS fetch: {request.full_url}")
-
-    monkeypatch.setattr(validation, "urlopen", _metadata)
-    monkeypatch.setattr(urllib.request, "urlopen", _jwks_fetch)
+    monkeypatch.setattr(validation, "urlopen", _metadata_source(record))
+    monkeypatch.setattr(urllib.request, "urlopen", _jwks_source(record))
     return record
 
 
