@@ -193,6 +193,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # slower to build than the VA/bridge/Tiled images already are. Only
     # top-level profile-key overrides go through -O/an override file (a flat
     # dotted `--set` would build a nested dict for `dispatch`, not null it out).
+    # The preset's `services:` block holds the record archive, which runs the
+    # same project image, so it goes with the dispatch stack: `services: {}` is
+    # the spelling because a single service cannot be nulled.
     #
     # modules.web_terminals.enabled: false drops the preset's per-persona
     # web-terminal stack (two persona images + nginx, all built locally):
@@ -209,6 +212,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # run on, and pinning it here would hide a regression in that baseline.
     edits = {
         "dispatch": None,
+        "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
             "services.openobserve.port": OPENOBSERVE_PORT,

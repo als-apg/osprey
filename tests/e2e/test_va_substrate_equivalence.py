@@ -421,7 +421,10 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # (writes_enabled/limits_checking/connector gateways) is left alone.
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
-    # build than the VA image already is.
+    # build than the VA image already is. The preset's `services:` block holds
+    # the record archive, which runs the same project image, so it goes with the
+    # dispatch stack: `services: {}` is the spelling because a single service
+    # cannot be nulled.
     # `modules.web_terminals.enabled: false` scopes this deploy back to the VA +
     # bridge substrate: the control-assistant preset now ships the multi-user
     # web-terminal stack on by default, so an unqualified deploy would also
@@ -438,6 +441,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "modules.web_terminals.enabled": False,
         },
         "dispatch": None,
+        "services": {},
         **_orm_stack.VA_ARCHIVER_CI_KNOBS,
     }
 

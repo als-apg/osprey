@@ -295,7 +295,10 @@ def _profile_edits() -> dict[str, Any]:
     the preset's archive stays (a simulated machine may not be paired with an
     invented history) but shrunk to seconds of seeding. The bluesky stack, the
     dispatcher and telemetry are dropped: nothing here reaches them, and every
-    container they add is a minute of build. The roster and the persona
+    container they add is a minute of build. The preset's ``services:`` block
+    holds the record archive, which runs the same project image as the
+    dispatcher, so it goes with the dispatch stack: ``services: {}`` is the
+    spelling because a single service cannot be nulled. The roster and the persona
     catalog are rewritten in :func:`_shape_repo` instead of stated here: they
     are derived from the preset's own catalog, which only exists once the
     repo is materialized.
@@ -321,6 +324,7 @@ def _profile_edits() -> dict[str, Any]:
         },
         "channel_finder_mode": "hierarchical",
         "dispatch": None,
+        "services": {},
         "bluesky": None,
         "bluesky_web": None,
         "va_archiver": {"retention_days": 2, "hot_span_hours": 2},

@@ -205,11 +205,15 @@ def _profile_edits() -> dict[str, Any]:
     mock, and every assertion here would pass against synthesized data while the
     real store sat empty beside it.
 
-    ``deployed_services: []`` plus the nulled blocks trims the stack to exactly
-    the archiver world. Config edits are applied BEFORE the build's service
-    injectors run, so emptying the list and letting the VA and archiver
-    injectors append leaves precisely ``[virtual_accelerator, mongodb,
-    archiver_recorder]`` — verified in the built config, not assumed.
+    ``deployed_services: []`` plus the nulled blocks and an empty ``services:``
+    trims the stack to exactly the archiver world. Config edits are applied
+    BEFORE the build's service injectors run, so emptying the list and letting
+    the VA and archiver injectors append leaves precisely
+    ``[virtual_accelerator, mongodb, archiver_recorder]`` — verified in the
+    built config, not assumed. The preset's ``services:`` block holds the record
+    archive, which runs the same project image as the dispatch stack, so it goes
+    with it: ``services: {}`` is the spelling because a single service cannot be
+    nulled.
 
     ``virtual_accelerator.live_standin: null`` switches the preset's live
     stand-in off — the delete-the-line escape the profile documents, spelled as
@@ -258,6 +262,7 @@ def _profile_edits() -> dict[str, Any]:
         "bluesky": None,
         "bluesky_web": None,
         "dispatch": None,
+        "services": {},
     }
 
 
@@ -397,7 +402,8 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     assert built_services == ["archiver_recorder", "mongodb", "virtual_accelerator"], (
         f"the built project deploys {built_services}, not the archiver world this lane "
         "trims to; config edits run BEFORE the service injectors, so an emptied "
-        "deployed_services plus the VA and archiver injectors must leave exactly these three"
+        "deployed_services and an emptied services block plus the VA and archiver "
+        "injectors must leave exactly these three"
     )
 
     osprey_bin = _orm_stack.find_osprey_console_script()

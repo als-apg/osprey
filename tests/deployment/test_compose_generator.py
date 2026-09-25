@@ -34,7 +34,7 @@ from ruamel.yaml import YAML
 import osprey.channel_roster as channel_roster
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
-from osprey.deployment import host_ports
+from osprey.deployment import container_lifecycle, host_ports
 from osprey.deployment.compose_generator import (
     prepare_compose_files,
     resolve_project_name,
@@ -2107,6 +2107,10 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
+    assert container_lifecycle._project_image_build_target(dict(config), {}) is None, (
+        "the plan-stack lanes deploy no service on the project image, so `osprey up` "
+        f"builds none: {config.get('deployed_services')}"
+    )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
     mcp_config = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))

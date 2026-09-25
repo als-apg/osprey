@@ -702,7 +702,10 @@ def _profile_edits() -> dict[str, Any]:
     ``dispatch: null`` drops the event-dispatcher stack (Node + Claude CLI
     image) and ``modules.web_terminals.enabled: false`` drops the per-persona
     web-terminal stack: neither is touched by this proof and both are slow to
-    build (same convention as ``_orm_stack.profile_edits``). The two config port
+    build (same convention as ``_orm_stack.profile_edits``). The preset's
+    ``services:`` block holds the record archive, which runs the same project
+    image, so it goes with the dispatch stack: ``services: {}`` is the spelling
+    because a single service cannot be nulled. The two config port
     keys move ariel-postgres and OpenObserve -- services the preset deploys
     unconditionally, with no profile knob -- off 5432/5080, which a locally
     running tutorial deploy routinely holds.
@@ -732,6 +735,7 @@ def _profile_edits() -> dict[str, Any]:
     """
     return {
         "dispatch": None,
+        "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
             "services.openobserve.port": OPENOBSERVE_PORT,
