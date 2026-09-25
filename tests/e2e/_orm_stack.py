@@ -1204,50 +1204,6 @@ def select_bpms(
     return _keyed_by_address(addresses, lambda address: address, count, "monitor readbacks")
 
 
-#: The machine-file keys that move a reading on its own: slow drift, relative
-#: noise, absolute noise.
-_MOTION_KEYS = ("texture", "noise", "noise_abs")
-
-
-def still_monitor_motion(repo: Path) -> frozenset[str]:
-    """Remove the declared motion from every monitor reading the repo will serve.
-
-    The virtual accelerator serves a lattice-bound monitor as the solved orbit
-    plus the drift and noise its ``machine.json`` entry declares. A lane whose
-    oracle is the noiseless model -- the measured response must equal the
-    in-process solve to numerical precision -- needs readings that are the
-    orbit and nothing else, so it stills them in the deployment's own machine
-    file. Every other channel keeps what the file declares.
-
-    Runs as (part of) a ``pre_build`` hook: the repo's ``data/`` is the tree
-    ``osprey build`` then stages into the render the containers mount.
-
-    Returns:
-        The monitor addresses whose declared motion was removed.
-    """
-    paths = ManifestPaths(repo / "data")
-    assert paths.machine_json.is_file(), f"the deployment carries no {paths.machine_json}"
-    assert paths.va_bindings.is_file(), f"the deployment carries no {paths.va_bindings}"
-    monitors = {
-        address
-        for binding in _bindings_at(paths.data_root).bindings
-        if binding.kind == "monitor"
-        for address in (binding.setpoint_address, binding.readback_address)
-        if address is not None
-    }
-    machine = json.loads(paths.machine_json.read_text(encoding="utf-8"))
-    stilled: set[str] = set()
-    for address in monitors:
-        entry = machine["channels"].get(address)
-        if not isinstance(entry, dict):
-            continue
-        for key in _MOTION_KEYS:
-            if entry.pop(key, None):
-                stilled.add(address)
-    paths.machine_json.write_text(json.dumps(machine, indent=2) + "\n", encoding="utf-8")
-    return frozenset(stilled)
-
-
 def write_devices_file(
     repo: Path,
     *,

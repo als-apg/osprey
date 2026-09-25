@@ -88,6 +88,7 @@ from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._monitor_motion import still_monitor_motion
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -221,7 +222,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         # The oracle is the noiseless model (see MATCH_RTOL), so the monitors
         # serve the solved orbit without the drift and noise the machine file
         # gives them.
-        _orm_stack.still_monitor_motion(repo)
+        still_monitor_motion(repo / "data")
         records = _orm_stack.roster_records(repo)
         correctors = _orm_stack.select_correctors(records, CORRECTOR_COUNT)
         bpms = _orm_stack.select_bpms(records)

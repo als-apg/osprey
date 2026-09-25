@@ -65,6 +65,7 @@ import pytest
 import yaml
 
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+from tests.e2e._monitor_motion import still_monitor_motion
 
 if TYPE_CHECKING:
     from osprey.services.virtual_accelerator.bindings import Binding
@@ -184,6 +185,11 @@ def stage_demo_data_dir(root: Path) -> Path:
     shutil.copy2(PACKAGED_MANIFEST_PATH, staged / DEMO_MANIFEST_FILENAME)
     shutil.copy2(LIMITS_DB_PATH, staged / "channel_limits.json")
     shutil.copy2(LIMITS_DB_PATH, root / "channel_limits.json")
+    # The suites here hold served readings to the model's truth exactly (an
+    # unseeded BPM reads its true position, a +/- kick is antisymmetric), so
+    # the monitors serve the solved orbit without the drift and noise the
+    # preset's machine file gives them.
+    still_monitor_motion(root)
     return staged
 
 

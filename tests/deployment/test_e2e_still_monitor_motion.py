@@ -1,11 +1,11 @@
-"""The ORM and bump e2e stacks serve their monitors without declared motion.
+"""The noiseless-oracle e2e stacks serve their monitors without declared motion.
 
-Those lanes compare what the deployed stack measures with the noiseless model,
-so ``tests/e2e/_orm_stack.still_monitor_motion`` removes the drift and noise the
-deployment's ``machine.json`` gives its monitor readings before the build
-stages it. These tests run it on the shipped preset's own data tree: every
-monitor the bindings claim is left without motion, and every other channel is
-left exactly as the file declares it.
+The ORM and bump round trips and the live VA suites compare what the stack
+serves with the noiseless model, so ``tests/e2e/_monitor_motion`` removes the
+drift and noise the machine file gives the monitor readings before the tree is
+staged or mounted. These tests run it on the shipped preset's own data tree:
+every monitor the bindings claim is left without motion, and every other
+channel is left exactly as the file declares it.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _monitors() -> set[str]:
 
 
 def test_every_monitor_is_stilled_and_nothing_else_changes(tmp_path: Path) -> None:
-    from tests.e2e._orm_stack import still_monitor_motion
+    from tests.e2e._monitor_motion import still_monitor_motion
 
     repo = _repo_with_preset_data(tmp_path)
     machine_json = ManifestPaths(repo / "data").machine_json
@@ -50,7 +50,7 @@ def test_every_monitor_is_stilled_and_nothing_else_changes(tmp_path: Path) -> No
     moving = {address for address in monitors if preset.has_motion(address)}
     assert moving, "the preset declares no monitor motion, so there is nothing to still"
 
-    stilled = still_monitor_motion(repo)
+    stilled = still_monitor_motion(repo / "data")
 
     assert stilled == moving
     engine = SimulationEngine.from_file(machine_json, state_dir=tmp_path)

@@ -112,6 +112,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._monitor_motion import still_monitor_motion
 from tests.e2e._volumes import remove_project_volumes
 
 if TYPE_CHECKING:
@@ -529,7 +530,7 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         # TOLERANCE_M sits below the machine file's BPM noise and rests on a
         # stack whose monitors read the solved orbit exactly, so they serve it
         # without the drift and noise the machine file gives them.
-        _orm_stack.still_monitor_motion(repo)
+        still_monitor_motion(repo / "data")
         records = _orm_stack.roster_records(repo)
         available_correctors, available_bpms = _horizontal_devices(records)
 
