@@ -114,6 +114,7 @@ async def dispatch_to_worker(
     input_files: list[dict[str, Any]] | None = None,
     max_turns: int | None = None,
     owner: str | None = None,
+    prior_answer_runs: list[str] | None = None,
 ) -> dict[str, Any]:
     """POST a prompt to a dispatch worker's /dispatch endpoint.
 
@@ -143,6 +144,10 @@ async def dispatch_to_worker(
             own writes are checked against. Omitted from the payload when unset,
             which is what an owner-less fire (a cron tick, a webhook from a remote
             system) sends — such a run is checked against no one's narrowing.
+        prior_answer_runs: Optional run ids of earlier answers the caller replayed
+            shortened, the only runs the agent may read back. Omitted from the
+            payload when ``None`` or empty, so a worker predating the field sees an
+            unchanged request.
 
     Returns:
         Response JSON dict (typically contains ``run_id`` and ``status``).
@@ -170,6 +175,8 @@ async def dispatch_to_worker(
         payload["max_turns"] = max_turns
     if owner:
         payload["owner"] = owner
+    if prior_answer_runs:
+        payload["prior_answer_runs"] = prior_answer_runs
 
     # A dispatch body carrying input_files can reach ~24 MB. httpx's single-float
     # timeout would apply that same short window to the write phase and abort the

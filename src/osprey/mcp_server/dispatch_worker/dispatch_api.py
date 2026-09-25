@@ -57,6 +57,10 @@ from osprey.mcp_server.dispatch_worker.input_files_policy import (
     sanitize_filename,
     validate_input_files,
 )
+from osprey.mcp_server.dispatch_worker.prior_answers import (
+    PRIOR_ANSWERS_CAPABILITY,
+    keep_run_ids,
+)
 from osprey.utils.bearer import credential_bytes
 from osprey.utils.tool_rules import matches_denylist
 
@@ -85,7 +89,7 @@ MAX_REQUEST_BYTES = 32 * 1024 * 1024
 # Capabilities this worker advertises on /health. A downstream bridge gates
 # feature use on BOTH the dispatcher's and the worker's /health carrying the
 # capability, so the list is a plain JSON array on both bodies.
-_CAPABILITIES: list[str] = ["input_files"]
+_CAPABILITIES: list[str] = ["input_files", PRIOR_ANSWERS_CAPABILITY]
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -495,6 +499,12 @@ class DispatchRequest(BaseModel):
     declared here to survive at all — an undeclared key is dropped silently, and
     the run would be judged against nobody's narrowing while the fire was
     attributed to a person.
+
+    ``prior_answer_runs`` is additive and defaults to ``None``: the run ids of
+    earlier answers the bridge replayed shortened, and the only runs
+    ``prior_answer_read`` will read for this run. Malformed ids are dropped
+    rather than refused — the list is enrichment, and a dispatch must not fail
+    over it.
     """
 
     prompt: str
@@ -504,6 +514,16 @@ class DispatchRequest(BaseModel):
     surface_tools: list[str] | None = None
     input_files: list[InputFile] | None = None
     owner: str | None = None
+    prior_answer_runs: list[str] | None = None
+
+    @field_validator("prior_answer_runs", mode="before")
+    @classmethod
+    def _keep_valid_prior_answer_runs(cls, value: Any) -> list[str] | None:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            return None
+        return keep_run_ids(value) or None
 
 
 class DispatchResponse(BaseModel):
@@ -673,6 +693,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,
                 owner=request.owner,
+                prior_answer_runs=request.prior_answer_runs,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )
