@@ -4622,6 +4622,90 @@ _STANDIN_OFFSET_AXES = {"offset_x": "x", "offset_y": "y"}
 #: a later transform is a different value here rather than a silent MATCH.
 _STANDIN_TRANSFORM_KIND = "bpm_offsets"
 
+#: How the fingerprint names a seed whose lattice-served monitor readings are
+#: centred on the orbit the served model solves (see
+#: :func:`_solved_monitor_baselines`).
+_SOLVED_BASELINES_KIND = "solved_monitor_baselines"
+
+
+def _solved_monitor_baselines(project_dir: Path, channels: Sequence[dict]) -> dict[str, float]:
+    """The reading each lattice-served monitor serves at boot, by address.
+
+    A monitor the served tree binds to the lattice does not read the level its
+    ``machine.json`` entry declares: it reads the closed orbit the model solves,
+    and the virtual accelerator adds the machine file's motion on top of that.
+    Its seeded history has to sit on the same orbit, or every trend across the
+    boundary between the seeded past and the recorded present steps by the
+    difference. So the orbit is solved here the way the virtual accelerator
+    solves it at boot -- the same model, built from the same served tree and
+    channel set, read through the same bridge -- and the truth that bridge
+    publishes, before any motion or readout fault, is the answer.
+
+    :param project_dir: The deployment repo root.
+    :param channels: The manifest channel set being seeded.
+    :returns: ``{address: solved reading}`` for every seeded address the tree
+        serves as a monitor reading. Empty for a deployment whose chain serves
+        no lattice, whose served tree carries no lattice or no bindings, or
+        whose model cannot be built -- the last with a warning, because the
+        seed then describes the machine file's declared levels rather than the
+        orbit the live half will serve.
+    """
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
+    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
+
+    build_dir = project_dir / BUILD_DIRNAME
+    if resolved_va_lattice(project_dir, build_dir) == VA_LATTICE_DEFAULT:
+        return {}
+    data_root = served_data_root(project_dir, build_dir)
+    if data_root is None:
+        return {}
+    paths = ManifestPaths(data_root=data_root)
+    if not (paths.lattice_json.is_file() and paths.va_bindings.is_file()):
+        return {}
+
+    from osprey.services.virtual_accelerator.bindings import BindingsError
+    from osprey.services.virtual_accelerator.ioc.physics_bridge import (
+        OrbitSolveError,
+        PhysicsBridge,
+        UnknownDeviceError,
+    )
+    from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+
+    try:
+        truth = PhysicsBridge(PyATRingModel(data_root, list(channels))).bpm_positions()
+    except (BindingsError, OrbitSolveError, UnknownDeviceError, OSError, ValueError) as exc:
+        logger.warning(
+            "  The served lattice under %s could not be solved (%s), so the archive seed "
+            "centres its monitor readings on the levels machine.json declares rather than "
+            "on the orbit the virtual accelerator will serve.",
+            data_root,
+            exc,
+        )
+        return {}
+    served = {str(channel["address"]) for channel in channels}
+    return {address: value for address, value in truth.items() if address in served}
+
+
+def _baselines_fingerprint(
+    baselines: Mapping[str, float], readout: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The seed's value description when its monitor readings are rebased.
+
+    The solved levels are digested rather than listed: the fingerprint only has
+    to change when any of them does, and a digest keeps the stored manifest and
+    a mismatch report readable. The stand-in's readout description, when there
+    is one, rides along unchanged under ``readout``, because the offsets are
+    still subtracted from the rebased values exactly as before.
+    """
+    canonical = json.dumps(sorted(baselines.items()), separators=(",", ":"))
+    return {
+        "kind": _SOLVED_BASELINES_KIND,
+        "count": len(baselines),
+        "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "readout": None if readout is None else dict(readout),
+    }
+
 
 def _served_monitor_readings(project_dir: Path):
     """Where the served tree publishes each monitor reading, and at which element.
@@ -4736,11 +4820,13 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
     machine's history under a displaced machine's present and every trend
     across the seam would show a step no operator caused.
 
-    **Offset level, not sample level.** The seeded past carries the same
-    systematic offsets as the stand-in's readout, not the same samples: the
-    seed's own values come from the simulation engine and the procedural
-    generator, not from pyAT, so a seeded sample and a recorded one agree about
-    the machine's systematic error and not about any individual number.
+    **Applied last, to the synthesized value.** The stand-in reads the beam
+    through its offsets, and the seed subtracts the same offsets from the value
+    it synthesized for that instant. For a monitor the served lattice computes,
+    that value is centred on the solved orbit and carries the machine file's
+    motion (see :func:`_solved_monitor_baselines`), which is what the stand-in
+    reads before its offsets too, so a seeded sample and a recorded one at the
+    same instant agree while no write has moved the orbit.
 
     Offsets are the only reproducible field, which is why the shipped default
     carries nothing else: with unit gain and calibration, positive polarity,
@@ -4863,11 +4949,20 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     and because a seed built without it would describe a different machine than
     the recorder is sampling (see :func:`_standin_seed_transform`).
 
+    A monitor reading the served lattice computes is centred on the orbit that
+    lattice solves (:func:`_solved_monitor_baselines`) rather than on the level
+    ``machine.json`` declares for it: the engine is built with those levels as
+    its baselines, and the boot values carry them for a reading the machine
+    file does not describe. The file itself is never rewritten. Because the
+    rebased values are different stored values, the fingerprint says so.
+
     :returns: ``(channels, engine, boot_values, value_transform,
         transform_fingerprint)``. ``engine`` is ``None`` and ``boot_values``
         empty for a project with no machine model — every channel is then
-        procedural, which is a valid configuration, not a fault. The last two
-        are ``None`` unless this deployment's archive is its stand-in's.
+        procedural, which is a valid configuration, not a fault. The transform
+        is ``None`` unless this deployment's archive is its stand-in's; the
+        fingerprint is ``None`` unless it is, or the seed is rebased on a
+        solved orbit.
     :raises RuntimeError: Nothing names a manifest to seed from.
     """
     from osprey.services.virtual_accelerator.manifest.loaders import (
@@ -4905,9 +5000,22 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     if machine_path is None or not machine_path.is_file():
         return channels, None, {}, transform, transform_fingerprint
 
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
-    )
+    state_dir = resolve_state_dir(config, project_dir)
+    baselines = _solved_monitor_baselines(project_dir, channels)
+    if baselines:
+        # Built directly rather than through the engine cache: this engine's
+        # machine is not the file's as written, and a cached one would hand
+        # the rebased levels to every other reader of the same file.
+        resolved = machine_path.expanduser().resolve()
+        engine = SimulationEngine(
+            json.loads(resolved.read_text()),
+            resolved,
+            state_dir=Path(state_dir).expanduser().resolve(),
+            baselines=baselines,
+        )
+        transform_fingerprint = _baselines_fingerprint(baselines, transform_fingerprint)
+    else:
+        engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
     # The same map the Virtual Accelerator boots its records from: machine.json's
     # static channel values, skipping the handful of derived channels that carry
     # an expression instead. Anchoring the procedural generator on it is what
@@ -4917,6 +5025,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         for address, entry in load_machine_json_channels(machine_path).items()
         if "value" in entry
     }
+    boot_values.update(baselines)
     return channels, engine, boot_values, transform, transform_fingerprint
 
 
