@@ -130,6 +130,8 @@ ERROR_CLASS_MAP = {
     "queue_request_rejected": "Validation",
     # The item as composed cannot be queued at all: its arguments are the fix.
     "invalid_item": "Validation",
+    # A page offset outside an earlier answer: the message names the range.
+    "bad_offset": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",
@@ -144,6 +146,8 @@ ERROR_CLASS_MAP = {
     "plan_source_unavailable": "Data",
     # Nothing was stopped because nothing was running — the answer, not a fault.
     "nothing_running": "Data",
+    # An earlier answer whose run record was swept: say so, work from its opening.
+    "no_longer_available": "Data",
     # ---- Execution: the user's own code (or document source) is wrong.
     "execution_error": "Execution",
     "lattice_error": "Execution",
@@ -179,6 +183,9 @@ ERROR_CLASS_MAP = {
     # approved list no longer matches what would run. Never retry quoting
     # the same uid — re-read the queue and get a fresh approval.
     "queue_changed_since_approval": "Safety",
+    # A run outside this conversation's shortened answers: the read is scoped
+    # to them, and no other route to the record is the fix.
+    "not_permitted": "Safety",
     # ---- Internal: an OSPREY-side fault an operator has to fix — missing
     # config, missing dependency, a bridge or gallery that answered with an
     # error of its own. Report verbatim; name the service from the envelope.
