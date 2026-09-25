@@ -52,6 +52,7 @@ from osprey.deployment.compose_generator import (
     audit_identity_dir,
     dispatch_worker_audit_identities,
     ensure_audit_dir,
+    lane_queueserver_audit_identities,
     service_audit_identities,
 )
 from osprey.deployment.web_terminals.render import (
@@ -587,6 +588,118 @@ def test_the_build_path_provisions_nothing_for_an_undeployed_service(tmp_path):
 
     for identity in FIXED_SERVICE_AUDIT_IDENTITIES.values():
         assert not (tmp_path / AUDIT_DIR_RELPATH / identity).exists()
+
+
+# ---------------------------------------------------------------------------
+# Lane queueservers: the pre-flight files its verdicts under its own key
+# ---------------------------------------------------------------------------
+
+#: An external worker block: the lane renders a bridge and no queueserver.
+_EXTERNAL = {"manager_address": "tcp://facility:60615", "zmq_public_key_env": "FAC_KEY"}
+
+
+def _lane_config(*, external_live: bool = False) -> dict:
+    """A three-lane deployment: ``bluesky``, ``bluesky_va`` and ``bluesky_live``."""
+    templates_root = resources.files(osprey).joinpath("templates")
+    services: dict = {
+        Path(str(path)).parent.name: {}
+        for path in templates_root.glob("services/*/docker-compose*.yml.j2")
+    }
+    services["bluesky_va"] = {"target": "va"}
+    services["bluesky_live"] = {"target": "live"}
+    if external_live:
+        services["bluesky_live"]["external"] = dict(_EXTERNAL)
+    return {
+        "project_name": "demo",
+        "project_root": "/r/demo",
+        "services": services,
+        "system": {"timezone": "UTC"},
+        "deployment": {},
+        "deployed_services": ["bluesky", "bluesky_va", "bluesky_live"],
+    }
+
+
+def _lane_services(config: dict) -> dict:
+    """The parsed ``services:`` of the bluesky fragment, through the production injection."""
+    from jinja2 import Environment, FileSystemLoader
+
+    templates_root = resources.files(osprey).joinpath("templates")
+    env = Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
+    rendered = env.get_template("services/bluesky/docker-compose.yml.j2").render(
+        _inject_project_metadata(config)
+    )
+    return yaml.safe_load(rendered)["services"]
+
+
+def _queueservers(services: dict) -> dict:
+    return {key: value for key, value in services.items() if key.endswith("queueserver")}
+
+
+def test_every_queueserver_binds_its_own_audit_dir():
+    queueservers = _queueservers(_lane_services(_lane_config()))
+
+    assert set(queueservers) == {
+        "queueserver",
+        "bluesky-va-queueserver",
+        "bluesky-live-queueserver",
+    }
+    for key, service in queueservers.items():
+        (mount,) = _audit_mounts(service)
+        source, target = mount.split(":")
+        assert source == f"./{AUDIT_DIR_RELPATH}/{key}"
+        assert target == f"/app/project/{AUDIT_DIR_RELPATH}/{key}"
+        # Read-write: the pre-flight writes its records here.
+        assert mount.count(":") == 1
+
+
+def test_the_queueserver_identity_is_its_compose_key():
+    config = _lane_config()
+    queueservers = _queueservers(_lane_services(config))
+
+    for key, service in queueservers.items():
+        assert service["environment"]["OSPREY_AUDIT_IDENTITY"] == key
+    assert lane_queueserver_audit_identities(config) == list(queueservers)
+
+
+def test_an_external_lane_provisions_no_queueserver_identity():
+    config = _lane_config(external_live=True)
+
+    assert "bluesky-live-queueserver" not in _lane_services(config)
+    assert lane_queueserver_audit_identities(config) == ["queueserver", "bluesky-va-queueserver"]
+    assert lane_queueserver_audit_identities({"deployed_services": ["mongodb"]}) == []
+
+
+def test_the_build_path_provisions_every_queueserver_subdir(tmp_path):
+    config = _lane_config()
+    config["project_root"] = str(tmp_path)
+    _ensure_agent_data_structure(config)
+
+    for identity in lane_queueserver_audit_identities(config):
+        assert audit_identity_dir(tmp_path, identity).is_dir()
+
+
+def test_the_lane_audit_target_is_where_the_writer_resolves(tmp_path, monkeypatch):
+    """The queueserver runs from the project dir with ``CONFIG_FILE`` naming the
+    config there, so its writer resolves ``<project>/var/audit`` — the shape the
+    template mounts at ``/app/project/var/audit``."""
+    from osprey.utils.workspace import load_osprey_config, resolve_project_root
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "config.yml").write_text("project_name: demo\n")
+    monkeypatch.chdir(project)
+    for name in ("OSPREY_CONFIG", "CONFIG_FILE", "OSPREY_PROJECT_ROOT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
+
+    # `writer.audit_dir`'s own derivation. The function itself is redirected
+    # suite-wide so no test writes into a real zone; its body is what is asked.
+    resolved = resolve_project_root(load_osprey_config()) / AUDIT_DIR_RELPATH
+
+    assert resolved.resolve() == (project / AUDIT_DIR_RELPATH).resolve()
+    service = _queueservers(_lane_services(_lane_config()))["queueserver"]
+    _, target = _audit_mounts(service)[0].split(":")
+    assert target.startswith("/app/project/" + AUDIT_DIR_RELPATH + "/")
 
 
 # ---------------------------------------------------------------------------

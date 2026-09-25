@@ -71,6 +71,12 @@ gallery refusal and a config refusal never share a file.
    * - ``notebook_kernel.jsonl``
      - Control-system writes a notebook cell was refused --- a write posture, a
        limit, a target that moved while the cell ran
+   * - ``preflight.jsonl`` (under ``var/audit/queueserver/`` and each lane's
+       ``var/audit/<lane>-queueserver/``)
+     - Whether a queued plan's declared channels answered before it moved, per
+       run: ``allowed`` (``all_responded`` or ``skipped``) or ``refused``
+       (``unresponsive``), with the lane, the target and the counts in
+       ``detail``
    * - ``auth_sidecar.jsonl`` (under ``var/audit/sidecar/``)
      - Logins and login refusals, where a deployment has a login wall
 

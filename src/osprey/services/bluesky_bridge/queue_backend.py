@@ -139,6 +139,14 @@ PLAN_META_KEY = "osprey_plan"
 # name their owner once the enqueuing process is gone.
 OWNER_META_KEY = "osprey_owner"
 
+# The item-metadata keys carrying the conversation id and the ``tool_use_id`` of
+# the tool call that enqueued the item. Metadata only, never plan kwargs: an
+# external worker's manager binds kwargs against the plan's signature. Item
+# metadata rides into the run's start document, so a finished run names the
+# tool call that queued it.
+SESSION_META_KEY = "osprey_session_id"
+TOOL_USE_META_KEY = "osprey_tool_use_id"
+
 # Manager states in which a plan is under way (or about to be). Enqueuing during
 # one of these is an armed operation — the item joins a queue that is already
 # draining toward hardware — so the route layer gates it behind the launch
@@ -820,6 +828,8 @@ class QueueBackend:
         *,
         run_id: str | None = None,
         owner: str | None = None,
+        session_id: str | None = None,
+        tool_use_id: str | None = None,
         pos: Any = None,
         before_uid: str | None = None,
         after_uid: str | None = None,
@@ -878,6 +888,10 @@ class QueueBackend:
                 names an owner. The caller has already decided what counts as a
                 name — this stamps the value it was handed and judges nothing
                 but emptiness.
+            session_id: The conversation id of the tool call that enqueued the
+                item, stamped under :data:`SESSION_META_KEY`, or ``None``.
+            tool_use_id: That call's ``tool_use_id``, stamped under
+                :data:`TOOL_USE_META_KEY`, or ``None``.
             pos: Queue position, per queueserver (``"front"``, ``"back"``, or an
                 index). Defaults to the manager's own default (back).
             before_uid: Insert ahead of this item.
@@ -907,7 +921,7 @@ class QueueBackend:
             payload["kwargs"] = (
                 {**plan_kwargs, RESERVED_OWNER_KWARG: owner} if stamps_kwarg else plan_kwargs
             )
-        if run_id is not None or owner:
+        if run_id is not None or owner or session_id or tool_use_id:
             meta = dict(payload.get("meta") or {})
             if run_id is not None:
                 meta[RUN_ID_META_KEY] = run_id
@@ -917,6 +931,10 @@ class QueueBackend:
                 }
             if owner:
                 meta[OWNER_META_KEY] = owner
+            if session_id:
+                meta[SESSION_META_KEY] = session_id
+            if tool_use_id:
+                meta[TOOL_USE_META_KEY] = tool_use_id
             payload["meta"] = meta
 
         kwargs: dict[str, Any] = {"item": payload}

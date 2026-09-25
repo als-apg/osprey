@@ -297,6 +297,7 @@ services:
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
+      OSPREY_AUDIT_IDENTITY: queueserver
       TZ: UTC
       # ── queue control plane (server side) ────────────────────────────────
       # Upstream-spelled: `start-re-manager` reads the private key from
@@ -345,6 +346,7 @@ services:
 
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
+      - ./var/audit/queueserver:/app/project/var/audit/queueserver
       # Plan/device permissions for the RE Manager. Without this file the
       # manager knows only a `root` group and rejects every request the bridge
       # makes as "Unknown user group: 'primary'" — see the file's own header

@@ -41,6 +41,7 @@ from typing import Any
 
 import httpx
 
+from osprey.audit.call import current_call
 from osprey.bluesky_bridge_connection import (
     DEFAULT_BRIDGE_URL,
     LANE_ONE,
@@ -55,6 +56,7 @@ from osprey.bluesky_bridge_connection import (
 )
 from osprey.mcp_server.bluesky.lanes import REASON_UNKNOWN_LANE, resolve_lane_situation
 from osprey.mcp_server.errors import make_error
+from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import posture_store
 
@@ -410,9 +412,26 @@ def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
     Attribution is not authorization: the stamp rides an ungated request (a plain
     halt) exactly as it rides an armed one, and it is composed separately from
     the launch token so that withholding the token never withholds the owner.
+
+    The tool call that sends the request travels with it too: the conversation
+    id and the ``tool_use_id`` of the call in scope
+    (:func:`osprey.audit.call.current_call`), as ``X-Osprey-Conversation`` and
+    ``X-Osprey-Tool-Use-Id``, so a queue item joins to that call's audit
+    record. Every call site composes the headers on the calling task, before
+    any hop to a worker thread, so the scope is visible here. Outside a scope
+    neither header is sent.
     """
+    stamped = dict(headers or {})
     owner = posture_store.current_owner()
-    if owner is posture_store.NO_OWNER:
-        return headers
-    # The ladder answers a name or the sentinel, and the sentinel returned above.
-    return {**(headers or {}), OWNER_HEADER: str(owner)}
+    if owner is not posture_store.NO_OWNER:
+        # The ladder answers a name or the sentinel, and the sentinel is excluded.
+        stamped[OWNER_HEADER] = str(owner)
+    call = current_call()
+    if call is not None:
+        if call.session_id:
+            stamped[CONVERSATION_HEADER] = call.session_id
+        if call.tool_use_id:
+            stamped[TOOL_USE_HEADER] = call.tool_use_id
+    if not stamped and headers is None:
+        return None
+    return stamped
