@@ -149,6 +149,11 @@ Runtime settings
         - Set to ``1`` only if this host's outbound calls must go through your
           site's web proxy. Off by default, so a proxy inherited from a shell or
           a CI runner cannot quietly place itself in front of Nextcloud.
+      * - ``HISTORY_ANSWER_LIMIT``
+        - Longest earlier answer, in characters, sent back in full with a
+          follow-up (default 3000). A longer one is sent as its opening, and the
+          agent reads the rest only if it needs it. ``0`` always sends every
+          answer in full.
       * - ``DEDUP_PATH``, ``HISTORY_PATH``, ``OFFSETS_PATH``
         - Where the bridge keeps what it remembers: the questions it has
           answered, the recent exchanges, and how far it has read in each room.

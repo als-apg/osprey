@@ -140,6 +140,12 @@ class CoreConfig:
     history_path: str = "/data/history.json"
     """Path to the persisted per-conversation transcript store (same volume)."""
 
+    history_answer_limit: int = 3000
+    """The longest earlier answer, in characters, replayed in full with a
+    follow-up. A longer one is replayed as its opening and a note naming its
+    run, and the agent reads the rest with ``prior_answer_read``. ``0`` replays
+    every answer in full. Set from ``HISTORY_ANSWER_LIMIT``."""
+
     def __post_init__(self) -> None:
         # The worker caps runs at `worker_timeout`; polling must outlast that to
         # observe the terminal (timeout) result instead of racing it.
@@ -160,6 +166,8 @@ class CoreConfig:
             value = getattr(self, name)
             if value <= 0:
                 raise ValueError(f"{name} must be > 0; got {value}")
+        if self.history_answer_limit < 0:
+            raise ValueError(f"history_answer_limit must be >= 0; got {self.history_answer_limit}")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> CoreConfig:
@@ -176,6 +184,12 @@ class CoreConfig:
             if raw is None or raw == "":
                 return default
             return float(raw)
+
+        def _i(name: str, default: int) -> int:
+            raw = e.get(name)
+            if raw is None or raw == "":
+                return default
+            return int(raw)
 
         return cls(
             dispatcher_url=e.get("DISPATCHER_URL", _DEFAULT_DISPATCHER_URL).rstrip("/"),
@@ -198,6 +212,7 @@ class CoreConfig:
             gitlab_issues_token=e.get("GITLAB_ISSUES_TOKEN", ""),
             dedup_path=e.get("DEDUP_PATH", "/data/dedup.json"),
             history_path=e.get("HISTORY_PATH", "/data/history.json"),
+            history_answer_limit=_i("HISTORY_ANSWER_LIMIT", 3000),
         )
 
     def require(self, *names: str) -> None:

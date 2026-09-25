@@ -23,6 +23,11 @@ When the bridge knew who asked, the turn also carries ``asked_by`` =
 ``{id, name}``. A turn with no ``asked_by`` means the asker is unknown: that
 covers turns written before the field existed and channels that parse no
 sender.
+
+:meth:`HistoryStore.recent` can replay a long answer shortened: its opening and
+a note naming the run that answered it, so the agent can read the whole answer
+back when a follow-up needs it. The shortened copy is what is sent; the stored
+turn is never changed.
 """
 
 from __future__ import annotations
@@ -93,6 +98,36 @@ MAX_ARTIFACTS_PER_TURN = 10
 # is honestly told the thread is empty. The marker is a NON-answer: it must never
 # read as a fabricated result the agent could cite.
 FAILED_TURN_ANSWER = "[This request did not produce an answer — it timed out or errored.]"
+
+# The note that ends a long answer replayed shortened. Prose for a reader, not a
+# token: nothing matches on the wording. The payload it rides in is documented
+# at docs/source/reference/contracts/bridge-dispatch.rst.
+SHORTENED_ANSWER_NOTE = (
+    "[Answer shortened; it is {chars:,} characters in full. "
+    'prior_answer_read(run_id="{run_id}") returns the whole answer.]'
+)
+
+
+def shorten_answer(answer: str, run_id: str, limit: int) -> str | None:
+    """Return ``answer`` as its opening and a note naming ``run_id``, or ``None``.
+
+    ``None`` when ``limit`` is not positive, when the answer is at or under it,
+    or when the shortened form would not be shorter. One key sets both numbers:
+    the opening is half the threshold. A line break in the second half of the
+    opening ends it there, so a table keeps whole rows.
+    """
+    if limit <= 0 or len(answer) <= limit:
+        return None
+    keep = limit // 2
+    cut = answer.rfind("\n", 0, keep + 1)
+    if cut < keep // 2:
+        cut = keep
+    shortened = (
+        answer[:cut].rstrip()
+        + "\n"
+        + SHORTENED_ANSWER_NOTE.format(chars=len(answer), run_id=run_id)
+    )
+    return shortened if len(shortened) < len(answer) else None
 
 
 class HistoryStore(JsonFileStore):
@@ -182,7 +217,7 @@ class HistoryStore(JsonFileStore):
         return coerced
 
     # --- API ---------------------------------------------------------------
-    def recent(self, key: str) -> list[dict[str, Any]]:
+    def recent(self, key: str, *, shorten_over: int = 0) -> list[dict[str, Any]]:
         """Return the replayable turns for a conversation, oldest first.
 
         Applies the turn cap and then the char budget (dropping oldest first),
@@ -190,10 +225,27 @@ class HistoryStore(JsonFileStore):
         serialized turn — descriptors included — because the whole turn is what
         rides the payload, so an answer with many/large artifact descriptors
         must be charged for them, not just its question+answer text.
+
+        ``shorten_over`` > 0 replays each answer longer than that many
+        characters as :func:`shorten_answer` builds it, with ``answer_chars``
+        set to the full length. Only a turn with a ``run_id`` is shortened,
+        since nothing else could be read back. Shortening comes before the char
+        budget, so one long answer costs fewer whole turns. It works on per-call
+        copies: ``recent(key)`` is always the stored history unchanged.
         """
         with self._lock:
             turns = [dict(t) for t in self._data.get(key, [])]
         turns = turns[-self.max_turns :]
+        if shorten_over > 0:
+            for turn in turns:
+                run_id = turn.get("run_id")
+                answer = turn.get("answer")
+                if not (isinstance(run_id, str) and run_id and isinstance(answer, str)):
+                    continue
+                shortened = shorten_answer(answer, run_id, shorten_over)
+                if shortened is not None:
+                    turn["answer"] = shortened
+                    turn["answer_chars"] = len(answer)
         # Enforce the char budget from the tail (newest) backwards.
         kept: list[dict[str, Any]] = []
         used = 0

@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import base64
 import copy
+import json
 import logging
+import uuid
 from typing import Any
 
 import pytest
@@ -110,8 +112,8 @@ class MarkingHistory(HistoryStore):
         super().__init__(path)
         self._ops = ops
 
-    def recent(self, key: str) -> list[dict[str, Any]]:
-        turns = super().recent(key)
+    def recent(self, key: str, *, shorten_over: int = 0) -> list[dict[str, Any]]:
+        turns = super().recent(key, shorten_over=shorten_over)
         self._ops.mark("history_recent", key=key, turns=len(turns))
         return turns
 
@@ -165,6 +167,18 @@ class CountingProbe:
         return self.verdicts[min(self.calls - 1, len(self.verdicts) - 1)]
 
 
+class CapabilityProbe:
+    """A ``probe_capability`` double: a verdict per capability, calls counted per capability."""
+
+    def __init__(self, **verdicts: bool) -> None:
+        self.verdicts = verdicts
+        self.calls: dict[str, int] = {}
+
+    def __call__(self, _cfg: Any, capability: str) -> bool:
+        self.calls[capability] = self.calls.get(capability, 0) + 1
+        return self.verdicts.get(capability, True)
+
+
 def _prior(data: bytes, content_type: str | None = None):
     """A ``fetch_prior_artifact`` seam serving *data* under *content_type*."""
     return lambda cfg, rid, desc, mb: FetchedArtifact(data=data, content_type=content_type)
@@ -179,9 +193,10 @@ def make_deps(
     probe=None,
     fetch_prior=None,
     park=None,
+    cfg: CoreConfig | None = None,
 ) -> PipelineDeps:
     kwargs: dict[str, Any] = {
-        "cfg": CoreConfig(),
+        "cfg": cfg if cfg is not None else CoreConfig(),
         "ops": ops,
         "dedup": MarkingDedup(str(tmp_path / "dedup.json"), ops),
         "dispatcher": StubDispatcher(ops, result=result),
@@ -984,3 +999,71 @@ def test_a_prior_served_without_a_content_type_keeps_the_predicted_mime(tmp_path
 
     (file,) = deps.dispatcher.calls[0]["extra"]["input_files"]
     assert file["mime"] == "image/png"
+
+
+# --- long earlier answers -----------------------------------------------------------
+
+LONG_ANSWER = ("| PV:NAME | 1.2345 | ok |\n" * 500)[:10_000]
+
+
+def _follow_up_after_a_long_answer(tmp_path, *, probe=None, cfg=None, answer=LONG_ANSWER):
+    """Dispatch 1 answers ``answer`` under a fresh run id; dispatch 2 is the follow-up."""
+    run = str(uuid.uuid4())
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(
+        tmp_path,
+        ops,
+        result={"status": "completed", "text_output": answer, "run_id": run},
+        probe=probe if probe is not None else CapabilityProbe(),
+        cfg=cfg,
+    )
+    handle_event({}, deps)
+    ops.parse_result = make_event(message_id=MSG2)
+    handle_event({}, deps)
+    return deps, run, deps.dispatcher.calls[1]["extra"]
+
+
+def test_a_follow_up_dispatch_replays_a_long_answer_shortened(tmp_path):
+    deps, run, extra = _follow_up_after_a_long_answer(tmp_path / "short")
+    _, _, full = _follow_up_after_a_long_answer(
+        tmp_path / "full", cfg=CoreConfig(history_answer_limit=0)
+    )
+
+    turn = extra["conversation_so_far"][0]
+    assert len(turn["answer"]) < 3000
+    assert run in turn["answer"]
+    assert turn["answer_chars"] == 10_000
+    assert extra["prior_answer_runs"] == [run]
+    assert len(json.dumps(extra)) < len(json.dumps(full))
+    assert deps.history.recent(HISTORY_KEY)[0]["answer"] == LONG_ANSWER
+
+
+def test_a_pair_without_prior_answers_gets_every_answer_in_full(tmp_path):
+    probe = CapabilityProbe(prior_answers=False)
+    _, _, extra = _follow_up_after_a_long_answer(tmp_path, probe=probe)
+
+    turn = extra["conversation_so_far"][0]
+    assert turn["answer"] == LONG_ANSWER
+    assert "answer_chars" not in turn
+    assert "prior_answer_runs" not in extra
+    assert probe.calls["prior_answers"] == 1
+
+
+def test_the_prior_answers_probe_runs_only_when_an_answer_would_be_shortened(tmp_path):
+    probe = CapabilityProbe()
+    _, _, extra = _follow_up_after_a_long_answer(tmp_path, probe=probe, answer="short answer")
+
+    assert extra["conversation_so_far"][0]["answer"] == "short answer"
+    assert "prior_answer_runs" not in extra
+    assert probe.calls.get("prior_answers", 0) == 0
+
+
+def test_a_zero_limit_replays_every_answer_in_full_and_never_probes(tmp_path):
+    probe = CapabilityProbe()
+    _, _, extra = _follow_up_after_a_long_answer(
+        tmp_path, probe=probe, cfg=CoreConfig(history_answer_limit=0)
+    )
+
+    assert extra["conversation_so_far"][0]["answer"] == LONG_ANSWER
+    assert "prior_answer_runs" not in extra
+    assert probe.calls.get("prior_answers", 0) == 0

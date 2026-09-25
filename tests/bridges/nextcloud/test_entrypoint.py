@@ -70,6 +70,7 @@ NEUTRAL_ENV = (
     "GITLAB_ISSUES_TOKEN",
     "DEDUP_PATH",
     "HISTORY_PATH",
+    "HISTORY_ANSWER_LIMIT",
 )
 """Every name ``CoreConfig.from_env`` reads. Cleared before each env-driven test: the
 entrypoint reads the real :data:`os.environ`, and one leaked value (a
