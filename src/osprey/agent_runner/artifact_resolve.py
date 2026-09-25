@@ -14,6 +14,8 @@ widen its own artifact set or reach another run's bytes.
 
 Resolution rules per artifact MIME type:
   * ``image/*`` and ``application/pdf`` — passthrough, served as-is.
+  * CSV and TSV tables — passthrough, served as-is: a table is data a reader
+    pastes into a spreadsheet, and a picture of one cannot be pasted.
   * HTML / Markdown / notebook / JSON / text — converted to PNG via the shared
     converter registry, and the temp PNG path is returned.
   * If the converter or one of its runtime dependencies (e.g. Playwright) is
@@ -38,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.utils.workspace import agent_data_base_dir, anchored_path, rendered_config_path
 
 if TYPE_CHECKING:
+    from osprey.mcp_server.ariel.converters import ConverterFn
     from osprey.stores.artifact_store import ArtifactStore
 
 logger = logging.getLogger("osprey.agent_runner.artifact_resolve")
@@ -207,6 +210,20 @@ def dispatch_log_dir() -> Path:
     return deployed_agent_data_root() / "dispatch"
 
 
+DISPATCH_CLAUDE_CONFIG_DIRNAME = "claude-config"
+
+
+def dispatch_claude_config_dir() -> Path:
+    """The Claude Code state root of the dispatched agent (transcripts under ``projects/``).
+
+    It sits on the worker's agent-data volume, so the dispatched agent's
+    transcripts outlive a recreate of the worker container. The single spelling
+    the runner that sets ``CLAUDE_CONFIG_DIR`` and the archive's source table
+    share.
+    """
+    return deployed_agent_data_root() / DISPATCH_CLAUDE_CONFIG_DIRNAME
+
+
 def _run_artifacts_dir(run_id: str) -> Path:
     """Deterministic, reused per-run scratch dir for converted (PNG) artifacts.
 
@@ -263,13 +280,29 @@ def get_run_store() -> ArtifactStore:
 # Delivery prediction (render-free)
 # ---------------------------------------------------------------------------
 
+#: The types a dispatched run delivers as the file itself even though the shared
+#: converter registry renders them: tables are data a reader pastes into a
+#: spreadsheet, and a picture of a table cannot be pasted. Scoped to dispatch
+#: delivery, because an ARIEL logbook attachment still goes through the registry alone.
+_DELIVERED_AS_FILE = frozenset({"text/csv", "text/tab-separated-values"})
+
+
+def _delivery_converter(source_mime: str) -> ConverterFn:
+    """The converter dispatch delivery applies to ``source_mime``."""
+    from osprey.mcp_server.ariel.converters import get_converter, passthrough
+
+    if source_mime in _DELIVERED_AS_FILE:
+        return passthrough
+    return get_converter(source_mime)
+
 
 def predict_delivery(source_mime: str) -> tuple[str, bool]:
     """Predict how the byte route will deliver an artifact, WITHOUT rendering.
 
     Returns ``(delivered_mime, convertible)``:
       * passthrough types (``image/*``, ``application/pdf``,
-        ``application/octet-stream``) → ``(source_mime, True)`` — served as-is.
+        ``application/octet-stream`` and :data:`_DELIVERED_AS_FILE`) →
+        ``(source_mime, True)`` — served as-is.
       * everything else → ``("image/png", True)`` — rendered to PNG on fetch.
 
     ``convertible`` is optimistic: it reflects the intended (success-path)
@@ -279,9 +312,9 @@ def predict_delivery(source_mime: str) -> tuple[str, bool]:
     always authoritative. Kept render-free so listing a run's artifacts never
     triggers O(N) conversions.
     """
-    from osprey.mcp_server.ariel.converters import get_converter, passthrough
+    from osprey.mcp_server.ariel.converters import passthrough
 
-    if get_converter(source_mime) is passthrough:
+    if _delivery_converter(source_mime) is passthrough:
         return source_mime, True
     return "image/png", True
 
@@ -391,6 +424,9 @@ async def resolve_artifact_path(store: ArtifactStore, artifact_id: str, output_d
 
     Converter errors (e.g. a missing Playwright dependency) propagate to the
     caller unchanged.
+
+    It applies the converter registry alone and does not consult
+    :data:`_DELIVERED_AS_FILE`, so a logbook attachment of a table is still rendered.
     """
     from osprey.mcp_server.ariel.converters import get_converter
 
@@ -417,8 +453,6 @@ async def _resolve_one(
     ``convertible=False`` ref pointing at the original bytes rather than aborting
     the whole run resolution.
     """
-    from osprey.mcp_server.ariel.converters import get_converter
-
     entry = store.get_entry(artifact_id)
     if entry is None:
         logger.warning("Artifact %s not found in store", artifact_id)
@@ -429,7 +463,7 @@ async def _resolve_one(
         logger.warning("Artifact %s has no file on disk", artifact_id)
         return None
 
-    converter = get_converter(entry.mime_type)
+    converter = _delivery_converter(entry.mime_type)
     try:
         result_path = Path(await converter(file_path, output_dir))
     except Exception:
@@ -449,7 +483,7 @@ async def _resolve_one(
         )
 
     if result_path == file_path:
-        # Passthrough (image/PDF) — served as-is with its original MIME type.
+        # Passthrough (image, PDF, table) — served as-is with its original MIME type.
         mime_type = entry.mime_type
     else:
         # Rendered to PNG by the converter registry.

@@ -24,7 +24,10 @@
 # (env → config → default): set OSPREY_OPENOBSERVE_IMAGE (e.g.
 # OSPREY_OPENOBSERVE_IMAGE=my-registry/openobserve:dev) or
 # services.openobserve.image in config.yml. Pin a digest in production if
-# you need byte-for-byte reproducibility.
+# you need byte-for-byte reproducibility. The tag is a published
+# zinclabs/openobserve release on public.ecr.aws. A move to a new major is not a
+# pin bump: the service-account API that `osprey up` provisions the ingest
+# account through is not stable across one.
 #
 # ZO_ROOT_USER_EMAIL / ZO_ROOT_USER_PASSWORD initialize the store's single admin
 # account, and that is ALL they do here: they are read once, when the data volume
@@ -41,7 +44,7 @@
 
 services:
   openobserve:
-    image: ${OSPREY_OPENOBSERVE_IMAGE:-{{ (services.openobserve | default({})).image | default('public.ecr.aws/zinclabs/openobserve:v0.14.4') }}}
+    image: ${OSPREY_OPENOBSERVE_IMAGE:-{{ (services.openobserve | default({})).image | default('public.ecr.aws/zinclabs/openobserve:v0.92.2') }}}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the telemetry store on one host without
     # colliding on one name. The emitter reaches this service by its compose

@@ -1,7 +1,7 @@
 """Google Chat REST calls the bridge makes, over one discovery service object.
 
-:class:`ChatClient` is a thin mapper onto the Chat v1 ``spaces.messages`` surface
-and nothing more: it assembles the message body (text, threading, ``cardsV2``),
+:class:`ChatClient` is a thin mapper onto the Chat v1 ``spaces.messages`` surface,
+plus the one ``spaces.members.list`` read the room roster makes, and nothing more: it assembles the message body (text, threading, ``cardsV2``),
 issues the call, and hands the parsed resource back. It carries **no retry, no
 backoff, and no swallow policy** for posting — a failed create raises, on the
 first failure, having made exactly one request.
@@ -15,9 +15,26 @@ Those are four different policies over the *same* REST call, so the call site �
 ``GoogleChatOps`` — is the only place that can choose correctly. A retry or an
 ``except`` hidden down here would fight all four.
 
+:meth:`ChatClient.list_members` raises like ``create_message``: listing a space's
+members runs under the same ``chat.bot`` app authentication as every post, so it
+needs no new scope, and whether a failed listing matters is the roster's call.
+
 :meth:`ChatClient.get_message` is the one exception, and only because its single
 caller is reply-context enrichment: a Chat hiccup there degrades to answering
 without the quoted context, so it returns ``None`` instead of raising.
+
+Permanent refusals
+------------------
+One thing IS classified here rather than passed through: a failure that says the
+destination itself is closed to the app for good — ``403 "This Chat app is not a
+member of this space."`` after the app was removed from a space, or a ``404`` for
+a space that no longer exists — is re-raised as
+:class:`~osprey.bridges.core.errors.UndeliverableError` (with the original as its
+cause). That is not a policy but a fact about the failure: every retry of that
+post will be refused the same way, and the engine needs to know it to stop
+retrying instead of failing the same message once per drain pass. Any other
+``403`` — a missing scope, a disabled API — is a bridge-wide misconfiguration that
+one fix clears for every destination, so it stays the ordinary raise it always was.
 
 Threading
 ---------
@@ -54,11 +71,14 @@ import logging
 import threading
 from typing import Any
 
+from ..core.errors import UndeliverableError
+
 # Re-exported, not used here: the helper moved to the core with the chunker, and
 # this name stays importable from the module it has always lived in.
 from ..core.text import _fence_spans as _fence_spans
 from ..core.text import chunk_text as _core_chunk_text
 from .config import GoogleChatBridgeConfig
+from .formatting import CHAT_MENTION_RE
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +87,9 @@ SA_SCOPES: tuple[str, ...] = ("https://www.googleapis.com/auth/chat.bot",)
 
 ``chat.bot`` is "act as the app": messages appear as sent by the Osprey Chat app
 rather than by a user, and it is also the credential ``spaces.messages.get``
-answers a full message snapshot to. The bridge holds no user OAuth token, so this
-is the only identity it ever posts or reads as."""
+answers a full message snapshot to, and ``spaces.members.list`` answers a space's
+members to. The bridge holds no user OAuth token, so this is the only identity it
+ever posts or reads as."""
 
 MAX_CHARS = 4096
 """Chat's hard per-message character limit, and therefore :func:`chunk_text`'s
@@ -123,8 +144,9 @@ def chunk_text(text: str, limit: int = MAX_CHARS) -> list[str]:
     A wrapper over :func:`osprey.bridges.core.text.chunk_text`, which owns the
     splitting rules — the limit, the preference for newline boundaries, and keeping
     a ``` fenced block whole. The core function requires a ``limit`` because the
-    ceiling is a property of the channel; supplying Chat's is all this adds, so the
-    ops layer can call it bare.
+    ceiling is a property of the channel; this supplies Chat's, and names Chat's
+    rendered mention (``<users/…>``) as a span to keep whole, so a mention is never
+    split across two messages. The ops layer can call it bare.
 
     Args:
         text: The message text, already transformed for Chat by the caller.
@@ -137,7 +159,28 @@ def chunk_text(text: str, limit: int = MAX_CHARS) -> list[str]:
     Raises:
         ValueError: If ``limit`` is not positive.
     """
-    return _core_chunk_text(text, limit)
+    return _core_chunk_text(text, limit, keep_whole=CHAT_MENTION_RE)
+
+
+def _permanent_refusal(exc: BaseException) -> str | None:
+    r"""Chat's reason when ``exc`` says the destination is closed to the app for good,
+    else ``None``.
+
+    Reads the two attributes ``googleapiclient.errors.HttpError`` carries — ``resp.status``
+    and the parsed ``reason`` — by duck typing, so the check needs no Google import (the
+    module's whole point, see its docstring) and any transport error without them is
+    simply not a refusal. A ``404`` is one whatever it says: the space is gone. A ``403``
+    is one only when Chat says the app is not a member — the other ``403``\ s (scope,
+    disabled API) are bridge-wide and clear for every destination at once.
+    """
+    status = getattr(getattr(exc, "resp", None), "status", None)
+    reason = getattr(exc, "reason", None)
+    reason = reason if isinstance(reason, str) and reason else str(exc)
+    if status == 404:
+        return reason
+    if status == 403 and "not a member" in reason.lower():
+        return reason
+    return None
 
 
 class ChatClient:
@@ -178,11 +221,19 @@ class ChatClient:
             Whatever the API answered, undecoded by us.
 
         Raises:
-            Exception: Whatever the transport raises, unchanged — callers own the
-                policy.
+            UndeliverableError: If Chat refused the destination permanently (see the
+                module docstring); the transport's error is the cause.
+            Exception: Anything else the transport raises, unchanged — callers own
+                the policy.
         """
         with self._lock:
-            return request.execute()
+            try:
+                return request.execute()
+            except Exception as exc:
+                refusal = _permanent_refusal(exc)
+                if refusal is None:
+                    raise
+                raise UndeliverableError(refusal) from exc
 
     def create_message(
         self,
@@ -255,3 +306,44 @@ class ChatClient:
             logger.warning("messages.get failed for %s; no reply context", name, exc_info=True)
             return None
         return body if isinstance(body, dict) else None
+
+    def list_members(self, space: str, *, limit: int) -> tuple[list[dict[str, Any]], bool]:
+        """List up to ``limit`` memberships of ``space``, following the page token.
+
+        Pages with ``pageSize=min(limit, 100)``, collecting each page's
+        ``memberships`` (a list of dicts; anything else counts as an empty page with
+        no token). Stops when the token is absent, when a token repeats (a looping
+        server), or when ``limit`` memberships are collected.
+
+        Args:
+            space: Space resource name (``spaces/AAAA``).
+            limit: The most memberships to return.
+
+        Returns:
+            ``(memberships, more)``: at most ``limit`` membership resources, and
+            whether the listing stopped on ``limit`` with more left to read.
+
+        Raises:
+            Exception: Whatever the Chat transport raises. Never swallowed: the
+                caller owns the policy.
+        """
+        memberships: list[dict[str, Any]] = []
+        token: str | None = None
+        seen_tokens: set[str] = set()
+        while True:
+            params: dict[str, Any] = {"parent": space, "pageSize": min(limit, 100)}
+            if token:
+                params["pageToken"] = token
+            page = self._execute(self._service.spaces().members().list(**params))
+            if not isinstance(page, dict):
+                page = {}
+            items = page.get("memberships")
+            if isinstance(items, list):
+                memberships.extend(item for item in items if isinstance(item, dict))
+            next_token = page.get("nextPageToken")
+            token = next_token if isinstance(next_token, str) and next_token else None
+            if len(memberships) >= limit:
+                return memberships[:limit], len(memberships) > limit or token is not None
+            if token is None or token in seen_tokens:
+                return memberships, False
+            seen_tokens.add(token)

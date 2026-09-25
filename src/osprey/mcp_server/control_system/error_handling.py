@@ -56,7 +56,7 @@ def describe_active_target() -> dict[str, str] | None:
         if endpoint:
             identity["endpoint"] = endpoint
         return identity
-    except Exception:  # noqa: BLE001 — see docstring: never fail an envelope
+    except Exception:  # see docstring: never fail an envelope
         return None
 
 

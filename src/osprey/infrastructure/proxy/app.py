@@ -35,12 +35,17 @@ logger = logging.getLogger("osprey.infrastructure.proxy")
 def create_proxy_app(
     upstream_base_url: str,
     upstream_api_key: str | None = None,
+    *,
+    max_tokens_param: str = "max_tokens",
+    accepts_temperature: bool = True,
 ) -> FastAPI:
     """Create the translation proxy FastAPI app.
 
     Args:
         upstream_base_url: OpenAI-compatible endpoint (e.g. https://aiapi-prod.stanford.edu/v1).
         upstream_api_key: API key for the upstream provider.
+        max_tokens_param: The upstream parameter that carries the output-token cap.
+        accepts_temperature: Whether the upstream takes a caller-chosen temperature.
     """
     # One pooled client for the app's lifetime. A fresh AsyncClient per request
     # opens and tears down an upstream TCP connection every call; at matrix
@@ -84,7 +89,11 @@ def create_proxy_app(
                 api_key = auth_header[7:]
 
         # Translate request
-        openai_body = anthropic_to_openai_request(body)
+        openai_body = anthropic_to_openai_request(
+            body,
+            max_tokens_param=max_tokens_param,
+            accepts_temperature=accepts_temperature,
+        )
 
         # Build upstream URL and headers
         url = upstream_base_url.rstrip("/") + "/chat/completions"

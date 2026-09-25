@@ -80,10 +80,10 @@ def remove_project_volumes(project: str, *, runtime: str = "docker") -> None:
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        print(f"could not list {project!r} volumes for teardown: {exc}")  # noqa: T201
+        print(f"could not list {project!r} volumes for teardown: {exc}")
         return
     if listed.returncode != 0:
-        print(  # noqa: T201
+        print(
             f"could not list {project!r} volumes for teardown: "
             f"`{runtime} volume ls` rc={listed.returncode} {(listed.stderr or '').strip()}"
         )
@@ -100,10 +100,10 @@ def remove_project_volumes(project: str, *, runtime: str = "docker") -> None:
                 timeout=30,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            print(f"volume {name!r} not removed at teardown: {exc}")  # noqa: T201
+            print(f"volume {name!r} not removed at teardown: {exc}")
             continue
         if removed.returncode != 0:
-            print(  # noqa: T201
+            print(
                 f"volume {name!r} not removed at teardown: "
                 f"rc={removed.returncode} {(removed.stderr or '').strip()}"
             )

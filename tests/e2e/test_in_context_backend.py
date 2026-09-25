@@ -121,7 +121,6 @@ def _make_test_project(tmp_path: Path, subagent_model: str = _SUBAGENT_MODEL) ->
         "ic-test-proj",
         channel_finder_mode="in_context",
         provider=_PROVIDER,
-        model="haiku",  # shorthand accepted by osprey init
     )
     render = render_dir(repo)
 

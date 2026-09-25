@@ -86,6 +86,18 @@ const _sessionStart = new Date().toISOString();
  */
 
 /**
+ * Whether a scroll container is within `threshold` pixels of its end. 200 px
+ * is about two list rows, so the next page is requested before the operator
+ * reaches the end rather than after.
+ * @param {{scrollHeight: number, scrollTop: number, clientHeight: number}} el
+ * @param {number} [threshold]
+ * @returns {boolean}
+ */
+export function isNearListEnd(el, threshold = 200) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+}
+
+/**
  * Create the gallery's sidebar renderer: tree/activity mode dispatch and
  * the drag-to-terminal/click/dblclick item handlers. Bound to a small set
  * of injected callbacks for the two effects (agent focus,

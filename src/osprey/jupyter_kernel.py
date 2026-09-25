@@ -365,7 +365,7 @@ def _remove_cell_markers() -> None:
             marker = target_state.read_file(entry)
             if marker is not None and marker.get("kernel_id") == kernel_id:
                 entry.unlink(missing_ok=True)
-    except Exception:  # noqa: BLE001 - a marker left behind is not worth a cell
+    except Exception:  # a marker left behind is not worth a cell
         logger.warning(
             "Could not remove this kernel's in-flight markers; a target switch may be "
             "refused until they are swept",
@@ -518,7 +518,7 @@ def _record_refusal(value: BaseException) -> None:
             subject=REFUSAL_SUBJECT,
             detail=f"channel={channel}" if isinstance(channel, str) and channel else None,
         )
-    except Exception:  # noqa: BLE001 - the audit trail degrades; the refusal does not
+    except Exception:  # the audit trail degrades; the refusal does not
         logger.warning("Could not record the notebook refusal for audit", exc_info=True)
 
 
@@ -580,7 +580,7 @@ def _initialize_registry() -> None:
         from osprey.registry import initialize_registry
 
         initialize_registry(auto_export=False, config_path=os.environ.get(CONFIG_FILE_ENV_VAR))
-    except Exception:  # noqa: BLE001 - the kernel still starts; the cause is logged
+    except Exception:  # the kernel still starts; the cause is logged
         logger.warning("Registry initialization failed", exc_info=True)
 
 

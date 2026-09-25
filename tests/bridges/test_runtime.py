@@ -26,15 +26,15 @@ from typing import Any
 
 import pytest
 
-from osprey.bridges.core import runtime
+from osprey.bridges.core import pipeline, runtime
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.dispatch_client import DispatchClient
 from osprey.bridges.core.history import HistoryStore
 from osprey.bridges.core.pipeline import PipelineDeps
-from osprey.bridges.core.ports import InputDownload
+from osprey.bridges.core.ports import InboundEvent, InputDownload, RoomMember, RoomPeople
 from osprey.bridges.core.reconcile import ReconcileDeps
-from tests.bridges.conftest import RecordingChannelOps
+from tests.bridges.conftest import RecordingChannelOps, RosterChannelOps
 
 QUESTION = "what is the orbit doing?"
 HISTORY_KEY = "room/AAA"
@@ -411,6 +411,89 @@ def test_deliver_callback_survives_a_raising_file_delivery(tmp_path):
     ]
 
 
+def test_deliver_callback_announces_the_resume_before_the_answer_of_a_parked_entry(tmp_path):
+    """The user was told the request was queued; the delayed answer opens by saying so,
+    and says it BEFORE the answer so the two read in order."""
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "queued", run_id="run-1", first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).deliver("m1", entry, dict(COMPLETED))
+
+    ops.assert_order("post_resumed", "post_answer", "deliver_files")
+    assert ops.count("post_resumed") == 1
+    assert ops.of("post_resumed")[0]["entry"]["first_queued_at"] == 1.0
+
+
+def test_deliver_callback_announces_no_resume_for_an_entry_never_told_it_was_queued(tmp_path):
+    """A re-delivery after a failed post stamps the queue timestamps but posted no queued
+    notice, so there is nothing to resume from."""
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition("m1", "pending", "queued", run_id="run-1", first_queued_at=1.0)
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).deliver("m1", entry, dict(COMPLETED))
+
+    assert ops.count("post_resumed") == 0
+    assert ops.count("post_answer") == 1
+
+
+def test_a_failing_resume_notice_never_blocks_the_answer(tmp_path):
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "queued", run_id="run-1", first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+    ops.fail_next("post_resumed", RuntimeError("chat 503"))
+
+    runtime.build_drain_callbacks(deps).deliver("m1", entry, dict(COMPLETED))
+
+    ops.assert_order("post_resumed", "post_answer")
+    assert [turn["answer"] for turn in deps.history.recent(HISTORY_KEY)] == [
+        COMPLETED["text_output"]
+    ]
+
+
+def test_dispatch_callback_announces_the_resume_before_the_redispatched_answer(tmp_path):
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops)
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "in_flight", retried=True, first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).dispatch("m1", entry)
+
+    ops.assert_order("dispatch", "post_resumed", "post_answer")
+    assert deps.dedup.get("m1")["status"] == "completed"
+
+
+def test_dispatch_callback_stays_silent_when_the_redispatch_parks_again(tmp_path):
+    """A re-park is not a resume: the answer is not coming yet."""
+    ops = RecordingChannelOps()
+    deps = _deps(tmp_path, ops, dispatcher=None)
+    deps = dataclasses.replace(deps, dispatcher=FakeDispatcher(ops, result=RETRYABLE))
+    entry = _claim(deps.dedup, "m1", text=QUESTION, history_key=HISTORY_KEY)
+    deps.dedup.transition(
+        "m1", "pending", "in_flight", retried=True, first_queued_at=1.0, queued_notified=True
+    )
+    entry = deps.dedup.get("m1")
+
+    runtime.build_drain_callbacks(deps).dispatch("m1", entry)
+
+    assert ops.count("post_resumed") == 0
+    assert deps.dedup.get("m1")["status"] == "queued"
+
+
 def test_give_up_callback_posts_the_notice_and_records_the_failed_turn(tmp_path):
     ops = RecordingChannelOps()
     deps = _deps(tmp_path, ops)
@@ -500,6 +583,46 @@ def test_rebuild_extra_is_empty_for_a_text_only_entry(tmp_path):
     assert runtime.rebuild_extra(deps, deps.dedup.get("m1")) == {}
 
 
+def test_rebuild_extra_carries_the_same_asker_the_live_path_sent(tmp_path):
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    ops = RecordingChannelOps(parse_result=event)
+    deps = _deps(tmp_path, ops)
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["asker"] == {"id": "users/111", "name": "Alice"}
+    assert runtime.rebuild_extra(deps, deps.dedup.get("m1"))["asker"] == live_extra["asker"]
+
+
+def test_rebuild_extra_ships_the_same_room_as_the_live_path(tmp_path):
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    room = RoomPeople(members=(RoomMember("users/111", "Alice"), RoomMember("users/222")))
+    ops = RosterChannelOps(parse_result=event, room_people=room)
+    deps = _deps(tmp_path, ops)
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["room"]["members"] == [
+        {"id": "users/111", "name": "Alice"},
+        {"id": "users/222", "name": None},
+    ]
+    assert runtime.rebuild_extra(deps, deps.dedup.get("m1"))["room"] == live_extra["room"]
+
+
 # --- the adapter entry point --------------------------------------------------
 
 
@@ -554,3 +677,36 @@ def test_package_exports_the_documented_engine_surface():
     assert core.RESERVED_ENTRY_KEYS is ports.RESERVED_ENTRY_KEYS
     assert core.handle_event is pipeline.handle_event
     assert core.run_forever is runtime.run_forever
+
+
+def test_rebuild_extra_ships_the_same_shortened_history_as_the_live_path(tmp_path):
+    long_run = "3f2b6c1e-8a4d-4f0e-9b1a-2c3d4e5f6a7b"
+    event = InboundEvent(
+        message_id="m1",
+        text=QUESTION,
+        sender_id="users/111",
+        sender_display="Alice",
+        history_key=HISTORY_KEY,
+    )
+    ops = RecordingChannelOps(parse_result=event)
+    deps = _deps(tmp_path, ops)
+    deps.history.append(HISTORY_KEY, "the table?", "| row |\n" * 2000, run_id=long_run)
+    rebuilt: list[dict[str, Any]] = []
+
+    class RebuildingDispatcher(FakeDispatcher):
+        """Rebuilds the payload at dispatch time, before the answer joins the history."""
+
+        def run(self, question, extra=None, *, on_run_id=None):
+            rebuilt.append(runtime.rebuild_extra(deps, deps.dedup.get("m1")))
+            return super().run(question, extra, on_run_id=on_run_id)
+
+    deps = dataclasses.replace(deps, dispatcher=RebuildingDispatcher(ops))
+
+    pipeline.handle_event({}, deps)
+
+    [(_, live_extra)] = deps.dispatcher.runs
+    assert live_extra["prior_answer_runs"] == [long_run]
+    assert "answer_chars" in live_extra["conversation_so_far"][0]
+    [again] = rebuilt
+    assert again["conversation_so_far"] == live_extra["conversation_so_far"]
+    assert again["prior_answer_runs"] == live_extra["prior_answer_runs"]

@@ -18,10 +18,12 @@
  * the same sentence — and what lets this file be tested through the controller
  * that owns the write path rather than around it.
  *
- * A refused tile is DISABLED AND NAMED. The rule the design of record states
+ * A refused tile is REFUSED AND NAMED. The rule the design of record states
  * and `normalize()` cannot honour on its own: an edit that would be dropped is
  * refused where the operator made it, with the reason on the tile, instead of
- * being accepted and then quietly discarded on the way to the server. The one
+ * being accepted and then quietly discarded on the way to the server. The tile
+ * is `aria-disabled`, never `disabled`: a disabled button leaves the tab order,
+ * and its reason with it, so a keyboard could never reach the sentence. The one
  * refusal that is NOT named is "already in a bar": a single-node item that is
  * placed dims its tile instead, which is how the sheet reads as an inventory
  * — what is out, what is in — rather than as a list of complaints.
@@ -63,6 +65,10 @@ let controller = null;
 
 /** Disposers for the live previews the tiles currently hold. @type {(() => void)[]} */
 let previewDisposers = [];
+
+/** Where the focus was when the sheet opened; it goes back there on close. */
+/** @type {HTMLElement | null} */
+let returnFocus = null;
 
 /**
  * Make an element with a class and, optionally, text. Text only — the sheet
@@ -224,10 +230,11 @@ function disposePreviews() {
 /* ---- tiles ---- */
 
 /**
- * One tile: the preview over the label. A refused type is a disabled button
- * carrying its reason, so the operator reads why it cannot be added rather
- * than watching a click do nothing; a single-node type that is already placed
- * is dimmed instead, and says where it is on hover.
+ * One tile: the preview over the label. A refused type is an `aria-disabled`
+ * button carrying its reason and no click handler, so the operator reads why it
+ * cannot be added rather than watching a click do nothing, and a keyboard can
+ * still land on it; a single-node type that is already placed is dimmed
+ * instead, and says where it is on hover.
  * @param {string} type
  * @param {SheetController} ctrl
  * @returns {HTMLElement}
@@ -256,7 +263,7 @@ function buildTile(type, ctrl) {
   }
   const refusal = ctrl.refusalFor(type, host);
   if (refusal) {
-    button.disabled = true;
+    tile.setAttribute('aria-disabled', 'true');
     tile.title = refusal;
     tile.append(make('span', 'bar-tile-reason', refusal));
     return tile;
@@ -276,10 +283,40 @@ function buildTile(type, ctrl) {
 }
 
 /**
+ * The tile the focus is on, as what a re-render can find it by again: its
+ * type, and its place in sheet order. Null when the focus is not on a tile.
+ * @param {HTMLElement} groups
+ * @returns {{type: string, index: number} | null}
+ */
+function focusedTile(groups) {
+  const active = groups.ownerDocument.activeElement;
+  const tile = active instanceof HTMLElement ? active.closest('.bar-tile') : null;
+  if (!(tile instanceof HTMLElement) || !groups.contains(tile)) return null;
+  const index = Array.from(groups.querySelectorAll('.bar-tile')).indexOf(tile);
+  return { type: tile.dataset.barTile ?? '', index };
+}
+
+/**
+ * Focus the tile of the same type, or the tile now in its place when that type
+ * is no longer offered.
+ * @param {HTMLElement} groups
+ * @param {{type: string, index: number}} held
+ */
+function refocusTile(groups, held) {
+  const tiles = /** @type {HTMLElement[]} */ (Array.from(groups.querySelectorAll('.bar-tile')));
+  const same = tiles.find((tile) => tile.dataset.barTile === held.type);
+  (same ?? tiles[Math.min(held.index, tiles.length - 1)])?.focus({ preventScroll: true });
+}
+
+/**
  * Re-render the tiles and the status-bar toggle from the current document.
  * Called on every open and after every accepted edit, because a save changes
  * what the next edit may do — a host that just filled up refuses its tiles,
  * and an item that just went in dims its own.
+ *
+ * A focus that was on a tile stays on the tile of the same type: the rebuild
+ * replaces every tile, and a keyboard that just pressed Enter on one must not
+ * fall back to the page. A focus anywhere else is left where it is.
  * @param {ParentNode & {querySelector: Function}} [root]
  */
 export function renderSheet(root = document) {
@@ -289,6 +326,7 @@ export function renderSheet(root = document) {
 
   disposePreviews();
   const groups = /** @type {HTMLElement} */ (sheet.querySelector('.bar-sheet-groups'));
+  const held = focusedTile(groups);
   groups.replaceChildren();
   for (const heading of BAR_GROUPS) {
     const types = BAR_ITEM_TYPES.filter((type) => BAR_CATALOG[type].group === heading);
@@ -300,6 +338,7 @@ export function renderSheet(root = document) {
     group.append(tiles);
     groups.append(group);
   }
+  if (held) refocusTile(groups, held);
 
   for (const host of BAR_HOSTS) {
     const box = /** @type {HTMLInputElement | null} */ (
@@ -316,14 +355,26 @@ export function renderSheet(root = document) {
 /**
  * Show the sheet. Rendering happens here rather than at build time so an
  * operator who left and re-entered edit mode sees the document as it now is.
+ *
+ * The focus moves to the first tile, so a keyboard that opened the sheet is in
+ * it; where it came from is remembered for {@link closeSheet}.
  * @param {SheetController} ctrl
  * @param {ParentNode & {querySelector: Function}} [root]
  */
 export function openSheet(ctrl, root = document) {
   const sheet = sheetElement(ctrl, root);
+  const doc = sheet.ownerDocument;
+  const active = doc.activeElement;
+  // The body is where focus rests when nothing has it; there is nothing to
+  // give back to.
+  returnFocus =
+    active instanceof HTMLElement && active !== doc.body && !sheet.contains(active) ? active : null;
   sheetNotice('', root);
   renderSheet(root);
   sheet.classList.add('is-open');
+  /** @type {HTMLElement | null} */ (sheet.querySelector('.bar-tile'))?.focus({
+    preventScroll: true,
+  });
 }
 
 /**
@@ -331,13 +382,25 @@ export function openSheet(ctrl, root = document) {
  * hidden sheet is a timer spent on nothing — and the next open re-renders
  * them. The notice element survives so a message that arrives while the sheet
  * reopens is not lost.
+ *
+ * The focus goes back where it was when the sheet opened, but only if it is
+ * still in the sheet (or nowhere): an operator who has already moved on keeps
+ * the focus where they put it.
  * @param {ParentNode & {querySelector: Function}} [root]
  */
 export function closeSheet(root = document) {
   disposePreviews();
-  /** @type {HTMLElement | null} */ (root.querySelector('.bar-sheet'))?.classList.remove(
-    'is-open'
-  );
+  const sheet = /** @type {HTMLElement | null} */ (root.querySelector('.bar-sheet'));
+  const back = returnFocus;
+  returnFocus = null;
+  if (sheet && back?.isConnected) {
+    const doc = sheet.ownerDocument;
+    const active = doc.activeElement;
+    if (!active || active === doc.body || sheet.contains(active)) {
+      back.focus({ preventScroll: true });
+    }
+  }
+  sheet?.classList.remove('is-open');
 }
 
 /**
@@ -349,6 +412,7 @@ export function closeSheet(root = document) {
  */
 export function destroySheet(root = document) {
   disposePreviews();
+  returnFocus = null;
   /** @type {HTMLElement | null} */ (root.querySelector('.bar-sheet'))?.remove();
   controller = null;
 }

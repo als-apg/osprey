@@ -30,7 +30,9 @@ committed files are still exactly what this script writes::
 ``--check`` is the fixture's determinism gate: it rebuilds into a temporary
 directory and compares every byte. Everything a clock or a machine would
 otherwise decide is pinned -- the ``_export`` timestamp, the MAT-file's header
-text -- so a rebuild on another day on another machine writes the same bytes.
+text, and the arithmetic: the one curved conversion is summed from products and
+sums, and every other transcendental goes through the C library -- so a rebuild
+on another day on another machine writes the same bytes.
 """
 
 from __future__ import annotations
@@ -147,6 +149,9 @@ def _ring_elements() -> list[Any]:
         if cell != CELLS:
             elements.append(at.Corrector(f"HC{cell}B", 0.0, [0.0, 0.0]))
         elements.append(at.Drift("DR", TAIL_DRIFT))
+    # The last girder's two ends, marked with the monitor element type under one
+    # name; no family reads them.
+    elements += [at.Monitor("GE"), at.Monitor("GE")]
     return elements
 
 
@@ -189,10 +194,10 @@ def _apply_nominal_kicks(ring: at.Lattice) -> None:
     write path applies, and the rule the emitted slice weights come from.
     """
     for plane, family in ((0, "HC"), (1, "VC")):
-        gain = CONVERSIONS[family]["gain"]
+        hw2physics = CONVERSIONS[family]["hw2physics"]
         for device, current in enumerate(NOMINAL_AMPS[family]):
             indices = _corrector_elements(ring, device)
-            kick = gain * current / len(indices)
+            kick = hw2physics(np.array([current]), DECK_ENERGY_GEV)[0] / len(indices)
             for index in indices:
                 angle = np.array(ring[index].KickAngle, dtype=float)
                 angle[plane] = kick
@@ -276,6 +281,84 @@ def _linear_brho(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
     return convert
 
 
+#: Terms of the odd power series :func:`_sinh` sums. The first term left out,
+#: ``x**27 / 27!``, is below a double's last digit for every ``|x| <= 1``, and
+#: every argument the fixture hands the series lies inside +-0.83: 0.75 on the
+#: hardware grid, 0.822 as an inverse target.
+SINH_TERMS = 12
+
+#: Newton steps :func:`_arcsinh` takes. Newton reaches the last binary digit by
+#: the sixth step; after that some values alternate between two neighbouring
+#: doubles, so the count is fixed rather than "until nothing moves". A fixed
+#: count lands every platform on the same one of the two.
+ARCSINH_STEPS = 8
+
+
+def _libm(function: Callable[[float], float], values: np.ndarray) -> np.ndarray:
+    """Apply ``function`` one value at a time, keeping the input's shape.
+
+    numpy picks its own vectorised ``exp`` and ``log`` on some processors, while
+    ``math`` always calls the C library.
+    """
+    array = np.asarray(values, dtype=float)
+    return np.array([function(float(v)) for v in array.flat], dtype=float).reshape(array.shape)
+
+
+def _sinh(x: np.ndarray) -> np.ndarray:
+    """``sinh`` summed as its odd power series in Horner form.
+
+    The lattice stores its kicks as raw doubles, and ``np.sinh`` does not give
+    every platform the same last binary digit. IEEE 754 rounds a product, a
+    quotient and a sum identically on every machine.
+    """
+    x = np.asarray(x, dtype=float)
+    square = x * x
+    total = np.ones_like(x)
+    for n in range(SINH_TERMS, 0, -1):
+        total = 1.0 + square / float((2 * n) * (2 * n + 1)) * total
+    return x * total
+
+
+def _arcsinh(t: np.ndarray) -> np.ndarray:
+    """The inverse of :func:`_sinh` by a fixed number of Newton steps.
+
+    The slope ``cosh y`` is ``sqrt(1 + sinh(y)**2)``, and IEEE 754 rounds a
+    square root exactly.
+    """
+    t = np.asarray(t, dtype=float)
+    y = t.copy()
+    for _ in range(ARCSINH_STEPS):
+        s = _sinh(y)
+        y = y - (s - t) / np.sqrt(1.0 + s * s)
+    return y
+
+
+def _sinh_brho(gain: float, scale: float) -> Callable[[np.ndarray, float], np.ndarray]:
+    """A rigidity-scaled conversion that bends: odd, strictly monotonic, its slope ``gain`` at zero."""
+
+    def convert(hardware: np.ndarray, energy: float) -> np.ndarray:
+        return (
+            gain
+            * scale
+            * _sinh(np.asarray(hardware, dtype=float) / scale)
+            * brho(DECK_ENERGY_GEV)
+            / brho(energy)
+        )
+
+    return convert
+
+
+def _asinh_brho(gain: float, scale: float) -> Callable[[np.ndarray, float], np.ndarray]:
+    """The exact inverse of :func:`_sinh_brho`."""
+
+    def convert(physics: np.ndarray, energy: float) -> np.ndarray:
+        return scale * _arcsinh(
+            np.asarray(physics, dtype=float) * brho(energy) / brho(DECK_ENERGY_GEV) / (gain * scale)
+        )
+
+    return convert
+
+
 def _linear_flat(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
     """A conversion that ignores the energy it is handed, the gain-and-offset branch."""
 
@@ -289,7 +372,7 @@ def _bend_hw2physics(hardware: np.ndarray, energy: float) -> np.ndarray:
     """The bend supply's measured ramp, in radians of bend, ending where it ends."""
     field = np.where(
         hardware <= RAMP_CURRENT_LIMIT,
-        RAMP_GAIN * (1.0 - np.exp(-np.abs(hardware) / RAMP_TAU)),
+        RAMP_GAIN * (1.0 - _libm(math.exp, -np.abs(hardware) / RAMP_TAU)),
         np.nan,
     )
     return field * DIPOLE_LENGTH / brho(energy)
@@ -299,7 +382,7 @@ def _bend_physics2hw(physics: np.ndarray, energy: float) -> np.ndarray:
     """The ramp read the other way: the current that bends this angle."""
     field = np.asarray(physics, dtype=float) * brho(energy) / DIPOLE_LENGTH
     ratio = np.clip(1.0 - field / RAMP_GAIN, 1.0e-12, None)
-    current = -RAMP_TAU * np.log(ratio)
+    current = -RAMP_TAU * _libm(math.log, ratio)
     return np.where(current <= RAMP_CURRENT_LIMIT, current, np.nan)
 
 
@@ -335,7 +418,7 @@ def _quad_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
 def _qd_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
     """A readback conversion with a curve in it, so the inverse is written as a table."""
     strength = np.asarray(physics, dtype=float)
-    return -82.0 * strength + 3.0e3 * strength**3
+    return -82.0 * strength + 3.0e3 * (strength * strength * strength)
 
 
 def _identity_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
@@ -407,8 +490,8 @@ CONVERSIONS: dict[str, dict[str, Any]] = {
     },
     "HC": {
         "gain": 1.0e-4,
-        "hw2physics": _linear_brho(1.0e-4),
-        "physics2hw": _brho_inverse(1.0e-4),
+        "hw2physics": _sinh_brho(1.0e-4, 2.0),
+        "physics2hw": _asinh_brho(1.0e-4, 2.0),
         "fcn": "amp2rad",
         "inverse_fcn": "rad2amp",
     },
@@ -667,7 +750,7 @@ def build_ao(ring: at.Lattice) -> dict[str, Any]:
     monitors = at_index(_named(ring, "BPM"))
     dipoles = at_index(_named(ring, "BD"))
     cavity = at_index(_named(ring, "RFC"))[0]
-    septum = at_index([len(ring) - 2])[0]
+    septum = at_index([max(i for i, e in enumerate(ring) if isinstance(e, at.Drift))])[0]
 
     correctors = []
     for device in range(CELLS):
@@ -779,7 +862,7 @@ def build_ao(ring: at.Lattice) -> dict[str, Any]:
         "BEND",
         "Radian",
         2,
-        setpoint_range=[-2.0, 2.0],
+        setpoint_range=[[-2.0, 2.0], [float("nan"), float("nan")]],
         monitor_range=None,
         monitor=False,
         hw_units="Ampere",
@@ -1481,8 +1564,12 @@ def build_va(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
 # The response matrix.
 # ---------------------------------------------------------------------------
 
-#: The kick each corrector is stepped by while the matrix is measured, in radians.
-ACTUATOR_DELTA = 1.0e-5
+#: The kick each corrector is stepped by while the matrix is measured, in radians:
+#: one kick per corrector device.
+ACTUATOR_DELTA = {
+    "HC": [1.0e-5, 1.1e-5, 0.9e-5, 1.0e-5],
+    "VC": [1.2e-5, 1.0e-5, 1.0e-5, 0.8e-5],
+}
 
 #: The monitor device whose measurement this file does not count as good.
 BAD_MONITOR = 2
@@ -1505,7 +1592,8 @@ def _orbit(ring: at.Lattice) -> np.ndarray:
 def _response_column(ring: at.Lattice, plane: int, device: int) -> np.ndarray:
     """One corrector's orbit response, measured the way a model measurement is: both ways."""
     indices = _corrector_elements(ring, device)
-    step = ACTUATOR_DELTA / len(indices)
+    delta = ACTUATOR_DELTA["HC" if plane == 0 else "VC"][device]
+    step = delta / len(indices)
     saved = [np.array(ring[index].KickAngle, dtype=float) for index in indices]
 
     def kick(sign: float) -> np.ndarray:
@@ -1518,7 +1606,7 @@ def _response_column(ring: at.Lattice, plane: int, device: int) -> np.ndarray:
     plus, minus = kick(+1.0), kick(-1.0)
     for index, angle in zip(indices, saved, strict=True):
         ring[index].KickAngle = angle
-    return (plus - minus) / (2.0 * ACTUATOR_DELTA)
+    return (plus - minus) / (2.0 * delta)
 
 
 def _rounded(value: Any) -> np.ndarray:
@@ -1566,11 +1654,12 @@ def build_response(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
                         # matrix was taken; the vertical file predates the field.
                         "data": (
                             _rounded(
-                                np.array(NOMINAL_AMPS[actuator_family])
-                                * CONVERSIONS[actuator_family]["gain"]
+                                CONVERSIONS["HC"]["hw2physics"](
+                                    np.array(NOMINAL_AMPS["HC"]), DECK_ENERGY_GEV
+                                )
                             )
                             if actuator_family == "HC"
-                            else np.nan
+                            else np.full(CELLS, np.nan)
                         ),
                     },
                     "origin": "model",
@@ -1579,7 +1668,7 @@ def build_response(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
                     "units": "Physics",
                     "units_string": "meter/radian",
                     "modulation_method": "bipolar",
-                    "actuator_delta": ACTUATOR_DELTA,
+                    "actuator_delta": np.array(ACTUATOR_DELTA[actuator_family]),
                     "data": _rounded(data),
                 }
             )

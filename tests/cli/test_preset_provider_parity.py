@@ -159,8 +159,6 @@ def test_a_gateway_with_no_endpoint_exported_is_refused_rather_than_routed(monke
             "base_url": None,
             "requires_base_url": True,
             "base_url_env_var": endpoint_var,
-            "default_model_tier": "haiku",
-            "models": {"haiku": "fast", "sonnet": "balanced", "opus": "capable"},
         },
     )
     monkeypatch.delenv(endpoint_var, raising=False)
@@ -177,12 +175,12 @@ def test_a_gateway_with_no_endpoint_exported_is_refused_rather_than_routed(monke
         )
 
 
-def test_ds4_stanza_resolves_to_deepseek_tiers():
-    """The ds4 stanza must resolve to the DeepSeek tier models end-to-end."""
+def test_ds4_stanza_resolves_to_its_deepseek_default():
+    """The ds4 stanza runs its catalog default; Claude Code's aliases fall back to it."""
     spec = ClaudeCodeModelResolver.resolve({"provider": "ds4"}, _api_providers())
-    assert spec.tier_to_model["haiku"] == "deepseek-v4-flash"
-    assert spec.tier_to_model["sonnet"] == "deepseek-v4-pro"
-    assert spec.tier_to_model["opus"] == "deepseek-v4-pro"
+    assert spec.default_model_id == "deepseek-v4-flash"
+    assert spec.alias_models == dict.fromkeys(("haiku", "sonnet", "opus"), "deepseek-v4-flash")
+    assert set(spec.alias_origin.values()) == {"main model"}
     # Claude-Code-facing var is stripped of /v1 (issue #312); the proxy upstream
     # keeps it for /chat/completions forwarding.
     assert spec.env_block["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8000"

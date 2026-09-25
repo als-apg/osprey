@@ -85,7 +85,9 @@ that have to decide whether to proceed and not what to say about it, and
 :func:`store_verdict_detail` the spelling that also hands back the operator
 sentence for the one verdict whose remedy the refusing process cannot compose
 for itself. All three are one read of the record, so a caller pays nothing for
-asking in the spelling that says the most. The clause is public for the one
+asking in the spelling that says the most; :func:`record_verdict_detail` is the
+same clause without the launch pin, for the refusal that has to name a
+narrowing the pin's answer hid. The clause is public for the one
 caller that holds a ceiling this module cannot derive: the connector's
 reference monitor reads a deployment posture keyed on connector TYPE. That
 caller delegates the clause here rather than restating it, so rule 3 keeps
@@ -200,6 +202,7 @@ __all__ = [
     "launch_posture_stamp",
     "parse_launch_posture",
     "parse_posture_value",
+    "record_verdict_detail",
     "recorded_posture",
     "stamped_agent_data_root",
     "state_dir",
@@ -555,7 +558,7 @@ def agent_data_root() -> Path | None:
         return stamped
     try:
         return resolve_shared_data_root()
-    except Exception:  # noqa: BLE001 — an unresolvable root is "no record", not a crash
+    except Exception:  # an unresolvable root is "no record", not a crash
         logger.debug("Could not resolve the shared data root for the control state", exc_info=True)
         return None
 
@@ -688,7 +691,7 @@ def recorded_posture() -> dict[str, str]:
         from osprey_connectors import control_context
 
         record = control_context.read_record()
-    except Exception:  # noqa: BLE001 — every reader here sits on a write path
+    except Exception:  # every reader here sits on a write path
         logger.debug("Control-context record unavailable; nothing is narrowed", exc_info=True)
         return {}
     return {} if record is None else record.posture
@@ -714,7 +717,7 @@ def invalidate_cache() -> None:
         from osprey_connectors import control_context
 
         control_context.invalidate_cache()
-    except Exception:  # noqa: BLE001 — dropping a cache must not raise into a caller
+    except Exception:  # dropping a cache must not raise into a caller
         logger.debug("Could not drop the control-context cache", exc_info=True)
 
 
@@ -991,7 +994,7 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
     except FileNotFoundError:
         # No record for this owner: the same answer as no directory.
         return _TreeRead({}, None)
-    except Exception as exc:  # noqa: BLE001 — every failure here REFUSES
+    except Exception as exc:  # every failure here REFUSES
         # Blanket on purpose, and the opposite of the one this reader avoids:
         # an unexpected failure on a present record leaves a narrowing that may
         # exist unread, so it answers unavailable rather than permitted.
@@ -1194,27 +1197,21 @@ def store_verdict(target: str | None, owner: str | _NoOwner | None = None) -> St
     return store_verdict_detail(target, owner).verdict
 
 
-def store_verdict_detail(
+def record_verdict_detail(
     target: str | None, owner: str | _NoOwner | None = None
 ) -> StoreVerdictDetail:
-    """The recorded clause of :func:`effective_writes` — rule 3, with its reason.
+    """The record clause of :func:`store_verdict_detail`, without the launch pin.
 
-    The clause reads, in this order:
+    This is the clause without the launch pin, for a caller that already knows
+    the pin refused and must still say whether the record refuses too. The
+    clause reads, in this order:
 
-    1. The launch pin, before any record is read: it is a fact about THIS RUN
-       rather than about the deployment and costs one environment read, so a
-       sandbox that launched narrow refuses without touching the disk. Its two
-       arms are different reasons, not one — a named target is an operator's
-       decision (``narrowing``), while :data:`LAUNCH_POSTURE_ALL_TARGETS` says
-       the executor could resolve neither a target nor the record at launch and
-       pinned the run everywhere, which nobody decided
-       (``control_context_unavailable``).
-    2. *owner*, resolved through :func:`current_owner`. :data:`NO_OWNER` is an
+    1. *owner*, resolved through :func:`current_owner`. :data:`NO_OWNER` is an
        answer rather than a failure: work that belongs to nobody is governed by
        the deployment ceiling alone, and no record is read for it. Anything else
        that is not a name — a value a decoded payload could carry where a string
        was meant — is a lookup that did not happen, and refuses.
-    3. That owner's record — out of the read-only tree through
+    2. That owner's record — out of the read-only tree through
        :func:`_read_tree_record` when a tree is bound, else out of this host's
        own record through :func:`recorded_posture`. A tree bound but unusable
        refuses rather than falling back to the host: the fall-back exists for a
@@ -1242,11 +1239,6 @@ def store_verdict_detail(
         A :class:`StoreVerdictDetail`. Never raises: this is read on a write
         path, and a clause that cannot decide must produce a verdict.
     """
-    if not launch_permits(target):
-        if launch_narrowed_target() == LAUNCH_POSTURE_ALL_TARGETS:
-            return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, _LAUNCH_PIN_REASON)
-        return StoreVerdictDetail(StoreVerdict.NARROWING, None)
-
     resolved = current_owner(owner)
     if resolved is NO_OWNER:
         return StoreVerdictDetail(StoreVerdict.PERMITTED, None)
@@ -1286,6 +1278,45 @@ def store_verdict_detail(
     if _permits(narrowed, target):
         return StoreVerdictDetail(StoreVerdict.PERMITTED, None)
     return StoreVerdictDetail(StoreVerdict.NARROWING, None)
+
+
+def store_verdict_detail(
+    target: str | None, owner: str | _NoOwner | None = None
+) -> StoreVerdictDetail:
+    """The recorded clause of :func:`effective_writes` — rule 3, with its reason.
+
+    The clause reads, in this order:
+
+    1. The launch pin, before any record is read: it is a fact about THIS RUN
+       rather than about the deployment and costs one environment read, so a
+       sandbox that launched narrow refuses without touching the disk. Its two
+       arms are different reasons, not one — a named target is an operator's
+       decision (``narrowing``), while :data:`LAUNCH_POSTURE_ALL_TARGETS` says
+       the executor could resolve neither a target nor the record at launch and
+       pinned the run everywhere, which nobody decided
+       (``control_context_unavailable``).
+    2. The owner and that owner's record, through :func:`record_verdict_detail`,
+       which is this clause without the pin.
+
+    Args:
+        target: The control target the write lands on, or ``None`` when the
+            caller cannot name one — in which case the most restrictive
+            narrowing decides.
+        owner: Whose narrowing governs this write. ``None`` — the usual case —
+            asks :func:`current_owner`. An owner names WHO the work belongs to;
+            it does not index the posture, which is filed one record per
+            identity and holds one narrowing per person.
+
+    Returns:
+        A :class:`StoreVerdictDetail`. Never raises: this is read on a write
+        path, and a clause that cannot decide must produce a verdict.
+    """
+    if not launch_permits(target):
+        if launch_narrowed_target() == LAUNCH_POSTURE_ALL_TARGETS:
+            return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, _LAUNCH_PIN_REASON)
+        return StoreVerdictDetail(StoreVerdict.NARROWING, None)
+
+    return record_verdict_detail(target, owner)
 
 
 def store_permits(target: str | None) -> bool:

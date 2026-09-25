@@ -23,15 +23,6 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
     default_base_url = None
     default_model_id = "anthropic/claude-haiku"  # Claude Haiku via CBORG for general use
     health_check_model_id = "anthropic/claude-haiku"  # Fast and cost-effective for health checks
-    available_models = [
-        "anthropic/claude-opus",
-        "anthropic/claude-sonnet",
-        "anthropic/claude-haiku",
-        "gemini-pro",
-        "gemini-flash",
-        "gpt-4o",
-        "gpt-4o-mini",
-    ]
 
     # API key acquisition information
     api_key_url = "https://cborg.lbl.gov"

@@ -105,6 +105,7 @@ __all__ = [
     "get_web_credentials",
     "mint_and_announce",
     "mint_secret",
+    "peek_supplied_panel_token",
     "peek_web_credentials",
     "reset_web_credentials",
 ]
@@ -437,11 +438,13 @@ class SessionStore:
         """Write *payload* over :attr:`path`, atomically and at mode ``0600``.
 
         The same idiom as
-        :func:`osprey.interfaces.web_terminal.feedback_store._atomic_write`. The
-        explicit ``chmod`` is redundant with :func:`tempfile.mkstemp`, which
+        :func:`osprey.interfaces.web_terminal._json_store.write_json_atomic`.
+        The explicit ``chmod`` is redundant with :func:`tempfile.mkstemp`, which
         already creates at ``0600``; it is here so the mode the store must have
         is stated where the file is created rather than inherited from another
-        module's default.
+        module's default. This writer is its own rather than the shared one
+        because it states the store's ``0600`` mode where the file is created
+        and writes with sorted keys.
         """
         fd, tmp_name = tempfile.mkstemp(
             dir=self._path.parent, prefix=f".{self._path.name}.", suffix=".tmp"
@@ -853,6 +856,13 @@ def _own_secret_operator() -> OperatorIdentity:
 
 _POPULATION_LOCK = threading.Lock()
 _CREDENTIALS: WebCredentials | None = None
+#: The panel token the launching process published into this process's
+#: environment, as :func:`_populate` found it, kept whether or not population
+#: went on to succeed. Memory, never a carrier: the value is out of
+#: ``os.environ`` by the time it is written here and nothing puts it back, so a
+#: child this process spawns still inherits nothing. ``None`` means no non-blank
+#: token was ever supplied — not "not populated yet", and never a reason to mint.
+_SUPPLIED_PANEL_TOKEN: str | None = None
 
 
 def _populate() -> WebCredentials:
@@ -867,13 +877,17 @@ def _populate() -> WebCredentials:
             the configured session lifetime is unreadable — see
             :func:`_session_ttl_from_env`.
     """
+    global _SUPPLIED_PANEL_TOKEN
     # Both carriers are popped BEFORE the check below, because the check can
     # raise and the process that catches it goes on serving and spawning
     # children. A panel token left in ``os.environ`` at that point is exactly
     # the inheritance this module exists to prevent, so the fatal path must not
-    # be the one path that leaks it.
+    # be the one path that leaks it. The panel token's *value* is kept for this
+    # process even when the check refuses, so the fatal path does not take the
+    # process's own bearer with it either.
     operator_secret = os.environ.pop(OPERATOR_SECRET_ENV, "").strip()
     supplied_panel_token = os.environ.pop(PANEL_TOKEN_ENV, "").strip()
+    _SUPPLIED_PANEL_TOKEN = supplied_panel_token or None
     # Popped unconditionally (they must not reach any child process); kept
     # only where the compose environment said so — see ROSTER_ACCEPT_ENV.
     harvested = _pop_roster_secrets()
@@ -1187,6 +1201,23 @@ def peek_web_credentials() -> WebCredentials | None:
         return _CREDENTIALS
 
 
+def peek_supplied_panel_token() -> str | None:
+    """Return the panel token this process was handed, or ``None``.
+
+    The value :func:`_populate` found in :data:`PANEL_TOKEN_ENV`, kept whether or
+    not population then succeeded. On the success path it is also
+    ``peek_web_credentials().panel_token``; on the container-shape refusal it is
+    the only place it survives, and a process that must keep answering panel
+    calls with the credential its launcher gave it reads it here.
+
+    Never mints, never populates, never reads ``os.environ`` (the carrier is
+    gone by the time there is anything to return), and never answers with a
+    minted token — a process that was handed none gets ``None``.
+    """
+    with _POPULATION_LOCK:
+        return _SUPPLIED_PANEL_TOKEN
+
+
 def close_env_carriers() -> None:
     """Remove both credential carriers from ``os.environ`` if either is still there.
 
@@ -1226,10 +1257,17 @@ def reset_web_credentials() -> None:
     not restore the environment variables population popped, and does not clear
     ``app.state.web_credentials`` on an app built before the reset — an app
     outliving the reset keeps the credentials it cached.
+
+    It also forgets the supplied panel token, and that is load-bearing rather
+    than tidiness: this runs before and after every test
+    (``tests/conftest.py::reset_web_credentials_between_tests``), and a
+    remembered token surviving a test would hand a bearer to the next test
+    asserting that a process holding nothing sends none.
     """
-    global _CREDENTIALS
+    global _CREDENTIALS, _SUPPLIED_PANEL_TOKEN
     with _POPULATION_LOCK:
         _CREDENTIALS = None
+        _SUPPLIED_PANEL_TOKEN = None
 
 
 def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:

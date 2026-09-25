@@ -100,6 +100,126 @@ def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
     return sorted(unknown)
 
 
+#: Claude Code's own alias names. They name no model, so ``model=`` refuses them.
+_CLAUDE_CODE_ALIAS_WORDS = ("haiku", "sonnet", "opus")
+
+
+#: The key a pin on one agent's model is written under, as ``--set`` spells it.
+AGENT_MODELS_KEY = "config.claude_code.agent_models"
+
+
+def _read_profile(repo_root: Path) -> dict:
+    """The parsed ``profile.yml``, or ``{}`` when it cannot be read as a mapping."""
+    import yaml
+
+    try:
+        profile = yaml.safe_load((repo_root / PROFILE_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return profile if isinstance(profile, dict) else {}
+
+
+def _served_models(repo_root: Path, provider: str) -> list[str]:
+    """The model ids the catalog entry for *provider* lists; empty when it lists none."""
+    from osprey.errors import BuildProfileError
+    from osprey.profiles.providers import load_provider_catalog
+
+    try:
+        entry = load_provider_catalog(repo_root).entries.get(provider) or {}
+    except BuildProfileError:
+        entry = {}
+    return [str(m) for m in entry.get("models") or []]
+
+
+def _refuse_alias_word(key: str, model: str, provider: str, served: list[str]) -> None:
+    """Refuse *model* when it is one of Claude Code's alias names rather than a model id."""
+    if model in _CLAUDE_CODE_ALIAS_WORDS:
+        raise click.UsageError(
+            f"`{key}={model}` is not a model id. Provider '{provider}' serves: "
+            f"{', '.join(served) or 'no listed models'}."
+        )
+
+
+def _configured_agents(profile: dict) -> list[str]:
+    """The agent names the profile's ``config:`` block defines under ``claude_code.agents``."""
+    config = profile.get("config")
+    if not isinstance(config, dict):
+        return []
+    names: dict[str, None] = {}
+    prefix = "claude_code.agents."
+    for key, value in config.items():
+        key = str(key)
+        if key.startswith(prefix):
+            names[key[len(prefix) :].split(".", 1)[0]] = None
+        elif key == "claude_code.agents" and isinstance(value, dict):
+            names.update(dict.fromkeys(str(name) for name in value))
+        elif key == "claude_code" and isinstance(value, dict):
+            agents = value.get("agents")
+            if isinstance(agents, dict):
+                names.update(dict.fromkeys(str(name) for name in agents))
+    return sorted(names)
+
+
+def _model_check(repo_root: Path, pairs: tuple[str, ...]) -> list[tuple[str, str, list[str]]]:
+    """Each model id *pairs* writes, the provider it runs on, and what that provider serves.
+
+    Covers ``model=`` and every ``config.claude_code.agent_models`` pin, written
+    one agent at a time or as a whole mapping. The provider is a ``provider=``
+    pair on the same command line, else the profile's own ``provider:``. Before
+    anything is written, a bare alias word is refused with the ids the provider
+    serves, and so is every pin ``osprey build`` refuses.
+
+    Returns:
+        One ``(model, provider, served)`` per id written, ``model=`` first and
+        then the pins sorted by agent; empty when *pairs* sets no model and no
+        pin, or no provider can be named.
+    """
+    import yaml
+
+    from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+    from .validate_claude_artifacts import agent_model_pin_errors
+
+    values: dict[str, str] = {}
+    pins: dict[str, str] = {}
+    for pair in pairs:
+        key, separator, raw = pair.partition("=")
+        if not separator:
+            continue
+        key = key.strip()
+        value = yaml.safe_load(raw) if raw.strip() else None
+        if key in ("model", "provider"):
+            values[key] = "" if value is None else str(value)
+        elif key == AGENT_MODELS_KEY and isinstance(value, dict):
+            pins.update({str(a): str(m) for a, m in value.items() if m is not None})
+        elif key.startswith(AGENT_MODELS_KEY + ".") and value is not None:
+            pins[key[len(AGENT_MODELS_KEY) + 1 :]] = str(value)
+    model = values.get("model")
+    if not model and not pins:
+        return []
+    profile = _read_profile(repo_root)
+    provider = values.get("provider") or profile.get("provider")
+    if not provider:
+        return []
+    provider = str(provider)
+    served = _served_models(repo_root, provider)
+
+    if model:
+        _refuse_alias_word("model", model, provider, served)
+    for agent in sorted(pins):
+        _refuse_alias_word(f"{AGENT_MODELS_KEY}.{agent}", pins[agent], provider, served)
+
+    errors = agent_model_pin_errors(
+        repo_root / "agents", pins, {*FRAMEWORK_AGENTS, *_configured_agents(profile)}
+    )
+    if errors:
+        raise click.UsageError("\n".join(errors))
+
+    checked = [(model, provider, served)] if model else []
+    checked.extend((pins[agent], provider, served) for agent in sorted(pins))
+    return checked
+
+
 @click.command(name="set")
 @click.argument("pairs", nargs=-1, metavar="KEY=VALUE...")
 @repo_option
@@ -113,7 +233,8 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     a setting through to build/, then `osprey up` to deploy it.
 
     KEY is a top-level profile key (provider, model, tier, channel_finder_mode,
-    connector) or a dotted path. Keys under `config.` address the rendered
+    connector) or a dotted path. `model` is a model id the provider serves, and so is
+    each `config.claude_code.agent_models.<agent>` pin. Keys under `config.` address the rendered
     config: `config.control_system.type=epics` writes that literal dotted entry
     into the profile's config: block, replacing the value already there. A
     mapping value states the whole block at that key: `config.approval.tools={…}`
@@ -129,7 +250,8 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     Examples:
 
     \b
-      $ osprey set model=sonnet
+      $ osprey set model=claude-sonnet-5
+      $ osprey set config.claude_code.agent_models.logbook-deep-research=claude-opus-5-5
       $ osprey set connector=epics
       $ osprey set tier=1 channel_finder_mode=in_context
       $ osprey set config.facility.name='Storage Ring'
@@ -143,7 +265,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
 
     if not pairs:
         raise click.UsageError(
-            "Nothing to set. Name at least one KEY=VALUE, e.g. `osprey set model=sonnet`.\n\n"
+            "Nothing to set. Name at least one KEY=VALUE, e.g. `osprey set model=claude-sonnet-5`.\n\n"
             "To see what the profile currently says, run `osprey config`."
         )
 
@@ -154,6 +276,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     profile_path = repo_root / PROFILE_FILENAME
 
     _refuse_retired_shorthands(pairs)
+    model_check = _model_check(repo_root, pairs)
 
     try:
         # Every pair is merged into one layer before any of it is written, so a
@@ -165,6 +288,11 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     report(f"✓ Wrote {len(written)} setting(s) into {profile_path}", style=Styles.SUCCESS)
     for key in written:
         note(key)
+    for model, provider, served in model_check:
+        if served and model not in served:
+            note(
+                f"{model} is not in provider '{provider}''s served list; the build trusts the gateway."
+            )
 
     unrecognized = _unrecognized_top_level_keys(pairs)
     # The retired app-template key is unknown for a REASON the generic advice

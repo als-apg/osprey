@@ -306,12 +306,12 @@ class _FakePvObject:
     def __init__(self, data):
         self._data = dict(data)
 
-    def getPyObject(self):  # noqa: N802 - pvaccess spells it this way
+    def getPyObject(self):  # pvaccess spells it this way
         if "value" not in self._data:
             raise RuntimeError("PvObject has no value field")
         return self._data["value"]
 
-    def toDict(self):  # noqa: N802 - pvaccess spells it this way
+    def toDict(self):  # pvaccess spells it this way
         return dict(self._data)
 
 
@@ -338,7 +338,7 @@ def _install_fake_pvaccess(monkeypatch, writes=None, reads=None, read=None):
             self._name = name
             self.current = 1.0
 
-        def getName(self):  # noqa: N802 - pvaccess spells it this way
+        def getName(self):  # pvaccess spells it this way
             return self._name
 
         def get(self, request=""):  # noqa: ARG002 - pvaPy Channel signature
@@ -351,26 +351,26 @@ def _install_fake_pvaccess(monkeypatch, writes=None, reads=None, read=None):
             writes.append((self._name, value))
             return "put-done"
 
-        def putDouble(self, value, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
+        def putDouble(self, value, request=""):  # noqa: ARG002 - pvaPy Channel signature
             writes.append((self._name, value))
             return "put-done"
 
-        def putGet(self, value, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
+        def putGet(self, value, request=""):  # noqa: ARG002 - pvaPy Channel signature
             writes.append((self._name, value))
             return _FakePvObject({"value": value})
 
-        def asyncPut(self, value, callback=None, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
+        def asyncPut(self, value, callback=None, request=""):  # noqa: ARG002 - pvaPy Channel signature
             # pvaPy's asynchronous write: a PvObject first, the completion
             # callback second. A write whose name does not start with "put".
             writes.append((self._name, value))
             return "async-put-done"
 
-        def parsePut(self, args, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
+        def parsePut(self, args, request=""):  # noqa: ARG002 - pvaPy Channel signature
             # Takes a LIST OF JSON STRINGS, not a value object.
             writes.append((self._name, args))
             return "parse-put-done"
 
-        def parsePutGet(self, args, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
+        def parsePutGet(self, args, request=""):  # noqa: ARG002 - pvaPy Channel signature
             writes.append((self._name, args))
             return _FakePvObject({"value": args})
 

@@ -399,3 +399,62 @@ class TestConfigSearchPrecedence:
         from osprey.interfaces.ariel.app import REMEDY_NO_CONFIG_FILE
 
         assert REMEDY_NO_CONFIG_FILE.startswith("set CONFIG_FILE")
+
+
+_PANEL_ON_ERROR = "Could not read web.config_panel.enabled; leaving the Config panel enabled"
+
+
+@pytest.mark.parametrize(
+    ("web_section", "variable", "expected"),
+    [
+        (None, None, True),
+        ({"config_panel": {"enabled": False}}, None, False),
+        ({"config_panel": {"enabled": "false"}}, None, False),
+        ({"config_panel": {"enabled": "${OSPREY_TEST_CONFIG_PANEL:-false}"}}, None, False),
+        ({"config_panel": {"enabled": "${OSPREY_TEST_CONFIG_PANEL}"}}, "false", False),
+        ({"config_panel": {"enabled": "${OSPREY_TEST_CONFIG_PANEL}"}}, None, True),
+    ],
+)
+def test_the_config_panel_gate_matches_the_web_terminal(
+    tmp_path: Path, monkeypatch, web_section, variable, expected
+):
+    """The panel and the terminal answer the gate out of one file with one reader."""
+    from osprey.interfaces.ariel.app import _resolve_config_panel_enabled
+    from osprey.interfaces.web_terminal.app import resolve_config_flag
+
+    if variable is None:
+        monkeypatch.delenv("OSPREY_TEST_CONFIG_PANEL", raising=False)
+    else:
+        monkeypatch.setenv("OSPREY_TEST_CONFIG_PANEL", variable)
+    extra = {"web": web_section} if web_section is not None else None
+    config_file = _write_config(tmp_path, {"database": {"uri": DSN}}, extra)
+
+    ariel = _resolve_config_panel_enabled(config_file)
+    terminal = resolve_config_flag(
+        "web.config_panel.enabled", True, _PANEL_ON_ERROR, config_path=config_file
+    )
+
+    assert ariel is expected
+    assert ariel == terminal
+
+
+def test_a_variable_reference_closes_the_panel_through_the_lifespan(
+    tmp_path: Path, monkeypatch, service_double, caplog
+):
+    """A defaulted reference to false closes the Config panel on ARIEL's startup."""
+    monkeypatch.delenv("OSPREY_TEST_CONFIG_PANEL", raising=False)
+    config_file = _write_config(
+        tmp_path,
+        {"database": {"uri": DSN}},
+        {"web": {"config_panel": {"enabled": "${OSPREY_TEST_CONFIG_PANEL:-false}"}}},
+    )
+
+    app = _start(config_file, AsyncMock(return_value=service_double), caplog)
+
+    assert app.state.config_panel_enabled is False
+
+
+def test_the_gate_is_the_shipped_default_when_no_config_was_resolved():
+    from osprey.interfaces.ariel.app import _resolve_config_panel_enabled
+
+    assert _resolve_config_panel_enabled(None) is True

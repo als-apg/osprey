@@ -24,7 +24,7 @@ from osprey.mcp_server.control_system import server, server_context, target_stat
 from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
 from tests._control_context_fixtures import state_dir_under
-from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
+from tests.mcp_server._report_root import state_root as state_root
 
 TARGETS_META = {
     "live": {

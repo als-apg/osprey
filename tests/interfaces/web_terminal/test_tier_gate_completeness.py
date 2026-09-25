@@ -100,7 +100,7 @@ _PARAM = re.compile(r"\{[^}]+\}")
 BASE_CONFIG = {
     "project_name": "tier-gate-completeness",
     "control_system": {"writes_enabled": False},
-    "claude_code": {"default_model": "sonnet"},
+    "claude_code": {"default_model": "claude-sonnet-5"},
 }
 
 

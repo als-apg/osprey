@@ -200,12 +200,13 @@ scripts/va/build_and_boot_check.sh [DATA_DIR]
 
 Stages the build context, builds the image, boots a container (bind-mounting
 `DATA_DIR`, defaulting to the packaged control_assistant preset's own
-`data/simulation/`), waits up to 60s for the ready log line, then reads a PV
+`data/simulation/`), waits up to 240 s for the ready log line, then reads a PV
 over CA from the host. Exits 0 only if all of that succeeds; tears the
 container down either way.
 
 `OSPREY_VA_CA_PORT` overrides the port, for a host where something else
-already holds 5064.
+already holds 5064. `OSPREY_VA_BOOT_TIMEOUT_SECS` overrides the ready wait;
+the 240 s default covers a linux/amd64 boot under emulation on an arm64 host.
 
 Worth knowing if you extend it: **reading a BPM position at boot proves
 connectivity, not physics.** The tutorial lattice's closed orbit with no

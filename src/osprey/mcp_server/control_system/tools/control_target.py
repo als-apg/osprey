@@ -100,6 +100,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, NoReturn
 
+from osprey.audit.call import note
 from osprey.audit.posture import posture_session
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
@@ -1071,6 +1072,7 @@ async def control_target_set(target: str) -> str:
         now serving it.
     """
     wanted = str(target or "").strip()
+    note(to_target=wanted)
     async with _SWITCH_LOCK:
         return await _switch(wanted)
 
@@ -1079,6 +1081,7 @@ async def _switch(wanted: str) -> str:
     """The switch itself, with the one-at-a-time lock already held."""
     context = _server_context()
     if context is None:
+        note(from_target=UNKNOWN_TARGET)
         return await _refuse(
             from_target=UNKNOWN_TARGET,
             to_target=wanted,
@@ -1096,6 +1099,7 @@ async def _switch(wanted: str) -> str:
     # the very one it wanted.
     record = control_context.read_record()
     if record is None:
+        note(from_target=UNKNOWN_TARGET)
         return await _refuse(
             from_target=UNKNOWN_TARGET,
             to_target=wanted,
@@ -1106,6 +1110,7 @@ async def _switch(wanted: str) -> str:
             details={"target": wanted, "reason": REASON_RECORD_UNAVAILABLE},
             error_type=ERROR_UNAVAILABLE,
         )
+    note(from_target=record.target)
 
     if wanted == record.target:
         return _already_there(record, context.connector_hosts)

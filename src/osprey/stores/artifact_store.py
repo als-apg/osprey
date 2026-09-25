@@ -15,6 +15,7 @@ This module provides the low-level storage layer used by both.
 
 from __future__ import annotations
 
+import base64
 import contextvars
 import json
 import logging
@@ -80,6 +81,54 @@ def register_artifact_delete_listener(fn: Callable[[ArtifactEntry], None]) -> No
 def unregister_artifact_delete_listener(fn: Callable[[ArtifactEntry], None]) -> None:
     """Remove a previously registered delete listener."""
     ArtifactStore.unregister_delete_listener(fn)
+
+
+@dataclass(frozen=True)
+class ArtifactPage:
+    """One page of a newest-first artifact listing.
+
+    Attributes:
+        entries: The entries of this page, in the order they are drawn
+            (newest first).
+        total: How many entries the filters admit across all pages.
+        next_cursor: The token that fetches the page after this one, or
+            ``None`` when this is the last page.
+    """
+
+    entries: list[ArtifactEntry]
+    total: int
+    next_cursor: str | None
+
+
+def _page_key(entry: ArtifactEntry) -> tuple[str, str]:
+    # The listing's order is newest first by timestamp, with the id breaking a
+    # tie so two artifacts saved in the same microsecond still have one stable
+    # position.
+    return (entry.timestamp, entry.id)
+
+
+# The page cursor is base64url so a timestamp's ``:`` and ``+`` survive a query
+# string untouched, and opaque so no caller builds one by hand. It carries no
+# authority and needs none: it names a position in the caller's own filtered
+# view, so a tampered token yields a different slice of data that caller may
+# already read.
+def _encode_cursor(entry: ArtifactEntry) -> str:
+    payload = json.dumps({"timestamp": entry.timestamp, "id": entry.id})
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def _decode_cursor(token: str) -> tuple[str, str]:
+    try:
+        data = json.loads(base64.urlsafe_b64decode(token.encode()).decode())
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"not a listing cursor: {token!r}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"not a listing cursor: {token!r}")
+    timestamp = data.get("timestamp")
+    entry_id = data.get("id")
+    if not isinstance(timestamp, str) or not isinstance(entry_id, str):
+        raise ValueError(f"not a listing cursor: {token!r}")
+    return (timestamp, entry_id)
 
 
 @dataclass
@@ -727,6 +776,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         EXAMPLE_ORIGIN``). Every listing the agent reads passes it: the
         example is for the person at the gallery, never something the agent
         produced or may cite.
+
+        ``search`` is a case-insensitive substring match on the title, file
+        name, description and artifact type.
         """
         self._refresh_if_stale()
         entries = list(self._entries)
@@ -757,11 +809,74 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:
+            # These are the four fields the gallery's filter box offers; the box
+            # and this clause must admit the same artifacts, or a paged listing
+            # hides matches the box promises.
             q = search.lower()
-            entries = [e for e in entries if q in e.title.lower() or q in e.description.lower()]
+            entries = [
+                e
+                for e in entries
+                if q in e.title.lower()
+                or q in e.filename.lower()
+                or q in e.description.lower()
+                or q in e.artifact_type.lower()
+            ]
         if last_n is not None:
             entries = entries[-last_n:]
         return entries
+
+    def page_entries(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+        type_filter: str | None = None,
+        search: str | None = None,
+        pinned: bool | None = None,
+        category_filter: str | None = None,
+        tool_filter: str | None = None,
+        source_agent_filter: str | None = None,
+        session_filter: str | None = None,
+        run_filter: str | None = None,
+        exclude_examples: bool = False,
+    ) -> ArtifactPage:
+        """Return one newest-first page of the entries the filters admit.
+
+        Filtering is exactly :meth:`list_entries`'s. The entries are ordered by
+        ``(timestamp, id)`` descending; ``cursor`` (a previous page's
+        ``next_cursor``) resumes strictly after the entry it names. The cursor
+        is a key, not an offset, so an artifact saved or deleted between two
+        requests does not shift the next page. A cursor past every entry
+        yields an empty page rather than an error.
+
+        This does not reuse ``last_n``: ``last_n`` takes the tail in index
+        order, the store's chronology convention for a single reader, while a
+        page boundary has to be a value the next request can name.
+
+        Raises:
+            ValueError: ``cursor`` is not a token this method issued.
+        """
+        entries = self.list_entries(
+            type_filter=type_filter,
+            search=search,
+            pinned=pinned,
+            category_filter=category_filter,
+            tool_filter=tool_filter,
+            source_agent_filter=source_agent_filter,
+            session_filter=session_filter,
+            run_filter=run_filter,
+            exclude_examples=exclude_examples,
+        )
+        ordered = sorted(entries, key=_page_key, reverse=True)
+        total = len(ordered)
+        if cursor is None:
+            start = 0
+        else:
+            key = _decode_cursor(cursor)
+            start = sum(1 for e in ordered if _page_key(e) >= key)
+        page = ordered[start : start + limit]
+        next_cursor = _encode_cursor(page[-1]) if page and total > start + len(page) else None
+        return ArtifactPage(entries=page, total=total, next_cursor=next_cursor)
 
     def set_pinned(self, artifact_id: str, pinned: bool = True) -> ArtifactEntry | None:
         """Toggle the pinned flag on an artifact. Returns the updated entry or None."""

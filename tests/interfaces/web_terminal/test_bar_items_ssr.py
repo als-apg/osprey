@@ -163,6 +163,29 @@ def _shell_types(body: str, host: str) -> list[str]:
     return re.findall(r'data-bar-item="([^"]+)"', body[opening:closing])
 
 
+def _shell_options(body: str, host: str, item_type: str) -> dict | None:
+    """The options one shell carries, parsed from its ``data-bar-options``.
+
+    Args:
+        body: The rendered document.
+        host: ``header`` or ``status``.
+        item_type: The ``data-bar-item`` value of the shell to read.
+
+    Returns:
+        The parsed options, or None when the shell stamps no attribute.
+    """
+    if host == "header":
+        opening = body.index('data-bar-host="header"')
+        closing = body.index("</header>", opening)
+    else:
+        opening = body.index('data-bar-host="status"')
+        closing = body.index("</footer>", opening)
+    tag = re.search(rf'data-bar-item="{re.escape(item_type)}"[^>]*>', body[opening:closing])
+    assert tag, f"no {item_type} shell in the {host} run"
+    stamp = re.search(r"data-bar-options='([^']*)'", tag.group(0))
+    return json.loads(stamp.group(1)) if stamp else None
+
+
 class _SubtreeExtractor(HTMLParser):
     """Collect the markup of one element by id, bounded by its own nesting.
 
@@ -308,6 +331,61 @@ class TestShellRuns:
         ]
         assert "data-status-bar" not in _html_tag(body)
         assert "data-header-bar" not in _html_tag(body)
+
+
+class TestShellsCarryTheirOptions:
+    """The first paint renders each item with the options it was placed with."""
+
+    def test_a_shell_carries_the_options_its_entry_was_placed_with(self, plain_app):
+        app, client = plain_app
+        app.state.bar_layout = {
+            "version": 1,
+            "rev": 3,
+            "header": [{"type": "logo"}, {"type": "space"}, {"type": "display"}],
+            "status": [
+                {"type": "space", "options": {"width": 120}},
+                {"type": "clock", "options": {"zone": "utc", "format": "12h", "seconds": True}},
+            ],
+            "status_visible": True,
+        }
+        body = _body(client)
+        assert _shell_options(body, "status", "space") == {"width": 120}
+        assert _shell_options(body, "status", "clock") == {
+            "zone": "utc",
+            "format": "12h",
+            "seconds": True,
+        }
+        assert _shell_options(body, "header", "space") is None
+
+    def test_the_shipped_default_stamps_no_options(self, configured_app):
+        _, client = configured_app
+        assert "data-bar-options" not in _body(client)
+
+    def test_a_quote_in_an_option_value_cannot_break_out_of_the_attribute(self, plain_app):
+        app, client = plain_app
+        app.state.bar_layout = {
+            "version": 1,
+            "rev": 3,
+            "header": [{"type": "logo"}],
+            "status": [{"type": "clock", "options": {"zone": "it's"}}],
+            "status_visible": True,
+        }
+        assert _shell_options(_body(client), "status", "clock") == {"zone": "it's"}
+
+    def test_non_mapping_options_paint_as_none(self, plain_app):
+        layout = {
+            "version": 1,
+            "rev": 3,
+            "header": [{"type": "logo"}],
+            "status": [{"type": "clock", "options": "utc"}],
+            "status_visible": True,
+        }
+        plan = bar_render_plan(layout, context={})
+        assert [shell["options"] for shell in plan.status] == [{}]
+
+        app, client = plain_app
+        app.state.bar_layout = layout
+        assert _shell_options(_body(client), "status", "clock") is None
 
 
 class TestUnavailableItemsAreAbsentNotEmpty:

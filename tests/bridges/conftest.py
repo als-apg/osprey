@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from osprey.bridges.core.ports import InboundEvent, InputDownload, ReplyContext
+from osprey.bridges.core.ports import InboundEvent, InputDownload, ReplyContext, RoomPeople
 
 # --- canned-return knob types -------------------------------------------------
 # Every knob is "a constant, or a callable over the member's own argument". The
@@ -202,6 +202,9 @@ class RecordingChannelOps:
     def post_queued(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         self._record("post_queued", {"entry": entry, "result": result})
 
+    def post_resumed(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+        self._record("post_resumed", {"entry": entry, "result": result})
+
     def post_giveup(self, entry: Mapping[str, Any]) -> None:
         self._record("post_giveup", {"entry": entry})
 
@@ -218,3 +221,27 @@ class RecordingChannelOps:
 def channel_ops() -> RecordingChannelOps:
     """A fresh default recording double (parse ignores, no reply, no files)."""
     return RecordingChannelOps()
+
+
+RoomPeopleKnob = (
+    RoomPeople | None | BaseException | Callable[[Mapping[str, Any]], RoomPeople | None]
+)
+
+
+class RosterChannelOps(RecordingChannelOps):
+    """A :class:`RecordingChannelOps` that also implements the optional
+    :class:`~osprey.bridges.core.ports.RoomRoster` port.
+
+    ``room_people`` is a constant, a callable of the entry, or an exception to raise;
+    each call is recorded as ``room_people`` in the shared timeline."""
+
+    def __init__(self, *, room_people: RoomPeopleKnob = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.room_people_knob = room_people
+
+    def room_people(self, entry: Mapping[str, Any]) -> RoomPeople | None:
+        self._record("room_people", {"entry": entry})
+        knob = self.room_people_knob
+        if isinstance(knob, BaseException):
+            raise knob
+        return knob(entry) if callable(knob) else knob

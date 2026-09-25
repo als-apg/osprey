@@ -25,7 +25,7 @@ class TestBuildClaudeLaunchArgv:
         assert build_claude_launch_argv({}) == ["claude", "--setting-sources", "project"]
 
     def test_unrelated_keys_do_not_trigger_pin(self):
-        cc_config = {"provider": "anthropic", "default_model": "haiku"}
+        cc_config = {"provider": "anthropic", "default_model": "claude-haiku-4-5"}
         assert build_claude_launch_argv(cc_config) == ["claude", "--setting-sources", "project"]
 
     def test_pinned_returns_npx_invocation(self):

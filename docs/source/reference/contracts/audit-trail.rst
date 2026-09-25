@@ -71,14 +71,20 @@ gallery refusal and a config refusal never share a file.
    * - ``notebook_kernel.jsonl``
      - Control-system writes a notebook cell was refused --- a write posture, a
        limit, a target that moved while the cell ran
+   * - ``preflight.jsonl`` (under ``var/audit/queueserver/`` and each lane's
+       ``var/audit/<lane>-queueserver/``)
+     - Whether a queued plan's declared channels answered before it moved, per
+       run: ``allowed`` (``all_responded`` or ``skipped``) or ``refused``
+       (``unresponsive``), with the lane, the target and the counts in
+       ``detail``
    * - ``auth_sidecar.jsonl`` (under ``var/audit/sidecar/``)
      - Logins and login refusals, where a deployment has a login wall
 
-``decision`` reads ``allowed`` or ``refused`` on almost all of them, and ``ask``
-in ``hook_approval.jsonl``, where the hook did neither: it put the call in front
-of an operator. What the operator then said is visible in what follows --- an
-approved call leaves its own record on the server that ran it, and a declined
-one never reaches a server at all.
+``decision`` reads ``allowed`` or ``refused`` on almost all of them.
+``hook_approval.jsonl`` has three words of its own, all on the same
+``tool_use_id``: ``ask`` when the hook put the call in front of an approver,
+then ``approved`` when the harness reported that the call ran, or ``denied``
+when the turn ended without it --- declined or interrupted.
 
 Some of that is chatter rather than safety: every request that changes state is
 recorded, so moving a panel around the terminal leaves lines in
@@ -102,7 +108,9 @@ and a refused control-system write alike. One JSON object per line:
    * - Field
      - What it holds
    * - ``ts``
-     - UTC timestamp, ``YYYY-MM-DDTHH:MM:SSZ``
+     - UTC timestamp to the millisecond, ``YYYY-MM-DDTHH:MM:SS.mmmZ``. Older
+       lines in the same file may carry whole seconds
+       (``YYYY-MM-DDTHH:MM:SSZ``); both parse the same way
    * - ``surface``
      - Which layer decided --- the file's own name
    * - ``actor``
@@ -122,11 +130,17 @@ and a refused control-system write alike. One JSON object per line:
        ``kernel:<id>`` for a notebook kernel, or ``null`` where the emitter
        names none. An identifier the trail joins on, and nothing more: the
        write posture it describes belongs to the deployment
+   * - ``tool_use_id``
+     - The agent harness's id for the tool call the record is about. Present
+       on records a tool call produced --- the hooks, the MCP servers, the
+       Python executor --- and absent elsewhere. It is the key that joins a
+       record to the full ``tool_call`` record and to the harness's own
+       telemetry
    * - ``subject``
      - What the decision was about: a dotted config key, a tool name, or the
        project-relative path when a whole file is the target
    * - ``decision``
-     - ``allowed``, ``refused``, or ``ask``
+     - ``allowed``, ``refused``, ``ask``, ``approved`` or ``denied``
    * - ``reason``
      - Short machine-readable reason --- ``protected_key``, ``reserved path``,
        ``reserved path in ownership store``; a control-system write the
@@ -138,7 +152,10 @@ and a refused control-system write alike. One JSON object per line:
      - Surface-specific context: for a protected-set refusal, the file the
        write was aimed at (``target=``) and the channel that owns it, named
        the same way the refusal message names it; on the web surfaces, the
-       login the request came from --- see :ref:`audit-trail-identity-keys`
+       login the request came from --- see :ref:`audit-trail-identity-keys`.
+       An MCP server's own record adds ``approval=approved approver=<who>``
+       when an approval prompt let the call through, and a control-target
+       switch adds ``from_target=`` and ``to_target=``
 
 A ``PUT`` that would have changed many protected keys at once names the first
 ten and counts the rest in the message, but **every changed key gets its own
@@ -251,6 +268,70 @@ card on the next one.
 ``detail`` on these records names a claim at most. The asserted address, its
 domain, and the value of the hosted-domain claim are never written to the
 trail.
+
+.. _audit-trail-tool-call:
+
+The full tool-call record
+=========================
+
+The default audit files hold identifiers and never values. With
+``audit.tool_call.enabled`` on (see :ref:`config-audit-tool-call`), every
+osprey MCP server also files one record per tool call --- reads included --- in
+``var/audit/<identity>/tool_call.jsonl``, and sends the same record to the
+telemetry store as one log line.
+
+This is the one surface that holds values: the full arguments, the full
+result, and what the tool noted while it ran. It does not use the default
+record shape, and the default files are the same whether it is on or off.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Field
+     - What it holds
+   * - ``ts``, ``surface``, ``actor``, ``posture``, ``posture_source``, ``session``
+     - As in :ref:`the record <audit-trail-record>`; ``surface`` is always
+       ``tool_call``
+   * - ``session_id``
+     - The agent harness's conversation id, the one its own telemetry carries
+   * - ``tool_use_id``
+     - The harness's id for this call --- the key the default records carry too
+   * - ``server``, ``subject``
+     - The MCP server's tool prefix, and the ``mcp__<prefix>__<tool>`` name
+   * - ``decision``, ``reason``
+     - The words the default record for the same call got
+   * - ``approval``
+     - ``{"outcome": "approved", "approver", "permission_mode"}`` when an
+       approval prompt let the call through, else ``null``
+   * - ``target``, ``generation``
+     - The control target and its generation when the call started
+   * - ``arguments`` or ``arguments_ref``
+     - The call's arguments; see below for the reference form
+   * - ``result`` or ``result_ref``
+     - The result as sent back: every content block and the structured content
+   * - ``error``, ``is_error``
+     - The error text of a call that raised, and whether the call failed
+   * - ``facts``
+     - What the tool noted while it ran --- for a control-system write, the
+       limits verdict and each channel's value before the write
+   * - ``duration_ms``
+     - How long the call took, in milliseconds
+
+A payload over ``audit.tool_call.max_inline_bytes`` is not dropped. Its bytes
+are saved as a JSON artifact and the record carries
+``{"size", "sha256", "artifact_id"}`` in its place; a failed save keeps the size
+and hash, leaves ``artifact_id`` ``null`` and names the error type in
+``artifact_error``.
+
+The telemetry copy goes where the harness's own telemetry goes, as OTLP/HTTP
+JSON to ``<endpoint>/v1/logs``; nothing is sent when telemetry is off or the
+protocol is ``grpc``. Each line's body is the record, and it is searchable by
+``event.name`` = ``osprey.tool_call``, ``session.id`` (the harness's own
+attribute, so the line sits beside its events for the same conversation),
+``tool_use_id``, ``tool_name``, ``osprey.server`` and ``osprey.decision``. The
+file is the authoritative copy: a full send queue or an unreachable endpoint
+costs the telemetry line, never the file line.
 
 .. _audit-trail-identity-ladder:
 

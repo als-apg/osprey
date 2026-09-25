@@ -101,7 +101,7 @@ describe('the shipped default on a deployment without the SYSTEM panel', () => {
       );
     }
     for (const type of ['clock', 'stopwatch', 'space', 'separator', 'docs', 'feedback']) {
-      expect(tile(type).disabled, `${type} tile`).toBe(false);
+      expect(tile(type).getAttribute('aria-disabled'), `${type} tile`).toBeNull();
     }
   });
 
@@ -109,7 +109,7 @@ describe('the shipped default on a deployment without the SYSTEM panel', () => {
     await editing();
 
     const unavailable = tile('system-health');
-    expect(unavailable.disabled).toBe(true);
+    expect(unavailable.getAttribute('aria-disabled')).toBe('true');
     expect(unavailable.querySelector('.bar-tile-reason')?.textContent).toBe(
       'Not in this deployment'
     );

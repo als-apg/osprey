@@ -448,6 +448,17 @@ SCENARIOS: tuple[Scenario, ...] = (
             }
         },
     ),
+    # The record archive with every kind of source it mounts: a roster user's two
+    # volumes, two isolated dispatch workers, the plan-queue lane's Redis and
+    # the telemetry store. The volumes are the ones their owner templates
+    # declare, so this golden is where a renamed owner volume shows up.
+    Scenario(
+        name="archive-with-sources",
+        services={"dispatch_worker": {"worker_count": 2}},
+        deployed=("archive", "dispatch_worker", "bluesky", "openobserve"),
+        templates=("archive",),
+        overrides={"modules": {"web_terminals": {"enabled": True, "users": ["alice"]}}},
+    ),
 )
 
 #: Every (scenario, service key) pair this suite pins, for parametrization.

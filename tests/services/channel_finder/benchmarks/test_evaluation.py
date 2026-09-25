@@ -237,6 +237,47 @@ class TestLlmJudgeCoverage:
         assert kwargs["provider"] == "als-apg"
         assert kwargs["base_url"] == "https://gateway.example.org"
 
+    @pytest.mark.parametrize(
+        ("present", "provider"),
+        [
+            ({"ANTHROPIC_API_KEY": "k"}, "anthropic"),
+            (
+                {"ALS_APG_API_KEY": "k", "ALS_APG_BASE_URL": "https://gateway.example.org"},
+                "als-apg",
+            ),
+            ({"CBORG_API_KEY": "k"}, "cborg"),
+        ],
+    )
+    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
+    def test_the_judge_runs_the_provider_default_model(
+        self, mock_completion, monkeypatch, present, provider
+    ):
+        """The judge names no vendor id of its own: the catalog entry's default answers."""
+        from osprey.profiles.providers import load_provider_catalog
+
+        self._judge_env(monkeypatch, **present)
+        mock_completion.return_value = ChannelExtractionResult(
+            covered_expected_indices=[], extra_recommended=[], reasoning=""
+        )
+
+        llm_judge_coverage("response", ["CH:A"])
+
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["provider"] == provider
+        expected = load_provider_catalog(None).entries[provider]["default_model"]
+        assert kwargs["model_id"] == expected
+
+    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
+    def test_a_named_judge_model_wins(self, mock_completion, monkeypatch):
+        self._judge_env(monkeypatch, ANTHROPIC_API_KEY="k")
+        mock_completion.return_value = ChannelExtractionResult(
+            covered_expected_indices=[], extra_recommended=[], reasoning=""
+        )
+
+        llm_judge_coverage("response", ["CH:A"], judge_model="claude-opus-5")
+
+        assert mock_completion.call_args.kwargs["model_id"] == "claude-opus-5"
+
 
 # ---------------------------------------------------------------------------
 # evaluate_response
@@ -279,7 +320,7 @@ class TestEvaluateResponse:
         assert meta["evaluation"] == "llm_judge"
         assert meta["llm_covered"] == ["CH:A", "CH:B"]
         assert meta["llm_extras"] == []
-        mock_judge.assert_called_once_with(text, expected)
+        mock_judge.assert_called_once_with(text, expected, judge_model=None)
 
     @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
     def test_missing_channels_runs_judge_when_opted_in(self, mock_judge):
@@ -298,7 +339,7 @@ class TestEvaluateResponse:
         # Stage 1 still reported the literal-only view in meta for debuggability.
         assert meta["found"] == []
         assert meta["missing"] == ["CH:A", "CH:B"]
-        mock_judge.assert_called_once_with(text, expected)
+        mock_judge.assert_called_once_with(text, expected, judge_model=None)
 
     @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
     def test_judge_reports_extras(self, mock_judge):

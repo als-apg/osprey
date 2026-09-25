@@ -131,6 +131,39 @@ async def test_okf_server_config_endpoint_returns_proxy_path():
     assert result == {"url": None, "available": False}
 
 
+async def test_concept_link_and_panel_mount_are_one_path(monkeypatch):
+    """The knowledge server's concept link names the path the terminal mounts the panel at."""
+    from osprey.interfaces.web_terminal.routes import panels as panels_module
+    from osprey.mcp_server.facility_knowledge.server import KNOWLEDGE_PANEL_PATH, concept_url
+
+    monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+    available = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(okf_server_url="http://127.0.0.1:10600"))
+    )
+
+    result = await panels_module.okf_server_config(available)
+
+    assert result["url"] == f"/{KNOWLEDGE_PANEL_PATH}"
+    assert KNOWLEDGE_PANEL_PATH == f"panel/{FRAMEWORK_WEB_SERVERS['okf'].panel_id}"
+    assert concept_url("tables/beam_params") == f"{KNOWLEDGE_PANEL_PATH}#tables/beam_params"
+
+
+async def test_the_concept_link_stays_relative_under_a_per_user_mount(monkeypatch):
+    """The terminal's panel URL moves with the mount; the concept link does not."""
+    from osprey.interfaces.web_terminal.routes import panels as panels_module
+    from osprey.mcp_server.facility_knowledge.server import concept_url
+
+    monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+    available = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(okf_server_url="http://127.0.0.1:10600"))
+    )
+
+    result = await panels_module.okf_server_config(available)
+
+    assert result["url"] == "/u/alice/panel/okf"
+    assert concept_url("tables/beam_params") == "panel/okf#tables/beam_params"
+
+
 def test_frontend_panel_manager_registers_okf_tab():
     """The shipped panel catalog must include okf so the KNOWLEDGE tab renders.
 

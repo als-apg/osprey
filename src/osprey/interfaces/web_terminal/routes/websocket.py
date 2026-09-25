@@ -343,7 +343,7 @@ def _rendered_config(config_path: Path | None) -> Any:
         if memo is not None and memo[0] == path and memo[1] == signature:
             return copy.deepcopy(memo[2])
         config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:  # noqa: BLE001 — an unreadable config is not a writes-on render
+    except Exception:  # an unreadable config is not a writes-on render
         logger.warning("Could not read the rendered config at %s", config_path)
         return _UNREADABLE_SECTION
     _CONFIG_MEMO = (path, signature, config)
@@ -1227,7 +1227,7 @@ def _record_control_gesture(
             subject=subject,
             detail=detail,
         )
-    except Exception:  # noqa: BLE001 — the audit trail degrades; the gesture does not
+    except Exception:  # the audit trail degrades; the gesture does not
         logger.warning("Could not record the %s gesture for audit", subject, exc_info=True)
 
 
@@ -1375,7 +1375,7 @@ def _configured_target_names(section: Any) -> tuple[str, ...]:
         from osprey_connectors.types import configured_targets
 
         return tuple(configured_targets(section))
-    except Exception:  # noqa: BLE001 — an unreadable render configures no targets
+    except Exception:  # an unreadable render configures no targets
         logger.warning("Could not read the configured control targets")
         return ()
 
@@ -1394,7 +1394,7 @@ def _baseline_target(section: Any) -> str:
         from osprey_connectors.types import baseline_target
 
         return str(baseline_target(section))
-    except Exception:  # noqa: BLE001 — a render we cannot classify is `live`
+    except Exception:  # a render we cannot classify is `live`
         logger.warning("Could not resolve the deployment's baseline control target")
         return "live"
 
@@ -1454,7 +1454,7 @@ def _notebook_names(app: Any, markers: tuple[dict[str, Any], ...]) -> dict[str, 
             continue
         try:
             path = resolve(kernel_id)
-        except Exception:  # noqa: BLE001 — a resolver that raised answered nothing
+        except Exception:  # a resolver that raised answered nothing
             logger.warning("Could not resolve the notebook running kernel %s", kernel_id)
             continue
         if isinstance(path, str) and path.strip():
@@ -1477,7 +1477,7 @@ def _live_reports() -> tuple[Any, ...]:
 
     try:
         return tuple(control_context.live_reports(is_alive=target_state.is_process_alive))
-    except Exception:  # noqa: BLE001 — an unreadable report directory reports no fleet
+    except Exception:  # an unreadable report directory reports no fleet
         logger.warning("Could not read the controls servers' reports", exc_info=True)
         return ()
 
@@ -1488,7 +1488,7 @@ def _live_executions() -> tuple[dict[str, Any], ...]:
         from osprey.mcp_server.control_system.target_state import in_flight_executions
 
         return tuple(in_flight_executions())
-    except Exception:  # noqa: BLE001 — an unreadable marker directory reports none
+    except Exception:  # an unreadable marker directory reports none
         logger.warning("Could not read the execution markers", exc_info=True)
         return ()
 
@@ -1933,7 +1933,7 @@ def _session_ceilings(section: Any) -> dict[str, bool]:
         from osprey_connectors.types import session_posture
 
         return dict(session_posture(section))
-    except Exception:  # noqa: BLE001 — an unreadable render arms no target
+    except Exception:  # an unreadable render arms no target
         logger.warning("Could not read the per-target write ceilings")
         return {}
 
@@ -1953,7 +1953,7 @@ def _target_writes_key(section: Any, target: str) -> str:
         from osprey_connectors.types import target_writes_enabled_key
 
         return str(target_writes_enabled_key(section, target))
-    except Exception:  # noqa: BLE001 — name the deployment-wide key rather than none
+    except Exception:  # name the deployment-wide key rather than none
         logger.warning("Could not derive the writes key for control target %s", target)
         return WRITES_ENABLED_KEY
 
@@ -1986,7 +1986,7 @@ def _narrowing_refusals(config: Any, targets: tuple[str, ...]) -> dict[str, str]
             verdict = narrowing_refusal(config, target)
             if verdict is not None:
                 refusals[target] = verdict.detail
-    except Exception:  # noqa: BLE001 — an underivable narrowing is not a refusal
+    except Exception:  # an underivable narrowing is not a refusal
         logger.warning("Could not evaluate what narrowing would cost", exc_info=True)
     return refusals
 
@@ -2052,7 +2052,7 @@ def _in_flight_message(marker: dict[str, Any]) -> str:
         message, suggestions, _details = in_flight_detail(marker, "")
         remedy = [suggestions[-1]] if suggestions else []
         return " ".join([message[:1].upper() + message[1:], *remedy])
-    except Exception:  # noqa: BLE001 — the refusal stands even without the gate's words
+    except Exception:  # the refusal stands even without the gate's words
         logger.warning("Could not build the in-flight refusal message", exc_info=True)
         running_on = str(marker.get("target") or "unknown")
         return (
@@ -2420,7 +2420,7 @@ def _probe_staleness_threshold_s(config: Any) -> float | None:
 
         interval = _configured_interval(config if isinstance(config, dict) else {})
         return float(interval) * STALENESS_INTERVALS
-    except Exception:  # noqa: BLE001 — an underivable interval ages nothing out
+    except Exception:  # an underivable interval ages nothing out
         logger.warning("Could not derive the endpoint prober's staleness threshold")
         return None
 
@@ -2509,7 +2509,7 @@ def _effective_writes(section: Any, target: str) -> bool:
         return False
     try:
         return bool(posture_store.effective_writes(section, target))
-    except Exception:  # noqa: BLE001 — an underivable posture is not a writable one
+    except Exception:  # an underivable posture is not a writable one
         logger.warning("Could not resolve the effective write posture for target %s", target)
         return False
 
@@ -2534,7 +2534,7 @@ def _row_selected_role(config: Any, target: str, writes_enabled: bool) -> str | 
         from osprey_connectors.ipc.verification import derive_endpoints
 
         return derive_endpoints(config, target, writes_enabled=writes_enabled).selected_role
-    except Exception:  # noqa: BLE001 — an underivable target selects no role
+    except Exception:  # an underivable target selects no role
         logger.warning("Could not derive the selected gateway role for target %s", target)
         return None
 
@@ -2567,7 +2567,7 @@ def _row_narrowing_refusal(config: Any, target: str) -> str | None:
         from osprey.mcp_server.control_system.target_eligibility import narrowing_refusal
 
         verdict = narrowing_refusal(config, target)
-    except Exception:  # noqa: BLE001 — an underivable narrowing is not a refusal
+    except Exception:  # an underivable narrowing is not a refusal
         logger.warning("Could not evaluate what narrowing target %s would cost", target)
         return None
     return verdict.reason if verdict is not None else None
@@ -2595,7 +2595,7 @@ def _row_availability(
             REASON_TARGET_UNRESOLVABLE,
             target_availability,
         )
-    except Exception:  # noqa: BLE001 — no eligibility module, no switch offered
+    except Exception:  # no eligibility module, no switch offered
         logger.warning("Could not import the target eligibility rules", exc_info=True)
         return False, None, None
 
@@ -2605,7 +2605,7 @@ def _row_availability(
         verdict = target_availability(
             config, target, control_target, baseline, writes_enabled=writes_enabled
         )
-    except Exception:  # noqa: BLE001 — an unjudgeable target is not an available one
+    except Exception:  # an unjudgeable target is not an available one
         logger.warning("Could not judge availability for control target %s", target)
         return False, REASON_TARGET_UNRESOLVABLE, None
     # The verdict narrates an offered target too ("Target 'live' is
@@ -2862,7 +2862,7 @@ def _target_display(
             )
 
             derived = dict(target_display_metadata(config, effective_writes=effective_writes))
-        except Exception:  # noqa: BLE001 — the roster must render, not 500
+        except Exception:  # the roster must render, not 500
             logger.warning("Could not derive the control targets' display metadata")
 
     meta: dict[str, dict[str, Any]] = {}

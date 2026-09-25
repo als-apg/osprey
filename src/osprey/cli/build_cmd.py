@@ -1235,6 +1235,15 @@ class _SharedRenderInputs(NamedTuple):
     :attr:`va_reported` keeps the manifest outcome to one line.
     """
 
+    model_facts_reported: set[str]
+    """Model warnings this build has already stated, by their text.
+
+    Every render pass resolves the same provider, so an alias running the main
+    model, or a configured id the provider does not list, is one fact about the
+    build rather than one per render. A persona that moves the provider says
+    something different, so it still gets its own line.
+    """
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -1421,6 +1430,23 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
         _rendered_config(render_dir).get("control_system") or {}
     )
     return errors
+
+
+def _archiver_settings_errors(render_dir: Path) -> list[str]:
+    """Every block under the rendered ``archiver:`` section that no archiver reads, named.
+
+    Read after the injectors, for the same reason as :func:`_incomplete_limits_errors`:
+    a block a preset or a ``--set`` wrote is in the config a deployment runs.
+
+    Args:
+        render_dir: The rendered project directory, read after the injectors.
+
+    Returns:
+        One line per block no archiver reads; nothing for a runnable section.
+    """
+    from osprey_connectors.types import archiver_settings_errors
+
+    return archiver_settings_errors(_rendered_config(render_dir).get("archiver") or {})
 
 
 def _template_host_config(
@@ -1912,7 +1938,7 @@ def _render_project(
     from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
-    from .build_profile_panels import panel_selection_overrides
+    from .build_profile_panels import apply_panel_selection, panel_selection_overrides
     from .build_profile_ports import layout_port_fill
     from .build_profile_reach import (
         attached_render_overrides,
@@ -1923,7 +1949,10 @@ def _render_project(
         live_standin_config_overrides,
         live_standin_duplicate_key_errors,
     )
-    from .validate_claude_artifacts import validate_agent_tools_against_permissions
+    from .validate_claude_artifacts import (
+        agent_model_pin_errors,
+        validate_agent_tools_against_permissions,
+    )
 
     build_profile = resolved.profile
     repo_root = shared.repo_root
@@ -2201,8 +2230,8 @@ def _render_project(
             build_profile.web_panels or (), _rendered_config(render_dir)
         )
         if projected_tabs:
-            _apply_config_overrides(render_dir, projected_tabs)
-            off = sorted(key.split(".")[2] for key, shown in projected_tabs.items() if not shown)
+            apply_panel_selection(render_dir / "config.yml", projected_tabs)
+            off = sorted(pid for pid, shown in projected_tabs.items() if not shown)
             if off:
                 progress(
                     "  ✓ Switched off %d panel block(s) this profile does not select: %s",
@@ -2223,6 +2252,7 @@ def _render_project(
             *_resolve_rendered_execution_method(render_dir),
             *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
             *_incomplete_limits_errors(render_dir),
+            *_archiver_settings_errors(render_dir),
             # The posture floor, for the third time the same reason: with the
             # app templates gone, a key the profile does not state is not a
             # template default any more — it is silence, and each of these six
@@ -2375,7 +2405,7 @@ def _render_project(
         # built here and handed its gateway there), so the reference is the
         # render's contract with its runtime. The launch paths resolve it for
         # real and refuse by name when nothing supplies it.
-        load_provider_spec(
+        spec = load_provider_spec(
             render_dir,
             defer_unresolved_telemetry_creds=True,
             defer_unresolved_base_url=True,
@@ -2383,7 +2413,68 @@ def _render_project(
     except ValueError as e:
         raise BuildProfileError(str(e)) from e
 
+    if spec is not None:
+        # Every pin names an agent and is the model that agent's file runs. Checked
+        # against the finished render: a claimed or profile agent file is copied
+        # rather than rendered, so only its own frontmatter decides its model.
+        from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+        rendered_claude_code = _rendered_config(render_dir).get("claude_code") or {}
+        pin_errors = agent_model_pin_errors(
+            render_dir / ".claude" / "agents",
+            spec.agent_models,
+            {*FRAMEWORK_AGENTS, *(rendered_claude_code.get("agents") or {})},
+        )
+        if pin_errors:
+            raise BuildProfileError("Agent model pins do not apply:\n  " + "\n  ".join(pin_errors))
+        _warn_model_facts(spec, shared.model_facts_reported)
+
     return render_dir
+
+
+def _warn_model_facts(spec: Any, reported: set[str]) -> None:
+    """Warn, once per build, where the models the render names differ from the served list.
+
+    Two facts, each promoted through :func:`osprey.cli.output.warn_fact`
+    because the altitude gate keeps raw warnings off the terminal while the
+    build draws its phases: Claude Code aliases that run the main model because
+    the provider serves no model of their family, and configured ids the
+    provider's served list does not carry, which are used as written.
+
+    Args:
+        spec: The render's resolved provider spec.
+        reported: The facts this build has already stated
+            (:attr:`_SharedRenderInputs.model_facts_reported`). A fact in it is
+            logged at DEBUG instead of repeated by every render pass.
+    """
+    from osprey.build.claude_code_resolver import (
+        ALIAS_SUBSTITUTION_REMEDY,
+        alias_substitution,
+        unserved_model_ids,
+    )
+
+    from . import output
+
+    facts: list[tuple[str, str | None, str | None]] = []
+    substitution = alias_substitution(spec)
+    if substitution:
+        facts.append((substitution, None, ALIAS_SUBSTITUTION_REMEDY))
+    unserved = unserved_model_ids(spec)
+    if unserved:
+        facts.append(
+            (
+                f"'{spec.provider}' does not list {', '.join(unserved)}; "
+                "they are used as configured.",
+                f"It serves {', '.join(spec.served_models)}.",
+                None,
+            )
+        )
+    for summary, detail, remedy in facts:
+        if summary in reported:
+            logger.debug(summary)
+            continue
+        reported.add(summary)
+        output.warn_fact(logger, summary, detail, remedy)
 
 
 def _persona_deltas(repo_root: Path) -> list[Path]:
@@ -3456,6 +3547,7 @@ def _build_repo(
             va_reported=set(),
             graph_indexes={},
             graph_facts_reported=set(),
+            model_facts_reported=set(),
             profile_overlays=profile_overlays,
         )
 

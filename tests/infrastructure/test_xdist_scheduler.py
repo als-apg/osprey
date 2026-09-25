@@ -13,7 +13,7 @@ from tests.conftest import FileOrGroupScheduling, pytest_xdist_make_scheduler
 
 pytest.importorskip("xdist", reason="scheduler override only applies when xdist is installed")
 
-from xdist.scheduler.loadscope import LoadScopeScheduling  # noqa: E402
+from xdist.scheduler.loadscope import LoadScopeScheduling
 
 
 class _FakeConfig:

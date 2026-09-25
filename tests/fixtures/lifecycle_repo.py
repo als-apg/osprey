@@ -148,11 +148,13 @@ name: Als Exemplar
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+# model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
+#                          # default_model from providers.yml answers
 
 # `provider:` names an entry in providers.yml, the provider catalog beside this
-# file. To use a gateway of your own, add its entry there (api_key, base_url and
-# a models tier map) and name it here; the key goes in this repo's .env under the
+# file. To use a gateway of your own, add its entry there (api_key, base_url,
+# default_model and the models it serves) and name it here; the key goes in this
+# repo's .env under the
 # variable the entry's `api_key` references. A `config: api.providers.*` key is
 # refused: the catalog is the one home for provider endpoints.
 
@@ -262,6 +264,10 @@ virtual_accelerator:
   # EPICS port the simulator serves on. The agent follows this value, so
   # changing it moves both.
   port: 5064
+  # pvAccess port the simulator publishes its model surface on (5075 unless
+  # set). Like `port`, it is outside this deployment's port block, so a second
+  # deployment on this host that also runs the simulator sets its own.
+  # pva_port: 5075
   # A second copy of the simulator with a small fixed offset on its readouts,
   # stood up as this deployment's own third control target: `standin`. From
   # this key alone the build derives the target's connector block,
@@ -345,13 +351,14 @@ config:
   # registry_path: project/registry.py
 
   # ── Control system ─────────────────────────────────────────────────────────
-  # Which machine a session starts on. "live_standin" is the stand-in declared
-  # above, so this deployment's baseline is a facility-shaped soft IOC that
-  # behaves like hardware and moves nothing. "virtual_accelerator" is the
-  # sandbox simulator, "epics" your own control system, "mock" needs no
-  # containers but cannot complete a plan. "doocs" and "tango" reach those
-  # control systems in place of Channel Access. Those five are every type
-  # `osprey init` will materialize; `osprey config --defaults` lists them too.
+  # Which machine a session starts on. "virtual_accelerator" is the sandbox
+  # simulator, and this deployment's baseline: it is the one machine here where
+  # a write is harmless, while "live_standin", the stand-in declared above, is
+  # a target the operator switches to on purpose. "epics" is your own control
+  # system, "mock" needs no containers but cannot complete a plan. "doocs" and
+  # "tango" reach those control systems in place of Channel Access. Those five
+  # are every type `osprey init` will materialize; `osprey config --defaults`
+  # lists them too.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
   # `gateways` and `probe_channel` first — then the switch probes that target,
@@ -361,15 +368,15 @@ config:
   # while this deployment records its own archive from the stand-in, because
   # that store's history is the stand-in's (see `va_archiver:` above).
   # `osprey set connector=epics` makes your facility's machine the session
-  # baseline again, in place of the stand-in — together with
+  # baseline, in place of the simulator — together with
   # `osprey set config.archiver.type=epics_archiver` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
-  control_system.type: live_standin
+  control_system.type: virtual_accelerator
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the stand-in,
-  # which cannot move a magnet; the read-only persona pins it off. Write
-  # posture is per connector type: a `control_system.connector.<type>.
+  # approval prompt is consulted. On here because the baseline is the
+  # simulator, which cannot move a magnet; the read-only persona pins it off.
+  # Write posture is per connector type: a `control_system.connector.<type>.
   # writes_enabled` overrides this for that type alone, and only a literal
   # `true` arms writes at either level.
   control_system.writes_enabled: true
@@ -390,9 +397,11 @@ config:
   # The limits file, relative to the build directory. It is a build copy: edit
   # the one in data/ beside this file and rebuild.
   control_system.limits_checking.database_path: data/channel_limits.json
-  # The sandbox simulator is the exception, and it states the exception as a
-  # whole block: a per-type posture REPLACES the pair above for that connector
-  # type rather than merging with it, so both leaves are written out here.
+  # The sandbox simulator is the exception, and the machine a session starts
+  # on, so this block is the posture a session opens under. It states the
+  # exception as a whole block: a per-type posture REPLACES the pair above for
+  # that connector type rather than merging with it, so both leaves are written
+  # out here.
   # Writes to the simulator are still checked against the same file; what
   # changes is that a channel the file does not list is allowed through
   # instead of refused, because on a scratch machine an unlisted channel is a
@@ -438,7 +447,8 @@ config:
   # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
-  # `control-assistant-va-readwrite` persona is exactly this key.
+  # `control-assistant-readwrite` and `control-assistant-admin` personas write
+  # this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
   # Channel the target switch reads to prove this target is reachable before
   # making it active. Served by the simulation machine model.
@@ -545,43 +555,48 @@ config:
   # Mock archiver: synthesizes history from the same simulation machine model
   # as the control-system connector, derived from
   # `control_system.connector.<type>.simulation_file`. Set only to override.
-  # archiver.mock_archiver.simulation_file: data/simulation/machine.json
+  # archiver.type: mock_archiver
+  # archiver.settings.simulation_file: data/simulation/machine.json
   # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
   # reason as the `epics` gateways. Authoring it travels with the flip to
   # `archiver.type: epics_archiver`.
-  # archiver.epics_archiver.url: https://your-archiver.example.com:8443
-  # archiver.epics_archiver.timeout: 60
+  # archiver.type: epics_archiver
+  # archiver.settings.url: https://your-archiver.example.com:8443
+  # archiver.settings.timeout: 60
   # Only when a reverse proxy in front of the appliance publishes its
   # `/retrieval` servlet under another prefix; the bare appliance needs no line.
-  # archiver.epics_archiver.retrieval_path: /retrieval
+  # archiver.settings.retrieval_path: /retrieval
   # MongoDB archiver pointed at a store this deployment does NOT run. The
   # coordinates above are derived from `va_archiver:`; spell them here instead
   # to read an archive someone else keeps, and drop the `va_archiver:` block so
   # this deployment does not record a second history beside it.
-  # archiver.mongodb_archiver.host: your-mongo.example.com
-  # archiver.mongodb_archiver.port: 27017
-  # archiver.mongodb_archiver.name: your-archive-database
-  # archiver.mongodb_archiver.collection: your-archive-collection
-  # archiver.mongodb_archiver.auth: your-auth-database
-  # archiver.mongodb_archiver.username: your-readonly-user
-  # archiver.mongodb_archiver.password_env: OSPREY_ARCHIVER_PASSWORD
-  # archiver.mongodb_archiver.timeout: 60
+  # archiver.type: mongodb_archiver
+  # archiver.settings.host: your-mongo.example.com
+  # archiver.settings.port: 27017
+  # archiver.settings.name: your-archive-database
+  # archiver.settings.collection: your-archive-collection
+  # archiver.settings.auth: your-auth-database
+  # archiver.settings.username: your-readonly-user
+  # archiver.settings.password_env: OSPREY_ARCHIVER_PASSWORD
+  # archiver.settings.timeout: 60
   # DOOCS local history: like the DOOCS connector it takes no coordinates and
   # reaches the ENS the environment names. Both knobs are optional — a centered
   # moving average over this many seconds, and the read budget.
-  # archiver.doocs_archiver.avg_window: 20
-  # archiver.doocs_archiver.timeout: 60
+  # archiver.type: doocs_archiver
+  # archiver.settings.avg_window: 20
+  # archiver.settings.timeout: 60
 
   # MYA, read over the myquery HTTP service: every key is optional, because the
   # client library carries its own server and protocol. A deployment inside the
   # facility's network needs only `archiver.type: mya_archiver`, plus
   # `jlab-archiver-client>=4.0.1` in its top-level `dependencies:`.
-  # archiver.mya_archiver.myquery_server: your-myquery.example.com
-  # archiver.mya_archiver.protocol: https
-  # archiver.mya_archiver.deployment: ops
-  # archiver.mya_archiver.timeout: 60
+  # archiver.type: mya_archiver
+  # archiver.settings.myquery_server: your-myquery.example.com
+  # archiver.settings.protocol: https
+  # archiver.settings.deployment: ops
+  # archiver.settings.timeout: 60
   # The zone myquery reads query bounds in -- samples carry their own instant.
-  # archiver.mya_archiver.timezone: America/New_York
+  # archiver.settings.timezone: America/New_York
 
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can
@@ -624,9 +639,10 @@ config:
   # Descriptive names for channels that belong to no device family, generated
   # offline by `osprey channel-finder build-database --use-llm`. That flag
   # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # tier or a model ID the provider serves. Build-time only.
+  # model id the provider serves; omitted, the deployment's main model.
+  # Build-time only.
   # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: haiku
+  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
   # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
   # channel_finder.channel_name_generation.llm_batch_size: 10
 
@@ -665,6 +681,15 @@ config:
   # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on regardless of this key.
   hooks.debug: true
+
+  # ── Full tool-call record ──────────────────────────────────────────────────
+  # On here. Every osprey tool call — reads included — is written whole to
+  # var/audit/<identity>/tool_call.jsonl and sent to the telemetry store as
+  # one log line: arguments, result, control target, approval answer. A
+  # payload over the bound below is stored as an artifact and recorded as its
+  # size and sha256. The value-free audit files are unchanged either way.
+  audit.tool_call.enabled: true
+  audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
   # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
@@ -795,9 +820,9 @@ config:
 
   # ── Logbook composition ────────────────────────────────────────────────────
   # The compose panel in the artifact gallery. Its provider follows
-  # `provider:` above; this is the tier used when the operator picks none
-  # (haiku | sonnet | opus), mapped to a model ID through providers.yml.
-  logbook.composition.default_tier: haiku
+  # `provider:` above; this is the model the compose panel uses when the
+  # operator picks none; omitted, the deployment's main model.
+  # logbook.composition.model: claude-haiku-4-5
 
   # ── Facility knowledge ─────────────────────────────────────────────────────
   # OKF bundle (subsystems, devices, procedures, physics notes) behind the
@@ -840,17 +865,18 @@ config:
   # skill library is ordinary work. What this turns off is writing to it: the
   # gallery's edit, create and delete surfaces are shared deployment state.
   web.scaffold_gallery.write_enabled: false
-  # Override model IDs per tier, or the tier one agent runs at.
-  # claude_code.models.haiku: anthropic/claude-haiku-alt
-  # claude_code.agent_models.logbook-search: haiku
-  # claude_code.agent_models.logbook-deep-research: sonnet
+  # Every agent runs the main model unless it is pinned here. Pin one of
+  # Claude Code's alias names, or the model one agent runs, to a model id the
+  # provider serves.
+  # claude_code.aliases.haiku: claude-haiku-4-5
+  # claude_code.agent_models.logbook-search: claude-sonnet-5
   # Switch a framework server or subagent off, or add an MCP server of your
   # own (the `mcp_servers:` field above is the usual home for one).
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs and metrics to the OpenObserve store this
+  # The agent emits OTLP logs, metrics and traces to the OpenObserve store this
   # deployment runs (`services.openobserve.*` below). On by default: the
   # harness already records every prompt and API body to disk, so this adds no
   # exposure, only a queryable local store you own.
@@ -881,6 +907,17 @@ config:
   claude_code.telemetry.log_tool_details: true
   # Raw provider request and response bodies.
   claude_code.telemetry.log_raw_api_bodies: true
+  # Built-in tool output as trace span events: what Read and Bash returned,
+  # and, with log_tool_details, what Edit and Write changed.
+  claude_code.telemetry.log_tool_content: true
+  # Longest content value one record carries, in UTF-16 code units, before
+  # Claude Code cuts it and marks it truncated. Its own limit is 61440.
+  claude_code.telemetry.content_max_length: 262144
+
+  # ── Transcripts ────────────────────────────────────────────────────────────
+  # Days Claude Code keeps a session transcript before deleting it at startup
+  # (its own default is 30). Every terminal and the dispatch worker read it.
+  claude_code.transcripts.retention_days: 3650
 
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
@@ -1003,6 +1040,10 @@ config:
   # memory on the machine serving the gallery. Over the cap the browser views
   # refuse with a 413; the file itself stays downloadable either way.
   # artifact_server.max_timeseries_file_mb: 200
+  # How many artifacts the gallery loads at a time.
+  # It fetches more as the list is scrolled.
+  # Lowering it suits a slow link; raising it suits a small store.
+  # artifact_server.page_size: 20
   # Extra artifact categories on top of the ones the gallery ships, so a badge
   # reads in this facility's own vocabulary. One dotted line per category, each
   # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
@@ -1108,13 +1149,17 @@ config:
   web.channel_suggestions.max_channels: 50000
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
-  # JSON bootstrap endpoints into the reverse proxy's path rewrite.
+  # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
+  # also rewrites the panel's own `path` in what the backend serves, and
+  # `rewrite_prefixes` names any further root-absolute prefix it serves, for
+  # that panel alone.
   # web.panels.my-grafana.label: GRAFANA
   # web.panels.my-grafana.url: http://grafana.local:3000
   # web.panels.my-grafana.health_endpoint: /api/health
   # web.panels.my-grafana.path: /
   # web.panels.my-grafana.hidden: true
   # web.panels.my-grafana.rewrite_json_paths: ["/config.json"]
+  # web.panels.my-grafana.rewrite_prefixes: ["/grafana"]
   # Runtime panel control by the agent, off by default. Named layouts a human
   # applies from the "+" popover are the `panel_presets:` field, not a key.
   # web.allow_runtime_panels: true
@@ -1287,6 +1332,10 @@ config:
   # analyses legitimately run long and lower it to keep a runaway script from
   # holding the sandbox.
   # python_executor.execution_timeout_seconds: 600
+  # Agent Python gets a fixed set of environment variables (paths, locale,
+  # proxies, control-system client settings) and nothing else from the host.
+  # List a name here when an analysis library needs it.
+  # python_executor.child_env_passthrough: []
   # Console colour theme for the CLI: default | custom. With custom, set the
   # colours (`cli.custom_theme.primary` and friends) and optionally a banner.
   cli.theme: default
@@ -1301,6 +1350,13 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+
+# ── Record archive ─────────────────────────────────────────────────────────
+# Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
+# day of telemetry into var/archive/ once a day. Delete this block to turn it off.
+services:
+  archive:
+    template: osprey.archive
 
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
@@ -1364,8 +1420,6 @@ provenance:
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
-# Services this profile declares. Injected ones are added at build time.
-services: {}
 # Named web-terminal layouts, as label -> list of panel ids.
 panel_presets: {}
 
@@ -1435,6 +1489,7 @@ panel_presets: {}
 #
 # nextcloud_bridge:
 #   trigger: nextcloud-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 
 # --- Google Chat bridge ------------------------------------------------------
 # Answers questions asked from a Google Chat space or direct message. The
@@ -1446,6 +1501,7 @@ panel_presets: {}
 #
 # gchat_bridge:
 #   trigger: gchat-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 
 # --- Microsoft Teams bridge --------------------------------------------------
 # Answers questions asked from a Microsoft Teams channel or chat. The trigger
@@ -1458,6 +1514,7 @@ panel_presets: {}
 #
 # teams_bridge:
 #   trigger: teams-question
+#   mentions: true               # false posts the agent's @mentions as plain text
 """
 
 #: Deployment coordinates, filled in. Where this repo runs once it leaves the
@@ -1866,12 +1923,15 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins. It is the inherited posture rather
-  # than a verdict: a `control_system.connector.<type>.writes_enabled` key
-  # anywhere in the chain answers for that type instead, which is how the
-  # simulator-only tier is built. With none written, every type reads this key,
-  # so it must not drift silently if the base's default ever changes.
-  control_system.writes_enabled: true
+  # The tier boundary, and it takes three keys. Armed on the simulator alone.
+  # The flat key is what every connector type inherits when its own block says
+  # nothing, so its false is what the stand-in reads. The epics block is pinned
+  # by name so a per-type `true` added anywhere lower in the chain cannot lift
+  # the live machine's ceiling. Only a literal `true` arms a type, and a
+  # per-type value never falls back to the flat key.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
   # than left to the server default, for the same reason writes_enabled is.
@@ -1939,14 +1999,16 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The admin tier sits above readwrite: it keeps the write-armed control
-  # posture and adds deployment editing on top. This is the posture every
-  # connector type inherits when its own
-  # `control_system.connector.<type>.writes_enabled` block says nothing, and
-  # none is written here, so it is the answer for every machine the session can
-  # be pointed at. Pinned like the tiers beneath it pin their own side, so the
-  # boundary cannot drift if the base's default ever changes.
-  control_system.writes_enabled: true
+  # The admin tier carries readwrite's control posture exactly: armed on the
+  # simulator, read-only on both hardware-shaped targets. The flat key is what
+  # every connector type inherits when its own block says nothing, the epics
+  # block is pinned by name so no per-type `true` lower in the chain can lift
+  # the live ceiling, and the simulator's block is the one type armed. What
+  # makes this the admin tier is the deployment-editing block below, not a
+  # wider write surface.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
   # The axis this tier is defined by: the three privileges the base floors, all
   # lifted here and nowhere else.
   #
@@ -2254,7 +2316,7 @@ their own, so they need no arguments. `--repo PATH` points them somewhere else.
 
 ## Changing something
 
-Edit `profile.yml` (or run `osprey set model=sonnet` to change one setting),
+Edit `profile.yml` (or run `osprey set model=claude-sonnet-5` to change one setting),
 then:
 
 ```bash

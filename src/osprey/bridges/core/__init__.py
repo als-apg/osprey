@@ -16,6 +16,7 @@ Layers:
     Promoted primitives
         store — lock-guarded JSON file store (persistence substrate)
         config — ``CoreConfig`` and the terminal-status set
+        errors — the one exception adapters raise INTO the engine (``UndeliverableError``)
         dedup — at-least-once claim/CAS-transition store
         history — per-conversation transcript replayed on each dispatch
         retry — pure, fail-closed retry policy
@@ -27,6 +28,7 @@ Layers:
 
     Hoisted pipeline
         ports — the ``ChannelOps`` seam adapters implement
+        people — who asked and who is in the room, as the payload carries them
         pipeline — ``handle_event``, the per-message ordering specification
         retry_queue — park / give-up / supersede-at-enqueue
         reconcile — startup crash recovery for in-flight messages
@@ -47,12 +49,14 @@ from .artifacts import (
     safe_label,
 )
 from .capabilities import pair_supports
-from .config import TERMINAL_STATUSES, CoreConfig
+from .config import TERMINAL_STATUSES, CoreConfig, env_flag
 from .dedup import DedupStore
 from .dispatch_client import DispatchClient, DispatchPipelineError
 from .drain import DrainCallbacks, DrainDeps, drain_once, ensure_alive, run_drain_thread
+from .errors import UndeliverableError
 from .health_gate import gate_open
 from .history import HistoryStore
+from .people import MENTION_PLACEHOLDER_RE, MENTION_RULE, MENTIONS_OFF_NOTE, asker_of
 from .pipeline import PipelineDeps, handle_event
 from .ports import (
     RESERVED_ENTRY_KEYS,
@@ -60,10 +64,20 @@ from .ports import (
     InboundEvent,
     InputDownload,
     ReplyContext,
+    RoomMember,
+    RoomPeople,
+    RoomRoster,
 )
 from .reconcile import ReconcileDeps, ReconcileReport, deliver_terminal, reconcile_inflight
 from .retry import coalesce_key, give_up_due, is_eligible, is_retryable, may_redispatch
-from .retry_queue import SUPERSEDED_STATUS, give_up, park, supersede_at_enqueue, supersede_note
+from .retry_queue import (
+    SUPERSEDED_STATUS,
+    give_up,
+    park,
+    queued_since,
+    supersede_at_enqueue,
+    supersede_note,
+)
 from .runtime import BridgeRuntime, build_deps, build_drain_deps, run_forever, start
 from .store import JsonFileStore
 
@@ -102,8 +116,17 @@ __all__ = [
     "InboundEvent",
     "InputDownload",
     "ReplyContext",
+    "RoomMember",
+    "RoomPeople",
+    "RoomRoster",
+    "MENTION_PLACEHOLDER_RE",
+    "MENTION_RULE",
+    "MENTIONS_OFF_NOTE",
+    "asker_of",
+    "env_flag",
     # engine entry points
     "SUPERSEDED_STATUS",
+    "UndeliverableError",
     "BridgeRuntime",
     "DrainCallbacks",
     "DrainDeps",
@@ -118,6 +141,7 @@ __all__ = [
     "give_up",
     "handle_event",
     "park",
+    "queued_since",
     "reconcile_inflight",
     "run_drain_thread",
     "run_forever",

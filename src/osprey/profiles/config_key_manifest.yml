@@ -536,7 +536,7 @@ keys:
     rendered: false
     evidence: '\(services\.openobserve \| default\(\{\}\)\)\.image'
     note: Upstream pin (openobserve). Same three-layer chain as the rest.
-    default: public.ecr.aws/zinclabs/openobserve:v0.14.4
+    default: public.ecr.aws/zinclabs/openobserve:v0.92.2
   services.mongodb.image:
     rendered: false
     evidence: '\(services\.mongodb \| default\(\{\}\)\)\.image'
@@ -576,18 +576,39 @@ keys:
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.nextcloud_bridge
+  services.nextcloud_bridge.mentions:
+    rendered: false
+    evidence: 'services\.nextcloud_bridge\.mentions is sameas false'
+    note: >-
+      Injected by the build from the profile's `nextcloud_bridge.mentions`, which
+      is the one knob; rendered as NEXTCLOUD_MENTIONS.
+    default: true
   services.gchat_bridge.image:
     rendered: false
     evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.gchat_bridge
+  services.gchat_bridge.mentions:
+    rendered: false
+    evidence: 'services\.gchat_bridge\.mentions is sameas false'
+    note: >-
+      Injected by the build from the profile's `gchat_bridge.mentions`, which is
+      the one knob; rendered as GCHAT_MENTIONS.
+    default: true
   services.teams_bridge.image:
     rendered: false
     evidence: 'OSPREY_TEAMS_BRIDGE_IMAGE:-\{\{ services\.teams_bridge\.image'
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.teams_bridge
+  services.teams_bridge.mentions:
+    rendered: false
+    evidence: 'services\.teams_bridge\.mentions is sameas false'
+    note: >-
+      Injected by the build from the profile's `teams_bridge.mentions`, which is
+      the one knob; rendered as TEAMS_MENTIONS.
+    default: true
   services.ariel_sync.image:
     rendered: false
     evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\)'
@@ -601,6 +622,23 @@ keys:
       which is what distinguishes it from the dispatch worker's line.
     default: derived
     default_note: osprey_images.worker — the mirror runs the worker image
+  services.archive.image:
+    rendered: false
+    evidence: 'services\.archive \| default'
+    note: >-
+      OSPREY-built image, same layering as `services.ariel_sync.image`: the
+      archive runs the bare project image and shares `OSPREY_WORKER_IMAGE`
+      with it. The evidence anchors on the template's own alias line.
+    default: derived
+    default_note: osprey_images.worker — the archive runs the worker image
+  services.archive.interval_seconds:
+    rendered: false
+    evidence: '_resolve_archive_render_context'
+    note: >-
+      Seconds between two passes of the agent-record archive service. The
+      same value sets the archive_last_pass health row's threshold (twice
+      the interval).
+    default: 86400
   services.bluesky.image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_BRIDGE_IMAGE:-\{\{ svc\.image'
@@ -615,7 +653,7 @@ keys:
     rendered: false
     evidence: 'services\.bluesky\.tiled_image'
     note: Upstream pin for the Tiled sidecar the Bluesky stack runs beside the bridge.
-    default: ghcr.io/bluesky/tiled:0.2.12
+    default: ghcr.io/bluesky/tiled:0.2.18
   services.bluesky.redis_image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_REDIS_IMAGE:-\{\{ svc\.redis_image'
@@ -642,6 +680,19 @@ keys:
       `services.bluesky.image`.
     default: derived
     default_note: osprey_images.va
+  services.virtual_accelerator.pva_port:
+    rendered: false
+    evidence: 'VA_PVA_PORT_CONFIG_KEY = "services\.virtual_accelerator\.pva_port"'
+    note: >-
+      pvAccess host port of virtual-accelerator instance 1, where its model
+      surface is published. Written by `_inject_va` from the build profile's
+      `virtual_accelerator.pva_port`, and only when that key is set, so no
+      default render carries it. Outside the port block like the Channel
+      Access port: `deployment.port_base` does not move it. Evidence anchors on
+      `osprey.port_layout`, where the dotted path is spelled once for the
+      preflight's remedy; the compose template reads it through the
+      per-instance `svc` alias.
+    default: 5075
   # The live stand-in is a SECOND INSTANCE of the virtual accelerator, not a
   # service of its own. `_inject_va` writes `services.live_standin` beside
   # `services.virtual_accelerator` — same `path`, same template directory, same
@@ -1107,8 +1158,9 @@ keys:
       Per-connector-type override of `control_system.writes_enabled`. The
       presets that carry a virtual_accelerator block write it commented, so no
       preset's resolved config carries it and `rendered` stays false;
-      the shipped presets `control-assistant-va-readwrite` (true) and
-      `control-assistant-readonly` (false) DO write it into a project's real
+      the shipped presets `control-assistant-readwrite` and
+      `control-assistant-admin` (true) and `control-assistant-readonly` and
+      `control-assistant-knowledge` (false) DO write it into a project's real
       config.yml when applied, so an audit of a built deployment will find it.
       Tri-state: absent inherits the global key, literally `true` arms writes
       for this type, and any other value leaves them unarmed without
@@ -1128,8 +1180,8 @@ keys:
       epics block, likewise written commented in `control-assistant` so no
       preset's resolved config carries it. Arming writes against a live machine is a facility
       decision that cannot ship pre-made, so no shipped preset ever sets this
-      one true; `control-assistant-readonly` writes it false into an applied
-      project's config.yml, which is the one way a build produces it.
+      one true; the control-assistant tiers that pin it write it false into an
+      applied project's config.yml, which is the one way a build produces it.
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.doocs.writes_enabled:
@@ -1385,6 +1437,16 @@ keys:
       `mongodb_archiver`, `doocs_archiver` and `mya_archiver`.
   # Point budget behind archiver_read's span-derived default bin (issue #117).
   archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points', default: 10000}
+  archiver.settings:
+    rendered: false
+    evidence: 'ARCHIVER_SETTINGS_LEAF = "settings"'
+    note: >-
+      The selected archiver's settings, handed to its `connect()` whole: the one
+      spelling for a built-in and for a connector selected by dotted module path.
+      A short-named archiver's own-name block (`archiver.epics_archiver`) is the
+      older spelling of the same settings and still reads. The build refuses both
+      at once, and any other block under `archiver:` that no archiver reads.
+    default: {}
   archiver.epics_archiver:
     rendered: false
     evidence: 'epics_archiver'
@@ -1489,10 +1551,11 @@ keys:
     rendered: false
     evidence: 'config\.get\("python_executor", \{\}\)\.get\(\s*"execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS'
     note: >-
-      The sandbox's own block. One key today, carried commented in all four
+      The sandbox's own block. Two keys, both carried commented in all four
       presets — the ceiling is a facility property (how long a legitimate
       analysis may run) and the shipped number is a starting point, not a
-      value any preset should assert.
+      value any preset should assert; the passthrough list names what a
+      facility's analysis libraries need from the host.
     default: {}
   python_executor.execution_timeout_seconds:
     rendered: false
@@ -1505,6 +1568,17 @@ keys:
       is killed and reported as a timeout rather than as the script's own
       failure.
     default: 600
+  python_executor.child_env_passthrough:
+    rendered: false
+    evidence: '\.get\("child_env_passthrough"\)'
+    note: >-
+      Extra environment variable names the agent-code sandboxes pass through
+      on top of their fixed allowlist; read per run by the python executor,
+      the visualization sandbox and plan validation
+      (`mcp_server/sandbox_env.configured_child_env_passthrough`). It cannot
+      name one of osprey's own endpoint tokens or terminal names: such an
+      entry is an error.
+    default: []
 
   # ── System / paths ──────────────────────────────────────────────────
   system:
@@ -1557,20 +1631,18 @@ keys:
   api.providers:
     data-map: true
     key-shape:
-      required: [base_url, models]
-      models-tiers: [haiku, sonnet, opus]
-    evidence: 'defines no models mapping'
+      required: [base_url, default_model, models]
+      models-list: true
+    evidence: 'lists no models and names no default_model'
     note: >-
       Provider NAMES are user-extensible data, not schema — membership
       deliberately differs (10 providers in project/control_assistant/
       hello_world, a 6-provider subset in the two standalone bundles). The
-      guard checks SHAPE per provider (base_url present, all three tiers
-      mapped), never membership. At runtime a tier no source maps falls back
-      to the default model with a warning; only a provider with no models map
-      AND no default model to fall back on hard-errors in
-      build/claude_code_resolver.py, which is the quoted evidence. The guard
-      stays stricter than the runtime on purpose — a shipped template should
-      map every tier rather than lean on that fallback.
+      guard checks SHAPE per provider (base_url present, default_model
+      present and in the models list, models a non-empty list of ids), never
+      membership. A provider that names no default_model and lists no models
+      hard-errors in build/claude_code_resolver.py, which is the quoted
+      evidence.
     default: {}
 
   # ── Claude Code ─────────────────────────────────────────────────────
@@ -1584,7 +1656,34 @@ keys:
   claude_code.default_model:
     evidence: 'claude_code_config\.get\("default_model"\)'
     default: derived
-    default_note: the provider entry's own default_model_tier
+    default_note: the provider entry's default_model
+  claude_code.aliases:
+    data-map: true
+    rendered: false
+    evidence: 'claude_code_config\.get\("aliases"\)'
+    note: >-
+      Claude Code's own alias names (haiku, sonnet, opus) — the model Claude
+      Code runs when it, or an agent, asks for one of those words. Keys are
+      only those three; each value is a model id the provider serves.
+      Documented as a commented override in the presets.
+    default: derived
+    default_note: >-
+      per alias, the provider entry's claude_code_aliases, else the newest
+      served id of that Claude family, else the deployment's main model
+  claude_code.agent_models:
+    data-map: true
+    rendered: false
+    evidence: 'claude_code_config\.get\("agent_models"\)'
+    note: >-
+      Agent name to the model id that agent runs. Keys are agent names: the
+      framework's channel-finder, data-visualizer, facility-knowledge,
+      facility-knowledge-graph, logbook-deep-research, logbook-search and
+      pyat-specialist, plus any agent the deployment defines under
+      claude_code.agents or ships in agents/, so the leaves are data. The build
+      refuses a key that names no agent, and a pin on an agent whose own
+      agents/<name>.md names another model.
+    default: derived
+    default_note: every agent runs the deployment's main model
   claude_code.servers:
     all-templates: true
     evidence: 'claude_code_config\.get\("servers", \{\}\)'
@@ -1643,9 +1742,47 @@ keys:
   claude_code.telemetry.log_assistant_responses: {evidence: 'log_assistant_responses', default: true}
   claude_code.telemetry.log_tool_details: {evidence: 'log_tool_details', default: true}
   claude_code.telemetry.log_raw_api_bodies: {evidence: 'log_raw_api_bodies', default: true}
+  claude_code.transcripts: {evidence: '\.get\("transcripts"\)', default: {}}
+  claude_code.transcripts.retention_days:
+    evidence: '_transcripts_retention_days'
+    note: >-
+      Days Claude Code keeps a session transcript before deleting it at
+      startup, rendered as `cleanupPeriodDays` into the project settings
+      every terminal and the dispatch worker load. Unset, Claude Code's own
+      default (30) applies. 0 is refused.
+    default: null
+  claude_code.telemetry.log_tool_content: {evidence: 'log_tool_content', default: true}
+  claude_code.telemetry.content_max_length:
+    evidence: '_content_max_length'
+    note: >-
+      The longest content value Claude Code puts in one telemetry attribute
+      before it truncates it, in UTF-16 code units. Unset, Claude Code's own
+      limit (61440) applies.
+    default: null
+  audit: {evidence: 'audit\.tool_call\.enabled', default: {}}
+  audit.tool_call: {covered-by: audit, default: {}}
+  audit.tool_call.enabled: {evidence: 'audit\.tool_call\.enabled', default: false}
+  audit.tool_call.max_inline_bytes: {evidence: 'audit\.tool_call\.max_inline_bytes', default: 262144}
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
+  channel_finder.channel_name_generation.llm_model.provider:
+    rendered: false
+    evidence: 'llm_config\.get\("provider"\)'
+    note: Documented as a commented override in the presets.
+    default: no-fallback
+    default_note: the channel namer refuses to run without a provider
+  channel_finder.channel_name_generation.llm_model.model_id:
+    rendered: false
+    evidence: 'llm_config\.get\("model_id"\)'
+    note: Documented as a commented override in the presets.
+    default: derived
+    default_note: the deployment's main model
+  channel_finder.channel_name_generation.llm_model.max_tokens:
+    rendered: false
+    evidence: 'llm_config\.get\("max_tokens", 1000\)'
+    note: Documented as a commented override in the presets.
+    default: 1000
   channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
@@ -1947,7 +2084,14 @@ keys:
   logbook: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
   logbook.composition: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
   logbook.composition.provider: {covered-by: logbook.composition, default: derived, default_note: claude_code.provider}
-  logbook.composition.default_tier: {evidence: 'default_tier', default: haiku}
+  logbook.composition.model:
+    rendered: false
+    evidence: 'comp\.get\("model"\)'
+    note: >-
+      The model id the compose panel uses when the operator picks none.
+      Documented as a commented override in the presets.
+    default: derived
+    default_note: the deployment's main model
   facility_knowledge:
     evidence: 'config_key="facility_knowledge"'
     note: >-
@@ -1996,6 +2140,16 @@ keys:
       two parsed formats refuse with a 413 and the raw download is unaffected.
       A value that is not a positive integer is logged and the default kept.
     default: 200
+  artifact_server.page_size:
+    rendered: false
+    evidence: 'get_config_value\(\s*"artifact_server\.page_size"'
+    note: >-
+      How many artifacts one listing request answers with, and so how many the
+      gallery draws before it fetches the next page. Commented in all four
+      presets, because the right number depends on a site's store size and
+      link. A value that is not a positive integer is logged and the default
+      kept; a value above 200 is logged and capped at 200.
+    default: 20
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
     default: false
@@ -2099,6 +2253,15 @@ keys:
   web.panels.okf.enabled: {covered-by: web.panels.okf, default: derived, default_note: "the okf panel's registry default; a panel absent from the block is off"}
   web.panels.system-health: {covered-by: web.panels, default: n/a}
   web.panels.system-health.enabled: {covered-by: web.panels.system-health, default: derived, default_note: "the system-health panel's registry default; a panel absent from the block is off"}
+  web.panels.my-grafana.rewrite_prefixes:
+    rendered: false
+    evidence: 'spec\.get\("rewrite_prefixes"\)'
+    note: >-
+      Root-absolute prefixes the panel proxy rewrites in this panel's responses,
+      on top of the panel's own `path`. Spelled at the id the preset's commented
+      example uses, because a custom panel's id is the facility's: no shipped
+      configuration writes the key, which is what `rendered: false` records.
+    default: []
   web.default_panel:
     evidence: 'web_config\.get\("default_panel"\)'
     note: >-
@@ -2540,9 +2703,15 @@ deleted:
   # EPICS gateway ports are untouched and remain live.
 - control_system.connector.virtual_accelerator.gateways.read_only.port
 - control_system.connector.virtual_accelerator.gateways.write_access.port
-  # Ledger 31 — composition resolves a tier through
-  # api.providers[provider].models; there is no model_id key here.
+  # Ledger 31 — composition names its model under logbook.composition.model;
+  # there is no model_id key here.
 - logbook.composition.model_id
+  # Renamed claude_code.aliases: the map fills Claude Code's own alias names,
+  # it never named OSPREY models.
+- claude_code.models
+  # Composition names a model id under logbook.composition.model, or runs on
+  # the deployment's main model.
+- logbook.composition.default_tier
   # Preset-config surface: a commented `# system.facility_name: My Facility`
   # dotted override in profiles/presets/control-assistant.yml at merge-base,
   # removed by this branch. Distinct from the dispatch-profile `facility_name`
@@ -2553,11 +2722,11 @@ deleted:
 - ariel.enhancement_modules.text_embedding.index_lists
 
 # ---------------------------------------------------------------------------
-# deleted_commented_examples — the two keys above whose COMMENTED example in a
+# deleted_commented_examples — the keys above whose COMMENTED example in a
 # preset is deliberate, with the reason each one is not a resurrection.
 #
-# Both were removed from what OSPREY ships, not from their readers: setting
-# either still works and still wins. Under the app templates that documentation
+# Each was removed from what OSPREY ships, not from its reader: setting it
+# still works and still wins. Under the app templates that documentation
 # lived in a template, which the resurrection check never read for comments;
 # converting the templates into presets moved the same lines onto the surface
 # the check does read, and this section is where that move is recorded rather
@@ -2569,11 +2738,6 @@ deleted:
 # reason, or outliving the preset line it was written for fails the guard.
 # ---------------------------------------------------------------------------
 deleted_commented_examples:
-  archiver.mock_archiver.simulation_file: >-
-    The mock archiver's history is DERIVED from
-    `control_system.connector.<type>.simulation_file`, so nothing ships this
-    leaf. control-assistant documents it commented, on the line under the prose
-    that says the derivation exists and this key overrides it.
   ariel.database.uri: >-
     The ARIEL DSN is derived from `services.postgresql.*`. An explicit uri still
     WINS, which is exactly what the commented line in ariel-standalone and
@@ -2736,7 +2900,7 @@ render_contexts:
     project_name: demo
     project_root: /tmp/demo
     default_provider: anthropic
-    default_model: haiku
+    default_model: claude-haiku-4-5
     environment_python: null
     environment_packages: []
     environment_inherit_exclude: []
@@ -2792,7 +2956,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 356
+  expected_union_size: 346
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3015,10 +3179,10 @@ notes:
     site: tests/cli/test_manifest_build_args.py
     detail: >-
       Carries 'anthropic/claude-opus' as fixture data. It never reaches the
-      resolver, so it is harmless and was left alone. If cheap, the guard could
-      flag provider/model-SHAPED default_model values (a '/' in a value that
-      should be a bare tier: haiku | sonnet | opus), since claude_code.default_model
-      takes a tier, not a wire id.
+      resolver, so it is harmless and was left alone. claude_code.default_model
+      takes a model id the provider serves, spelled as the gateway spells it;
+      a vendor-routed id with a '/' is a legitimate value for a gateway that
+      serves one.
   prefix_rule_drift:
     detail: >-
       RESOLVED. The only place stating facility.prefix must be lowercase alnum

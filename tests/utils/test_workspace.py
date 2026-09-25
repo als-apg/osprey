@@ -112,6 +112,7 @@ class TestResolveProjectRoot:
     def test_keeps_the_configured_key_without_a_config_file(self, tmp_path, monkeypatch):
         """A ``--runtime-root`` render names the path it will run at, elsewhere."""
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "absent" / "config.yml"))
+        monkeypatch.chdir(tmp_path)
         assert resolve_project_root({"project_root": "/app/demo"}) == Path("/app/demo")
 
     def test_expands_home_in_the_configured_key(self, tmp_path, monkeypatch):
@@ -136,6 +137,45 @@ class TestResolveProjectRoot:
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.chdir(tmp_path)
         assert resolve_project_root({}) == Path.cwd()
+
+    def test_walks_up_to_the_repo_from_an_unbuilt_render(self, tmp_path, monkeypatch):
+        """With no config yet, ``build/`` is the render zone and never the anchor."""
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        (tmp_path / "profile.yml").write_text("{}\n")
+        (tmp_path / "build").mkdir()
+        monkeypatch.chdir(tmp_path / "build")
+        assert resolve_project_root({}) == tmp_path
+
+    def test_walks_up_from_a_nested_subdirectory(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        (tmp_path / "profile.yml").write_text("{}\n")
+        (tmp_path / "a" / "b").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path / "a" / "b")
+        assert resolve_project_root({}) == tmp_path
+
+    def test_the_innermost_marker_wins(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        (tmp_path / "profile.yml").write_text("{}\n")
+        (tmp_path / "inner" / "build").mkdir(parents=True)
+        (tmp_path / "inner" / "profile.yml").write_text("{}\n")
+        monkeypatch.chdir(tmp_path / "inner" / "build")
+        assert resolve_project_root({}) == tmp_path / "inner"
+
+    def test_a_marker_outranks_a_root_recorded_for_another_machine(self, tmp_path, monkeypatch):
+        """The walk sits before the recorded root, as it does in the hook."""
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "absent" / "config.yml"))
+        (tmp_path / "profile.yml").write_text("{}\n")
+        monkeypatch.chdir(tmp_path)
+        assert resolve_project_root({"project_root": "/app/demo"}) == tmp_path
+
+    def test_the_harness_project_dir_is_not_an_input(self, tmp_path, monkeypatch):
+        """``CLAUDE_PROJECT_DIR`` is a hook input; the framework anchors on its own cwd."""
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        (tmp_path / "harness").mkdir()
+        (tmp_path / "process").mkdir()
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "harness"))
+        monkeypatch.chdir(tmp_path / "process")
+        assert resolve_project_root({}) == tmp_path / "process"
 
 
 class TestLoadOspreyConfig:

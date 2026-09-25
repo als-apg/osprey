@@ -39,7 +39,7 @@ import argparse
 import collections
 import json
 import re
-import subprocess  # noqa: S404 - replaced wholesale by the tests; see main()
+import subprocess  # replaced wholesale by the tests; see main()
 import sys
 import tomllib
 from collections.abc import Sequence
@@ -152,7 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # `subprocess` is read off this module so a test can replace the attribute rather
     # than the process-global `subprocess.run`.
-    completed = subprocess.run(  # noqa: S603
+    completed = subprocess.run(
         [sys.executable, "-m", "mypy", *declared_targets(PYPROJECT), "--no-error-summary"],
         cwd=REPO_ROOT,
         capture_output=True,

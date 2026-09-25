@@ -1,9 +1,9 @@
 """ALS-APG Provider Adapter Implementation.
 
 This provider uses LiteLLM as the backend for unified API access.
-ALS-APG is an OpenAI-compatible gateway that fronts Anthropic models, served at
-``https://llm.als.lbl.gov/v1``. That endpoint ships with the provider; a site
-whose gateway is elsewhere overrides it through
+ALS-APG is an OpenAI-compatible gateway that fronts Anthropic and OpenAI models,
+served at ``https://llm.als.lbl.gov/v1``. That endpoint ships with the provider;
+a site whose gateway is elsewhere overrides it through
 ``api.providers.als-apg.base_url`` or the ``ALS_APG_BASE_URL`` environment
 variable.
 """
@@ -19,7 +19,7 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
 
     # Metadata (single source of truth)
     name = "als-apg"
-    description = "ALS Accelerator Physics Group gateway (supports Anthropic models)"
+    description = "ALS Accelerator Physics Group gateway (supports Anthropic and OpenAI models)"
     requires_api_key = True
     requires_base_url = True
     requires_model_id = True
@@ -33,13 +33,8 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     # default above, so a deployment with a baked-in URL can be pointed at
     # another gateway at runtime (accepts the URL with or without /v1).
     base_url_env_var = "ALS_APG_BASE_URL"
-    default_model_id = "claude-haiku-4-5-20251001"
+    default_model_id = "claude-sonnet-5"
     health_check_model_id = "claude-haiku-4-5-20251001"
-    available_models = [
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5-20251001",
-    ]
 
     # API key acquisition information
     api_key_url = None

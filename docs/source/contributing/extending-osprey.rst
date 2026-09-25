@@ -59,7 +59,10 @@ Subclass ``ArchiverConnector`` from ``osprey.connectors.archiver.base``
 (alongside the control-system connectors in
 ``packages/osprey-connectors/src/osprey_connectors/archiver/``) and register it
 the same two ways, with ``ConnectorFactory.register_archiver`` or a
-``ConnectorRegistration`` whose ``connector_type`` is ``archiver``. The return
+``ConnectorRegistration`` whose ``connector_type`` is ``archiver``. A deployment
+can also select one without registering it, by setting ``archiver.type`` to its
+dotted module path. Either way it is configured from ``archiver.settings``, which
+the factory hands to ``connect()``. The return
 shape is a contract of its own --- one row per sample, historical enum values
 as strings rather than indices --- and it is written down under "Archiver
 Connectors" in :doc:`/reference/contracts/connectors`. Pinning test:
@@ -97,7 +100,10 @@ engine under ``src/osprey/bridges/core/``. What you write is an arrival loop
 and one class, ``osprey.bridges.core.ports.ChannelOps``. Read that module's
 docstring first: it carries the failure contract member by member, and getting
 it wrong is the one mistake that leaves a bridge looking healthy while losing
-answers. Copy ``src/osprey/bridges/google_chat/``,
+answers. A bridge that can list who is in a conversation also implements the
+optional ``osprey.bridges.core.ports.RoomRoster``; the engine then tells the
+agent who is in the room, and the bridge renders the agent's ``<@ID>`` mentions
+in its own chat system's syntax. Copy ``src/osprey/bridges/google_chat/``,
 ``src/osprey/bridges/nextcloud_talk/`` or ``src/osprey/bridges/teams/``, and
 expect to touch the build-profile
 and injector modules in ``src/osprey/cli/`` so a profile can switch the new

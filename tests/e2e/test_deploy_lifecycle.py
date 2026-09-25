@@ -270,7 +270,7 @@ def _wait_for_registry(port: int, timeout: float) -> None:
     last_err = "(no attempt yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(  # noqa: S310 - localhost only
+            with urllib.request.urlopen(  # localhost only
                 f"http://localhost:{port}/v2/", timeout=3.0
             ) as resp:
                 if resp.status == 200:
@@ -1750,7 +1750,7 @@ def _wait_for_qmd_health(timeout: float) -> None:
     last_err = "(no attempt yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(  # noqa: S310 - loopback only
+            with urllib.request.urlopen(  # loopback only
                 f"http://127.0.0.1:{QMD_PORT}/health", timeout=5.0
             ) as resp:
                 if resp.status == 200:

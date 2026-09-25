@@ -41,25 +41,25 @@ import pytest
 pytest.importorskip("bluesky")
 pytest.importorskip("ophyd_async")
 
-from bluesky import RunEngine  # noqa: E402
-from bluesky import plan_stubs as bps  # noqa: E402
-from bluesky.utils import FailedStatus  # noqa: E402
-from pydantic import BaseModel, ConfigDict  # noqa: E402
+from bluesky import RunEngine
+from bluesky import plan_stubs as bps
+from bluesky.utils import FailedStatus
+from pydantic import BaseModel, ConfigDict
 
-from osprey.services.bluesky_bridge import qserver_startup  # noqa: E402
-from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable  # noqa: E402
-from osprey.services.bluesky_bridge.plan_fields import MovableChannel  # noqa: E402
-from osprey.services.bluesky_bridge.session_upload import install_session_plan  # noqa: E402
-from osprey_connectors import control_context, posture_store  # noqa: E402
-from osprey_connectors.errors import ChannelWriteBlockedError  # noqa: E402
-from osprey_connectors.posture_store import (  # noqa: E402
+from osprey.services.bluesky_bridge import qserver_startup
+from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+from osprey.services.bluesky_bridge.session_upload import install_session_plan
+from osprey_connectors import control_context, posture_store
+from osprey_connectors.errors import ChannelWriteBlockedError
+from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
     StoreVerdict,
     current_owner,
     store_verdict,
 )
-from tests.services.bluesky_bridge.test_connector_devices import FakeConnector  # noqa: E402
+from tests.services.bluesky_bridge.test_connector_devices import FakeConnector
 
 _OWNER = "alice"
 _UNNARROWED_OWNER = "bob"

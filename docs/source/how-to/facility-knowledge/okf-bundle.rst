@@ -192,6 +192,11 @@ Working with a Bundle
       * ``capabilities`` — report the bundle's path, size and concept types
       * ``draft_concept`` — author a new concept document (requires human approval)
 
+      Each of the three read tools also names a ``url`` per concept — the link
+      that opens it in the KNOWLEDGE panel. It is relative to the page the
+      operator is on, so the agent can cite a concept as a markdown link on a
+      single-user deployment and behind a per-user mount alike.
+
       **The facility-knowledge subagent.** When it is enabled in a project's
       config, the main OSPREY agent delegates facility knowledge questions to this
       dedicated specialist rather than handling them inline. The subagent has

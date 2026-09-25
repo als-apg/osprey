@@ -23,9 +23,11 @@ complete one from being a list of names with nothing behind them:
    and that ledger really does name every type — a pointer at a surface that
    enumerates nothing is worse than the short list it excuses;
 4. every type the reference document names, it also SHOWS: at least one
-   ``control_system.connector.<type>.`` (or ``archiver.<type>.``) line, live or
-   commented, so a reader who picks a type off the list finds a stanza to start
-   from rather than a name and nowhere to write it.
+   ``control_system.connector.<type>.`` line, or for an archiver an
+   ``archiver.type: <type>`` line directly followed by an
+   ``archiver.settings.`` line, live or commented, so a reader who picks a type
+   off the list finds a stanza to start from rather than a name and nowhere to
+   write it.
 """
 
 from __future__ import annotations
@@ -70,10 +72,15 @@ ADVERTISED = {
 #: Where a type's own stanza is written, per key. A stanza is recognised by its
 #: dotted prefix rather than by any particular leaf: which leaves a connector
 #: takes is the connector's business, and only the presence of a block is.
+#: Every archiver shares one settings block, so an archiver stanza is the line
+#: selecting the type followed directly by a line of that shared block.
 STANZA_PREFIX = {
     "control_system.type": "control_system.connector.{name}.",
-    "archiver.type": "archiver.{name}.",
+    "archiver.type": "archiver.type: {name}",
 }
+
+#: The block every archiver's settings are written under.
+ARCHIVER_SETTINGS_PREFIX = "archiver.settings."
 
 _QUOTED_TOKEN_RE = re.compile(r'"([a-z][a-z0-9_]*)"')
 #: The ledger writes prose, and prose quotes a name in backticks.
@@ -104,15 +111,28 @@ def _type_block(preset: str, key: str) -> tuple[set[str], str] | None:
     return None
 
 
-def _stanza_lines(preset: str, prefix: str) -> list[str]:
-    """The lines of *preset* that WRITE a *prefix*-rooted key, live or commented.
+def _written(line: str) -> str:
+    """*line* with its indentation and comment marker removed."""
+    return line.strip().lstrip("#").strip()
+
+
+def _stanza_lines(preset: str, key: str, name: str) -> list[str]:
+    """The lines of *preset* that open a stanza for *name*, live or commented.
 
     A key is written only at the head of a line, so prose that names a block in
     passing ("its coordinates, ``archiver.mongodb_archiver.*``, are derived")
-    does not count as showing one.
+    does not count as showing one. An archiver's type line counts only when the
+    line after it writes the shared settings block.
     """
     lines = (PRESET_DIR / f"{preset}.yml").read_text().splitlines()
-    return [line for line in lines if line.strip().lstrip("#").strip().startswith(prefix)]
+    prefix = STANZA_PREFIX[key].format(name=name)
+    if key != "archiver.type":
+        return [line for line in lines if _written(line).startswith(prefix)]
+    return [
+        line
+        for line, following in zip(lines, lines[1:], strict=False)
+        if _written(line) == prefix and _written(following).startswith(ARCHIVER_SETTINGS_PREFIX)
+    ]
 
 
 _CASES = [(preset, key) for preset in ROOT_PRESETS for key in SHIPPED]
@@ -149,9 +169,9 @@ def test_every_advertised_type_has_an_example_stanza(key: str, name: str) -> Non
     """
     prefix = STANZA_PREFIX[key].format(name=name)
 
-    assert _stanza_lines(REFERENCE_PRESET, prefix), (
+    assert _stanza_lines(REFERENCE_PRESET, key, name), (
         f"{REFERENCE_PRESET} advertises {name!r} for {key} but shows no "
-        f"{prefix}* line to start from"
+        f"{prefix} stanza to start from"
     )
 
 

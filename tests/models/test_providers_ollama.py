@@ -55,10 +55,6 @@ class TestOllamaMetadata:
         """Test provider has health check model."""
         assert OllamaProviderAdapter.health_check_model_id is not None
 
-    def test_has_available_models(self):
-        """Test provider lists available models."""
-        assert len(OllamaProviderAdapter.available_models) > 0
-
     def test_api_key_note(self):
         """Test provider notes no API key needed."""
         assert OllamaProviderAdapter.api_key_note is not None
@@ -190,6 +186,33 @@ class TestOllamaExecuteCompletion:
                 base_url="http://localhost:11434",
                 output_format=SampleOutput,
             )
+
+    @patch("httpx.post")
+    @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
+    def test_execute_structured_output_asks_once_more_through_the_adapter(
+        self, _mock_test, mock_post
+    ):
+        """A reply that does not parse is asked for once more through the adapter."""
+        provider = OllamaProviderAdapter()
+
+        def reply(content):
+            response = MagicMock()
+            response.json.return_value = {"message": {"content": content}}
+            response.raise_for_status = MagicMock()
+            return response
+
+        mock_post.side_effect = [reply("not valid json"), reply('{"result": "ok", "value": 1}')]
+
+        result = provider.execute_completion(
+            message="Extract",
+            model_id="mistral:7b",
+            api_key=None,
+            base_url="http://localhost:11434",
+            output_format=SampleOutput,
+        )
+
+        assert result == SampleOutput(result="ok", value=1)
+        assert mock_post.call_count == 2
 
     @patch("httpx.post")
     @patch.object(

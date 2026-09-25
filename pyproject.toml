@@ -194,8 +194,9 @@ dependencies = [
     # `BlueskyEventStream`, which know how a run's documents are laid out in the
     # catalog so the bridge's read path does not have to. Exact-pinned, like the
     # queue-server client below and for the same reason: it is a compatibility
-    # pairing, not a floor — 2.0.9 is the release that matches the shipped
-    # `ghcr.io/bluesky/tiled` server image and the `tiled` client floor above.
+    # pairing, not a floor. 2.0.9 requires `tiled[client]>=0.2.12`, which the
+    # floor above satisfies, and it is the pairing the bridge's Tiled read path
+    # is exercised against.
     "bluesky-tiled-plugins==2.0.9",
     # Queue-server client the bridge's `QueueBackend` speaks to the RE manager
     # with. Exact-pinned (not floor-pinned like the rest of the stack): the
@@ -214,18 +215,20 @@ dependencies = [
     "build",
     # The connectors package versions with this repo's own calendar stream
     # (same v-tags, same describe — see its pyproject.toml), so the two wheels
-    # built from one checkout always agree; the floor below is the last release
-    # tag, which any same-checkout build satisfies. The `!=` clause names a
-    # pre-release, which (PEP 440) admits pre-release candidates to the whole
-    # specifier set: pip installing the 2026.9.0b1 framework then pairs it with
-    # the 2026.9.0b1 connectors instead of the older stable. A plain
-    # `>=2026.9.0b1` floor would instead refuse every same-checkout dev wheel
+    # built from one checkout always agree; the floor below is the last stable
+    # release tag, which any same-checkout build satisfies. The floor admits no
+    # pre-release by itself; a pre-release framework pairs with the connectors
+    # beside it because the install admits pre-releases. Every install OSPREY
+    # drives from a pre-release pin does so for the whole resolve (`--pre` for
+    # pip, `--prerelease allow` for uv; see osprey.version.pins_prerelease),
+    # and pip also takes a pre-release when no stable release satisfies the
+    # floor. A `>=2026.9.0b1` floor would refuse every same-checkout dev wheel
     # (`2026.6.2.postN` sorts below it) and break `osprey up --dev` until the
     # tag exists — found live on the release PR's image-building e2e lanes.
     # uv resolves transitive pre-releases only when told
     # (`--prerelease=allow`); it fails loudly with that hint, never silently
     # pairs the old stable.
-    "osprey-connectors>=2026.6.2,!=2026.6.2a0",
+    "osprey-connectors>=2026.6.2",
 ]
 
 [project.optional-dependencies]
@@ -660,6 +663,7 @@ select = [
     "UP", # pyupgrade
     "ARG001",  # unused function argument
     "ARG002",  # unused method argument
+    "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
 ]
 ignore = [
     "E501",  # line too long, handled by formatter

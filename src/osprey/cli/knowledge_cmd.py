@@ -488,7 +488,7 @@ def _bake_prompt_snapshot(session: Any) -> None:
 
     try:
         patched = prompt_snapshot.bake_snapshot(session, config_file.parent)
-    except Exception as exc:  # noqa: BLE001 — the seed already succeeded; report and move on
+    except Exception as exc:  # the seed already succeeded; report and move on
         warn(
             f"The schema snapshot could not be baked into the agent prompt ({exc}); "
             "the agent will read the schema through its tools instead."

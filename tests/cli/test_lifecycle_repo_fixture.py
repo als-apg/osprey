@@ -234,9 +234,9 @@ def test_profile_resolves_and_validates(lifecycle_repo: Path) -> None:
 
     assert profile.name == "Als Exemplar"
     assert profile_dir == lifecycle_repo
-    # The preset starts a session on the live stand-in: `standin` is a control
-    # target of its own, and the deployment's baseline.
-    assert profile.config["control_system.type"] == "live_standin"
+    # The preset starts a session on the sandbox simulator; the stand-in is a
+    # control target of its own that the operator switches to on purpose.
+    assert profile.config["control_system.type"] == "virtual_accelerator"
 
 
 def test_ci_variant_resolves_and_validates(lifecycle_repo_factory, tmp_path: Path) -> None:
@@ -272,8 +272,12 @@ def test_persona_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, pers
     assert profile_dir == lifecycle_repo
     assert profile.name == f"Als Exemplar ({persona})"
     assert profile.deploy_services is False
-    # readwrite and admin are the write-armed tiers; readonly and ariel pin writes off.
-    assert profile.config["control_system.writes_enabled"] is (persona in ("readwrite", "admin"))
+    # readwrite and admin are armed on the simulator alone; every tier pins the
+    # flat key off, so only the simulator's own block separates them.
+    assert profile.config["control_system.writes_enabled"] is False
+    assert profile.config.get(
+        "control_system.connector.virtual_accelerator.writes_enabled", False
+    ) is (persona in ("readwrite", "admin"))
 
 
 def test_persona_renders_land_under_the_output_zone(lifecycle_repo: Path) -> None:

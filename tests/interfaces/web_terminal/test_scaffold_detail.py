@@ -20,6 +20,8 @@ Covers:
     drawer's close (same composite `registerUnsavedGuard` check test_osprey_
     drawer.py's guard tests exercise with a synthetic guard -- this suite
     drives the REAL scaffold-gallery editDirty flag through an actual edit)
+  - a mode click during a slow fetch: the render the operator asked for
+    last owns the pane, whichever response comes back first
   - Discard restores clean state, verified against a server refetch (not
     just a client-side flag flip), and closing then succeeds without a
     dialog at all
@@ -336,21 +338,21 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
 
 
 # ---------------------------------------------------------------------------
-# Test 5: a Preview render that resolves after the Edit render it raced
+# Test 5: a Preview render that a later mode click superseded
 # ---------------------------------------------------------------------------
 
 #: Held in the page for the duration of the test below: delays the FIRST
-#: content GET issued after it is installed -- the Preview render that
-#: `openDetail` starts on the freshly claimed artifact -- until well after the
-#: Edit render's own GET has come back, forcing the ordering the panel used to
-#: lose. The flag is bumped from a wrapper around the held response's `json()`
-#: so it lands with the parsed body, in the same microtask checkpoint as the
-#: render that consumes it: once a later task observes the flag, that render
-#: has already run.
-_HOLD_FIRST_PREVIEW_FETCH = """
+#: content GET issued after it is installed until well after any later one
+#: has come back. Requests are numbered when they go out, not when their
+#: responses land, so the held one is the render the test started first
+#: whatever order the server answers in. The flag is bumped from a wrapper
+#: around the held response's `json()` so it lands with the parsed body, in
+#: the same microtask checkpoint as the render that consumes it: once a later
+#: task observes the flag, that render has already run.
+_HOLD_NEXT_CONTENT_GET = """
 () => {
   const original = window.fetch;
-  window.__latePreviewParsed = 0;
+  window.__heldContentParsed = 0;
   let contentGets = 0;
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -359,18 +361,16 @@ _HOLD_FIRST_PREVIEW_FETCH = """
       method === 'GET'
       && url.includes('output-styles%2Fcontrol-operator')
       && !url.endsWith('/diff');
+    const held = isContentGet && ++contentGets === 1;
     const response = await original(input, init);
-    if (isContentGet) {
-      contentGets += 1;
-      if (contentGets === 1) {
-        await new Promise((resolve) => setTimeout(resolve, 750));
-        const parse = response.json.bind(response);
-        response.json = async () => {
-          const body = await parse();
-          window.__latePreviewParsed += 1;
-          return body;
-        };
-      }
+    if (held) {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      const parse = response.json.bind(response);
+      response.json = async () => {
+        const body = await parse();
+        window.__heldContentParsed += 1;
+        return body;
+      };
     }
     return response;
   };
@@ -378,18 +378,24 @@ _HOLD_FIRST_PREVIEW_FETCH = """
 """
 
 
-def test_edit_survives_a_preview_render_that_resolves_last(tmp_path, monkeypatch, chromium_browser):
-    """Claiming a framework artifact leaves the editor mounted, whichever
-    render's fetch comes back first.
+def test_a_mode_click_during_a_slow_preview_leaves_the_editor_mounted(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """A mode click during a slow Preview fetch leaves the editor mounted.
 
-    Taking ownership on the first edit reopens the detail view before it
-    switches to Edit, so two content renders of the same artifact are in
-    flight against the same pane at once: openDetail's Preview and the Edit
-    that follows it. They are two independent GETs and nothing orders their
-    responses -- so this holds the Preview's back until after the Edit's has
-    rendered, the ordering a loaded CI runner hits by chance, and pins that
-    the operator is left in the editor they asked for rather than staring at
-    rendered markdown under an Edit tab.
+    Every mode renderer fetches before it draws, so clicking Preview and then
+    Edit before the Preview's GET has come back puts two renders of the same
+    artifact in flight against one pane. Nothing orders their responses --
+    so this holds the Preview's back until after the Edit's has rendered, the
+    ordering a loaded CI runner hits by chance, and pins that the operator is
+    left in the editor they asked for last rather than staring at rendered
+    markdown under an Edit tab.
+
+    The artifact is claimed first, through the same confirm + POST /claim
+    test_edit_dirty_guard_blocks_close_and_discard_restores_clean pins, only
+    so that Edit is a plain mode switch: on a framework artifact the Edit tab
+    takes ownership instead of switching, and that path opens the editor
+    with a single fetch, so there is nothing for it to race.
     """
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
@@ -400,19 +406,26 @@ def test_edit_survives_a_preview_render_that_resolves_last(tmp_path, monkeypatch
         page.locator(OUTPUT_STYLE_CARD_SELECTOR).click()
         expect(page.locator(".osprey-md-rendered")).to_be_visible(timeout=15_000)
 
-        # Installed only now, so the first GET it counts is the post-claim
-        # Preview rather than the one this open just made.
-        page.evaluate(_HOLD_FIRST_PREVIEW_FETCH)
-
         _once_dialog(page, accept=True)
         page.locator(".prompts-mode-btn", has_text="Edit").click()
-
+        expect(page.locator(".prompts-detail-header .prompts-badge")).to_have_class(
+            "prompts-badge user-owned", timeout=15_000
+        )
         textarea = page.locator(".prompts-edit-textarea")
         expect(textarea).to_be_visible(timeout=15_000)
 
+        # Installed only now, so the GET it holds is the Preview the next
+        # click starts, not one the claim made.
+        page.evaluate(_HOLD_NEXT_CONTENT_GET)
+
+        page.locator(".prompts-mode-btn", has_text="Preview").click()
+        page.locator(".prompts-mode-btn", has_text="Edit").click()
+        expect(textarea).to_be_visible(timeout=15_000)
+
         # The held Preview lands here, last -- and the editor is still the
-        # thing in the pane.
-        page.wait_for_function("() => window.__latePreviewParsed === 1", timeout=15_000)
+        # thing in the pane, under the tab the operator clicked last.
+        page.wait_for_function("() => window.__heldContentParsed === 1", timeout=15_000)
+        expect(page.locator(".prompts-mode-btn.active")).to_have_text("Edit")
         expect(textarea).to_be_visible()
         expect(page.locator(".osprey-md-rendered")).to_have_count(0)
         assert "Lead with data" in textarea.input_value()

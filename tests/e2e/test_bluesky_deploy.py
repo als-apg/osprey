@@ -259,7 +259,7 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own so a
@@ -272,7 +272,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -324,9 +324,9 @@ def _env_value(repo: Path, key: str) -> str:
 
 
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -334,14 +334,14 @@ def _get(path: str) -> tuple[int, Any]:
 
 def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{BRIDGE_URL}{path}",
         data=data,
         method=method,
         headers={"Content-Type": "application/json"} if data is not None else {},
     )
     try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=20.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))

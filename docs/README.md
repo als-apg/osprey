@@ -18,9 +18,11 @@ $ python -m docs.screenshots list
 ```
 
 **The default is container-free.** `make screenshots` — run from `docs/`, where
-the makefile lives — captures only the `standalone_interface` recipes. Each
-boots a single interface `create_app()` on a throwaway port, so it needs
-neither a container runtime nor seeded data. Regenerate one recipe with
+the makefile lives — captures the container-free recipes: `standalone_interface`,
+`static_page` and `hermetic_hub`. A `standalone_interface` recipe boots a single
+interface `create_app()` on a throwaway port, so it needs neither a container
+runtime nor seeded data. A `hermetic_hub` recipe boots the web terminal the
+contact sheet uses. Regenerate one recipe with
 `make screenshots-<name>`. The equivalent without the makefile is
 `python -m docs.screenshots` from the repository root, which is what the target
 runs for you.
@@ -96,4 +98,6 @@ invariant `_FULL_MATRIX` mirrors it — add a cell to *both* to capture a new
 theme/mode combination. To cover a new panel, seed its backing store the way
 `seed_demo_workspace` seeds the workspace artifacts and wire it into
 `hermetic_hub` so the panel renders populated; the capture loop and the
-composed sheet then pick it up unchanged.
+composed sheet then pick it up unchanged. A hub card in a particular UI state is
+a `STAGED_VARIANTS` row naming a `STAGES` key, and the same key on a `DocShot`
+makes it a committed doc image.

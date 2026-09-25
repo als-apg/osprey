@@ -40,18 +40,22 @@ TELEMETRY_ENV_VARS: frozenset[str] = frozenset(
         "OTEL_LOG_ASSISTANT_RESPONSES",
         "OTEL_LOG_TOOL_DETAILS",
         "OTEL_LOG_RAW_API_BODIES",
+        "OTEL_TRACES_EXPORTER",
+        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+        "OTEL_LOG_TOOL_CONTENT",
+        "CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH",
     }
 )
 
-# Content-capture gates: OTEL env var → config key that suppresses it.
-# Each defaults ON (emitted as "1") and is emitted as an explicit "0" when its
-# config key is ``false``. ``OTEL_LOG_TOOL_CONTENT`` is intentionally absent —
-# it requires tracing, which is out of scope for this metrics/logs pipeline.
+# Content-capture gates: each content-capture env var → the config key that
+# suppresses it. Each defaults ON (emitted as "1") and is emitted as an
+# explicit "0" when its config key is false-y.
 _TELEMETRY_CONTENT_GATES: dict[str, str] = {
     "OTEL_LOG_USER_PROMPTS": "log_user_prompts",
     "OTEL_LOG_ASSISTANT_RESPONSES": "log_assistant_responses",
     "OTEL_LOG_TOOL_DETAILS": "log_tool_details",
     "OTEL_LOG_RAW_API_BODIES": "log_raw_api_bodies",
+    "OTEL_LOG_TOOL_CONTENT": "log_tool_content",
 }
 
 
@@ -78,6 +82,35 @@ def _gate_is_on(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() not in _GATE_FALSEY
     return bool(value)
+
+
+def _content_max_length(telemetry_cfg: dict) -> str | None:
+    """The ``CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH`` value, or ``None`` to emit nothing.
+
+    The longest content value Claude Code puts in one telemetry attribute
+    before it cuts it and marks it truncated, in UTF-16 code units. Unset (or
+    ``""``, what ``${VAR:-}`` yields) leaves Claude Code's own default (61440).
+    Read from config only, never from ``os.environ``.
+
+    Raises:
+        TelemetryConfigError: When the value is not a positive integer.
+    """
+    raw = telemetry_cfg.get("content_max_length")
+    if raw is None or raw == "":
+        return None
+    try:
+        # YAML ``true`` is an int subclass; refuse it rather than read it as 1.
+        if isinstance(raw, bool):
+            raise ValueError(raw)
+        value = int(str(raw).strip())
+        if value < 1:
+            raise ValueError(raw)
+    except ValueError:
+        raise TelemetryConfigError(
+            "claude_code.telemetry.content_max_length must be a positive integer "
+            f"(UTF-16 code units), got {raw!r}"
+        ) from None
+    return str(value)
 
 
 class TelemetryConfigError(ValueError):
@@ -429,7 +462,7 @@ def _resolve_telemetry_endpoint(
                     "claude_code.telemetry.protocol is 'grpc' but the OTLP endpoint "
                     "is auto-derived from backend: openobserve, which serves HTTP "
                     "only — a gRPC exporter aimed there would drop every "
-                    "metric and log silently. Use protocol: http/protobuf, or set an "
+                    "metric, log and span silently. Use protocol: http/protobuf, or set an "
                     "explicit claude_code.telemetry.endpoint pointing at a collector "
                     "that speaks gRPC."
                 )
@@ -564,17 +597,22 @@ def _build_telemetry_env(
     Raises:
         TelemetryConfigError: On an unresolvable endpoint, ``protocol: grpc``
             against an auto-derived (HTTP-only) OpenObserve endpoint, or a
-            leaked ``${VAR}`` in the endpoint.
+            leaked ``${VAR}`` in the endpoint, or a ``content_max_length``
+            that is not a positive integer.
         ObservabilityCredentialError: On an ``openobserve`` backend whose
             credentials are missing, blank, or an unresolved ``${VAR}``.
     """
     if not telemetry_cfg or not telemetry_cfg.get("enabled"):
         return {}
 
+    # The exporter appends ``/v1/<signal>`` to the base endpoint, so one
+    # endpoint serves logs, metrics and traces.
     env: dict[str, str] = {
         "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
         "OTEL_METRICS_EXPORTER": "otlp",
         "OTEL_LOGS_EXPORTER": "otlp",
+        "OTEL_TRACES_EXPORTER": "otlp",
         "OTEL_EXPORTER_OTLP_PROTOCOL": str(telemetry_cfg.get("protocol", "http/protobuf")),
         "OTEL_EXPORTER_OTLP_ENDPOINT": _resolve_telemetry_endpoint(
             telemetry_cfg,
@@ -615,6 +653,10 @@ def _build_telemetry_env(
     for env_var in _TELEMETRY_CONTENT_GATES:
         env[env_var] = "1" if env_var in on_gates else "0"
 
+    limit = _content_max_length(telemetry_cfg)
+    if limit is not None:
+        env["CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH"] = limit
+
     # Safe-state advisory: full-fidelity content capture is the default only
     # because the openobserve backend is local and air-gapped. On any other
     # backend the captured transcripts leave the host, so warn once (the
@@ -625,7 +667,8 @@ def _build_telemetry_env(
             "claude_code.telemetry ships full content capture "
             f"({', '.join(sorted(on_gates))}) to a non-openobserve backend; "
             "these transcripts leave the host. Set log_user_prompts / "
-            "log_assistant_responses / log_tool_details / log_raw_api_bodies "
+            "log_assistant_responses / log_tool_details / log_tool_content / "
+            "log_raw_api_bodies "
             "to false to suppress categories you do not want to emit.",
             UserWarning,
             stacklevel=2,

@@ -21,7 +21,7 @@ on:
       tag:
         description: 'openobserve tag to mirror (must match the pin in the openobserve compose template)'
         required: true
-        default: 'v0.14.4'
+        default: 'v0.92.2'
 
 jobs:
   mirror:

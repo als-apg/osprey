@@ -236,6 +236,69 @@ def test_pipeline_pins_the_version_floor_the_profile_declares(rendered_ci: str) 
     assert 'pip install --no-cache-dir "osprey-framework>=2026.8.0"' in rendered_ci
 
 
+def test_a_prerelease_floor_adds_pre_to_the_install(exemplar: dict[str, Any]) -> None:
+    """A floor naming a beta installs with ``--pre``, and the file says why.
+
+    OSPREY and its connectors ship as a pair from one tag. pip admits a
+    pre-release for the requirement that names one and not for that
+    requirement's own dependencies, so the resolve is widened as a whole
+    or the job can install a pre-release framework beside the older
+    stable connectors.
+    """
+    profile = copy.deepcopy(exemplar)
+    profile["requires_osprey_version"] = ">=2026.9.0b3"
+    deploy = parse_deploy_block(profile)
+    assert deploy is not None
+    rendered = render_ci(profile, deploy)
+
+    install = [line for line in rendered.splitlines() if "pip install" in line]
+    assert install == ['    - pip install --no-cache-dir --pre "osprey-framework>=2026.9.0b3"']
+    assert "# The floor names a pre-release." in rendered
+    yaml.safe_load(rendered)
+
+
+def test_a_stable_floor_adds_nothing_to_the_install(exemplar: dict[str, Any]) -> None:
+    """A released floor renders the install with no resolver flag at all.
+
+    ``--pre`` widens the whole resolve, third-party dependencies
+    included, so it belongs only to the render that needs it.
+    """
+    profile = copy.deepcopy(exemplar)
+    profile["requires_osprey_version"] = ">=2026.9.0"
+    deploy = parse_deploy_block(profile)
+    assert deploy is not None
+    rendered = render_ci(profile, deploy)
+
+    install = [line for line in rendered.splitlines() if "pip install" in line]
+    assert install == ['    - pip install --no-cache-dir "osprey-framework>=2026.9.0"']
+    assert "pre-release" not in rendered
+    yaml.safe_load(rendered)
+
+
+@pytest.mark.parametrize(
+    ("floor", "widens"),
+    [
+        (">=2026.9.0", False),
+        (">=2026.9.0b3", True),
+        (">=2026.9.0rc1", True),
+        (">=2026.9.0b3,<2026.10", True),
+        ("!=2026.6.2a0", False),
+        (None, False),
+    ],
+)
+def test_only_a_floor_that_pins_a_pre_release_widens_the_resolve(
+    exemplar: dict[str, Any],
+    exemplar_deploy: DeployConfig,
+    floor: str | None,
+    widens: bool,
+) -> None:
+    """An exclusion names a version without pinning one, and does not count."""
+    profile = copy.deepcopy(exemplar)
+    profile["requires_osprey_version"] = floor
+    context = build_ci_context(profile, exemplar_deploy, EXEMPLAR_DIR, REPO_NAME, FROZEN_VERSION)
+    assert context.requirement_pins_prerelease is widens
+
+
 # ── External projects ────────────────────────────────────────────────────────
 
 

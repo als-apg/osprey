@@ -323,9 +323,9 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # HTTP helpers (mirrors test_orm_roundtrip.py / test_bluesky_catalog_e2e.py)
 # ---------------------------------------------------------------------------
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -333,14 +333,14 @@ def _get(path: str) -> tuple[int, Any]:
 
 def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{BRIDGE_URL}{path}",
         data=data,
         method="POST",
         headers={"Content-Type": "application/json", **(headers or {})},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -348,14 +348,14 @@ def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict
 
 def _patch(path: str, body: dict) -> tuple[int, Any]:
     """A PATCH against the bridge (the shared draft is the only PATCH surface)."""
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{BRIDGE_URL}{path}",
         data=json.dumps(body).encode("utf-8"),
         method="PATCH",
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -401,7 +401,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -572,7 +572,7 @@ def deployed_sandbox_stack(
             timeout=300,
         )
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # `osprey down` keeps volumes by design; drop this project's own so a
@@ -723,7 +723,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
     assert isinstance(body.get("content_hash"), str) and body["content_hash"], (
         f"validate response missing a content_hash: {body}"
     )
-    print(  # noqa: T201 - informational only, not asserted on
+    print(  # informational only, not asserted on
         f"obfuscated residual {_RESIDUAL_PLAN_NAME!r}: passed={body['passed']!r} "
         f"reasons={body['reasons']!r} (documented known-uncaught case; not asserted)"
     )
@@ -732,7 +732,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
     # so nothing should have moved regardless of the validate outcome above --
     # but this is recorded as an observation, not an assertion (see docstring).
     sp_value = _caget(target_sp)
-    print(f"{target_sp} reads {sp_value!r} after the obfuscated-residual validate call")  # noqa: T201
+    print(f"{target_sp} reads {sp_value!r} after the obfuscated-residual validate call")
 
 
 # ---------------------------------------------------------------------------

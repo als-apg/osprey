@@ -437,7 +437,42 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The terminal theme `web.theme` pins, if any — settings.json.j2
         # renders it so one config key governs the look of both surfaces.
         "terminal_theme": _terminal_theme(config),
+        # How long Claude Code keeps session transcripts — settings.json.j2
+        # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
+        "transcripts_retention_days": _transcripts_retention_days(config),
     }
+
+
+def _transcripts_retention_days(config: dict) -> int | None:
+    """The days ``claude_code.transcripts.retention_days`` keeps a session transcript.
+
+    Rendered as Claude Code's ``cleanupPeriodDays``: at startup Claude Code
+    deletes every transcript older than that, 30 days when nothing sets it. The
+    key reaches the web terminals and the dispatch worker alike, because both
+    load project settings only (the terminals launch with
+    ``--setting-sources project``; the worker's SDK options pass
+    ``setting_sources=["project"]``).
+
+    Returns ``None`` when the key is absent, so the line is not rendered and
+    Claude Code's own default applies.
+
+    Raises:
+        BuildProfileError: If the value is not a whole number of days of at
+            least 1. Unlike the theme helper this refuses rather than degrades:
+            a value silently dropped here leaves the 30-day deletion in force,
+            which is the loss the key exists to prevent.
+    """
+    transcripts = (config.get("claude_code") or {}).get("transcripts") or {}
+    value = transcripts.get("retention_days")
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return value
+    raise BuildProfileError(
+        f"claude_code.transcripts.retention_days must be a whole number of days, "
+        f"1 or more (got {value!r}). Claude Code refuses 0, and deletes transcripts "
+        f"older than this at startup."
+    )
 
 
 def _terminal_theme(config: dict) -> str | None:
@@ -465,7 +500,7 @@ def _terminal_theme(config: dict) -> str | None:
 
         entries, _ = load_theme_registry()
         return resolve_pinned_mode(str(configured), entries)
-    except Exception as exc:  # noqa: BLE001 — cosmetic key, never render-blocking
+    except Exception as exc:  # cosmetic key, never render-blocking
         logger.warning("Could not resolve web.theme %r for the terminal (%r)", configured, exc)
         return None
 
@@ -1165,8 +1200,9 @@ _FRAMEWORK_EVENT_HOOKS: tuple[tuple[str, str | None, tuple[tuple[str, int], ...]
     # errored out; both leave the process between turns, which is the only state
     # in which the web terminal may move the conversation to its other surface.
     # A CLI build that emits no `StopFailure` simply never runs that entry.
-    ("Stop", None, (("turn-state", 3),)),
-    ("StopFailure", None, (("turn-state", 3),)),
+    # The approval hook closes the turn's unanswered asks on the same edge.
+    ("Stop", None, (("turn-state", 3), ("approval", 5))),
+    ("StopFailure", None, (("turn-state", 3), ("approval", 5))),
 )
 
 #: The hooks that stand between the agent and a control-system write: the kill
@@ -1240,6 +1276,48 @@ def _build_framework_event_rules(selected_hooks: Iterable[str]) -> dict[str, lis
         if matcher:
             rule["matcher"] = matcher
         rules.setdefault(event, []).append(rule)
+    return rules
+
+
+#: The command the approval hook's outcome rules run. No ``--budget``: nothing
+#: is previewed after a call has run.
+_APPROVAL_OUTCOME_COMMAND = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py"'
+
+
+def _approval_outcome_rules(wired_servers: Iterable[dict]) -> list[dict]:
+    """One ``PostToolUse`` / ``PostToolUseFailure`` rule per approval matcher.
+
+    The approval hook records an ask's answer from the events that follow it:
+    the call ran (``approved``) or the turn ended without it (``denied``). The
+    first needs the hook wired after the call, on every matcher it gates
+    before it. Derived from the wired servers, so an unselected approval hook
+    wires no outcome rule and a facility server carrying the approval hook
+    gets one.
+
+    Args:
+        wired_servers: The servers as :func:`_servers_with_selected_hooks`
+            narrowed them.
+
+    Returns:
+        Rules in the dict shape of the server rules, in server order.
+    """
+    rules: list[dict] = []
+    for server in wired_servers:
+        if not server.get("enabled"):
+            continue
+        for rule in server.get("hooks_pre") or []:
+            if any(
+                _hook_name_of_command(hook.get("command", "")) == "approval"
+                for hook in rule.get("hooks") or []
+            ):
+                rules.append(
+                    {
+                        "matcher": rule["matcher"],
+                        "hooks": [
+                            {"type": "command", "command": _APPROVAL_OUTCOME_COMMAND, "timeout": 5}
+                        ],
+                    }
+                )
     return rules
 
 
@@ -1352,12 +1430,13 @@ def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
     )
 
 
-#: Claude Code hook events a profile may declare wiring for. The six events
+#: Claude Code hook events a profile may declare wiring for. The seven events
 #: ``settings.json.j2`` always emits a key for come first; the rest are keys the
 #: template adds only when something declares them.
 CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
     "PreToolUse",
     "PostToolUse",
+    "PostToolUseFailure",
     "UserPromptSubmit",
     "SessionStart",
     "Stop",
@@ -1373,7 +1452,15 @@ CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
 #: selection left the framework's own entries out of it. Everything else in
 #: :data:`CLAUDE_CODE_HOOK_EVENTS` becomes a new key when declared.
 FRAMEWORK_WIRED_EVENTS: frozenset[str] = frozenset(
-    {"PreToolUse", "PostToolUse", "UserPromptSubmit", "SessionStart", "Stop", "StopFailure"}
+    {
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "UserPromptSubmit",
+        "SessionStart",
+        "Stop",
+        "StopFailure",
+    }
 )
 
 #: Claude Code's own default hook timeout, in seconds. A declaration that says
@@ -2024,6 +2111,7 @@ def create_claude_code_integration(
     # hook sources: a hook this deployment does not install is wired to nothing.
     ctx["framework_event_hooks"] = _build_framework_event_rules(ctx.get("selected_hooks", []))
     ctx["wired_servers"] = _servers_with_selected_hooks(ctx)
+    ctx["approval_outcome_hooks"] = _approval_outcome_rules(ctx["wired_servers"])
 
     # Build-time safety lint: refuse to render a profile in which any
     # write-capable built-in (Write/MultiEdit/NotebookEdit) is neither hard-denied

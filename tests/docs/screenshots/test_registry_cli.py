@@ -26,6 +26,10 @@ def _standalone(name="switch", **kw):
     return DocShot(name=name, environment="standalone_interface", kind="static", **kw)
 
 
+def _hub(name="hub", **kw):
+    return DocShot(name=name, environment="hermetic_hub", kind="static", **kw)
+
+
 def _stack_static(name="ariel", **kw):
     return DocShot(name=name, environment="tutorial_stack", kind="static", **kw)
 
@@ -113,6 +117,28 @@ def test_empty_themes_rejected():
         validate_registry([_standalone("s", themes=())])
 
 
+def test_stage_requires_hermetic_hub():
+    with pytest.raises(ValueError, match="hermetic_hub"):
+        validate_registry([_standalone(stage="customize_sheet")])
+
+
+def test_unknown_stage_rejected():
+    with pytest.raises(ValueError, match="unknown stage"):
+        validate_registry([_hub(stage="nope")])
+
+
+def test_hermetic_hub_with_a_known_stage_is_valid():
+    validate_registry([_hub(stage="customize_sheet")])
+
+
+def test_the_customize_sheet_recipe_is_an_expert_hub_capture():
+    (shot,) = [s for s in recipes.REGISTRY if s.name == "customize_sheet"]
+    assert shot.environment == "hermetic_hub"
+    assert shot.hub_mode == "expert"
+    assert shot.stage == "customize_sheet"
+    assert set(shot.themes) == {"light", "dark"}
+
+
 def test_output_names_single_vs_subviews():
     assert _standalone("solo").output_names() == ["solo"]
     multi = _stack_static("m", subviews=(SubView("#a", "m_a"), SubView("#b", "m_b")))
@@ -129,6 +155,8 @@ def test_output_names_single_vs_subviews():
     [
         (_standalone(), False, False, True),  # standalone static: always on
         (_standalone(), True, True, True),
+        (_hub(), False, False, True),  # hermetic hub static: always on
+        (_hub(), True, True, True),
         (_stack_static(), False, False, False),  # tutorial static: needs --stack
         (_stack_static(), True, False, True),
         (_agentic(), False, False, False),  # agentic: needs --agentic

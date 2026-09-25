@@ -17,6 +17,10 @@ What the tests below hold the provisioner to:
   HTTP 401 carrying the bare string ``Unauthorized Access``, a successful ingest
   carries an EMPTY body, and a duplicate create is a 400 that means "already
   done" rather than a failure;
+* the store hands an account's token over in one of two places: on the read of
+  that account, with the create answering no token, or on the create, with no
+  per-account read served at all (``405``). The token is taken from whichever
+  answer carries it, and the cases that hold for any store run against both;
 * nothing here is fatal, and nothing here is silent: every failure names the one
   thing to do about it and the deploy carries on;
 * the root password is used in this process and reaches no output, no log record
@@ -62,17 +66,29 @@ CONFIG: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
+#: Where a store hands a service account's token over: ``"read"`` answers the
+#: create with no token and the per-account read with it; ``"create"`` answers
+#: the create with it and serves no per-account read (``405``).
+TOKEN_SHAPES = ("read", "create")
+
+
 class FakeStore:
     """A stateful stand-in for OpenObserve, answering the way the real one does.
 
     Only the five endpoints the provisioner uses, but with the real store's
     quirks kept: bare-string 401 bodies, a 400 on a duplicate create, and a
     service-account token the SERVER picks rather than the caller.
+
+    ``token_on`` picks one of :data:`TOKEN_SHAPES`; left unset it takes
+    ``default_token_on``, which :func:`either_shape` sets per run.
     """
+
+    default_token_on = "read"
 
     def __init__(
         self,
         *,
+        token_on: str | None = None,
         accounts: dict[str, str] | None = None,
         org: str = "default",
         healthz_failures: int = 0,
@@ -81,6 +97,8 @@ class FakeStore:
         search_status: int = 200,
         refuse: set[str] | None = None,
     ) -> None:
+        self.token_on = token_on or self.default_token_on
+        assert self.token_on in TOKEN_SHAPES, self.token_on
         self.accounts = dict(accounts or {})
         self.org = org
         self.healthz_failures = healthz_failures
@@ -161,18 +179,29 @@ class FakeStore:
             email = json.loads(request.content)["email"]
             if email in self.accounts:
                 return httpx.Response(400, json={"code": 400, "message": "User already exists"})
-            self.accounts[email] = self._next_token()
-            return httpx.Response(200, json={"code": 200, "message": "User saved successfully"})
+            token = self._next_token()
+            self.accounts[email] = token
+            saved = {"code": 200, "message": "User saved successfully"}
+            if self.token_on == "create":
+                return httpx.Response(200, json={**saved, "token": token, "user": email})
+            return httpx.Response(200, json=saved)
 
         if path.startswith(f"{prefix}/service_accounts/"):
             if not self._is_root(request):
                 return self._unauthorized()
             email = path.rsplit("/", 1)[1]
             if request.method == "DELETE":
+                if self.token_on == "create" and email not in self.accounts:
+                    return httpx.Response(
+                        404, json={"code": 404, "message": "User for the organization not found"}
+                    )
                 self.accounts.pop(email, None)
                 return httpx.Response(
                     200, json={"code": 200, "message": "User removed from organization"}
                 )
+            if self.token_on == "create":
+                # No per-account read, whether or not the account exists.
+                return httpx.Response(405)
             if email not in self.accounts:
                 return httpx.Response(404, json={"code": 404, "message": "User not found"})
             return httpx.Response(200, json={"token": self.accounts[email], "user": email})
@@ -212,6 +241,13 @@ def clean_environment(monkeypatch):
     """
     for name in (TOKEN_VAR, EMAIL_VAR, "ZO_ROOT_USER_EMAIL", "ZO_ROOT_USER_PASSWORD"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(params=TOKEN_SHAPES, ids=[f"token-on-{shape}" for shape in TOKEN_SHAPES])
+def either_shape(request, monkeypatch) -> str:
+    """Run a case against both token-delivery shapes of the store."""
+    monkeypatch.setattr(FakeStore, "default_token_on", request.param)
+    return request.param
 
 
 @pytest.fixture
@@ -267,6 +303,7 @@ def test_a_project_without_the_store_is_left_alone(env_file):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_provisioning_waits_for_the_store_to_be_ready(env_file, monkeypatch):
     """Running is not ready: the port answers before the API will."""
     monkeypatch.setattr(provision, "READY_POLL_S", 0.0)
@@ -341,6 +378,7 @@ def test_a_store_that_answers_at_all_still_gets_the_whole_readiness_budget(env_f
     assert store.paths.count("/healthz") > 1
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_store_whose_port_binds_late_is_still_provisioned(env_file, monkeypatch):
     """The connect budget is a window, not a single attempt.
 
@@ -363,6 +401,7 @@ def test_a_store_whose_port_binds_late_is_still_provisioned(env_file, monkeypatc
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_working_token_is_verified_and_nothing_else_happens(env_file, capsys):
     """The common case, on every start of every deploy: one read, no writes,
     no output."""
@@ -379,6 +418,7 @@ def test_a_working_token_is_verified_and_nothing_else_happens(env_file, capsys):
     assert capsys.readouterr().out == ""
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_verification_reads_rather_than_writes_telemetry(env_file):
     """Checking a credential must not put a row into the operator's data."""
     store = FakeStore(accounts={INGEST_EMAIL: "liveliveliveliv"})
@@ -392,6 +432,7 @@ def test_verification_reads_rather_than_writes_telemetry(env_file):
     assert store.touched("/_search")
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_store_with_nothing_ingested_yet_is_not_a_dead_credential(env_file):
     """A search over a stream that does not exist is not a 401.
 
@@ -412,6 +453,7 @@ def test_a_store_with_nothing_ingested_yet_is_not_a_dead_credential(env_file):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_missing_account_is_created_and_its_token_harvested(env_file):
     """The first deploy: the store has no such account, and the token it issues
     is the one the .env has to end up holding."""
@@ -424,6 +466,7 @@ def test_a_missing_account_is_created_and_its_token_harvested(env_file):
     assert ("POST", "/api/default/service_accounts") in store.calls
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_account_is_created_without_a_password_or_a_role(env_file):
     """Neither is the caller's to send: the server issues the token, and the
     role of a service account is not chosen here."""
@@ -454,6 +497,7 @@ def test_an_env_with_no_token_beside_a_store_that_has_the_account_just_harvests(
     assert store.issued == []
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_dead_token_is_reissued_by_delete_and_create(env_file):
     """The store's only rotation. A PUT answers 200 and re-issues nothing, so a
     provisioner that used it would report a rotation that never happened."""
@@ -520,6 +564,64 @@ def test_the_volume_was_replaced_under_a_surviving_env(env_file):
     assert token_in(env_file) == store.accounts[INGEST_EMAIL] != "fromtheoldvolum"
 
 
+def test_a_store_that_answers_only_on_create_still_yields_a_token(env_file):
+    """The create carries the token and the per-account read is not served, so
+    the token the create handed over is the one the .env records."""
+    store = FakeStore(token_on="create")
+
+    outcome = run(store, env_file)
+
+    assert outcome.action == "created"
+    assert token_in(env_file) == store.accounts[INGEST_EMAIL] == store.issued[-1]
+
+
+def test_a_store_that_answers_only_on_read_still_yields_a_token(env_file):
+    """The create answers with no token, so the token is read back from the
+    account it just made."""
+    store = FakeStore(token_on="read")
+
+    outcome = run(store, env_file)
+
+    assert outcome.action == "created"
+    assert token_in(env_file) == store.accounts[INGEST_EMAIL] == store.issued[-1]
+    assert ("GET", f"/api/default/service_accounts/{INGEST_EMAIL}") in store.calls
+
+
+def test_a_store_with_no_per_account_read_rotates_instead_of_reading(env_file):
+    """With no read there is no live token to compare the .env against, so the
+    only way to a token this deployment holds is a re-issue: delete plus create.
+    A create alone would answer "already exists" and hand nothing over."""
+    store = FakeStore(token_on="create", accounts={INGEST_EMAIL: "aliveandwellxyz"})
+    with env_file.open("a", encoding="utf-8") as handle:
+        handle.write(f"{TOKEN_VAR}=stalestalestale\n")
+
+    outcome = run(store, env_file)
+
+    assert outcome.action == "rotated"
+    assert ("DELETE", f"/api/default/service_accounts/{INGEST_EMAIL}") in store.calls
+    assert token_in(env_file) == store.accounts[INGEST_EMAIL] == store.issued[-1]
+    assert token_in(env_file) not in {"aliveandwellxyz", "stalestalestale"}
+
+
+def test_a_refused_root_credential_is_still_not_a_missing_account(env_file):
+    """A store with no per-account read still checks the caller first, so a
+    wrong root password is named as one and nothing is deleted or created."""
+    store = FakeStore(
+        token_on="create",
+        accounts={INGEST_EMAIL: "aliveandwellxyz"},
+        root=("root@example.com", "whatthevolumeactuallyhas"),
+    )
+
+    outcome = run(store, env_file)
+
+    assert outcome.action == "failed"
+    assert "refused this deployment's root credential" in outcome.problem
+    assert "ZO_ROOT_USER_PASSWORD" in outcome.remedy
+    assert not any(method in {"POST", "DELETE"} for method, _path in store.calls)
+    assert store.accounts == {INGEST_EMAIL: "aliveandwellxyz"}
+    assert token_in(env_file) is None
+
+
 # ---------------------------------------------------------------------------
 # Robustness against what this store actually returns
 # ---------------------------------------------------------------------------
@@ -538,6 +640,7 @@ def test_a_bare_string_401_body_is_not_parsed_as_json(env_file):
     assert token_in(env_file) == "goodgoodgoodgoo"
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_an_empty_success_body_is_tolerated(env_file):
     """Some successful calls answer with no body at all."""
     store = FakeStore(accounts={INGEST_EMAIL: "liveliveliveliv"})
@@ -557,6 +660,7 @@ def test_an_empty_success_body_is_tolerated(env_file):
     assert outcome.action == "verified"
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_bare_text_error_from_the_create_degrades_rather_than_raising(env_file, capsys):
     """Role and field errors come back as a bare serde message, not JSON."""
     store = FakeStore()
@@ -575,6 +679,7 @@ def test_a_bare_text_error_from_the_create_degrades_rather_than_raising(env_file
     assert "refused to create" in " ".join(capsys.readouterr().err.split())
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_root_credential_the_store_rejects_is_named_as_such(env_file):
     """The likeliest real failure here: a data volume kept from an earlier
     deploy still holds the root password it was created with."""
@@ -588,6 +693,7 @@ def test_a_root_credential_the_store_rejects_is_named_as_such(env_file):
     assert token_in(env_file) is None
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_store_that_stops_answering_mid_sequence_degrades(env_file):
     """A transport error is not an answer about the credential and must not be
     read as one."""
@@ -607,6 +713,7 @@ def test_a_store_that_stops_answering_mid_sequence_degrades(env_file):
     assert token_in(env_file) is None
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_reissued_token_the_store_then_refuses_is_reported(env_file):
     """Writing a token the store will not accept would leave a .env that looks
     healthy and telemetry that silently 401s."""
@@ -634,6 +741,7 @@ def test_a_reissued_token_the_store_then_refuses_is_reported(env_file):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_first_harvest_lands_under_the_banner_reset_knows(env_file):
     """A block `osprey reset` cannot see is a dead credential left beside a
     store that no longer has the account it belonged to."""
@@ -664,6 +772,7 @@ def test_a_reissue_replaces_the_line_instead_of_stacking_a_second_one(env_file):
     assert env_file.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_operators_own_lines_survive_a_reissue(env_file):
     """A provisioner edits one line. It does not reformat somebody's file."""
     store = FakeStore()
@@ -679,6 +788,7 @@ def test_the_operators_own_lines_survive_a_reissue(env_file):
     assert parse_dotenv_file(env_file)["ZO_ROOT_USER_EMAIL"] == ROOT_EMAIL
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_a_second_run_changes_nothing(env_file):
     """Idempotent, because it runs on every start."""
     store = FakeStore()
@@ -693,6 +803,7 @@ def test_a_second_run_changes_nothing(env_file):
     assert not store.touched("service_accounts")
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_process_copy_is_kept_in_step_only_where_it_already_exists(env_file, monkeypatch):
     """A stale empty copy in the environment outranks the freshly written line
     for compose's interpolation; a name that was never there stays out."""
@@ -707,6 +818,7 @@ def test_the_process_copy_is_kept_in_step_only_where_it_already_exists(env_file,
     assert compose_env[TOKEN_VAR] == harvested
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_an_environment_that_never_carried_the_name_does_not_gain_it(env_file):
     """It reaches the containers through --env-file, as it always has."""
     compose_env: dict[str, str] = {"OTHER": "x"}
@@ -734,6 +846,7 @@ def test_a_token_a_compose_env_file_cannot_carry_is_refused(env_file):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_organization_comes_from_the_setting_the_agent_uses(env_file):
     """The account is created in the organization the agent's own OTLP endpoint
     names. Two answers here would create it in one and use it against another."""
@@ -835,6 +948,7 @@ def test_the_identity_variable_is_read_from_the_registry():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_scope_of_the_account_is_disclosed_when_it_is_granted(env_file, capsys):
     """OpenObserve has no ingest-only role in any edition: this account reads
     back every log and metric and lists the store's users. An operator learns
@@ -848,6 +962,7 @@ def test_the_scope_of_the_account_is_disclosed_when_it_is_granted(env_file, caps
     assert "no ingest-only role in any edition" in printed
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_root_password_reaches_no_output_and_no_log(env_file, capsys, caplog):
     """It is read host-side, used in this process, and goes nowhere else."""
     import logging
@@ -861,6 +976,7 @@ def test_the_root_password_reaches_no_output_and_no_log(env_file, capsys, caplog
     assert ROOT_PASSWORD not in captured.out + captured.err + caplog.text
 
 
+@pytest.mark.usefixtures("either_shape")
 def test_the_harvested_token_is_never_printed(env_file, capsys):
     """The ledger names the variable. It does not quote the secret."""
     from osprey.cli import output

@@ -210,6 +210,45 @@ def test_thinking_blocks_are_stripped():
     assert "thinking" not in json.dumps(out)
 
 
+def test_the_request_keeps_max_tokens_and_temperature_by_default():
+    body = {
+        "model": "cborg-coder",
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 64,
+        "temperature": 0.0,
+    }
+    out = anthropic_to_openai_request(body)
+    assert out["max_tokens"] == 64
+    assert out["temperature"] == 0.0
+    assert "max_completion_tokens" not in out
+
+
+def test_the_token_cap_goes_out_under_the_declared_parameter():
+    """OpenAI's own API refuses max_tokens on its reasoning models."""
+    body = {
+        "model": "gpt-6-sol",
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 64,
+    }
+    out = anthropic_to_openai_request(body, max_tokens_param="max_completion_tokens")
+    assert out["max_completion_tokens"] == 64
+    assert "max_tokens" not in out
+
+
+def test_no_temperature_goes_out_where_the_upstream_refuses_one():
+    body = {
+        "model": "gpt-6-sol",
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 64,
+        "temperature": 0.0,
+    }
+    out = anthropic_to_openai_request(
+        body, max_tokens_param="max_completion_tokens", accepts_temperature=False
+    )
+    assert "temperature" not in out
+    assert out["max_completion_tokens"] == 64
+
+
 # ── Response translation: OpenAI → Anthropic ─────────────────────────
 
 

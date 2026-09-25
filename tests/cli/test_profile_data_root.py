@@ -46,7 +46,7 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
         "extends": "control-assistant",
         "data": "data",
         "provider": "cborg",
-        "model": "haiku",
+        "model": "claude-haiku-4-5",
         "channel_finder_mode": "in_context",
         # The preset deploys a virtual accelerator, which serves the project's
         # own channels and so refuses a build whose data tree stages none. These

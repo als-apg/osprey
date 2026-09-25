@@ -475,6 +475,10 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
         The verified spelling for dropping a service block. Every parser gates
         on is-not-None; ``enabled: false`` under a ``services:`` block would
         fail schema validation instead.
+    ``services: {}``
+        The preset's ``services:`` block holds the record archive, which runs
+        the same project image, so it goes with the dispatch stack. An empty
+        mapping is the spelling because a single service cannot be nulled.
     ``virtual_accelerator.live_standin: null``
         The preset ships a live stand-in on: a second virtual accelerator that
         the build installs AS the live machine, deriving the whole ``epics``
@@ -508,6 +512,7 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
         "bluesky": None,
         "bluesky_web": None,
         "dispatch": None,
+        "services": {},
         "va_archiver": None,
         # The preset's live stand-in is a second VA installed as the live machine:
         # it derives the `epics` block below and forces strict limits. This lane
@@ -525,9 +530,8 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
             "agents": ["logbook-search", "logbook-deep-research"],
         },
         "config": {
-            # The baseline: the simulator, spelled out because the preset
-            # baselines on the stand-in nulled above and the build refuses
-            # that pairing.
+            # The baseline: the simulator, restated so the lane pins it beside
+            # the stand-in nulled above.
             "control_system.type": "virtual_accelerator",
             # The live machine: the bench IOC, on the port it is already serving.
             "control_system.connector.epics.probe_channel": BENCH_PROBE_CHANNEL,
@@ -612,7 +616,7 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=opus",
+            "model=claude-opus-5-5",
             *set_pairs(_profile_edits(bench_port=bench_port, va_port=va_port)),
         ],
         timeout=INIT_TIMEOUT_S,

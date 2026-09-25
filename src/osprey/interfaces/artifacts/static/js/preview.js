@@ -34,7 +34,7 @@
 
 import {
   getArtifacts,
-  setArtifacts,
+  removeArtifact,
   getSelectedArtifact,
   setSelectedArtifact,
   getFocusedArtifact,
@@ -192,7 +192,7 @@ export function createPreviewRenderer(callbacks) {
       fetch(`/api/artifacts/${a.id}`, { method: "DELETE" })
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then(() => {
-          setArtifacts(getArtifacts().filter((x) => x.id !== a.id));
+          removeArtifact(a.id);
           if (getSelectedArtifact()?.id === a.id) setSelectedArtifact(null);
           if (getFocusedArtifact()?.id === a.id) setFocusedArtifact(null);
           callbacks.onArtifactDeleted();

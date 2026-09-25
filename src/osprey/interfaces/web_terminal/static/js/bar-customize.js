@@ -74,6 +74,7 @@ import { initEntryPoints, stopEntryPoints } from './bar-customize-entry.js';
  * @property {() => BarHost} defaultHostFor
  * @property {(type: string, host: BarHost, index?: number) => Promise<boolean>} addItem
  * @property {(shell: Element) => BarItemPlace | null} locate
+ * @property {(host: BarHost, index: number) => string | null} keyAt
  * @property {(from: BarHost, fromIndex: number, to: BarHost, toIndex: number)
  *            => Promise<boolean>} moveItem
  * @property {(host: BarHost, index: number) => Promise<boolean>} removeAt
@@ -195,20 +196,18 @@ export function defaultHostFor() {
 }
 
 /**
- * Where a live shell sits in the held document, or null when it does not
- * (a parked shell, a document that has not arrived yet).
- *
- * The key is the host layer's identity for an item — `type` for the first of a
- * type, `type#n` after that, counted across the whole document — so this walks
- * the layout the same way `planHost()` does rather than counting DOM nodes,
- * which a reconcile in flight would have moved.
- * @param {Element} shell
- * @param {BarLayout | null} [layout]
- * @returns {BarItemPlace | null}
+ * Every placed item in the held document with the key the host layer gives it:
+ * `type` for the first of a type, `type#n` after that, counted across the whole
+ * document, header first. This walks the layout the same way `planHost()` does
+ * rather than counting DOM nodes, which a reconcile in flight would have moved.
+ * It is the one map between an item's key and its place on this side of the
+ * host layer: `locate()` reads it by key and `keyAt()` by place.
+ * @param {BarLayout} layout
+ * @returns {(BarItemPlace & {key: string})[]}
  */
-export function locate(shell, layout = currentLayout()) {
-  const key = /** @type {HTMLElement} */ (shell).dataset.barKey;
-  if (!key || !layout) return null;
+function placements(layout) {
+  /** @type {(BarItemPlace & {key: string})[]} */
+  const found = [];
   /** @type {Map<string, number>} */
   const counts = new Map();
   for (const host of BAR_HOSTS) {
@@ -218,10 +217,39 @@ export function locate(shell, layout = currentLayout()) {
       if (!barItemType(type)) continue;
       const seen = counts.get(type) ?? 0;
       counts.set(type, seen + 1);
-      if ((seen === 0 ? type : `${type}#${seen}`) === key) return { host, index, type };
+      found.push({ host, index, type, key: seen === 0 ? type : `${type}#${seen}` });
     }
   }
-  return null;
+  return found;
+}
+
+/**
+ * Where a live shell sits in the held document, or null when it does not
+ * (a parked shell, a document that has not arrived yet).
+ * @param {Element} shell
+ * @param {BarLayout | null} [layout]
+ * @returns {BarItemPlace | null}
+ */
+export function locate(shell, layout = currentLayout()) {
+  const key = /** @type {HTMLElement} */ (shell).dataset.barKey;
+  if (!key || !layout) return null;
+  const hit = placements(layout).find((place) => place.key === key);
+  return hit ? { host: hit.host, index: hit.index, type: hit.type } : null;
+}
+
+/**
+ * The key of the item at one place in the held document, or null. An item's
+ * key can change when it moves past another of its own type, so a surface that
+ * follows an item across a move asks for the key at the place it moved to.
+ * @param {BarHost} host
+ * @param {number} index
+ * @param {BarLayout | null} [layout]
+ * @returns {string | null}
+ */
+export function keyAt(host, index, layout = currentLayout()) {
+  if (!layout) return null;
+  const hit = placements(layout).find((place) => place.host === host && place.index === index);
+  return hit ? hit.key : null;
 }
 
 /**
@@ -515,6 +543,7 @@ const CONTROLLER = Object.freeze({
     /** @type {number | undefined} */ index
   ) => addItem(type, host, index, activeRoot),
   locate: (/** @type {Element} */ shell) => locate(shell),
+  keyAt: (/** @type {BarHost} */ host, /** @type {number} */ index) => keyAt(host, index),
   moveItem: (
     /** @type {BarHost} */ from,
     /** @type {number} */ fromIndex,

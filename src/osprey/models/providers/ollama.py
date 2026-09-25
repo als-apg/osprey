@@ -27,7 +27,6 @@ class OllamaProviderAdapter(BaseProvider):
     default_base_url = "http://localhost:11434"
     default_model_id = "mistral:7b"  # Mistral 7B as recommended default
     health_check_model_id = "mistral:7b"  # Same for health check (local, no cost)
-    available_models = ["mistral:7b", "gpt-oss:20b", "gpt-oss:120b"]
 
     # API key acquisition information
     api_key_url = None

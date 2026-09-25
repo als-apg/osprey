@@ -1,5 +1,6 @@
 """Mock connector for testing dynamic import in ConnectorFactory."""
 
+from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 
 
@@ -46,3 +47,32 @@ class MockDynamicConnector(ControlSystemConnector):
 
     async def validate_channel(self, channel_address):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return True
+
+
+class RecordingArchiver(ArchiverConnector):
+    """Archiver that keeps the settings block ``connect()`` was handed."""
+
+    settings: dict | None = None
+
+    async def connect(self, config):
+        type(self).settings = config
+
+    async def disconnect(self):
+        raise NotImplementedError
+
+    async def get_data(
+        self,
+        channels,
+        start_date,
+        end_date,
+        precision_ms=1000,
+        timeout=None,
+        processing="raw",
+    ):
+        raise NotImplementedError
+
+    async def get_metadata(self, channel):
+        raise NotImplementedError
+
+    async def check_availability(self, channels):
+        raise NotImplementedError

@@ -44,7 +44,8 @@ name: Demo Facility
 # delta over this same profile, so they pick the change up from the file rather
 # than from a replayed command line.
 provider: anthropic
-model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
+# model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
+#                          # default_model from providers.yml answers
 
 # Any custom gateway works too: name it as the provider, describe it under
 # `config:` below, and put its key in this repo's .env — the variable name
@@ -57,12 +58,13 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 #   # Optional — the gateway speaks Anthropic natively (e.g. a LiteLLM proxy
 #   # in Anthropic mode), so the local translation proxy is skipped:
 #   api.providers.my-gateway.api_protocol: anthropic
-#   # Optional tier map, model IDs as the gateway names them. Unmapped tiers
-#   # fall back to `model:` above, with a build-time warning:
+#   # The model a deployment runs when `model:` names none, and the ids the
+#   # gateway serves, spelled as it spells them:
+#   api.providers.my-gateway.default_model: claude-sonnet-5
 #   api.providers.my-gateway.models:
-#     haiku: claude-haiku-4-5
-#     sonnet: claude-sonnet-4-6
-#     opus: claude-opus-4-6
+#     - claude-opus-5
+#     - claude-sonnet-5
+#     - claude-haiku-4-5
 
 # Channel-finder pipeline. Override via
 # --set channel_finder_mode=in_context|middle_layer|graph. The first three pick
@@ -294,9 +296,9 @@ config:
   # registry_path: project/registry.py
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the stand-in,
-  # which cannot move a magnet; the read-only persona pins it off. Write
-  # posture is per connector type: a `control_system.connector.<type>.
+  # approval prompt is consulted. On here because the baseline is the
+  # simulator, which cannot move a magnet; the read-only persona pins it off.
+  # Write posture is per connector type: a `control_system.connector.<type>.
   # writes_enabled` overrides this for that type alone, and only a literal
   # `true` arms writes at either level.
   control_system.writes_enabled: true
@@ -360,7 +362,8 @@ config:
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
-  # `control-assistant-va-readwrite` persona is exactly this key.
+  # `control-assistant-readwrite` and `control-assistant-admin` personas write
+  # this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
   # Channel the target switch reads to prove this target is reachable before
   # making it active. Served by the simulation machine model.
@@ -466,9 +469,10 @@ config:
   # Descriptive names for channels that belong to no device family, generated
   # offline by `osprey channel-finder build-database --use-llm`. That flag
   # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # tier or a model ID the provider serves. Build-time only.
+  # model id the provider serves; omitted, the deployment's main model.
+  # Build-time only.
   # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: haiku
+  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
   # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
   # channel_finder.channel_name_generation.llm_batch_size: 10
 
@@ -500,6 +504,15 @@ config:
   # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on regardless of this key.
   hooks.debug: true
+
+  # ── Full tool-call record ──────────────────────────────────────────────────
+  # On here. Every osprey tool call — reads included — is written whole to
+  # var/audit/<identity>/tool_call.jsonl and sent to the telemetry store as
+  # one log line: arguments, result, control target, approval answer. A
+  # payload over the bound below is stored as an artifact and recorded as its
+  # size and sha256. The value-free audit files are unchanged either way.
+  audit.tool_call.enabled: true
+  audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
   # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
@@ -608,9 +621,9 @@ config:
 
   # ── Logbook composition ────────────────────────────────────────────────────
   # The compose panel in the artifact gallery. Its provider follows
-  # `provider:` above; this is the tier used when the operator picks none
-  # (haiku | sonnet | opus), mapped to a model ID through providers.yml.
-  logbook.composition.default_tier: haiku
+  # `provider:` above; this is the model the compose panel uses when the
+  # operator picks none; omitted, the deployment's main model.
+  # logbook.composition.model: claude-haiku-4-5
 
   # ── Facility knowledge ─────────────────────────────────────────────────────
   # OKF bundle (subsystems, devices, procedures, physics notes) behind the
@@ -650,17 +663,18 @@ config:
   # skill library is ordinary work. What this turns off is writing to it: the
   # gallery's edit, create and delete surfaces are shared deployment state.
   web.scaffold_gallery.write_enabled: false
-  # Override model IDs per tier, or the tier one agent runs at.
-  # claude_code.models.haiku: anthropic/claude-haiku-alt
-  # claude_code.agent_models.logbook-search: haiku
-  # claude_code.agent_models.logbook-deep-research: sonnet
+  # Every agent runs the main model unless it is pinned here. Pin one of
+  # Claude Code's alias names, or the model one agent runs, to a model id the
+  # provider serves.
+  # claude_code.aliases.haiku: claude-haiku-4-5
+  # claude_code.agent_models.logbook-search: claude-sonnet-5
   # Switch a framework server or subagent off, or add an MCP server of your
   # own (the `mcp_servers:` field above is the usual home for one).
   # claude_code.servers.python.enabled: false
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs and metrics to the OpenObserve store this
+  # The agent emits OTLP logs, metrics and traces to the OpenObserve store this
   # deployment runs (`services.openobserve.*` below). On by default: the
   # harness already records every prompt and API body to disk, so this adds no
   # exposure, only a queryable local store you own.
@@ -691,6 +705,17 @@ config:
   claude_code.telemetry.log_tool_details: true
   # Raw provider request and response bodies.
   claude_code.telemetry.log_raw_api_bodies: true
+  # Built-in tool output as trace span events: what Read and Bash returned,
+  # and, with log_tool_details, what Edit and Write changed.
+  claude_code.telemetry.log_tool_content: true
+  # Longest content value one record carries, in UTF-16 code units, before
+  # Claude Code cuts it and marks it truncated. Its own limit is 61440.
+  claude_code.telemetry.content_max_length: 262144
+
+  # ── Transcripts ────────────────────────────────────────────────────────────
+  # Days Claude Code keeps a session transcript before deleting it at startup
+  # (its own default is 30). Every terminal and the dispatch worker read it.
+  claude_code.transcripts.retention_days: 3650
 
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and

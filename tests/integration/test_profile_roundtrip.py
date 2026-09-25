@@ -762,7 +762,7 @@ def _resolved_users() -> list[dict]:
 BARE_PROFILE = """\
 name: Bare
 provider: anthropic
-model: haiku
+model: claude-haiku-4-5
 data: data
 channel_finder_mode: hierarchical
 config:

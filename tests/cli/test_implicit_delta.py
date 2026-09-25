@@ -41,7 +41,7 @@ _HOST = """\
 name: Facility
 data: data
 provider: anthropic
-model: sonnet
+model: claude-sonnet-5
 tier: 1
 channel_finder_mode: in_context
 skills: [diagnose, session-report]
@@ -85,7 +85,7 @@ def test_delta_inherits_every_key_it_does_not_name(host: Path) -> None:
     # default — the bundle is read back from the preset chain, not from a key.
     assert _profile_data_bundle(profile) == "control_assistant"
     assert profile.provider == "anthropic"
-    assert profile.model == "sonnet"
+    assert profile.model == "claude-sonnet-5"
     assert profile.channel_finder_mode == "in_context"
     assert profile.tier == 1
 
@@ -122,7 +122,7 @@ def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None
     """
     root = tmp_path / "facility"
     (root / "data").mkdir(parents=True)
-    _write(root / "base.yml", "name: Base\nmodel: opus\n")
+    _write(root / "base.yml", "name: Base\nmodel: claude-opus-5\n")
     _write(
         root / "profile.yml",
         "extends: ./base.yml\nname: Facility\ndata: data\nprovider: cborg\n",
@@ -131,7 +131,7 @@ def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None
 
     profile = load_profile(persona)
 
-    assert profile.model == "opus"
+    assert profile.model == "claude-opus-5"
     assert profile.provider == "cborg"
 
 

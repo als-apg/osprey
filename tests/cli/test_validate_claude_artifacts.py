@@ -1,4 +1,4 @@
-"""Unit tests for ``validate_agent_tools_against_permissions``.
+"""Unit tests for ``validate_agent_tools_against_permissions`` and the agent model pin check.
 
 These exercise the validator in isolation against hand-built ``.claude/``
 trees, independent of the full template-render path. They lock down the
@@ -14,6 +14,8 @@ import textwrap
 from pathlib import Path
 
 from osprey.cli.validate_claude_artifacts import (
+    agent_file_models,
+    agent_model_pin_errors,
     validate_agent_tools_against_permissions,
 )
 
@@ -133,3 +135,82 @@ def test_wildcard_still_rejected(tmp_path):
     assert any("wildcard" in e.lower() for e in errors), (
         f"expected wildcard-rejection error; got: {errors}"
     )
+
+
+# --- agent model pins ---
+
+
+def _write_agent(project: Path, name: str, model: str | None) -> Path:
+    """Write ``.claude/agents/<name>.md``, with a ``model:`` line when *model* is given."""
+    agents = project / ".claude" / "agents"
+    agents.mkdir(parents=True, exist_ok=True)
+    model_line = f"model: {model}\n" if model is not None else ""
+    (agents / f"{name}.md").write_text(
+        f"---\nname: {name}\ndescription: Test agent.\n{model_line}---\n\n# {name}\n",
+        encoding="utf-8",
+    )
+    return agents
+
+
+def test_agent_file_models_reads_each_model_line(tmp_path):
+    _write_agent(tmp_path, "logbook-search", "claude-sonnet-5")
+    agents = _write_agent(tmp_path, "site-helper", None)
+    (agents / "notes.md").write_text("no frontmatter here\n", encoding="utf-8")
+
+    assert agent_file_models(agents) == {
+        "logbook-search": "claude-sonnet-5",
+        "notes": None,
+        "site-helper": None,
+    }
+    assert agent_file_models(tmp_path / "missing") == {}
+
+
+def test_a_pin_the_render_applies_passes(tmp_path):
+    agents = _write_agent(tmp_path, "logbook-search", "gpt-6-luna")
+
+    assert (
+        agent_model_pin_errors(agents, {"logbook-search": "gpt-6-luna"}, ["logbook-search"]) == []
+    )
+
+
+def test_a_pin_naming_no_agent_is_refused_with_the_agent_names(tmp_path):
+    agents = _write_agent(tmp_path, "logbook-search", "claude-sonnet-5")
+
+    errors = agent_model_pin_errors(
+        agents, {"logbok-search": "claude-sonnet-5"}, ["logbook-deep-research"]
+    )
+
+    assert len(errors) == 1
+    assert (
+        "claude_code.agent_models.logbok-search: no agent is called 'logbok-search'" in (errors[0])
+    )
+    assert "Agents: logbook-deep-research, logbook-search." in errors[0]
+
+
+def test_a_pin_on_an_agent_this_render_does_not_ship_is_not_an_error(tmp_path):
+    agents = _write_agent(tmp_path, "logbook-search", "claude-sonnet-5")
+
+    assert (
+        agent_model_pin_errors(
+            agents, {"channel-finder": "claude-haiku-4-5"}, ["channel-finder", "logbook-search"]
+        )
+        == []
+    )
+
+
+def test_a_pin_the_agent_file_overrides_is_refused(tmp_path):
+    agents = _write_agent(tmp_path, "logbook-search", "claude-sonnet-5")
+
+    errors = agent_model_pin_errors(agents, {"logbook-search": "gpt-6-luna"}, [])
+
+    assert len(errors) == 1
+    assert "gpt-6-luna is not what agents/logbook-search.md runs (claude-sonnet-5)" in errors[0]
+
+
+def test_a_pin_on_an_agent_file_with_no_model_line_is_refused(tmp_path):
+    agents = _write_agent(tmp_path, "site-helper", None)
+
+    errors = agent_model_pin_errors(agents, {"site-helper": "claude-haiku-4-5"}, [])
+
+    assert len(errors) == 1
+    assert "(it has no model: line)" in errors[0]

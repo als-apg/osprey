@@ -1274,7 +1274,7 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
 
     log_path = repo_root / LOG_FILE
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fh = open(log_path, "w")  # noqa: SIM115
+    log_fh = open(log_path, "w")
     proc = subprocess.Popen(
         cmd,
         stdout=log_fh,

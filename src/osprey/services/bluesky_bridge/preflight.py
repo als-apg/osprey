@@ -360,6 +360,48 @@ def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
     return addresses
 
 
+#: The audit surface every pre-flight verdict is filed on, under the
+#: queueserver's own identity (``var/audit/<queueserver>/preflight.jsonl``).
+SURFACE_PREFLIGHT = "preflight"
+
+
+def _file_verdict(
+    plan_name: str,
+    *,
+    decision: str,
+    reason: str,
+    addresses: int,
+    unresponsive: int = 0,
+    unchecked: int = 0,
+) -> None:
+    """Record one pre-flight verdict. Never raises: the ledger never costs a run.
+
+    Counts only in ``detail``: the addresses themselves stay in the run's
+    error text, and the record names the lane and target the verdict was
+    taken on.
+    """
+    try:
+        from osprey.audit import posture, writer
+        from osprey.services.bluesky_bridge.queue_backend import resolve_lane_identity
+
+        lane, target = resolve_lane_identity()
+        writer.record(
+            surface=SURFACE_PREFLIGHT,
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=None,
+            subject=plan_name or "unknown",
+            decision=decision,
+            reason=reason,
+            detail=(
+                f"lane={lane} target={target} addresses={addresses} "
+                f"unresponsive={unresponsive} unchecked={unchecked}"
+            ),
+        )
+    except Exception:
+        logger.debug("preflight: could not record the verdict for %r", plan_name, exc_info=True)
+
+
 def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator[Any]:
     """Refuse the run, before it moves anything, if a declared address is dead.
 
@@ -421,6 +463,7 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
                 plan_name,
                 skipped,
             )
+        _file_verdict(plan_name, decision="allowed", reason="skipped", addresses=len(addresses))
         return
 
     from bluesky.utils import Msg
@@ -443,7 +486,19 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
 
     outcome = finished[0].result()
     if outcome.all_responded:
+        _file_verdict(
+            plan_name, decision="allowed", reason="all_responded", addresses=len(addresses)
+        )
         return
+
+    _file_verdict(
+        plan_name,
+        decision="refused",
+        reason="unresponsive",
+        addresses=len(addresses),
+        unresponsive=len(outcome.unresponsive),
+        unchecked=len(outcome.unchecked),
+    )
 
     from osprey.services.bluesky_bridge.queue_backend import resolve_lane_identity
 

@@ -169,16 +169,14 @@ The preset conversion added twenty of the seventy-five, in three groups:
 
 ### Deleted keys documented as commented examples
 
-Two keys on the `deleted` list are still documented, commented, in a preset, and
-the manifest's `deleted_commented_examples` section records why each is not a
-resurrection: both left what OSPREY *ships* while staying live in their readers.
-`ariel.database.uri` still wins over the derived DSN when set, and
-`archiver.mock_archiver.simulation_file` still overrides the derived simulation
-file. Under the app templates that documentation sat in a template, which the
+A key on the `deleted` list may still be documented, commented, in a preset, and
+the manifest's `deleted_commented_examples` section records why each such key is
+not a resurrection: it left what OSPREY *ships* while staying live in its reader.
+`ariel.database.uri` still wins over the derived DSN when set. Under the app templates that documentation sat in a template, which the
 resurrection check never read for comments; converting the templates into
 presets moved the same lines onto the surface it does read. The exemption is
-narrow — a LIVE spelling of either key in a preset is still a resurrection, as
-is either one reappearing in the rendered union or in the loader's synthesized
+narrow — a LIVE spelling of an exempt key in a preset is still a resurrection, as
+is one reappearing in the rendered union or in the loader's synthesized
 defaults — and the exemption itself is checked, so one that names a key that was
 never deleted, carries no reason, or outlives its preset line fails the guard.
 

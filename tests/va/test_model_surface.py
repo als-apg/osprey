@@ -714,14 +714,14 @@ class TestSetRefusals:
         configured: str | None,
         presented: str | None,
         values: dict[str, float],
-        reason: str,  # noqa: ARG002 - a column of the shared REFUSED_SETS table
+        reason: str,
     ) -> None:
         surface = _writer(_writable_model(), records, model_write_token=configured)
 
         with pytest.raises(ModelRpcError) as refused:
             surface.set(values, presented)
 
-        assert str(refused.value)
+        assert reason in str(refused.value)
         assert surface.status()["last_refused_write"] == str(refused.value)
 
     def test_the_token_is_checked_before_any_name(self, records: ServingRecords) -> None:

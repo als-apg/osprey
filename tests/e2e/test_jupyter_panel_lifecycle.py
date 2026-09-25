@@ -95,7 +95,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.posture_store import STATE_DIR_NAME
-from tests.e2e._orm_stack import VA_CA_PORT
+from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -295,7 +295,10 @@ def _profile_edits() -> dict[str, Any]:
     the preset's archive stays (a simulated machine may not be paired with an
     invented history) but shrunk to seconds of seeding. The bluesky stack, the
     dispatcher and telemetry are dropped: nothing here reaches them, and every
-    container they add is a minute of build. The roster and the persona
+    container they add is a minute of build. The preset's ``services:`` block
+    holds the record archive, which runs the same project image as the
+    dispatcher, so it goes with the dispatch stack: ``services: {}`` is the
+    spelling because a single service cannot be nulled. The roster and the persona
     catalog are rewritten in :func:`_shape_repo` instead of stated here: they
     are derived from the preset's own catalog, which only exists once the
     repo is materialized.
@@ -321,6 +324,7 @@ def _profile_edits() -> dict[str, Any]:
         },
         "channel_finder_mode": "hierarchical",
         "dispatch": None,
+        "services": {},
         "bluesky": None,
         "bluesky_web": None,
         "va_archiver": {"retention_days": 2, "hot_span_hours": 2},
@@ -378,6 +382,8 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
             *set_pairs(_profile_edits()),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
+            "--set",
+            f"virtual_accelerator.pva_port={VA_PVA_PORT}",
         ],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
@@ -534,21 +540,23 @@ def _wait_for_ready(terminal: Terminal, timeout: float) -> None:
 def _fleet_settled(posture: dict[str, Any], target: str) -> bool:
     """Whether every live controls server has landed *target* at the record's generation.
 
-    The kernel's cell gate refuses a cell while any server reports ``applying``
-    at the record's generation. A server holding no connector when the record
-    moves launches one on the record's target, and it publishes ``applying``
-    only once its reconciler tick notices the move; until then the roster says
-    nothing about it, so a wait that passes over childless servers, as the
-    header chip does, returns inside the window before that server blocks the
-    gate. Every server in this deployment lands on a record move, so the
-    condition is that every one of them has: a row still ``applying``, or
-    bound anywhere but the record's ``(target, generation)``, is not settled,
-    whether or not it has children yet.
+    A row that states ``children: []`` is passed over, as the header chip
+    passes over it; every other row has to carry no ``applying`` block at the
+    record's generation and be bound at ``(target, generation)``. That is
+    enough for a cell: the kernel's session owns no report, so the only rule
+    that can refuse it is the fleet-wide one, and that rule names only a
+    server holding a connector — exactly the set this wait waits for. A
+    childless server cannot become a holding one mid-launch, because its
+    children and its binding are published in the same write once its child
+    has answered.
     """
     generation = posture.get("generation")
     if posture.get("control_target") != target or generation is None:
         return False
     for row in posture.get("servers", []):
+        children = row.get("children")
+        if isinstance(children, list) and not children:
+            continue
         block = row.get("last_switch") or {}
         if block.get("generation") == generation and block.get("status") == "applying":
             return False

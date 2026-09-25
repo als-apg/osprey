@@ -341,7 +341,7 @@ class TestBuildIntegration:
         assert _build(runner, variant_repo).exit_code == 0
 
         config = _rendered_config(variant_repo)
-        assert config["control_system"]["type"] == "live_standin"
+        assert config["control_system"]["type"] == "virtual_accelerator"
         assert config["project_name"] == variant_repo.name
 
     def test_the_selected_variant_is_named_in_the_build_output(

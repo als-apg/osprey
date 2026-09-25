@@ -65,7 +65,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
-from tests.e2e.provider import e2e_provider
+from tests.e2e.provider import E2E_MODEL, e2e_provider
 
 #: This deploy's own thousand-port block — same convention as
 #: test_dispatch_deploy.py (20700) and test_web_bind.py (21000): a real
@@ -319,7 +319,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             f"provider={e2e_provider()}",
             "--set",
-            "model=haiku",
+            f"model={E2E_MODEL}",
             "--set",
             f"port_base={PORT_BASE}",
         ],
@@ -406,7 +406,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
-            print(  # noqa: T201 - surface teardown issues in CI logs
+            print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # Leave no stale volumes behind so the next local run starts from the
@@ -419,7 +419,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -438,13 +438,13 @@ def _fire(trigger: str, payload: dict) -> str:
     is ambiguous.
     """
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         f"{DISPATCHER_URL}/webhook/{trigger}",
         data=body,
         method="POST",
         headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=15.0) as resp:
         assert resp.status == 202, f"{trigger}: expected 202 from webhook, got {resp.status}"
         fired = json.loads(resp.read().decode("utf-8"))
     assert fired.get("dispatched") is True, f"{trigger}: {fired}"
@@ -497,12 +497,12 @@ def _dispatcher_get_json(path: str) -> Any:
     The dispatcher read endpoints require the same EVENT_DISPATCHER_TOKEN written
     to .env above.
     """
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         f"{DISPATCHER_URL}{path}",
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
-    with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=10.0) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -655,7 +655,7 @@ def _diagnostics(dispatch_id: str, run: dict, record: dict, artifact_body: str) 
                 f"tool_count={r.get('tool_count')!r} trigger={r.get('trigger_name')!r} "
                 f"age_sec={r.get('age_sec')!r}"
             )
-    except Exception as exc:  # noqa: BLE001 - diagnostics must never mask the real failure
+    except Exception as exc:  # diagnostics must never mask the real failure
         lines.append(f"feed fetch failed: {exc!r}")
 
     tcs = record.get("tool_calls") or []
@@ -730,7 +730,7 @@ def test_overlay_skill_and_data_visible_in_worker() -> None:
     record = _worker_run_record(run_id)
     artifact_body = _worker_artifact_text()
     diag = _diagnostics(dispatch_id, run, record, artifact_body)
-    print(diag)  # noqa: T201 - surfaced by pytest capture on failure
+    print(diag)  # surfaced by pytest capture on failure
 
     assert run, f"{OVERLAY_TRIGGER}: run {run_id!r} never appeared in the dispatcher feed\n{diag}"
 

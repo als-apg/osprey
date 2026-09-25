@@ -127,6 +127,14 @@ def test_patching_through_shim_reaches_real_module(monkeypatch):
     assert real_config.get_config_value("anything") == "patched"
 
 
+def test_patching_the_identity_shim_reaches_the_ladder(monkeypatch):
+    import osprey_connectors.identity as ladder
+
+    monkeypatch.setattr("osprey.utils.identity.IDENTITY_ENV_LADDER", ("OSPREY_SHIM_PROBE_USER",))
+    monkeypatch.setenv("OSPREY_SHIM_PROBE_USER", "shim-probe")
+    assert ladder.acting_identity() == "shim-probe"
+
+
 def test_the_simulation_package_reexports_the_engine_class():
     """``osprey.simulation`` is a package of its own, not a shim, so its
     re-export of ``SimulationEngine`` is not covered by module identity."""

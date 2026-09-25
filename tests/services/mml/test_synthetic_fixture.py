@@ -17,11 +17,23 @@ here is a real disagreement rather than a timestamp.
 
 from __future__ import annotations
 
+import math
+import runpy
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 GENERATOR = Path(__file__).resolve().parents[2] / "fixtures" / "mml" / "synthetic" / "build.py"
+
+#: Every argument the fixture hands its curve lies inside this span.
+CURVE_SPAN = np.linspace(-1.0, 1.0, 4001)
+
+
+def _generator() -> dict[str, Any]:
+    return runpy.run_path(str(GENERATOR))
 
 
 def test_the_committed_fixture_regenerates_byte_for_byte() -> None:
@@ -37,3 +49,22 @@ def test_the_committed_fixture_regenerates_byte_for_byte() -> None:
         "rerun tests/fixtures/mml/synthetic/build.py rather than editing the "
         f"files by hand.\n{result.stdout}{result.stderr}"
     )
+
+
+def test_the_generator_s_curve_is_sinh_to_its_last_digits() -> None:
+    """The generator's series agrees with the library ``sinh`` to a few ulp."""
+    sinh = _generator()["_sinh"]
+    np.testing.assert_array_max_ulp(
+        sinh(CURVE_SPAN), np.array([math.sinh(v) for v in CURVE_SPAN]), maxulp=4
+    )
+
+
+def test_the_generator_s_inverse_undoes_its_curve() -> None:
+    """The generator's inverse is ``asinh`` to a few ulp and undoes its series."""
+    generator = _generator()
+    sinh, arcsinh = generator["_sinh"], generator["_arcsinh"]
+    targets = np.sinh(CURVE_SPAN)
+    np.testing.assert_array_max_ulp(
+        arcsinh(targets), np.array([math.asinh(v) for v in targets]), maxulp=4
+    )
+    np.testing.assert_array_max_ulp(arcsinh(sinh(CURVE_SPAN)), CURVE_SPAN, maxulp=2)

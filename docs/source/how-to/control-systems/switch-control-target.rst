@@ -140,7 +140,9 @@ Go live
 A deployment baselined on the stand-in
 (``control_system.type: live_standin``) starts on ``standin``, so
 going to the real machine is one tool call — the same call, and the same
-prompts, as on a deployment that never had a stand-in at all.
+prompts, as on a deployment that never had a stand-in at all. The
+``control-assistant`` preset starts on the simulator (``va``) instead, so there
+the stand-in is a switch of its own before the real machine.
 
 Read the roster before you ask for it, so you know what will happen::
 
@@ -477,7 +479,9 @@ not usable right now".
      - An earlier switch has not yet reached every control-system server. The
        refusal names the servers still working. Wait for the chip to settle and
        ask again; the request is refused rather than queued, so nothing lands
-       later without you.
+       later without you. A server that has not launched a connector yet is
+       not one of them — it has nothing to move off, so it holds up nobody
+       else.
    * - **Already there**
      - The deployment is on that target already. The active target always
        answers this, whatever else would also be true of it.

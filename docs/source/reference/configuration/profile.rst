@@ -42,8 +42,8 @@ Profile YAML reference
    * - ``model``
      - string
      - ``None``
-     - Default model: a tier name (``haiku``, ``sonnet``, ``opus``) or a full
-       provider model ID.
+     - A model id the provider serves. Omitted: the provider entry's
+       ``default_model``.
    * - ``channel_finder_mode``
      - string
      - ``None``
@@ -183,9 +183,10 @@ the framework reads and what it falls back to when no line spells it.
 
    Always write overrides as **dotted keys**, one per line — never as nested
    YAML. A nested block counts as *one* override whose value replaces the entire
-   subtree. ``config: {claude_code: {model: opus}}`` wipes out everything else
-   under ``claude_code`` (servers, permissions, …), silently. The dotted form
-   ``claude_code.model: opus`` changes just that setting.
+   subtree. ``config: {claude_code: {aliases: {opus: claude-opus-5}}}`` wipes out
+   everything else under ``claude_code`` (servers, permissions, …), silently.
+   The dotted form ``claude_code.aliases.opus: claude-opus-5`` changes just that
+   setting.
 
 .. code-block:: yaml
 
@@ -197,7 +198,7 @@ the framework reads and what it falls back to when no line spells it.
    config:
      # Control system: which backend the deployment talks to. Required — see
      # the posture floor below.
-     control_system.type: live_standin
+     control_system.type: virtual_accelerator
      # The write posture every connector type inherits when it says nothing
      # itself. Only a literal `true` arms writes, at either level.
      control_system.writes_enabled: true
@@ -344,16 +345,18 @@ top-level ``provider:`` field picks one entry by name.
      my-gateway:
        api_key: ${MY_GATEWAY_API_KEY}
        base_url: https://my-gateway.example.org/v1
+       default_model: claude-sonnet-5
        models:
-         haiku: claude-haiku-4-5
-         sonnet: claude-sonnet-5
-         opus: claude-opus-5
+         - claude-opus-5
+         - claude-sonnet-5
+         - claude-haiku-4-5
 
-``base_url`` is required. ``api_key`` is optional and is normally an
-``${ENV_VAR}`` reference resolved at run time from the repository's ``.env`` —
-keys are never written into this file. ``models`` maps the ``haiku`` /
-``sonnet`` / ``opus`` tiers onto the provider's own model IDs, so ``model:
-sonnet`` means something whichever provider is selected. ``api_protocol:
+``base_url``, ``default_model`` and ``models`` are required. ``api_key`` is
+optional and is normally an ``${ENV_VAR}`` reference resolved at run time from
+the repository's ``.env`` — keys are never written into this file. ``models``
+lists the ids the gateway serves, spelled as it spells them, and
+``default_model`` — one of them — answers when the profile names no ``model:``.
+``api_protocol:
 anthropic`` marks an Anthropic-native endpoint rather than an
 OpenAI-compatible one.
 
@@ -982,6 +985,14 @@ by ``osprey up`` and served from the lattice the build renders (see
        ``va_standin`` slot (``10090`` at the default base — see
        :ref:`reference-ports`); a number pins it somewhere else. Absent means
        one machine, as before.
+   * - ``pva_port``
+     - ``5075``
+     - pvAccess port the simulator publishes its model surface on. Like
+       ``port`` it is outside the deployment's port block, so a second
+       deployment on the same host that runs a simulator sets its own. The
+       build writes it to ``services.virtual_accelerator.pva_port`` and refuses
+       that key in ``config:``. A value that collides with ``port``,
+       ``live_standin`` or another port the profile spends is refused.
 
 The live stand-in
 -----------------

@@ -47,7 +47,7 @@ def _record_target() -> str | None:
     """
     try:
         record = control_context.read_record()
-    except Exception:  # noqa: BLE001 - a target that cannot be read is simply absent
+    except Exception:  # a target that cannot be read is simply absent
         logger.debug("Could not read the control-context record", exc_info=True)
         return None
     if record is None:

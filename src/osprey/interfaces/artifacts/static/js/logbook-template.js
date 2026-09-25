@@ -76,9 +76,7 @@ export const LOGBOOK_MODAL_HTML = `
             <div class="logbook-field">
               <label for="logbook-model">Model</label>
               <select class="logbook-purpose-select" id="logbook-model">
-                <option value="haiku" selected>Haiku (fast)</option>
-                <option value="sonnet">Sonnet (balanced)</option>
-                <option value="opus">Opus (thorough)</option>
+                <option value="" selected>Default model</option>
               </select>
             </div>
           </div>

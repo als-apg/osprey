@@ -76,7 +76,6 @@ _AGENT_CONFIG_SECTIONS = [
     "claude_code",
     "channel_finder",
     "ariel",
-    "logbook",
     "facility_knowledge",
     "execution",
     "artifact_server",
@@ -187,7 +186,7 @@ def _regen_if_drift(request: Request) -> list[str]:
         from osprey.cli.templates.manager import TemplateManager
 
         return TemplateManager().regen_if_drift(project_dir)
-    except Exception:  # noqa: BLE001 — config write already succeeded; never raise here
+    except Exception:  # config write already succeeded; never raise here
         logger.warning("Claude Code artifact regen after config write failed", exc_info=True)
         return []
 
@@ -323,7 +322,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
                 # ``app`` for the very same request.
                 posture_source=POSTURE_SOURCE_APP,
             )
-        except Exception:  # noqa: BLE001 -- audit is best-effort; the refusal is not
+        except Exception:  # audit is best-effort; the refusal is not
             logger.warning("Could not record the protected-key refusal for audit", exc_info=True)
 
     # Keys only, never values: config values are secrets, and the activity ring
@@ -336,7 +335,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
         record_activity(
             request, "config_patch_refused", {"kind": "config", "detail": detail[:1024]}
         )
-    except Exception:  # noqa: BLE001 -- the feed is best-effort; the refusal is not
+    except Exception:  # the feed is best-effort; the refusal is not
         logger.warning("Could not report the protected-key refusal to the feed", exc_info=True)
 
     subject = "is a protected key" if len(shown) == 1 and not overflow else "are protected keys"

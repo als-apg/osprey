@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,15 +21,21 @@ from pathlib import Path
 import pytest
 
 from tests.ci_diagnostics import (
+    CONTAINER_SNAPSHOT_PLUGIN,
+    CONTAINER_SNAPSHOT_SUBDIR,
     ENV_DIR,
+    ENV_E2E_RUNTIME,
     ENV_STACK_TIMEOUT,
+    ContainerSnapshots,
     DiagnosticsRecorder,
     recorder_from_env,
+    register_container_snapshots,
     worker_id,
     worker_index,
 )
 
-_SUMMARY = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "diag_summary.py"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SUMMARY = _REPO_ROOT / "scripts" / "ci" / "diag_summary.py"
 
 
 def _load_summary():
@@ -343,6 +352,261 @@ def test_writer_output_is_readable_by_the_summary(tmp_path):
 
     assert _load_summary().stalled_tests(tmp_path) == {"gw0": "tests/test_a.py::wedged"}
     recorder.stop()
+
+
+# ===================================================================
+# Container snapshots at the moment of failure
+# ===================================================================
+
+# The fake engine lists these containers only while the flag file exists — the
+# stand-in for a stack a module fixture has brought up and not yet torn down.
+_FAKE_ENGINE_SCRIPT = """#!/bin/sh
+printf '%s\\n' "$*" >> {calls}
+up() {{ [ -e {flag} ]; }}
+case "$1" in
+  ps)
+    if [ "$2" = "-aq" ]; then
+      if up; then printf 'c1\\nc2\\n'; fi
+    else
+      echo "CONTAINER ID   NAMES"
+      if up; then printf 'c1   fake-c1\\nc2   fake-c2\\n'; fi
+    fi
+    ;;
+  logs)
+    echo "2026-01-01T00:00:00Z log line from $3"
+    ;;
+  inspect)
+    case "$3" in
+      '{{{{.Name}}}}') echo "/fake-$4" ;;
+      '{{{{json .State.Health}}}}')
+        if [ "$4" = c1 ]; then echo '{{"Status":"healthy"}}'; else echo null; fi
+        ;;
+      *) echo "/fake-$4 image=fake status=running exit=0 oomkilled=false" ;;
+    esac
+    ;;
+esac
+"""
+
+
+def _write_engine(bin_dir: Path, name: str, body: str) -> Path:
+    """Write an executable ``sh`` script standing in for a container engine."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / name
+    script.write_text(body)
+    script.chmod(0o755)
+    return script
+
+
+@pytest.fixture
+def fake_engine(tmp_path, monkeypatch) -> Path:
+    """A ``fake-engine`` on ``PATH`` whose containers exist while ``tmp_path/up`` does.
+
+    Every call's argv is appended to ``tmp_path/calls.log``.
+    """
+    body = _FAKE_ENGINE_SCRIPT.format(
+        calls=shlex.quote(str(tmp_path / "calls.log")),
+        flag=shlex.quote(str(tmp_path / "up")),
+    )
+    script = _write_engine(tmp_path / "bin", "fake-engine", body)
+    monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    (tmp_path / "up").touch()
+    return script
+
+
+def _engine_calls(tmp_path: Path) -> list[str]:
+    calls = tmp_path / "calls.log"
+    return calls.read_text().splitlines() if calls.exists() else []
+
+
+def test_container_snapshots_are_off_when_unset():
+    """Every local run leaves no hook behind."""
+    manager = pytest.PytestPluginManager()
+    assert register_container_snapshots(manager) is None
+    assert not manager.has_plugin(CONTAINER_SNAPSHOT_PLUGIN)
+
+
+def test_container_snapshots_register_once_when_armed(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_DIR, str(tmp_path / "diag"))
+    manager = pytest.PytestPluginManager()
+    first = register_container_snapshots(manager)
+    assert isinstance(first, ContainerSnapshots)
+    assert manager.get_plugin(CONTAINER_SNAPSHOT_PLUGIN) is first
+    assert register_container_snapshots(manager) is None
+
+
+def test_container_snapshot_engine_follows_the_e2e_runtime_switch(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_DIR, str(tmp_path / "diag"))
+    monkeypatch.setenv(ENV_E2E_RUNTIME, "podman")
+    podman = register_container_snapshots(pytest.PytestPluginManager())
+    assert podman is not None and podman.engine == "podman"
+
+    monkeypatch.delenv(ENV_E2E_RUNTIME)
+    docker = register_container_snapshots(pytest.PytestPluginManager())
+    assert docker is not None and docker.engine == "docker"
+
+
+def test_snapshot_root_is_fixed_when_armed(fake_engine, tmp_path, monkeypatch):
+    """A test that chdirs away is still in its call phase when its report is made."""
+    monkeypatch.chdir(tmp_path)
+    snapshots = ContainerSnapshots("diag", "gw0", fake_engine.name)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    written = snapshots.capture("tests/test_a.py::test_one", "call")
+
+    assert written is not None
+    assert written.is_relative_to(tmp_path / "diag" / CONTAINER_SNAPSHOT_SUBDIR)
+    assert not (elsewhere / "diag").exists()
+
+
+def test_snapshot_records_every_container(fake_engine, tmp_path):
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw1", fake_engine.name)
+
+    written = snapshots.capture("tests/e2e/test_stack.py::test_last", "call")
+
+    assert written == tmp_path / "diag" / CONTAINER_SNAPSHOT_SUBDIR / (
+        "gw1--tests_e2e_test_stack.py"
+    )
+    failure = (written / "failure.txt").read_text().splitlines()
+    assert failure[:2] == ["nodeid=tests/e2e/test_stack.py::test_last", "phase=call"]
+    assert failure[2].startswith("utc=") and failure[2].endswith("Z")
+    assert "fake-c1" in (written / "ps.txt").read_text()
+    state = (written / "state.txt").read_text().splitlines()
+    assert len(state) == 2
+    assert "log line from c1" in (written / "fake-c1.log").read_text()
+    assert "log line from c2" in (written / "fake-c2.log").read_text()
+    assert json.loads((written / "fake-c1.health.json").read_text()) == {"Status": "healthy"}
+    assert not (written / "fake-c2.health.json").exists()
+
+
+def test_snapshot_is_taken_once_per_module(fake_engine, tmp_path):
+    """A failing engine is asked once per module, not once per failing test."""
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", fake_engine.name)
+
+    first = snapshots.capture("tests/test_a.py::test_one", "call")
+    second = snapshots.capture("tests/test_a.py::test_two", "call")
+    other = snapshots.capture("tests/test_b.py::test_one", "setup")
+
+    assert first is not None and second is None
+    assert other is not None and other != first
+    assert sorted(p.name for p in snapshots.root.iterdir()) == [
+        "gw0--tests_test_a.py",
+        "gw0--tests_test_b.py",
+    ]
+    assert _engine_calls(tmp_path).count("ps -aq") == 2
+
+
+def test_snapshot_writes_nothing_when_no_container_exists(fake_engine, tmp_path):
+    (tmp_path / "up").unlink()
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", fake_engine.name)
+
+    assert snapshots.capture("tests/test_a.py::test_one", "call") is None
+    assert not snapshots.root.exists()
+
+
+def test_snapshot_writes_nothing_without_the_engine(tmp_path):
+    snapshots = ContainerSnapshots(tmp_path / "diag", "gw0", "osprey-no-such-engine")
+
+    assert snapshots.capture("tests/test_a.py::test_one", "call") is None
+    assert not snapshots.root.exists()
+
+
+def test_snapshot_survives_an_engine_that_fails(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    _write_engine(bin_dir, "broken-engine", '#!/bin/sh\necho "daemon not running" >&2\nexit 1\n')
+
+    broken = ContainerSnapshots(tmp_path / "diag", "gw0", "broken-engine")
+    assert broken.capture("tests/test_a.py::test_one", "call") is None
+    assert not broken.root.exists()
+
+    _write_engine(
+        bin_dir,
+        "no-logs-engine",
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        '  ps) [ "$2" = "-aq" ] && echo c1 || echo "c1 fake-c1" ;;\n'
+        '  inspect) [ "$3" = "{{.Name}}" ] && echo /fake-c1 || echo null ;;\n'
+        '  logs) echo "log driver unavailable" >&2; exit 1 ;;\n'
+        "esac\n",
+    )
+    no_logs = ContainerSnapshots(tmp_path / "diag2", "gw0", "no-logs-engine")
+    written = no_logs.capture("tests/test_a.py::test_one", "call")
+    assert written is not None
+    assert "log driver unavailable" in (written / "fake-c1.log").read_text()
+
+
+_RUN_CONFTEST = """\
+from tests import ci_diagnostics
+
+
+def pytest_configure(config):
+    ci_diagnostics.register_container_snapshots(config.pluginmanager)
+"""
+
+_RUN_TEST_STACK = """\
+import os
+from pathlib import Path
+
+import pytest
+
+FLAG = Path(os.environ["FAKE_STACK_FLAG"])
+
+
+@pytest.fixture(scope="module")
+def stack():
+    FLAG.touch()
+    try:
+        yield
+    finally:
+        FLAG.unlink()
+
+
+def test_first(stack):
+    pass
+
+
+def test_last(stack):
+    assert False, "the stack is still up here"
+"""
+
+
+def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp_path):
+    """The failing LAST test of a module is captured before its fixture removes the stack.
+
+    Its module fixture's finalizer runs in that test's teardown, inside the same
+    pytest process, so nothing after pytest can see the stack any more.
+    """
+    flag = tmp_path / "up"
+    flag.unlink()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "conftest.py").write_text(_RUN_CONFTEST)
+    (run_dir / "test_stack.py").write_text(_RUN_TEST_STACK)
+
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_XDIST_WORKER", ENV_DIR)}
+    env.update(
+        PYTHONPATH=str(_REPO_ROOT),
+        OSPREY_CI_DIAG_DIR="diag",
+        OSPREY_E2E_RUNTIME=fake_engine.name,
+        FAKE_STACK_FLAG=str(flag),
+    )
+    done = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_stack.py"],
+        cwd=run_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert not flag.exists(), "the module fixture's teardown did not run"
+    state = run_dir / "diag" / CONTAINER_SNAPSHOT_SUBDIR / "main--test_stack.py" / "state.txt"
+    assert state.exists(), done.stdout + done.stderr
+    assert "fake-c1" in state.read_text()
+    assert "fake-c2" in state.read_text()
 
 
 # ===================================================================

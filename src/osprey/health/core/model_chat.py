@@ -136,7 +136,7 @@ async def _check_pair(provider: str, model_id: str, timeout_s: float) -> CheckRe
         # Per-item offload budget expired (run_sync's wait_for) — pinned to
         # warning, matching the provider-raised timeout mapping below.
         return CheckResult(name, CATEGORY, Status.WARNING, f"{label}: Timeout")
-    except Exception as exc:  # noqa: BLE001 - any completion failure becomes a result row
+    except Exception as exc:  # any completion failure becomes a result row
         message = str(exc)
         lowered = message.lower()
         if "timeout" in lowered or "timed out" in lowered:

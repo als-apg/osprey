@@ -13,8 +13,11 @@ Reach Contract copies addresses from the host's render), so nothing about
 inheritance moves; only ``enabled`` does, and it says exactly one thing:
 *selected here*.
 
-:func:`panel_selection_overrides` is that projection, applied on the ordinary
-config-override path after the injectors have written their blocks.
+:func:`panel_selection_overrides` is that projection, keyed by id.
+:func:`apply_panel_selection` writes it into the rendered document after the
+injectors have written their blocks. It indexes each block by its id rather
+than through a dotted key, because an id may carry a dot and a dotted key is
+split at every one.
 :func:`panel_selection_errors` is the model-time refusal of an authored
 ``enabled`` that contradicts the selection — the same rule
 :func:`osprey.cli.build_profile_reach.reach_override_errors` applies to a pinned
@@ -26,6 +29,7 @@ The predicate every reader of a block then shares is
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
 from osprey.profiles.web_panels import (
@@ -37,10 +41,13 @@ from osprey.profiles.web_panels import (
 from .build_profile_reach import spelled_values
 
 __all__ = [
+    "apply_panel_selection",
     "bar_items_selection_warnings",
     "panel_id_errors",
+    "panel_leaf_spellings",
     "panel_selection_errors",
     "panel_selection_overrides",
+    "panel_spelling_errors",
 ]
 
 #: The two bars a ``web.bar_items`` block arranges, as ``BAR_HOSTS`` names them.
@@ -50,36 +57,75 @@ _BAR_HOSTS: tuple[str, ...] = ("header", "status")
 def panel_selection_overrides(
     selected_panels: Iterable[str], rendered_config: Mapping[str, Any]
 ) -> dict[str, bool]:
-    """``web.panels.<id>.enabled`` for every block the render carries.
+    """The ``enabled`` every block the render carries is told, keyed by its id.
 
     ``True`` for a selected (or universal) panel, ``False`` for any other block
     — whatever wrote it and whatever else it says. Only blocks that exist are
     annotated: a selected panel with no block is the template's or an
     injector's to write (and, for a Reach tab, ``selected_panel_errors``'s to
-    refuse), not this function's.
+    refuse), not this function's. The id is the block's key as the render
+    wrote it, dots included.
 
     Args:
         selected_panels: The profile's resolved ``web_panels`` selection.
         rendered_config: The render's ``config.yml``, after the injectors.
 
     Returns:
-        Dotted keys to apply on the config-override path, in block order.
+        Panel id to ``enabled``, in block order, for :func:`apply_panel_selection`.
     """
     web = rendered_config.get("web") if isinstance(rendered_config, Mapping) else None
     panels = web.get("panels") if isinstance(web, Mapping) else None
     if not isinstance(panels, Mapping):
         return {}
     shown = set(selected_panels) | UNIVERSAL_PANELS
-    return {f"web.panels.{pid}.enabled": pid in shown for pid in panels}
+    return {str(pid): str(pid) in shown for pid in panels}
+
+
+def apply_panel_selection(config_path: Path, projection: Mapping[str, bool]) -> None:
+    """Write each block's ``enabled`` into the rendered ``config.yml``.
+
+    Each block is indexed by its id as one key, so ``beam.viewer`` is told
+    under ``web.panels["beam.viewer"]`` and nowhere else. A block that is not a
+    mapping, such as ``okf: true``, carries no other fact, so it becomes
+    ``{enabled: <shown>}``. The write goes through
+    :func:`osprey.utils.config_writer.anchored_put`, the public writer with the
+    same trailing-section-comment handling a new dotted key gets.
+
+    Args:
+        config_path: The render's ``config.yml``.
+        projection: Panel id to ``enabled``, from :func:`panel_selection_overrides`.
+    """
+    from osprey.utils.config_writer import (
+        anchored_put,
+        load_config_document,
+        save_config_document,
+    )
+
+    if not projection:
+        return
+    document = load_config_document(config_path)
+    web = document.get("web") if isinstance(document, Mapping) else None
+    panels = web.get("panels") if isinstance(web, Mapping) else None
+    if not isinstance(panels, dict):
+        return
+    for pid, shown in projection.items():
+        if pid not in panels:
+            continue
+        block = panels[pid]
+        if isinstance(block, dict):
+            anchored_put(block, "enabled", shown)
+        else:
+            anchored_put(panels, pid, {"enabled": shown})
+    save_config_document(config_path, document)
 
 
 def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[str]:
     """Refuse an authored ``web.panels.<id>.enabled`` that contradicts the selection.
 
     ``web_panels`` is what shows a tab; an ``enabled`` under ``config:`` that
-    says otherwise is two spellings of one fact disagreeing. Every spelling of
-    the leaf is found (dotted, prefix-over-mapping, nested, mixed) so the
-    refusal can name the line to remove — a spelling missed here would be a
+    says otherwise is two spellings of one fact disagreeing. Every spelling the
+    render writes to the leaf is found (dotted, prefix-over-mapping, nested) so
+    the refusal can name the line to remove — a spelling missed here would be a
     contradiction the projection silently overwrote.
 
     Args:
@@ -92,7 +138,7 @@ def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[
     shown = set(selected_panels) | UNIVERSAL_PANELS
     errors: list[str] = []
     for pid in sorted(_spelled_panel_ids(config)):
-        for spelling, value in spelled_values(config, f"web.panels.{pid}.enabled"):
+        for spelling, value in panel_leaf_spellings(config, pid, "enabled"):
             if value is True and pid not in shown:
                 errors.append(
                     f"{spelling}: {value!r} but {pid!r} is not in web_panels — the selection "
@@ -105,6 +151,70 @@ def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[
                     f"web.panels.{pid}.hidden: true."
                 )
     return errors
+
+
+def panel_leaf_spellings(config: Any, pid: str, leaf: str) -> list[tuple[str, Any]]:
+    """Every line of *config* the render writes to ``web.panels[pid][leaf]``.
+
+    The render splits a top-level key at every dot and writes every key below
+    it whole. A spelling reaches the leaf when its top-level key splits into a
+    prefix of ``web``, ``panels``, *pid*, *leaf* and the mapping under it holds
+    the rest one key per step. So a dotted *pid* is reached only through a
+    mapping that holds it as one key.
+
+    Args:
+        config: The profile's ``config:`` block, whatever shape it parsed as.
+        pid: The panel id, as the render keys its block.
+        leaf: The key inside the block.
+
+    Returns:
+        ``(spelling, value)`` per line found, the spelling joined ``key: key``
+        the way :func:`osprey.cli.build_profile_reach.spelled_values` writes it.
+    """
+    if not isinstance(config, Mapping):
+        return []
+    path = ["web", "panels", pid, leaf]
+    found: list[tuple[str, Any]] = []
+    for key, value in config.items():
+        head = str(key).split(".")
+        if head != path[: len(head)]:
+            continue
+        written = [str(key)]
+        node = value
+        for step in path[len(head) :]:
+            if not isinstance(node, Mapping) or step not in node:
+                break
+            written.append(step)
+            node = node[step]
+        else:
+            found.append((": ".join(written), node))
+    return found
+
+
+def panel_spelling_errors(config: Any) -> list[str]:
+    """Refuse a ``panels.<…>`` key written inside a ``web:`` mapping.
+
+    Only a top-level ``config:`` key is split at its dots, so such a key renders
+    as one key under ``web`` with the dots in its name. The line reads like a
+    panel and is invisible afterwards: no tab, no refusal, no trace in the
+    terminal.
+
+    Args:
+        config: The profile's ``config:`` block, whatever shape it parsed as.
+
+    Returns:
+        One error per such key, naming the spellings that do reach a panel.
+    """
+    web = config.get("web") if isinstance(config, Mapping) else None
+    if not isinstance(web, Mapping):
+        return []
+    return [
+        f"web: {key}: renders as a key literally named {str(key)!r} under web, not as a "
+        f"panel block, because only a top-level config: key is split at its dots. Write it "
+        f"as web.{key}, or nest it under web: panels:."
+        for key in web
+        if str(key).startswith("panels.")
+    ]
 
 
 def panel_id_errors(config: Any) -> list[str]:
@@ -135,7 +245,15 @@ def panel_id_errors(config: Any) -> list[str]:
 
 
 def _spelled_panel_ids(config: Any) -> set[str]:
-    """Every panel id a ``config:`` block names under ``web.panels``, any spelling."""
+    """Every panel id a ``config:`` block names under ``web.panels``, as the render keys it.
+
+    The render splits a top-level key at every dot, so ``web.panels.<id>.<leaf>``
+    names its id in the third segment. A key inside a mapping is written as one
+    key, dots included, so each key of a mapping under ``web.panels`` is an id
+    taken whole. Only the mapping spellings can carry an id with a dot in it.
+    A ``panels.<…>`` key inside a ``web:`` mapping names no panel, and
+    :func:`panel_spelling_errors` refuses it.
+    """
     ids: set[str] = set()
     if not isinstance(config, Mapping):
         return ids
@@ -145,16 +263,11 @@ def _spelled_panel_ids(config: Any) -> set[str]:
             if len(parts) > 2:
                 ids.add(parts[2])
             elif isinstance(value, Mapping):
-                ids.update(str(sub).split(".")[0] for sub in value)
+                ids.update(str(sub) for sub in value)
         elif parts == ["web"] and isinstance(value, Mapping):
-            for sub_key, sub_value in value.items():
-                sub_parts = str(sub_key).split(".")
-                if sub_parts[0] != "panels":
-                    continue
-                if len(sub_parts) > 1:
-                    ids.add(sub_parts[1])
-                elif isinstance(sub_value, Mapping):
-                    ids.update(str(leaf).split(".")[0] for leaf in sub_value)
+            panels = value.get("panels")
+            if isinstance(panels, Mapping):
+                ids.update(str(leaf) for leaf in panels)
     return ids
 
 

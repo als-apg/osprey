@@ -46,6 +46,7 @@ from typing import Any
 # The one nested-tree walker, borrowed rather than repeated for the same reason
 # the path-tree builder below is.
 from osprey.deployment.reach import dotted_get
+from osprey.port_layout import VA_PVA_PORT_CONFIG_KEY
 from osprey_connectors.types import (
     _SIMULATED_TYPES,
     EPICS,
@@ -143,6 +144,60 @@ def live_standin_errors(
         errors.extend(_gateway_collision_errors(live_standin, config))
 
     errors.extend(live_standin_lattice_errors(profile_dir))
+    return errors
+
+
+def pva_port_errors(va: VAConfig, claimed_ports: Mapping[str, int], config: Any) -> list[str]:
+    """Every reason a profile's ``virtual_accelerator.pva_port`` cannot be built.
+
+    The rendered key is the build's to write, so a ``config:`` block that spells
+    it is refused whether or not the profile sets the port.
+
+    Args:
+        va: The profile's virtual-accelerator block.
+        claimed_ports: Dotted key → port for every other port this profile
+            spends, from :meth:`BuildProfile._claimed_ports`.
+        config: The profile's resolved ``config:`` block.
+
+    Returns:
+        The accumulated failures, empty when the port validates or is unset.
+    """
+    errors: list[str] = []
+
+    if dotted_get(_expand_dotted(config), VA_PVA_PORT_CONFIG_KEY) is not None:
+        errors.append(
+            f"config: sets {VA_PVA_PORT_CONFIG_KEY}, which the build writes from "
+            "virtual_accelerator.pva_port and would overwrite. "
+            "Set virtual_accelerator.pva_port instead."
+        )
+
+    pva_port = va.pva_port
+    if pva_port is None:
+        return errors
+    if isinstance(pva_port, bool) or not isinstance(pva_port, int):
+        errors.append(f"virtual_accelerator.pva_port must be a port number (got {pva_port!r})")
+        return errors
+    if not (1 <= pva_port <= 65535):
+        errors.append(f"virtual_accelerator.pva_port must be in 1..65535 (got {pva_port})")
+        return errors
+
+    # Both servers bind TCP in one container and publish on one host interface.
+    if pva_port == va.port:
+        errors.append(
+            f"virtual_accelerator.pva_port must differ from "
+            f"virtual_accelerator.port (both {pva_port})"
+        )
+    if pva_port == va.live_standin:
+        errors.append(
+            f"virtual_accelerator.pva_port must differ from "
+            f"virtual_accelerator.live_standin (both {pva_port})"
+        )
+    for key in sorted(claimed_ports):
+        if claimed_ports[key] == pva_port:
+            errors.append(
+                f"virtual_accelerator.pva_port ({pva_port}) "
+                f"collides with {key} ({claimed_ports[key]})"
+            )
     return errors
 
 

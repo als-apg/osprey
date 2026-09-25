@@ -336,7 +336,7 @@ class TestBlueskyWorker:
     async def test_worker_names_its_lane_target_not_the_baseline(
         self, recording_factory, monkeypatch
     ):
-        """The shipped control-assistant render: a ``standin`` lane."""
+        """A ``standin`` lane, the shape a stand-in-baselined render declares."""
         from osprey.services.bluesky_bridge import qserver_startup
 
         self._patch_lane(monkeypatch, connector_type="live_standin", lane_target="standin")

@@ -68,6 +68,7 @@ __all__ = [
     "load_layout",
     "reset_layout",
     "save_layout",
+    "validate_option",
 ]
 
 #: The document's name inside the store directory. One file, so a save is a
@@ -435,12 +436,28 @@ def _validate_options(raw: Mapping[str, Any], spec: BarItemSpec, where: str) -> 
         if name not in raw:
             options[name] = option_spec.get("default")
             continue
-        options[name] = _validate_option(raw[name], option_spec, f"{where}.{name}")
+        options[name] = validate_option(raw[name], option_spec, f"{where}.{name}")
     return options
 
 
-def _validate_option(value: Any, spec: BarOptionSpec, where: str) -> Any:
-    """One option value as its spec allows it, or raise."""
+def validate_option(value: Any, spec: BarOptionSpec, where: str) -> Any:
+    """One option value as its spec allows it, or raise.
+
+    Shared with the ``web.bar_items`` config loader in ``app.py``, so a
+    configured option and a saved one are judged by one rule.
+
+    Args:
+        value: The option value as written.
+        spec: The option's spec from the vocabulary.
+        where: The dotted location a refusal names.
+
+    Returns:
+        The value, unchanged.
+
+    Raises:
+        BarLayoutInvalid: With reason ``bad-option`` when the value is outside
+            its spec.
+    """
     kind = spec.get("kind")
     if kind == "boolean":
         if not isinstance(value, bool):

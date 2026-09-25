@@ -164,7 +164,7 @@ def _discovered_skills(*, config_dir: Path, cwd: Path, setting_sources: list[str
     # init record lands, and an unread stderr pipe would let the CLI block
     # forever on a full buffer instead of dying to the kill below.
     stderr_file = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+    proc = subprocess.Popen(  # fixed argv, no shell
         cmd,
         cwd=str(cwd),
         env=_clean_env(config_dir),

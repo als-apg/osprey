@@ -359,7 +359,7 @@ class TestPatchProtectedKeys:
             "/api/config",
             json={
                 "updates": {
-                    COSMETIC_KEY: "sonnet",
+                    COSMETIC_KEY: "claude-sonnet-5",
                     "control_system.limits_checking.enabled": False,
                 }
             },
@@ -368,17 +368,17 @@ class TestPatchProtectedKeys:
         assert resp.status_code == 403
         assert (built_project / "config.yml").read_bytes() == before
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
-        assert cfg["claude_code"]["default_model"] != "sonnet"
+        assert cfg["claude_code"].get("default_model") != "claude-sonnet-5"
         assert not _backup_path(built_project).exists()
 
     def test_patch_unprotected_key_still_applies_beside_the_gate(self, client, built_project):
         """The gate refuses the protected set, not the panel."""
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         assert resp.json()["fields_updated"] == 1
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
-        assert cfg["claude_code"]["default_model"] == "sonnet"
+        assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
 
     def test_patch_protected_refusal_is_recorded_for_audit(self, client, audit_zone):
         resp = client.patch(
@@ -430,7 +430,7 @@ class TestConfigRouteRegen:
         """No key the panel may still PATCH shapes the render, so regen is a no-op."""
         assert "mcp__controls__channel_write" in _deny(built_project)
 
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         assert resp.json()["regenerated"] == []
@@ -456,12 +456,12 @@ class TestConfigRouteRegen:
             raise RuntimeError("regen exploded")
 
         monkeypatch.setattr(TemplateManager, "regen_if_drift", boom)
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
         assert resp.status_code == 200
         assert resp.json()["regenerated"] == []
         # The config write persisted despite the regen failure.
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
-        assert cfg["claude_code"]["default_model"] == "sonnet"
+        assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
 
     def test_put_regenerates_artifacts(self, client, built_project):
         """PUT is the last surface whose writes can still move a rendered artifact.
@@ -555,7 +555,7 @@ class TestRenderZoneReadonlyRegen:
         calls = self._recording_regen(monkeypatch)
         client.app.state.render_zone_readonly = True
 
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         body = resp.json()
@@ -564,7 +564,7 @@ class TestRenderZoneReadonlyRegen:
         assert body["fields_updated"] == 1
         assert calls == []
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
-        assert cfg["claude_code"]["default_model"] == "sonnet"
+        assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
 
     def test_put_render_readonly_leaves_the_rendered_artifact_untouched(
         self, client, built_project
@@ -605,7 +605,7 @@ class TestRenderZoneReadonlyRegen:
         """The PATCH half of the same pin."""
         calls = self._recording_regen(monkeypatch)
 
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         body = resp.json()
@@ -959,7 +959,7 @@ class TestConfigBackupLocation:
         before = (built_project / "config.yml").read_bytes()
         assert not _backup_path(built_project).exists()
 
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         backup = _backup_path(built_project)
@@ -971,7 +971,7 @@ class TestConfigBackupLocation:
         [
             pytest.param(
                 lambda client, project: client.patch(
-                    "/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}}
+                    "/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}}
                 ),
                 id="patch",
             ),
@@ -1012,7 +1012,7 @@ class TestConfigBackupLocation:
         config_update_fields(built_project / "config.yml", {"agent_data.base_dir": str(relocated)})
         before = (built_project / "config.yml").read_bytes()
 
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         assert (relocated / "config-backups" / "config.yml.bak").read_bytes() == before
@@ -1020,7 +1020,7 @@ class TestConfigBackupLocation:
 
     def test_config_backup_overwrites_a_single_slot(self, client, built_project):
         """Retention is unchanged by the move: one slot, overwritten, per filename."""
-        client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
         after_first = (built_project / "config.yml").read_bytes()
 
         resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "opus"}})
@@ -1039,7 +1039,7 @@ class TestConfigBackupLocation:
         """
         other = built_project / "other.yml"
         other.write_text((built_project / "config.yml").read_text(), encoding="utf-8")
-        client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
         client.app.state.config_path = other
 
         resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "haiku"}})
@@ -1075,7 +1075,7 @@ class TestConfigBackupLocation:
         client.app.state.config_path = moved
         client.app.state.project_cwd = str(render)
 
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "sonnet"}})
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         assert _backup_path(built_project).read_bytes() == before

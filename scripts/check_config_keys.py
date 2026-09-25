@@ -812,13 +812,13 @@ class ConfigKeyGuard:
         put back in front of the operator, which is what ``system.facility_name``
         was before this branch removed it.
 
-        Two keys are exempt, and the manifest says which and why
-        (``deleted_commented_examples``). Both were removed from what OSPREY
-        SHIPS while staying live in their readers — an explicitly set
+        Some keys are exempt, and the manifest says which and why
+        (``deleted_commented_examples``). Each was removed from what OSPREY
+        SHIPS while staying live in its reader — an explicitly set
         ``ariel.database.uri`` still wins over the derived DSN — and the
         commented line beside that prose is the documentation of an override
-        that works, not a retired knob put back. The exemption is narrow: those
-        two keys are still checked against the rendered union, against a LIVE
+        that works, not a retired knob put back. The exemption is narrow: an
+        exempt key is still checked against the rendered union, against a LIVE
         preset override and against the loader's defaults, which is where an
         actual resurrection would show.
         """
@@ -1121,11 +1121,16 @@ class ConfigKeyGuard:
         )
 
     def check_provider_shape(self) -> None:
-        """``api.providers`` is shape-checked per provider, never enumerated."""
+        """``api.providers`` is shape-checked per provider, never enumerated.
+
+        Shape: the required keys present, ``models`` a non-empty list of ids
+        (when the manifest asks for the list form), and ``default_model`` one of
+        them. Which ids a gateway serves is membership, and never checked.
+        """
         spec = self.manifest["keys"].get("api.providers") or {}
         shape = spec.get("key-shape") or {}
         required = shape.get("required") or []
-        tiers = shape.get("models-tiers") or []
+        wants_list = bool(shape.get("models-list"))
         for name, configs in self.rendered().items():
             for cfg in configs:
                 providers = ((cfg.get("api") or {}).get("providers")) or {}
@@ -1137,12 +1142,21 @@ class ConfigKeyGuard:
                                 "provider-shape",
                                 f"{name}: provider {provider} is missing {field_name}",
                             )
-                    models = block.get("models") or {}
-                    missing = [tier for tier in tiers if tier not in models]
-                    if missing:
+                    if not wants_list:
+                        continue
+                    models = block.get("models")
+                    if not isinstance(models, list) or not models:
                         self.fail(
                             "provider-shape",
-                            f"{name}: provider {provider} maps no model for {missing}",
+                            f"{name}: provider {provider} models is not a non-empty list of ids",
+                        )
+                        continue
+                    default = block.get("default_model")
+                    if default is not None and default not in models:
+                        self.fail(
+                            "provider-shape",
+                            f"{name}: provider {provider} default_model {default!r} "
+                            f"is not in its models list",
                         )
 
     def governed_tools(self, name: str) -> set[str]:

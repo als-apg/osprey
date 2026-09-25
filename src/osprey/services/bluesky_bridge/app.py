@@ -198,7 +198,7 @@ def queue_autostart_configured() -> bool:
 
     try:
         section = get_config_value("bluesky", {})
-    except Exception:  # noqa: BLE001 - config trouble must not become an armed queue
+    except Exception:  # config trouble must not become an armed queue
         return False
     return isinstance(section, dict) and section.get("queue_autostart") is True
 
@@ -1985,7 +1985,7 @@ def get_run_data(
 
 # The formats `GET /runs/{id}/export` offers, each mapped to the media type
 # Tiled's own format GET is asked for. Both were verified against the pinned
-# server image (`ghcr.io/bluesky/tiled:0.2.12`, the tag the compose template
+# server image (`ghcr.io/bluesky/tiled:0.2.18`, the tag the compose template
 # pins) rather than read off Tiled's serializer registry: the registry lists
 # what the library *can* register, and the image's table family registers
 # several entries — `application/x-hdf5` among them — whose GET answers 500.

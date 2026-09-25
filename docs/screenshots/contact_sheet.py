@@ -24,7 +24,9 @@ trace and an orbit-response summary — not a generic demo.
 artifacts backend serving the seeded store, and the real web-terminal hub wired
 to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
-entry in :data:`VARIANTS`, then boots every supported subpanel's real app
+entry in :data:`VARIANTS` (plus the :data:`EXTRA_VARIANTS` showcase cards and
+the :data:`STAGED_VARIANTS` cards, each driven into a named UI state first),
+then boots every supported subpanel's real app
 (:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
 Bluesky scan panel) and captures each in the full dark/light ×
 expert/simple matrix — always through the hub's own iframe URL shape
@@ -59,7 +61,9 @@ from typing import TYPE_CHECKING, NamedTuple
 from unittest import mock
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+    from playwright.sync_api import Page
 
     from osprey.stores.artifact_store import ArtifactEntry
 
@@ -513,6 +517,53 @@ EXTRA_VARIANTS: list[tuple[str, str | None, str | None]] = [
 ]
 
 
+class Stage(NamedTuple):
+    """A named UI state a capture drives the hub into before its shot."""
+
+    label: str
+    run: Callable[[Page], None]
+
+
+def open_customize_sheet(page: Page) -> None:
+    """Open the bars' Customize sheet the way an operator does.
+
+    Right-clicking the header bar is the entry point with no prerequisites: the
+    display-menu row needs its popover open and the palette action needs the
+    palette open. The wait is for a hydrated shell first, because the bar
+    modules arm the right-click only once they have booted.
+
+    The sheet focuses its first tile on open so a keyboard lands in it. The
+    docs show the sheet as a pointer user sees it, so the focus is dropped
+    before the shot.
+    """
+    page.wait_for_selector(
+        '[data-bar-host="header"] .bar-item[data-bar-key]', timeout=_NAV_TIMEOUT_MS
+    )
+    page.locator('[data-bar-host="header"]').click(button="right", position={"x": 4, "y": 4})
+    page.locator('.bar-context-menu [data-bar-action="customize"]').click(timeout=_NAV_TIMEOUT_MS)
+    page.locator(".bar-sheet.is-open").wait_for(state="visible", timeout=_NAV_TIMEOUT_MS)
+    page.evaluate("() => document.activeElement?.blur()")
+    page.wait_for_function(
+        "() => !document.querySelector('.bar-sheet :focus')", timeout=_NAV_TIMEOUT_MS
+    )
+
+
+#: A named UI state a capture drives the page into after boot and before the
+#: shot. The doc-screenshot registry (``docs/screenshots/recipes.py``) names
+#: these keys.
+STAGES: dict[str, Stage] = {
+    "customize_sheet": Stage("Customize bars open", open_customize_sheet),
+}
+
+#: Hub cards captured with a stage applied, as (theme, mode, stage) rows. They
+#: follow :data:`EXTRA_VARIANTS` and sit outside :data:`_FULL_MATRIX`, so the
+#: base 2×2 completeness check is untouched.
+STAGED_VARIANTS: list[tuple[str, str, str]] = [
+    ("dark", "expert", "customize_sheet"),
+    ("light", "expert", "customize_sheet"),
+]
+
+
 class CapturedVariant(NamedTuple):
     """One captured variant and the labels the contact sheet shows for it."""
 
@@ -527,6 +578,9 @@ class CapturedVariant(NamedTuple):
     #: Rail position for the :data:`EXTRA_VARIANTS` showcase cards (``"top"``),
     #: or ``None`` for the default left rail.
     rail: str | None = None
+    #: The :data:`STAGES` key the page was driven into before the shot, or
+    #: ``None`` for the shell as it boots.
+    stage: str | None = None
 
 
 _TERMINAL_VIEWPORT = {"width": 1280, "height": 800}
@@ -539,9 +593,13 @@ _PLOTLY_MS = 2_000  # Plotly draws async; give the preview time before shooting
 
 
 def _variant_filename(
-    theme: str, mode: str | None, accent: str | None = None, rail: str | None = None
+    theme: str,
+    mode: str | None,
+    accent: str | None = None,
+    rail: str | None = None,
+    stage: str | None = None,
 ) -> str:
-    """Output PNG name for one variant (mode/accent/rail suffixes only when set)."""
+    """Output PNG name for one variant (mode/accent/rail/stage suffixes only when set)."""
     stem = f"web_terminal_{theme}"
     if mode is not None:
         stem += f"_{mode}"
@@ -549,6 +607,8 @@ def _variant_filename(
         stem += f"_{accent}"
     if rail is not None:
         stem += f"_rail-{rail}"
+    if stage is not None:
+        stem += f"_{stage}"
     return f"{stem}.png"
 
 
@@ -905,8 +965,39 @@ def _capture_variant(
     out_dir: Path,
     accent: str | None = None,
     rail: str | None = None,
+    stage: str | None = None,
 ) -> CapturedVariant:
     """Drive one theme/mode variant to a viewport PNG; return its metadata."""
+    dest = out_dir / _variant_filename(theme, mode, accent, rail, stage)
+    capture_hub_view(browser, hub, theme, mode, dest, accent=accent, rail=rail, stage=stage)
+    return CapturedVariant(
+        theme=theme, mode=mode, accent=accent, filename=dest.name, rail=rail, stage=stage
+    )
+
+
+def capture_hub_view(
+    browser,
+    hub: HermeticHub,
+    theme: str,
+    mode: str | None,
+    dest: Path,
+    *,
+    accent: str | None = None,
+    rail: str | None = None,
+    stage: str | None = None,
+) -> None:
+    """Drive the hermetic hub to one theme/mode view and write its PNG to *dest*.
+
+    Args:
+        browser: A Playwright browser.
+        hub: The running :func:`hermetic_hub` stack.
+        theme: The theme the page loads in.
+        mode: The UI mode, passed as ``&mode=``; ``None`` leaves it to the page.
+        dest: Where the viewport PNG is written.
+        accent: An accent candidate to recolour the chrome with, or ``None``.
+        rail: A rail position (``"top"``), or ``None`` for the default rail.
+        stage: A :data:`STAGES` key the page is driven into before the shot.
+    """
     # Publish the fake session BEFORE the page loads. The terminal's session id
     # has to be DEMO_SESSION_ID — the seeded artifacts are tagged with it and
     # the panels scope themselves to the active session — and the resume path
@@ -986,20 +1077,25 @@ def _capture_variant(
         if accent is not None:
             _inject_accent(page, theme, accent)
 
+        if stage is not None:
+            STAGES[stage].run(page)
+
         page.wait_for_timeout(_SETTLE_MS)
 
         png = page.screenshot()
-        dest = out_dir / _variant_filename(theme, mode, accent, rail)
         dest.write_bytes(png)
-        return CapturedVariant(theme=theme, mode=mode, accent=accent, filename=dest.name, rail=rail)
     finally:
         # Every variant now resumes the SAME session id, so they share one pool
         # entry — and the hub hands a warm PTY straight over without re-running
         # its command. The next variant would sit forever waiting for a
         # transcript that already played. Emptying the pool makes each capture
-        # spawn its own replay again.
+        # spawn its own replay again. The POST names the hub's own origin, as the
+        # page itself would, because the hub refuses a state-changing request
+        # that carries none.
         try:
-            page.request.post(f"{hub.base_url}/api/terminal/restart")
+            page.request.post(
+                f"{hub.base_url}/api/terminal/restart", headers={"Origin": hub.base_url}
+            )
         except Exception:
             pass
         page.close()
@@ -1229,6 +1325,8 @@ def capture_contact_sheet(out_dir: Path, *, accents: bool = False) -> Path:
             # pure statement about the required 2×2.
             for theme, mode, rail in EXTRA_VARIANTS:
                 captured.append(_capture_variant(browser, hub, theme, mode, out_dir, rail=rail))
+            for theme, mode, stage in STAGED_VARIANTS:
+                captured.append(_capture_variant(browser, hub, theme, mode, out_dir, stage=stage))
         _assert_all_variants_captured(captured, accents)
         # Per-subpanel 2×2 sections (accent A/B stays a hub-only concern).
         captured.extend(capture_panel_sections(out_dir, browser))
@@ -1264,6 +1362,8 @@ def _variant_label(cv: CapturedVariant) -> str:
         parts.append(cv.accent)
     if cv.rail:
         parts.append(f"rail-{cv.rail}")
+    if cv.stage:
+        parts.append(STAGES[cv.stage].label)
     return " · ".join(parts)
 
 

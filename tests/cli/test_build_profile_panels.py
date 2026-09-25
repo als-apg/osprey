@@ -16,12 +16,16 @@ from __future__ import annotations
 import pytest
 
 from osprey.cli.build_profile_panels import (
+    apply_panel_selection,
     bar_items_selection_warnings,
     panel_id_errors,
+    panel_leaf_spellings,
     panel_selection_errors,
     panel_selection_overrides,
+    panel_spelling_errors,
 )
-from osprey.profiles.web_panels import panel_spec_enabled
+from osprey.profiles.web_panels import panel_id_refusal, panel_spec_enabled
+from osprey.utils.config_writer import config_update_fields, load_config_document
 
 # ---------------------------------------------------------------------------
 # panel_spec_enabled — the shared predicate
@@ -76,10 +80,10 @@ def test_every_block_is_told_whether_it_is_selected() -> None:
         }
     }
     assert panel_selection_overrides(["okf"], rendered) == {
-        "web.panels.okf.enabled": True,
-        "web.panels.lattice.enabled": False,
-        "web.panels.events.enabled": False,
-        "web.panels.beam-viewer.enabled": False,
+        "okf": True,
+        "lattice": False,
+        "events": False,
+        "beam-viewer": False,
     }
 
 
@@ -87,14 +91,14 @@ def test_a_selected_custom_block_is_switched_on_explicitly() -> None:
     """A custom panel has no template line writing its ``enabled``; the
     projection writes it so the render says what it shows."""
     rendered = {"web": {"panels": {"grafana": {"url": "http://grafana:3000"}}}}
-    assert panel_selection_overrides(["grafana"], rendered) == {"web.panels.grafana.enabled": True}
+    assert panel_selection_overrides(["grafana"], rendered) == {"grafana": True}
 
 
 def test_universal_panels_are_always_on() -> None:
     """``artifacts`` is served regardless of selection; a block for it (which
     nothing writes, but nothing forbids) is never switched off."""
     rendered = {"web": {"panels": {"artifacts": {"label": "WORKSPACE"}}}}
-    assert panel_selection_overrides([], rendered) == {"web.panels.artifacts.enabled": True}
+    assert panel_selection_overrides([], rendered) == {"artifacts": True}
 
 
 def test_a_selection_with_no_block_projects_nothing_for_it() -> None:
@@ -109,10 +113,67 @@ def test_a_non_mapping_block_is_projected_too() -> None:
     """``okf: true`` is a legal spelling of an enabled builtin; the projection
     still states the selection for it rather than skipping it."""
     rendered = {"web": {"panels": {"okf": True, "ariel": True}}}
-    assert panel_selection_overrides(["okf"], rendered) == {
-        "web.panels.okf.enabled": True,
-        "web.panels.ariel.enabled": False,
+    assert panel_selection_overrides(["okf"], rendered) == {"okf": True, "ariel": False}
+
+
+def test_a_dotted_id_is_told_in_its_own_block(tmp_path) -> None:
+    """A dotted id is one key under ``web.panels``, and its ``enabled`` lands there.
+
+    Nothing is written under the id's first segment, so no stray block appears.
+    """
+    path = tmp_path / "config.yml"
+    path.write_text(
+        "web:\n"
+        "  panels:\n"
+        "    beam.viewer:\n"
+        "      url: http://x:1\n"
+        "    other.tab:\n"
+        "      url: http://x:2\n"
+    )
+    projection = panel_selection_overrides(["beam.viewer"], load_config_document(path))
+    assert projection == {"beam.viewer": True, "other.tab": False}
+
+    apply_panel_selection(path, projection)
+
+    assert load_config_document(path)["web"]["panels"] == {
+        "beam.viewer": {"url": "http://x:1", "enabled": True},
+        "other.tab": {"url": "http://x:2", "enabled": False},
     }
+
+
+def test_a_non_mapping_block_is_written_as_a_block_that_says_enabled(tmp_path) -> None:
+    """A bare ``okf: true`` or ``ariel:`` carries no other fact, so it becomes a block."""
+    path = tmp_path / "config.yml"
+    path.write_text("web:\n  panels:\n    okf: true\n    ariel:\n")
+
+    apply_panel_selection(path, panel_selection_overrides(["okf"], load_config_document(path)))
+
+    assert load_config_document(path)["web"]["panels"] == {
+        "okf": {"enabled": True},
+        "ariel": {"enabled": False},
+    }
+
+
+def test_a_section_comment_after_the_panels_stays_after_them(tmp_path) -> None:
+    """The comment that opens the next section stays above that section."""
+    path = tmp_path / "config.yml"
+    path.write_text(
+        "web:\n"
+        "  panels:\n"
+        "    grafana:\n"
+        "      url: http://grafana:3000\n"
+        "\n"
+        "# ── Next section ──\n"
+        "logging:\n"
+        "  level: INFO\n"
+    )
+
+    apply_panel_selection(path, {"grafana": False})
+
+    text = path.read_text()
+    assert (
+        text.index("enabled: false") < text.index("# ── Next section ──") < text.index("logging:")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +200,6 @@ def test_an_authored_enabled_false_for_a_selected_panel_is_refused() -> None:
         pytest.param({"web.panels.lattice.enabled": True}, id="dotted"),
         pytest.param({"web.panels.lattice": {"enabled": True}}, id="prefix_over_mapping"),
         pytest.param({"web": {"panels": {"lattice": {"enabled": True}}}}, id="nested"),
-        pytest.param({"web": {"panels.lattice.enabled": True}}, id="mixed"),
     ],
 )
 def test_every_spelling_of_a_contradiction_is_found(spelling) -> None:
@@ -184,7 +244,6 @@ def test_an_id_the_terminal_cannot_serve_is_refused(panel_id) -> None:
         pytest.param({"web.panels.überblick.url": "http://x:1"}, id="dotted"),
         pytest.param({"web.panels.überblick": {"url": "http://x:1"}}, id="prefix_over_mapping"),
         pytest.param({"web": {"panels": {"überblick": {"url": "http://x:1"}}}}, id="nested"),
-        pytest.param({"web": {"panels.überblick.url": "http://x:1"}}, id="mixed"),
     ],
 )
 def test_every_spelling_of_the_block_reaches_the_check(spelling) -> None:
@@ -203,6 +262,150 @@ def test_a_dot_segment_block_is_refused_as_the_empty_id_it_reads_as() -> None:
     """
     (error,) = panel_id_errors({"web.panels..url": "http://x:1"})
     assert "[A-Za-z0-9][A-Za-z0-9._-]*" in error
+
+
+def _prefix_over_mapping(panel_id):
+    return {"web.panels": {panel_id: {"url": "http://x:1"}}}
+
+
+def _nested(panel_id):
+    return {"web": {"panels": {panel_id: {"url": "http://x:1"}}}}
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(_prefix_over_mapping, id="prefix_over_mapping"),
+        pytest.param(_nested, id="nested"),
+    ],
+)
+@pytest.mark.parametrize(
+    "panel_id",
+    [
+        pytest.param("beam.view er", id="space_after_dot"),
+        pytest.param("beam./viewer", id="slash_after_dot"),
+        pytest.param(".beam", id="leading_dot"),
+    ],
+)
+def test_a_dotted_id_written_as_a_mapping_key_is_checked_whole(panel_id, spelling) -> None:
+    """The render keeps a mapping key whole and the terminal refuses what it keeps.
+
+    So the build reads that key whole too, and refuses it before it deploys.
+    """
+    (error,) = panel_id_errors(spelling(panel_id))
+    assert repr(panel_id) in error
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(_prefix_over_mapping, id="prefix_over_mapping"),
+        pytest.param(_nested, id="nested"),
+    ],
+)
+def test_a_dotted_id_the_terminal_can_serve_passes(spelling) -> None:
+    """A dot alone is inside the id class, so a dotted id the terminal serves passes."""
+    assert panel_id_errors(spelling("beam.viewer")) == []
+
+
+def test_a_whole_dotted_key_splits_at_every_dot() -> None:
+    """The render splits a top-level key at every dot.
+
+    This key renders panel ``beam`` with a child ``view er``, and ``beam`` is an
+    id the terminal serves.
+    """
+    assert panel_id_errors({"web.panels.beam.view er.url": "http://x:1"}) == []
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(_prefix_over_mapping("beam.view er"), id="prefix_over_mapping_refused"),
+        pytest.param(_nested("beam.view er"), id="nested_refused"),
+        pytest.param(_prefix_over_mapping("beam.viewer"), id="prefix_over_mapping_served"),
+        pytest.param(_nested("beam.viewer"), id="nested_served"),
+        pytest.param({"web.panels.beam.view er.url": "http://x:1"}, id="dotted_split"),
+        pytest.param({"web.panels.überblick.url": "http://x:1"}, id="dotted_refused"),
+    ],
+)
+def test_the_lint_reads_each_id_the_render_writes(tmp_path, spelling) -> None:
+    """The build lint and the terminal share one verdict and the ids it is asked about.
+
+    ``config_update_fields`` is what ``osprey build`` applies a profile's
+    ``config:`` through, so the ids are read off its output rather than restated.
+    """
+    path = tmp_path / "config.yml"
+    path.write_text("web:\n  panels:\n    okf:\n      enabled: true\n")
+    config_update_fields(path, spelling)
+    rendered = load_config_document(path)["web"]["panels"]
+    assert panel_id_errors(spelling) == [
+        r for pid in sorted(map(str, rendered)) if (r := panel_id_refusal(pid)) is not None
+    ]
+
+
+def test_an_authored_enabled_on_a_dotted_id_is_judged_under_that_id() -> None:
+    """An ``enabled`` on a dotted id under a mapping is judged under the whole id."""
+    config = {"web.panels": {"beam.viewer": {"url": "http://x:1", "enabled": True}}}
+    (error,) = panel_selection_errors(config, [])
+    assert "'beam.viewer' is not in web_panels" in error
+    assert panel_selection_errors(config, ["beam.viewer"]) == []
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"web": {"panels.lattice.enabled": True}}, id="enabled"),
+        pytest.param({"web": {"panels.überblick.url": "http://x:1"}}, id="url"),
+    ],
+)
+def test_a_panels_key_inside_a_web_mapping_is_refused_as_the_literal_key_it_renders(
+    config,
+) -> None:
+    """Only a top-level key is split at its dots, so this line names no panel.
+
+    It renders as one key under ``web`` that reads like a panel and is invisible
+    afterwards, so it is refused rather than read as one.
+    """
+    (key,) = config["web"]
+    (error,) = panel_spelling_errors(config)
+    assert f"web: {key}:" in error
+    assert f"literally named {key!r}" in error
+    assert panel_id_errors(config) == []
+    assert panel_selection_errors(config, []) == []
+
+
+def test_a_panels_mapping_inside_a_web_mapping_is_not_refused() -> None:
+    assert panel_spelling_errors({"web": {"panels": {"beam.viewer": {"url": "http://x:1"}}}}) == []
+    assert panel_spelling_errors({"web.panels.okf.enabled": True}) == []
+    assert panel_spelling_errors(None) == []
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param({"web.panels.beam.viewer.enabled": True}, id="dotted_split"),
+        pytest.param({"web.panels.beam.viewer": {"enabled": True}}, id="prefix_split"),
+        pytest.param({"web.panels": {"beam.viewer": {"enabled": True}}}, id="prefix_over_mapping"),
+        pytest.param({"web": {"panels": {"beam.viewer": {"enabled": True}}}}, id="nested"),
+        pytest.param({"web.panels": {"beam": {"viewer": {"enabled": True}}}}, id="split_mapping"),
+    ],
+)
+def test_a_leaf_is_read_where_the_render_writes_it(tmp_path, spelling) -> None:
+    """A spelling reaches the ``beam.viewer`` block exactly when the render puts it there.
+
+    ``config_update_fields`` is what ``osprey build`` applies a profile's
+    ``config:`` through, so the block is read off its output rather than restated.
+    """
+    path = tmp_path / "config.yml"
+    path.write_text("web:\n  panels:\n    okf:\n      enabled: true\n")
+    config_update_fields(path, spelling)
+    rendered = load_config_document(path)
+    block = rendered["web"]["panels"].get("beam.viewer") or {}
+
+    found = panel_leaf_spellings(spelling, "beam.viewer", "enabled")
+
+    assert bool(found) == ("enabled" in block)
+    assert [value for _, value in found] == ([block["enabled"]] if "enabled" in block else [])
 
 
 def test_an_ordinary_id_passes() -> None:

@@ -81,8 +81,10 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
     # Pin the Claude Code CLI so an upstream release cannot silently change the
     # headless agent's behavior between image builds (matches the cli_version
-    # OSPREY documents in config.yml). Bump deliberately.
-    && npm install -g @anthropic-ai/claude-code@2.1.258 \
+    # OSPREY documents in config.yml). Bump deliberately; the npm channel the
+    # value is taken from is written beside _DEFAULT_CLAUDE_CLI_VERSION in
+    # src/osprey/cli/templates/scaffolding.py.
+    && npm install -g @anthropic-ai/claude-code@2.1.267 \
     && rm -rf /var/lib/apt/lists/*
 # The pin is the point, so the CLI's background self-updater is off: a
 # successful update would silently replace the pinned version. Same rationale

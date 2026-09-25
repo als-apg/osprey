@@ -34,6 +34,7 @@ def workspace_tools() -> dict:
         focus_tools,
         lattice_tools,
         panel_tools,
+        prior_answer,
         provenance_locator,
         screen_capture,
         session_log,

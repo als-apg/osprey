@@ -1037,7 +1037,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """Print how the agent in this deployment is configured, and whether it is in sync.
 
     Reports the provider, the environment block its settings carry, whether the
-    credential those need can actually be found, the tier-to-model mapping, and
+    credential those need can actually be found, Claude Code's alias models, and
     whether the rendered agent artifacts still match the config they came from.
 
     The per-agent model assignments are behind *show_agents* rather than
@@ -1051,9 +1051,14 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """
     import os
 
-    from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS, load_provider_spec
+    from osprey.build.claude_code_resolver import (
+        ALIAS_SUBSTITUTION_REMEDY,
+        alias_substitution,
+        load_provider_spec,
+    )
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-    from osprey.registry.mcp import FRAMEWORK_AGENTS
+    from osprey.cli.validate_claude_artifacts import agent_file_models
+    from osprey.models.display import display_model_name
     from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
 
     rows: list[tuple[str, object]] = []
@@ -1134,34 +1139,41 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 )
 
             if spec.env_block:
-                rows.append(("environment", "rendered into settings.json"))
+                rows.append(("environment", "process environment at launch"))
                 rows.extend(
                     (key, _display_env_value(key, value)) for key, value in spec.env_block.items()
                 )
 
-            rows.append(("model tiers", ""))
-            model_overrides = claude_code.get("models") or {}
-            for tier in ("haiku", "sonnet", "opus"):
-                suffix = " (override)" if tier in model_overrides else ""
-                rows.append((tier, f"{spec.tier_to_model.get(tier, '?')}{suffix}"))
+            rows.append(("Claude Code aliases", ""))
+            for alias, model_id in spec.alias_models.items():
+                rows.append((alias, f"{model_id} ({spec.alias_origin.get(alias, '?')})"))
+            # Said here, from the spec this section already holds, because the
+            # resolver's own record is INFO and the drift check below resolves
+            # the provider a second time: one report, one sentence.
+            substitution = alias_substitution(spec)
+            if substitution:
+                troubles.append((substitution, ALIAS_SUBSTITUTION_REMEDY))
 
             if show_agents:
                 rows.append(("agent models", ""))
-                agent_overrides = claude_code.get("agent_models") or {}
-                # Every agent this deployment could run, not only the ones the
-                # tier map happens to name: an agent missing from the map takes
-                # the resolver's sonnet fallback, and a status report that left
-                # it out would be the only place that went unsaid. `deployment`
-                # may import the registry; `osprey.build` may not, which is why
-                # the map lives there and the catalog here.
-                for agent_name in sorted(set(FRAMEWORK_AGENTS) | set(agent_overrides)):
-                    if agent_name in agent_overrides:
-                        origin = f"(override: {agent_overrides[agent_name]})"
-                    elif agent_name in AGENT_DEFAULT_TIERS:
-                        origin = f"({AGENT_DEFAULT_TIERS[agent_name]})"
+                # Every agent the build ships, each with the model its own file
+                # names: that file is what Claude Code reads.
+                agent_models = agent_file_models(build_dir / ".claude" / "agents")
+                if not agent_models:
+                    rows.append(("agents", "none in build/.claude/agents"))
+                for agent_name, model_id in agent_models.items():
+                    if model_id is None:
+                        rows.append((agent_name, "no model: line (Claude Code chooses)"))
+                        continue
+                    if spec.agent_models.get(agent_name) == model_id:
+                        origin = "claude_code.agent_models"
+                    elif model_id == spec.default_model_id:
+                        origin = "main model"
                     else:
-                        origin = f"(default {spec.agent_tier(agent_name)})"
-                    rows.append((agent_name, f"{spec.agent_model(agent_name)} {origin}"))
+                        origin = f"agents/{agent_name}.md"
+                    rows.append(
+                        (agent_name, f"{display_model_name(model_id)}  {model_id}  ({origin})")
+                    )
 
             conflicts = spec.detect_env_conflicts(dict(os.environ))
             if conflicts:

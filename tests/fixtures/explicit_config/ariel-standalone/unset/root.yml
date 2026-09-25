@@ -26,7 +26,6 @@ ariel:
       enabled: false
       model:
         max_tokens: 256
-        model_id: haiku
       provider: anthropic
     text_embedding:
       enabled: true
@@ -63,7 +62,6 @@ artifact_server:
   port: 10200
 build_dir: ./build
 claude_code:
-  default_model: haiku
   provider: anthropic
   servers:
     controls:
@@ -99,7 +97,6 @@ hooks:
   debug: true
 logbook:
   composition:
-    default_tier: haiku
     provider: anthropic
 project_name: osprey-freeze
 scaffold:

@@ -441,13 +441,13 @@ def _openobserve_status(port: int, password: str, path: str = "/api/default/stre
     unauthenticated).
     """
     token = base64.b64encode(f"{OPENOBSERVE_USER}:{password}".encode()).decode()
-    request = urllib.request.Request(  # noqa: S310 - localhost only
+    request = urllib.request.Request(  # localhost only
         f"http://127.0.0.1:{port}{path}",
         method="GET",
         headers={"Authorization": f"Basic {token}"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=5.0) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=5.0) as response:
             return response.status
     except urllib.error.HTTPError as exc:
         return exc.code

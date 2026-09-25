@@ -3,7 +3,6 @@
 Verifies that:
 - The agent appears in FRAMEWORK_AGENTS with the correct metadata and a
   ``python`` server dependency.
-- AGENT_DEFAULT_TIERS pins pyat-specialist to the ``sonnet`` tier.
 - resolve_agents() enables pyat-specialist by default when the python server is
   resolved, disables it when the python server is disabled, and honors a config
   override.
@@ -23,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS
 from osprey.registry.mcp import FRAMEWORK_AGENTS, resolve_agents, resolve_servers
 
 # ---------------------------------------------------------------------------
@@ -114,9 +112,6 @@ class TestPyatSpecialistAgentCatalog:
     def test_is_not_custom(self):
         adef = FRAMEWORK_AGENTS["pyat-specialist"]
         assert adef.is_custom is False
-
-    def test_default_tier_is_sonnet(self):
-        assert AGENT_DEFAULT_TIERS["pyat-specialist"] == "sonnet"
 
 
 # ---------------------------------------------------------------------------

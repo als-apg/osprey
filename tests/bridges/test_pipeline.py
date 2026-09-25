@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import base64
 import copy
+import json
 import logging
+import uuid
 from typing import Any
 
 import pytest
@@ -31,7 +33,9 @@ from osprey.bridges.core import pipeline
 from osprey.bridges.core.artifacts import FetchedArtifact
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
+from osprey.bridges.core.errors import UndeliverableError
 from osprey.bridges.core.history import HistoryStore
+from osprey.bridges.core.people import MENTION_RULE
 from osprey.bridges.core.pipeline import (
     EXPIRED_NOTE,
     OVER_BUDGET_REASON,
@@ -40,13 +44,20 @@ from osprey.bridges.core.pipeline import (
     PipelineDeps,
     handle_event,
 )
-from osprey.bridges.core.ports import InboundEvent, InputDownload, ReplyContext
-from tests.bridges.conftest import RecordingChannelOps
+from osprey.bridges.core.ports import (
+    InboundEvent,
+    InputDownload,
+    ReplyContext,
+    RoomMember,
+    RoomPeople,
+)
+from tests.bridges.conftest import RecordingChannelOps, RosterChannelOps
 
 MSG = "spaces/AAA/messages/1"
 MSG2 = "spaces/AAA/messages/2"
 QUESTION = "what is the orbit doing?"
 HISTORY_KEY = "spaces/AAA"
+ASKER = {"id": "users/7", "name": "Pat"}
 
 COMPLETED = {
     "status": "completed",
@@ -101,8 +112,8 @@ class MarkingHistory(HistoryStore):
         super().__init__(path)
         self._ops = ops
 
-    def recent(self, key: str) -> list[dict[str, Any]]:
-        turns = super().recent(key)
+    def recent(self, key: str, *, shorten_over: int = 0) -> list[dict[str, Any]]:
+        turns = super().recent(key, shorten_over=shorten_over)
         self._ops.mark("history_recent", key=key, turns=len(turns))
         return turns
 
@@ -113,13 +124,16 @@ class MarkingHistory(HistoryStore):
         answer: str,
         run_id: str | None = None,
         artifacts: list[dict[str, Any]] | None = None,
+        asked_by: dict[str, Any] | None = None,
     ) -> None:
         self._ops.mark("history_append", key=key, question=question, answer=answer)
-        super().append(key, question, answer, run_id=run_id, artifacts=artifacts)
+        super().append(key, question, answer, run_id=run_id, artifacts=artifacts, asked_by=asked_by)
 
-    def append_failed(self, key: str, question: str) -> None:
+    def append_failed(
+        self, key: str, question: str, asked_by: dict[str, Any] | None = None
+    ) -> None:
         self._ops.mark("history_append_failed", key=key, question=question)
-        super().append_failed(key, question)
+        super().append_failed(key, question, asked_by=asked_by)
 
 
 class StubDispatcher:
@@ -153,6 +167,18 @@ class CountingProbe:
         return self.verdicts[min(self.calls - 1, len(self.verdicts) - 1)]
 
 
+class CapabilityProbe:
+    """A ``probe_capability`` double: a verdict per capability, calls counted per capability."""
+
+    def __init__(self, **verdicts: bool) -> None:
+        self.verdicts = verdicts
+        self.calls: dict[str, int] = {}
+
+    def __call__(self, _cfg: Any, capability: str) -> bool:
+        self.calls[capability] = self.calls.get(capability, 0) + 1
+        return self.verdicts.get(capability, True)
+
+
 def _prior(data: bytes, content_type: str | None = None):
     """A ``fetch_prior_artifact`` seam serving *data* under *content_type*."""
     return lambda cfg, rid, desc, mb: FetchedArtifact(data=data, content_type=content_type)
@@ -167,9 +193,10 @@ def make_deps(
     probe=None,
     fetch_prior=None,
     park=None,
+    cfg: CoreConfig | None = None,
 ) -> PipelineDeps:
     kwargs: dict[str, Any] = {
-        "cfg": CoreConfig(),
+        "cfg": cfg if cfg is not None else CoreConfig(),
         "ops": ops,
         "dedup": MarkingDedup(str(tmp_path / "dedup.json"), ops),
         "dispatcher": StubDispatcher(ops, result=result),
@@ -325,7 +352,111 @@ def test_empty_history_key_skips_history_entirely(tmp_path):
 
     assert ops.count("history_recent") == 0
     assert ops.count("history_append") == 0
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
+
+
+# --- who asked ----------------------------------------------------------------------
+
+
+def test_the_asker_rides_the_payload(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops)
+
+    handle_event({}, deps)
+
+    assert deps.dispatcher.calls[0]["extra"]["asker"] == ASKER
+
+
+def test_an_event_with_no_sender_ships_no_asker(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event(sender_id="", sender_display=""))
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
     assert deps.dispatcher.calls[0]["extra"] is None
+
+
+def test_the_history_turn_records_who_asked(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops)
+
+    handle_event({}, deps)
+
+    [turn] = deps.history.recent(HISTORY_KEY)
+    assert turn["answer"] == "The orbit is stable."
+    assert turn["asked_by"] == ASKER
+
+
+def test_a_failed_turn_records_who_asked(tmp_path):
+    result = {"status": "error", "failure_class": "fatal", "run_id": "run-1"}
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, result=result)
+
+    handle_event({}, deps)
+
+    [turn] = deps.history.recent(HISTORY_KEY)
+    assert turn["question"] == QUESTION
+    assert turn["asked_by"] == ASKER
+
+
+# --- who is in the room -------------------------------------------------------------
+
+ROOM = RoomPeople(members=(RoomMember("users/7", "Pat"), RoomMember("users/9")), mentions=True)
+
+
+def test_the_room_rides_the_payload_beside_the_asker(tmp_path):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=ROOM)
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    assert deps.dispatcher.calls[0]["extra"] == {
+        "asker": ASKER,
+        "room": {
+            "members": [{"id": "users/7", "name": "Pat"}, {"id": "users/9", "name": None}],
+            "mentions": MENTION_RULE,
+        },
+    }
+
+
+def test_a_roster_that_raises_dispatches_with_the_asker_only(tmp_path, caplog):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=RuntimeError("boom"))
+    deps = make_deps(tmp_path, ops, history=False)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.bridges.core.pipeline"):
+        assert handle_event({}, deps) == "handled"
+
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
+    assert any("room roster failed" in rec.message for rec in caplog.records)
+
+
+def test_a_roster_that_answers_none_ships_no_room(tmp_path):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=None)
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
+    assert ops.count("room_people") == 1
+
+
+def test_an_adapter_without_a_roster_ships_no_room(tmp_path):
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    assert "room" not in deps.dispatcher.calls[0]["extra"]
+
+
+def test_the_roster_is_asked_after_the_claim_and_the_ack(tmp_path):
+    ops = RosterChannelOps(parse_result=make_event(), room_people=ROOM)
+    deps = make_deps(tmp_path, ops, history=False)
+
+    handle_event({}, deps)
+
+    ops.assert_order("claim", "post_ack", "room_people", "dispatch")
+    ops.assert_never_before("room_people", "post_ack")
 
 
 # --- terminal settle ----------------------------------------------------------------
@@ -379,6 +510,22 @@ def test_settle_survives_a_raising_file_delivery(tmp_path):
     assert [turn["answer"] for turn in deps.history.recent(HISTORY_KEY)] == [
         COMPLETED["text_output"]
     ]
+
+
+def test_an_undeliverable_post_answer_settles_terminal_instead_of_queueing(tmp_path):
+    """Parking an answer the channel permanently refuses would only hand the drain the
+    same refusal later; the entry settles now with the refusal on record."""
+    ops = RecordingChannelOps(parse_result=make_event())
+    ops.fail_next("post_answer", UndeliverableError("not a member of the space"))
+    deps = make_deps(tmp_path, ops)
+
+    assert handle_event({}, deps) == "handled"
+
+    entry = deps.dedup.get(MSG)
+    assert entry["status"] == "error"
+    assert entry["give_up_reason"] == "undeliverable: not a member of the space"
+    assert ops.count("deliver_files") == 0
+    assert deps.history.recent(HISTORY_KEY) == []
 
 
 def test_failed_post_answer_keeps_entry_queued_and_skips_history(tmp_path):
@@ -530,7 +677,8 @@ def test_probe_is_lazy_when_nothing_would_ship(tmp_path):
 
     assert probe.calls == 0
     assert deps.dispatcher.calls[0]["extra"] == {
-        "skipped_attachments": [{"filename": "big.bin", "reason": "too large"}]
+        "asker": ASKER,
+        "skipped_attachments": [{"filename": "big.bin", "reason": "too large"}],
     }
 
 
@@ -538,9 +686,9 @@ def test_probe_is_lazy_when_nothing_would_ship(tmp_path):
 
 
 def test_noop_input_download_leaves_payload_byte_identical(tmp_path):
-    # A text-only message: the adapter returns the empty InputDownload(). The
-    # dispatch payload must be byte-identical to the no-attachment path — the
-    # dispatcher is called with NO extra at all, and the probe never fires.
+    # A text-only message: the adapter returns the empty InputDownload(), which adds
+    # no key to the payload — the dispatch carries only who asked, exactly as the
+    # no-attachment path does, and the probe never fires.
     ops = RecordingChannelOps(parse_result=make_event())  # inputs = InputDownload()
     probe = CountingProbe(True)
     deps = make_deps(tmp_path, ops, probe=probe, history=False)
@@ -548,7 +696,7 @@ def test_noop_input_download_leaves_payload_byte_identical(tmp_path):
     assert handle_event({}, deps) == "handled"
 
     assert ops.count("download_inputs") == 1
-    assert deps.dispatcher.calls[0] == {"question": QUESTION, "extra": None}
+    assert deps.dispatcher.calls[0] == {"question": QUESTION, "extra": {"asker": ASKER}}
     assert probe.calls == 0
 
 
@@ -582,7 +730,8 @@ def test_fresh_budget_bytes_cap_can_decline_everything(tmp_path, monkeypatch):
     # Everything declined -> skips-only payload, and no probe (nothing to send).
     assert probe.calls == 0
     assert deps.dispatcher.calls[0]["extra"] == {
-        "skipped_attachments": [{"filename": "f1", "reason": OVER_BUDGET_REASON}]
+        "asker": ASKER,
+        "skipped_attachments": [{"filename": "f1", "reason": OVER_BUDGET_REASON}],
     }
 
 
@@ -716,7 +865,7 @@ def test_quoted_bucket_without_reply_context_is_dropped_with_warning(tmp_path, c
     with caplog.at_level(logging.WARNING, logger="osprey.bridges.core.pipeline"):
         assert handle_event({}, deps) == "handled"
 
-    assert deps.dispatcher.calls[0]["extra"] is None
+    assert deps.dispatcher.calls[0]["extra"] == {"asker": ASKER}
     assert any("quoted" in rec.message for rec in caplog.records)
 
 
@@ -850,3 +999,71 @@ def test_a_prior_served_without_a_content_type_keeps_the_predicted_mime(tmp_path
 
     (file,) = deps.dispatcher.calls[0]["extra"]["input_files"]
     assert file["mime"] == "image/png"
+
+
+# --- long earlier answers -----------------------------------------------------------
+
+LONG_ANSWER = ("| PV:NAME | 1.2345 | ok |\n" * 500)[:10_000]
+
+
+def _follow_up_after_a_long_answer(tmp_path, *, probe=None, cfg=None, answer=LONG_ANSWER):
+    """Dispatch 1 answers ``answer`` under a fresh run id; dispatch 2 is the follow-up."""
+    run = str(uuid.uuid4())
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(
+        tmp_path,
+        ops,
+        result={"status": "completed", "text_output": answer, "run_id": run},
+        probe=probe if probe is not None else CapabilityProbe(),
+        cfg=cfg,
+    )
+    handle_event({}, deps)
+    ops.parse_result = make_event(message_id=MSG2)
+    handle_event({}, deps)
+    return deps, run, deps.dispatcher.calls[1]["extra"]
+
+
+def test_a_follow_up_dispatch_replays_a_long_answer_shortened(tmp_path):
+    deps, run, extra = _follow_up_after_a_long_answer(tmp_path / "short")
+    _, _, full = _follow_up_after_a_long_answer(
+        tmp_path / "full", cfg=CoreConfig(history_answer_limit=0)
+    )
+
+    turn = extra["conversation_so_far"][0]
+    assert len(turn["answer"]) < 3000
+    assert run in turn["answer"]
+    assert turn["answer_chars"] == 10_000
+    assert extra["prior_answer_runs"] == [run]
+    assert len(json.dumps(extra)) < len(json.dumps(full))
+    assert deps.history.recent(HISTORY_KEY)[0]["answer"] == LONG_ANSWER
+
+
+def test_a_pair_without_prior_answers_gets_every_answer_in_full(tmp_path):
+    probe = CapabilityProbe(prior_answers=False)
+    _, _, extra = _follow_up_after_a_long_answer(tmp_path, probe=probe)
+
+    turn = extra["conversation_so_far"][0]
+    assert turn["answer"] == LONG_ANSWER
+    assert "answer_chars" not in turn
+    assert "prior_answer_runs" not in extra
+    assert probe.calls["prior_answers"] == 1
+
+
+def test_the_prior_answers_probe_runs_only_when_an_answer_would_be_shortened(tmp_path):
+    probe = CapabilityProbe()
+    _, _, extra = _follow_up_after_a_long_answer(tmp_path, probe=probe, answer="short answer")
+
+    assert extra["conversation_so_far"][0]["answer"] == "short answer"
+    assert "prior_answer_runs" not in extra
+    assert probe.calls.get("prior_answers", 0) == 0
+
+
+def test_a_zero_limit_replays_every_answer_in_full_and_never_probes(tmp_path):
+    probe = CapabilityProbe()
+    _, _, extra = _follow_up_after_a_long_answer(
+        tmp_path, probe=probe, cfg=CoreConfig(history_answer_limit=0)
+    )
+
+    assert extra["conversation_so_far"][0]["answer"] == LONG_ANSWER
+    assert "prior_answer_runs" not in extra
+    assert probe.calls.get("prior_answers", 0) == 0

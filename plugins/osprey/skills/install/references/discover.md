@@ -130,6 +130,12 @@ Python one keeps its package at `mcp_servers/<key>/` while a third-party one lau
 `uvx` or `npx` has no directory at all; `url:` or `port:` is a remote server, also with no
 directory.
 
+**Agent model pins** are not on the card JSON. Read every
+`claude_code.agent_models.<agent>` key, dotted or nested, from `profile.yml`'s `config:`
+block and from each file under `personas/`, plus the `model:` line of each
+`agents/<name>.md`. An agent with no pin runs the main model. The AGENT box's `models`
+line lists the main model and each pin, or `none pinned`.
+
 **Shadowing.** A file under a convention directory carrying a native artifact's name
 (`rules/facility.md`, `agents/channel-finder.md`, `skills/diagnose/`) replaces the native
 one in the build. The list keeps selecting that name and the repo's file is what renders, so
@@ -184,7 +190,7 @@ services/**, mcp_servers/**, project/**
 ```
 
 Read the base file **and every child overlay**. The base says what the deployment is, but
-provider and model may live in a child, and `extends: <preset>` inherits the rest from an
+provider, model and `claude_code.agent_models` pins may live in a child, and `extends: <preset>` inherits the rest from an
 era preset that is not in this repo. A value that comes from that preset reads `inherited
 (era preset)`, not `?`, and MAP treats it as a `native` candidate.
 
@@ -243,7 +249,8 @@ only on the user's yes; on no, every row stays `reported, not verified`.
 The card is the STATUS QUO panels in `references/cards.md`: one box per group, counts in
 the title bar, a group with nothing to say omitted, the OPEN box last. Draw it from this
 file's sections, nothing else — FRAMEWORK from §2 and §3's first two verbs, CONTROL and
-AGENT and WEB from `osprey profile card --json` plus the native-versus-custom rule,
+AGENT and WEB from `osprey profile card --json` plus the native-versus-custom rule and the
+agent model pins,
 DATA from the `data/` counts, ENV from the names rule, CUSTOM from the convention
 directories, OPEN from every `?` row and every advisory that belongs to no box.
 

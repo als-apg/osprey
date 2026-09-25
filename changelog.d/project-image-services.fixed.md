@@ -1,0 +1,1 @@
+`osprey up` builds the project image whenever a deployed service runs it — the dispatch worker, the ARIEL sync service or the record archive — instead of only when the dispatch worker is deployed, so a deployment without the worker no longer tries to pull `<project>:local` from a registry.

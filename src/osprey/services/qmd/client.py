@@ -215,7 +215,7 @@ class _UrllibTransport:
             QMDUnavailableError: If the endpoint could not be reached.
         """
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return QMDResponse(
                     status=int(response.status),
                     body=response.read().decode("utf-8", errors="replace"),

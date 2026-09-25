@@ -379,6 +379,8 @@ def _read_service_account(
 
     ``404`` is the store saying the account does not exist, which is the normal
     state of a first deploy and of a deploy whose data volume was replaced.
+    ``405`` is a store that serves no per-account read at all: it hands the token
+    over on the create instead, so a caller must already hold it from there.
     """
     try:
         response = client.get(
@@ -391,8 +393,8 @@ def _read_service_account(
         ) from exc
     if response.status_code == 200:
         return 200, _token_from(response)
-    if response.status_code == 404:
-        return 404, None
+    if response.status_code in (404, 405):
+        return response.status_code, None
     if response.status_code == 401:
         # The likeliest real failure on this path, and the one worth naming: a
         # data volume kept from an earlier deploy still holds the root password
@@ -411,13 +413,16 @@ def _read_service_account(
 
 def _create_service_account(
     client: httpx.Client, base_url: str, org: str, identity: str, root: str
-) -> None:
-    """Create the ingest service account as root.
+) -> str | None:
+    """Create the ingest service account as root, returning the token if it came back.
 
     No password and no role field: the server issues the token, and a service
     account's role is the one thing about it this deploy does not choose. A
     duplicate create is tolerated, because two runs of an idempotent step must
     not fight.
+
+    A store may hand the new account's token over here rather than on the read
+    of that account. ``None`` means "ask the read for it", not "no token exists".
     """
     try:
         response = client.post(
@@ -435,9 +440,9 @@ def _create_service_account(
             f"The telemetry store could not be asked to create its ingest account: {exc}"
         ) from exc
     if response.status_code == 200:
-        return
+        return _token_from(response)
     if response.status_code == 400 and _says_already_exists(response):
-        return
+        return None
     raise _HealFailed(
         f"The telemetry store refused to create its ingest account with HTTP "
         f"{response.status_code}."
@@ -470,9 +475,13 @@ def _delete_service_account(
 
 
 def _issue_and_read(client: httpx.Client, base_url: str, org: str, identity: str, root: str) -> str:
-    """Create the account and read its token back, or say why neither happened."""
-    _create_service_account(client, base_url, org, identity, root)
-    _status, token = _read_service_account(client, base_url, org, identity, root)
+    """Create the account and take its token from the answer that carries it.
+
+    One create, and a read only when the create handed no token over.
+    """
+    token = _create_service_account(client, base_url, org, identity, root)
+    if not token:
+        _status, token = _read_service_account(client, base_url, org, identity, root)
     if not token:
         raise _HealFailed(
             "The telemetry store created its ingest account but returned no token for it."
@@ -490,9 +499,12 @@ def _heal(
 ) -> tuple[str, str]:
     """Bring the store's ingest account into a state the ``.env`` can record.
 
-    Returns ``(action, token)``. Three shapes, in the order they are cheapest to
+    Returns ``(action, token)``. Four shapes, in the order they are cheapest to
     rule out:
 
+    * the store serves no per-account read — there is no live token to compare
+      the ``.env`` against, so the only way to a token is a re-issue, which is
+      delete plus create;
     * the account is absent — create it and read its token back;
     * the account is present and its token is not the one that just failed —
       the ``.env`` was simply out of date, so read the live token back;
@@ -500,12 +512,26 @@ def _heal(
       only fix the store offers is a re-issue, which is delete plus create.
     """
     status, stored = _read_service_account(client, base_url, org, identity, root)
+    if status == 405:
+        # With no token on file there was nothing to rotate: the account this
+        # run leaves behind is, to this deployment, a new one.
+        action = "rotated" if dead_token else "created"
+        return action, _reissue(client, base_url, org, identity, root)
     if status == 404 or stored is None:
         return "created", _issue_and_read(client, base_url, org, identity, root)
 
     if stored != dead_token and _identity_accepted(client, base_url, org, identity, stored):
         return "harvested", stored
 
+    return "rotated", _reissue(client, base_url, org, identity, root)
+
+
+def _reissue(client: httpx.Client, base_url: str, org: str, identity: str, root: str) -> str:
+    """Delete the account and create it again, then check the store takes the new token.
+
+    Writing a token the store will not accept would leave a ``.env`` that looks
+    healthy beside telemetry that is refused.
+    """
     _delete_service_account(client, base_url, org, identity, root)
     reissued = _issue_and_read(client, base_url, org, identity, root)
     if not _identity_accepted(client, base_url, org, identity, reissued):
@@ -513,7 +539,7 @@ def _heal(
             "The telemetry store issued a new ingest token that it then refused, so the "
             "agent's telemetry would not be accepted."
         )
-    return "rotated", reissued
+    return reissued
 
 
 def _write_token(env_path: Path, token: str) -> None:

@@ -91,6 +91,12 @@ MIXED_CONTROL_SYSTEM = {
 #: hang fails the test instead of the run.
 REPLY_TIMEOUT_S = 10.0
 
+#: The wait for a freshly spawned child's first frame. That frame waits on an
+#: interpreter start and the connector import, which is what a loaded parallel
+#: run stretches; every frame after it comes from a process that is already
+#: running, so it keeps the reply bound above and a hang still fails fast.
+CHILD_STARTUP_TIMEOUT_S = 30.0
+
 
 class Child:
     """A spawned connector host, with its frame channel pumped by a thread."""
@@ -109,6 +115,7 @@ class Child:
         )
         self._frames: queue.Queue = queue.Queue()
         self._stderr: deque = deque(maxlen=200)
+        self._first_frame_seen = False
         self._pump(self.proc.stdout, self._read_frames)
         self._pump(self.proc.stderr, self._read_stderr)
 
@@ -138,12 +145,21 @@ class Child:
         self.proc.stdin.flush()
         return request_id
 
-    def next_frame(self, timeout=REPLY_TIMEOUT_S):
-        """The next frame the child emitted, failing if it emitted none."""
+    def next_frame(self, timeout=None):
+        """The next frame the child emitted, failing if it emitted none.
+
+        The first frame is bounded by :data:`CHILD_STARTUP_TIMEOUT_S` and every
+        later one by :data:`REPLY_TIMEOUT_S`, unless ``timeout`` names a bound.
+        """
+        first = not self._first_frame_seen
+        if timeout is None:
+            timeout = CHILD_STARTUP_TIMEOUT_S if first else REPLY_TIMEOUT_S
         try:
             frame = self._frames.get(timeout=timeout)
         except queue.Empty:
-            pytest.fail(f"child sent no frame within {timeout}s. stderr:\n{self.stderr()}")
+            what = "first frame" if first else "frame"
+            pytest.fail(f"child sent no {what} within {timeout}s. stderr:\n{self.stderr()}")
+        self._first_frame_seen = True
         if frame is None:
             pytest.fail(f"child closed its frame channel. stderr:\n{self.stderr()}")
         return frame
@@ -511,9 +527,11 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
             env=env,
             pass_fds=(read_fd,),
             check=True,
-            timeout=REPLY_TIMEOUT_S,
+            timeout=CHILD_STARTUP_TIMEOUT_S,
         )
-        deadline = time.monotonic() + REPLY_TIMEOUT_S
+        # The orphan has to start before its watchdog can notice anything.
+        bound = CHILD_STARTUP_TIMEOUT_S + REPLY_TIMEOUT_S
+        deadline = time.monotonic() + bound
         while not pid_file.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         orphan_pid = int(pid_file.read_text())
@@ -527,10 +545,35 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
                 return
             time.sleep(0.1)
         os.kill(orphan_pid, signal.SIGKILL)
-        pytest.fail(f"orphaned child {orphan_pid} was still alive after {REPLY_TIMEOUT_S}s")
+        pytest.fail(f"orphaned child {orphan_pid} was still alive after {bound}s")
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+def test_only_the_first_frame_gets_the_startup_budget(monkeypatch):
+    """The startup allowance never widens the bound on a reply.
+
+    A hang after the child is up must still fail on the reply budget, so the
+    helper is driven here without a process: an empty channel before the first
+    frame fails on the startup bound, and after it on the reply bound.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "CHILD_STARTUP_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(sys.modules[__name__], "REPLY_TIMEOUT_S", 0.05)
+    unspawned = Child.__new__(Child)
+    unspawned._frames = queue.Queue()
+    unspawned._stderr = deque()
+    unspawned._first_frame_seen = False
+
+    with pytest.raises(pytest.fail.Exception, match=r"no first frame within 0\.2s"):
+        unspawned.next_frame()
+
+    first = object()
+    unspawned._frames.put(first)
+    assert unspawned.next_frame() is first
+
+    with pytest.raises(pytest.fail.Exception, match=r"no frame within 0\.05s"):
+        unspawned.next_frame()
 
 
 # ------------------------------------------------- report derivation (unit)

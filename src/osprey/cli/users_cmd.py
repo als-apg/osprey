@@ -321,7 +321,7 @@ def _purge_terminal_secret(session: _Repo, user: str) -> None:
     variable = terminal_secret_var(user)
     try:
         survivors = [name for name in _roster_usernames(session.config) if name != user]
-    except Exception as exc:  # noqa: BLE001 - advisory read; see the docstring
+    except Exception as exc:  # advisory read; see the docstring
         logger.debug(f"Roster collision check skipped for {user!r}: {exc}")
         survivors = []
     shared_with = [name for name in survivors if terminal_secret_var(name) == variable]

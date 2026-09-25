@@ -734,7 +734,7 @@ def test_a_persona_placeholder_resolves_from_the_repo_env(tmp_path, calls, monke
     monkeypatch.delenv("OPS_MODEL", raising=False)
     repo = _repo(tmp_path, "ops")
     (repo / ".env").write_text(
-        "ANTHROPIC_API_KEY=sk-facility\nOPS_MODEL=sonnet\n", encoding="utf-8"
+        "ANTHROPIC_API_KEY=sk-facility\nOPS_MODEL=claude-sonnet-5\n", encoding="utf-8"
     )
     project_path = _render(repo)
     (project_path / "config.yml").write_text(
@@ -758,7 +758,7 @@ def _telemetry_render(repo: Path, password_line: str) -> Path:
         "project_name: ops-app\n"
         "claude_code:\n"
         "  provider: anthropic\n"
-        "  default_model: sonnet\n"
+        "  default_model: claude-sonnet-5\n"
         "  telemetry:\n"
         "    enabled: true\n"
         "    backend: openobserve\n" + password_line,

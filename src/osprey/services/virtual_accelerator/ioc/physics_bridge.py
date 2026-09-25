@@ -38,12 +38,27 @@ place the bridge expects more of a backend than the ``LUMEModel`` contract: it
 looks the faults up under the names the served model declares
 (``<element>.<field>``), so a backend that declares them under other names, or
 not at all, serves an unfaulted machine.
+
+A monitor also moves on its own. The machine file declares how each channel's
+reading wanders and scatters around its level (``texture``, relative
+``noise``, ``noise_abs``), and the archived history of that channel is
+synthesized from the same declaration. The bridge applies it to the model's
+truth through a :class:`MachineMotion` -- the simulation engine, whose
+arithmetic is the synthesis's own -- so the present a recorder samples and the
+past it was seeded with are one description of the machine. The motion is beam
+motion: it is added to the truth before the readout faults, so a monitor's
+offsets and gains apply to the moving beam exactly as they apply to the
+synthesized history. The truth itself stays motion-free. Because the motion is
+a function of time, :meth:`PhysicsBridge.tick` re-serves every reading from the
+last solved orbit on each telemetry tick without solving it again; only a write
+solves.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+import time
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from lume.variables import NDVariable
@@ -99,6 +114,23 @@ _IDENTITY_MAGNET_CAL: dict[str, float] = {
 _MAGNET_CAL_VARIABLES: frozenset[str] = frozenset(_MAGNET_CAL_FIELDS.values())
 
 
+class MachineMotion(Protocol):
+    """How a channel's reading moves around the level the model computes.
+
+    :class:`~osprey.simulation.engine.SimulationEngine` is the implementation:
+    it holds the machine file's per-channel ``texture``/``noise``/``noise_abs``
+    and applies them with the same arithmetic synthesis uses.
+    """
+
+    def has_motion(self, pv: str) -> bool:
+        """Whether ``measure`` would move a value of ``pv``."""
+        ...
+
+    def measure(self, pv: str, value: float, t_abs_s: float) -> float:
+        """``value`` with ``pv``'s declared motion at absolute epoch ``t_abs_s``."""
+        ...
+
+
 def _nothing_is_stuck() -> frozenset[str]:
     """No setpoint is stuck: what a bridge with no serving path around it sees."""
     return frozenset()
@@ -152,6 +184,8 @@ class PhysicsBridge:
         model: LUMEModel,
         *,
         rng_seed: int | None = None,
+        motion: MachineMotion | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         """Attach a physics model and seed the readout-noise generator.
 
@@ -175,6 +209,15 @@ class PhysicsBridge:
                 `<element>.noise_x`/`noise_y`. `None` seeds from OS entropy
                 (non-reproducible), matching `numpy.random.default_rng`'s own
                 default.
+            motion: the machine file's declared motion per monitor address,
+                applied to the truth before the readout faults each time a
+                reading is served. A monitor it declares no motion for, and
+                every monitor when this is `None` (the default), is served
+                exactly as the model and its faults make it. The relative
+                noise it applies is the machine file's own number and is not
+                scaled by the telemetry noise level the static channels use.
+            clock: absolute epoch seconds at which a served reading is taken,
+                the time the motion is evaluated at. `time.time` by default.
 
         Raises:
             ValueError: the model publishes a read-only scalar that states
@@ -192,6 +235,8 @@ class PhysicsBridge:
         self._stuck = _nothing_is_stuck
         self._rng = np.random.default_rng(rng_seed)
         self._model = model
+        self._motion = motion
+        self._clock = clock
 
         # The model's read-only *scalar* variables are exactly the monitor
         # readings the bindings document publishes. Its read-only arrays --
@@ -239,6 +284,14 @@ class PhysicsBridge:
         self._bpm_fault_reads: list[str] = [
             name for fields in self._bpm_fault_names.values() for name in fields.values()
         ]
+        # The served readings the machine file gives a motion of their own.
+        # Decided once: what a channel declares is fixed for the machine file's
+        # lifetime, and every other reading is served with no motion at all.
+        self._moving: frozenset[str] = (
+            frozenset()
+            if motion is None
+            else frozenset(a for a in self._bpm_output_addresses if motion.has_motion(a))
+        )
         self._refresh_bpm_positions()
 
     def bind(
@@ -420,6 +473,30 @@ class PhysicsBridge:
         self._refresh_bpm_positions()
         self._push_bpm_readbacks()
 
+    @property
+    def moves(self) -> bool:
+        """Whether any served reading carries a declared motion.
+
+        False means every reading is a function of the model's state alone,
+        so re-serving it between writes changes nothing and :meth:`tick` has
+        no work worth scheduling.
+        """
+        return bool(self._moving)
+
+    def tick(self) -> None:
+        """Re-serve every monitor reading at the current time.
+
+        The orbit is the one the last write or refresh solved: nothing is
+        re-applied to the model and nothing is solved, so a tick can neither
+        move a magnet nor fail a solve, and a stuck or rolled-back setpoint is
+        exactly as the write path left it. What changes between two ticks is
+        the machine file's motion, evaluated at the tick's time, and the
+        readout noise draw. The faults are read back from the model as on any
+        push, so this runs where every other model access does -- on the run
+        loop's thread.
+        """
+        self._push_bpm_readbacks()
+
     def bpm_positions(self) -> dict[str, float]:
         """Return the most recently solved monitor readings, keyed by address.
 
@@ -509,15 +586,21 @@ class PhysicsBridge:
         though the other were exactly on axis: the unbound plane has no served
         truth to mix in, so a roll seeded on such a monitor rotates against
         zero.
+
+        The machine file's motion is added to the truth first, at one time
+        for the whole push, so it is beam motion the faults then read: an
+        offset is subtracted from the moving beam, as the seeded history
+        subtracts it from the synthesized one.
         """
         faults = self._bpm_read_faults()
+        now = self._clock() if self._moving else 0.0
         for element in sorted(self._monitors):
             axes = self._monitors[element]
             x_address = axes.get(_AXIS_X)
             y_address = axes.get(_AXIS_Y)
-            true_x = self._bpm_positions[x_address] if x_address is not None else 0.0
-            true_y = self._bpm_positions[y_address] if y_address is not None else 0.0
-            reading_x, reading_y = bpm_read(true_x, true_y, rng=self._rng, **faults[element])
+            beam_x = self._beam(x_address, now)
+            beam_y = self._beam(y_address, now)
+            reading_x, reading_y = bpm_read(beam_x, beam_y, rng=self._rng, **faults[element])
 
             for address, reading in ((x_address, reading_x), (y_address, reading_y)):
                 if address is None:
@@ -526,8 +609,22 @@ class PhysicsBridge:
                 if record is not None:
                     record.set(reading)
 
+    def _beam(self, address: str | None, now: float) -> float:
+        """The beam position a monitor reads at `now`: truth plus declared motion.
+
+        An unbound plane is exactly on axis, and a reading the machine file
+        declares no motion for is the truth itself.
+        """
+        if address is None:
+            return 0.0
+        truth = self._bpm_positions[address]
+        if self._motion is None or address not in self._moving:
+            return truth
+        return self._motion.measure(address, truth, now)
+
 
 __all__ = [
+    "MachineMotion",
     "OrbitSolveError",
     "PhysicsBridge",
     "UnknownDeviceError",

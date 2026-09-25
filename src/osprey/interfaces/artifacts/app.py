@@ -365,7 +365,7 @@ def _resolve_pinned_web_theme() -> str | None:
         # No config primed (standalone gallery, tests) — not a fault.
         logger.debug("No config available for web.theme; served pages are unpinned")
         return None
-    except Exception:  # noqa: BLE001 - config/registry trouble must not block startup
+    except Exception:  # config/registry trouble must not block startup
         logger.warning(
             "Could not resolve web.theme for served artifact pages; "
             "they will follow the viewer's own preference",
@@ -429,6 +429,11 @@ class _SSEBroadcaster:
 #: Used when ``artifact_server.max_timeseries_file_mb`` is unset.
 DEFAULT_MAX_TIMESERIES_FILE_MB = 200
 
+#: Used when ``artifact_server.page_size`` is unset.
+DEFAULT_PAGE_SIZE = 20
+#: Largest page one listing request may ask for; a configured page_size above it is capped.
+MAX_PAGE_SIZE = 200
+
 
 def _max_timeseries_file_bytes() -> int:
     """Largest timeseries file the chart/table views will render, in bytes.
@@ -465,6 +470,38 @@ def _max_timeseries_file_bytes() -> int:
             DEFAULT_MAX_TIMESERIES_FILE_MB,
         )
     return megabytes * 1024 * 1024
+
+
+def _page_size() -> int:
+    """How many artifacts one listing request answers with.
+
+    This is therefore how many the gallery draws before it fetches more. A
+    facility with slow links or very large stores lowers it with
+    ``artifact_server.page_size``; one with a handful of artifacts per shift
+    may raise it.
+    """
+    size = DEFAULT_PAGE_SIZE
+    try:
+        from osprey.utils.config import get_config_value
+
+        configured = get_config_value("artifact_server.page_size", DEFAULT_PAGE_SIZE)
+    except Exception:
+        logger.debug("No config available for artifact_server.page_size", exc_info=True)
+        configured = None
+    if isinstance(configured, int) and not isinstance(configured, bool) and configured > 0:
+        size = configured
+        if size > MAX_PAGE_SIZE:
+            logger.warning(
+                "artifact_server.page_size is capped at %d (got %d)", MAX_PAGE_SIZE, size
+            )
+            size = MAX_PAGE_SIZE
+    elif configured is not None and configured != DEFAULT_PAGE_SIZE:
+        logger.warning(
+            "artifact_server.page_size must be an integer >= 1 (got %r); using %d",
+            configured,
+            DEFAULT_PAGE_SIZE,
+        )
+    return size
 
 
 def _union_timestamp_axis(series: dict[str, dict]) -> Collection:
@@ -640,6 +677,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # opened outside the hub.
     web_theme_pin = _resolve_pinned_web_theme()
 
+    # Resolved once, after config priming like the theme pin, because the
+    # listing route's own ``limit`` default is built from it when the route is
+    # defined.
+    page_size = _page_size()
+
     # Also after config priming: the one gallery process each workspace has
     # (single-user `osprey web` and every persona container alike) seeds the
     # shipped example here, so the WORKSPACE is not empty on a first visit.
@@ -762,17 +804,28 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         pinned: bool | None = Query(None),
         category: str | None = None,
         session_id: str | None = None,
+        limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
+        cursor: str | None = Query(None),
     ):
-        entries = store.list_entries(
-            type_filter=type,
-            search=search,
-            pinned=pinned,
-            category_filter=category,
-            session_filter=session_id,
-        )
+        try:
+            page = store.page_entries(
+                limit=limit,
+                cursor=cursor,
+                type_filter=type,
+                search=search,
+                pinned=pinned,
+                category_filter=category,
+                session_filter=session_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="cursor is not one this listing issued"
+            ) from exc
         return {
-            "count": len(entries),
-            "artifacts": [e.to_dict() for e in entries],
+            "count": len(page.entries),
+            "total": page.total,
+            "next_cursor": page.next_cursor,
+            "artifacts": [e.to_dict() for e in page.entries],
         }
 
     @app.get("/api/artifacts/{artifact_id}")

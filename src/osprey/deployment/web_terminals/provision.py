@@ -96,6 +96,7 @@ from osprey.deployment.web_terminals.render import (
     _auth_tls_context,
 )
 from osprey.deployment.web_terminals.seeding import seed_user_containers
+from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -854,6 +855,11 @@ def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> tuple[Pa
     """
     context_dir = repo_root / AUTH_BUILD_CONTEXT
     context_dir.mkdir(parents=True, exist_ok=True)
+    # The directory outlives the deploy, and the Dockerfile installs every
+    # wheel it finds: a wheel left from an earlier --dev run beside this run's
+    # one is two versions of one distribution, which pip refuses to resolve.
+    for artifact in _staged_dev_artifact_paths(str(context_dir)):
+        artifact.unlink()
     template_dir = files("osprey").joinpath(_AUTH_TEMPLATE_PACKAGE_PATH)
     for name in _AUTH_CONTEXT_FILES:
         with as_file(template_dir.joinpath(name)) as source:

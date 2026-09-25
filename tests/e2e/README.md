@@ -300,6 +300,15 @@ Each of these lanes then skips only when the provider it was told to build with
 has no credential, and the skip reason names that provider and the environment
 variable holding its key.
 
+### Which model the lanes run
+
+A lane whose call site names no model builds with `E2E_MODEL` from
+`tests/e2e/provider.py`, Haiku 4.5 (`claude-haiku-4-5-20251001`), not with the
+default the provider's catalog entry gives a deployment. The suite's per-query
+budgets are sized for that model. A gateway that serves Haiku 4.5 under another
+id changes that one constant. The benchmark matrix replaces the model per cell
+with `OSPREY_E2E_FORCE_MODEL`.
+
 ### Provider × model matrix (opt-in)
 
 `test_llm_providers.py` is skipped by default. It is the one file that makes

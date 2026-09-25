@@ -35,8 +35,15 @@ import {
   showErrorBanner,
   hideErrorBanner,
   fetchArtifacts,
+  fetchMoreArtifacts,
   fetchFocus,
   getFilteredArtifacts,
+  getArtifactTotal,
+  hasMoreArtifacts,
+  inCurrentScope,
+  addArtifact,
+  removeArtifact,
+  getListSearch,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 
 afterEach(() => {
@@ -194,6 +201,41 @@ describe('fetchArtifacts', () => {
     expect(byId('error-banner').textContent).toBe('Failed to fetch artifacts: network down');
   });
 
+  test('records the total and the cursor, and defaults the total to the returned length', async () => {
+    setCurrentSessionId(null);
+    setShowAllSessions(false);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ artifacts: [{ id: 'a1' }], total: 40, next_cursor: 'c1' }),
+    }));
+    await fetchArtifacts();
+    expect(getArtifactTotal()).toBe(40);
+    expect(hasMoreArtifacts()).toBe(true);
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ artifacts: [{ id: 'a1' }, { id: 'a2' }] }),
+    }));
+    await fetchArtifacts();
+    expect(getArtifactTotal()).toBe(2);
+    expect(hasMoreArtifacts()).toBe(false);
+  });
+
+  test('carries an escaped search, with and without a session scope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentSessionId(null);
+    setShowAllSessions(false);
+    await fetchArtifacts({ search: 'beam & orbit' });
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/artifacts?search=beam%20%26%20orbit');
+
+    setCurrentSessionId('sess/1');
+    await fetchArtifacts({ search: 'a+b' });
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/artifacts?search=a%2Bb&session_id=sess%2F1');
+    setCurrentSessionId(null);
+  });
+
   test('is safe to call with no callbacks at all', async () => {
     setCurrentSessionId(null);
     setShowAllSessions(false);
@@ -266,5 +308,254 @@ describe('getFilteredArtifacts', () => {
     getFilteredArtifacts('');
     expect(getArtifacts()).toBe(fixtures);
     expect(fixtures.map((a) => a.id)).toEqual(['1', '2', '3', '4']);
+  });
+});
+
+describe('paging', () => {
+  /** @param {any} body */
+  function okResponse(body) {
+    return { ok: true, json: () => Promise.resolve(body) };
+  }
+
+  /** @param {any} firstPage */
+  async function loadFirstPage(firstPage) {
+    setCurrentSessionId(null);
+    setShowAllSessions(false);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse(firstPage)));
+    await fetchArtifacts();
+  }
+
+  test('fetchMoreArtifacts appends the next page, sends the held cursor, and fires onArtifactsUpdated', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }, { id: 'a2' }], total: 3, next_cursor: 'cur 1' });
+    const fetchMock = vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a3' }], total: 3, next_cursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const onArtifactsUpdated = vi.fn();
+    await fetchMoreArtifacts({ onArtifactsUpdated });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts?cursor=cur%201');
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2', 'a3']);
+    expect(onArtifactsUpdated).toHaveBeenCalledTimes(1);
+    expect(hasMoreArtifacts()).toBe(false);
+  });
+
+  test('fetchMoreArtifacts is a no-op with no cursor held', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 1, next_cursor: null });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchMoreArtifacts();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('a second call while a page is in flight issues no second request', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 2, next_cursor: 'c1' });
+    /** @type {(v: any) => void} */
+    let release = () => {};
+    const fetchMock = vi.fn().mockReturnValue(new Promise((r) => { release = r; }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = fetchMoreArtifacts();
+    await fetchMoreArtifacts();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    release(okResponse({ artifacts: [{ id: 'a2' }], total: 2, next_cursor: null }));
+    await first;
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
+  });
+
+  test('a next-page call while a first page is in flight issues no request, and the settled page answers it', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 2, next_cursor: 'c1' });
+    /** @type {(v: any) => void} */
+    let release = () => {};
+    const fetchMock = vi.fn().mockReturnValue(new Promise((r) => { release = r; }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = fetchArtifacts({ search: 'b' });
+    await fetchMoreArtifacts();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    release(okResponse({ artifacts: [{ id: 'b1' }], total: 2, next_cursor: 'cb' }));
+    await first;
+    expect(getArtifacts().map((a) => a.id)).toEqual(['b1']);
+
+    fetchMock.mockResolvedValue(okResponse({ artifacts: [{ id: 'b2' }], total: 2, next_cursor: null }));
+    await fetchMoreArtifacts();
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/artifacts?search=b&cursor=cb');
+    expect(getArtifacts().map((a) => a.id)).toEqual(['b1', 'b2']);
+  });
+
+  test('onArtifactsUpdated may chain the next page, so a short list fills over three or more pages', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 4, next_cursor: 'c1' });
+    const pages = [
+      { artifacts: [{ id: 'a2' }], total: 4, next_cursor: 'c2' },
+      { artifacts: [{ id: 'a3' }], total: 4, next_cursor: 'c3' },
+      { artifacts: [{ id: 'a4' }], total: 4, next_cursor: null },
+    ];
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(okResponse(pages.shift())));
+    vi.stubGlobal('fetch', fetchMock);
+
+    /** @type {Promise<void>[]} */
+    const chained = [];
+    const callbacks = { onArtifactsUpdated: () => { chained.push(fetchMoreArtifacts(callbacks)); } };
+    await fetchMoreArtifacts(callbacks);
+    while (chained.length) await chained.shift();
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2', 'a3', 'a4']);
+  });
+
+  test('a call while a chained page is in flight issues no request', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3, next_cursor: 'c1' });
+    /** @type {(v: any) => void} */
+    let release = () => {};
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(okResponse({ artifacts: [{ id: 'a2' }], total: 3, next_cursor: 'c2' }))
+      .mockReturnValueOnce(new Promise((r) => { release = r; }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    /** @type {Promise<void>[]} */
+    const chained = [];
+    const callbacks = { onArtifactsUpdated: () => { chained.push(fetchMoreArtifacts(callbacks)); } };
+    await fetchMoreArtifacts(callbacks);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await fetchMoreArtifacts(callbacks);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    release(okResponse({ artifacts: [{ id: 'a3' }], total: 3, next_cursor: null }));
+    while (chained.length) await chained.shift();
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  test('a duplicate id in the appended page is not added twice', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }, { id: 'a2' }], total: 3, next_cursor: 'c1' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      okResponse({ artifacts: [{ id: 'a2' }, { id: 'a3' }], total: 3, next_cursor: null }),
+    ));
+
+    await fetchMoreArtifacts();
+
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  test('hasMoreArtifacts follows the cursor, and a failed page leaves it true', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 2, next_cursor: 'c1' });
+    expect(hasMoreArtifacts()).toBe(true);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
+
+    await fetchMoreArtifacts();
+
+    expect(hasMoreArtifacts()).toBe(true);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
+  });
+
+  test('inCurrentScope admits untagged and matching entries, refuses a foreign one, admits all with all-sessions on', () => {
+    setCurrentSessionId('s1');
+    setShowAllSessions(false);
+    expect(inCurrentScope({ id: 'x' })).toBe(true);
+    expect(inCurrentScope({ id: 'x', session_id: '' })).toBe(true);
+    expect(inCurrentScope({ id: 'x', session_id: 's1' })).toBe(true);
+    expect(inCurrentScope({ id: 'x', session_id: 's2' })).toBe(false);
+    setShowAllSessions(true);
+    expect(inCurrentScope({ id: 'x', session_id: 's2' })).toBe(true);
+    setShowAllSessions(false);
+    setCurrentSessionId(null);
+  });
+
+  test('addArtifact returns false while a search is active and leaves the list alone', async () => {
+    setCurrentSessionId(null);
+    setShowAllSessions(false);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a1' }], total: 1 })));
+    await fetchArtifacts({ search: 'beam' });
+
+    expect(addArtifact({ id: 'new' })).toBe(false);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
+    expect(getArtifactTotal()).toBe(1);
+  });
+
+  test('addArtifact returns true without adding a foreign-session entry', async () => {
+    setCurrentSessionId('s1');
+    setShowAllSessions(false);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse({ artifacts: [{ id: 'a1' }], total: 1 })));
+    await fetchArtifacts();
+
+    expect(addArtifact({ id: 'foreign', session_id: 's2' })).toBe(true);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
+    expect(getArtifactTotal()).toBe(1);
+    setCurrentSessionId(null);
+  });
+
+  test('addArtifact adds, bumps the total, and refuses a duplicate', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 1 });
+
+    expect(addArtifact({ id: 'a2' })).toBe(true);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
+    expect(getArtifactTotal()).toBe(2);
+
+    expect(addArtifact({ id: 'a2' })).toBe(true);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
+    expect(getArtifactTotal()).toBe(2);
+  });
+
+  test('addArtifact holds an entry the total already counts without bumping the total', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3, next_cursor: 'c1' });
+
+    expect(addArtifact({ id: 'older' }, { counted: true })).toBe(true);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'older']);
+    expect(getArtifactTotal()).toBe(3);
+  });
+
+  test('an entry held on its own before its save event is counted once when that event arrives', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
+
+    addArtifact({ id: 'new' }, { counted: true });
+    expect(getArtifactTotal()).toBe(3);
+    expect(addArtifact({ id: 'new' })).toBe(true);
+    expect(getArtifactTotal()).toBe(4);
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1', 'new']);
+    addArtifact({ id: 'new' });
+    expect(getArtifactTotal()).toBe(4);
+  });
+
+  test('a fresh first page settles the count of an entry held on its own', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
+    addArtifact({ id: 'new' }, { counted: true });
+
+    await loadFirstPage({ artifacts: [{ id: 'new' }, { id: 'a1' }], total: 4 });
+    addArtifact({ id: 'new' });
+    expect(getArtifactTotal()).toBe(4);
+  });
+
+  test('getListSearch names the search the held list was fetched with', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse({ artifacts: [] })));
+    await fetchArtifacts({ search: 'orbit' });
+    expect(getListSearch()).toBe('orbit');
+    await fetchArtifacts();
+    expect(getListSearch()).toBe('');
+  });
+
+  test('removeArtifact drops the entry, decrements the total, and floors it at zero', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }, { id: 'a2' }], total: 5 });
+
+    removeArtifact('a1');
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
+    expect(getArtifactTotal()).toBe(4);
+
+    await loadFirstPage({ artifacts: [], total: 0 });
+    setArtifacts([{ id: 'stray' }]);
+    removeArtifact('stray');
+    expect(getArtifacts()).toEqual([]);
+    expect(getArtifactTotal()).toBe(0);
+  });
+
+  test('removeArtifact of an entry held uncounted drops it and leaves the total alone', async () => {
+    await loadFirstPage({ artifacts: [{ id: 'a1' }], total: 3 });
+    addArtifact({ id: 'x' }, { counted: true });
+
+    removeArtifact('x');
+    expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
+    expect(getArtifactTotal()).toBe(3);
   });
 });

@@ -398,7 +398,7 @@ class MockQueueServer:
         one the real wrapper builds, not a name parsed out of the script text.
         """
         await self._enter("script_upload", **kwargs)
-        exec(kwargs["script"], self.namespace, self.namespace)  # noqa: S102
+        exec(kwargs["script"], self.namespace, self.namespace)
         return {"success": True, "task_uid": f"task-{len(self.kwargs_for('script_upload'))}"}
 
     async def task_result(self, **kwargs: Any) -> dict[str, Any]:
@@ -1486,7 +1486,7 @@ def test_health_publishes_the_capability_record_the_refusal_carries(
     manager: MockQueueServer,
     connector: Callable[[str | Exception], None],
     reason: str,
-    expected_status: int,  # noqa: ARG001 - a column of the shared _FAIL_CLOSED_CASES table
+    expected_status: int,
 ) -> None:
     """The cross-surface half of the contract: whatever `/health` says about
     this deployment is exactly what a refusal carries, and liveness never
@@ -1502,6 +1502,7 @@ def test_health_publishes_the_capability_record_the_refusal_carries(
     assert body["status"] == "ok"
     assert body["capability"]["can_execute"] is False
     assert body["capability"]["reason"] == reason
+    assert refused.status_code == expected_status, refused.text
     assert body["capability"] == refused.json()["detail"]["capability"]
 
 

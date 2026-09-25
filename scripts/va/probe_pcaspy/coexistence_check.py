@@ -95,7 +95,7 @@ def use_production_libca() -> str:
     epicscorelibs libca that production actually loads, the same caget
     **segfaults**. Probing the bundled one would understate the risk.
     """
-    from epicscorelibs.path import get_lib  # noqa: PLC0415
+    from epicscorelibs.path import get_lib
 
     libca = get_lib("ca")
     os.environ["PYEPICS_LIBCA"] = libca
@@ -122,7 +122,7 @@ LOCAL_PVDB = {
 
 def import_pcaspy():
     """Just the import -- no server object anywhere."""
-    import pcaspy  # noqa: PLC0415 - the import under test
+    import pcaspy  # the import under test
 
     print(f"  imported pcaspy {pcaspy.__version__} (no server object constructed)", flush=True)
     return pcaspy
@@ -158,7 +158,7 @@ def do_caget(expect: float | None, name: str = SP) -> tuple[bool, str]:
     ``expect`` NaN means "must be reachable, any value" -- used for the
     free-running telemetry PV, which has no predictable value.
     """
-    import epics  # noqa: PLC0415 - imported per phase, after any pcaspy import
+    import epics  # imported per phase, after any pcaspy import
 
     started = time.monotonic()
     value = epics.caget(name, timeout=CONNECT_TIMEOUT_S)
@@ -183,7 +183,7 @@ def do_caget(expect: float | None, name: str = SP) -> tuple[bool, str]:
 
 def phase_control(sentinel: float) -> int:
     """No pcaspy in this process at all. Establishes that the client env works."""
-    import epics  # noqa: PLC0415
+    import epics
 
     if epics.caput(SP, sentinel, wait=True, timeout=20) != 1:
         print(f"PHASE control FAIL -- caput {SP}={sentinel} did not complete", flush=True)
@@ -244,7 +244,7 @@ def phase_libca_init_first(sentinel: float) -> int:
     connects PVs it has never seen before, so the rescue is only worth reporting
     if a caput with put-completion and a fresh channel both survive too.
     """
-    import epics  # noqa: PLC0415
+    import epics
 
     epics.ca.initialize_libca()
     print("  called epics.ca.initialize_libca() (no PV connected yet)", flush=True)
@@ -366,14 +366,14 @@ def probed_environment() -> str:
     is therefore worse than no verdict, because the deployment target (linux CI)
     and the development host disagree.
     """
-    import platform  # noqa: PLC0415
+    import platform
 
     bits = f"{platform.system().lower()}/{platform.machine()} python {platform.python_version()}"
     try:
-        import pcaspy  # noqa: PLC0415
+        import pcaspy
 
         bits += f", pcaspy {pcaspy.__version__}"
-    except Exception:  # noqa: BLE001 - reported as absent rather than fatal here
+    except Exception:  # reported as absent rather than fatal here
         bits += ", pcaspy unavailable"
     return bits
 
@@ -392,7 +392,7 @@ def orchestrate() -> int:
         timed_out = False
         result = None
         try:
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 [sys.executable, os.path.abspath(__file__), "--phase", name],
                 capture_output=True,
                 text=True,
@@ -511,10 +511,10 @@ def maybe_reexec() -> None:
     if os.environ.get("PROBE_COEXIST_REEXECED"):
         return
     try:
-        import pcaspy  # noqa: F401, PLC0415
+        import pcaspy  # noqa: F401
 
         return
-    except Exception:  # noqa: BLE001 - any import failure means "cannot host pcaspy"
+    except Exception:  # any import failure means "cannot host pcaspy"
         pass
     fallback = os.path.abspath(FALLBACK_PYTHON)
     if not os.path.exists(fallback) or os.path.samefile(fallback, sys.executable):

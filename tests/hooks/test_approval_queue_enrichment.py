@@ -86,10 +86,10 @@ class _FakeBridgeHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_GET(self):  # noqa: N802 (stdlib method name)
+    def do_GET(self):  # stdlib method name
         self._serve(self.routes.get(self.path, _MISSING))
 
-    def do_POST(self):  # noqa: N802 (stdlib method name)
+    def do_POST(self):  # stdlib method name
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         try:
@@ -99,7 +99,7 @@ class _FakeBridgeHandler(http.server.BaseHTTPRequestHandler):
         self.posted.append((self.path, parsed))
         self._serve(self.routes.get(self.path, _MISSING))
 
-    def log_message(self, format, *args):  # noqa: A002 (stdlib signature)
+    def log_message(self, format, *args):  # stdlib signature
         pass  # keep test output quiet
 
 

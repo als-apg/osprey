@@ -130,6 +130,10 @@ class TestSchemaParity:
     def test_refused_is_spelled_as_the_envelope_spells_it(self, emitter):
         assert emitter.AUDIT_DECISION_REFUSED == osprey_envelope.DECISION_REFUSED
 
+    def test_an_asks_answers_are_spelled_as_the_envelope_spells_them(self, emitter):
+        assert emitter.AUDIT_DECISION_APPROVED == osprey_envelope.DECISION_APPROVED
+        assert emitter.AUDIT_DECISION_DENIED == osprey_envelope.DECISION_DENIED
+
     def test_field_bounds_match_the_envelope(self, emitter):
         assert emitter.AUDIT_MAX_FIELD_CHARS == osprey_envelope.MAX_FIELD_CHARS
         assert emitter.AUDIT_MAX_DETAIL_CHARS == osprey_envelope.MAX_DETAIL_CHARS
@@ -225,9 +229,62 @@ class TestSchemaParity:
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
         stamp = records(path)[0]["ts"]
-        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp)
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", stamp)
         reference = osprey_envelope.utc_timestamp()
         assert len(stamp) == len(reference)
+
+    def test_the_tool_use_id_comes_from_the_hook_input(self, emitter, repo, monkeypatch):
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        path = emitter.emit_audit(
+            "limits",
+            {"tool_name": "t", "tool_use_id": "toolu_hook1"},
+            decision="refused",
+            subject="t",
+            reason="limits_violation",
+            detail="x=1",
+        )
+        emitted = records(path)[0]
+        assert emitted["tool_use_id"] == "toolu_hook1"
+        reference = osprey_envelope.AuditEnvelope(
+            surface="hook_limits",
+            actor="alice",
+            posture=emitted["posture"],
+            posture_source=emitted["posture_source"],
+            session=emitted["session"],
+            subject="t",
+            decision="refused",
+            reason="limits_violation",
+            detail="x=1",
+            tool_use_id="toolu_hook1",
+            ts=emitted["ts"],
+        ).to_dict()
+        assert list(emitted) == list(reference)
+
+    def test_an_explicit_tool_use_id_wins(self, emitter, repo, monkeypatch):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        path = emitter.emit_audit(
+            "limits",
+            {"tool_use_id": "toolu_input"},
+            decision="refused",
+            subject="t",
+            reason="r",
+            tool_use_id="toolu_explicit",
+        )
+        assert records(path)[0]["tool_use_id"] == "toolu_explicit"
+
+    @pytest.mark.parametrize("bad", ["", "a/b", "x" * 129, 42, "../x"])
+    def test_a_malformed_tool_use_id_is_dropped(self, emitter, repo, monkeypatch, bad):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        path = emitter.emit_audit(
+            "limits", {"tool_use_id": bad}, decision="refused", subject="t", reason="r"
+        )
+        assert "tool_use_id" not in records(path)[0]
+
+    def test_the_tool_use_id_shape_is_the_frameworks(self, emitter):
+        from osprey.audit import call as osprey_call
+
+        assert emitter._AUDIT_TOOL_USE_ID.pattern == osprey_call._TOOL_USE_ID.pattern
 
 
 # --------------------------------------------------------------------------

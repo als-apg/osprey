@@ -67,6 +67,7 @@ from .build_profile_schema import (
 )
 from .build_profile_va_faults import (
     live_standin_errors,
+    pva_port_errors,
     standin_archive_errors,
     standin_baseline_errors,
 )
@@ -863,6 +864,9 @@ class BuildProfile:
         ``virtual_accelerator.port`` is deliberately absent: the stand-in's rule
         against it is its own, with a message naming both halves, and reporting
         the same collision twice would not help anyone.
+        ``virtual_accelerator.pva_port`` is absent for the same reason; its own
+        rule clears it against this ledger and against both instance ports, so
+        a pvAccess/stand-in collision is reported once.
 
         A port a profile never spells is spent all the same. The framework's own
         services take the layout's slots at whatever base the deployment
@@ -1505,11 +1509,18 @@ class BuildProfile:
         # by the framework) or a custom panel backed by a ``web.panels.<id>.url``
         # config override (rendered as an iframe by the web terminal). Catches
         # typos in shipped presets and missing URL backing for facility panels.
+        from .build_profile_panels import (
+            panel_id_errors,
+            panel_leaf_spellings,
+            panel_selection_errors,
+            panel_spelling_errors,
+        )
+
         for panel in self.web_panels:
             if panel in BUILTIN_PANELS:
                 continue
             url_key = f"web.panels.{panel}.url"
-            if url_key in self.config:
+            if panel_leaf_spellings(self.config, panel, "url"):
                 continue
             # The ``events`` panel URL is derived post-build from the dispatch
             # block (``_inject_dispatch`` in build_cmd.py), which runs after this
@@ -1523,17 +1534,21 @@ class BuildProfile:
             # legitimately url-less here when a bluesky_web block is present.
             if panel == "bluesky" and self.bluesky_web is not None:
                 continue
+            missing = (
+                "no url for it under config: (an id with a dot in it is one key under "
+                f"web.panels, as in web.panels: {{{panel!r}: {{url: …}}}})"
+                if "." in panel
+                else f"no '{url_key}' config override"
+            )
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
-                f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
+                f"({sorted(BUILTIN_PANELS)}) and {missing}"
             )
 
         # An authored `web.panels.<id>.enabled` that contradicts the selection:
         # `web_panels` is what shows a tab, and the build writes `enabled` onto
         # every rendered block from it, so a `config:` line saying otherwise is
         # two spellings of one fact disagreeing.
-        from .build_profile_panels import panel_id_errors, panel_selection_errors
-
         errors.extend(panel_selection_errors(self.config, self.web_panels))
 
         # A `web.panels.<id>` the served terminal could never route: the id is
@@ -1542,6 +1557,10 @@ class BuildProfile:
         # verdict is read here so the line is named while it is still a line in
         # a profile rather than a container that will not boot.
         errors.extend(panel_id_errors(self.config))
+
+        # A `panels.<…>` key inside a `web:` mapping renders as one literal key
+        # under `web`, never as a panel, so it is refused while it is a line.
+        errors.extend(panel_spelling_errors(self.config))
 
         # Validate default_panel: must be a tab this render shows — selected in
         # web_panels, or universal. Catches typos like `default_panel: areil`,
@@ -1769,8 +1788,10 @@ class BuildProfile:
         # Validate virtual_accelerator configuration
         if self.virtual_accelerator is not None:
             va = self.virtual_accelerator
+            claimed = self._claimed_ports()
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
+            errors.extend(pva_port_errors(va, claimed, self.config))
             # A live stand-in is a SECOND container claiming a second port and
             # a THIRD control target, so it can collide with any port the
             # profile already spends and with the simulation's own gateways.
@@ -1781,7 +1802,7 @@ class BuildProfile:
                     live_standin_errors(
                         va.live_standin,
                         va.port,
-                        self._claimed_ports(),
+                        claimed,
                         self.config,
                         profile_dir,
                     )

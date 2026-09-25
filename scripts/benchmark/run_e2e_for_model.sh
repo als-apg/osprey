@@ -74,8 +74,8 @@ echo ">> junit=$XML" >&2
 # B's delegation/retrieval test is mid-way through using ("semantic search
 # module not enabled"). Give each (model,seed) cell its OWN database so a purge
 # can only affect its own cell. The built test projects honor OSPREY_ARIEL_DB_URI
-# via tests/e2e/sdk_helpers._override_ariel_db_uri (rewrites the rendered
-# config.yml so the agent's ARIEL MCP server and apply_scenarios both use it).
+# via tests/e2e/sdk_helpers._ariel_db_pins (pins ariel.database.uri at init, so
+# the agent's ARIEL MCP server and apply_scenarios both use it).
 #
 # Disable with OSPREY_BENCH_SHARED_DB=1 (falls back to the legacy shared DB).
 PG_BIN="${OSPREY_BENCH_PG_BIN:-$HOME/bin/pg16-edb/pgsql/bin}"
@@ -91,24 +91,23 @@ if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
        -c "DROP DATABASE IF EXISTS ${CELL_DB} WITH (FORCE);" \
        -c "CREATE DATABASE ${CELL_DB} OWNER ariel;" >&2; then
     # Provision schema + seeded (nominal) logbook + embeddings against the
-    # per-cell DB, using a throwaway project whose config points at it. Order
-    # matters: sim apply purges embeddings, so reembed must come last.
+    # per-cell DB, using a throwaway deployment repo whose rendered config
+    # names it. An explicit ariel.database.uri wins over the DSN derived from
+    # services.postgresql, so the per-cell URI is set at init and checked in
+    # the render before anything writes. Only the logbook is seeded: this repo
+    # never starts the archive store. Order matters: sim apply purges
+    # embeddings, so reembed must come last.
     PROV_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ariel_prov_${CELL_DB}.XXXXXX")"
-    if "$PY" -m osprey.cli.main build prov --preset control-assistant \
-         --skip-deps --skip-lifecycle --output-dir "$PROV_DIR" \
-         --set provider=als-apg --set model=haiku >&2; then
-      PROV_CFG="$PROV_DIR/prov/config.yml"
-      "$PY" - "$PROV_CFG" "$OSPREY_ARIEL_DB_URI" <<'PYEOF' >&2
-import sys
-path, uri = sys.argv[1], sys.argv[2]
-default = "postgresql://ariel:ariel@localhost:5432/ariel"
-text = open(path).read()
-assert default in text, f"default ARIEL uri not found in {path}"
-open(path, "w").write(text.replace(default, uri))
-PYEOF
-      ( cd "$PROV_DIR/prov" \
+    if "$PY" -m osprey.cli.main init "$PROV_DIR/prov" --preset control-assistant --no-git \
+         --set provider=als-apg --set model=claude-haiku-4-5-20251001 \
+         --set "config.ariel.database.uri=$OSPREY_ARIEL_DB_URI" >&2 \
+       && "$PY" -m osprey.cli.main build --repo "$PROV_DIR/prov" \
+         --skip-deps --skip-lifecycle >&2; then
+      PROV_CFG="$PROV_DIR/prov/build/config.yml"
+      ( cd "$(dirname "$PROV_CFG")" \
+        && grep -qF "$OSPREY_ARIEL_DB_URI" "$PROV_CFG" \
         && "$PY" -m osprey.cli.main ariel migrate \
-        && "$PY" -m osprey.cli.main sim apply nominal --yes \
+        && "$PY" -m osprey.cli.main sim apply nominal --yes --no-seed-archiver \
         && "$PY" -m osprey.cli.main ariel reembed --model nomic-embed-text --dimension 768 ) >&2 \
         || echo ">> WARNING: per-cell ARIEL provisioning failed; logbook tests in this cell will skip/gate" >&2
     else

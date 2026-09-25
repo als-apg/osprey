@@ -421,7 +421,13 @@ class TestSwitchInProgress:
     """A fleet mid-swap owns ``last_switch``; nothing else may write it."""
 
     def test_a_live_server_applying_this_generation_is_409(self, client, agent_data_root):
-        write_server_report(agent_data_root, SERVER_PID, last_switch=applying_block(1))
+        write_server_report(
+            agent_data_root,
+            SERVER_PID,
+            applied_target="live",
+            applied_generation=0,
+            last_switch=applying_block(1),
+        )
         with only_alive(SERVER_PID, os.getpid()):
             response = post_target(client)
         assert response.status_code == 409
@@ -430,7 +436,13 @@ class TestSwitchInProgress:
         assert str(SERVER_PID) in detail["message"]
 
     def test_the_refusal_writes_nothing(self, client, agent_data_root):
-        write_server_report(agent_data_root, SERVER_PID, last_switch=applying_block(1))
+        write_server_report(
+            agent_data_root,
+            SERVER_PID,
+            applied_target="live",
+            applied_generation=0,
+            last_switch=applying_block(1),
+        )
         before = read_record()
         with only_alive(SERVER_PID, os.getpid()):
             post_target(client)
@@ -441,6 +453,8 @@ class TestSwitchInProgress:
             agent_data_root,
             SERVER_PID,
             reachability=reachable(),
+            applied_target="live",
+            applied_generation=0,
             last_switch=applying_block(1, expires_in_s=-1.0),
         )
         with only_alive(SERVER_PID, os.getpid()):
@@ -448,7 +462,13 @@ class TestSwitchInProgress:
         assert response.status_code == 202, response.text
 
     def test_a_dead_servers_applying_block_does_not_block(self, client, agent_data_root):
-        write_server_report(agent_data_root, DEAD_SERVER_PID, last_switch=applying_block(1))
+        write_server_report(
+            agent_data_root,
+            DEAD_SERVER_PID,
+            applied_target="live",
+            applied_generation=0,
+            last_switch=applying_block(1),
+        )
         with only_alive(os.getpid()):
             response = post_target(client)
         assert response.status_code == 202, response.text

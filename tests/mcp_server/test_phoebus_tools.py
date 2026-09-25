@@ -7,6 +7,7 @@ Phoebus product and no network.
 
 import json
 import urllib.error
+import urllib.parse
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -30,9 +31,15 @@ def _register_demo_panel(tmp_path, monkeypatch, name="osprey_demo"):
     deployment path for every facility. There is no built-in default panel, so
     open_panel tests must register the name they open.
     """
-    config_file = tmp_path / "config.yml"
-    config_file.write_text(yaml.dump({"phoebus": {"panels": {name: f"/path/{name}.bob"}}}))
+    _register_panels(tmp_path, monkeypatch, {name: f"/path/{name}.bob"})
+
+
+def _register_panels(tmp_path, monkeypatch, panels, filename="config.yml"):
+    """Write *panels* as ``phoebus.panels`` into *filename* and point OSPREY_CONFIG at it."""
+    config_file = tmp_path / filename
+    config_file.write_text(yaml.dump({"phoebus": {"panels": panels}}))
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    return config_file
 
 
 # ── list_displays ──────────────────────────────────────────────────────────
@@ -376,6 +383,157 @@ async def test_open_panel_unreachable(tmp_path, monkeypatch):
     with patch(f"{_MOD}._http_post_open", side_effect=urllib.error.URLError("refused")):
         with assert_raises_error(error_type="phoebus_unreachable"):
             await _fn("phoebus_open_panel")(name="osprey_demo")
+
+
+# ── panel_lookup ────────────────────────────────────────────────────────────
+async def _lookup(path):
+    return extract_response_dict(await _fn("phoebus_panel_lookup")(path=path))
+
+
+def _bob(directory, name="x.bob"):
+    directory.mkdir(parents=True, exist_ok=True)
+    bob = directory / name
+    bob.write_text("fake bob content")
+    return bob
+
+
+async def test_panel_lookup_names_the_panel_that_opens_the_path(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays", "overview.bob")
+    _register_panels(tmp_path, monkeypatch, {"sr_overview": str(bob)})
+
+    data = await _lookup(str(bob))
+
+    assert data["status"] == "success"
+    assert data["openable"] is True
+    assert data["name"] == "sr_overview"
+    assert data["path"] == str(bob.resolve())
+
+
+async def test_panel_lookup_follows_a_symlinked_display_mount(tmp_path, monkeypatch):
+    real = tmp_path / "displays"
+    bob = _bob(real)
+    mount = tmp_path / "mount"
+    mount.symlink_to(real, target_is_directory=True)
+    _register_panels(tmp_path, monkeypatch, {"x": str(bob.resolve())})
+
+    data = await _lookup(str(mount / "x.bob"))
+
+    assert data["openable"] is True
+    assert data["name"] == "x"
+
+
+async def test_panel_lookup_normalises_dot_segments(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays")
+    _register_panels(tmp_path, monkeypatch, {"x": str(bob)})
+
+    data = await _lookup(f"{tmp_path}/displays/./x.bob")
+
+    assert data["openable"] is True
+
+
+async def test_panel_lookup_matches_a_config_relative_registration(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays")
+    _register_panels(tmp_path, monkeypatch, {"x": "displays/x.bob"})
+
+    data = await _lookup(str(bob))
+
+    assert data["openable"] is True
+    assert data["name"] == "x"
+
+
+async def test_panel_lookup_matches_a_file_url_registration(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays", "sr overview.bob")
+    _register_panels(tmp_path, monkeypatch, {"x": f"file://{urllib.parse.quote(str(bob))}"})
+
+    data = await _lookup(str(bob))
+
+    assert data["openable"] is True
+    assert data["name"] == "x"
+
+
+async def test_panel_lookup_accepts_a_file_url_from_the_caller(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays", "sr overview.bob")
+    _register_panels(tmp_path, monkeypatch, {"x": str(bob)})
+
+    data = await _lookup(f"file://{urllib.parse.quote(str(bob))}")
+
+    assert data["openable"] is True
+    assert data["name"] == "x"
+
+
+async def test_panel_lookup_says_no_for_an_unregistered_path(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays")
+    other = _bob(tmp_path / "displays", "other.bob")
+    _register_panels(tmp_path, monkeypatch, {"x": str(bob)})
+
+    data = await _lookup(str(other))
+
+    assert data["status"] == "success"
+    assert data["openable"] is False
+    assert "name" not in data
+    assert data["path"] == str(other.resolve())
+
+
+async def test_panel_lookup_answers_from_the_callers_own_registry(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays")
+    other = _bob(tmp_path / "displays", "other.bob")
+    config_a = _register_panels(tmp_path, monkeypatch, {"x": str(bob)}, "config_a.yml")
+    config_b = _register_panels(tmp_path, monkeypatch, {"y": str(other)}, "config_b.yml")
+
+    for config, openable in ((config_a, True), (config_b, False), (config_a, True)):
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
+        data = await _lookup(str(bob))
+        assert data["openable"] is openable, config.name
+
+
+async def test_panel_lookup_answers_for_a_registered_file_that_is_missing(tmp_path, monkeypatch):
+    missing = tmp_path / "displays" / "gone.bob"
+    _register_panels(tmp_path, monkeypatch, {"gone": str(missing)})
+
+    data = await _lookup(str(missing))
+
+    assert data["openable"] is True
+    assert data["name"] == "gone"
+
+
+async def test_panel_lookup_rejects_an_empty_path(tmp_path, monkeypatch):
+    _register_panels(tmp_path, monkeypatch, {})
+
+    with assert_raises_error(error_type="validation_error"):
+        await _fn("phoebus_panel_lookup")(path="")
+    with assert_raises_error(error_type="validation_error"):
+        await _fn("phoebus_panel_lookup")(path="   ")
+
+
+async def test_panel_lookup_skips_a_malformed_registration(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays")
+    _register_panels(tmp_path, monkeypatch, {"good": str(bob), "bad": {"not": "a path"}})
+
+    data = await _lookup(str(bob))
+
+    assert data["openable"] is True
+    assert data["name"] == "good"
+
+
+async def test_panel_lookup_returns_one_name_when_two_register_one_file(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays")
+    _register_panels(tmp_path, monkeypatch, {"b_panel": str(bob), "a_panel": str(bob)})
+
+    data = await _lookup(str(bob))
+
+    assert data["name"] == "a_panel"
+
+
+async def test_panel_lookup_name_opens_the_resource_the_registry_spells(tmp_path, monkeypatch):
+    bob = _bob(tmp_path / "displays", "sr overview.bob")
+    url = f"file://{urllib.parse.quote(str(bob))}"
+    _register_panels(tmp_path, monkeypatch, {"sr_overview": url})
+
+    name = (await _lookup(str(bob)))["name"]
+    with patch(f"{_MOD}._http_post_open", return_value=(200, {"id": "d-9", "ready": True})) as m:
+        await _fn("phoebus_open_panel")(name=name, focus=False)
+
+    assert m.call_args.args[0]["resource"] == url
 
 
 # ── handle:<id> threading ───────────────────────────────────────────────────

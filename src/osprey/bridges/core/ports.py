@@ -34,13 +34,23 @@ member                        contract on failure
                               must not be un-delivered by a failed file upload
 ``post_queued``               may raise — the engine parks the entry BEFORE posting the
                               notice, so a lost notice never loses the request
+``post_resumed``              best-effort: swallow internally, never raise — the answer
+                              follows regardless (and the engine guards the call too)
 ``post_giveup``               MUST raise — the engine marks the entry terminal only
                               after the notice lands; a lost give-up notice is silence,
                               worse than the rare duplicate a retry could produce
 ``post_superseded``           best-effort: the coalesce CAS is already committed, so a
                               failed note must never disturb the pass
 ``coalesce_key``              pure function of the entry; never raise
+``room_people`` (RoomRoster)  return ``None``; never fatal — the question goes out with
+                              its asker only
 ============================  =========================================================
+
+One exception cuts across the "MUST raise" rows: ``UndeliverableError`` (in
+``osprey.bridges.core.errors``). A member raises it when the platform permanently refuses
+the entry's destination — the app was removed from the space, the room is gone — and the
+engine then settles the entry terminal instead of keeping it queued for a retry that can
+never land. Every other raise keeps today's meaning.
 
 This module is import-isolated on purpose: no channel imports, no osprey dispatch
 internals, no agent SDK, not even sibling ``osprey.bridges.core`` modules — an adapter can
@@ -59,6 +69,9 @@ __all__ = [
     "InboundEvent",
     "InputDownload",
     "ReplyContext",
+    "RoomMember",
+    "RoomPeople",
+    "RoomRoster",
 ]
 
 # Entry keys the ENGINE writes on the persisted dedup entry. The adapter-owned
@@ -73,9 +86,11 @@ __all__ = [
 # ``sender_display`` / ``history_key`` and persists ``reply_to``; the dedup store
 # stamps ``run_id`` / ``status`` / ``claimed_at`` / ``settled_at``; the retry queue's
 # park stamps ``failure_class`` / ``num_tool_calls`` / ``queued_at`` /
-# ``first_queued_at`` / ``coalesce_key`` / ``attempts``; the pipeline's re-queue path
-# stamps ``queued_at`` / ``first_queued_at``; the drain stamps ``retried`` /
-# ``attempts`` / ``notfound_count`` / ``gate_seen_open`` / ``give_up_reason``.
+# ``first_queued_at`` / ``coalesce_key`` / ``attempts`` and, once the first-park
+# notice landed, ``queued_notified``; the pipeline's re-queue path stamps ``queued_at``
+# / ``first_queued_at``; the drain stamps ``retried`` / ``attempts`` /
+# ``notfound_count`` / ``gate_seen_open`` / ``give_up_reason`` (the pipeline stamps the
+# last of these too, for an undeliverable answer).
 RESERVED_ENTRY_KEYS: frozenset[str] = frozenset(
     {
         "text",
@@ -89,6 +104,7 @@ RESERVED_ENTRY_KEYS: frozenset[str] = frozenset(
         "reply_to",
         "queued_at",
         "first_queued_at",
+        "queued_notified",
         "attempts",
         "retried",
         "failure_class",
@@ -214,6 +230,53 @@ class InputDownload:
     quoted_skipped: Sequence[Mapping[str, Any]] = ()
 
 
+@dataclass(frozen=True)
+class RoomMember:
+    """One person in the conversation a question was asked in.
+
+    ``id`` is the stable identity the adapter's mention renderer accepts back — the
+    same string the platform puts in ``sender_id``. ``name`` is ``None`` when the
+    adapter has no name for this person, neither from the platform's member listing
+    nor from what it has seen in the room, and must not guess one.
+    """
+
+    id: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class RoomPeople:
+    """Who is in the conversation, as a :class:`RoomRoster` reports it.
+
+    ``mentions`` says whether this deployment renders the agent's mentions;
+    ``more_not_listed`` is ``True`` only when the adapter capped the list.
+    """
+
+    members: Sequence[RoomMember] = ()
+    mentions: bool = False
+    more_not_listed: bool = False
+
+
+@runtime_checkable
+class RoomRoster(Protocol):
+    """The optional port a bridge implements when it can list who is in a conversation.
+
+    Optional: an adapter implements it beside :class:`ChannelOps`, never instead of it;
+    the engine detects it with ``isinstance`` and needs no registration.
+    :meth:`room_people` runs after the claim and the ack, once per dispatch, on the
+    live path and on every re-dispatch (drain retry, startup reconcile), off the
+    persisted entry — never the wire event. It may do I/O and block. It returns
+    ``None`` on any failure and never raises, because the roster is enrichment: the
+    question goes out with its asker only. It must list only members of the entry's
+    own conversation. It is called concurrently from the ingestion and drain threads,
+    so any cache it keeps is lock-guarded and bounded.
+    """
+
+    def room_people(self, entry: Mapping[str, Any]) -> RoomPeople | None:
+        """Who is in the entry's conversation, or ``None`` when that is unknown."""
+        ...
+
+
 @runtime_checkable
 class ChannelOps(Protocol):
     """Platform I/O a channel adapter implements; the engine owns all ordering and
@@ -305,6 +368,15 @@ class ChannelOps(Protocol):
         restored. Posted on the FIRST park only (a re-park is silent); ``result`` is
         the retryable-failure result that triggered the park, for channels that
         surface any of it."""
+        ...
+
+    def post_resumed(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+        """Tell the user the request they were told was queued is being answered now.
+        Posted right BEFORE ``post_answer``, and only for an entry whose queued notice
+        actually landed (it carries ``queued_notified``) — a delayed answer that arrives
+        hours after "queued" should say what it is. ``result`` is the terminal result
+        about to be delivered, for channels that word the line by its status.
+        Best-effort; never raises, and never delays the answer."""
         ...
 
     def post_giveup(self, entry: Mapping[str, Any]) -> None:

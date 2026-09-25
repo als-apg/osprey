@@ -10,7 +10,9 @@ surface it must not reach is listening.
 The drop is *executor-local*: the shared deny-list in
 ``osprey.utils.sensitive_env`` is the credential set the PTY child shares, and
 the PTY child **is** the web terminal. These tests pin both halves — the
-sandbox child loses the family, the PTY child keeps it.
+sandbox child loses the family, the PTY child keeps it. The sandbox child's
+environment is an allowlist, so an ``OSPREY_*`` name reaches it only when it is
+listed there.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -126,8 +128,8 @@ async def test_sandbox_env_excludes_whole_terminal_family_at_once(tmp_path, monk
     assert not [key for key in passed_env if key.startswith("OSPREY_TERMINAL_")]
 
 
-async def test_sandbox_env_keeps_unrelated_osprey_vars(tmp_path, monkeypatch):
-    """The drop is scoped to the terminal family, not to ``OSPREY_*`` at large."""
+async def test_sandbox_env_keeps_listed_osprey_vars_only(tmp_path, monkeypatch):
+    """A listed ``OSPREY_*`` name arrives; an unlisted one does not."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OSPREY_WEB_PORT", "8080")
     monkeypatch.setenv("OSPREY_CONFIG", "/somewhere/config.yml")
@@ -136,7 +138,7 @@ async def test_sandbox_env_keeps_unrelated_osprey_vars(tmp_path, monkeypatch):
     passed_env = await _spawn_env(tmp_path)
 
     assert passed_env["OSPREY_CONFIG"] == "/somewhere/config.yml"
-    assert passed_env["OSPREY_WEBHOOK_SINK"] == "unrelated"
+    assert "OSPREY_WEBHOOK_SINK" not in passed_env
     # The mode declaration the sandbox depends on is set after the drop.
     assert passed_env["OSPREY_EXECUTION_MODE"] == "readonly"
 

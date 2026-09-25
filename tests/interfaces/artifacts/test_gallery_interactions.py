@@ -70,6 +70,9 @@ except ImportError:  # pragma: no cover
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 VIEWPORT = {"width": 1280, "height": 800}
+# Short enough that one page of rows overflows the sidebar by more than the
+# load-ahead margin, so the first page stands alone until the list is scrolled.
+PAGING_VIEWPORT = {"width": 1280, "height": 360}
 
 MARKDOWN_TITLE = "Beam Current Summary"
 HTML_TITLE = "Orbit Plot"
@@ -142,6 +145,41 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
         yield base_url
 
 
+@contextmanager
+def _launch_many_artifacts(
+    tmp_path, monkeypatch, count: int, page_size: int | None = None
+) -> Iterator[str]:
+    """Seed ``count`` markdown artifacts with distinct titles, then serve the gallery.
+
+    Titles are ``Paged Artifact NNN`` in save order, so ``000`` is the oldest
+    and ``count - 1`` the newest; the zero padding keeps one title from being
+    a substring of another. ``page_size`` overrides the listing's page size.
+    """
+    monkeypatch.chdir(tmp_path)
+    if page_size is not None:
+        monkeypatch.setattr("osprey.interfaces.artifacts.app._page_size", lambda: page_size)
+
+    from osprey.stores.artifact_store import ArtifactStore
+
+    seed_store = ArtifactStore(workspace_root=tmp_path)
+    for i in range(count):
+        seed_store.save_file(
+            file_content=f"# Paged {i}\n".encode(),
+            filename=f"paged-{i:03d}.md",
+            artifact_type="markdown",
+            title=f"Paged Artifact {i:03d}",
+            mime_type="text/markdown",
+            tool_source="test_fixture",
+            category="document",
+        )
+
+    from osprey.interfaces.artifacts.app import create_app
+
+    app = create_app(workspace_root=tmp_path)
+    with _run_app_server(app) as base_url:
+        yield base_url
+
+
 def _card_for_title(page: Page, title: str):
     """Locate the sidebar tree-item for a fixture artifact by its title text.
 
@@ -184,6 +222,176 @@ def test_search_input_narrows_sidebar(tmp_path, monkeypatch, chromium_browser):
         search.fill("")
         expect(markdown_card).to_be_visible(timeout=5_000)
         expect(html_card).to_be_visible(timeout=5_000)
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 1a: the sidebar fetches the next page as it is scrolled
+# ---------------------------------------------------------------------------
+
+
+def test_scrolling_the_sidebar_loads_the_next_page(tmp_path, monkeypatch, chromium_browser):
+    """The gallery opens on the newest page; scrolling the list to its end
+    fetches the older artifacts the first page left out.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
+        page = chromium_browser.new_page(viewport=PAGING_VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+
+        newest = _card_for_title(page, "Paged Artifact 024")
+        oldest = _card_for_title(page, "Paged Artifact 000")
+        expect(newest).to_be_visible(timeout=10_000)
+        expect(page.locator(".tree-item")).to_have_count(20, timeout=5_000)
+        expect(oldest).to_have_count(0)
+
+        page.locator("#sidebar-body").evaluate("el => { el.scrollTop = el.scrollHeight; }")
+
+        expect(oldest).to_have_count(1, timeout=5_000)
+        expect(page.locator(".tree-item")).to_have_count(25, timeout=5_000)
+        page.close()
+
+
+def test_a_sidebar_taller_than_one_page_fetches_the_next_one(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """When the first page does not fill the sidebar there is nothing to
+    scroll, so the gallery fetches on until the list reaches past its end.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+
+        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1, timeout=10_000)
+        expect(page.locator(".tree-item")).to_have_count(25, timeout=5_000)
+        page.close()
+
+
+def test_switching_to_expert_fills_a_sidebar_taller_than_one_page(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """A gallery opened in Simple mode has no sidebar to fill; the hub's switch
+    to Expert shows it, and the gallery fetches on until the list reaches
+    past its end, without a scroll.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.goto(f"{base_url}?mode=simple", wait_until="domcontentloaded")
+
+        expect(_simple_row(page, "Paged Artifact 024").first).to_be_visible(timeout=10_000)
+        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(0)
+
+        page.evaluate(
+            "window.postMessage({ type: 'osprey-mode-change', mode: 'expert' },"
+            " window.location.origin)"
+        )
+
+        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1, timeout=10_000)
+        expect(page.locator(".tree-item")).to_have_count(25, timeout=5_000)
+        page.close()
+
+
+def test_a_short_page_size_keeps_fetching_until_the_sidebar_overflows(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """With a page far shorter than the sidebar, the gallery fetches page
+    after page, not just one more, until the list reaches past its end.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 25, page_size=3) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+
+        expect(_card_for_title(page, "Paged Artifact 024")).to_be_visible(timeout=10_000)
+        page.wait_for_function(
+            "document.querySelectorAll('.tree-item').length >= 9", timeout=10_000
+        )
+        page.close()
+
+
+def test_escape_in_the_filter_restores_the_unfiltered_list(tmp_path, monkeypatch, chromium_browser):
+    """Escape in the filter box clears it and the list shows the newest page
+    again, not only the artifacts that matched.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
+        page = chromium_browser.new_page(viewport=PAGING_VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+
+        expect(page.locator(".tree-item")).to_have_count(20, timeout=10_000)
+        search = page.locator("#search")
+        search.fill("Paged Artifact 000")
+        expect(page.locator(".tree-item")).to_have_count(1, timeout=5_000)
+
+        search.press("Escape")
+
+        expect(search).to_have_value("")
+        expect(_card_for_title(page, "Paged Artifact 024")).to_have_count(1, timeout=5_000)
+        expect(page.locator(".tree-item")).to_have_count(20, timeout=5_000)
+        page.close()
+
+
+def test_simple_mode_ignores_the_expert_filter_and_expert_keeps_it(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """The filter box is Expert-only: Simple shows the latest artifact whatever
+    it holds, and the switch back to Expert narrows the list to it again.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
+        page = chromium_browser.new_page(viewport=PAGING_VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+
+        expect(page.locator(".tree-item")).to_have_count(20, timeout=10_000)
+        page.locator("#search").fill("Paged Artifact 000")
+        expect(page.locator(".tree-item")).to_have_count(1, timeout=5_000)
+
+        page.evaluate(
+            "window.postMessage({ type: 'osprey-mode-change', mode: 'simple' },"
+            " window.location.origin)"
+        )
+        expect(page.locator("#simple-result-title")).to_have_text(
+            "Paged Artifact 024", timeout=10_000
+        )
+        expect(_simple_row(page, "Paged Artifact 024").first).to_be_visible(timeout=5_000)
+
+        page.evaluate(
+            "window.postMessage({ type: 'osprey-mode-change', mode: 'expert' },"
+            " window.location.origin)"
+        )
+        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1, timeout=10_000)
+        expect(page.locator(".tree-item")).to_have_count(1, timeout=5_000)
+        page.close()
+
+
+def test_a_focus_on_an_unloaded_artifact_selects_it_while_a_search_is_active(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """An agent focus on an artifact outside the loaded pages opens it in the
+    preview even when the filter text keeps it out of the list.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 25) as base_url:
+        page = chromium_browser.new_page(viewport=PAGING_VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+
+        expect(page.locator(".tree-item")).to_have_count(20, timeout=10_000)
+        page.locator("#search").fill("Paged Artifact 024")
+        expect(page.locator(".tree-item")).to_have_count(1, timeout=5_000)
+
+        # Sent from the page itself, so the request is same-origin.
+        status = page.evaluate(
+            """async () => {
+                const listing = await fetch('/api/artifacts?search=Paged%20Artifact%20000');
+                const id = (await listing.json()).artifacts[0].id;
+                const resp = await fetch('/api/focus', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ artifact_id: id }),
+                });
+                return resp.status;
+            }"""
+        )
+        assert status == 200
+
+        expect(page.locator(".preview-header-title")).to_have_text(
+            "Paged Artifact 000", timeout=10_000
+        )
         page.close()
 
 

@@ -24,7 +24,6 @@ channel_finder:
         path: data/channel_databases/middle_layer.json
         type: middle_layer
 claude_code:
-  default_model: haiku
   provider: anthropic
   servers:
     ariel:

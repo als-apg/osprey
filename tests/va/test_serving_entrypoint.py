@@ -386,9 +386,13 @@ class FakeBridge:
 
     journal: list[tuple[str, Any]]
     model: Any
+    motion: Any = None
     bound: dict[str, Any] | None = None
     setpoints: frozenset[str] = frozenset()
     stuck_reader: Any = None
+    #: Whether any served reading carries a declared motion; decides whether
+    #: the boot starts re-serving the readings on the telemetry cadence.
+    moves: bool = False
 
     def bind(
         self, records: dict[str, Any], *, physics_setpoints: frozenset[str] = frozenset()
@@ -472,6 +476,7 @@ def _boot(
     unknown_device: bool = False,
     fake_model: bool = True,
     fake_bridge: bool = True,
+    bridge_moves: bool = False,
     channels_file: str = "channels.json",
 ) -> Boot:
     """Assemble the virtual accelerator against fakes, and journal the order.
@@ -509,6 +514,13 @@ def _boot(
         lambda source, interval: boot.journal.append(("engine-thread", (source, interval))),
     )
     monkeypatch.setattr(
+        ep,
+        "_start_monitor_motion",
+        lambda runner, bridge, interval: boot.journal.append(
+            ("motion-thread", (runner, bridge, interval))
+        ),
+    )
+    monkeypatch.setattr(
         ep, "_install_shutdown_signals", lambda: boot.journal.append(("signals", None))
     )
 
@@ -520,6 +532,7 @@ def _boot(
             unknown_device=unknown_device,
             fake_model=fake_model,
             fake_bridge=fake_bridge,
+            bridge_moves=bridge_moves,
         )
 
     ep.main()
@@ -534,6 +547,7 @@ def _install_fake_physics(
     unknown_device: bool = False,
     fake_model: bool = True,
     fake_bridge: bool = True,
+    bridge_moves: bool = False,
 ) -> None:
     """Replace the ring model and the bridge, keeping their real error type.
 
@@ -571,8 +585,8 @@ def _install_fake_physics(
         boot.journal.append(("model", model))
         return model
 
-    def physics_bridge(*, model: Any) -> FakeBridge:
-        bridge = FakeBridge(journal=boot.journal, model=model)
+    def physics_bridge(*, model: Any, motion: Any = None) -> FakeBridge:
+        bridge = FakeBridge(journal=boot.journal, model=model, motion=motion, moves=bridge_moves)
         boot.journal.append(("bridge", bridge))
         return bridge
 
@@ -906,6 +920,37 @@ class TestLatticeBoot:
         bridge = boot.one("bridge")
         assert bridge.model is boot.one("model")
         assert boot.runner.model is bridge.model
+
+    def test_the_bridge_takes_its_monitor_motion_from_the_served_engine(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The seeded history was synthesized from this engine's machine file;
+        the live readings take their motion from the same one."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+        assert boot.one("bridge").motion is boot.engine_source.engine
+
+    def test_moving_readings_are_re_served_on_the_telemetry_cadence(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=SERVED_LATTICE,
+            bridge_moves=True,
+            env={"VA_POLL_INTERVAL_S": "2.5"},
+        )
+        runner, bridge, interval = boot.one("motion-thread")
+        assert runner is boot.runner
+        assert bridge is boot.one("bridge")
+        assert interval == 2.5
+        order = boot.order()
+        assert order.index("follow-stuck") < order.index("motion-thread") < order.index("run")
+
+    def test_readings_with_no_motion_are_not_re_served(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+        assert "motion-thread" not in boot.order()
 
     def test_the_physics_hook_is_the_bridges(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
@@ -1530,20 +1575,20 @@ class RecordingDriver:
         self.values = dict(values)
         self.calls: list[tuple[str, str, Any]] = []
 
-    def setParam(self, reason: str, value: Any) -> None:  # noqa: N802 - driver contract
+    def setParam(self, reason: str, value: Any) -> None:  # driver contract
         self.calls.append(("setParam", reason, value))
         self.values[reason] = value
 
-    def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
+    def getParam(self, reason: str) -> Any:  # driver contract
         return self.values[reason]
 
-    def updatePV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def updatePV(self, reason: str) -> None:  # driver contract
         self.calls.append(("updatePV", reason, None))
 
-    def callbackPV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def callbackPV(self, reason: str) -> None:  # driver contract
         self.calls.append(("callbackPV", reason, None))
 
-    def setParamStatus(  # noqa: N802 - driver contract
+    def setParamStatus(  # driver contract
         self, reason: str, alarm: Any, severity: Any
     ) -> None:
         self.calls.append(("setParamStatus", reason, (alarm, severity)))
@@ -1611,7 +1656,7 @@ class Arrangement:
             error = None
             try:
                 self.routed.set({name: item["value"] for name, item in values.items()})
-            except Exception as exc:  # noqa: BLE001 - the loop reports, never raises
+            except Exception as exc:  # the loop reports, never raises
                 error = str(exc)
             if done is not None:
                 done(error)

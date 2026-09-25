@@ -157,6 +157,10 @@ with no OSPREY, and the status-quo card. On "nothing yet" every value is `?`.
   only once `build/.osprey-manifest.json` exists (else `?`). Era repos run no verb.
 - Framework version: `build/.osprey-manifest.json` `creation.osprey_version`, or `?` when
   the repo was never built. `requires_osprey_version` is a schema floor, shown as one.
+- Agent model pins: every `claude_code.agent_models.<agent>` key in `profile.yml`'s
+  `config:` block and in each `personas/*.yml`, plus the `model:` line of each
+  `agents/<name>.md`. `osprey profile card --json` does not carry them. They are the
+  AGENT box's `models` line.
 - **Reference-facility material is recognized here.** A file whose content still
   describes the reference facility rather than this one — a demo document, the demo
   vocabulary, the demo lattice, a landing text naming the demo product — gets its own
@@ -177,6 +181,11 @@ rows render first. Every element of the locked status quo gets exactly one verdi
 live from that card, `osprey profile artifacts`, the emitted `profile.yml`, and the
 `control-assistant` preset. A `gap` verdict becomes an upstream candidate under the rules
 above. A `placeholder` verdict is answered `refresh` or `localize` on the card itself.
+Each agent model pin is one element: `port` when the `models` list of the provider the
+deployment will run carries its id, landing as
+`osprey set config.claude_code.agent_models.<agent>=<id>`; `obsolete` when that list does
+not carry it (reason `<provider> does not serve <id>`) or when the agent is not in the new
+deployment. An obsolete pin's agent runs the main model.
 The confirmed card lands under `## Porting map (locked)`. An empty status quo
 (`generation: none`) maps nothing: no porting-map card, locked as `none`, and the four
 facts below become this phase's card instead — MAP FACTS in `references/map.md`.
@@ -239,10 +248,15 @@ last is an `osprey init` argument; the other three are `osprey set` keys applied
    - `osprey mml emit` refuses while the deployment holds demo files it would contradict
      and prints one `rm` line naming them. Run that line as printed, then emit again.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
-9. Core four, hardwired, resolved before wrap-up. **Provider and its key**: the list is
-   `providers.yml` beside the profile; `osprey init` writes `.env.example`, never `.env`, so the
-   key goes into a `.env` you create from it, and a key deferred is an Open entry naming
-   the variable. **Control system**: "simulated" is a fork — `mock` invents channels
+9. Core four, hardwired, resolved before wrap-up. **Provider, its key, and each agent's
+   model**: the list is `providers.yml` beside the profile; `osprey init` writes
+   `.env.example`, never `.env`, so the key goes into a `.env` you create from it, and a
+   key deferred is an Open entry naming the variable. Once the ports in step 5 have made
+   the agent list final, draw the MODELS card in `references/cards.md`: every agent runs
+   the main model unless the user pins it, one
+   `osprey set config.claude_code.agent_models.<agent>=<id>` per pin, with ids from the
+   entry's `models` list. The confirmed card goes under Decided, one line per pin or one
+   line saying every agent runs the main model. **Control system**: "simulated" is a fork — `mock` invents channels
    in-process with no containers and is what hello-world emits, `virtual_accelerator` is a
    containerized soft-IOC — or a real one; `osprey init --help` lists every connector.
    **Write access and safety**, where enabling writes forces the limits conversation.
@@ -287,7 +301,8 @@ and search only, no edit tools, no shell writes — with the full `INTERVIEW.md`
 > Find gaps and inconsistencies in this OSPREY deployment setup. Check at least: writes
 > enabled without limits or with safety hooks/rules removed; writes enabled while an
 > Upstream candidate records a facility approval rule OSPREY cannot enforce (CRITICAL);
-> provider configured but no key in `.env`; a real control system without the connection
+> provider configured but no key in `.env`; an agent pinned to an id the provider's
+> `models` list does not carry; a real control system without the connection
 > details its comments require; declared feature blocks nothing reads (comments state the
 > pairings); an adopted feature area whose components are not all present; decisions in
 > INTERVIEW.md not reflected in profile.yml and vice versa; use cases the user described
@@ -326,7 +341,7 @@ osprey: <version> (<release|dev @main|already installed>)
 phase: <map|build|close|complete>   # the phase now in progress; a locked card advances it
 updated: <YYYY-MM-DD>
 ## Coverage
-core: provider ✔ · control system ✔ · writes/safety ✖ · identity ✔
+core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · identity ✔
 ## Status quo (locked)
 <the confirmed DISCOVER card, verbatim>
 ## Porting map (locked)

@@ -134,7 +134,7 @@ def acting_identity() -> str:
 
     try:
         local_account = getpass.getuser()
-    except Exception:  # noqa: BLE001 — an unnamed account must not cost the record
+    except Exception:  # an unnamed account must not cost the record
         return UNKNOWN_IDENTITY
 
     return _usable(local_account) or UNKNOWN_IDENTITY

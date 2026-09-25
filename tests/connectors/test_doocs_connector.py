@@ -196,12 +196,15 @@ class TestReadChannel:
 
         mock_d4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
 
-    async def test_read_propagates_exception(self, connector):
+    async def test_a_transport_failure_on_read_is_a_connection_error(self, connector):
         conn, mock_d4py = connector
         mock_d4py.get.side_effect = RuntimeError("channel not found")
 
-        with pytest.raises(RuntimeError, match="channel not found"):
+        with pytest.raises(ConnectionError, match="channel not found") as raised:
             await conn.read_channel("INVALID/ADDR")
+
+        assert "INVALID/ADDR" in str(raised.value)
+        assert isinstance(raised.value.__cause__, RuntimeError)
 
 
 # --------------------------------------------------------------------------------------
@@ -397,7 +400,7 @@ class TestNonBlockingOffload:
         finished = threading.Event()  # validate() has returned
         threads: dict[str, int] = {}
 
-        def blocking_validate(_address, _value, *, read_current=None):  # noqa: ARG001 - the limits-validator interface names read_current
+        def blocking_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             threads["validate"] = threading.get_ident()
             entered.set()
             release.wait(_OFFLOAD_CEILING_S)

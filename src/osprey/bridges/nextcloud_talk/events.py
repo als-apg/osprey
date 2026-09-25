@@ -47,6 +47,11 @@ is pure parsing with no call to make — and the quoted message's own attachment
 references are persisted alongside the quote, because after a restart the retry
 drain has nothing but the persisted entry and a re-dispatched question would
 otherwise silently lose the file its user was pointing at.
+
+Names are also recorded, in memory, from what the room itself shows — the
+senders and the users mentioned — by :func:`people_seen`, so the room roster can
+name a participant the listing left unnamed. The access-control rules above are
+untouched by it.
 """
 
 from __future__ import annotations
@@ -70,6 +75,11 @@ The only type the filter accepts. Talk uses other types for the mention forms
 that are deliberately ignored — ``call`` for ``@all``, plus ``group``,
 ``circle``, and ``guest`` — so an ``@all`` in a busy room does not summon the
 agent for everyone in it."""
+
+USER_ACTOR_TYPE = "users"
+"""``actorType`` of a signed-in Nextcloud user. Guests, federated users, bridged
+accounts and bots carry other types; they are not listed and cannot be mentioned
+by id."""
 
 FILE_PARAM_TYPE = "file"
 """``messageParameters`` type carrying a shared file's reference."""
@@ -388,6 +398,41 @@ def parse_event(
 
 
 # --- reply context ---------------------------------------------------------
+
+
+def people_seen(raw: Any, bot_account: str) -> tuple[str, dict[str, str]]:
+    """The room token and ``{actor id: display name}`` for the people a message names.
+
+    Two sources: the sender, when it is a signed-in user with a display name, and
+    every ``user`` mention parameter with an id and a name. The bot's own account
+    is skipped in both. Needs no room type, looks at no quoted ``parent`` (that
+    sender was seen when it was posted), and never raises: junk gives ``("", {})``.
+    """
+    try:
+        message = _mapping(raw)
+        room = _text(message.get("token")).strip()
+        if not room:
+            return "", {}
+        seen: dict[str, str] = {}
+        actor_id = _text(message.get("actorId"))
+        name = _text(message.get("actorDisplayName"))
+        if (
+            _text(message.get("actorType")) == USER_ACTOR_TYPE
+            and actor_id
+            and name
+            and not _same_account(actor_id, bot_account)
+        ):
+            seen[actor_id] = name
+        for param in _mapping(message.get("messageParameters")).values():
+            param = _mapping(param)
+            if param.get("type") != MENTION_PARAM_TYPE:
+                continue
+            ident, label = _id_str(param.get("id")), _label(param)
+            if ident and label and not _same_account(ident, bot_account):
+                seen[ident] = label
+        return room, seen
+    except Exception:
+        return "", {}
 
 
 def _truncate(text: str, limit: int = MAX_QUOTED_TEXT) -> str:

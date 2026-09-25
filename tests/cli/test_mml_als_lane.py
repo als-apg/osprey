@@ -69,26 +69,26 @@ pytest.importorskip("linkml_runtime")
 pytest.importorskip("duckdb")
 pytest.importorskip("lume_pyat")
 
-from tests.cli.test_mml_build_recipes import (  # noqa: E402
+from tests.cli.test_mml_build_recipes import (
     TestServedFromATwoZeroExport as _BuildCases,
 )
-from tests.cli.test_mml_build_recipes import (  # noqa: E402
+from tests.cli.test_mml_build_recipes import (
     drive_emit,
     env_values,
     invoke,
     published,
     served_settings,
 )
-from tests.cli.test_mml_chain import (  # noqa: E402
+from tests.cli.test_mml_chain import (
     ALS_EXPORT_ENV,
     ALS_MAPPING_ENV,
     Chain,
     run_chain,
 )
-from tests.cli.test_mml_chain import (  # noqa: E402
+from tests.cli.test_mml_chain import (
     TestTheVirtualAcceleratorChain as _ChainCases,
 )
-from tests.cli.test_mml_verify import SECTIONS  # noqa: E402
+from tests.cli.test_mml_verify import SECTIONS
 
 #: Names where the facility's own profiles are checked out. The lane learns
 #: that discovery root from the environment and from nowhere else: a path

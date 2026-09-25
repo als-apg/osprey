@@ -260,13 +260,13 @@ class _RunLoop:
     irrelevant to what a client observes, and is proven in process elsewhere.
     """
 
-    def __init__(self, on_setpoint) -> None:  # noqa: ANN001 - test-local callable
+    def __init__(self, on_setpoint) -> None:  # test-local callable
         self._on_setpoint = on_setpoint
         self._queue: Queue = Queue()
         self.thread = threading.Thread(target=self._run, daemon=True, name="va-test-run-loop")
         self.thread.start()
 
-    def enqueue(self, values: dict, *, done) -> None:  # noqa: ANN001 - test-local callable
+    def enqueue(self, values: dict, *, done) -> None:  # test-local callable
         self._queue.put((values, done))
 
     def _run(self) -> None:
@@ -276,7 +276,7 @@ class _RunLoop:
             try:
                 for address, item in values.items():
                     self._on_setpoint(address, item["value"])
-            except Exception as exc:  # noqa: BLE001 - the loop reports, never raises
+            except Exception as exc:  # the loop reports, never raises
                 error = str(exc)
             done(error)
 
@@ -290,7 +290,7 @@ class _PhysicsHook:
     come from here.
     """
 
-    def __init__(self, records) -> None:  # noqa: ANN001 - ServingRecords
+    def __init__(self, records) -> None:  # ServingRecords
         self._records = records
         self.calls: list[tuple[str, float]] = []
         self.threads: set[str] = set()
@@ -308,7 +308,7 @@ class _PhysicsHook:
 class LiveNamespace:
     """A served namespace, its write path, and the loop behind it."""
 
-    def __init__(self, records, path, hook, loop, driver, refusal_alarm) -> None:  # noqa: ANN001
+    def __init__(self, records, path, hook, loop, driver, refusal_alarm) -> None:
         self.records = records
         self.path = path
         self.hook = hook
@@ -348,7 +348,7 @@ def _build_namespace(pcaspy: Any) -> LiveNamespace:
     class LiveDriver(pcaspy.Driver):
         """The production driver's whole body: delegate to the write path."""
 
-        def write(self, reason: str, value: Any) -> bool:  # noqa: D102 - pcaspy contract
+        def write(self, reason: str, value: Any) -> bool:  # pcaspy contract
             accepted: bool = path.write(self, reason, value)
             return accepted
 
@@ -370,9 +370,9 @@ def _build_namespace(pcaspy: Any) -> LiveNamespace:
     # Kept alive for the fixture's lifetime: a server or its serving thread
     # collected out from under the client would fail every test below for a
     # reason that has nothing to do with the write path.
-    namespace._server = server  # noqa: SLF001 - this object is the test's own
-    namespace._stop = stop  # noqa: SLF001
-    namespace._thread = thread  # noqa: SLF001
+    namespace._server = server  # this object is the test's own
+    namespace._stop = stop
+    namespace._thread = thread
     return namespace
 
 
@@ -400,11 +400,11 @@ def live() -> Any:
     if not _wait_until(lambda: _caget(TELEMETRY) is not None):
         pytest.fail("the Channel Access server never became reachable")
     yield namespace
-    namespace._stop.set()  # noqa: SLF001
-    namespace._thread.join(timeout=5)  # noqa: SLF001
+    namespace._stop.set()
+    namespace._thread.join(timeout=5)
 
 
-def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:  # noqa: ANN001
+def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
     """Poll ``predicate`` until it is truthy, then return what it returned."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

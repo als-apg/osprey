@@ -23,7 +23,7 @@ Timeouts — the detail that decides whether long-polling works at all:
     like a broken network — the single most common way to get this wrong. The
     two profiles are therefore explicit and separate:
 
-    * ordinary calls (post, room info) use the client-wide timeout built from
+    * ordinary calls (post, room info, participants) use the client-wide timeout built from
       :data:`CONNECT_TIMEOUT` / :data:`REQUEST_TIMEOUT`;
     * a long poll passes a **per-request** override whose read timeout is the
       requested server hold plus :data:`POLL_READ_MARGIN`, so the local timeout
@@ -543,6 +543,39 @@ class TalkClient:
             display_name=display_name if isinstance(display_name, str) else "",
             last_message_id=_last_message_id(data),
         )
+
+    def list_participants(self, room: str) -> list[dict[str, Any]]:
+        """List a room's participants, one object per attendee, unmodified.
+
+        The bridge's account is a signed-in participant of every room it polls, so
+        its existing credential lists the room. Uses the ordinary client-wide
+        timeout and no retry, like every other call here.
+
+        Args:
+            room: Talk room token.
+
+        Returns:
+            The attendee objects (``actorType``, ``actorId``, ``displayName``, …).
+
+        Raises:
+            TalkApiError: If the payload is not a list of objects.
+            httpx.HTTPError: On any transport failure or error status — including
+                the ``412`` a room with its lobby on answers a caller that is not a
+                moderator, which arrives as an :class:`httpx.HTTPStatusError` like
+                any other error status.
+        """
+        resp = self._client.get(
+            self._ocs_url(f"{ROOM_API}/{self._token(room)}/participants"),
+            headers=_OCS_HEADERS,
+            auth=self._auth,
+        )
+        resp.raise_for_status()
+        data = self._ocs_data(resp)
+        if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+            raise TalkApiError(
+                f"participants payload for room {room!r} is not a list of participants"
+            )
+        return data
 
     # --- file surface -------------------------------------------------------
 

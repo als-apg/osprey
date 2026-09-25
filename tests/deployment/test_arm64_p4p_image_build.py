@@ -255,7 +255,7 @@ def image_context(
             "--set",
             "provider=anthropic",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5",
             "--no-git",
         ],
     )

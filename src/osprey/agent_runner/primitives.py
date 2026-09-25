@@ -72,8 +72,11 @@ def _apply_e2e_overrides(spec: Any) -> Any:
     the build env, the SDK ``model=`` argument, and the proxy base URL
     mutually consistent.
 
-    * ``OSPREY_E2E_FORCE_MODEL`` — collapse every tier onto one model id and
-      rewrite the tier-model env vars to match.
+    * ``OSPREY_E2E_FORCE_MODEL`` — collapse the main model, every agent's
+      model and Claude Code's three alias models onto one model id, and
+      rewrite the model env vars to match — ``CLAUDE_CODE_SUBAGENT_MODEL``
+      included, because an agent's ``model:`` frontmatter names its id
+      directly.
     * ``OSPREY_E2E_PROXY_BASE_URL`` — point ``ANTHROPIC_BASE_URL`` at the
       in-process translation proxy (set by the session fixture in
       tests/e2e/conftest.py for OpenAI-protocol / open models). Anthropic-
@@ -91,24 +94,26 @@ def _apply_e2e_overrides(spec: Any) -> Any:
 
     import dataclasses
 
-    tier_to_model = dict(spec.tier_to_model)
+    changes: dict[str, Any] = {}
     env_block = dict(spec.env_block)
     if force_model:
         from osprey.build.claude_code_resolver import TIER_MODEL_ENV_VARS
 
-        for tier in tier_to_model:
-            tier_to_model[tier] = force_model
-        # Force exactly ANTHROPIC_MODEL plus the tier-model vars, derived from
+        changes["default_model_id"] = force_model
+        changes["alias_models"] = dict.fromkeys(spec.alias_models, force_model)
+        changes["agent_models"] = dict.fromkeys(spec.agent_models, force_model)
+        # Force exactly ANTHROPIC_MODEL plus the alias-model vars, derived from
         # the single TIER_MODEL_ENV_VARS source so this key set cannot drift
-        # from resolve()'s env_block (the #350 failure). Only keys actually
-        # present in env_block are rewritten.
+        # from resolve()'s env_block. Only keys actually present in env_block
+        # are rewritten.
         forced_keys = {"ANTHROPIC_MODEL"} | set(TIER_MODEL_ENV_VARS.values())
         for key in forced_keys:
             if key in env_block:
                 env_block[key] = force_model
+        env_block["CLAUDE_CODE_SUBAGENT_MODEL"] = force_model
     if proxy_base:
         env_block["ANTHROPIC_BASE_URL"] = proxy_base
-    return dataclasses.replace(spec, tier_to_model=tier_to_model, env_block=env_block)
+    return dataclasses.replace(spec, env_block=env_block, **changes)
 
 
 def _secrets_dir(project_dir: Path) -> Path:
@@ -421,38 +426,33 @@ class SDKWorkflowResult:
 # ---------------------------------------------------------------------------
 
 
-#: Upstream Anthropic model per tier, used only when a project resolves no
-#: provider spec at all — a deployment on a gateway names its own ids.
-_TIER_FALLBACK_MODELS = {
-    "haiku": "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-5",
-    "opus": "claude-opus-5",
-}
+#: Upstream Anthropic model, used only when a project resolves no provider spec
+#: at all — a deployment on a gateway names its own ids.
+_FALLBACK_MODEL = "claude-sonnet-5"
 
 
-def resolve_default_model(project_dir: Path, tier: str = "haiku") -> str:
-    """Resolve a tier's model name for the given project.
+def resolve_default_model(project_dir: Path) -> str:
+    """The project's main model id.
 
-    Reads ``config.yml`` and returns the provider's model id for *tier*,
-    falling back to the upstream Anthropic default when no spec is
-    configured.
+    Reads ``config.yml`` and returns the deployment's main model —
+    ``claude_code.default_model``, else the provider entry's
+    ``default_model`` — falling back to the upstream Anthropic default when no
+    spec is configured. Resolving through the project's own provider is what
+    keeps a caller from naming a vendor id a gateway-fronted deployment does
+    not serve.
 
     Args:
         project_dir: Path to an initialized OSPREY project.
-        tier: Which tier to resolve — ``"haiku"`` (the default, for the cheap
-            headless paths), ``"sonnet"`` or ``"opus"``. Resolving through the
-            project's own tier map is what keeps a caller from naming a bare
-            vendor id that a gateway-fronted deployment does not serve.
 
     Returns:
         Model identifier string suitable for passing to the Claude Agent SDK
         ``model=`` argument.
     """
-    fallback = _TIER_FALLBACK_MODELS.get(tier, _TIER_FALLBACK_MODELS["haiku"])
     spec = _resolve_project_spec(project_dir)
     if spec is not None:
-        return str(spec.tier_to_model.get(tier, fallback))
-    return fallback
+        model_id: str = spec.default_model_id
+        return model_id
+    return _FALLBACK_MODEL
 
 
 def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> dict[str, str]:
@@ -577,7 +577,7 @@ def build_agent_options(
             ``--disallowedTools``; the architectural read-only guard).
         max_turns: Maximum agentic turns before the SDK stops a response.
         max_budget_usd: Budget ceiling passed to the SDK (literal, not scaled).
-        model: Model id; when ``None``, resolved from the project's haiku tier.
+        model: Model id; when ``None``, the project's main model.
         permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
             read-only headless path; ``"default"`` when an approval callback
             should mediate tool use.
@@ -615,7 +615,7 @@ def build_agent_options(
                 spec.auth_env_var,
                 spec.provider,
             )
-        port = start_proxy(spec.upstream_base_url, auth_token)
+        port = start_proxy(spec.upstream_base_url, auth_token, provider=spec.provider)
         env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
     return ClaudeAgentOptions(
@@ -800,7 +800,7 @@ async def await_mcp_ready(
         try:
             status = await client.get_mcp_status()
             servers = status.get("mcpServers", []) if isinstance(status, dict) else (status or [])
-        except Exception:  # noqa: BLE001 — status not queryable yet; keep polling
+        except Exception:  # status not queryable yet; keep polling
             servers = servers or []
         if expected:
             terminal = {s.get("name") for s in servers if s.get("status") in _MCP_TERMINAL_STATUSES}

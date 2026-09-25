@@ -354,6 +354,8 @@ def _add_catalog_entry(repo: Path, name: str) -> str:
             f"  {name}:\n"
             f"    api_key: ${{{variable}}}\n"
             f"    base_url: https://gateway.example.invalid/v1\n"
+            f"    default_model: rack-model\n"
+            f"    models: [rack-model]\n"
         )
     return variable
 
@@ -448,7 +450,7 @@ def test_persona_deltas_contribute_their_own_providers() -> None:
 
     assert _referenced_providers(host, {"ops": {"provider": "cborg"}}) == {"anthropic", "cborg"}
     # A delta that overrides neither key inherits the host's selection.
-    assert _referenced_providers(host, {"ops": {"model": "sonnet"}}) == {"anthropic"}
+    assert _referenced_providers(host, {"ops": {"model": "claude-sonnet-5"}}) == {"anthropic"}
     # An entry only this repo's catalog carries is referenced without being named.
     assert _referenced_providers(host, {}, ("house-gateway",)) == {"anthropic", "house-gateway"}
 
@@ -762,12 +764,12 @@ def test_set_pairs_are_baked_and_resolvable(runner: CliRunner, tmp_path: Path) -
     target = tmp_path / "my-facility"
 
     created = _new(
-        runner, target, "hello-world", "--set", "model=opus", "--set", "provider=als-apg"
+        runner, target, "hello-world", "--set", "model=claude-opus-5-5", "--set", "provider=als-apg"
     )
     assert created.exit_code == 0, created.output
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.model == "opus"
+    assert resolved.model == "claude-opus-5-5"
     assert resolved.provider == "als-apg"
 
 
@@ -784,12 +786,12 @@ def test_name_override_replaces_the_directory_derived_name(
 
 def test_baked_override_survives_into_the_built_project(runner: CliRunner, tmp_path: Path) -> None:
     repo = tmp_path / "my-facility"
-    assert _new(runner, repo, "hello-world", "--set", "model=opus").exit_code == 0
+    assert _new(runner, repo, "hello-world", "--set", "model=claude-opus-5").exit_code == 0
 
     assert _build_from(runner, repo).exit_code == 0
 
     config = yaml.safe_load((repo / "build" / "config.yml").read_text())
-    assert config["claude_code"]["default_model"] == "opus"
+    assert config["claude_code"]["default_model"] == "claude-opus-5"
 
 
 # ---------------------------------------------------------------------------
@@ -891,11 +893,11 @@ def test_force_bakes_new_set_pairs(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "p-facility"
     assert _new(runner, target, "hello-world").exit_code == 0
 
-    result = _new(runner, target, "hello-world", "--force", "--set", "model=sonnet")
+    result = _new(runner, target, "hello-world", "--force", "--set", "model=claude-sonnet-5")
 
     assert result.exit_code == 0, result.output
     resolved, _ = resolve_build_profile(target / "profile.yml", None, (), ())
-    assert resolved.model == "sonnet"
+    assert resolved.model == "claude-sonnet-5"
 
 
 def test_force_allows_replacing_an_empty_directory(runner: CliRunner, tmp_path: Path) -> None:

@@ -985,11 +985,11 @@ def test_the_report_is_written_through_the_reporters_console(
 
 def test_set_pairs_are_baked_into_the_emitted_profile(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / EXEMPLAR_DIRNAME
-    result = init_exemplar(runner, target, "--set", "model=sonnet")
+    result = init_exemplar(runner, target, "--set", "model=claude-sonnet-5")
 
     assert result.exit_code == 0, result.output
     profile = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
-    assert profile["model"] == "sonnet"
+    assert profile["model"] == "claude-sonnet-5"
 
 
 def test_list_presets_needs_no_target(runner: CliRunner) -> None:
@@ -1654,8 +1654,16 @@ class TestSetShorthandMistakenForAFlag:
 
         result = runner.invoke(
             cli,
-            ["init", str(target), "--preset", "hello-world", "--no-git", "--set", "model=haiku"],
+            [
+                "init",
+                str(target),
+                "--preset",
+                "hello-world",
+                "--no-git",
+                "--set",
+                "model=claude-haiku-4-5",
+            ],
         )
 
         assert result.exit_code == 0, result.output
-        assert yaml.safe_load((target / "profile.yml").read_text())["model"] == "haiku"
+        assert yaml.safe_load((target / "profile.yml").read_text())["model"] == "claude-haiku-4-5"

@@ -33,6 +33,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from osprey.bridges.core import text as core_text
+from osprey.bridges.core.errors import UndeliverableError
 from osprey.bridges.google_chat import GoogleChatBridgeConfig
 from osprey.bridges.google_chat import client as client_module
 from osprey.bridges.google_chat.client import (
@@ -144,6 +145,57 @@ def test_create_raises_on_transport_failure_without_retrying():
 
     # No retry and no swallow: the ops layer owns both, per outcome.
     assert execute.call_count == 1
+
+
+class _FakeHttpError(Exception):
+    """The shape of ``googleapiclient.errors.HttpError`` the mapping reads: a ``resp``
+    with a ``status`` and the parsed ``reason``. Built by hand so this file keeps its
+    no-Google-library property."""
+
+    def __init__(self, status: int, reason: str) -> None:
+        super().__init__(f"<HttpError {status} returned {reason!r}>")
+        self.resp = MagicMock(status=status)
+        self.reason = reason
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _FakeHttpError(403, "This Chat app is not a member of this space."),
+        _FakeHttpError(404, "Space not found."),
+    ],
+    ids=["not-a-member", "gone"],
+)
+def test_create_maps_a_permanent_refusal_of_the_destination_to_undeliverable(error):
+    """Chat will refuse this destination on every later attempt too, so the engine gets
+    the one signal that lets it stop retrying rather than the bare transport error."""
+    service = make_service()
+    messages_of(service).create.return_value.execute.side_effect = error
+
+    with pytest.raises(UndeliverableError, match=error.reason) as caught:
+        ChatClient(CFG, service).create_message(SPACE, THREAD, "hello")
+
+    assert caught.value.__cause__ is error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _FakeHttpError(403, "The caller does not have permission"),
+        _FakeHttpError(429, "Quota exceeded"),
+        _FakeHttpError(500, "Internal error"),
+        RuntimeError("connection reset"),
+    ],
+    ids=["other-403", "429", "500", "transport"],
+)
+def test_create_passes_every_other_failure_through_unchanged(error):
+    # A missing scope is a 403 too, but it is a bridge misconfiguration that a fix will
+    # clear for every destination at once — not this destination refusing forever.
+    service = make_service()
+    messages_of(service).create.return_value.execute.side_effect = error
+
+    with pytest.raises(type(error)):
+        ChatClient(CFG, service).create_message(SPACE, THREAD, "hello")
 
 
 def test_create_does_not_chunk():
@@ -368,3 +420,72 @@ def test_calls_do_not_interleave_across_threads():
         thread.join()
 
     assert timeline == ["enter", "exit"] * 6
+
+
+# --- list_members ----------------------------------------------------------
+
+
+def members_service(*pages):
+    """A service whose ``spaces().members().list(...).execute()`` answers ``pages`` in
+    order (an exception in the list is raised)."""
+    service = MagicMock()
+    execute = service.spaces.return_value.members.return_value.list.return_value.execute
+    execute.side_effect = list(pages)
+    return service
+
+
+def list_calls(service):
+    return [c.kwargs for c in service.spaces.return_value.members.return_value.list.call_args_list]
+
+
+def membership(n):
+    return {"member": {"name": f"users/{n}", "type": "HUMAN"}, "state": "JOINED"}
+
+
+def test_list_members_follows_the_page_token():
+    service = members_service(
+        {"memberships": [membership(1)], "nextPageToken": "t2"},
+        {"memberships": [membership(2)]},
+    )
+    members, more = ChatClient(CFG, service=service).list_members(SPACE, limit=50)
+    assert [m["member"]["name"] for m in members] == ["users/1", "users/2"]
+    assert more is False
+    assert list_calls(service) == [
+        {"parent": SPACE, "pageSize": 50},
+        {"parent": SPACE, "pageSize": 50, "pageToken": "t2"},
+    ]
+
+
+def test_list_members_stops_at_the_limit_and_reports_more():
+    service = members_service(
+        {"memberships": [membership(1), membership(2)], "nextPageToken": "t2"},
+        {"memberships": [membership(3)]},
+    )
+    members, more = ChatClient(CFG, service=service).list_members(SPACE, limit=2)
+    assert len(members) == 2
+    assert more is True
+    assert len(list_calls(service)) == 1
+    assert list_calls(service)[0]["pageSize"] == 2
+
+
+def test_list_members_stops_on_a_repeated_token():
+    service = members_service(
+        {"memberships": [membership(1)], "nextPageToken": "loop"},
+        {"memberships": [membership(2)], "nextPageToken": "loop"},
+        {"memberships": [membership(3)], "nextPageToken": "loop"},
+    )
+    members, more = ChatClient(CFG, service=service).list_members(SPACE, limit=50)
+    assert [m["member"]["name"] for m in members] == ["users/1", "users/2"]
+    assert more is False
+    assert len(list_calls(service)) == 2
+
+
+def test_list_members_raises_on_transport_failure():
+    service = members_service(RuntimeError("chat is down"))
+    with pytest.raises(RuntimeError, match="chat is down"):
+        ChatClient(CFG, service=service).list_members(SPACE, limit=50)
+
+
+def test_list_members_treats_a_non_dict_page_as_empty():
+    service = members_service(["not", "a", "page"])
+    assert ChatClient(CFG, service=service).list_members(SPACE, limit=50) == ([], False)

@@ -32,6 +32,7 @@ from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
     _copy_local_framework_for_override,
+    _dedupe_compose_files,
     clean_deployment,
     compose_base_cmd,
     compose_provider_env,
@@ -2325,13 +2326,20 @@ def _resolve_prebuilt_images(config: dict) -> bool:
     return bool(config.get("prebuilt_images", False))
 
 
-def _worker_image_target(config: dict, env: dict) -> str:
-    """The image the dispatch worker will actually run.
+#: The services whose compose image line falls back to the project image
+#: (``${OSPREY_WORKER_IMAGE:-<services.<name>.image | default(osprey_images.worker)>}``).
+#: None has a ``build:`` block, so :func:`_build_project_image` is the only thing
+#: that produces the image they run.
+_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
 
-    Resolution mirrors the worker compose service's
-    ``${OSPREY_WORKER_IMAGE:-<services.dispatch_worker.image | default>}``:
+
+def _service_image_target(config: dict, env: dict, service: str) -> str:
+    """The image ``service`` will actually run.
+
+    Resolution mirrors the service's compose line
+    ``${OSPREY_WORKER_IMAGE:-<services.<service>.image | default>}``:
     an ``OSPREY_WORKER_IMAGE`` env override wins, then a profile-pinned
-    ``services.dispatch_worker.image``, else the project image that
+    ``services.<service>.image``, else the project image that
     :func:`_build_project_image` builds — carrying whatever the registry and
     tag axes resolved to.
 
@@ -2344,11 +2352,16 @@ def _worker_image_target(config: dict, env: dict) -> str:
     override = env.get("OSPREY_WORKER_IMAGE")
     if override:
         return str(override)
-    worker_cfg = config.get("services", {}).get("dispatch_worker", {})
-    explicit = worker_cfg.get("image") if isinstance(worker_cfg, dict) else None
+    service_cfg = (config.get("services") or {}).get(service, {})
+    explicit = service_cfg.get("image") if isinstance(service_cfg, dict) else None
     if explicit:
         return str(explicit)
-    return resolve_image_defaults(config)["worker"]
+    return str(resolve_image_defaults(config)["worker"])
+
+
+def _worker_image_target(config: dict, env: dict) -> str:
+    """The image the dispatch worker will actually run (:func:`_service_image_target`)."""
+    return _service_image_target(config, env, "dispatch_worker")
 
 
 def _project_image_build_target(config: dict, env: dict) -> str | None:
@@ -2357,9 +2370,9 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     The gate in front of that build, split out so a caller can ask whether the
     build will happen at all without running it. Three ways it does not: this
     host says its images are prebuilt (:func:`_resolve_prebuilt_images`), this
-    deployment does not deploy the dispatch worker, or the worker's effective
-    image (:func:`_worker_image_target`) is a prebuilt one rather than this
-    project's own image.
+    deployment deploys none of the services that run the project image
+    (:data:`_PROJECT_IMAGE_SERVICES`), or every one it deploys names another
+    image (:func:`_service_image_target`).
 
     The prebuilt switch is asked first and outranks the rest, because it is a
     statement about the HOST rather than about the deployment: a machine with no
@@ -2382,13 +2395,14 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     """
     if _resolve_prebuilt_images(config):
         return None
+    project_image = str(resolve_image_defaults(config)["worker"])
     services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "dispatch_worker" not in services:
-        return None
-    project_image = resolve_image_defaults(config)["worker"]
-    if _worker_image_target(config, env) != project_image:
-        return None
-    return project_image
+    if any(
+        service in services and _service_image_target(config, env, service) == project_image
+        for service in _PROJECT_IMAGE_SERVICES
+    ):
+        return project_image
+    return None
 
 
 def _unreleased_pin_problem(config: dict, env: dict, dev_mode: bool) -> tuple[str, str] | None:
@@ -2489,17 +2503,17 @@ def _project_image_build_cmd(
 def _build_project_image(
     config: dict, dev_mode: bool, env: dict, build_context: Path | str | None = None
 ) -> None:
-    """Build the project image the dispatch worker references.
+    """Build the project image the dispatch worker, the ARIEL sync service and the record archive run.
 
-    The dispatch worker's compose service intentionally has no ``build:`` block
-    (a second builder for the same tag would race the event-dispatcher — see
+    None of those compose services has a ``build:`` block (a second builder for
+    the same tag would race the event-dispatcher — see
     ``dispatch_worker/docker-compose.yml.j2``), so nothing in ``compose up``
-    produces the image it runs. This builds it once, from the project root
+    produces the image they run. This builds it once, from the project root
     (context) and the rendered project ``Dockerfile``, before ``compose up``.
 
-    No-op unless the worker is deployed and its effective image is this
-    project's own axis-derived tag: an ``OSPREY_WORKER_IMAGE`` override or a
-    profile-pinned ``services.dispatch_worker.image`` means a prebuilt image is
+    No-op unless one of those services is deployed on this project's own
+    axis-derived tag: an ``OSPREY_WORKER_IMAGE`` override or a profile-pinned
+    ``services.<name>.image`` on every deployed one means a prebuilt image is
     wanted, so there is nothing to build. The event-dispatcher's own
     ``<project>-dispatch`` build (its compose ``build:`` block) is untouched.
 
@@ -2537,19 +2551,21 @@ def _build_project_image(
     """
     project_image = _project_image_build_target(config, env)
     if project_image is None:
-        # Only SOME of the no-op cases are worth a line. A deployment without
-        # the dispatch worker was never going to build this image and has
-        # nothing to explain; a deployment that has the worker but points it at
-        # another image took a decision the operator should see reflected back;
-        # and a prebuilt host gets the same line the compose build reports for
-        # the same switch — but only where the switch actually took a build
-        # away, which is the worker running this project's own tag. Saying it
-        # for a deployment that has no worker would report a skip of something
-        # that was never going to happen.
+        # Only SOME of the no-op cases are worth a line. A deployment with none
+        # of the project-image services was never going to build this image and
+        # has nothing to explain; a deployment that has the worker but points it
+        # at another image took a decision the operator should see reflected
+        # back; and a prebuilt host gets the same line the compose build reports
+        # for the same switch — but only where the switch actually took a build
+        # away, which is a deployed project-image service running this project's
+        # own tag. Saying it for any other deployment would report a skip of
+        # something that was never going to happen.
         services = {str(s) for s in (config.get("deployed_services") or [])}
         if _resolve_prebuilt_images(config):
-            if "dispatch_worker" in services and (
-                _worker_image_target(config, env) == resolve_image_defaults(config)["worker"]
+            project_tag = resolve_image_defaults(config)["worker"]
+            if any(
+                service in services and _service_image_target(config, env, service) == project_tag
+                for service in _PROJECT_IMAGE_SERVICES
             ):
                 _report_group("images")
                 _report_step("skipped image build (prebuilt images)")
@@ -2591,7 +2607,7 @@ def _build_project_image(
     cmd: list[str] = []
     try:
         cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
-        logger.debug("Building dispatch worker project image %s:", project_image)
+        logger.debug("Building project image %s:", project_image)
         logger.debug("Running command:\n    %s", " ".join(cmd))
         # Watched for the duration of the build and no longer; the step line
         # below is what reports the finished image.
@@ -4606,6 +4622,90 @@ _STANDIN_OFFSET_AXES = {"offset_x": "x", "offset_y": "y"}
 #: a later transform is a different value here rather than a silent MATCH.
 _STANDIN_TRANSFORM_KIND = "bpm_offsets"
 
+#: How the fingerprint names a seed whose lattice-served monitor readings are
+#: centred on the orbit the served model solves (see
+#: :func:`_solved_monitor_baselines`).
+_SOLVED_BASELINES_KIND = "solved_monitor_baselines"
+
+
+def _solved_monitor_baselines(project_dir: Path, channels: Sequence[dict]) -> dict[str, float]:
+    """The reading each lattice-served monitor serves at boot, by address.
+
+    A monitor the served tree binds to the lattice does not read the level its
+    ``machine.json`` entry declares: it reads the closed orbit the model solves,
+    and the virtual accelerator adds the machine file's motion on top of that.
+    Its seeded history has to sit on the same orbit, or every trend across the
+    boundary between the seeded past and the recorded present steps by the
+    difference. So the orbit is solved here the way the virtual accelerator
+    solves it at boot -- the same model, built from the same served tree and
+    channel set, read through the same bridge -- and the truth that bridge
+    publishes, before any motion or readout fault, is the answer.
+
+    :param project_dir: The deployment repo root.
+    :param channels: The manifest channel set being seeded.
+    :returns: ``{address: solved reading}`` for every seeded address the tree
+        serves as a monitor reading. Empty for a deployment whose chain serves
+        no lattice, whose served tree carries no lattice or no bindings, or
+        whose model cannot be built -- the last with a warning, because the
+        seed then describes the machine file's declared levels rather than the
+        orbit the live half will serve.
+    """
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
+    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
+
+    build_dir = project_dir / BUILD_DIRNAME
+    if resolved_va_lattice(project_dir, build_dir) == VA_LATTICE_DEFAULT:
+        return {}
+    data_root = served_data_root(project_dir, build_dir)
+    if data_root is None:
+        return {}
+    paths = ManifestPaths(data_root=data_root)
+    if not (paths.lattice_json.is_file() and paths.va_bindings.is_file()):
+        return {}
+
+    from osprey.services.virtual_accelerator.bindings import BindingsError
+    from osprey.services.virtual_accelerator.ioc.physics_bridge import (
+        OrbitSolveError,
+        PhysicsBridge,
+        UnknownDeviceError,
+    )
+    from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+
+    try:
+        truth = PhysicsBridge(PyATRingModel(data_root, list(channels))).bpm_positions()
+    except (BindingsError, OrbitSolveError, UnknownDeviceError, OSError, ValueError) as exc:
+        logger.warning(
+            "  The served lattice under %s could not be solved (%s), so the archive seed "
+            "centres its monitor readings on the levels machine.json declares rather than "
+            "on the orbit the virtual accelerator will serve.",
+            data_root,
+            exc,
+        )
+        return {}
+    served = {str(channel["address"]) for channel in channels}
+    return {address: value for address, value in truth.items() if address in served}
+
+
+def _baselines_fingerprint(
+    baselines: Mapping[str, float], readout: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The seed's value description when its monitor readings are rebased.
+
+    The solved levels are digested rather than listed: the fingerprint only has
+    to change when any of them does, and a digest keeps the stored manifest and
+    a mismatch report readable. The stand-in's readout description, when there
+    is one, rides along unchanged under ``readout``, because the offsets are
+    still subtracted from the rebased values exactly as before.
+    """
+    canonical = json.dumps(sorted(baselines.items()), separators=(",", ":"))
+    return {
+        "kind": _SOLVED_BASELINES_KIND,
+        "count": len(baselines),
+        "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "readout": None if readout is None else dict(readout),
+    }
+
 
 def _served_monitor_readings(project_dir: Path):
     """Where the served tree publishes each monitor reading, and at which element.
@@ -4720,11 +4820,13 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
     machine's history under a displaced machine's present and every trend
     across the seam would show a step no operator caused.
 
-    **Offset level, not sample level.** The seeded past carries the same
-    systematic offsets as the stand-in's readout, not the same samples: the
-    seed's own values come from the simulation engine and the procedural
-    generator, not from pyAT, so a seeded sample and a recorded one agree about
-    the machine's systematic error and not about any individual number.
+    **Applied last, to the synthesized value.** The stand-in reads the beam
+    through its offsets, and the seed subtracts the same offsets from the value
+    it synthesized for that instant. For a monitor the served lattice computes,
+    that value is centred on the solved orbit and carries the machine file's
+    motion (see :func:`_solved_monitor_baselines`), which is what the stand-in
+    reads before its offsets too, so a seeded sample and a recorded one at the
+    same instant agree while no write has moved the orbit.
 
     Offsets are the only reproducible field, which is why the shipped default
     carries nothing else: with unit gain and calibration, positive polarity,
@@ -4847,11 +4949,20 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     and because a seed built without it would describe a different machine than
     the recorder is sampling (see :func:`_standin_seed_transform`).
 
+    A monitor reading the served lattice computes is centred on the orbit that
+    lattice solves (:func:`_solved_monitor_baselines`) rather than on the level
+    ``machine.json`` declares for it: the engine is built with those levels as
+    its baselines, and the boot values carry them for a reading the machine
+    file does not describe. The file itself is never rewritten. Because the
+    rebased values are different stored values, the fingerprint says so.
+
     :returns: ``(channels, engine, boot_values, value_transform,
         transform_fingerprint)``. ``engine`` is ``None`` and ``boot_values``
         empty for a project with no machine model — every channel is then
-        procedural, which is a valid configuration, not a fault. The last two
-        are ``None`` unless this deployment's archive is its stand-in's.
+        procedural, which is a valid configuration, not a fault. The transform
+        is ``None`` unless this deployment's archive is its stand-in's; the
+        fingerprint is ``None`` unless it is, or the seed is rebased on a
+        solved orbit.
     :raises RuntimeError: Nothing names a manifest to seed from.
     """
     from osprey.services.virtual_accelerator.manifest.loaders import (
@@ -4889,9 +5000,22 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     if machine_path is None or not machine_path.is_file():
         return channels, None, {}, transform, transform_fingerprint
 
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
-    )
+    state_dir = resolve_state_dir(config, project_dir)
+    baselines = _solved_monitor_baselines(project_dir, channels)
+    if baselines:
+        # Built directly rather than through the engine cache: this engine's
+        # machine is not the file's as written, and a cached one would hand
+        # the rebased levels to every other reader of the same file.
+        resolved = machine_path.expanduser().resolve()
+        engine = SimulationEngine(
+            json.loads(resolved.read_text()),
+            resolved,
+            state_dir=Path(state_dir).expanduser().resolve(),
+            baselines=baselines,
+        )
+        transform_fingerprint = _baselines_fingerprint(baselines, transform_fingerprint)
+    else:
+        engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
     # The same map the Virtual Accelerator boots its records from: machine.json's
     # static channel values, skipping the handful of derived channels that carry
     # an expression instead. Anchoring the procedural generator on it is what
@@ -4901,6 +5025,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         for address, entry in load_machine_json_channels(machine_path).items()
         if "value" in entry
     }
+    boot_values.update(baselines)
     return channels, engine, boot_values, transform, transform_fingerprint
 
 
@@ -5350,7 +5475,7 @@ def _wait_for_ariel_store(ariel_config: dict, deadline: float) -> None:
         try:
             with psycopg.connect(dsn, connect_timeout=5):
                 return
-        except Exception as exc:  # noqa: BLE001 — every failure here is "not yet"
+        except Exception as exc:  # every failure here is "not yet"
             last = exc
             if time.monotonic() >= deadline:
                 raise RuntimeError(
@@ -5433,7 +5558,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
     try:
         _wait_for_ariel_store(ariel_config, time.monotonic() + _ARIEL_HEALTH_TIMEOUT_S)
         _migrate_ariel_store(ariel_config)
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema could not be created, so its panel and MCP tools will "
             f"report the database as unavailable. Everything else in this deploy is "
@@ -5445,7 +5570,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
 
     try:
         seeded = simulation_apply.seed_active_logbook(config, project_dir, ariel_config)
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"ARIEL's schema is in place but its logbook could not be seeded, so the "
             f"panel will come up empty. Run `osprey sim apply` from {project_dir} to "
@@ -5600,7 +5725,7 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
             ) as session:
                 session.run(_GRAPHDB_PING_CYPHER).consume()
                 return
-        except Exception as exc:  # noqa: BLE001 — every failure here is "not yet"
+        except Exception as exc:  # every failure here is "not yet"
             last = exc
             if time.monotonic() >= deadline:
                 raise RuntimeError(
@@ -5712,7 +5837,7 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
 
     try:
         patched = prompt_snapshot.bake_snapshot(session, _graphdb_config_dir(project_dir))
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"The graph schema snapshot could not be baked into the agent prompt, so the "
             f"agent will read the schema through its tools instead. Cause: {exc}"
@@ -5772,7 +5897,7 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
         connection = _graphdb_connection(config, project_dir)
         _wait_for_graphdb_store(connection, time.monotonic() + _GRAPHDB_HEALTH_TIMEOUT_S)
         _bootstrap_and_seed_graphdb(config, project_dir, connection)
-    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+    except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
             f"The graph store could not be bootstrapped or seeded, so graph queries will "
             f"return nothing. Everything else in this deploy is unaffected. Run "
@@ -6475,10 +6600,11 @@ def _start_stack(
     # itself; never aborts (see _stage_graphdb_store).
     _stage_graphdb_store(config, compose_files, env, Path(repo_root), provider=provider)
 
-    # Build the <project>:local image the dispatch worker references. The worker
-    # has no compose build block (that would race the event-dispatcher on the
-    # shared tag), so this is the only thing that produces its image. No-op
-    # unless the worker is deployed on the local project image. Run before
+    # Build the <project>:local image the dispatch worker, the ARIEL sync service
+    # and the record archive run. None of them has a compose build block (that
+    # would race the event-dispatcher on the shared tag), so this is the only
+    # thing that produces their image. No-op unless one of them is deployed on
+    # the local project image. Run before
     # `compose up` (which, non-detached, os.execvpe-replaces this process) and
     # AFTER the graph staging above: that step bakes the live store's schema
     # into the agent prompts inside this image's build context, and an image
@@ -6688,35 +6814,6 @@ def as_built_compose_files(config: dict, repo_root: Path | str) -> list[str]:
 
     services = [str(service) for service in (config.get("deployed_services") or [])]
     return _dedupe_compose_files(find_existing_compose_files(config, services, base=repo_root))
-
-
-def _dedupe_compose_files(compose_files: list[str]) -> list[str]:
-    """Drop repeats from a ``-f`` list, keeping first-seen order.
-
-    Two deployed services can name ONE compose template: a two-lane Bluesky
-    deployment declares ``services.bluesky`` and ``services.bluesky_va`` with
-    the same ``path``, because one template renders both lanes rather than a
-    second copy of the directory being kept in step with the first. The lookup
-    walks ``deployed_services``, so it reports that file once per lane.
-
-    Passing it twice is not obviously harmful — compose merges a document with
-    itself — but it is a claim the deploy does not mean to make, it doubles up
-    in every log line and status listing that echoes the file list, and how a
-    given runtime treats a repeated ``-f`` is not a bet worth taking.
-
-    :param compose_files: Paths in ``-f`` order, possibly with repeats
-    :type compose_files: list[str]
-    :return: The same paths, first occurrence only
-    :rtype: list[str]
-    """
-    seen: set[str] = set()
-    unique: list[str] = []
-    for compose_file in compose_files:
-        if compose_file in seen:
-            continue
-        seen.add(compose_file)
-        unique.append(compose_file)
-    return unique
 
 
 def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
@@ -7253,7 +7350,7 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
             name = str(raw[0]) if isinstance(raw, list) and raw else str(raw)
             if name:
                 names.append(name)
-    except Exception as exc:  # noqa: BLE001 - advisory: the card must not fail the verb
+    except Exception as exc:  # advisory: the card must not fail the verb
         logger.debug("Container health skipped: %s", exc)
         return []
     return sorted(names)

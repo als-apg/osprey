@@ -472,7 +472,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     osprey_bin = _find_osprey_console_script()
 
     def _osprey(argv: list[str]) -> subprocess.CompletedProcess:
-        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+        return subprocess.run(  # fixed argv, no shell
             [str(osprey_bin), *argv],
             cwd=str(base),
             capture_output=True,
@@ -499,7 +499,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5-20251001",
         ]
     )
     if init.returncode != 0:
@@ -582,7 +582,7 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
             "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
             "CLAUDECODE": "",
         }
-        worker_proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        worker_proc = subprocess.Popen(  # fixed argv, no shell
             [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
             cwd=str(built_repo),
             env=worker_env,
@@ -603,7 +603,7 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
             "MCP_PORT": str(dispatcher_port),
             "CLAUDECODE": "",
         }
-        dispatcher_proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
             [sys.executable, "-m", "osprey.dispatch"],
             cwd=str(built_repo),
             env=dispatcher_env,
@@ -758,7 +758,7 @@ def _running_bridge(
     def _serve() -> None:
         try:
             run(wiring)
-        except BaseException as exc:  # noqa: BLE001 - re-raised from the test thread
+        except BaseException as exc:  # re-raised from the test thread
             failure.append(exc)
 
     thread = threading.Thread(target=_serve, name="teams-bridge-e2e", daemon=True)

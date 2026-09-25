@@ -26,15 +26,15 @@ import pytest
 
 pytest.importorskip("bluesky")
 
-from osprey.services.bluesky_bridge.figure import (  # noqa: E402
+from osprey.services.bluesky_bridge.figure import (
     DEFAULT_MAX_POINTS,
     Figure,
     HeatmapMark,
     LinesMark,
     RowWindow,
 )
-from osprey.services.bluesky_bridge.plans_core import grid_scan  # noqa: E402
-from osprey.services.bluesky_bridge.plans_core.grid_scan import (  # noqa: E402
+from osprey.services.bluesky_bridge.plans_core import grid_scan
+from osprey.services.bluesky_bridge.plans_core.grid_scan import (
     PARAMS,
     GridAxis,
     render,

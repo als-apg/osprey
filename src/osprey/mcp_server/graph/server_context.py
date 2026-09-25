@@ -402,7 +402,7 @@ class GraphContext:
             return
         try:
             self._driver.close()
-        except Exception:  # noqa: BLE001 - closing is best-effort teardown
+        except Exception:  # closing is best-effort teardown
             logger.debug("Error closing the graph driver (ignored)", exc_info=True)
         self._driver = None
 
@@ -505,7 +505,7 @@ class GraphContext:
         """
         try:
             return load_osprey_config() or {}
-        except Exception as exc:  # noqa: BLE001 - a bad config must not kill startup
+        except Exception as exc:  # a bad config must not kill startup
             logger.warning("GraphContext: could not load config.yml (%s)", exc)
             return {}
 
@@ -528,7 +528,7 @@ class GraphContext:
         """
         try:
             return get_config_value(key, default)
-        except Exception as exc:  # noqa: BLE001 - a bad config must not kill startup
+        except Exception as exc:  # a bad config must not kill startup
             logger.warning("GraphContext: could not read %s (%s)", key, exc)
             return default
 

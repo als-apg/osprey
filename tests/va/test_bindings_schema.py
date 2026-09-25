@@ -248,6 +248,14 @@ class TestBindingStructure:
             == "bindings[0].energy_scaling"
         )
 
+    @pytest.mark.parametrize("field", ("kind", "readback", "energy_scaling"))
+    @pytest.mark.parametrize("value", (5, None, ["strength"]))
+    def test_refuses_a_vocabulary_value_that_is_not_a_string(self, field, value):
+        """A value of the wrong type is refused with the same key and wording as a wrong string."""
+        refusal = _refused(_document([_strength(**{field: value})]))
+        assert refusal.key == f"bindings[0].{field}"
+        assert refusal.message.startswith("must be one of ")
+
     def test_refuses_an_empty_family_or_address(self):
         assert _refused(_document([_strength(family="")])).key == "bindings[0].family"
         assert (

@@ -112,7 +112,7 @@ class TestNonBlockingOffload:
         connector = _make_connector()
         validate_threads: list[int] = []
 
-        def recording_validate(_addr, _val, *, read_current=None):  # noqa: ARG001 - the limits-validator interface names read_current
+        def recording_validate(channel_address, value, *, read_current=None):  # noqa: ARG001 - stands in for LimitsValidator.validate, whose signature this mirrors
             validate_threads.append(threading.get_ident())
 
         connector._limits_validator.validate = MagicMock(side_effect=recording_validate)

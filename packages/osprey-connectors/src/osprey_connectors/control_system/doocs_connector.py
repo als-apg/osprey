@@ -111,9 +111,21 @@ class DOOCSConnector(ControlSystemConnector):
         return read_result
 
     def _read_channel_sync(self, address: str) -> ChannelValue:
-        """Synchronous DOOCS read (runs in thread pool)."""
+        """Synchronous DOOCS read (runs in thread pool).
 
-        data = self._doocs4py.get(address)  # EqData
+        A failure of the ``get`` itself is reported as :class:`ConnectionError`
+        naming the property, with doocs4py's own error kept as the cause — the
+        word this method's caller already documents, and the one the MCP error
+        envelope answers by retiring the connector. The unwrapping below is
+        outside the guard: a reading that cannot be unwrapped is not a property
+        that cannot be reached.
+        """
+        try:
+            data = self._doocs4py.get(address)  # EqData
+        except TimeoutError:
+            raise
+        except Exception as exc:
+            raise ConnectionError(f"Failed to read DOOCS property '{address}': {exc}") from exc
 
         value = data.get_data()
         macropulse = data.macropulse

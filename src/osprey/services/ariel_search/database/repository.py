@@ -698,9 +698,7 @@ class ARIELRepository:
                 for row in rows:
                     table_name = row[0]
 
-                    count_result = await conn.execute(
-                        f"SELECT COUNT(*) FROM {table_name}"  # noqa: S608
-                    )
+                    count_result = await conn.execute(f"SELECT COUNT(*) FROM {table_name}")
                     count_row = await count_result.fetchone()
                     entry_count = int(count_row[0]) if count_row else 0
 
@@ -812,7 +810,7 @@ class ARIELRepository:
                     ON CONFLICT (entry_id) DO UPDATE SET
                         embedding = EXCLUDED.embedding,
                         created_at = NOW()
-                    """,  # noqa: S608
+                    """,
                     [entry_id, embedding_str],
                 )
         except Exception as e:
@@ -919,7 +917,7 @@ class ARIELRepository:
                             WHERE {where_sql}
                             ORDER BY {order_by}
                             LIMIT %s
-                        """  # noqa: S608
+                        """
                         all_params = query_params + query_params + params + [max_results]
                     else:
                         query = f"""
@@ -933,7 +931,7 @@ class ARIELRepository:
                             WHERE {where_sql}
                             ORDER BY {order_by}
                             LIMIT %s
-                        """  # noqa: S608
+                        """
                         all_params = query_params + params + [max_results]
 
                     await cur.execute(query, all_params)
@@ -1011,7 +1009,7 @@ class ARIELRepository:
                         WHERE {where_sql}
                         ORDER BY sim DESC
                         LIMIT %s
-                    """  # noqa: S608
+                    """
                     all_params = [search_text] + params + [max_results]
 
                     await cur.execute(query, all_params)
@@ -1093,7 +1091,7 @@ class ARIELRepository:
                         WHERE {where_sql}
                         ORDER BY similarity DESC
                         LIMIT %s
-                    """  # noqa: S608
+                    """
 
                     all_params = [embedding_str] + params + [max_results]
 

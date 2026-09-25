@@ -40,8 +40,8 @@ def _a_builtin_gateway_that_ships_no_endpoint(monkeypatch: pytest.MonkeyPatch) -
             "base_url": None,
             "requires_base_url": True,
             "base_url_env_var": _ENDPOINT_VAR,
-            "default_model_tier": "haiku",
-            "models": {"haiku": "h", "sonnet": "s", "opus": "o"},
+            "default_model": "h",
+            "models": ["h", "s", "o"],
         },
     )
 

@@ -28,7 +28,7 @@ from osprey.agent_runner.primitives import provider_env_for_project
 def _write_config(project_dir: Path, provider: str) -> None:
     """Write a minimal config.yml selecting *provider* for the claude_code path."""
     (project_dir / "config.yml").write_text(
-        f"claude_code:\n  provider: {provider}\n  model: haiku\n"
+        f"claude_code:\n  provider: {provider}\n  model: claude-haiku-4-5\n"
     )
 
 
@@ -227,10 +227,8 @@ api:
   providers:
     argo:
       base_url: ${ARGO_PROD_URL}
-      models:
-        haiku: claudehaiku45
-        sonnet: claudesonnet45
-        opus: claudeopus41
+      default_model: claudesonnet45
+      models: [claudehaiku45, claudesonnet45, claudeopus41]
 claude_code:
   provider: argo
 """
@@ -260,7 +258,7 @@ def test_native_provider_env_block_unchanged(
     monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-secret")
 
     env = provider_env_for_project(tmp_path)
-    direct = ClaudeCodeModelResolver.resolve({"provider": "cborg", "model": "haiku"}, {})
+    direct = ClaudeCodeModelResolver.resolve({"provider": "cborg", "model": "claude-haiku-4-5"}, {})
 
     for key, value in direct.env_block.items():
         assert env[key] == value
@@ -274,12 +272,14 @@ def test_native_provider_env_block_unchanged(
 def test_e2e_force_derives_forced_keys_from_single_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``_apply_e2e_overrides`` forces exactly ``{ANTHROPIC_MODEL} ∪
-    TIER_MODEL_ENV_VARS.values()`` (derived, not a literal tuple) and stays
-    consistent with the resolved env_block.
+    """``_apply_e2e_overrides`` forces ``{ANTHROPIC_MODEL} ∪
+    TIER_MODEL_ENV_VARS.values()`` (derived, not a literal tuple) plus
+    ``CLAUDE_CODE_SUBAGENT_MODEL``, and stays consistent with the resolved
+    env_block.
 
-    Guards the #350 drift: a model var present in env_block but absent from the
-    force list left the matrix sending the wrong model on background calls.
+    A model var present in env_block but absent from the force list would send
+    the wrong model on background calls; an agent's frontmatter names its id
+    directly, so the subagent var is what redirects it.
     """
     from osprey.agent_runner.primitives import _apply_e2e_overrides
     from osprey.build.claude_code_resolver import (
@@ -288,7 +288,9 @@ def test_e2e_force_derives_forced_keys_from_single_source(
     )
 
     monkeypatch.setenv("OSPREY_E2E_FORCE_MODEL", "forced-model-x")
-    spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+    spec = ClaudeCodeModelResolver.resolve(
+        {"provider": "cborg", "agent_models": {"channel-finder": "claude-sonnet-5"}}
+    )
 
     forced = _apply_e2e_overrides(spec)
 
@@ -300,8 +302,11 @@ def test_e2e_force_derives_forced_keys_from_single_source(
     # The forced-key set is a subset of what resolve() can produce — no key is
     # forced that env_block could never carry (the drift guard).
     assert derived <= set(forced.env_block) | {"ANTHROPIC_MODEL"}
-    # Every tier collapses onto the single forced model.
-    assert set(forced.tier_to_model.values()) == {"forced-model-x"}
+    # The main model, every alias and every agent collapse onto the forced model.
+    assert forced.default_model_id == "forced-model-x"
+    assert set(forced.alias_models.values()) == {"forced-model-x"}
+    assert forced.agent_model("channel-finder") == "forced-model-x"
+    assert forced.env_block["CLAUDE_CODE_SUBAGENT_MODEL"] == "forced-model-x"
 
 
 def test_e2e_force_inert_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:

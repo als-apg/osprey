@@ -1077,6 +1077,50 @@ def test_render_without_a_per_type_limits_block_is_runnable(tmp_path: Path) -> N
 
 
 # ---------------------------------------------------------------------------
+# The build's render-side archiver-settings refusal
+# ---------------------------------------------------------------------------
+
+
+def _write_archiver_render(tmp_path: Path, archiver: object) -> Path:
+    """A render directory holding nothing but the ``archiver:`` section."""
+    import yaml
+
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    (render_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": "demo", "archiver": archiver}),
+        encoding="utf-8",
+    )
+    return render_dir
+
+
+def _render_archiver_errors(render_dir: Path) -> list[str]:
+    """The build's own render-side archiver-settings check."""
+    from osprey.cli import build_cmd
+
+    return build_cmd._archiver_settings_errors(render_dir)
+
+
+def test_render_with_an_archiver_block_nothing_reads_is_unrunnable(tmp_path: Path) -> None:
+    """A block keyed by the class name is not the one the factory hands ``connect()``."""
+    render_dir = _write_archiver_render(
+        tmp_path, {"type": "my_facility.Archive", "Archive": {"server": "x"}}
+    )
+
+    (error,) = _render_archiver_errors(render_dir)
+
+    assert "`Archive:` under `archiver:`" in error
+
+
+def test_render_with_archiver_settings_is_runnable(tmp_path: Path) -> None:
+    render_dir = _write_archiver_render(
+        tmp_path, {"type": "my_facility.Archive", "settings": {"server": "x"}}
+    )
+
+    assert _render_archiver_errors(render_dir) == []
+
+
+# ---------------------------------------------------------------------------
 # The build's profile-side limits-block refusal
 # ---------------------------------------------------------------------------
 #

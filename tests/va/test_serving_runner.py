@@ -235,20 +235,20 @@ class FakeDriver:
         self.values: dict[str, Any] = dict(values or {})
         self.calls: list[tuple[str, str, Any]] = []
 
-    def setParam(self, reason: str, value: Any) -> None:  # noqa: N802 - driver contract
+    def setParam(self, reason: str, value: Any) -> None:  # driver contract
         self.calls.append(("setParam", reason, value))
         self.values[reason] = value
 
-    def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
+    def getParam(self, reason: str) -> Any:  # driver contract
         return self.values[reason]
 
-    def updatePV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def updatePV(self, reason: str) -> None:  # driver contract
         self.calls.append(("updatePV", reason, None))
 
-    def callbackPV(self, reason: str) -> None:  # noqa: N802 - driver contract
+    def callbackPV(self, reason: str) -> None:  # driver contract
         self.calls.append(("callbackPV", reason, None))
 
-    def setParamStatus(  # noqa: N802 - driver contract
+    def setParamStatus(  # driver contract
         self, reason: str, alarm: Any, severity: Any
     ) -> None:
         self.calls.append(("setParamStatus", reason, (alarm, severity)))
@@ -431,7 +431,7 @@ class FakeRunLoop:
                 # values are kept here so a test can prove they never reached
                 # a PV.
                 self.outputs.append(self.model.get(list(self.model.supported_variables)))
-            except Exception as exc:  # noqa: BLE001 - the loop reports, never raises
+            except Exception as exc:  # the loop reports, never raises
                 error = str(exc)
             if done is not None:
                 done(error)
@@ -1143,7 +1143,7 @@ class TestTransportSymmetry:
     """What a write does may not depend on which transport it arrived on."""
 
     @pytest.mark.parametrize("send", TRANSPORTS)
-    def test_an_accepted_write_moves_both_views(self, send) -> None:  # noqa: ANN001
+    def test_an_accepted_write_moves_both_views(self, send) -> None:
         stack = _stack()
         send(stack, MAG_SP, 3.25)
         assert stack.driver.values[MAG_SP] == 3.25
@@ -1153,7 +1153,7 @@ class TestTransportSymmetry:
     @pytest.mark.parametrize("send", TRANSPORTS)
     def test_a_refused_write_leaves_the_one_shot_readers_where_they_were(
         self,
-        send,  # noqa: ANN001
+        send,
     ) -> None:
         stack = _stack(refuse=frozenset({MAG_SP}))
         send(stack, MAG_SP, 3.25)
@@ -1164,7 +1164,7 @@ class TestTransportSymmetry:
     @pytest.mark.parametrize("send", TRANSPORTS)
     def test_a_refused_write_posts_nothing_to_a_monitoring_reader(
         self,
-        send,  # noqa: ANN001
+        send,
     ) -> None:
         """On Channel Access that is two facts -- nothing recorded, nothing
         posted -- because a value can be recorded without being posted. On
@@ -1179,7 +1179,7 @@ class TestTransportSymmetry:
     @pytest.mark.parametrize("send", TRANSPORTS)
     def test_a_refused_write_raises_the_alarm_whichever_side_it_came_from(
         self,
-        send,  # noqa: ANN001
+        send,
     ) -> None:
         """The alarm is the channel's condition, not one client's error
         report: a refusal that arrived on PVA is still a refused write to
@@ -1190,7 +1190,7 @@ class TestTransportSymmetry:
         assert ("setParamStatus", MAG_SP, ("WRITE_ALARM", "INVALID_ALARM")) in stack.driver.calls
 
     @pytest.mark.parametrize("send", TRANSPORTS)
-    def test_the_model_is_offered_the_same_value(self, send) -> None:  # noqa: ANN001
+    def test_the_model_is_offered_the_same_value(self, send) -> None:
         stack = _stack()
         send(stack, MAG_SP, 700.0)
         assert stack.bridge.calls == [(MAG_SP, MAG_BAND[1])]
@@ -1329,7 +1329,7 @@ class TestSingleClamp:
     @pytest.mark.parametrize("send", TRANSPORTS)
     def test_a_write_is_clamped_exactly_once(
         self,
-        send,  # noqa: ANN001
+        send,
         clamps: list[tuple[Any, Any]],
     ) -> None:
         """Identical bands make a second clamp invisible in the value, so it
@@ -1695,14 +1695,14 @@ class TestRealNamespace:
         catalog = build_variable_catalog(PACKAGE_PATHS, channels, build_action_variables(document))
         return build_serving_pvdb(channels, async_setpoints=True), catalog
 
-    def test_counts(self, built) -> None:  # noqa: ANN001
+    def test_counts(self, built) -> None:
         records, catalog = built
         assert len(records.pvdb) == 2908
         assert len(records.setpoint_readbacks) == 396
         assert len(physics_setpoint_addresses(records)) == 348
         assert len(catalog) == 492
 
-    def test_every_model_variable_is_already_a_co_hosted_channel(self, built) -> None:  # noqa: ANN001
+    def test_every_model_variable_is_already_a_co_hosted_channel(self, built) -> None:
         """Which is why the base class must not serve them on Channel Access
         as well: the database merge refuses a duplicate name outright."""
         records, catalog = built
@@ -1710,7 +1710,7 @@ class TestRealNamespace:
 
     def test_the_physics_setpoints_are_exactly_the_writable_variables(
         self,
-        built,  # noqa: ANN001
+        built,
     ) -> None:
         """Nothing is routed to the model that the model cannot take, and
         nothing writable is left un-routed."""

@@ -659,7 +659,7 @@ def test_the_module_never_imports_pymongo():
     import subprocess
     import sys
 
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         [
             sys.executable,
             "-c",

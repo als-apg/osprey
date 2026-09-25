@@ -117,7 +117,7 @@ def _worker(request: dict) -> dict:
     for address in request["addresses"]:
         try:
             values[address] = connect(address).get(use_monitor=False, timeout=timeout)
-        except Exception as error:  # noqa: BLE001 - reported to the test, not raised here
+        except Exception as error:  # reported to the test, not raised here
             failed[address] = f"{type(error).__name__}: {error}"
     return {"values": values, "failed": failed}
 
@@ -482,7 +482,7 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
         try:
             if served.read(probe)[probe] is not None:
                 return
-        except Exception:  # noqa: BLE001 - "not up yet" is the expected case here
+        except Exception:  # "not up yet" is the expected case here
             pass
         time.sleep(2.0)
 
@@ -659,23 +659,36 @@ class TestTheServedTree:
         ends on what can be held against something independent -- its driven
         kinds against the mapping, and its rules against the three a client can
         be written for.
+
+        The device is looked for among strengths, then correctors, then the RF
+        frequency, which is the one device of this rule a tree may have. That
+        device can be the only one of its kind, so a later lane may drive it
+        too: the write is held to moving it, and the value it booted with is
+        written back once the rule has been measured.
         """
-        _rules_are_coherent(served.tree, ("strength", "kick"))
+        kinds = ("strength", "kick", "rf")
+        _rules_are_coherent(served.tree, kinds)
         binding = _bound_or_absent(
             _of_kind(served.tree, "strength", "same_as_setpoint")
-            or _of_kind(served.tree, "kick", "same_as_setpoint"),
+            or _of_kind(served.tree, "kick", "same_as_setpoint")
+            or _of_kind(served.tree, "rf", "same_as_setpoint"),
             served.tree,
-            ("strength", "kick"),
+            kinds,
         )
         if binding is None:
             return
         target = served.tree.target(binding)
-
-        values = served.write_then_read(
-            [(binding.setpoint_address, target)], [binding.setpoint_address]
+        address = binding.setpoint_address
+        booted = served.read(address)[address]
+        assert booted != pytest.approx(target, rel=READBACK_RTOL), (
+            f"{served.tree.name}: {address} already serves {target} before the write"
         )
 
-        assert values[binding.setpoint_address] == pytest.approx(target, rel=READBACK_RTOL)
+        values = served.write_then_read([(address, target)], [address])
+
+        assert values[address] == pytest.approx(target, rel=READBACK_RTOL)
+        restored = served.write_then_read([(address, booted)], [address])
+        assert restored[address] == pytest.approx(booted, rel=READBACK_RTOL)
 
     def test_a_strength_write_reads_back_through_the_exported_inverse(
         self, served: ServedTree

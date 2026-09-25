@@ -48,6 +48,14 @@ wall of text cannot become a second wall of text quoted back.
 :func:`ack_text` and :func:`quote_prefix` are public for the same reason: the
 e2e lane asserts the posted text by *equality* against them. A test that
 re-spelled the ack would prove only that someone typed it twice.
+
+Who is in the room
+------------------
+:meth:`TeamsOps.room_people` tells the agent who is in the conversation: the
+channel itself for a channel thread (never the team), the chat for a chat. The
+list comes from the Connector's paged member listing, cached per conversation by
+:class:`~osprey.bridges.teams.roster.ConversationRoster`, with names the
+conversation showed filling any the listing left empty.
 """
 
 from __future__ import annotations
@@ -61,14 +69,19 @@ from typing import Any
 import httpx
 
 from osprey.bridges.core import (
+    MENTION_PLACEHOLDER_RE,
     ChannelOps,
     CoreConfig,
     FetchedArtifact,
     InboundEvent,
     InputDownload,
     ReplyContext,
+    RoomMember,
+    RoomPeople,
+    RoomRoster,
     artifact_descriptors,
     fetch_artifact,
+    queued_since,
     safe_label,
 )
 from osprey.bridges.core.text import chunk_text
@@ -82,10 +95,13 @@ from .events import (
     MS_CONVERSATION_ID,
     MS_CONVERSATION_TYPE,
     MS_SERVICE_URL,
+    people_seen,
+    roster_conversation_id,
 )
 from .events import parse_event as parse_teams_event
 from .events import resolve_reply_context as resolve_teams_reply_context
-from .formatting import markdown_to_teams
+from .formatting import markdown_to_teams, render_mentions
+from .roster import ConversationRoster
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +137,11 @@ QUEUED_TEXT = (
     "runs, so there's no need to re-send this."
 )
 """First-park notice. A re-park is silent (the engine posts this only once)."""
+
+RESUMED_TEXT = "Resuming your request queued {since} — service is restored, answer follows."
+"""Posted right before the delayed answer of a request the user was told was queued.
+``{since}`` is ``at <stamp> (<elapsed> ago)`` from :func:`~osprey.bridges.core.queued_since`,
+or ``earlier`` when the entry carries no usable time."""
 
 GIVEUP_TEXT = (
     "I couldn't run this automatically and I've stopped retrying, so this question will "
@@ -247,18 +268,22 @@ def _address(entry: Mapping[str, Any]) -> tuple[str, str, str]:
     return segments[0], segments[1], segments[2]
 
 
-def _message_activity(text: str) -> dict[str, Any]:
-    """One outbound message activity carrying ``text``.
+def _message_activity(text: str, entities: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
+    """One outbound message activity carrying ``text`` and its mention ``entities``.
 
     The Connector is handed this verbatim as the request body, so everything an
     activity needs to be rendered the way the bridge intends is spelled here
-    rather than left to a client default.
+    rather than left to a client default. An activity with no mention keeps the
+    plain shape: no ``entities`` key at all.
     """
-    return {
+    activity: dict[str, Any] = {
         "type": MESSAGE_ACTIVITY_TYPE,
         "textFormat": TEXT_FORMAT_MARKDOWN,
         "text": text,
     }
+    if entities:
+        activity["entities"] = [dict(entity) for entity in entities]
+    return activity
 
 
 def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
@@ -278,6 +303,10 @@ def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
     missing, and the transform can change the text's length, so splitting first
     would not even guarantee the chunks still fit.
 
+    A mention placeholder is never split, because each chunk is rendered on its own
+    into its text and its mention entities; the chunks returned here are still the
+    placeholder text.
+
     Args:
         result: The terminal result. Only ``status`` and ``text_output`` are read.
 
@@ -293,7 +322,9 @@ def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
     text = result.get("text_output")
     if not isinstance(text, str) or not text.strip():
         return [EMPTY_ANSWER_TEXT]
-    return chunk_text(markdown_to_teams(text), ANSWER_CHUNK_CHARS) or [EMPTY_ANSWER_TEXT]
+    return chunk_text(
+        markdown_to_teams(text), ANSWER_CHUNK_CHARS, keep_whole=MENTION_PLACEHOLDER_RE
+    ) or [EMPTY_ANSWER_TEXT]
 
 
 # --- outbound image delivery ------------------------------------------------
@@ -431,6 +462,21 @@ def _attachment_activity(name: str, data: bytes) -> dict[str, Any]:
     }
 
 
+def _roster_address(entry: Mapping[str, Any]) -> tuple[str, str]:
+    """``(service URL, roster conversation id)`` for the entry; each ``""`` when absent.
+
+    The conversation is the one the question was said in, with a channel reply's
+    thread suffix removed (:func:`~osprey.bridges.teams.events.roster_conversation_id`),
+    so the roster is always the channel's own, never the team's. Never raises.
+    """
+    service_url = entry.get(MS_SERVICE_URL)
+    conversation = entry.get(MS_CONVERSATION_ID)
+    return (
+        service_url if isinstance(service_url, str) else "",
+        roster_conversation_id(conversation) if isinstance(conversation, str) else "",
+    )
+
+
 class TeamsOps:
     """Teams' platform I/O behind the ``ChannelOps`` seam.
 
@@ -439,7 +485,8 @@ class TeamsOps:
     member derives everything it needs from the ``entry`` it is handed. The
     collaborators it holds are themselves thread-safe — the connector client
     serializes its HTTP leg behind its own lock, and ``httpx.Client`` is safe to
-    share.
+    share. The instance holds one cross-call state, the room roster cache, which
+    owns its lock and its bound; it is the only state besides the collaborators.
     """
 
     def __init__(
@@ -479,6 +526,15 @@ class TeamsOps:
             worker_http if worker_http is not None else httpx.Client(trust_env=cfg.core.trust_env)
         )
         self._fetch_artifact = artifact_fetcher
+        self._roster = ConversationRoster(self._list_members, cfg.app_id)
+
+    def _list_members(
+        self, service_url: str, conversation: str, limit: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """The roster's listing call, resolved on the client at call time — so a
+        connector double without the method still constructs, and a call raises
+        inside the roster's guard."""
+        return self._client.list_members(service_url, conversation, limit=limit)
 
     # --- inbound members ---------------------------------------------------
 
@@ -490,7 +546,9 @@ class TeamsOps:
         leave the message unsettled and redelivered forever. See
         :func:`~osprey.bridges.teams.events.parse_event` for which activities
         count as questions for this bot — the mention filter outside a 1:1 chat
-        is the access control for a channel.
+        is the access control for a channel. Names the activity shows (its sender,
+        the people it mentions) are recorded in memory for the room roster; that
+        does no I/O.
 
         Args:
             event: One decoded activity.
@@ -498,7 +556,51 @@ class TeamsOps:
         Returns:
             The parsed event, or ``None`` to ignore this one.
         """
+        try:
+            conversation, seen = people_seen(event, self._cfg.app_id)
+            if conversation and seen:
+                self._roster.note_seen(conversation, seen)
+        except Exception:
+            logger.debug("could not record who was seen", exc_info=True)
         return parse_teams_event(event, self._cfg)
+
+    def room_people(self, entry: Mapping[str, Any]) -> RoomPeople | None:
+        """Who is in the entry's conversation, or ``None`` when that is unknown.
+
+        The :class:`~osprey.bridges.core.ports.RoomRoster` member. Never raises, and
+        lists only this conversation's people. The asker is named from the entry
+        when they are listed but neither the listing nor a seen name named them, so
+        a re-dispatch after a restart still names who asked; the asker is never
+        added when the listing does not contain them.
+        """
+        try:
+            service_url, conversation = _roster_address(entry)
+            if not service_url or not conversation:
+                return None
+            listed = self._roster.members(service_url, conversation)
+            if listed is None:
+                return None
+            names, more = listed
+            sender_id = entry.get("sender_id")
+            sender_display = entry.get("sender_display")
+            if (
+                isinstance(sender_id, str)
+                and sender_id in names
+                and names[sender_id] is None
+                and isinstance(sender_display, str)
+                and sender_display
+            ):
+                names[sender_id] = sender_display
+            return RoomPeople(
+                members=tuple(RoomMember(i, n) for i, n in names.items()),
+                mentions=self._cfg.mentions,
+                more_not_listed=more,
+            )
+        except Exception:
+            logger.warning(
+                "room roster failed for %s", entry.get(MS_CONVERSATION_ID), exc_info=True
+            )
+            return None
 
     # --- posting members ---------------------------------------------------
 
@@ -564,8 +666,15 @@ class TeamsOps:
         after it are not re-sized on the strength of one over-large neighbour. A
         413 on a half is not caught: two halvings mean the cap is not what this
         path assumes, and the engine's retry is a better answer than an unbounded
-        split. The re-split runs on the text that was actually attempted, prefix
-        included, so a quote is not lost by being made smaller.
+        split. The re-split runs on the chunk that was refused. Its first half
+        keeps the quote, and each half carries only its own mentions.
+
+        **Mentions.** A ``<@ID>`` placeholder is rendered per message from the
+        placeholder text, and only for a named member of this conversation, with
+        mentions on; anything else posts as plain text. The roster is read only
+        when the answer contains a placeholder, and a roster failure posts plain
+        text. The quote is never rendered, so a placeholder a person typed in the
+        question is posted as typed.
 
         Args:
             entry: The persisted entry; supplies the address and the quote.
@@ -581,10 +690,12 @@ class TeamsOps:
             TokenError: If no bearer could be obtained for the post.
         """
         prefix = quote_prefix(entry)
-        for index, chunk in enumerate(_answer_chunks(result)):
-            text = f"{prefix}{chunk}" if index == 0 else chunk
+        chunks = _answer_chunks(result)
+        roster, enabled = self._mention_roster(entry, chunks)
+        for index, chunk in enumerate(chunks):
+            lead = prefix if index == 0 else ""
             try:
-                self._post_text(entry, text)
+                self._reply(entry, self._answer_activity(lead, chunk, roster, enabled))
             except MessageSizeTooBig:
                 logger.warning(
                     "connector refused answer chunk %d for %s as too large; re-splitting it",
@@ -592,8 +703,46 @@ class TeamsOps:
                     entry.get(MS_ACTIVITY_ID),
                     exc_info=True,
                 )
-                for half in chunk_text(text, ANSWER_CHUNK_CHARS // 2):
-                    self._post_text(entry, half)
+                halves = chunk_text(
+                    chunk, ANSWER_CHUNK_CHARS // 2, keep_whole=MENTION_PLACEHOLDER_RE
+                )
+                for half_index, half in enumerate(halves):
+                    half_lead = lead if half_index == 0 else ""
+                    self._reply(entry, self._answer_activity(half_lead, half, roster, enabled))
+
+    def _mention_roster(
+        self, entry: Mapping[str, Any], chunks: Sequence[str]
+    ) -> tuple[Mapping[str, str | None], bool]:
+        """The roster to render this answer's mentions against, and whether to render.
+
+        ``({}, False)`` when no chunk holds a placeholder, so an answer with no
+        mention costs no members call; a roster failure also answers ``({}, False)``
+        and the mentions post as plain text.
+        """
+        try:
+            if not any(MENTION_PLACEHOLDER_RE.search(chunk) for chunk in chunks):
+                return {}, False
+            listed = self._roster.members(*_roster_address(entry))
+            return (listed[0] if listed else {}), self._cfg.mentions and listed is not None
+        except Exception:
+            logger.warning("mention roster failed; posting plain text", exc_info=True)
+            return {}, False
+
+    def _answer_activity(
+        self, lead: str, chunk: str, roster: Mapping[str, str | None], enabled: bool
+    ) -> dict[str, Any]:
+        """One answer message: ``lead`` (the quote, never rendered) plus ``chunk``
+        rendered into its text and its own mention entities. A render failure posts
+        every placeholder as plain text with no entities, so it never costs the
+        answer."""
+        try:
+            text, entities = render_mentions(
+                chunk, roster, enabled=enabled, placeholder=MENTION_PLACEHOLDER_RE
+            )
+        except Exception:
+            logger.warning("mention rendering failed; posting plain text", exc_info=True)
+            text, entities = MENTION_PLACEHOLDER_RE.sub(lambda m: "@" + m.group(1), chunk), []
+        return _message_activity(lead + text, entities)
 
     def post_queued(
         self,
@@ -612,6 +761,28 @@ class TeamsOps:
                 to "what now?" is the same whatever the cause.
         """
         self._post_text(entry, quote_prefix(entry) + QUEUED_TEXT)
+
+    def post_resumed(
+        self,
+        entry: Mapping[str, Any],
+        result: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels that word the line by outcome read the result
+    ) -> None:
+        """Post the "resuming your queued request" line. Never raises.
+
+        Right before the delayed answer, so the two read in order; in a flat chat it
+        opens with the question's quote, which is what says WHICH request resumes.
+        Best-effort: the answer follows whether or not this line did.
+        """
+        since = queued_since(entry)
+        text = RESUMED_TEXT.format(since=f"at {since}" if since else "earlier")
+        try:
+            self._post_text(entry, quote_prefix(entry) + text)
+        except Exception:
+            logger.warning(
+                "resume notice failed for %s; the answer follows regardless",
+                entry.get(MS_ACTIVITY_ID),
+                exc_info=True,
+            )
 
     def post_giveup(self, entry: Mapping[str, Any]) -> None:
         """Post the honest abandonment notice. **Raises** on failure.
@@ -862,10 +1033,15 @@ class TeamsOps:
         return None
 
 
-# NOT dead code, and not to be "cleaned up": this is the whole static conformance check
-# for the seam. Assigning a TeamsOps to a ChannelOps makes mypy verify every member's
+# NOT dead code, and not to be "cleaned up": these are the whole static conformance
+# checks for the two seams, ChannelOps and the optional RoomRoster. Assigning a
+# TeamsOps to either makes mypy verify every member's
 # FULL signature — parameter names, types, arity, return type — which a runtime
 # ``isinstance`` protocol check cannot do (it only looks for the names). Nothing runs it
 # and nothing constructs at import; the value is entirely in type-check time.
 def _static_conformance(ops: TeamsOps) -> ChannelOps:
+    return ops
+
+
+def _static_room_conformance(ops: TeamsOps) -> RoomRoster:
     return ops

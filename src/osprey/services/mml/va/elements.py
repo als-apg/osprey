@@ -319,7 +319,7 @@ def _with_cavity(ring: Sequence[Any], cavity: BuiltCavity) -> tuple[Any, BuiltCa
             f"family {cavity.family} is served a cavity the export states no voltage for, "
             f"and none was answered for it"
         )
-    built: Any = copy.deepcopy(ring)
+    built: at.Lattice = copy.deepcopy(ring)
     built.append(
         at.RFCavity(
             cavity.family,

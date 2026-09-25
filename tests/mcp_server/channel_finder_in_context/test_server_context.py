@@ -93,17 +93,11 @@ def test_context_subagent_model_from_ic_config(tmp_path, monkeypatch):
 
 def test_context_subagent_model_fallback_to_claude_code(tmp_path, monkeypatch):
     # When no pipeline-local subagent_model is set, the context falls back to
-    # ClaudeCodeModelResolver, which reads default_model (a tier name) and the
-    # tier→model map under claude_code.models. The plain `model:` key on the
-    # claude_code block is *not* consumed by the resolver.
+    # ClaudeCodeModelResolver, which reads claude_code.default_model (a model
+    # id). The plain `model:` key on the claude_code block is *not* consumed by
+    # the resolver.
     monkeypatch.chdir(tmp_path)
-    config = (
-        "claude_code:\n"
-        "  provider: anthropic\n"
-        "  default_model: sonnet\n"
-        "  models:\n"
-        "    sonnet: test-model\n"
-    )
+    config = "claude_code:\n  provider: anthropic\n  default_model: test-model\n"
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()
     reg = get_cf_ic_context()

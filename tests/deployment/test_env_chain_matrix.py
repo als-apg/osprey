@@ -334,7 +334,9 @@ def resolve_via_inject_provider_env(repo: Path, _monkeypatch: pytest.MonkeyPatch
     from osprey.build.claude_code_resolver import ClaudeCodeModelSpec, inject_provider_env
 
     environ: dict[str, str] = {}
-    inject_provider_env(environ, ClaudeCodeModelSpec(provider="test"), project_dir=repo)
+    inject_provider_env(
+        environ, ClaudeCodeModelSpec(provider="test", default_model_id="m"), project_dir=repo
+    )
     return chain_keys_of(environ)
 
 

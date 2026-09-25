@@ -19,6 +19,8 @@ The properties that get the most attention are the ones a live bridge breaks qui
 * no machine detail — above all ``result["error"]`` — ever reaches the space.
 """
 
+import dataclasses
+import time
 from typing import Any
 from unittest.mock import MagicMock, call
 
@@ -33,6 +35,7 @@ from osprey.bridges.google_chat.ops import (
     ERROR_TEXT,
     GIVEUP_TEXT,
     QUEUED_TEXT,
+    RESUMED_TEXT,
     SUPERSEDED_TEXT,
     GoogleChatOps,
 )
@@ -675,6 +678,44 @@ def test_a_failing_queued_notice_propagates_to_the_engine():
         ops.post_queued(ENTRY, {"status": "error"})
 
 
+def test_the_resume_notice_names_the_queue_time_in_the_questions_thread():
+    ops, service = make_ops()
+    ops.post_resumed(
+        {**ENTRY, "first_queued_at": time.time() - 3 * 3600, "queued_notified": True},
+        {"status": "completed"},
+    )
+
+    body = only_body(service)
+    assert body["thread"] == {"name": THREAD}
+    assert body["text"].startswith("▶️ Resuming your request queued at ")
+    assert "(3 h ago)" in body["text"]
+    assert body["text"].endswith("— service is restored, answer follows.")
+
+
+def test_the_resume_wording_claims_only_what_the_engine_guarantees():
+    # Posted right before the answer of a request the user was told was queued: the
+    # service is back and the answer follows. It promises nothing about the answer.
+    assert "{since}" in RESUMED_TEXT
+    assert "answer follows" in RESUMED_TEXT
+
+
+def test_a_resume_notice_without_a_usable_queue_time_still_says_resuming():
+    ops, service = make_ops()
+    ops.post_resumed({**ENTRY, "queued_notified": True}, {"status": "completed"})
+
+    body = only_body(service)
+    assert body["text"].startswith("▶️ Resuming your request queued ")
+    assert "None" not in body["text"]
+
+
+def test_a_failing_resume_notice_is_swallowed():
+    # Best-effort by contract: the answer follows whether or not this line landed.
+    ops, service = make_ops()
+    fail_every_create(service)
+
+    ops.post_resumed({**ENTRY, "first_queued_at": 1.0}, {"status": "completed"})
+
+
 def test_the_give_up_notice_uses_the_fixed_wording_in_the_questions_thread():
     ops, service = make_ops()
     ops.post_giveup({**ENTRY, "give_up_reason": "ceiling reached"})
@@ -718,9 +759,94 @@ def test_a_failing_superseded_note_is_swallowed():
 
 
 @pytest.mark.parametrize(
-    "wording", [ACK_TEXT, EMPTY_ANSWER_TEXT, ERROR_TEXT, QUEUED_TEXT, GIVEUP_TEXT, SUPERSEDED_TEXT]
+    "wording",
+    [
+        ACK_TEXT,
+        EMPTY_ANSWER_TEXT,
+        ERROR_TEXT,
+        QUEUED_TEXT,
+        RESUMED_TEXT,
+        GIVEUP_TEXT,
+        SUPERSEDED_TEXT,
+    ],
 )
 def test_no_space_facing_wording_is_empty(wording):
     # Chat rejects an empty body outright, so every constant that can become one has to
     # carry text.
     assert wording.strip()
+
+
+# --- post_answer: @mentions --------------------------------------------------
+
+
+def seed_members(service: MagicMock, *members: tuple[str, str | None]) -> MagicMock:
+    """Answer ``spaces.members.list`` with ``members`` (id, displayName) as humans."""
+    listing = service.spaces.return_value.members.return_value.list
+    listing.return_value.execute.return_value = {
+        "memberships": [
+            {"member": {"name": ident, "displayName": name, "type": "HUMAN"}, "state": "JOINED"}
+            for ident, name in members
+        ]
+    }
+    return listing
+
+
+def test_an_answer_mentioning_a_member_posts_chat_mention_syntax():
+    ops, service = make_ops()
+    seed_members(service, ("users/222", "Carol"))
+
+    ops.post_answer(ENTRY, completed("Please have a look, <@users/222>."))
+
+    assert only_body(service)["text"] == "Please have a look, <users/222>."
+
+
+def test_an_answer_without_a_mention_never_lists_members():
+    ops, service = make_ops()
+    listing = seed_members(service, ("users/222", "Carol"))
+
+    ops.post_answer(ENTRY, completed("42 mA"))
+
+    listing.assert_not_called()
+
+
+def test_a_members_list_failure_posts_the_mention_as_plain_text():
+    ops, service = make_ops()
+    listing = seed_members(service)
+    listing.return_value.execute.side_effect = RuntimeError("members down")
+
+    ops.post_answer(ENTRY, completed("cc <@users/222>"))
+
+    assert only_body(service)["text"] == "cc @users/222"
+
+
+def test_mentions_off_posts_plain_text():
+    ops, service = make_ops(dataclasses.replace(CFG, mentions=False))
+    seed_members(service, ("users/222", "Carol"))
+
+    ops.post_answer(ENTRY, completed("cc <@users/222>"))
+
+    assert only_body(service)["text"] == "cc @Carol"
+
+
+def test_a_long_answer_never_splits_a_mention_across_chunks():
+    ops, service = make_ops()
+    seed_members(service, ("users/2222222222", "Carol"))
+    text = "x" * (MAX_CHARS - 5) + "<@users/2222222222>" + " tail"
+
+    ops.post_answer(ENTRY, completed(text))
+
+    posted = [body["text"] for body in bodies(service)]
+    assert len(posted) == 2
+    assert all(len(chunk) <= MAX_CHARS for chunk in posted)
+    assert posted[1].startswith("<users/2222222222>")
+    assert "".join(posted) == "x" * (MAX_CHARS - 5) + "<users/2222222222> tail"
+
+
+def test_the_stored_text_output_keeps_the_placeholder():
+    ops, service = make_ops()
+    seed_members(service, ("users/222", "Carol"))
+    result = completed("cc <@users/222>")
+
+    ops.post_answer(ENTRY, result)
+
+    assert result["text_output"] == "cc <@users/222>"

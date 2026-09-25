@@ -821,7 +821,59 @@ class TestSyntheticExport:
         band = _synthetic("quokka.sr.ao.json")["HC"]["Setpoint"]["Range"]
         nominal = va["families"]["HC"]["nominals"]["Setpoint"]["values"]
         assert max(abs(value) for value in nominal) > band[1]
-        assert va["families"]["HC"]["Setpoint"]["calibration"]["grid_source"] == "range"
+        calibration = va["families"]["HC"]["Setpoint"]["calibration"]
+        assert calibration["grid_source"] == "range"
+        # The conversion bends, so every row's span is a committed number.
+        assert calibration["kind"] == "table"
+        spans = [(row[0], row[-1]) for row in calibration["grid"]]
+        assert spans == [(band[0], max(band[1], value)) for value in nominal]
+        assert len(set(spans)) == 2
+
+    def test_the_synthetic_mixed_band_falls_back_for_the_device_it_does_not_band(self):
+        """A field banded for some devices and not others grids each on its own terms."""
+        rows = _synthetic("quokka.sr.ao.json")["BDM"]["Setpoint"]["Range"]
+
+        def finite(row: list[Any]) -> bool:
+            return all(isinstance(value, int | float) and np.isfinite(value) for value in row)
+
+        assert sorted(finite(row) for row in rows) == [False, True]
+        calibration = _synthetic_va()["families"]["BDM"]["Setpoint"]["calibration"]
+        assert (calibration["grid_source"], calibration["anchor"]) == ("fallback", "nominal")
+
+    def test_the_synthetic_response_states_a_width_per_corrector_device(self):
+        """Each corrector is stepped by its own width, as a machine trims them."""
+        for block in _synthetic("quokka.sr.response.json")["blocks"]:
+            devices = len(block["actuator"]["device_list"])
+            widths = block["actuator_delta"]
+            assert isinstance(widths, list) and len(widths) == devices
+            assert all(isinstance(width, float) for width in widths)
+            assert len(set(widths)) > 1
+            data = block["actuator"]["data"]
+            assert isinstance(data, list) and len(data) == devices
+            if block["actuator"]["family"] == "VC":
+                assert data == ["NaN"] * devices
+
+    def test_the_synthetic_deck_marks_a_girder_with_two_unread_monitors(self):
+        """Two monitor-type elements share one name, and no family reads either."""
+        ring = _synthetic_ring("quokka.sr.lattice.mat", keep_all=True)
+        marks = [index for index, element in enumerate(ring) if element.FamName == "GE"]
+        assert len(marks) == 2
+        for index in marks:
+            assert isinstance(ring[index], at.Monitor)
+            assert ring[index].Length == 0
+
+        def flat(value: Any) -> list[Any]:
+            if isinstance(value, list):
+                return [item for entry in value for item in flat(entry)]
+            return [value]
+
+        bound = {
+            position
+            for block in _synthetic_va()["families"].values()
+            for nominal in block.get("nominals", {}).values()
+            for position in flat(nominal.get("at_index", []))
+        }
+        assert not bound & {index + 1 for index in marks}
 
     def test_the_synthetic_escape_hatch_carries_both_spellings(self):
         """The escape-hatch family names a replacement write path and a parameter group."""

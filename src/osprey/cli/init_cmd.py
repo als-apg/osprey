@@ -275,7 +275,7 @@ their own, so they need no arguments. `--repo PATH` points them somewhere else.
 
 ## Changing something
 
-Edit `profile.yml` (or run `osprey set model=sonnet` to change one setting),
+Edit `profile.yml` (or run `osprey set model=claude-sonnet-5` to change one setting),
 then:
 
 ```bash
@@ -1520,7 +1520,7 @@ def _surviving_project_resources(target: Path, runtime: str) -> list[str]:
                 *probe.volumes_for_project(project),
             )
         ]
-    except Exception:  # noqa: BLE001 — see docstring: never mask the real failure
+    except Exception:  # see docstring: never mask the real failure
         return []
 
 

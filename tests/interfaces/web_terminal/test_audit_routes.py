@@ -49,7 +49,7 @@ OWN_IDENTITY = "alice"
 BASE_CONFIG = {
     "project_name": "audit-routes",
     "control_system": {"writes_enabled": False},
-    "claude_code": {"default_model": "sonnet"},
+    "claude_code": {"default_model": "claude-sonnet-5"},
 }
 
 
@@ -646,3 +646,17 @@ class TestTheTierWalkCoversTheRoute:
         )
 
         assert MIN_GATED_ROUTES >= 13
+
+
+# ---- the full tool_call ledger ---- #
+
+
+def test_the_tool_call_ledger_is_not_served(client, own_dir):
+    """Its lines carry payloads and outgrow the tail window; it is not listed."""
+    (own_dir / "mcp.jsonl").write_text(_record("2026-01-01T00:00:00Z", subject="default") + "\n")
+    (own_dir / "tool_call.jsonl").write_text(
+        _record("2026-01-01T00:00:01Z", surface="tool_call", subject="full") + "\n"
+    )
+
+    assert _subjects(client.get(RECENT)) == ["default"]
+    assert _subjects(client.get(RECENT, params={"surface": "tool_call"})) == []

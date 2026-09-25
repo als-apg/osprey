@@ -1,7 +1,8 @@
 """HTTP the Teams bridge speaks: the bot's own credentials, and the Bot Connector.
 
-The bridge posts every reply to the Bot Connector, and every one of those calls
-carries a bearer token the bot mints for itself — an OAuth2 *client-credentials*
+The bridge makes two Bot Connector calls: it posts every reply, and it reads a
+conversation's paged member list for the room roster. Both go to the same
+per-conversation ``serviceUrl`` and both carry a bearer token the bot mints for itself — an OAuth2 *client-credentials*
 exchange against Azure AD with the app registration's id and secret. There is no
 user in that flow and no refresh token: the bridge simply asks again when the
 token it holds is about to stop working, which is what :class:`TokenSource` is.
@@ -84,6 +85,21 @@ ACTIVITY_URL_TEMPLATE = "{service_url}/v3/conversations/{conversation_id}/activi
 """Where a reply goes. The host is never chosen here: ``service_url`` is the
 ``serviceUrl`` the inbound activity carried, and the two ids are the conversation
 and the message being replied to — all three are used exactly as they arrived."""
+
+MEMBERS_URL_TEMPLATE = "{service_url}/v3/conversations/{conversation_id}/pagedmembers"
+"""Where a conversation's members are read, page by page. The host and the id are
+used exactly as they arrived, as for :data:`ACTIVITY_URL_TEMPLATE`. The un-paged
+``/members`` route is never used: Teams says not to in teams and channels, and a
+chat answers its whole roster in one page of this one."""
+
+MEMBERS_PAGE_MIN = 50
+"""The smallest ``pageSize`` Teams documents for the paged member listing. A value
+outside the documented bounds is refused or silently clamped by the service, so
+the client clamps first."""
+
+MEMBERS_PAGE_MAX = 500
+"""The largest ``pageSize`` Teams documents for the paged member listing; see
+:data:`MEMBERS_PAGE_MIN`."""
 
 CONNECTOR_TIMEOUT_SEC = 30.0
 """Timeout for a Connector post when this module builds its own client. The
@@ -347,8 +363,27 @@ def activity_url(service_url: str, conversation_id: str, activity_id: str) -> st
     )
 
 
+def members_url(service_url: str, conversation_id: str) -> str:
+    """Where ``conversation_id``'s paged member list is read.
+
+    The id is interpolated **as it arrived**, for the same reason as
+    :func:`activity_url`; only ``service_url``'s trailing slash is adjusted.
+
+    Args:
+        service_url: The ``serviceUrl`` the inbound activity carried.
+        conversation_id: The conversation whose members are listed.
+
+    Returns:
+        The absolute URL to GET the member pages from.
+    """
+    return MEMBERS_URL_TEMPLATE.format(
+        service_url=service_url.rstrip("/"), conversation_id=conversation_id
+    )
+
+
 class ConnectorClient:
-    """The one Bot Connector call the bridge makes: post a reply activity.
+    """The two Bot Connector calls the bridge makes: post a reply activity, and read
+    a conversation's members.
 
     Thread-safe, and coarsely so for the same reason as
     :class:`~osprey.bridges.google_chat.client.ChatClient`: the engine drives the
@@ -452,3 +487,75 @@ class ConnectorClient:
                 f"connector answered HTTP {response.status_code} for {url}: "
                 f"{response.text[:_ERROR_BODY_CHARS]}"
             )
+
+    def list_members(
+        self, service_url: str, conversation_id: str, *, limit: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Read up to ``limit`` members of ``conversation_id``, page by page.
+
+        Each page asks ``pageSize`` clamped to the documented bounds and, from the
+        second page on, the ``continuationToken`` the previous page returned. A
+        dict body gives ``members`` (only dict items are kept) and
+        ``continuationToken``; a list body is one page of members with no token
+        (the shape a chat may answer); any other JSON is an empty page. Stops when
+        the token is absent, when a token repeats (a looping server), or when
+        ``limit`` members are collected.
+
+        Args:
+            service_url: The ``serviceUrl`` the inbound activity carried.
+            conversation_id: The conversation to list, exactly as it will be
+                addressed.
+            limit: The most members to return.
+
+        Returns:
+            ``(members, more)``: at most ``limit`` ``ChannelAccount`` objects, and
+            whether the listing stopped on ``limit`` with more left to read.
+
+        Raises:
+            ConnectorError: On a transport failure, a non-2xx answer or a body
+                that is not JSON.
+            TokenError: If no bearer could be obtained.
+        """
+        url = members_url(service_url, conversation_id)
+        page_size = max(MEMBERS_PAGE_MIN, min(limit, MEMBERS_PAGE_MAX))
+        members: list[dict[str, Any]] = []
+        token: str | None = None
+        seen_tokens: set[str] = set()
+        while True:
+            params: dict[str, Any] = {"pageSize": page_size}
+            if token:
+                params["continuationToken"] = token
+            bearer = self._tokens.token()
+            try:
+                with self._lock:
+                    response = self._http.get(
+                        url, params=params, headers={"Authorization": f"Bearer {bearer}"}
+                    )
+            except httpx.HTTPError as exc:
+                raise ConnectorError(f"connector request to {url} failed: {exc}") from exc
+            if not response.is_success:
+                raise ConnectorError(
+                    f"connector answered HTTP {response.status_code} for {url}: "
+                    f"{response.text[:_ERROR_BODY_CHARS]}"
+                )
+            try:
+                body = response.json()
+            except ValueError as exc:
+                raise ConnectorError(f"connector answered a non-JSON body for {url}") from exc
+
+            items: Any = []
+            next_token: Any = None
+            if isinstance(body, dict):
+                items = body.get("members")
+                next_token = body.get("continuationToken")
+            elif isinstance(body, list):
+                items = body
+            if isinstance(items, list):
+                members.extend(item for item in items if isinstance(item, dict))
+            token = next_token if isinstance(next_token, str) and next_token else None
+
+            if len(members) >= limit:
+                return members[:limit], len(members) > limit or token is not None
+            if token is None or token in seen_tokens:
+                return members, False
+            seen_tokens.add(token)

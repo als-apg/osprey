@@ -697,3 +697,29 @@ def test_panel_auth_headers_prefer_the_carrier_over_the_holder(monkeypatch):
 
     assert http._panel_auth_headers() == {"Authorization": "Bearer handed-in"}
     assert held.panel_token != "handed-in"
+
+
+def test_panel_auth_headers_survive_a_refused_credential_population(monkeypatch):
+    """Behind the proxy, a refused population leaves the process the token it was handed.
+
+    No panel call precedes the refusal, so the latch holds nothing; the carrier
+    is gone and the holder is empty, and the bearer still goes out.
+    """
+    from osprey.interfaces.web_auth import (
+        BIND_HOST_ENV,
+        OPERATOR_SECRET_ENV,
+        PANEL_TOKEN_ENV,
+        get_web_credentials,
+        peek_web_credentials,
+    )
+
+    monkeypatch.setenv(BIND_HOST_ENV, "127.0.0.1")
+    monkeypatch.delenv(OPERATOR_SECRET_ENV, raising=False)
+    monkeypatch.setenv(PANEL_TOKEN_ENV, "handed-in")
+
+    with pytest.raises(RuntimeError):
+        get_web_credentials()
+
+    assert PANEL_TOKEN_ENV not in os.environ
+    assert peek_web_credentials() is None
+    assert http._panel_auth_headers() == {"Authorization": "Bearer handed-in"}

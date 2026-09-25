@@ -1,19 +1,13 @@
-"""An unmapped tier falls back to the default model — loudly, never borrowed.
+"""A provider names what it serves, and never borrows another provider's ids.
 
-``setdefault``-ing every unmapped tier to the built-in Anthropic direct model
-IDs, so the env block can always be built, costs a silent lie: selecting a
-provider that ships no ``models`` map would launch the agent asking *that*
-provider for ``claude-opus-4-6`` — a 404 from a strict proxy, and a silently
-different model from a permissive one.
-
-So a missing tier is never filled with another provider's IDs. It falls back
-to the resolved default model instead, with a warning that names each
-substitution — the build proceeds, and nothing is silent. Refusal remains only
-for the case with nothing to fall back to: no map and no default model at all,
-and that refusal is actionable (it names ``api.providers.<name>.models``, the
-tiers, and the shape to write). Every provider stanza the shipped templates
-offer carries a real map, so neither the warning nor the refusal can fire on a
-config OSPREY itself generated.
+A provider entry lists the model ids its gateway serves and names its
+``default_model``. An entry that does neither — and a deployment that names no
+``claude_code.default_model`` either — has no model to run, and the build
+refuses with the keys to write. Claude Code's own alias names are filled from
+the provider's served list; an alias nothing fills runs the main model, with a
+warning naming the substitution, and is never filled with Anthropic's direct
+ids: a proxy asked for ``claude-opus-5`` answers 404 when strict and a silently
+different model when not.
 """
 
 from __future__ import annotations
@@ -29,199 +23,168 @@ from osprey.build.claude_code_resolver import (
 )
 from osprey.profiles.providers import packaged_catalog_path
 
+#: Catalog entries whose gateway fronts more than one vendor. Each lists a
+#: Claude id beside another vendor's ids, every one in the gateway's spelling.
+_MULTI_VENDOR_GATEWAYS = frozenset({"als-apg"})
+
 
 def _shipped_providers() -> dict:
     """The provider stanzas a build renders into ``api.providers``.
 
-    One packaged catalog answers for every deployment now: ``providers.yml``
-    ships beside the presets, ``osprey init`` writes it into the deployment,
-    and the build renders it into ``api.providers``. No config template carries
-    a provider stanza of its own, so there is one source to check rather than
-    one per app.
+    One packaged catalog answers for every deployment: ``providers.yml`` ships
+    beside the presets, ``osprey init`` writes it into the deployment, and the
+    build renders it into ``api.providers``.
     """
     catalog = yaml.safe_load(packaged_catalog_path().read_text(encoding="utf-8")) or {}
     return catalog.get("providers") or {}
 
 
-class TestMapLessProviderIsRefused:
-    """No map and no default model raises, with a usable message.
+class TestModelLessProviderIsRefused:
+    """No models, no default model and no configured one raises, with a usable message."""
 
-    Anything short of that — a partial map, or no map but a free-form default
-    model — builds with a loud fallback warning instead (tests below).
-    """
-
-    _MAP_LESS = {"lbl-aws": {"base_url": "https://proxy.example.org/v1"}}
+    _MODEL_LESS = {"lbl-aws": {"base_url": "https://proxy.example.org/v1"}}
 
     def test_no_models_raises(self):
-        with pytest.raises(ValueError, match="defines no models mapping"):
-            ClaudeCodeModelResolver.resolve({"provider": "lbl-aws"}, api_providers=self._MAP_LESS)
+        with pytest.raises(ValueError, match="lists no models and names no default_model"):
+            ClaudeCodeModelResolver.resolve({"provider": "lbl-aws"}, api_providers=self._MODEL_LESS)
 
-    def test_error_names_the_config_key_and_the_tiers(self):
+    def test_error_names_the_keys_to_write(self):
         with pytest.raises(ValueError) as excinfo:
-            ClaudeCodeModelResolver.resolve({"provider": "lbl-aws"}, api_providers=self._MAP_LESS)
+            ClaudeCodeModelResolver.resolve({"provider": "lbl-aws"}, api_providers=self._MODEL_LESS)
         message = str(excinfo.value)
-        assert "api.providers.lbl-aws.models" in message
-        for tier in TIER_MODEL_ENV_VARS:
-            assert tier in message
-        # The message shows the shape to write, not just the key name.
-        assert "models:" in message
-        assert "haiku:" in message
+        assert "api.providers.lbl-aws" in message
+        assert "`models:`" in message
+        assert "`default_model:`" in message
 
-    def test_partial_map_warns_and_falls_back(self, caplog):
-        """A half-filled map builds, but each missing tier is named — loudly.
+    def test_a_configured_default_model_is_enough(self, caplog):
+        """The minimal custom-gateway config: ``provider:`` and ``model: <id>``.
 
-        No tier gets borrowed IDs: the fallback is the provider's own resolved
-        default model, and the warning names every substitution (#350/#357).
+        With no served list, every Claude Code alias runs that model, and the
+        resolver's record names the substitution.
         """
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
-            spec = ClaudeCodeModelResolver.resolve(
-                {"provider": "lbl-aws"},
-                api_providers={
-                    "lbl-aws": {
-                        "base_url": "https://proxy.example.org/v1",
-                        "models": {"haiku": "custom-haiku-id"},
-                    }
-                },
-            )
-        assert spec.tier_to_model == {
-            "haiku": "custom-haiku-id",
-            "sonnet": "custom-haiku-id",
-            "opus": "custom-haiku-id",
-        }
-        message = "\n".join(record.getMessage() for record in caplog.records)
-        assert "sonnet -> custom-haiku-id" in message
-        assert "opus -> custom-haiku-id" in message
-        assert "claude-opus" not in message  # no Anthropic IDs borrowed or named
-
-    def test_claude_code_models_can_complete_the_map(self):
-        """The per-tier override is a valid way to supply the missing IDs."""
-        spec = ClaudeCodeModelResolver.resolve(
-            {
-                "provider": "lbl-aws",
-                "models": {
-                    "haiku": "x-haiku",
-                    "sonnet": "x-sonnet",
-                    "opus": "x-opus",
-                },
-            },
-            api_providers=self._MAP_LESS,
-        )
-        assert spec.tier_to_model == {
-            "haiku": "x-haiku",
-            "sonnet": "x-sonnet",
-            "opus": "x-opus",
-        }
-
-    def test_free_form_default_model_fills_a_missing_map(self, caplog):
-        """A map-less provider plus a free-form default model builds.
-
-        This is the minimal custom-gateway config: ``provider: my-gateway``
-        and ``model: <id>`` with no tier map at all. Every tier falls back to
-        the configured model, and the warning names all three substitutions.
-        """
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws", "default_model": "gateway-model-id"},
-                api_providers=self._MAP_LESS,
+                api_providers=self._MODEL_LESS,
             )
         assert spec.env_block["ANTHROPIC_MODEL"] == "gateway-model-id"
-        assert spec.tier_to_model == {
-            "haiku": "gateway-model-id",
-            "sonnet": "gateway-model-id",
-            "opus": "gateway-model-id",
-        }
+        assert spec.alias_models == dict.fromkeys(TIER_MODEL_ENV_VARS, "gateway-model-id")
         message = "\n".join(record.getMessage() for record in caplog.records)
-        for tier in TIER_MODEL_ENV_VARS:
-            assert f"{tier} -> gateway-model-id" in message
+        assert "haiku, sonnet, opus aliases run the main model gateway-model-id" in message
 
     def test_no_anthropic_ids_leak_into_the_message(self):
         with pytest.raises(ValueError) as excinfo:
-            ClaudeCodeModelResolver.resolve({"provider": "lbl-aws"}, api_providers=self._MAP_LESS)
+            ClaudeCodeModelResolver.resolve({"provider": "lbl-aws"}, api_providers=self._MODEL_LESS)
         assert "claude-opus" not in str(excinfo.value)
 
 
-class TestNonTierKeysWarn:
-    """Non-tier keys in a ``models:`` map are dropped — but named, not silent.
+class TestAliasSubstitutionIsLoud:
+    """An alias no source fills runs the main model, and the build says so."""
 
-    A typo like ``sonet:`` used to vanish without a trace, leaving that tier
-    on its fallback with no hint why.
-    """
-
-    def test_api_providers_non_tier_keys_are_named(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+    def test_a_partial_family_is_recorded_and_falls_back(self, caplog):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws"},
                 api_providers={
                     "lbl-aws": {
                         "base_url": "https://proxy.example.org/v1",
-                        "models": {
-                            "haiku": "custom-haiku-id",
-                            "sonnet": "custom-sonnet-id",
-                            "opus": "custom-opus-id",
-                            "sonet": "typo-id",
-                        },
+                        "default_model": "claude-haiku-4-5",
+                        "models": ["claude-haiku-4-5"],
                     }
                 },
             )
-        assert "typo-id" not in spec.tier_to_model.values()
+        assert spec.alias_models == dict.fromkeys(TIER_MODEL_ENV_VARS, "claude-haiku-4-5")
         message = "\n".join(record.getMessage() for record in caplog.records)
-        assert "api.providers.lbl-aws.models" in message
-        assert "sonet" in message
+        assert "sonnet, opus aliases run the main model claude-haiku-4-5" in message
+        assert "claude-opus" not in message  # no Anthropic ids borrowed or named
 
-    def test_claude_code_models_non_tier_keys_are_named(self, caplog):
+    def test_claude_code_aliases_can_complete_the_set(self, caplog):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+            spec = ClaudeCodeModelResolver.resolve(
+                {
+                    "provider": "lbl-aws",
+                    "default_model": "x-sonnet",
+                    "aliases": {"haiku": "x-haiku", "sonnet": "x-sonnet", "opus": "x-opus"},
+                },
+                api_providers={"lbl-aws": {"base_url": "https://proxy.example.org/v1"}},
+            )
+        assert spec.alias_models == {"haiku": "x-haiku", "sonnet": "x-sonnet", "opus": "x-opus"}
+        assert not caplog.records
+
+    def test_a_key_that_is_not_an_alias_name_is_named(self, caplog):
         with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
-            ClaudeCodeModelResolver.resolve({"provider": "cborg", "models": {"opusx": "some-id"}})
+            ClaudeCodeModelResolver.resolve({"provider": "cborg", "aliases": {"opusx": "some-id"}})
         message = "\n".join(record.getMessage() for record in caplog.records)
-        assert "claude_code.models" in message
+        assert "claude_code.aliases" in message
         assert "opusx" in message
 
-    def test_valid_maps_warn_nothing(self, caplog):
+    def test_a_catalog_alias_key_that_is_not_an_alias_name_is_named(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+            ClaudeCodeModelResolver.resolve(
+                {"provider": "gw"},
+                api_providers={
+                    "gw": {
+                        "base_url": "https://gw/v1",
+                        "default_model": "claude-sonnet-5",
+                        "models": ["claude-sonnet-5"],
+                        "claude_code_aliases": {"sonet": "claude-sonnet-5"},
+                    }
+                },
+            )
+        message = "\n".join(record.getMessage() for record in caplog.records)
+        assert "api.providers.gw.claude_code_aliases" in message
+        assert "sonet" in message
+
+    def test_a_claude_gateway_warns_nothing(self, caplog):
         with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
             ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         assert not caplog.records
 
 
-class TestTheShippedCatalogCarriesRealMaps:
+class TestTheShippedCatalogResolves:
     """No stanza in the packaged provider catalog can trip the refusal."""
 
-    def test_every_provider_maps_all_tiers(self):
+    def test_every_provider_lists_models_and_names_a_default_it_serves(self):
         providers = _shipped_providers()
         assert providers, "the packaged catalog declares no providers"
         for name, entry in providers.items():
-            models = (entry or {}).get("models") or {}
-            missing = [tier for tier in TIER_MODEL_ENV_VARS if tier not in models]
-            assert not missing, (
-                f"providers.yml: {name} maps no model for "
-                f"{missing} — selecting it would fail to resolve."
-            )
+            models = entry.get("models")
+            assert isinstance(models, list) and models, name
+            assert entry.get("default_model") in models, name
 
-    def test_every_provider_resolves(self):
+    def test_every_provider_resolves_to_its_own_default(self):
         providers = _shipped_providers()
-        for name in providers:
+        for name, entry in providers.items():
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": name}, providers, include_telemetry=False
             )
             assert spec is not None, f"providers.yml: {name!r} resolved to None"
-            assert set(spec.tier_to_model) == set(TIER_MODEL_ENV_VARS)
-            assert spec.env_block["ANTHROPIC_MODEL"] == spec.tier_to_model[spec.default_model_tier]
+            assert spec.default_model_id == entry["default_model"]
+            assert spec.env_block["ANTHROPIC_MODEL"] == entry["default_model"]
+            assert set(spec.alias_models) == set(TIER_MODEL_ENV_VARS)
+            for model_id in spec.alias_models.values():
+                assert model_id in entry["models"], (name, model_id)
 
     def test_no_provider_borrows_another_providers_ids(self):
-        """The map must be the provider's own naming, not Anthropic's.
+        """The list must be the provider's own naming, not Anthropic's.
 
-        Anthropic-direct IDs under a non-Anthropic, non-proxy-to-Anthropic
-        stanza are the exact residue the removed fallback used to manufacture.
+        A gateway that fronts several vendors is named in
+        ``_MULTI_VENDOR_GATEWAYS`` and must list more than one vendor.
         """
-        anthropic_only = {"gpt", "gemini", "mistral", "deepseek"}
-        for name, entry in _shipped_providers().items():
-            models = (entry or {}).get("models") or {}
+        providers = _shipped_providers()
+        assert _MULTI_VENDOR_GATEWAYS <= set(providers)
+        other_families = {"gpt", "gemini", "mistral", "deepseek"}
+        for name, entry in providers.items():
+            models = entry.get("models") or []
             families = {
-                family
-                for family in anthropic_only
-                for model_id in models.values()
-                if family in model_id
+                family for family in other_families for model_id in models if family in model_id
             }
+            if name in _MULTI_VENDOR_GATEWAYS:
+                assert families and any("claude" in model_id for model_id in models), (
+                    f"providers.yml: {name} is named a multi-vendor gateway but lists one vendor."
+                )
+                continue
             if families:
-                assert not any("claude" in model_id for model_id in models.values()), (
-                    f"providers.yml: {name} mixes Claude IDs into a "
-                    f"{sorted(families)} provider map."
+                assert not any("claude" in model_id for model_id in models), (
+                    f"providers.yml: {name} mixes Claude ids into a {sorted(families)} provider."
                 )

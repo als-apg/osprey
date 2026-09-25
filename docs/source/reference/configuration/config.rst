@@ -651,10 +651,13 @@ suite's worst outcome in a word) and ``detail`` (``categories``, the default:
 its card lists one row per check category; ``checks``: every check).
 
 Nothing here can stop the terminal from booting. An item name the build does
-not know, a second copy of an item that can only appear once (everything but ``clock``, ``stopwatch``, ``space``
-and ``separator``), or a line that is not an item at all is reported in the log
-and skipped; the rest of the bar is rendered. Twenty items per bar is the
-ceiling, and extras past it are dropped.
+not know, a second copy of an item that can only appear once (everything but
+``clock``, ``stopwatch``, ``space`` and ``separator``), or a line that is not an
+item at all is reported in the log and skipped; the rest of the bar is
+rendered. An option the item does not take, or a value it does not accept
+(``zone: UTC`` rather than ``utc``, a ``width`` past ``2000``), is reported the
+same way and dropped; the item keeps its default for that option. Twenty items
+per bar is the ceiling, and extras past it are dropped.
 
 .. _config-file-watch-reconcile:
 
@@ -742,7 +745,7 @@ restart.
 The four commented stanzas in the shipped presets have nothing to do but say
 this: a shipped value would be one facility's vocabulary handed to every other.
 
-One other key sits in this block. ``artifact_server.max_timeseries_file_mb``
+Two other keys sit in this block. ``artifact_server.max_timeseries_file_mb``
 (default 200) is the largest timeseries data file the gallery will draw as a
 chart or lay out as a table. Over it, those two views refuse with a ``413`` and
 say so; the file itself stays downloadable either way. The handler reads the
@@ -751,10 +754,16 @@ much memory on the machine serving the gallery — which is why it is a facility
 to set rather than a fixed bound: how big an export gets is a property of your
 archiver, and how much memory the gallery host has is a property of your site.
 
+``artifact_server.page_size`` (default 20) is how many artifacts the gallery
+asks for at a time. It fetches the next page as the list is scrolled, so a
+store with thousands of entries opens as fast as one with twenty. The same
+number bounds any other reader of the listing; a request may name its own size
+up to 200, and a configured value above 200 is capped there.
+
 .. _config-python-executor:
 
-``python_executor:`` — how long one agent script may run
----------------------------------------------------------
+``python_executor:`` — how long one agent script may run, and what it inherits
+------------------------------------------------------------------------------
 
 ``python_executor.execution_timeout_seconds`` is the wall-clock ceiling on a
 single agent Python run. It defaults to ``600`` — ten minutes — and a run that
@@ -772,6 +781,51 @@ day of archived data, a scan reconstruction — and lower it where a runaway
 script holding the sandbox is the worse outcome. The value is read once in
 the sandbox's MCP server process and held for that process's lifetime, so a
 change lands after ``osprey build`` and a restart of the stack.
+
+Agent Python — the python executor, the visualization tools and plan
+validation — starts with a fixed set of environment variables from the host:
+paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
+control-system client settings (``EPICS_*``, ``PYEPICS_*``, ``TANGO_*``,
+``ENSHOST``) and the osprey names the run itself reads. Nothing else from the
+host reaches it. ``python_executor.child_env_passthrough`` adds names to that
+set, for an analysis library that reads its own variable:
+
+.. code-block:: yaml
+
+   config:
+     python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH, OMP_NUM_THREADS]
+
+The list takes exact names only. It cannot add a credential osprey itself
+holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
+naming one is an error, and the run does not start.
+
+.. _config-audit-tool-call:
+
+``audit.tool_call:`` — the full record of every tool call
+---------------------------------------------------------
+
+``audit.tool_call.enabled`` (default ``false``) turns on the full record: every
+osprey tool call, reads included, is written whole to
+``var/audit/<identity>/tool_call.jsonl`` and sent to the telemetry store as one
+log line --- arguments, result, control target, approval answer. The
+control-assistant preset turns it on; delete the lines to opt out.
+
+.. code-block:: yaml
+
+   config:
+     audit.tool_call.enabled: true
+     audit.tool_call.max_inline_bytes: 262144
+
+``audit.tool_call.max_inline_bytes`` (default ``262144``) bounds each payload,
+arguments and result on their own. A larger payload is saved as a JSON artifact
+and the record keeps ``{"size", "sha256", "artifact_id"}`` in its place. A value
+that is not a positive integer falls back to the default with a warning.
+
+Both keys are read once per MCP server process, so a change lands after
+``osprey build`` and a restart. Unlike the rest of the audit trail, this file
+and those artifacts hold values: treat them with the access you give the
+control system's own data. The fields are listed in
+:ref:`audit-trail-tool-call`.
 
 .. _config-deployment:
 
@@ -792,7 +846,7 @@ Overriding Service Images
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Sixteen images, one row each:
+default. Seventeen images, one row each:
 
 .. list-table::
    :header-rows: 1
@@ -842,6 +896,10 @@ default. Sixteen images, one row each:
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``
      - ``<project>``
+   * - archive
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.archive.image``
+     - ``<project>``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
@@ -871,14 +929,15 @@ Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
 
-Six of the sixteen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other ten are **built by OSPREY**
+Six of the seventeen are **upstream pins** — images somebody else publishes,
+named exactly as they publish them. The other eleven are **built by OSPREY**
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.
 
-``dispatch_worker`` and ``ariel_sync`` share one row value on purpose: both run
-the bare project image, so both read ``OSPREY_WORKER_IMAGE``. Set that variable
-and both services move to the image you name.
+``dispatch_worker``, ``ariel_sync`` and ``archive`` share one row value on
+purpose: all three run the bare project image, so all three read
+``OSPREY_WORKER_IMAGE``. Set that variable and all three services move to the
+image you name.
 
 .. _deployment-image-axes:
 

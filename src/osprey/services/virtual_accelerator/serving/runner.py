@@ -445,6 +445,18 @@ class CohostRunner(Runner):
         # of that address have to carry it.
         records.attach_driver(self.ca_driver, pva_post=self._post_pva)
 
+    def call_on_loop(self, job: Callable[[], None]) -> None:
+        """Run ``job`` on the run loop's thread, in a cycle with no model pass.
+
+        For a caller on another thread whose work reads the model: every
+        model access happens on the run loop's thread, and this is how one
+        gets there. The batch carries no values, so the cycle that runs the
+        job applies nothing and publishes nothing of its own. The job owns
+        its own error handling; one that raises is logged by the loop and
+        the cycle goes on.
+        """
+        self._enqueue({}, jobs=[job])
+
     def _create_model_info(self) -> None:
         """Serve the model surface's RPC channel beside the base class's model info.
 
@@ -545,7 +557,7 @@ class CohostRunner(Runner):
             # see ``ModelSurface._refusal`` -- so it is not recorded again
             # here, where a refused read would be recorded as a write.
             reply = error_reply(str(exc))
-        except Exception as exc:  # noqa: BLE001 - the client is owed an answer, whatever failed
+        except Exception as exc:  # the client is owed an answer, whatever failed
             text = f"the model surface failed on {request.verb}: {str(exc) or type(exc).__name__}"
             if request.verb in MODEL_WRITE_VERBS:
                 surface.record_refusal(text)

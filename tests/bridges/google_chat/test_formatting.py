@@ -20,7 +20,8 @@ Pure Python, no network — the module under test imports nothing but ``re``.
 
 import pytest
 
-from osprey.bridges.google_chat.formatting import markdown_to_chat
+from osprey.bridges.core import MENTION_PLACEHOLDER_RE
+from osprey.bridges.google_chat.formatting import markdown_to_chat, render_mentions
 
 # (name, markdown_in, expected_chat_out, fixpoint). Grows as converters land.
 GOLDEN: list[tuple[str, str, str, bool]] = [
@@ -289,3 +290,56 @@ def test_a_reference_definition_line_is_dropped():
 def test_a_bare_url_is_never_bracketed():
     # Chat auto-links bare URLs; wrapping would defeat it.
     assert markdown_to_chat("http://x/y") == "http://x/y"
+
+
+# --- render_mentions ----------------------------------------------------------
+
+ROSTER = {"users/111": "Alice", "users/222": "Carol", "users/333": None}
+
+
+def render(text, roster=ROSTER, enabled=True):
+    return render_mentions(text, roster, enabled=enabled, placeholder=MENTION_PLACEHOLDER_RE)
+
+
+def test_a_roster_mention_renders_as_chat_syntax():
+    assert render("tell <@users/222> now") == "tell <users/222> now"
+
+
+def test_a_mention_outside_the_roster_is_plain_text_with_its_name():
+    # A name the roster knows but whose id is not a member cannot occur; a known
+    # non-member id is plain text carrying the best name available.
+    assert render("cc <@users/444>", {"users/111": "Alice"}) == "cc @users/444"
+    assert render("cc <@users/222>", ROSTER, enabled=False) == "cc @Carol"
+
+
+def test_an_unknown_id_is_plain_text_with_its_id():
+    assert render("cc <@users/333>", ROSTER, enabled=False) == "cc @users/333"
+    assert render("cc <@users/999>") == "cc @users/999"
+
+
+def test_mentions_off_renders_every_mention_plain():
+    assert render("<@users/111> and <@users/222>", enabled=False) == "@Alice and @Carol"
+
+
+def test_users_all_never_renders():
+    assert render("hey <@users/all>") == "hey @users/all"
+
+
+def test_text_without_a_placeholder_is_unchanged():
+    text = "no mention here, just <b> and @alice and <users/222>"
+    assert render(text) == text
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "tell <@users/222> now",
+        "**tell <@users/222>**",
+        "- item <@users/222>",
+        "`<@users/222>`",
+        "x_<@users/222>_y",
+        "| who | ask |\n|---|---|\n| <@users/222> | c |",
+    ],
+)
+def test_the_placeholder_survives_markdown_to_chat(markdown):
+    assert "<@users/222>" in markdown_to_chat(markdown)

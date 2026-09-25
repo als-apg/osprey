@@ -4,8 +4,7 @@ Before this, `ANTHROPIC_BASE_URL` for a built-in provider (anthropic / cborg /
 als-apg) came solely from the hardcoded `CLAUDE_CODE_PROVIDERS` table, so a
 facility that pointed a built-in provider at its own gateway got a green
 `osprey health` probe against an endpoint the agent never used. The config
-value now wins, on the same precedence rule as the `models` tier map, with the
-trailing-`/v1` strip unchanged.
+value now wins, with the trailing-`/v1` strip unchanged.
 """
 
 from __future__ import annotations
@@ -28,13 +27,13 @@ GATEWAY_WITHOUT_ENDPOINT_ENTRY = {
     "base_url": None,
     "requires_base_url": True,
     "base_url_env_var": GATEWAY_WITHOUT_ENDPOINT_VAR,
-    "default_model_tier": "haiku",
-    "models": {"haiku": "fast", "sonnet": "balanced", "opus": "capable"},
+    "default_model": "fast",
+    "models": ["fast", "balanced", "capable"],
 }
 
 
-def _tier_map() -> dict[str, str]:
-    return {"haiku": "fast", "sonnet": "balanced", "opus": "capable"}
+def _served() -> dict:
+    return {"default_model": "fast", "models": ["fast", "balanced", "capable"]}
 
 
 class TestBuiltInProviderOverride:
@@ -153,9 +152,7 @@ class TestProxyUpstreamFollowsTheOverride:
     def test_custom_proxy_upstream_keeps_v1_from_the_same_resolved_url(self):
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "my-gateway"},
-            api_providers={
-                "my-gateway": {"base_url": f"{FACILITY_GATEWAY}/v1", "models": _tier_map()}
-            },
+            api_providers={"my-gateway": {"base_url": f"{FACILITY_GATEWAY}/v1", **_served()}},
         )
         assert spec.needs_proxy is True
         assert spec.upstream_base_url == f"{FACILITY_GATEWAY}/v1"

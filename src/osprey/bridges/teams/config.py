@@ -29,6 +29,7 @@ Two values carry a default here and two deliberately do not:
 *  The app registration and the queue coordinates have no defaults at all: every
    one of them names a specific tenant's resources, so a shipped literal would be
    one facility's secret compiled into every deployment.
+*  ``TEAMS_MENTIONS`` is optional and defaults on.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib import metadata
 
-from osprey.bridges.core import CoreConfig
+from osprey.bridges.core import CoreConfig, env_flag
 
 DISTRIBUTION = "osprey-framework"
 """Distribution whose installed version stands in for an unset
@@ -130,6 +131,12 @@ class TeamsBridgeConfig:
     :meth:`from_env`; empty renders the ack without the parenthetical, and is
     never a startup requirement."""
 
+    mentions: bool = True
+    """Whether an agent's ``<@ID>`` becomes a real Teams @mention of a member of the
+    conversation. On by default. Off, every mention is posted as plain text and the
+    agent is told to name people instead. Set from the build profile's
+    ``teams_bridge.mentions``, rendered as ``TEAMS_MENTIONS``."""
+
     core: CoreConfig = field(default_factory=CoreConfig)
     """The channel-neutral half, handed to the engine's collaborators as-is."""
 
@@ -196,6 +203,7 @@ class TeamsBridgeConfig:
             servicebus_connection_string=e.get("TEAMS_SERVICEBUS_CONNECTION_STRING", ""),
             servicebus_queue=e.get("TEAMS_SERVICEBUS_QUEUE", ""),
             version_tag=e.get("APP_VERSION_DISPLAY", "") or _installed_version(),
+            mentions=env_flag(e.get("TEAMS_MENTIONS"), True),
             core=CoreConfig.from_env(e),
         )
 

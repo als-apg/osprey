@@ -319,12 +319,22 @@ def test_a_corrupt_png_is_skipped_and_named_rather_than_raising() -> None:
 # --- artifacts this member is not for ----------------------------------------
 
 
-def test_a_document_artifact_is_ignored_without_a_note() -> None:
-    # Documents are out of scope for v1: naming a PDF in an "I couldn't attach
-    # this image" note would report a delivery the bridge never promised.
-    ops, connector, _ = make_ops({"a1": fetched(b"%PDF-1.7 ...", "application/pdf")})
+@pytest.mark.parametrize(
+    "data,content_type,name",
+    [
+        (b"%PDF-1.7 ...", "application/pdf", "report.pdf"),
+        (b"time,state\n10:00,OPEN\n", "text/csv", "transitions.csv"),
+        (b"time\tstate\n10:00\tOPEN\n", "text/tab-separated-values", "transitions.tsv"),
+    ],
+)
+def test_a_document_artifact_is_ignored_without_a_note(
+    data: bytes, content_type: str, name: str
+) -> None:
+    # Documents are out of scope for v1: naming a PDF or a table in an "I couldn't
+    # attach this image" note would report a delivery the bridge never promised.
+    ops, connector, _ = make_ops({"a1": fetched(data, content_type)})
 
-    assert ops.deliver_files(make_entry(), completed([descriptor("a1", "report.pdf")])) == {}
+    assert ops.deliver_files(make_entry(), completed([descriptor("a1", name)])) == {}
     assert connector.calls == []
 
 

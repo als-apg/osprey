@@ -196,7 +196,7 @@ async def test_run_query_passes_disallowed_tools_to_options(project_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_run_query_uses_resolved_model_when_none(project_dir: Path) -> None:
-    """When model=None, the haiku-tier model is resolved from the project config."""
+    """When model=None, the project's main model is resolved from its config."""
     async_cm, _ = _make_mock_client()
     captured_options: list[ClaudeAgentOptions] = []
 
@@ -450,7 +450,7 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
 
     # Proxy upstream = spec.upstream_base_url (WITH /v1), NOT the stripped env var.
     # api_key sourced from the env dict (not os.environ) on this path.
-    proxy.assert_called_once_with("https://argo.example/v1", "sk-argo")
+    proxy.assert_called_once_with("https://argo.example/v1", "sk-argo", provider="argo")
     assert captured[0].env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8123"
 
 

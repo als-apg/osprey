@@ -158,6 +158,53 @@ def test_panel_presets_url_backed_member_validates(tmp_path: Path) -> None:
     profile.validate(tmp_path)  # must not raise
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(
+            {"web.panels": {"beam.viewer": {"url": "http://beam.local:9000"}}},
+            id="prefix_over_mapping",
+        ),
+        pytest.param(
+            {"web": {"panels": {"beam.viewer": {"url": "http://beam.local:9000"}}}},
+            id="nested",
+        ),
+    ],
+)
+def test_a_dotted_custom_panel_is_backed_by_the_url_its_block_renders(
+    tmp_path: Path, config: dict[str, Any]
+) -> None:
+    """A dotted id is one key under ``web.panels``, and its url there backs it."""
+    profile = _profile(name="x", web_panels=["beam.viewer"], config=config)
+    profile.validate(tmp_path)  # must not raise
+
+
+def test_a_custom_panel_is_backed_by_a_nested_url(tmp_path: Path) -> None:
+    profile = _profile(
+        name="x",
+        web_panels=["grafana"],
+        config={"web": {"panels": {"grafana": {"url": "http://grafana.local:3000"}}}},
+    )
+    profile.validate(tmp_path)  # must not raise
+
+
+def test_a_dotted_custom_panel_spelled_as_one_dotted_key_is_refused(tmp_path: Path) -> None:
+    """The render splits that key at every dot, so it never reaches the dotted block."""
+    profile = _profile(
+        name="x",
+        web_panels=["beam.viewer"],
+        config={"web.panels.beam.viewer.url": "http://beam.local:9000"},
+    )
+    with pytest.raises(BuildProfileError, match="an id with a dot in it is one key under"):
+        profile.validate(tmp_path)
+
+
+def test_a_panels_key_inside_a_web_mapping_fails_validation(tmp_path: Path) -> None:
+    profile = _profile(name="x", config={"web": {"panels.okf.enabled": True}})
+    with pytest.raises(BuildProfileError, match="literally named 'panels.okf.enabled'"):
+        profile.validate(tmp_path)
+
+
 def test_panel_presets_web_panels_member_validates(tmp_path: Path) -> None:
     """A member declared in web_panels is a known id."""
     profile = _profile(name="x", web_panels=["ariel"], panel_presets={"L": ["ariel"]})
@@ -292,21 +339,21 @@ class TestControlAssistantTurnkeyPlanPanels:
 
 
 class TestControlAssistantTurnkeyPlanControlSystem:
-    """The preset's config overrides land: stand-in baseline + subprocess execution.
+    """The preset's config overrides land: simulator baseline + subprocess execution.
 
     The VA soft-IOC ships and is deployed unconditionally as part of the
     turn-key plan stack, together with the live stand-in derived from it, and
-    control_system.type is pinned to "live_standin" so a fresh session opens
-    on the facility-shaped soft IOC that behaves like hardware and moves
-    nothing -- flipping the one config line to "mock" is the documented
+    control_system.type is pinned to "virtual_accelerator" so a fresh session
+    opens on the sandbox simulator, the one machine here where a write is
+    harmless -- flipping the one config line to "mock" is the documented
     fallback for environments with no containers to depend on
     (covered by tests/cli/test_va_default_config.py).
     """
 
-    def test_control_assistant_control_system_type_is_live_standin(
+    def test_control_assistant_control_system_type_is_the_simulator(
         self, turnkey_plan_config: dict
     ) -> None:
-        assert turnkey_plan_config["control_system"]["type"] == "live_standin"
+        assert turnkey_plan_config["control_system"]["type"] == "virtual_accelerator"
 
     def test_control_assistant_execution_method_is_subprocess(
         self, turnkey_plan_config: dict
@@ -792,7 +839,7 @@ def test_the_mixed_spelling_refusal_names_every_dotted_key() -> None:
                 {
                     "claude_code.provider": "anthropic",
                     "claude_code.permissions.deny": [SETUP_PATCH],
-                    "claude_code": {"default_model": "opus"},
+                    "claude_code": {"default_model": "claude-opus-5"},
                 }
             )
         )

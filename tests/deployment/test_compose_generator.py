@@ -34,6 +34,7 @@ from ruamel.yaml import YAML
 import osprey.channel_roster as channel_roster
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
+from osprey.deployment import container_lifecycle, host_ports
 from osprey.deployment.compose_generator import (
     prepare_compose_files,
     resolve_project_name,
@@ -195,6 +196,59 @@ def test_prepare_compose_files_no_services_renders_nothing(
     assert compose_files == [], (
         f"empty deployed_services must render no compose files, got {compose_files}"
     )
+
+
+def test_prepare_compose_files_names_a_shared_template_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stand-in is a second instance of the VA, so one file describes both.
+
+    ``services.live_standin`` declares the same ``path`` as
+    ``services.virtual_accelerator``, and the render walks
+    ``deployed_services``: without a first-seen dedupe it hands back that one
+    compose file once per instance. Every caller passes the list on as-is, and
+    the host-port preflight parses each entry, so a repeat reads as every VA
+    port colliding with itself.
+    """
+    config_path = tmp_path / "config.yml"
+    with config_path.open("w", encoding="utf-8") as handle:
+        YAML().dump(
+            {
+                "project_name": "standin-fixture",
+                "project_root": str(tmp_path),
+                "build_dir": str(tmp_path / "build"),
+                "system": {"timezone": "UTC"},
+                "services": {
+                    "virtual_accelerator": {
+                        "path": "./services/virtual_accelerator",
+                        "port": 5064,
+                    },
+                    "live_standin": {"path": "./services/virtual_accelerator", "port": 5074},
+                },
+                "deployed_services": ["virtual_accelerator", "live_standin"],
+            },
+            handle,
+        )
+    _copy_service_templates(tmp_path)
+
+    monkeypatch.chdir(tmp_path)
+    loaded, compose_files = prepare_compose_files(str(config_path))
+
+    build = tmp_path / "build" / "services"
+    assert compose_files == [
+        str(build / "docker-compose.yml"),
+        str(build / "virtual_accelerator" / "docker-compose.yml"),
+    ]
+
+    bindings = host_ports.parse_host_port_bindings(compose_files)
+    # The one file still describes both containers.
+    assert {binding.service for binding in bindings} == {"virtual-accelerator", "live-standin"}
+
+    # And the preflight sees each published port once. Probes answer "free" so
+    # only the intra-deploy check can speak.
+    monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+    conflicts = host_ports.find_port_conflicts(bindings, "standin-fixture", loaded)
+    assert [c for c in conflicts if c.kind == "duplicate"] == []
 
 
 def test_copy_service_templates_no_config_returns_zero(tmp_path: Path) -> None:
@@ -1878,7 +1932,7 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     not at the storage URI — the real cause is visible only server-side.
 
     The catalog volume mounts at /storage, NOT /data (Task 1.3 fix):
-    ``ghcr.io/bluesky/tiled:0.2.12`` ships /storage pre-owned by uid=999(app),
+    ``ghcr.io/bluesky/tiled:0.2.18`` ships /storage pre-owned by uid=999(app),
     the user the container runs as, so a fresh named volume inherits that
     ownership from the image. /data does not exist in the image, so Docker
     creates it root:root and the uid=999 tiled process can't open a catalog
@@ -1890,7 +1944,7 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     rendered = _render_bluesky_tiled(tiled_enabled=True)
 
     assert "\n  tiled:\n" in rendered
-    assert "ghcr.io/bluesky/tiled:0.2.12" in rendered
+    assert "ghcr.io/bluesky/tiled:0.2.18" in rendered
 
     assert "tiled serve catalog /storage/catalog.db" in rendered
     assert "--init" in rendered
@@ -2053,6 +2107,10 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
+    assert container_lifecycle._project_image_build_target(dict(config), {}) is None, (
+        "the plan-stack lanes deploy no service on the project image, so `osprey up` "
+        f"builds none: {config.get('deployed_services')}"
+    )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
     mcp_config = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
@@ -2069,6 +2127,14 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
     assert "\n  virtual-accelerator:\n" in rendered, "VA service must be deployed"
+    from osprey.port_layout import PVA_DEFAULT_PORT
+
+    # The harness's pvAccess pin reaches the compose file, not just the profile.
+    pva = _orm_stack.VA_PVA_PORT
+    assert f"127.0.0.1:{pva}:{pva}/tcp" in rendered, "the VA must publish the pinned pvAccess port"
+    assert f":{PVA_DEFAULT_PORT}:{PVA_DEFAULT_PORT}/tcp" not in rendered, (
+        "the VA must not publish the pvAccess protocol port every other VA on the host publishes"
+    )
     assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
@@ -2325,10 +2391,9 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
 #
 # Shared constants that must match the telemetry resolver stream: compose service
 # (and in-network DNS host) ``openobserve``, port ``5080``, root-cred env vars
-# ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. The pinned image tag
-# (``v0.14.4``) is a to-confirm pin — kept overridable via
-# ``OSPREY_OPENOBSERVE_IMAGE`` — so these gates assert the image *reference and
-# override var*, not a specific tag.
+# ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. These gates assert the
+# image *reference and override var*, never a specific tag; where a gate needs
+# the tag it reads it out of the template with ``_pinned_openobserve_tag``.
 # ---------------------------------------------------------------------------
 
 _OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
@@ -2393,6 +2458,74 @@ def test_ci_openobserve_pinned_to_ghcr_mirror() -> None:
             f"CI pins {ref!r} but the compose template pins :{pinned}. Bump both "
             "together, and run the mirror workflow for the new tag first."
         )
+
+
+_BLUESKY_TEMPLATE = _OPENOBSERVE_TEMPLATE.parents[1] / "bluesky" / "docker-compose.yml.j2"
+_CONFIG_KEY_MANIFEST = _REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
+_PYPROJECT = _REPO_ROOT / "pyproject.toml"
+
+
+def _compose_default_image(template: Path, image_ref: str) -> str:
+    """The ``<ref>:<tag>`` a compose template spells in its Jinja ``default('…')``."""
+    match = re.search(
+        r"default\('(" + re.escape(image_ref) + r":[^')\s]+)'\)",
+        template.read_text(encoding="utf-8"),
+    )
+    assert match, f"{template.relative_to(_REPO_ROOT)} no longer pins {image_ref} as default('…')"
+    return match.group(1)
+
+
+def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
+    """The Tiled server the stack ships is no older than the client it installs.
+
+    The framework requires ``tiled[client]>=<floor>``, and the queueserver worker
+    and the bridge talk to the ``tiled`` sidecar with that client. A server tag
+    below the floor pairs the client with a release it was never required to
+    work against.
+    """
+    from packaging.version import Version
+
+    image = _compose_default_image(_BLUESKY_TEMPLATE, "ghcr.io/bluesky/tiled")
+    server = image.rsplit(":", 1)[1]
+    floor_match = re.search(
+        r'"tiled\[client\]>=([^",\s]+)"', _PYPROJECT.read_text(encoding="utf-8")
+    )
+    assert floor_match, "pyproject.toml no longer declares a tiled[client]>= floor"
+    floor = floor_match.group(1)
+    assert Version(server) >= Version(floor), (
+        f"{_BLUESKY_TEMPLATE.relative_to(_REPO_ROOT)} pins ghcr.io/bluesky/tiled:{server}, "
+        f"older than the tiled[client]>={floor} floor in pyproject.toml."
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "template", "image_ref"),
+    [
+        ("services.openobserve.image", _OPENOBSERVE_TEMPLATE, _OPENOBSERVE_IMAGE_REF),
+        (
+            "services.bluesky.tiled_image",
+            _BLUESKY_TEMPLATE,
+            "ghcr.io/bluesky/tiled",
+        ),
+    ],
+    ids=["openobserve", "tiled"],
+)
+def test_the_manifest_default_matches_the_compose_default(
+    key: str, template: Path, image_ref: str
+) -> None:
+    """A pin spelled in two files is the same pin in both.
+
+    The config-key manifest documents the default of the key that overrides the
+    image, and the compose template renders it; a bump that reaches one and not
+    the other documents an image the stack does not run.
+    """
+    manifest = yaml.safe_load(_CONFIG_KEY_MANIFEST.read_text(encoding="utf-8"))
+    documented = manifest["keys"][key]["default"]
+    rendered = _compose_default_image(template, image_ref)
+    assert documented == rendered, (
+        f"config_key_manifest.yml documents {key} = {documented!r}, but "
+        f"{template.relative_to(_REPO_ROOT)} defaults it to {rendered!r}."
+    )
 
 
 def _write_openobserve_config(
@@ -3413,7 +3546,7 @@ def test_tiled_external_image_stays_unprefixed() -> None:
         services={"bluesky": {"port": 10080, "tiled_enabled": True}},
     )
     tiled = yaml.safe_load(rendered)["services"]["tiled"]
-    assert tiled["image"] == "${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}"
+    assert tiled["image"] == "${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.18}"
     assert "build" not in tiled
 
 
@@ -4356,6 +4489,7 @@ def test_nextcloud_bridge_neutral_tunables_keep_their_defaults_in_code() -> None
         "RETRY_GIVE_UP",
         "RETRY_LIFETIME_CAP",
         "BRIDGE_TRUST_ENV",
+        "HISTORY_ANSWER_LIMIT",
         "GITLAB_URL",
         "GITLAB_PROJECT",
         "GITLAB_ISSUES_TOKEN",
@@ -4603,6 +4737,35 @@ def test_nextcloud_bridge_trigger_comes_from_the_profile_and_has_no_template_def
         f"a missing trigger key must render empty, not fall back to {profile_default!r} — "
         "the profile block is the single source of the trigger name"
     )
+
+
+def _nextcloud_services(**block: object) -> dict:
+    return {
+        "nextcloud_bridge": {"trigger": "nextcloud-question", **block},
+        "event_dispatcher": {},
+        "dispatch_worker": {},
+    }
+
+
+def test_nextcloud_bridge_mentions_render_on_by_default() -> None:
+    """The helper's default services carry no key, and render mentions on."""
+    assert _nextcloud_bridge_service()["environment"]["NEXTCLOUD_MENTIONS"] == "true"
+
+
+@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
+def test_nextcloud_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
+    services = _nextcloud_services(mentions=value)
+    environment = _nextcloud_bridge_service(services=services)["environment"]
+    assert environment["NEXTCLOUD_MENTIONS"] == rendered
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_nextcloud_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
+    from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig
+
+    services = _nextcloud_services(mentions=value)
+    environment = _nextcloud_bridge_service(services=services)["environment"]
+    assert NextcloudBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
 
 
 def test_nextcloud_bridge_rendered_env_parses_and_fails_closed_without_secrets() -> None:
@@ -5093,6 +5256,7 @@ def test_gchat_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
         "RETRY_GIVE_UP",
         "RETRY_LIFETIME_CAP",
         "BRIDGE_TRUST_ENV",
+        "HISTORY_ANSWER_LIMIT",
         "GITLAB_URL",
         "GITLAB_PROJECT",
         "GITLAB_ISSUES_TOKEN",
@@ -5554,6 +5718,33 @@ def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> 
     assert '"osprey-framework"' not in dockerfile
 
 
+def _gchat_services(**block: object) -> dict:
+    return {
+        "gchat_bridge": {"trigger": "gchat-question", **block},
+        "event_dispatcher": {},
+        "dispatch_worker": {},
+    }
+
+
+def test_gchat_bridge_mentions_render_on_by_default() -> None:
+    """A block without the key (a hand-edited or older config) renders mentions on."""
+    assert _gchat_bridge_service()["environment"]["GCHAT_MENTIONS"] == "true"
+
+
+@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
+def test_gchat_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
+    environment = _gchat_bridge_service(services=_gchat_services(mentions=value))["environment"]
+    assert environment["GCHAT_MENTIONS"] == rendered
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_gchat_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
+    from osprey.bridges.google_chat import GoogleChatBridgeConfig
+
+    environment = _gchat_bridge_service(services=_gchat_services(mentions=value))["environment"]
+    assert GoogleChatBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
+
+
 # ---------------------------------------------------------------------------
 # Teams bridge service template
 #
@@ -5639,6 +5830,33 @@ def _teams_bridge_service(**kwargs: object) -> dict:
     """Return the parsed ``teams-bridge`` service block."""
     rendered = yaml.safe_load(_render_teams_bridge_template(**kwargs))  # type: ignore[arg-type]
     return rendered["services"]["teams-bridge"]
+
+
+def _teams_services(**block: object) -> dict:
+    return {
+        "teams_bridge": {"trigger": "teams-question", **block},
+        "event_dispatcher": {},
+        "dispatch_worker": {},
+    }
+
+
+def test_teams_bridge_mentions_render_on_by_default() -> None:
+    """The helper's default services carry no key, and render mentions on."""
+    assert _teams_bridge_service()["environment"]["TEAMS_MENTIONS"] == "true"
+
+
+@pytest.mark.parametrize(("value", "rendered"), [(False, "false"), (True, "true"), (None, "true")])
+def test_teams_bridge_mentions_render_off_only_for_false(value: object, rendered: str) -> None:
+    environment = _teams_bridge_service(services=_teams_services(mentions=value))["environment"]
+    assert environment["TEAMS_MENTIONS"] == rendered
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_teams_bridge_rendered_mentions_reach_the_config(value: bool) -> None:
+    from osprey.bridges.teams.config import TeamsBridgeConfig
+
+    environment = _teams_bridge_service(services=_teams_services(mentions=value))["environment"]
+    assert TeamsBridgeConfig.from_env(_resolve_compose_env(environment)).mentions is value
 
 
 def test_teams_bridge_image_follows_env_config_default_chain() -> None:
@@ -5802,6 +6020,7 @@ def test_teams_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
         "RETRY_GIVE_UP",
         "RETRY_LIFETIME_CAP",
         "BRIDGE_TRUST_ENV",
+        "HISTORY_ANSWER_LIMIT",
         "GITLAB_URL",
         "GITLAB_PROJECT",
         "GITLAB_ISSUES_TOKEN",

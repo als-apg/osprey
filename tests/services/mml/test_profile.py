@@ -415,12 +415,17 @@ class TestVirtualAccelerator:
         for row in (
             f"| Exporter | `{EXPORTER_VERSION}` |",
             "| Deck | `quokka_sr_deck` |",
-            "| Elements | 41 |",
+            "| Elements | 43 |",
             "| Energy (GeV) | 2 |",
-            "| Calibrations | linear 20, table 2 |",
+            "| Calibrations | linear 18, table 4 |",
             "| Nominals | 15 (4 synthetic) |",
         ):
             assert row in block, row
+
+    def test_a_field_sampled_partly_over_the_fallback_grid_says_so(self):
+        """A device with no band is sampled about its nominal, and the reviewer reads so."""
+        block = _va(_va_render())
+        assert "| BDM | Setpoint | linear | fallback | Hardware | sampled | Radian |" in block
 
     def test_an_uncounted_cavity_is_unstated_rather_than_zero(self):
         """Nothing loads the deck at import yet, and the page says so."""
@@ -502,7 +507,7 @@ class TestVirtualAccelerator:
     def test_another_systems_block_is_one_line_under_the_mapped_system(self):
         """The VA lane reads one system's block; the rest are a glance, not a section."""
         block = _va(_two_system_render(_synthetic("va")))
-        assert "- `LTB`: 17 families, 41 elements, 2 GeV" in block
+        assert "- `LTB`: 17 families, 43 elements, 2 GeV" in block
         assert _va(_two_system_render(None), "SR").split("#### Other systems")[1].strip() == (
             "- `LTB`: no 2.0 export"
         )
@@ -511,7 +516,7 @@ class TestVirtualAccelerator:
         """One family reads 'family', not 'families'."""
         va = copy.deepcopy(_synthetic("va"))
         va["families"] = {"QF": va["families"]["QF"]}
-        assert "- `LTB`: 1 family, 41 elements, 2 GeV" in _va(_two_system_render(va))
+        assert "- `LTB`: 1 family, 43 elements, 2 GeV" in _va(_two_system_render(va))
 
 
 def _two_system_render(ltb_va: dict | None) -> str:

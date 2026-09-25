@@ -37,8 +37,8 @@ Build & deploy
       :link: llm-providers/index
       :link-type: doc
 
-      Pick the provider that drives the OSPREY agent and map the model tiers
-      each one serves, including open-weight and self-hosted models behind the
+      Pick the provider that drives the OSPREY agent and name the model it
+      runs, including open-weight and self-hosted models behind the
       translation proxy.
 
 Operate

@@ -104,15 +104,20 @@ from typing import Any
 import httpx
 
 from osprey.bridges.core import (
+    MENTION_PLACEHOLDER_RE,
     ChannelOps,
     CoreConfig,
     FetchedArtifact,
     InboundEvent,
     InputDownload,
     ReplyContext,
+    RoomMember,
+    RoomPeople,
+    RoomRoster,
     artifact_descriptors,
     bare_mime,
     fetch_artifact,
+    queued_since,
     safe_label,
 )
 
@@ -126,10 +131,11 @@ from .events import (
     GC_QUOTED_DRIVE_ATTACHMENTS,
     GC_SPACE,
     GC_THREAD,
+    people_seen,
 )
 from .events import parse_event as parse_chat_event
 from .events import resolve_reply_context as resolve_chat_reply_context
-from .formatting import markdown_to_chat
+from .formatting import markdown_to_chat, render_mentions
 from .gcs import IMAGE_CONTENT_TYPE, publish_artifacts, publish_documents
 from .inbound import (
     DEFAULT_FILENAME,
@@ -139,6 +145,7 @@ from .inbound import (
     build_media_session,
     download_attachments,
 )
+from .roster import SpaceRoster
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +174,12 @@ QUEUED_TEXT = (
 """First-park notice. A re-park is silent (the engine posts this only once). It claims
 only what the code guarantees: queued, and retried automatically. No notification is
 promised, because nothing is filed to send one."""
+
+RESUMED_TEXT = "▶️ Resuming your request queued {since} — service is restored, answer follows."
+"""Posted right before the delayed answer of a request the user was told was queued.
+``{since}`` is ``at <stamp> (<elapsed> ago)`` from :func:`~osprey.bridges.core.queued_since`,
+or ``earlier`` when the entry carries no usable time. It names which question this answers
+and how long it waited; it promises nothing about the answer itself."""
 
 GIVEUP_TEXT = "⚠️ We couldn't run this automatically — please re-send your question."
 """Abandonment notice. Honest about the outcome and silent about the reason."""
@@ -486,11 +499,20 @@ def _ack_text(version_tag: str) -> str:
     return f"{ACK_TEXT}{VERSION_TAG_SUFFIX.format(tag=version_tag)}"
 
 
-def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
+def _unchanged(text: str) -> str:
+    """The identity render: an answer posted with no mention rendering."""
+    return text
+
+
+def _answer_chunks(
+    result: Mapping[str, Any], render: Callable[[str], str] = _unchanged
+) -> list[str]:
     """The messages :meth:`GoogleChatOps.post_answer` should post, in order.
 
     A non-completed status becomes :data:`ERROR_TEXT`. A completed run's text is
-    rewritten into Chat's formatting subset **on a local copy** and split at Chat's
+    rewritten into Chat's formatting subset **on a local copy**, has its mention
+    placeholders rendered by ``render`` (after the transform, before the split; the
+    error, empty-answer and ack texts are never rendered), and is split at Chat's
     per-message ceiling (:func:`~osprey.bridges.google_chat.client.chunk_text`); the
     caller's ``result["text_output"]`` is never touched, because the same string is
     replayed to the agent as conversation history and the transform is a presentation
@@ -511,7 +533,7 @@ def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
         return [EMPTY_ANSWER_TEXT]
     # The transform can empty a body that was only markup to begin with, so the guard is
     # re-applied to its output rather than only to the input.
-    return chunk_text(markdown_to_chat(text)) or [EMPTY_ANSWER_TEXT]
+    return chunk_text(render(markdown_to_chat(text))) or [EMPTY_ANSWER_TEXT]
 
 
 def _image_card(run_id: str, urls: Sequence[str]) -> dict[str, Any]:
@@ -549,6 +571,9 @@ class GoogleChatOps:
     from the ``entry`` it is handed. The one piece of state that does span calls — the
     published-URL stash — is guarded by its own lock, popped on read, and bounded at
     :data:`STASH_LIMIT` runs, so it can neither be read twice nor grow without limit.
+    The second cross-call state is the room roster
+    (:class:`~osprey.bridges.google_chat.roster.SpaceRoster`), which owns its lock and
+    its bounds.
     """
 
     def __init__(
@@ -587,6 +612,7 @@ class GoogleChatOps:
         self._media_lock = threading.Lock()
         self._stash_lock = threading.Lock()
         self._stashed_urls: dict[str, dict[str, str]] = {}
+        self._roster = SpaceRoster(self._list_members, cfg.app_id)
 
     # --- inbound members ---------------------------------------------------
 
@@ -598,7 +624,8 @@ class GoogleChatOps:
         unacknowledged and redelivered forever. See
         :func:`~osprey.bridges.google_chat.events.parse_event` for which events count as
         questions for this app — the mention filter outside a direct message is the
-        access control for a room.
+        access control for a room. Names the event shows (its sender, the people it
+        @mentions) are recorded in memory for the room roster; that does no I/O.
 
         Args:
             event: One decoded Chat event, in either wire shape.
@@ -606,7 +633,74 @@ class GoogleChatOps:
         Returns:
             The parsed event, or ``None`` to ignore this one.
         """
+        try:
+            space, seen = people_seen(event)
+            if space and seen:
+                self._roster.note_seen(space, seen)
+        except Exception:
+            logger.debug("could not record who was seen", exc_info=True)
         return parse_chat_event(event, self._cfg)
+
+    def _list_members(self, space: str, limit: int) -> tuple[list[dict[str, Any]], bool]:
+        """The roster's listing call, resolved on the client at call time."""
+        return self._client.list_members(space, limit=limit)
+
+    def room_people(self, entry: Mapping[str, Any]) -> RoomPeople | None:
+        """Who is in the entry's space, or ``None`` when that is unknown. Never raises.
+
+        The :class:`~osprey.bridges.core.ports.RoomRoster` member. Lists only the
+        members of this entry's own space. The asker is named from the entry itself
+        when neither the listing nor a seen name did, so a re-dispatch after a
+        restart still names who asked.
+        """
+        try:
+            space = _space(entry)
+            if not space:
+                return None
+            listed = self._roster.members(space)
+            if listed is None:
+                return None
+            names, more = listed
+            sender_id = entry.get("sender_id")
+            sender_display = entry.get("sender_display")
+            if (
+                isinstance(sender_id, str)
+                and sender_id in names
+                and names[sender_id] is None
+                and isinstance(sender_display, str)
+                and sender_display
+            ):
+                names[sender_id] = sender_display
+            return RoomPeople(
+                members=tuple(RoomMember(i, n) for i, n in names.items()),
+                mentions=self._cfg.mentions,
+                more_not_listed=more,
+            )
+        except Exception:
+            logger.warning("room roster failed for %s", entry.get(GC_SPACE), exc_info=True)
+            return None
+
+    def _render_mentions(self, entry: Mapping[str, Any], text: str) -> str:
+        """Render the agent's ``<@ID>`` placeholders in one posted copy of the answer.
+
+        An answer with no placeholder is returned untouched and costs no listing.
+        A mention renders only for a member of this entry's space, with mentions on;
+        anything else is plain text. A failure here posts every mention as plain
+        text, so it can never cost the answer.
+        """
+        if MENTION_PLACEHOLDER_RE.search(text) is None:
+            return text
+        try:
+            listed = self._roster.members(_space(entry))
+            return render_mentions(
+                text,
+                listed[0] if listed else {},
+                enabled=self._cfg.mentions and listed is not None,
+                placeholder=MENTION_PLACEHOLDER_RE,
+            )
+        except Exception:
+            logger.warning("mention rendering failed; posting plain text", exc_info=True)
+            return MENTION_PLACEHOLDER_RE.sub(lambda m: "@" + m.group(1), text)
 
     def resolve_reply_context(self, event: InboundEvent) -> ReplyContext | None:
         """Resolve the message a Chat quote-reply points at, or ``None``. Never fatal.
@@ -805,7 +899,7 @@ class GoogleChatOps:
         """
         space = self._require_space(entry)
         thread = _thread(entry)
-        chunks = _answer_chunks(result)
+        chunks = _answer_chunks(result, lambda text: self._render_mentions(entry, text))
         cards = self._publish_cards(entry, result)
         last = len(chunks) - 1
         for index, chunk in enumerate(chunks):
@@ -839,6 +933,33 @@ class GoogleChatOps:
                 the same whatever the cause.
         """
         self._client.create_message(self._require_space(entry), _thread(entry), QUEUED_TEXT)
+
+    def post_resumed(
+        self,
+        entry: Mapping[str, Any],
+        result: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels that word the line by outcome read the result
+    ) -> None:
+        """Post the "resuming your queued request" line, threaded. Never raises.
+
+        The engine calls this right before ``post_answer`` for an entry whose queued
+        notice landed, so the two read in order in the thread. Best-effort: the answer
+        follows whether or not this line did.
+
+        Args:
+            entry: The persisted entry; supplies the space, the thread and the park time.
+            result: The terminal result about to be delivered. Unread — the line reads
+                the same whatever the outcome, and the outcome follows anyway.
+        """
+        since = queued_since(entry)
+        text = RESUMED_TEXT.format(since=f"at {since}" if since else "earlier")
+        try:
+            self._client.create_message(self._require_space(entry), _thread(entry), text)
+        except Exception:
+            logger.warning(
+                "resume notice failed for %s; the answer follows regardless",
+                entry.get(GC_MESSAGE_NAME),
+                exc_info=True,
+            )
 
     def post_giveup(self, entry: Mapping[str, Any]) -> None:
         """Post the honest abandonment notice, threaded. **Raises** on failure.
@@ -1137,4 +1258,9 @@ class GoogleChatOps:
 # ``isinstance`` protocol check cannot do (it only looks for the names). Nothing runs it
 # and nothing constructs at import; the value is entirely in type-check time.
 def _static_conformance(ops: GoogleChatOps) -> ChannelOps:
+    return ops
+
+
+# The same check for the optional room-roster seam.
+def _static_room_conformance(ops: GoogleChatOps) -> RoomRoster:
     return ops

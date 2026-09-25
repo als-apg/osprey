@@ -43,7 +43,7 @@ def _run_wrapper(
     )
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_SRC_ROOT), env.get("PYTHONPATH")]))
-    proc = subprocess.run(  # noqa: S603 - fixed argv, generated script
+    proc = subprocess.run(  # fixed argv, generated script
         [sys.executable, str(script)],
         capture_output=True,
         text=True,

@@ -84,7 +84,7 @@ class UnreachablePV:
 
     connected = False
 
-    def __init__(self, pvname, *args, **kwargs):  # noqa: ARG002 - pyepics' signature
+    def __init__(self, pvname, *args, **kwargs):
         self.pvname = pvname
 
     def wait_for_connection(self, timeout=None):  # noqa: ARG002 - pyepics' signature
@@ -191,7 +191,7 @@ class FakeValue:
             for key, value in fields.items()
         }
 
-    def getID(self) -> str:  # noqa: N802 - p4p's spelling
+    def getID(self) -> str:  # p4p's spelling
         return self._type_id
 
     def get(self, name, default=None):

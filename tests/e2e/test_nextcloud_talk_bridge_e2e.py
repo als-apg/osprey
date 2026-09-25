@@ -276,7 +276,7 @@ Bounds how long a wedged run can hold a room thread. The two must agree: the bri
 
 def _runtime(*args: str, check: bool = True, timeout: float = 120.0) -> subprocess.CompletedProcess:
     """Run one container-runtime command."""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+    proc = subprocess.run(  # fixed argv, no shell
         [RUNTIME, *args], capture_output=True, text=True, timeout=timeout, check=False
     )
     if check and proc.returncode != 0:
@@ -336,7 +336,7 @@ def _occ(*args: str, env: Mapping[str, str] | None = None) -> str:
     for name, value in (env or {}).items():
         cmd += ["-e", f"{name}={value}"]
     cmd += [NEXTCLOUD_CONTAINER, "php", "occ", *args]
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+    proc = subprocess.run(  # fixed argv, no shell
         cmd, capture_output=True, text=True, timeout=180.0, check=False
     )
     if proc.returncode != 0:
@@ -720,8 +720,8 @@ def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
                 f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(proc)}"
             )
         try:
-            req = urllib.request.Request(url, method="GET")  # noqa: S310 - localhost only
-            with urllib.request.urlopen(req, timeout=3.0) as resp:  # noqa: S310
+            req = urllib.request.Request(url, method="GET")  # localhost only
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -784,7 +784,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     osprey_bin = _find_osprey_console_script()
 
     def _osprey(argv: list[str]) -> subprocess.CompletedProcess:
-        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+        return subprocess.run(  # fixed argv, no shell
             [str(osprey_bin), *argv],
             cwd=str(base),
             capture_output=True,
@@ -804,7 +804,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=haiku",
+            "model=claude-haiku-4-5-20251001",
         ]
     )
     if init.returncode != 0:
@@ -892,7 +892,7 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
             "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
             "CLAUDECODE": "",
         }
-        worker_proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        worker_proc = subprocess.Popen(  # fixed argv, no shell
             [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
             cwd=str(built_repo),
             env=worker_env,
@@ -913,7 +913,7 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
             "MCP_PORT": str(dispatcher_port),
             "CLAUDECODE": "",
         }
-        dispatcher_proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
             [sys.executable, "-m", "osprey.dispatch"],
             cwd=str(built_repo),
             env=dispatcher_env,
@@ -1068,7 +1068,7 @@ def _running_bridge(
     def _serve() -> None:
         try:
             run(wiring)
-        except BaseException as exc:  # noqa: BLE001 - re-raised from the test thread
+        except BaseException as exc:  # re-raised from the test thread
             failure.append(exc)
 
     thread = threading.Thread(target=_serve, name="nc-talk-bridge-e2e", daemon=True)
@@ -1615,11 +1615,11 @@ def _worker_run(dispatch: Mapping[str, Any], run_id: str) -> dict[str, Any] | No
     be asserting the bridge's opinion of its own payload.
     """
     url = f"{dispatch['worker_url']}/dispatch/{urllib.parse.quote(run_id)}"
-    req = urllib.request.Request(  # noqa: S310 - localhost only
+    req = urllib.request.Request(  # localhost only
         url, method="GET", headers={"Authorization": f"Bearer {DISPATCH_TOKEN}"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
             if resp.status != 200:
                 return None
             body = json.loads(resp.read().decode("utf-8"))
@@ -1693,7 +1693,7 @@ def _share_file_to_room(nextcloud: TalkFixture, path: str, room: str) -> None:
     produced by the server from a genuine user action, exactly like the outbound one the
     bridge makes — and so a 400 still carries the trusted-domain hint.
     """
-    nextcloud._ocs(  # noqa: SLF001 - the fixture's own raw OCS caller, same module
+    nextcloud._ocs(  # the fixture's own raw OCS caller, same module
         "POST",
         SHARES_API,
         auth=(HUMAN_ACCOUNT, HUMAN_PASSWORD),
@@ -1708,7 +1708,7 @@ def _reply_mentioning_bot(nextcloud: TalkFixture, room: str, text: str, reply_to
     message inline as ``parent``, so the file the human pointed at rides along with the
     question that mentions the bot.
     """
-    data = nextcloud._ocs(  # noqa: SLF001 - the fixture's own raw OCS caller, same module
+    data = nextcloud._ocs(  # the fixture's own raw OCS caller, same module
         "POST",
         f"{CHAT_API}/{room}",
         auth=(HUMAN_ACCOUNT, HUMAN_PASSWORD),

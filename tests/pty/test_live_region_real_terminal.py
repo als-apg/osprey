@@ -354,7 +354,7 @@ class PtyProcess:
         )
         self._buffer = bytearray()
         self._master_closed = False
-        self._process = subprocess.Popen(  # noqa: S603 - argv is built here, not by input
+        self._process = subprocess.Popen(  # argv is built here, not by input
             [sys.executable, "-c", bootstrap, *argv],
             cwd=str(cwd),
             env=env,

@@ -294,6 +294,27 @@ class TestFakeConnectorServer:
         assert connector.posted_text == ["after"]
         assert [a.number for a in connector.attempts] == [1]
 
+    def test_paged_members_serves_seeded_members(self, connector: FakeConnectorServer) -> None:
+        channel = "19:room@thread.tacv2"
+        url = f"{connector.base_url}/v3/conversations/{channel}/pagedmembers"
+        assert httpx.get(url, timeout=TIMEOUT).json() == {"members": []}
+
+        connector.add_member(channel, "29:111", "Alice")
+        connector.add_member(channel, "29:222", "Carol")
+        connector.add_member(channel, "29:333", "Dave")
+
+        first = httpx.get(url, params={"pageSize": 2}, timeout=TIMEOUT).json()
+        assert [m["id"] for m in first["members"]] == ["29:111", "29:222"]
+        second = httpx.get(
+            url,
+            params={"pageSize": 2, "continuationToken": first["continuationToken"]},
+            timeout=TIMEOUT,
+        ).json()
+        assert second == {"members": [{"id": "29:333", "name": "Dave"}]}
+
+        connector.reset()
+        assert httpx.get(url, timeout=TIMEOUT).json() == {"members": []}
+
 
 # ---------------------------------------------------------------------------
 # The fake Service Bus receiver

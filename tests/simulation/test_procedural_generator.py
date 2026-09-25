@@ -215,7 +215,7 @@ class TestCrossProcessDeterminism:
         runs = []
         for seed in ("0", "1", "12345"):
             env = {**os.environ, "PYTHONHASHSEED": seed}
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 [sys.executable, "-c", script],
                 capture_output=True,
                 text=True,

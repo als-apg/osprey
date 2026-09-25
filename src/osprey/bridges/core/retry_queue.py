@@ -21,7 +21,11 @@ in :mod:`osprey.bridges.core.ports` differ:
 
   * ``post_queued`` **may raise**: the entry is parked and its siblings superseded
     *before* the notice is posted, so a lost notice costs the user a message, never
-    their request.
+    their request. Once it lands the entry is stamped ``queued_notified``: that flag,
+    not the timestamps, is what later earns the entry a ``post_resumed`` line ahead of
+    its answer — the answer re-delivery path stamps the same timestamps and posts no
+    notice. :func:`queued_since` words that line's "queued at ... (N ago)" phrase for
+    every channel.
   * ``post_giveup`` **must raise**: :func:`give_up` posts and does NOT mark the entry
     terminal — the drain does that only after this returns, so a failed notice leaves
     the entry queued for the next cycle rather than silently dropped.
@@ -34,11 +38,13 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
+from datetime import datetime, tzinfo
 from typing import Any
 
 from . import retry
 from .dedup import DedupStore
 from .history import HistoryStore
+from .people import asker_of
 from .ports import ChannelOps
 
 logger = logging.getLogger(__name__)
@@ -56,6 +62,7 @@ __all__ = [
     "SUPERSEDED_STATUS",
     "give_up",
     "park",
+    "queued_since",
     "supersede_at_enqueue",
     "supersede_note",
 ]
@@ -86,9 +93,10 @@ def park(
          redispatch — a re-park never resets it.
       2. Only if that CAS won, supersede the older queued siblings sharing this entry's
          coalesce key (see :func:`supersede_at_enqueue`).
-      3. On the FIRST park only, post the "your request is queued" notice. A re-park is
-         silent: the user was already told once, and the next message in that
-         conversation is either the answer or the give-up notice.
+      3. On the FIRST park only, post the "your request is queued" notice, then stamp
+         ``queued_notified`` once it landed. A re-park is silent: the user was already
+         told once, and the next message in that conversation is the resume line and
+         the answer, or the give-up notice.
 
     The CAS losing (``False``) means someone else already moved this entry — a racing
     drain, a late terminal callback — so nothing is parked, nothing is superseded and
@@ -138,7 +146,58 @@ def park(
 
     if first_park:
         ops.post_queued(dedup.get(message_id) or {**dict(entry), **meta}, result)
+        # Stamped only after the notice landed (post_queued may raise above), so the
+        # flag means exactly "the user was told" — and only while still queued, so it
+        # cannot stomp a status a racing actor already moved the entry to.
+        dedup.transition(message_id, "queued", "queued", queued_notified=True)
     return True
+
+
+def queued_since(
+    entry: Mapping[str, Any],
+    *,
+    now: Callable[[], float] = time.time,
+    tz: tzinfo | None = None,
+) -> str | None:
+    """The "queued at ... (N ago)" phrase for a resume notice, or ``None``.
+
+    Names the entry's FIRST park — ``first_queued_at``, falling back to ``queued_at``
+    for an entry persisted before the anchor existed — as a wall-clock stamp with its
+    zone abbreviation (``2026-09-23 19:35 PDT``) in ``tz`` (the process's local zone
+    when ``None``), plus a coarse elapsed time: ``moments ago`` under a minute, then
+    minutes, hours up to two days, then days. Coarse on purpose — the user wants to
+    know which question this answers and roughly how long it waited, not a duration to
+    the second. Clock skew reads as ``moments ago``, never as a negative age.
+
+    ``None`` when the entry carries no usable anchor, so a channel can word its line
+    without a time rather than print ``None`` into it.
+    """
+    anchor = _as_timestamp(entry.get("first_queued_at"))
+    if anchor is None:
+        anchor = _as_timestamp(entry.get("queued_at"))
+    if anchor is None:
+        return None
+    stamp = datetime.fromtimestamp(anchor, tz=tz)
+    if tz is None:
+        stamp = stamp.astimezone()
+    elapsed = max(0.0, now() - anchor)
+    if elapsed < 60:
+        ago = "moments ago"
+    elif elapsed < 3600:
+        ago = f"{int(elapsed // 60)} min ago"
+    elif elapsed < 2 * 86400:
+        ago = f"{int(elapsed // 3600)} h ago"
+    else:
+        ago = f"{int(elapsed // 86400)} d ago"
+    return f"{stamp:%Y-%m-%d %H:%M %Z} ({ago})"
+
+
+def _as_timestamp(value: Any) -> float | None:
+    """``value`` as epoch seconds, or ``None`` for anything that is not a real number
+    (``bool`` included — ``True`` is an ``int`` in Python but never a timestamp)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
 
 
 def supersede_at_enqueue(
@@ -205,7 +264,7 @@ def give_up(
     key = current.get("history_key")
     if history is not None and key:
         try:
-            history.append_failed(key, current.get("text", ""))
+            history.append_failed(key, current.get("text", ""), asked_by=asker_of(current))
         except Exception:
             logger.exception("give-up history append failed for %s; continuing", message_id)
 

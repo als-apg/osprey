@@ -218,9 +218,11 @@ def _resolve_config_panel_enabled(config_path: Path | None) -> bool:
     """Whether this deployment lets its operators reach the Config panel.
 
     ``web.config_panel.enabled`` is one key with one meaning across both
-    surfaces, so this reads the same file the panel edits — the config.yml the
-    loader actually resolved — and coerces it with the Web Terminal's own
-    :func:`coerce_config_flag`. Two readers of one key, never two keys.
+    surfaces, so this resolves it with the Web Terminal's own
+    :func:`resolve_config_flag`, pointed at the config.yml this panel resolved.
+    One reader of one key: a value written as a ``${VAR}`` reference expands
+    here exactly as it does there, and an unset reference with no default is
+    uninterpretable on both.
 
     Fails OPEN, exactly as the terminal's lifespan does: an unreadable or
     unparseable config leaves the panel at the shipped posture rather than
@@ -232,22 +234,21 @@ def _resolve_config_panel_enabled(config_path: Path | None) -> bool:
     Returns:
         The configured boolean, or True when the key is absent or unreadable.
     """
-    from osprey.interfaces.web_terminal.app import coerce_config_flag
+    from osprey.interfaces.web_terminal.app import resolve_config_flag
 
-    raw: object = None
-    if config_path is not None:
-        try:
-            document = yaml.safe_load(config_path.read_text()) or {}
-            web = document.get("web") if isinstance(document, dict) else None
-            panel = web.get("config_panel") if isinstance(web, dict) else None
-            raw = panel.get("enabled") if isinstance(panel, dict) else None
-        except Exception:  # noqa: BLE001 — never let config load block startup
-            logger.warning(
-                "Could not read web.config_panel.enabled; leaving the Config panel enabled",
-                exc_info=True,
-            )
-            raw = None
-    return coerce_config_flag("web.config_panel.enabled", raw, True)
+    if config_path is None:
+        # No file was resolved, so there is nothing to read: the shipped posture
+        # answers. Deliberately not the process default config — that knows only
+        # CONFIG_FILE and the working directory, and a privilege gate answered out
+        # of a file this panel was not pointed at is worse than one at its default.
+        return True
+
+    return resolve_config_flag(
+        "web.config_panel.enabled",
+        True,
+        "Could not read web.config_panel.enabled; leaving the Config panel enabled",
+        config_path=config_path,
+    )
 
 
 def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:

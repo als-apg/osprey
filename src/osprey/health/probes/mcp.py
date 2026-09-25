@@ -89,7 +89,7 @@ async def run(spec: Mapping[str, Any], _ctx: ProbeContext) -> CheckResult:
             f"MCP handshake to {url} timed out after {timeout_s:g}s",
             latency_ms=latency_ms,
         )
-    except Exception as exc:  # noqa: BLE001 - any connection/protocol failure is an error
+    except Exception as exc:  # any connection/protocol failure is an error
         latency_ms = (perf_counter() - t0) * 1000.0
         return CheckResult(
             name,

@@ -157,7 +157,7 @@ class _Fake302Handler(urllib.request.HTTPHandler):
     which is what keeps this test off the network.
     """
 
-    def http_open(self, req):  # noqa: D102 - the class docstring says it
+    def http_open(self, req):  # the class docstring says it
         headers = email.message.Message()
         headers["Location"] = "http://127.0.0.1:9/somewhere-else"
         response = addinfourl(io.BytesIO(b""), headers, req.full_url, 302)
@@ -634,6 +634,12 @@ class TestAdoptionProbeContract:
 
         assert server_launcher._OPERATOR_SECRET_HEADER == OPERATOR_SECRET_HEADER
         assert server_launcher._OPERATOR_SECRET_ENV == OPERATOR_SECRET_ENV
+
+    def test_the_bind_host_carrier_is_the_one_web_auth_declares(self):
+        """Mirrored for the same reason as the operator-secret carrier, so pinned too."""
+        from osprey.interfaces.web_auth import BIND_HOST_ENV
+
+        assert server_launcher._BIND_HOST_ENV == BIND_HOST_ENV
 
     def test_the_environment_carrier_is_read_when_it_is_still_present(self, monkeypatch):
         monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "  carried-secret  ")
@@ -1248,3 +1254,107 @@ def test_the_ownership_verdict_is_a_bind_and_the_connect_is_only_a_diagnostic():
     diagnostic = inspect.getsource(ServerLauncher._port_answers_connect)
     assert "create_connection" in diagnostic
     assert "urlopen" not in diagnostic
+
+
+# ---------------------------------------------------------------------------
+# Behind the reverse proxy, a process with no operator identity never launches
+# ---------------------------------------------------------------------------
+
+
+class TestBehindTheProxyWithoutAnIdentity:
+    """A process that cannot build an interface app does not try to.
+
+    With a declared bind host and no operator secret, building any interface
+    app refuses, and the refusal consumes the process's panel-token carrier.
+    The launcher declines before it probes, so neither happens.
+    """
+
+    _CARRIERS = ("OSPREY_TERMINAL_SECRET", "OSPREY_PANEL_TOKEN")
+
+    @pytest.fixture(autouse=True)
+    def _no_carriers(self, monkeypatch):
+        for name in (*self._CARRIERS, "OSPREY_TERMINAL_BIND_HOST"):
+            monkeypatch.delenv(name, raising=False)
+
+    def test_no_launch_and_no_probe_without_an_operator_identity(self, monkeypatch):
+        from osprey.interfaces import web_auth
+
+        monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
+        assert web_auth.peek_web_credentials() is None
+        launcher = _make_launcher()
+
+        with (
+            patch.object(launcher, "_launch_in_thread") as mock_launch,
+            patch.object(launcher, "_port_is_bindable") as mock_bindable,
+        ):
+            launcher.ensure_running()
+
+        mock_launch.assert_not_called()
+        mock_bindable.assert_not_called()
+
+    def test_the_panel_carrier_survives_the_declined_launch(self, monkeypatch):
+        from osprey.interfaces.web_auth import peek_web_credentials
+
+        monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
+        monkeypatch.setenv("OSPREY_PANEL_TOKEN", "pty-supplied-token")
+        launcher = _make_launcher()
+
+        with patch.object(launcher, "_launch_in_thread"):
+            launcher.ensure_running()
+
+        assert os.environ["OSPREY_PANEL_TOKEN"] == "pty-supplied-token"
+        assert peek_web_credentials() is None
+
+    def test_the_terminal_itself_still_launches_behind_the_proxy(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "from-deploy-env")
+        launcher = _make_launcher()
+
+        with patch.object(launcher, "_launch_in_thread") as mock_launch:
+            launcher.ensure_running()
+
+        mock_launch.assert_called_once()
+
+    def test_a_populated_holder_is_an_identity_too(self, monkeypatch):
+        """The mid-life terminal: its carrier is gone and only the holder remains."""
+        from osprey.interfaces.web_auth import get_web_credentials
+
+        monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "from-deploy-env")
+        get_web_credentials()
+        assert "OSPREY_TERMINAL_SECRET" not in os.environ
+        launcher = _make_launcher()
+
+        with patch.object(launcher, "_launch_in_thread") as mock_launch:
+            launcher.ensure_running()
+
+        mock_launch.assert_called_once()
+
+    def test_the_single_user_shape_is_unaffected(self):
+        launcher = _make_launcher()
+
+        with patch.object(launcher, "_launch_in_thread") as mock_launch:
+            launcher.ensure_running()
+
+        mock_launch.assert_called_once()
+
+    def test_the_decline_is_reported_once(self, monkeypatch):
+        """The most frequent caller asks on every save: one line, then debug."""
+        monkeypatch.setenv("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
+        launcher = _make_launcher()
+
+        with (
+            patch.object(launcher, "_launch_in_thread"),
+            patch.object(server_launcher, "logger") as mock_logger,
+        ):
+            launcher.ensure_running()
+            mock_logger.info.assert_called_once()
+            line = _rendered(mock_logger.info)
+            assert "Test Server" in line
+            assert "OSPREY_TERMINAL_BIND_HOST" in line
+            mock_logger.debug.assert_not_called()
+
+            launcher.ensure_running()
+
+        mock_logger.info.assert_called_once()
+        mock_logger.debug.assert_called_once()

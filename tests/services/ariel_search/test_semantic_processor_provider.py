@@ -6,9 +6,10 @@ selected the LLM and sourced its credentials.  They could diverge silently, and
 omitting the module-level one substituted ``ariel.embedding.provider`` — an
 *embedding* endpoint — for an LLM module.
 
-There is now one key.  The module-level ``provider`` drives both the tier lookup
-and the completion call, it has no default, and a missing value is an error that
-names the config key rather than a quiet fall-through to Ollama.
+There is now one key.  The module-level ``provider`` drives the completion call
+and, when the module names no ``model_id``, which main model answers; it has no
+default, and a missing value is an error that names the config key rather than
+a quiet fall-through to Ollama.
 """
 
 from __future__ import annotations
@@ -28,15 +29,22 @@ from osprey.services.ariel_search.enhancement.semantic_processor.processor impor
 
 @pytest.fixture
 def provider_models(monkeypatch) -> None:
-    """Give ``cborg`` a tier map so tier aliases resolve to a concrete model ID."""
-    import osprey.models.config as models_config
+    """A deployment whose ``cborg`` entry names its default model."""
+    import osprey.utils.config as config_mod
 
-    def fake_provider_config(provider: str, _config_path: str | None = None) -> dict[str, Any]:
-        if provider == "cborg":
-            return {"models": {"haiku": "anthropic/claude-haiku"}}
-        return {}
-
-    monkeypatch.setattr(models_config, "get_provider_config", fake_provider_config)
+    config = {
+        "claude_code": {"provider": "als-apg", "default_model": "claude-sonnet-5"},
+        "api": {
+            "providers": {
+                "cborg": {
+                    "base_url": "https://gateway.example",
+                    "default_model": "claude-haiku-4-5",
+                    "models": ["claude-sonnet-5", "claude-haiku-4-5"],
+                }
+            }
+        },
+    }
+    monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: config)
 
 
 def _config(**overrides: Any) -> dict[str, Any]:
@@ -47,21 +55,21 @@ def _config(**overrides: Any) -> dict[str, Any]:
 
 
 class TestModuleProviderDrivesBothUses:
-    """The single module-level key feeds tier resolution and the completion call."""
+    """The single module-level key feeds the model choice and the completion call."""
 
     @pytest.mark.usefixtures("provider_models")
-    def test_tier_alias_resolves_from_module_provider(self) -> None:
-        """A tier alias is resolved against the module-level provider."""
+    def test_a_model_id_is_taken_verbatim(self) -> None:
+        """A configured id reaches the model config unchanged."""
         module = SemanticProcessorModule()
-        module.configure(_config(model={"model_id": "haiku", "max_tokens": 256}))
+        module.configure(_config(model={"model_id": "claude-haiku-4-5", "max_tokens": 256}))
 
-        assert module._model_config["model_id"] == "anthropic/claude-haiku"
+        assert module._model_config["model_id"] == "claude-haiku-4-5"
 
     @pytest.mark.usefixtures("provider_models")
     def test_module_provider_reaches_model_config(self) -> None:
         """The completion call is given the module-level provider."""
         module = SemanticProcessorModule()
-        module.configure(_config(model={"model_id": "haiku"}))
+        module.configure(_config(model={"model_id": "claude-haiku-4-5"}))
 
         assert module._model_config["provider"] == "cborg"
 
@@ -102,12 +110,36 @@ class TestModuleProviderDrivesBothUses:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(completion, "get_chat_completion", fake_completion)
             module = SemanticProcessorModule()
-            module.configure(_config(model={"model_id": "haiku"}))
+            module.configure(_config(model={"model_id": "claude-haiku-4-5"}))
             result = await module._process_text("VP-103 replaced")
 
         assert result is not None
         assert captured["model_config"]["provider"] == "cborg"
-        assert captured["model_config"]["model_id"] == "anthropic/claude-haiku"
+        assert captured["model_config"]["model_id"] == "claude-haiku-4-5"
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("provider_models")
+    async def test_no_model_id_runs_on_the_main_model(self) -> None:
+        """A module that names no model runs on the deployment's main model.
+
+        The deployment's ``claude_code.default_model`` is an id on its own
+        provider, so a module on another provider takes that provider's default.
+        """
+        import osprey.models.completion as completion
+
+        captured: dict[str, Any] = {}
+
+        def fake_completion(message: str, model_config: dict[str, Any] | None = None, **kwargs):  # noqa: ARG001 - the get_chat_completion signature
+            captured["model_config"] = model_config
+            return '{"keywords": [], "summary": ""}'
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(completion, "get_chat_completion", fake_completion)
+            module = SemanticProcessorModule()
+            module.configure(_config())
+            await module._process_text("VP-103 replaced")
+
+        assert captured["model_config"]["model_id"] == "claude-haiku-4-5"
 
 
 class TestMissingProviderIsAnError:
@@ -209,7 +241,7 @@ class TestEndToEndThroughConfig:
                     "semantic_processor": {
                         "enabled": True,
                         "provider": "cborg",
-                        "model": {"model_id": "haiku", "max_tokens": 256},
+                        "model": {"model_id": "claude-haiku-4-5", "max_tokens": 256},
                     }
                 },
                 "embedding": {"provider": "ollama"},
@@ -222,7 +254,7 @@ class TestEndToEndThroughConfig:
         module.configure(module_config)
 
         assert module._model_config["provider"] == "cborg"
-        assert module._model_config["model_id"] == "anthropic/claude-haiku"
+        assert module._model_config["model_id"] == "claude-haiku-4-5"
 
     def test_provider_less_config_fails_loudly(self) -> None:
         """An enabled module with no provider errors instead of running on Ollama."""
@@ -230,7 +262,10 @@ class TestEndToEndThroughConfig:
             {
                 "database": {"uri": "postgresql://localhost:5432/test"},
                 "enhancement_modules": {
-                    "semantic_processor": {"enabled": True, "model": {"model_id": "haiku"}}
+                    "semantic_processor": {
+                        "enabled": True,
+                        "model": {"model_id": "claude-haiku-4-5"},
+                    }
                 },
                 "embedding": {"provider": "ollama"},
             }
