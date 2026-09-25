@@ -67,6 +67,10 @@ reaches the agent with its asker's name, and every remembered exchange keeps
 the name of the person who asked it, so a conversation among several people
 reads as one.
 
+A long earlier answer — a big table, say — goes back to the agent with a
+follow-up as its opening and a note. The agent reads the rest only when the
+follow-up needs it, and the bridge's own copy keeps every answer in full.
+
 .. _bridge-access:
 
 Who Can Ask

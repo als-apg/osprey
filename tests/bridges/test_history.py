@@ -16,6 +16,7 @@ from osprey.bridges.core.history import (
     MAX_AGE_SECONDS,
     MAX_ARTIFACTS_PER_TURN,
     HistoryStore,
+    shorten_answer,
 )
 
 DAY = 24 * 60 * 60
@@ -435,3 +436,122 @@ def test_asked_by_survives_a_reload(tmp_path):
     path = tmp_path / "h.json"
     HistoryStore(str(path), now=FakeClock()).append("k", "q", "a", asked_by=ALICE)
     assert HistoryStore(str(path), now=FakeClock()).recent("k")[0]["asked_by"] == ALICE
+
+
+# --- shortened replay of long answers ---------------------------------------
+
+RUN = "3f2b6c1e-8a4d-4f0e-9b1a-2c3d4e5f6a7b"
+
+
+def _table(chars: int) -> str:
+    """A markdown-ish table of exactly ``chars`` characters, one row per line."""
+    row = "| PV:NAME | 1.2345 | ok |\n"
+    body = row * (chars // len(row) + 1)
+    return body[:chars]
+
+
+def test_recent_without_a_limit_returns_every_answer_in_full(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"))
+    original = _table(10_000)
+    h.append("k", "q", original, run_id=RUN)
+
+    [turn] = h.recent("k")
+
+    assert turn["answer"] == original
+    assert "answer_chars" not in turn
+
+
+def test_a_long_answer_is_replayed_as_its_opening_and_a_note_naming_its_run(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"))
+    original = _table(10_000)
+    h.append("k", "q", original, run_id=RUN)
+
+    [turn] = h.recent("k", shorten_over=3000)
+
+    opening, note = turn["answer"].rsplit("\n", 1)
+    assert original.startswith(opening)
+    assert len(turn["answer"]) < 3000
+    assert RUN in note
+    assert f"{len(original):,}" in note
+    assert turn["answer_chars"] == len(original)
+
+
+def test_an_answer_at_the_limit_is_replayed_whole(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"))
+    original = "x" * 3000
+    h.append("k", "q", original, run_id=RUN)
+
+    [turn] = h.recent("k", shorten_over=3000)
+
+    assert turn["answer"] == original
+    assert "answer_chars" not in turn
+
+
+def test_the_opening_ends_at_a_line_break_in_its_second_half():
+    # limit 1000 -> an opening of up to 500 characters; a break at 400 ends it.
+    answer = "a" * 100 + "\n" + "b" * 299 + "\n" + "c" * 5000
+
+    shortened = shorten_answer(answer, RUN, 1000)
+
+    assert shortened is not None
+    assert shortened.split("\n")[:2] == ["a" * 100, "b" * 299]
+    assert shortened.split("\n")[2].startswith("[Answer shortened")
+
+    # A break only in the first quarter is ignored: the opening is cut at half.
+    early = "a" * 100 + "\n" + "b" * 5000
+    shortened = shorten_answer(early, RUN, 1000)
+    assert shortened is not None
+    assert shortened.startswith("a" * 100 + "\n" + "b" * 399 + "\n[Answer shortened")
+
+
+def test_a_long_answer_without_a_run_id_is_replayed_whole(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"))
+    original = _table(10_000)
+    h.append("k", "q", original)
+
+    [turn] = h.recent("k", shorten_over=3000)
+
+    assert turn["answer"] == original
+    assert "answer_chars" not in turn
+
+
+def test_shortening_never_changes_the_stored_history(tmp_path):
+    path = tmp_path / "h.json"
+    h = HistoryStore(str(path))
+    original = _table(10_000)
+    h.append("k", "q", original, run_id=RUN)
+
+    h.recent("k", shorten_over=3000)
+
+    assert h.recent("k")[0]["answer"] == original
+    assert HistoryStore(str(path)).recent("k")[0]["answer"] == original
+    assert _read(path)["k"][0]["answer"] == original
+
+
+def test_shortening_comes_before_the_budget_so_more_turns_survive(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"), max_chars=20_000)
+    h.append("k", "q0", _table(60_000), run_id=RUN)
+    for i in range(1, 4):
+        h.append("k", f"q{i}", f"a{i}", run_id=RUN)
+
+    assert [t["question"] for t in h.recent("k")] == ["q1", "q2", "q3"]
+    assert [t["question"] for t in h.recent("k", shorten_over=3000)] == [
+        "q0",
+        "q1",
+        "q2",
+        "q3",
+    ]
+
+
+def test_a_tiny_limit_never_lengthens_an_answer():
+    assert shorten_answer("x" * 50, RUN, 10) is None
+
+
+def test_shortening_keeps_who_asked(tmp_path):
+    h = HistoryStore(str(tmp_path / "h.json"))
+    h.append("k", "q", _table(10_000), run_id=RUN, asked_by=ALICE)
+
+    [turn] = h.recent("k", shorten_over=3000)
+
+    assert "answer_chars" in turn
+    assert turn["asked_by"] == ALICE

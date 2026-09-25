@@ -24,6 +24,7 @@ def test_from_env_maps_all_neutral_fields():
         "GITLAB_ISSUES_TOKEN": "gl-token",
         "DEDUP_PATH": "/data/email_dedup.json",
         "HISTORY_PATH": "/data/email_history.json",
+        "HISTORY_ANSWER_LIMIT": "5000",
     }
     cfg = CoreConfig.from_env(env)
     assert cfg.dispatcher_url == "http://disp:10010"
@@ -42,6 +43,23 @@ def test_from_env_maps_all_neutral_fields():
     assert cfg.gitlab_issues_token == "gl-token"
     assert cfg.dedup_path == "/data/email_dedup.json"
     assert cfg.history_path == "/data/email_history.json"
+    assert cfg.history_answer_limit == 5000
+
+
+def test_history_answer_limit_defaults_to_3000():
+    assert CoreConfig.from_env({}).history_answer_limit == 3000
+    assert CoreConfig().history_answer_limit == 3000
+
+
+def test_a_blank_history_answer_limit_is_the_default():
+    assert CoreConfig.from_env({"HISTORY_ANSWER_LIMIT": ""}).history_answer_limit == 3000
+
+
+def test_a_negative_history_answer_limit_is_refused():
+    with pytest.raises(ValueError, match="history_answer_limit"):
+        CoreConfig(history_answer_limit=-1)
+    with pytest.raises(ValueError, match="history_answer_limit"):
+        CoreConfig.from_env({"HISTORY_ANSWER_LIMIT": "-1"})
 
 
 def test_from_env_defaults_when_unset():

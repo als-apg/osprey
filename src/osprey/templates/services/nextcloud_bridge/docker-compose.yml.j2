@@ -229,6 +229,9 @@ services:
       # Outbound HTTP proxy honoring, off unless the site's bridge genuinely
       # sits behind an egress proxy.
       BRIDGE_TRUST_ENV: "${BRIDGE_TRUST_ENV:-}"
+      # How long an earlier answer may be before a follow-up replays only its
+      # opening; 0 replays every answer in full.
+      HISTORY_ANSWER_LIMIT: "${HISTORY_ANSWER_LIMIT:-}"
       # GitLab give-up alerts (opt-in): unset means the site has no alert host,
       # and the drain's health gate skips its alert-issue check entirely. `:-`
       # here rather than a bare ref precisely because unset is the normal case —

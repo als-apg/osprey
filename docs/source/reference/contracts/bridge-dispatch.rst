@@ -32,6 +32,7 @@ token. The body is the question plus whatever context the engine assembled:
      "conversation_so_far": [{"question": "...", "answer": "...", "ts": 1757000000.0,
                               "run_id": "run-...", "artifacts": [],
                               "asked_by": {"id": "users/222", "name": "Carol"}}],
+     "prior_answer_runs": ["3f2b…"],
      "reply_to": {"sender": "Alice", "text": "the vacuum trace from this morning"},
      "input_files": [{"filename": "trace.png", "mime": "image/png",
                       "content_b64": "...", "ingest": true}],
@@ -45,7 +46,9 @@ engine omits an empty context rather than sending empty containers.
 
 The whole body becomes the agent's context, exactly as it does for a webhook
 fired by hand. A trigger's prompt does not have to name these fields for the
-agent to see them.
+agent to see them. Two fields are the exception: the dispatcher takes
+``input_files`` and ``prior_answer_runs`` out of the body and hands each to the
+worker as a field of its own.
 
 ``asker``
 =========
@@ -117,6 +120,8 @@ The recent exchanges in this conversation, **oldest first**. This is what makes
      - Who asked this question, in the same shape as ``asker``. Absent when the
        bridge did not know, including every turn recorded before the field
        existed.
+   * - ``answer_chars``
+     - Present only when ``answer`` was shortened: the full answer's length.
 
 The bridge caps the list by turn count and by total serialized size, dropping
 oldest first, so the newest exchanges always survive.
@@ -126,6 +131,21 @@ bridge saying it could not bring the artifact's bytes back — swept, deleted, o
 too large for the budget below — so the agent should say the file is no longer
 available rather than pretend to look at it. Nothing keys on the exact wording;
 it is written to be read.
+
+Shortened answers
+-----------------
+
+An answer longer than the bridge's ``HISTORY_ANSWER_LIMIT`` (3000 characters by
+default) is sent as its opening and a note naming its run. The agent reads the
+whole answer with ``prior_answer_read``. The bridge's own copy keeps every
+answer in full. Against a dispatcher or worker that does not advertise
+``prior_answers``, every answer is sent in full.
+
+``prior_answer_runs``
+=====================
+
+Present only when an answer was shortened: the run ids of those turns. The
+worker lets ``prior_answer_read`` read those runs and no others.
 
 ``reply_to``
 ============
