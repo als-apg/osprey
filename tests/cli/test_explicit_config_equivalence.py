@@ -640,6 +640,65 @@ def _helper_agent_model_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _agent_record_deltas() -> tuple[Delta, ...]:
+    """Transcript retention in every document, and the record archive in the root.
+
+    The control-assistant preset keeps transcripts ten years rather than Claude
+    Code's 30 days, which every document inherits, and deploys the bundled
+    archive service, which only the root builds (the personas build no
+    services). The fixtures were frozen before either existed.
+
+    Returns:
+        One retention delta per document, and the root's service deltas.
+    """
+    return (
+        *(
+            Delta(
+                document=document,
+                path="claude_code.transcripts.retention_days",
+                fixture=ABSENT,
+                live=3650,
+            )
+            for document in _CONTROL_ASSISTANT_DOCUMENTS
+        ),
+        Delta(
+            document="root", path="services.archive.path", fixture=ABSENT, live="./services/archive"
+        ),
+        # The service is listed where the preset's own `services:` block lands:
+        # after the stores the preset spells, before the ones sections inject.
+        Delta(
+            document="root",
+            path="deployed_services",
+            fixture=[*_DEPLOYED_BEFORE_ARCHIVE, *_DEPLOYED_AFTER_ARCHIVE],
+            live=[*_DEPLOYED_BEFORE_ARCHIVE, "archive", *_DEPLOYED_AFTER_ARCHIVE],
+        ),
+    )
+
+
+#: The control-assistant root's ``deployed_services`` as the fixtures froze it,
+#: split where the record archive now lands.
+_DEPLOYED_BEFORE_ARCHIVE = ("postgresql", "openobserve", "qmd", "graphdb")
+_DEPLOYED_AFTER_ARCHIVE = (
+    "event_dispatcher",
+    "dispatch_worker",
+    "bluesky",
+    "bluesky_web",
+    "virtual_accelerator",
+    "live_standin",
+    "mongodb",
+    "archiver_recorder",
+)
+
+#: Build-relative ``config.yml`` documents a cell's build gains over the count
+#: its freeze recorded, keyed by cell directory — the completeness twin of
+#: :data:`CELL_DELTAS`. The record archive is a bundled service, so the build
+#: stages a config beside its compose file like every other one.
+BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {
+    f"control-assistant/{mode}": ("services/archive/config.yml",)
+    for mode in ("graph", "hierarchical", "in_context", "middle_layer")
+}
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -677,7 +736,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas(),
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -688,7 +748,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas(),
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -699,7 +760,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas(),
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -710,7 +772,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _persona_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
-    + _helper_agent_model_deltas(),
+    + _helper_agent_model_deltas()
+    + _agent_record_deltas(),
 }
 
 
@@ -1223,10 +1286,16 @@ def test_live_render_is_as_complete_as_the_baseline(
         f"{cell.directory}: captured documents changed. "
         f"frozen={expected['documents']} live={documents}"
     )
-    assert len(rendered.build_configs_checked) == expected["build_configs_checked"], (
+    gains = BUILD_CONFIG_GAINS.get(cell.directory, ())
+    missing_gains = sorted(set(gains) - set(rendered.build_configs_checked))
+    assert not missing_gains, (
+        f"{cell.directory}: declared build-config gains are absent: {missing_gains}"
+    )
+    expected_count = expected["build_configs_checked"] + len(gains)
+    assert len(rendered.build_configs_checked) == expected_count, (
         f"{cell.directory}: the build tree holds "
         f"{len(rendered.build_configs_checked)} config.yml documents, the baseline "
-        f"{expected['build_configs_checked']}. Live paths: "
+        f"{expected['build_configs_checked']} plus {len(gains)} declared. Live paths: "
         f"{sorted(rendered.build_configs_checked)}"
     )
 

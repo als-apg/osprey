@@ -899,6 +899,11 @@ config:
   # Raw provider request and response bodies.
   claude_code.telemetry.log_raw_api_bodies: true
 
+  # ── Transcripts ────────────────────────────────────────────────────────────
+  # Days Claude Code keeps a session transcript before deleting it at startup
+  # (its own default is 30). Every terminal and the dispatch worker read it.
+  claude_code.transcripts.retention_days: 3650
+
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
@@ -1327,6 +1332,13 @@ config:
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
 
+# ── Record archive ─────────────────────────────────────────────────────────
+# Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
+# day of telemetry into var/archive/ once a day. Delete this block to turn it off.
+services:
+  archive:
+    template: osprey.archive
+
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
 # ship need no control system, so a single `curl` after `osprey up` exercises
@@ -1389,8 +1401,6 @@ provenance:
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
-# Services this profile declares. Injected ones are added at build time.
-services: {}
 # Named web-terminal layouts, as label -> list of panel ids.
 panel_presets: {}
 

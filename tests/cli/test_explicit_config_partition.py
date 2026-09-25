@@ -303,7 +303,9 @@ def test_root_render_is_partitioned_between_its_sources(
     # verbs, which decide what an operator can launch at all and were likewise
     # gated nowhere then; and every preset that carries a `channel_finder`
     # block gains `channel_finder.query_max_rows`, the middle-layer SQL row
-    # cap, which was a number fixed in the tool.
+    # cap, which was a number fixed in the tool; and every preset that keeps
+    # transcripts past Claude Code's own 30 days gains
+    # `claude_code.transcripts.retention_days`.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -313,6 +315,8 @@ def test_root_render_is_partitioned_between_its_sources(
             expected_gain = expected_gain | {f"approval.tools.{tool}"}
     if "channel_finder.query_max_rows" in config:
         expected_gain = expected_gain | {"channel_finder.query_max_rows"}
+    if "claude_code.transcripts.retention_days" in config:
+        expected_gain = expected_gain | {"claude_code.transcripts.retention_days"}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )

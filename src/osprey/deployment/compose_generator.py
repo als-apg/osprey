@@ -992,6 +992,116 @@ def _resolve_qmd_render_context(config, repo_root):
     }
 
 
+#: Seconds between two passes of the bundled archive service when
+#: ``services.archive.interval_seconds`` is unset — the ``osprey archive``
+#: default, and the base of the ``archive_last_pass`` health threshold.
+ARCHIVE_DEFAULT_INTERVAL_SECONDS = 86400
+
+#: Days of the telemetry store a first archive pass reaches back for when
+#: ``services.openobserve.retention_days`` is unset — the store's own default
+#: retention, since it holds nothing older.
+ARCHIVE_DEFAULT_BACKFILL_DAYS = 14
+
+
+def _resolve_archive_render_context(config):
+    """Build the ``osprey_archive`` render context for the archive service template.
+
+    The archive reads other services' named volumes by declaring the same bare
+    keys their owner templates declare, so the list of volumes it mounts is
+    derived here from the same inputs the owners render from: the web-terminal
+    roster (two volumes per user), the dispatch worker's count and workspace
+    mode, and the deployed plan-queue lanes that run their own Redis. A volume
+    is named only when its owner renders it, because naming one no service
+    declares would create an empty volume.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: ``dest_source``, ``audit_source``, ``terminals``, ``workers``,
+        ``lanes``, ``openobserve``, ``openobserve_org``,
+        ``openobserve_backfill_days`` and ``interval_seconds``
+    :rtype: dict
+    """
+    from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
+    from osprey.deployment.openobserve_provision import store_org
+    from osprey.deployment.web_terminals.personas import roster_user_names
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
+
+    config = config or {}
+    deployed = {str(name) for name in config.get("deployed_services") or []}
+    services = config.get("services") or {}
+
+    def _block(key):
+        block = services.get(key)
+        return block if isinstance(block, dict) else {}
+
+    terminals = []
+    if "archive" in deployed:
+        for user in roster_user_names((config.get("modules") or {}).get("web_terminals")):
+            terminals.append(
+                {
+                    "user": user,
+                    "volume": f"{user}-claude-config",
+                    "agent_data_volume": f"{user}-agent-data",
+                }
+            )
+
+    workers = []
+    if "dispatch_worker" in deployed:
+        worker = _block("dispatch_worker")
+        try:
+            count = int(worker.get("worker_count", 1))
+        except (TypeError, ValueError):
+            count = 1
+        # No `max(count, 1)`: the template renders no worker for a count below
+        # one, and a volume no worker declares would be created empty.
+        if count >= 1:
+            if worker.get("workspace_mode", "isolated") == "shared":
+                workers.append(
+                    {
+                        "name": "shared",
+                        "volume": "dispatch_workspace",
+                        "service": f"{DISPATCH_WORKER_SERVICE_PREFIX}-1",
+                    }
+                )
+            else:
+                for i in range(1, count + 1):
+                    service = f"{DISPATCH_WORKER_SERVICE_PREFIX}-{i}"
+                    workers.append(
+                        {"name": service, "volume": f"dispatch_workspace_{i}", "service": service}
+                    )
+
+    lanes = []
+    if LANE_ONE in deployed:
+        for key in (LANE_ONE, *SECOND_LANE_KEYS.values()):
+            if key not in deployed or _block(key).get("external"):
+                continue
+            lanes.append(
+                {
+                    "lane": key,
+                    "volume": f"{key}_queueserver_redis",
+                    "service": f"{key.replace('_', '-')}-redis",
+                }
+            )
+
+    openobserve_block = _block("openobserve")
+    archive_block = _block("archive")
+    return {
+        "dest_source": repo_relative_mount_source(ARCHIVE_DIR_RELPATH),
+        "audit_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
+        "terminals": terminals,
+        "workers": workers,
+        "lanes": lanes,
+        "openobserve": "openobserve" in deployed,
+        "openobserve_org": store_org(config),
+        "openobserve_backfill_days": int(
+            openobserve_block.get("retention_days") or ARCHIVE_DEFAULT_BACKFILL_DAYS
+        ),
+        "interval_seconds": int(
+            archive_block.get("interval_seconds") or ARCHIVE_DEFAULT_INTERVAL_SECONDS
+        ),
+    }
+
+
 #: The images this repo's Dockerfiles build, keyed by the infix of the
 #: ``OSPREY_<KEY>_IMAGE`` compose override that pins each one, mapped to the
 #: suffix its name carries after the project name (the project image itself
@@ -1675,6 +1785,11 @@ def _inject_project_metadata(config):
     # derived key here; templates that do not name it are unaffected.
     config_with_labels["osprey_qmd"] = _resolve_qmd_render_context(config, repo_root)
 
+    # The archive service's sources — the volumes it reads, derived from the
+    # same roster, worker and lane inputs their owner templates render from —
+    # and its two binds. Injected unconditionally, like every derived key here.
+    config_with_labels["osprey_archive"] = _resolve_archive_render_context(config)
+
     # Every host port this deployment publishes, keyed by slot name
     # (:func:`osprey.port_layout.layout_ports`) — so a template line spells
     # ``osprey_ports.<slot>`` instead of a literal or a re-derivation of the
@@ -2282,6 +2397,56 @@ def ensure_audit_dir(repo_root, identity, relative_to=None):
             "invisible to the operator on the host."
         ),
     )
+
+
+#: Mode the agent-record archive root is created at: its copies are verbatim,
+#: so who may read them is the operator's decision, and the default is nobody
+#: but the deploying account.
+ARCHIVE_DIR_MODE = 0o700
+
+
+def ensure_archive_dir(repo_root, relative_to=None):
+    """Provision the agent-record archive root before the archive service binds it.
+
+    Created at exactly :data:`ARCHIVE_DIR_MODE` when absent. An existing
+    directory's mode is left as it is, never widened and never narrowed: a
+    facility that opened its archive to a group did so on purpose, and the
+    archive service gives every file it writes the root's mode. Not the setgid
+    group helper the audit and corpus directories use — a group-writable tree
+    is wrong for an operator-private one.
+
+    Provisioned here rather than left to the container runtime for the audit
+    directory's reason: a bind source the runtime creates is root-owned under
+    rootful docker.
+
+    Never fatal: a failure warns and the deploy goes on.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param relative_to: Root to spell the directory against in the INFO line;
+        ``None`` names it absolutely
+    :type relative_to: str | pathlib.Path | None
+    :return: The archive root, or ``None`` when it could not be provisioned
+    :rtype: pathlib.Path | None
+    """
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
+
+    target = Path(repo_root) / ARCHIVE_DIR_RELPATH
+    try:
+        if not target.is_dir():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.mkdir(mode=ARCHIVE_DIR_MODE)
+            os.chmod(target, ARCHIVE_DIR_MODE)
+            logger.info(
+                f"Archive dir {_display_path(target, relative_to)}: created {ARCHIVE_DIR_MODE:04o}"
+            )
+    except OSError as e:
+        logger.warning(
+            f"Could not provision archive directory {target}: {e}. "
+            "The archive service may be unable to write its copies."
+        )
+        return None
+    return target
 
 
 #: Compose service-key stem of a dispatch worker, and therefore the stem of its
@@ -2941,6 +3106,12 @@ def _ensure_agent_data_structure(config):
     # deploy runs through.
     for identity in (*dispatch_worker_audit_identities(config), *service_audit_identities(config)):
         ensure_audit_dir(project_root, identity, relative_to=project_root)
+
+    # The agent-record archive root, for the same before-the-container reason:
+    # the archive service binds it, and a runtime-created bind source is
+    # root-owned under rootful docker.
+    if "archive" in {str(name) for name in config.get("deployed_services") or []}:
+        ensure_archive_dir(project_root, relative_to=project_root)
 
     # The control-context tree, for the audit zone's reason and one of its own.
     # Every container that has to judge an owned write binds the tree READ-ONLY,

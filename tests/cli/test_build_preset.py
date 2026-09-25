@@ -313,9 +313,11 @@ def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
 def test_preset_drift_guard() -> None:
     """Bundled presets must NOT depend on profile-dir-relative paths.
 
-    services/env.file resolve relative to profile_dir, which for presets is the
-    wheel-installed package directory. Any preset adding these will silently
-    fail at install time. Catch it here.
+    A service template path and env.file resolve relative to profile_dir,
+    which for presets is the wheel-installed package directory. Any preset
+    adding these will silently fail at install time. Catch it here. A service
+    that names a bundled template (``template: osprey.<name>``) carries no path
+    and is resolved from the framework's own templates.
     """
     import importlib.resources
 
@@ -325,9 +327,12 @@ def test_preset_drift_guard() -> None:
     assert yml_files, "no preset YAML files found"
     for yml in yml_files:
         raw = yaml.safe_load(yml.read_text(encoding="utf-8")) or {}
-        assert raw.get("services", {}) == {}, (
-            f"{yml.name}: services must be empty (templates would break in the wheel)"
-        )
+        for name, service in (raw.get("services") or {}).items():
+            template = (service or {}).get("template", "")
+            assert str(template).startswith("osprey."), (
+                f"{yml.name}: service {name!r} must name a bundled template "
+                f"(a template path would break in the wheel)"
+            )
         env = raw.get("env", {}) or {}
         assert env.get("file") is None, (
             f"{yml.name}: env.file must be unset (path would break in the wheel)"

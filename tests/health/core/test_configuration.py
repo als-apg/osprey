@@ -34,6 +34,7 @@ _CANONICAL_NAMES = (
     "graphdb",
     "web_panels",
     "reach",
+    "archive",
 )
 
 
@@ -67,7 +68,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 15
+        assert len(CORE_CATEGORIES) == 16
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES
