@@ -1713,6 +1713,15 @@ keys:
   claude_code.telemetry.log_assistant_responses: {evidence: 'log_assistant_responses', default: true}
   claude_code.telemetry.log_tool_details: {evidence: 'log_tool_details', default: true}
   claude_code.telemetry.log_raw_api_bodies: {evidence: 'log_raw_api_bodies', default: true}
+  claude_code.transcripts.retention_days:
+    rendered: false
+    evidence: '_transcripts_retention_days'
+    note: >-
+      Days Claude Code keeps a session transcript before deleting it at
+      startup, rendered as `cleanupPeriodDays` into the project settings
+      every terminal and the dispatch worker load. Unset, Claude Code's own
+      default (30) applies. 0 is refused.
+    default: null
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}

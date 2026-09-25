@@ -32,6 +32,12 @@
     nothing and this line is absent — Claude Code's own default applies. -#}
   "theme": {{ terminal_theme | tojson }},
 {%- endif %}
+{%- if transcripts_retention_days %}
+{#- The deployment's `claude_code.transcripts.retention_days`: Claude Code
+    deletes transcripts older than this at startup. Absent, the line is absent
+    and Claude Code's own default (30 days) applies. -#}
+  "cleanupPeriodDays": {{ transcripts_retention_days }},
+{%- endif %}
   "outputStyle": ".claude/output-styles/control-operator.md",
   "statusLine": {
     "type": "command",
