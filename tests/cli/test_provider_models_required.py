@@ -23,6 +23,10 @@ from osprey.build.claude_code_resolver import (
 )
 from osprey.profiles.providers import packaged_catalog_path
 
+#: Catalog entries whose gateway fronts more than one vendor. Each lists a
+#: Claude id beside another vendor's ids, every one in the gateway's spelling.
+_MULTI_VENDOR_GATEWAYS = frozenset({"als-apg"})
+
 
 def _shipped_providers() -> dict:
     """The provider stanzas a build renders into ``api.providers``.
@@ -162,13 +166,24 @@ class TestTheShippedCatalogResolves:
                 assert model_id in entry["models"], (name, model_id)
 
     def test_no_provider_borrows_another_providers_ids(self):
-        """The list must be the provider's own naming, not Anthropic's."""
+        """The list must be the provider's own naming, not Anthropic's.
+
+        A gateway that fronts several vendors is named in
+        ``_MULTI_VENDOR_GATEWAYS`` and must list more than one vendor.
+        """
+        providers = _shipped_providers()
+        assert _MULTI_VENDOR_GATEWAYS <= set(providers)
         other_families = {"gpt", "gemini", "mistral", "deepseek"}
-        for name, entry in _shipped_providers().items():
+        for name, entry in providers.items():
             models = entry.get("models") or []
             families = {
                 family for family in other_families for model_id in models if family in model_id
             }
+            if name in _MULTI_VENDOR_GATEWAYS:
+                assert families and any("claude" in model_id for model_id in models), (
+                    f"providers.yml: {name} is named a multi-vendor gateway but lists one vendor."
+                )
+                continue
             if families:
                 assert not any("claude" in model_id for model_id in models), (
                     f"providers.yml: {name} mixes Claude ids into a {sorted(families)} provider."

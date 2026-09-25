@@ -1,9 +1,9 @@
 """ALS-APG Provider Adapter Implementation.
 
 This provider uses LiteLLM as the backend for unified API access.
-ALS-APG is an OpenAI-compatible gateway that fronts Anthropic models, served at
-``https://llm.als.lbl.gov/v1``. That endpoint ships with the provider; a site
-whose gateway is elsewhere overrides it through
+ALS-APG is an OpenAI-compatible gateway that fronts Anthropic and OpenAI models,
+served at ``https://llm.als.lbl.gov/v1``. That endpoint ships with the provider;
+a site whose gateway is elsewhere overrides it through
 ``api.providers.als-apg.base_url`` or the ``ALS_APG_BASE_URL`` environment
 variable.
 """
@@ -19,7 +19,7 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
 
     # Metadata (single source of truth)
     name = "als-apg"
-    description = "ALS Accelerator Physics Group gateway (supports Anthropic models)"
+    description = "ALS Accelerator Physics Group gateway (supports Anthropic and OpenAI models)"
     requires_api_key = True
     requires_base_url = True
     requires_model_id = True
