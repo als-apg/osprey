@@ -1696,6 +1696,16 @@ def _inject_project_metadata(config):
         PurePosixPath(_CONTAINER_APP_ROOT) / AUDIT_DIR_RELPATH
     ).as_posix()
 
+    # The container-side root for a lane's QUEUESERVER, which is neither of the
+    # two above. It sets `CONFIG_FILE=/app/project/config.yml` and runs from
+    # `/app/project`, so its writer resolves the project root from that config
+    # (`writer.audit_dir` -> `resolve_project_root`, the config rung) and writes
+    # under `/app/project/var/audit` — not the `/app/var/audit` a standalone
+    # image without a config anchors on.
+    config_with_labels["osprey_lane_container_audit_dir"] = (
+        PurePosixPath(_LANE_CONTAINER_PROJECT_DIR) / AUDIT_DIR_RELPATH
+    ).as_posix()
+
     # The control-context TREE, in the two spellings a compose template needs:
     # the HOST-side bind source — the ``control_target/`` root under whatever
     # agent-data root this project configured — and the fixed container path
@@ -2516,6 +2526,40 @@ def dispatch_worker_audit_identities(config):
 FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web"}
 
 
+#: Where a lane queueserver's project lives in its container: the mounted
+#: ``config.yml`` sits here and the RE Manager runs from here.
+_LANE_CONTAINER_PROJECT_DIR = "/app/project"
+
+
+def lane_queueserver_audit_identities(config):
+    """The audit identity of every lane queueserver this deployment renders.
+
+    The identity is the queueserver's compose key, by the template's own rule:
+    ``queueserver`` for the ``bluesky`` lane and ``<lane-with-dashes>-queueserver``
+    for every other one. A lane whose worker is external renders no queueserver
+    and gets no identity; so does a deployment that does not deploy ``bluesky``.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: Audit identities, in lane order
+    :rtype: list[str]
+    """
+    deployed = {str(name) for name in (config or {}).get("deployed_services") or []}
+    if "bluesky" not in deployed:
+        return []
+    services = (config or {}).get("services") or {}
+    identities = []
+    for lane_key in LANE_KEYS:
+        if lane_key not in deployed:
+            continue
+        block = services.get(lane_key)
+        if isinstance(block, dict) and block.get("external"):
+            continue
+        lane = lane_key.replace("_", "-")
+        identities.append("queueserver" if lane_key == "bluesky" else f"{lane}-queueserver")
+    return identities
+
+
 def service_audit_identities(config):
     """The fixed audit identity of every recording service this deployment renders.
 
@@ -3104,7 +3148,11 @@ def _ensure_agent_data_structure(config):
     # entrypoint's group step reads is read OFF this directory, so it has to
     # exist before the container starts — which is here, on the build path every
     # deploy runs through.
-    for identity in (*dispatch_worker_audit_identities(config), *service_audit_identities(config)):
+    for identity in (
+        *dispatch_worker_audit_identities(config),
+        *service_audit_identities(config),
+        *lane_queueserver_audit_identities(config),
+    ):
         ensure_audit_dir(project_root, identity, relative_to=project_root)
 
     # The agent-record archive root, for the same before-the-container reason:

@@ -1291,3 +1291,42 @@ async def test_an_owner_less_stop_sends_no_headers_at_all(tmp_path, monkeypatch)
         await _stop_fn()()
 
     assert m.call_args.kwargs["headers"] is None
+
+
+# =========================================================================
+# the call-attribution stamps — which tool call queued this work
+# =========================================================================
+
+
+async def test_queue_add_sends_the_call_ids(tmp_path, monkeypatch):
+    """Inside a tool call's scope, the add names that call's conversation and id."""
+    from osprey.audit.call import call_scope
+    from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
+
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            with call_scope("toolu_queue1", "conv-7"):
+                await _add_fn()(draft_revision=3)
+
+    assert m.call_args.kwargs["headers"] == {
+        "X-Launch-Token": _TOKEN,
+        OWNER_HEADER: "rosterbob",
+        CONVERSATION_HEADER: "conv-7",
+        TOOL_USE_HEADER: "toolu_queue1",
+    }
+
+
+async def test_no_scope_sends_no_call_headers(tmp_path, monkeypatch):
+    from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
+
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _add_fn()(draft_revision=3)
+
+    headers = m.call_args.kwargs["headers"]
+    assert CONVERSATION_HEADER not in headers
+    assert TOOL_USE_HEADER not in headers

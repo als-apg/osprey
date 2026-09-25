@@ -237,6 +237,58 @@ async def test_add_item_without_a_run_id_adds_no_metadata() -> None:
     assert "meta" not in kwargs["item"]
 
 
+async def test_add_item_stamps_the_call_ids_into_meta() -> None:
+    manager = FakeManager()
+    await QueueBackend(manager).add_item(
+        {"item_type": "plan", "name": "count"},
+        run_id="run-7",
+        session_id="conv-7",
+        tool_use_id="toolu_7",
+    )
+
+    (kwargs,) = manager.kwargs_for("item_add")
+    meta = kwargs["item"]["meta"]
+    assert meta[qb.SESSION_META_KEY] == "conv-7"
+    assert meta[qb.TOOL_USE_META_KEY] == "toolu_7"
+    assert qb.SESSION_META_KEY == "osprey_session_id"
+    assert qb.TOOL_USE_META_KEY == "osprey_tool_use_id"
+
+
+async def test_the_call_ids_never_reach_plan_kwargs() -> None:
+    manager = FakeManager()
+    await QueueBackend(manager).add_item(
+        {"item_type": "plan", "name": "count", "kwargs": {"num": 2}},
+        run_id="run-7",
+        owner="bob",
+        session_id="conv-7",
+        tool_use_id="toolu_7",
+    )
+
+    (kwargs,) = manager.kwargs_for("item_add")
+    plan_kwargs = kwargs["item"]["kwargs"]
+    assert "conv-7" not in plan_kwargs.values()
+    assert "toolu_7" not in plan_kwargs.values()
+    assert kwargs["item"]["meta"][qb.PLAN_META_KEY] == {"name": "count", "kwargs": {"num": 2}}
+
+
+async def test_an_external_worker_item_carries_them_in_meta(connector, fast_backend) -> None:
+    connector("epics")
+    manager = FakeManager()
+    backend = fast_backend(manager, external_worker=True)
+    await backend.add_item(
+        {"item_type": "plan", "name": "count", "kwargs": {"num": 2}},
+        session_id="conv-7",
+        tool_use_id="toolu_7",
+    )
+
+    (kwargs,) = manager.kwargs_for("item_add")
+    assert kwargs["item"]["kwargs"] == {"num": 2}
+    assert kwargs["item"]["meta"] == {
+        qb.SESSION_META_KEY: "conv-7",
+        qb.TOOL_USE_META_KEY: "toolu_7",
+    }
+
+
 async def test_add_item_forwards_only_the_placement_it_was_given() -> None:
     manager = FakeManager()
     await QueueBackend(manager).add_item({"name": "count"}, pos="front")

@@ -659,6 +659,9 @@ services:
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
+{#- The pre-flight reachability verdicts this container files go under its own
+    compose key — see the audit bind below. #}
+      OSPREY_AUDIT_IDENTITY: {{ qserver }}
       TZ: {{ system.timezone }}
 {%- if svc.target %}
       # Same lane identity as the bridge's, for the same reason: the RunEngine
@@ -816,6 +819,11 @@ services:
 {{- hostenv.passthrough(svc) }}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
+{#- This container's own audit subdirectory, read-write: the pre-flight files
+    `preflight.jsonl` here. Mounted under /app/project because the writer
+    anchors on the project the mounted config names. The image runs as root
+    with no privilege drop, so the setgid directory needs no group step. #}
+      - {{ osprey_audit_mount_source }}/{{ qserver }}:{{ osprey_lane_container_audit_dir }}/{{ qserver }}
       # Plan/device permissions for the RE Manager. Without this file the
       # manager knows only a `root` group and rejects every request the bridge
       # makes as "Unknown user group: 'primary'" — see the file's own header

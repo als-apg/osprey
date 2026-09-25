@@ -2380,3 +2380,52 @@ def test_the_move_and_remove_responses_show_the_owner(client: TestClient) -> Non
     assert removed.json()["item"]["owner"] == _OWNER
     assert qb.RESERVED_OWNER_KWARG not in moved.text
     assert qb.RESERVED_OWNER_KWARG not in removed.text
+
+
+# ---------------------------------------------------------------------------
+# The tool call that queued an item
+# ---------------------------------------------------------------------------
+
+
+def test_the_add_route_passes_the_call_headers(client: TestClient, connector) -> None:
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
+    )
+    _install(manager)
+    revision = _make_draft(client)
+
+    resp = client.post(
+        "/queue/items",
+        json={"draft_revision": revision},
+        headers={"X-Osprey-Conversation": "conv-7", "X-Osprey-Tool-Use-Id": "toolu_7"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    meta = add_kwargs["item"]["meta"]
+    assert meta[qb.SESSION_META_KEY] == "conv-7"
+    assert meta[qb.TOOL_USE_META_KEY] == "toolu_7"
+
+
+def test_a_malformed_call_header_costs_the_attribution_not_the_add(
+    client: TestClient, connector
+) -> None:
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
+    )
+    _install(manager)
+    revision = _make_draft(client)
+
+    resp = client.post(
+        "/queue/items",
+        json={"draft_revision": revision},
+        headers={"X-Osprey-Conversation": "conv-7", "X-Osprey-Tool-Use-Id": "bad id/../x"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    (add_kwargs,) = manager.kwargs_for("item_add")
+    meta = add_kwargs["item"]["meta"]
+    assert meta[qb.SESSION_META_KEY] == "conv-7"
+    assert qb.TOOL_USE_META_KEY not in meta
