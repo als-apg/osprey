@@ -185,6 +185,14 @@ MODEL_QUIET_TOL = 1e-7
 # close to the axis to scale one from. Four orders of magnitude above the
 # quiet floor above, so the shift it produces cannot be mistaken for one.
 MODEL_OFFSET_FLOOR = 1e-3
+# Gaussian headroom on a served reading's declared noise (see
+# `_monitor_motion_bands`). Each reading is compared across a handful of
+# snapshots, so a per-draw miss rate near 1e-9 keeps the whole machine's
+# comparisons far from a false alarm.
+MODEL_MOTION_SIGMAS = 6.0
+# How far the written displacement must clear the loosest "did not move"
+# threshold, so the one reading it moves cannot be confused with motion.
+MODEL_OFFSET_OVER_MOTION = 100.0
 
 # Identifies this suite as the draft's writer on every PATCH /draft frame. The
 # draft is a single shared document, so a client id that names the writer is
@@ -264,6 +272,41 @@ def _channel_limits(repo: Path) -> dict[str, Any]:
     the build, which is when the plan devices have to be chosen and authored.
     """
     return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+
+
+def _monitor_motion_bands(repo: Path, truths: dict[str, float]) -> dict[str, float]:
+    """How far each served reading's declared motion can carry it from the model's truth.
+
+    The virtual accelerator serves a lattice-bound monitor as the solved orbit
+    plus the motion its ``machine.json`` entry declares -- the texture's
+    envelope, relative noise on the moving level, absolute noise -- re-drawn on
+    every telemetry tick, while the model's truth stays motion-free. So the
+    served/truth gap of such a reading is that motion, and this is its bound:
+    the texture amplitude, which is structural, plus ``MODEL_MOTION_SIGMAS`` of
+    each Gaussian term. Read from the served tree's own machine file, the same
+    bytes the container parses; a reading it declares no motion for gets 0.0,
+    so it is held to the exact tolerances.
+    """
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
+    from osprey.simulation.machine import parse_machine
+
+    data_root = served_data_root(repo, repo / "build")
+    assert data_root is not None, f"the deployment at {repo} serves no machine.json"
+    machine_json = ManifestPaths(data_root=data_root).machine_json
+    channels = parse_machine(
+        json.loads(machine_json.read_text(encoding="utf-8")), machine_json
+    ).channels
+    bands: dict[str, float] = {}
+    for address, truth in truths.items():
+        channel = channels.get(address)
+        if channel is None:
+            bands[address] = 0.0
+            continue
+        amplitude = channel.texture.amplitude if channel.texture is not None else 0.0
+        relative = channel.noise * (abs(truth) + amplitude)
+        bands[address] = amplitude + MODEL_MOTION_SIGMAS * (relative + channel.noise_abs)
+    return bands
 
 
 def _select_sp_echo_pairs(
@@ -1144,9 +1187,8 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("deployed_stack")
 def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
-    monkeypatch: pytest.MonkeyPatch,
+    deployed_stack: DeployedStack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The model surface, reached the way an operator's client reaches it.
 
@@ -1165,7 +1207,10 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         also means "wrote nothing";
       * the served reading and the model's truth must AGREE before the accepted
         write and disagree by exactly the written offset after it, so neither
-        half can be satisfied by a divergence that was already there.
+        half can be satisfied by a divergence that was already there. "Agree"
+        and "exactly" are to within the motion the machine file declares for
+        that reading (`_monitor_motion_bands`), which the served reading
+        carries and the truth does not; the offset is sized far above it.
 
     No address is hardcoded, as everywhere else in this module: the fault to
     write is discovered from ``info`` (a writable model-only ``.offset_x``) and
@@ -1235,14 +1280,26 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             address: float(entry["served"]) - float(entry["truth"])
             for address, entry in before.items()
         }
+        bands = _monitor_motion_bands(
+            deployed_stack.repo,
+            {address: float(entry["truth"]) for address, entry in before.items()},
+        )
+        # Two snapshots of one reading each carry an independent draw of its
+        # motion, so a reading counts as moved only past twice its band.
+        quiet = {address: 2.0 * band + MODEL_QUIET_TOL for address, band in bands.items()}
         # A seeded displacement carries no declared bound -- it is whatever
         # magnitude was asked for, in whatever unit this facility publishes its
         # monitors in -- so the size to write is derived from what the
         # deployment actually serves rather than assumed: ten times the largest
-        # reading on the machine, floored far above the solver's own
-        # repeatability. Unmistakable on the one channel it moves, in any unit.
+        # reading on the machine and far above the loosest motion threshold,
+        # floored far above the solver's own repeatability. Unmistakable on the
+        # one channel it moves, in any unit.
         scale = max(abs(float(entry["truth"])) for entry in before.values())
-        offset = max(10.0 * scale, MODEL_OFFSET_FLOOR)
+        offset = max(
+            10.0 * scale,
+            MODEL_OFFSET_OVER_MOTION * max(quiet.values()),
+            MODEL_OFFSET_FLOOR,
+        )
         assert offset > MODEL_QUIET_TOL, f"{fault} would be written a magnitude of {offset}"
 
         held_before = call("get", names=[fault])[fault]
@@ -1277,7 +1334,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         moved_by_refusal = {
             address: (gaps_before[address], gap)
             for address, gap in gaps_refused.items()
-            if abs(gap - gaps_before[address]) > MODEL_QUIET_TOL
+            if abs(gap - gaps_before[address]) > quiet[address]
         }
         assert not moved_by_refusal, (
             f"a set that was refused still moved the served/truth gap on "
@@ -1298,7 +1355,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             moved = sorted(
                 address
                 for address, gap in gaps_after.items()
-                if abs(gap - gaps_before[address]) > MODEL_QUIET_TOL
+                if abs(gap - gaps_before[address]) > quiet[address]
             )
             # A BPM reading error sits between the ring and the client, never in
             # the ring: it must perturb the one BPM's served reading and leave
@@ -1308,13 +1365,13 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
                 f"the model's truth; it shifted {moved!r}"
             )
             address = moved[0]
-            assert abs(gaps_before[address]) <= MODEL_DIFF_TOL, (
+            assert abs(gaps_before[address]) <= bands[address] + MODEL_DIFF_TOL, (
                 f"{address} already read {gaps_before[address]:.3g} away from the model's truth "
                 f"before anything was written, so the disagreement after the write proves nothing"
             )
             # ``bpm_read`` subtracts the offset from the true position, so the
             # served reading sits exactly that far BELOW the truth.
-            assert abs(gaps_after[address] + offset) <= MODEL_DIFF_TOL, (
+            assert abs(gaps_after[address] + offset) <= bands[address] + MODEL_DIFF_TOL, (
                 f"{fault} was written to {offset:g}, so {address} should serve that far below "
                 f"the model's truth (served={after[address]['served']!r}, "
                 f"truth={after[address]['truth']!r}, gap={gaps_after[address]:.6g})"
@@ -1324,7 +1381,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             assert restored == [fault], f"the restoring set reports writing {restored!r}"
             back = call("diff")
             gap_restored = float(back[address]["served"]) - float(back[address]["truth"])
-            assert abs(gap_restored) <= MODEL_DIFF_TOL, (
+            assert abs(gap_restored) <= bands[address] + MODEL_DIFF_TOL, (
                 f"{fault} did not go back to 0: {address} still reads {gap_restored:.3g} away "
                 f"from the model's truth"
             )

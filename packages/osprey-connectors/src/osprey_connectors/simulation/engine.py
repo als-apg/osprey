@@ -26,8 +26,8 @@ for backward compatibility, but writes always target ``active_scenarios``.
 import json
 import os
 import time
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -221,6 +221,8 @@ class SimulationEngine:
         machine: dict[str, Any],
         machine_path: Path,
         state_dir: Path | str | None = None,
+        *,
+        baselines: Mapping[str, float] | None = None,
     ):
         """Parse and validate a machine description.
 
@@ -231,12 +233,26 @@ class SimulationEngine:
                 Defaults to :func:`default_state_dir` (under the agent-data
                 root) — deliberately *not* the machine file's own directory,
                 which is build-owned and checksummed.
+            baselines: Channel -> the level that channel's history and reads
+                are built around, in place of the ``value`` the machine file
+                declares. For a channel whose level a physics model owns: the
+                machine file still says how it moves (texture, noise, events),
+                the model says where it sits. Applies to numeric ``value``
+                channels only; an expression, a string channel or a name the
+                machine file does not define is left as declared. ``None``
+                (the default) builds the machine exactly as the file states it.
 
         Raises:
             ValueError: If the machine description is invalid (bad schema,
                 invalid expression, unknown reference, or reference cycle).
         """
         model = parse_machine(machine, machine_path)
+        channels = dict(model.channels)
+        for pv, level in (baselines or {}).items():
+            channel = channels.get(pv)
+            if channel is None or channel.expr is not None or isinstance(channel.value, str):
+                continue
+            channels[pv] = replace(channel, value=float(level))
 
         self.name: str = model.name
         self.description: str = model.description
@@ -247,7 +263,7 @@ class SimulationEngine:
         # Canonical (write) state file plus the legacy single-name file (read-only).
         self._state_path = self._state_dir / ACTIVE_SCENARIOS_FILENAME
         self._legacy_state_path = self._state_dir / ACTIVE_SCENARIO_FILENAME
-        self._channels: dict[str, SimChannel] = model.channels
+        self._channels: dict[str, SimChannel] = channels
         self._scenarios: dict[str, Scenario] = model.scenarios
 
         self._rng = np.random.default_rng()
@@ -482,6 +498,62 @@ class SimulationEngine:
                 value += float(self._rng.normal(0.0, channel.noise_abs))
             value = clamp(value, channel.min_value, channel.max_value)
         return SimReading(value=value, units=channel.units, description=channel.description)
+
+    def has_motion(self, pv: str) -> bool:
+        """Whether this channel declares a signal model that moves its value.
+
+        True for a numeric channel declaring a ``texture``, a relative
+        ``noise`` or a ``noise_abs``; False for a string channel, for a channel
+        declaring none of the three, and for a channel the machine file does not
+        define. A channel this answers False for is one :meth:`measure` returns
+        unchanged.
+
+        Args:
+            pv: Channel name.
+
+        Returns:
+            True when :meth:`measure` would move a value of this channel.
+        """
+        channel = self._channels.get(pv)
+        if channel is None or isinstance(channel.value, str):
+            return False
+        return channel.texture is not None or channel.noise > 0.0 or channel.noise_abs > 0.0
+
+    def measure(self, pv: str, value: float, t_abs_s: float) -> float:
+        """Apply this channel's signal model to a level computed elsewhere.
+
+        For a backend that owns a channel's level -- a lattice model solving
+        the orbit a monitor reads -- while the machine file owns how the
+        channel moves around it. The arithmetic is synthesis's own
+        (:func:`_apply_signal_model`, then the declared clamp), with ``value``
+        standing in for the post-event baseline: texture evaluated at the
+        absolute time ``t_abs_s``, relative noise, absolute noise. Both noise
+        terms are the keyed draws synthesis uses, addressed by (channel, epoch
+        millisecond), so a sample taken at ``t`` with ``value`` equal to the
+        channel's baseline is the synthesized sample at ``t`` exactly -- the
+        live present and the synthesized past are two views of one
+        description. Scenario state is not consulted: the level is the
+        caller's.
+
+        Args:
+            pv: Channel name.
+            value: The channel's level at ``t_abs_s``, in its declared units.
+            t_abs_s: Absolute epoch seconds of the sample, unmodified.
+
+        Returns:
+            ``value`` with the signal model applied, or ``value`` itself for a
+            channel :meth:`has_motion` answers False for.
+        """
+        if not self.has_motion(pv):
+            return value
+        channel = self._channels[pv]
+        series = _apply_signal_model(
+            pv,
+            channel,
+            np.asarray([value], dtype=np.float64),
+            np.asarray([t_abs_s], dtype=np.float64),
+        )
+        return clamp(float(series[0]), channel.min_value, channel.max_value)
 
     def write(self, pv: str, value: Any) -> None:
         """Record a session write (takes precedence over overrides and baseline).
