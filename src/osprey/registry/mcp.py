@@ -344,6 +344,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "artifact_delete",
             "artifact_delete_all",
             "provenance_locator",
+            "prior_answer_read",
             "session_log",
             "session_summary",
             "archiver_downsample",

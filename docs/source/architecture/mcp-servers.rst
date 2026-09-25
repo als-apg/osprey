@@ -225,6 +225,7 @@ clicking that layout).
 - ``session_summary`` -- Return a compact inventory of all data and artifacts in the session.
 - ``submit_response`` -- Submit a formatted response to the web terminal.
 - ``facility_description`` -- Get facility description and context.
+- ``prior_answer_read`` -- Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).
 
 **Setup / Diagnostics:**
 

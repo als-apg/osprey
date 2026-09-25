@@ -646,6 +646,7 @@ EXPECTED_ERROR_CLASSES = {
     "auth_required": "Connection",
     # Validation
     "validation_error": "Validation",
+    "bad_offset": "Validation",
     "limits_violation": "Validation",
     "target_switch_unavailable": "Validation",
     "invalid_query": "Validation",
@@ -678,6 +679,7 @@ EXPECTED_ERROR_CLASSES = {
     "no_draft": "Data",
     "unknown_plan": "Data",
     "unknown_run": "Data",
+    "no_longer_available": "Data",
     "unknown_session_plan": "Data",
     "window_not_found": "Data",
     "plan_source_unavailable": "Data",
@@ -689,6 +691,7 @@ EXPECTED_ERROR_CLASSES = {
     # Safety
     "safety_error": "Safety",
     "write_refused": "Safety",
+    "not_permitted": "Safety",
     "target_switched": "Safety",
     "target_switch_refused": "Safety",
     "target_changed": "Safety",
