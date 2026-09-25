@@ -31,8 +31,17 @@ you already run or to a local store the presets deploy alongside the project.
       the local OpenObserve store the presets deploy by default for storing
       and viewing it.
 
+   .. grid-item-card:: Keep the Agent Record
+      :link: agent-record
+      :link-type: doc
+      :shadow: md
+
+      Every store of what the agent was asked and did, where it lives, what
+      deletes it, and the daily append-only archive that keeps a copy.
+
 .. toctree::
    :hidden:
 
    configure-health-checks
    monitor-agent
+   agent-record

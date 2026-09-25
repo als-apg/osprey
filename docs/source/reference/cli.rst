@@ -43,6 +43,7 @@ names another one explicitly.
    osprey mml                # Install a facility from its MATLAB Middle Layer
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
+   osprey archive            # Copy the agent record into var/archive
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
@@ -716,6 +717,45 @@ Exit codes: ``0`` healthy, ``1`` warnings only, ``2`` one or more errors,
 :doc:`/reference/contracts/health-json` for the ``--json`` document's shape and the
 ``jq`` patterns for consuming it, and :doc:`/how-to/health-and-monitoring/configure-health-checks` for
 the ``health:`` config block.
+
+osprey archive
+==============
+
+Copy the agent record into an append-only archive. See
+:doc:`/how-to/health-and-monitoring/agent-record`.
+
+.. code-block:: bash
+
+   osprey archive --sources DIRECTORY --dest DIRECTORY [OPTIONS]
+
+``--sources DIRECTORY`` -- Sources tree, ``<sources>/<kind>/<name>/...``
+(environment: ``OSPREY_ARCHIVE_SOURCES``).
+
+``--dest DIRECTORY`` -- Existing archive root the day directories are written
+into (environment: ``OSPREY_ARCHIVE_DEST``).
+
+``--once / --watch`` -- Run one pass and exit (default), or run a pass at once
+and then every ``--interval`` seconds.
+
+``--interval SECONDS`` -- Seconds between passes under ``--watch``, at least 60
+(environment: ``OSPREY_ARCHIVE_INTERVAL_SECONDS``, default ``86400``).
+
+``--openobserve-url URL`` -- Telemetry store to export completed days of logs
+and traces from; unset, none is exported (environment:
+``OSPREY_ARCHIVE_OPENOBSERVE_URL``). The store is read as the ingest service
+account, ``ZO_INGEST_USER_EMAIL`` and ``ZO_INGEST_SA_TOKEN`` from the
+environment.
+
+``--openobserve-org NAME`` -- Telemetry store organization (environment:
+``OSPREY_ARCHIVE_OPENOBSERVE_ORG``, default ``default``).
+
+``--openobserve-backfill-days N`` -- Most completed days a pass exports
+(environment: ``OSPREY_ARCHIVE_OPENOBSERVE_BACKFILL_DAYS``, default ``14``).
+
+Exit codes of ``--once``: ``0`` the pass completed with no errors, ``1`` it
+completed with recorded errors, ``2`` it could not run (the destination is
+missing or unwritable). ``--watch`` exits ``2`` after five passes in a row that
+could not run.
 
 osprey chat
 ===========
