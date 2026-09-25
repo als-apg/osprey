@@ -414,7 +414,10 @@ def _profile_edits() -> dict[str, Any]:
     """Host hygiene, CI sizing, and the VA baseline -- never the lane axis.
 
     ``dispatch: null`` and ``modules.web_terminals.enabled: false`` drop two
-    stacks nothing here touches and both slow to build. The port keys move
+    stacks nothing here touches and both slow to build. The preset's
+    ``services:`` block holds the record archive, which runs the same project
+    image, so it goes with the dispatch stack: ``services: {}`` is the spelling
+    because a single service cannot be nulled. The port keys move
     services the preset deploys unconditionally, with no profile knob, off
     defaults a locally-running stack routinely holds. ``va_archiver`` is shrunk
     to a CI-sized archive -- a sizing change, not a behavioral one: the store
@@ -441,6 +444,7 @@ def _profile_edits() -> dict[str, Any]:
             "services.qmd.port": QMD_PORT,
         },
         "dispatch": None,
+        "services": {},
         "va_archiver": {
             "retention_days": 2,
             "hot_span_hours": 2,
