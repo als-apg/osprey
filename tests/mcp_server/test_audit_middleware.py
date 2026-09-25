@@ -1641,3 +1641,160 @@ class TestPerTargetPostureClamp:
         monkeypatch.delenv(am.POSTURE_SESSION_ENV, raising=False)
 
         await _refused(am.AuditMiddleware(), "channel_write")
+
+
+# --------------------------------------------------------------------------
+# The opt-in full tool_call record
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def full_record(monkeypatch):
+    """Turn the full ``tool_call`` surface on, and keep its OTLP copy local."""
+    sent: list[dict] = []
+    monkeypatch.setattr(am.tool_call, "settings", lambda: (True, 4096))
+    monkeypatch.setattr(am.otlp, "emit", sent.append)
+    return sent
+
+
+def _full(project) -> list[dict]:
+    return _records(project, surface="tool_call")
+
+
+class TestToolCallRecord:
+    async def test_disabled_writes_no_tool_call_file(self, project, monkeypatch):
+        monkeypatch.setattr(am.tool_call, "settings", lambda: (False, 4096))
+        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
+        assert _full(project) == []
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
+
+    async def test_every_allowed_call_is_recorded_with_arguments_and_result(
+        self, project, full_record, monkeypatch
+    ):
+        monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "conv-9")
+        context = _context("channel_write", _TOOL_USE_META)
+        context.message.arguments = {"operations": [{"channel": "A:1", "value": 2}]}
+
+        async def call_next(_ctx):
+            return {"written": True}
+
+        await am.AuditMiddleware().on_call_tool(context, call_next)
+
+        (record,) = _full(project)
+        assert record["surface"] == "tool_call"
+        assert record["subject"] == "mcp__controls__channel_write"
+        assert record["server"] == "controls"
+        assert record["decision"] == DECISION_ALLOWED
+        assert record["reason"] == am.REASON_TOOL_CALL
+        assert record["tool_use_id"] == "toolu_01abc"
+        assert record["session_id"] == "conv-9"
+        assert record["arguments"] == {"operations": [{"channel": "A:1", "value": 2}]}
+        assert record["result"] == {"written": True}
+        assert record["error"] is None
+        assert record["is_error"] is False
+        assert record["duration_ms"] >= 0
+        assert full_record == [record]
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_read_is_recorded_too(self, project):
+        await _call(am.AuditMiddleware(), "channel_read", result={"value": 1.5})
+        (record,) = _full(project)
+        assert record["subject"] == "mcp__controls__channel_read"
+        assert record["result"] == {"value": 1.5}
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_posture_refusal_is_recorded(self, project, monkeypatch):
+        _sandbox(monkeypatch)
+        await _refused(am.AuditMiddleware(), "channel_write")
+        (record,) = _full(project)
+        assert record["decision"] == DECISION_REFUSED
+        assert record["reason"] == am.REASON_POSTURE
+        assert record["is_error"] is True
+        assert "refused" in record["error"]
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_tool_error_records_its_message(self, project):
+        with pytest.raises(ToolError):
+            await _call(am.AuditMiddleware(), "channel_write", raises=ToolError("limit hit"))
+        (record,) = _full(project)
+        assert record["reason"] == am.REASON_TOOL_ERROR
+        assert record["error"] == "limit hit"
+        # The default record still carries no payload.
+        assert "limit hit" not in json.dumps(_records(project)[-1])
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_an_inner_refusal_is_recorded_with_the_inner_words(self, project):
+        async def call_next(_ctx):
+            mark_recorded(DECISION_REFUSED, "runtime_guard")
+            return "partial output"
+
+        await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
+        (record,) = _full(project)
+        assert (record["decision"], record["reason"]) == (DECISION_REFUSED, "runtime_guard")
+        assert record["result"] == "partial output"
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_the_target_and_generation_are_recorded(self, project, monkeypatch):
+        from osprey_connectors import control_context
+
+        monkeypatch.setattr(
+            control_context, "read_record", lambda: SimpleNamespace(target="va", generation=7)
+        )
+        await _call(am.AuditMiddleware(), "channel_read")
+        (record,) = _full(project)
+        assert (record["target"], record["generation"]) == ("va", 7)
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_noted_facts_ride_the_record(self, project):
+        from osprey.audit.call import note
+
+        async def call_next(_ctx):
+            note(limits={"verdict": "passed"}, old_values={"A:1": {"value": 1}})
+            return "ok"
+
+        await am.AuditMiddleware().on_call_tool(_context("channel_write"), call_next)
+        (record,) = _full(project)
+        assert record["facts"] == {
+            "limits": {"verdict": "passed"},
+            "old_values": {"A:1": {"value": 1}},
+        }
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_failing_tool_call_write_never_costs_the_call(self, project, monkeypatch):
+        def broken(*_args, **_kwargs):
+            raise RuntimeError("ledger gone")
+
+        monkeypatch.setattr(am.tool_call, "build_record", broken)
+        result, _ = await _call(am.AuditMiddleware(), "channel_read")
+        assert result == "channel_read-result"
+        assert _full(project) == []
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
+
+    async def test_the_default_record_is_unchanged_with_the_surface_on(self, project, monkeypatch):
+        monkeypatch.setattr(am.tool_call, "settings", lambda: (False, 4096))
+        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
+        off = _records(project)[-1]
+
+        monkeypatch.setattr(am.tool_call, "settings", lambda: (True, 4096))
+        monkeypatch.setattr(am.otlp, "emit", lambda _record: None)
+        await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
+        on = _records(project)[-1]
+
+        off.pop("ts")
+        on.pop("ts")
+        assert on == off
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_an_oversize_result_is_a_reference(self, project, monkeypatch):
+        from osprey.audit import tool_call as tool_call_module
+
+        monkeypatch.setattr(
+            "osprey.stores.artifact_store.get_artifact_store",
+            lambda: SimpleNamespace(save_file=lambda **_kw: SimpleNamespace(id="art-1")),
+        )
+        await _call(am.AuditMiddleware(), "channel_read", result="v" * 10000)
+        (record,) = _full(project)
+        assert "result" not in record
+        assert record["result_ref"]["artifact_id"] == "art-1"
+        assert record["result_ref"]["size"] > 4096
+        assert tool_call_module.SURFACE_TOOL_CALL == "tool_call"

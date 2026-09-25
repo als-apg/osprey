@@ -305,9 +305,11 @@ def test_root_render_is_partitioned_between_its_sources(
     # block gains `channel_finder.query_max_rows`, the middle-layer SQL row
     # cap, which was a number fixed in the tool; every preset that keeps
     # transcripts past Claude Code's own 30 days gains
-    # `claude_code.transcripts.retention_days`; and control-assistant gains
+    # `claude_code.transcripts.retention_days`; control-assistant gains
     # the tool-content gate and the content limit, which the telemetry block
-    # did not carry when the freeze ran.
+    # did not carry when the freeze ran; and every preset that turns on the
+    # full tool-call record gains its two `audit.tool_call.*` keys, which
+    # did not exist when the freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -323,6 +325,9 @@ def test_root_render_is_partitioned_between_its_sources(
         "claude_code.telemetry.log_tool_content",
         "claude_code.telemetry.content_max_length",
     ):
+        if key in config:
+            expected_gain = expected_gain | {key}
+    for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
         if key in config:
             expected_gain = expected_gain | {key}
     assert missing == expected_gain, (

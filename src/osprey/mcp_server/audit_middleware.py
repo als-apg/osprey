@@ -83,6 +83,14 @@ this layer's refusal, ``tool_error`` and ``allowed`` lines, and an inner
 recorder's through :func:`~osprey.audit.writer.record` — carries the same
 ``tool_use_id``. A client that sends no id leaves the key off.
 
+**The full record.** With ``audit.tool_call.enabled`` on, every call — reads
+included — also files one record on the opt-in ``tool_call`` surface
+(:mod:`osprey.audit.tool_call`): the full arguments and result, the control
+target and generation at entry, the approval answer, the facts the tool noted,
+the words the default record got, and the call's duration. It goes to
+``tool_call.jsonl`` and to the telemetry store (:mod:`osprey.audit.otlp`). The
+default record is the same either way.
+
 **Nothing here may cost the call it records.** Records go through
 :func:`~osprey.audit.writer.record`, which builds the envelope and appends it
 inside its own never-raises boundary; the one place this module could still
@@ -96,6 +104,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -103,7 +112,7 @@ from typing import TYPE_CHECKING, Any
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
 
-from osprey.audit import posture
+from osprey.audit import otlp, posture, tool_call, writer
 from osprey.audit.call import (
     DETAIL_FACTS,
     TOOL_USE_ID_META_KEY,
@@ -113,9 +122,10 @@ from osprey.audit.call import (
     valid_tool_use_id,
 )
 from osprey.audit.dedup import decision_scope, mark_recorded, recorded_decision
-from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
+from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, utc_timestamp
 from osprey.audit.writer import record
 from osprey.mcp_server.errors import make_error
+from osprey.utils.identity import acting_identity
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import mcp.types as mt
@@ -645,6 +655,110 @@ def _call_detail(base: str | None = None) -> str | None:
         return base
 
 
+def _call_names(context: MiddlewareContext[Any]) -> tuple[str, str, str]:
+    """``(tool, subject, surface)`` for one call: the bare tool name, the
+    ``mcp__<prefix>__<tool>`` subject a record names, and the server surface."""
+    tool = getattr(context.message, "name", "") or ""
+    prefix = _tool_prefix()
+    subject = f"mcp__{prefix}__{tool}" if prefix else tool
+    return tool, subject, prefix or SURFACE_UNPREFIXED
+
+
+def _tool_call_settings() -> tuple[bool, int]:
+    """Whether the full ``tool_call`` surface is on, and its inline bound. Never raises."""
+    try:
+        return tool_call.settings()
+    except Exception:
+        logger.debug("Could not read the tool_call settings", exc_info=True)
+        return False, tool_call.DEFAULT_MAX_INLINE_BYTES
+
+
+def _control_binding() -> tuple[str | None, int | None]:
+    """``(target, generation)`` of the control context at call entry, or ``(None, None)``."""
+    try:
+        from osprey_connectors import control_context
+
+        record = control_context.read_record()
+        if record is None:
+            return None, None
+        return record.target, record.generation
+    except Exception:
+        logger.debug("Could not read the control context for the full record", exc_info=True)
+        return None, None
+
+
+def _file_tool_call(
+    context: MiddlewareContext[Any],
+    *,
+    words: list[str],
+    binding: tuple[str | None, int | None],
+    result: Any,
+    error: BaseException | None,
+    started: float,
+    max_inline: int,
+) -> None:
+    """File the full ``tool_call`` record for one call. Never raises.
+
+    A failure here costs the record and never the call it describes.
+    """
+    try:
+        duration_ms = round((time.monotonic() - started) * 1000.0, 3)
+        _tool, subject, surface = _call_names(context)
+        call = current_call()
+        tool_use_id = call.tool_use_id if call is not None else None
+        decision, reason = (words[0], words[1]) if len(words) >= 2 else ("error", "exception")
+        answered = _approval_answered(tool_use_id)
+        approval = (
+            None
+            if answered is None
+            else {"outcome": "approved", "approver": answered[0], "permission_mode": answered[1]}
+        )
+        arguments, arguments_ref = tool_call.capped(
+            getattr(context.message, "arguments", None),
+            label="arguments",
+            subject=subject,
+            tool_use_id=tool_use_id,
+            max_inline=max_inline,
+        )
+        serialized = None if error is not None else tool_call.serialize_result(result)
+        result_value, result_ref = tool_call.capped(
+            serialized,
+            label="result",
+            subject=subject,
+            tool_use_id=tool_use_id,
+            max_inline=max_inline,
+        )
+        target, generation = binding
+        full = tool_call.build_record(
+            ts=utc_timestamp(),
+            actor=acting_identity(),
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=posture.posture_session(),
+            session_id=call.session_id if call is not None else None,
+            tool_use_id=tool_use_id,
+            server=surface,
+            subject=subject,
+            decision=decision,
+            reason=reason,
+            approval=approval,
+            target=target,
+            generation=generation,
+            arguments=arguments,
+            arguments_ref=arguments_ref,
+            result=result_value,
+            result_ref=result_ref,
+            error=None if error is None else str(error),
+            is_error=error is not None or bool(getattr(result, "is_error", False)),
+            facts=dict(call.facts) if call is not None else {},
+            duration_ms=duration_ms,
+        )
+        writer.append_record(tool_call.SURFACE_TOOL_CALL, full)
+        otlp.emit(full)
+    except Exception:
+        logger.warning("Could not file the full tool_call record", exc_info=True)
+
+
 def _record(
     *,
     surface: str,
@@ -766,18 +880,46 @@ class AuditMiddleware(Middleware):
         """
         meta = _request_meta(context)
         with call_scope(valid_tool_use_id(meta.get(TOOL_USE_ID_META_KEY)), harness_session_id()):
-            return await self._audited_call(context, call_next)
+            enabled, max_inline = _tool_call_settings()
+            if not enabled:
+                return await self._audited_call(context, call_next, [])
+
+            # The full record: filed exactly once, whichever way the call ends.
+            words: list[str] = []
+            started = time.monotonic()
+            binding = _control_binding()
+            result: ToolResult | None = None
+            error: BaseException | None = None
+            try:
+                result = await self._audited_call(context, call_next, words)
+                return result
+            except BaseException as exc:
+                error = exc
+                raise
+            finally:
+                _file_tool_call(
+                    context,
+                    words=words,
+                    binding=binding,
+                    result=result,
+                    error=error,
+                    started=started,
+                    max_inline=max_inline,
+                )
 
     async def _audited_call(
         self,
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+        words: list[str],
     ) -> ToolResult:
-        """The decision and its record, for one call already in scope."""
-        tool = getattr(context.message, "name", "") or ""
+        """The decision and its record, for one call already in scope.
+
+        *words* receives the ``(decision, reason)`` the default record got, or
+        the inner layer's when this layer deferred — the full record reuses them.
+        """
+        tool, subject, surface = _call_names(context)
         prefix = _tool_prefix()
-        subject = f"mcp__{prefix}__{tool}" if prefix else tool
-        surface = prefix or SURFACE_UNPREFIXED
 
         # Deliberately NOT wrapped in a try/except: an internal error here must
         # not become an allowed write. `_record` swallows everything because a
@@ -794,6 +936,7 @@ class AuditMiddleware(Middleware):
                 reason=REASON_POSTURE,
                 detail=_call_detail(clamp_source),
             )
+            words[:] = [DECISION_REFUSED, REASON_POSTURE]
             # `make_error` raises: fastmcp turns a raised ToolError into a
             # CallToolResult with isError=True and the message verbatim, which
             # returning a result directly does not.
@@ -883,6 +1026,7 @@ class AuditMiddleware(Middleware):
             if outward is not None:
                 decision, reason, stored = outward
                 mark_recorded(decision, reason, stored=stored)
+                words[:] = [decision, reason]
 
         if inner is not None:
             # The call succeeded on the wire and an inner layer already
@@ -924,4 +1068,5 @@ class AuditMiddleware(Middleware):
             reason=REASON_TOOL_CALL,
             detail=_call_detail(),
         )
+        words[:] = [DECISION_ALLOWED, REASON_TOOL_CALL]
         return result

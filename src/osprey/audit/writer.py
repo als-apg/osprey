@@ -508,6 +508,30 @@ def append_envelope(path: Path, envelope: AuditEnvelope) -> bool:
     return _append(path, _line_for(envelope))
 
 
+def append_record(surface: str, record: dict[str, Any]) -> Path | None:
+    """Append one prebuilt *record* to the ledger for *surface*; the path or ``None``.
+
+    The entry point for the opt-in full ``tool_call`` surface
+    (:mod:`osprey.audit.tool_call`), whose records are not envelopes and carry
+    values by design. Routed by :func:`ledger_path` like every other record, and
+    still exactly one ``os.write`` of one line on an ``O_APPEND`` descriptor.
+
+    It is the one entry point whose lines are not bounded by
+    :data:`MAX_RECORD_BYTES`: a full record carries arguments and results, so it
+    does NOT carry the 2 KB guarantee that no other appender's line lands inside
+    it. On a local filesystem appends to a regular file are serialized anyway;
+    every writer of one identity's file runs on one host.
+
+    Never raises: see the module docstring.
+    """
+    try:
+        path = ledger_path(surface)
+        return path if _append(path, _encode(record)) else None
+    except Exception:
+        logger.warning("Could not append a %s record to the audit ledger", surface, exc_info=True)
+        return None
+
+
 def record(**fields: Any) -> Path | None:
     """Build an envelope from *fields* and append it; returns the path or ``None``.
 

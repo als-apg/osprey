@@ -799,6 +799,34 @@ The list takes exact names only. It cannot add a credential osprey itself
 holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
 naming one is an error, and the run does not start.
 
+.. _config-audit-tool-call:
+
+``audit.tool_call:`` — the full record of every tool call
+---------------------------------------------------------
+
+``audit.tool_call.enabled`` (default ``false``) turns on the full record: every
+osprey tool call, reads included, is written whole to
+``var/audit/<identity>/tool_call.jsonl`` and sent to the telemetry store as one
+log line --- arguments, result, control target, approval answer. The
+control-assistant preset turns it on; delete the lines to opt out.
+
+.. code-block:: yaml
+
+   config:
+     audit.tool_call.enabled: true
+     audit.tool_call.max_inline_bytes: 262144
+
+``audit.tool_call.max_inline_bytes`` (default ``262144``) bounds each payload,
+arguments and result on their own. A larger payload is saved as a JSON artifact
+and the record keeps ``{"size", "sha256", "artifact_id"}`` in its place. A value
+that is not a positive integer falls back to the default with a warning.
+
+Both keys are read once per MCP server process, so a change lands after
+``osprey build`` and a restart. Unlike the rest of the audit trail, this file
+and those artifacts hold values: treat them with the access you give the
+control system's own data. The fields are listed in
+:ref:`audit-trail-tool-call`.
+
 .. _config-deployment:
 
 Deployment — service images and ``${VAR}`` interpolation

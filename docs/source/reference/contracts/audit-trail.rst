@@ -269,6 +269,70 @@ card on the next one.
 domain, and the value of the hosted-domain claim are never written to the
 trail.
 
+.. _audit-trail-tool-call:
+
+The full tool-call record
+=========================
+
+The default audit files hold identifiers and never values. With
+``audit.tool_call.enabled`` on (see :ref:`config-audit-tool-call`), every
+osprey MCP server also files one record per tool call --- reads included --- in
+``var/audit/<identity>/tool_call.jsonl``, and sends the same record to the
+telemetry store as one log line.
+
+This is the one surface that holds values: the full arguments, the full
+result, and what the tool noted while it ran. It does not use the default
+record shape, and the default files are the same whether it is on or off.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Field
+     - What it holds
+   * - ``ts``, ``surface``, ``actor``, ``posture``, ``posture_source``, ``session``
+     - As in :ref:`the record <audit-trail-record>`; ``surface`` is always
+       ``tool_call``
+   * - ``session_id``
+     - The agent harness's conversation id, the one its own telemetry carries
+   * - ``tool_use_id``
+     - The harness's id for this call --- the key the default records carry too
+   * - ``server``, ``subject``
+     - The MCP server's tool prefix, and the ``mcp__<prefix>__<tool>`` name
+   * - ``decision``, ``reason``
+     - The words the default record for the same call got
+   * - ``approval``
+     - ``{"outcome": "approved", "approver", "permission_mode"}`` when an
+       approval prompt let the call through, else ``null``
+   * - ``target``, ``generation``
+     - The control target and its generation when the call started
+   * - ``arguments`` or ``arguments_ref``
+     - The call's arguments; see below for the reference form
+   * - ``result`` or ``result_ref``
+     - The result as sent back: every content block and the structured content
+   * - ``error``, ``is_error``
+     - The error text of a call that raised, and whether the call failed
+   * - ``facts``
+     - What the tool noted while it ran --- for a control-system write, the
+       limits verdict and each channel's value before the write
+   * - ``duration_ms``
+     - How long the call took, in milliseconds
+
+A payload over ``audit.tool_call.max_inline_bytes`` is not dropped. Its bytes
+are saved as a JSON artifact and the record carries
+``{"size", "sha256", "artifact_id"}`` in its place; a failed save keeps the size
+and hash, leaves ``artifact_id`` ``null`` and names the error type in
+``artifact_error``.
+
+The telemetry copy goes where the harness's own telemetry goes, as OTLP/HTTP
+JSON to ``<endpoint>/v1/logs``; nothing is sent when telemetry is off or the
+protocol is ``grpc``. Each line's body is the record, and it is searchable by
+``event.name`` = ``osprey.tool_call``, ``session.id`` (the harness's own
+attribute, so the line sits beside its events for the same conversation),
+``tool_use_id``, ``tool_name``, ``osprey.server`` and ``osprey.decision``. The
+file is the authoritative copy: a full send queue or an unreachable endpoint
+costs the telemetry line, never the file line.
+
 .. _audit-trail-identity-ladder:
 
 Which directory a record lands in
