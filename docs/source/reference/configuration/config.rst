@@ -801,7 +801,7 @@ Overriding Service Images
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Sixteen images, one row each:
+default. Seventeen images, one row each:
 
 .. list-table::
    :header-rows: 1
@@ -851,6 +851,10 @@ default. Sixteen images, one row each:
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``
      - ``<project>``
+   * - archive
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.archive.image``
+     - ``<project>``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
@@ -880,14 +884,15 @@ Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
 
-Six of the sixteen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other ten are **built by OSPREY**
+Six of the seventeen are **upstream pins** — images somebody else publishes,
+named exactly as they publish them. The other eleven are **built by OSPREY**
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.
 
-``dispatch_worker`` and ``ariel_sync`` share one row value on purpose: both run
-the bare project image, so both read ``OSPREY_WORKER_IMAGE``. Set that variable
-and both services move to the image you name.
+``dispatch_worker``, ``ariel_sync`` and ``archive`` share one row value on
+purpose: all three run the bare project image, so all three read
+``OSPREY_WORKER_IMAGE``. Set that variable and all three services move to the
+image you name.
 
 .. _deployment-image-axes:
 
