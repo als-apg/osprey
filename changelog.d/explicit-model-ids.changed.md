@@ -10,3 +10,5 @@ A deployment on anthropic that names no model now runs Sonnet 5 where it ran
 Haiku 4.5. A deployment on als-apg that names no model now runs Sonnet 5 too,
 and its health check still probes Haiku 4.5. The als-apg entry no longer lists
 Opus 5 (`claude-opus-5`); name Opus 5.5 (`claude-opus-5-5`) instead.
+The als-apg entry also lists the GPT-6 family (`gpt-6-sol`, `gpt-6-luna`,
+`gpt-6-astra`).

@@ -71,6 +71,9 @@ class TestAliasCandidates:
             "claude-opus-5-5",
             "claude-sonnet-5",
             "claude-haiku-4-5-20251001",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-6-astra",
         ]
         assert claude_code_alias_candidates(served) == {
             "haiku": "claude-haiku-4-5-20251001",
