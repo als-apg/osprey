@@ -68,6 +68,7 @@ class LazyGroup(click.Group):
             "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
             "ariel": "osprey.cli.ariel",  # ARIEL search service
+            "archive": "osprey.cli.archive_cmd",  # Append-only agent record
             "sim": "osprey.cli.sim",  # Simulation scenarios
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
@@ -139,6 +140,7 @@ class LazyGroup(click.Group):
             "channel-finder",
             "eject",
             "ariel",
+            "archive",
             "sim",
             "artifacts",
             "web",
