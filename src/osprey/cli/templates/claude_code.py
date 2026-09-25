@@ -437,7 +437,42 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The terminal theme `web.theme` pins, if any — settings.json.j2
         # renders it so one config key governs the look of both surfaces.
         "terminal_theme": _terminal_theme(config),
+        # How long Claude Code keeps session transcripts — settings.json.j2
+        # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
+        "transcripts_retention_days": _transcripts_retention_days(config),
     }
+
+
+def _transcripts_retention_days(config: dict) -> int | None:
+    """The days ``claude_code.transcripts.retention_days`` keeps a session transcript.
+
+    Rendered as Claude Code's ``cleanupPeriodDays``: at startup Claude Code
+    deletes every transcript older than that, 30 days when nothing sets it. The
+    key reaches the web terminals and the dispatch worker alike, because both
+    load project settings only (the terminals launch with
+    ``--setting-sources project``; the worker's SDK options pass
+    ``setting_sources=["project"]``).
+
+    Returns ``None`` when the key is absent, so the line is not rendered and
+    Claude Code's own default applies.
+
+    Raises:
+        BuildProfileError: If the value is not a whole number of days of at
+            least 1. Unlike the theme helper this refuses rather than degrades:
+            a value silently dropped here leaves the 30-day deletion in force,
+            which is the loss the key exists to prevent.
+    """
+    transcripts = (config.get("claude_code") or {}).get("transcripts") or {}
+    value = transcripts.get("retention_days")
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return value
+    raise BuildProfileError(
+        f"claude_code.transcripts.retention_days must be a whole number of days, "
+        f"1 or more (got {value!r}). Claude Code refuses 0, and deletes transcripts "
+        f"older than this at startup."
+    )
 
 
 def _terminal_theme(config: dict) -> str | None:

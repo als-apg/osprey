@@ -1,0 +1,1 @@
+`claude_code.transcripts.retention_days` sets how many days Claude Code keeps session transcripts in every web terminal and the dispatch worker. Unset, Claude Code's own 30-day deletion still applies.
