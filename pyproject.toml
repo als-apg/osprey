@@ -638,6 +638,9 @@ markers = [
 line-length = 100
 target-version = "py311"
 src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
+# Executable Python scripts without a .py suffix. Ruff selects files by suffix and
+# cannot see them; the pre-commit hook selects by shebang and lints them.
+extend-include = ["tests/pty/stub_runtime/docker"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
 extend-exclude = [
