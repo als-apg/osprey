@@ -57,7 +57,9 @@ def running_proxy():
     inject_provider_env(environ, spec)
     assert environ["ANTHROPIC_AUTH_TOKEN"] == "ollama"
 
-    port = start_proxy(spec.upstream_base_url, environ.get(spec.auth_env_var))
+    port = start_proxy(
+        spec.upstream_base_url, environ.get(spec.auth_env_var), provider=spec.provider
+    )
     base = f"http://127.0.0.1:{port}"  # what `osprey chat` writes to ANTHROPIC_BASE_URL
     try:
         yield base

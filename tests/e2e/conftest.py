@@ -226,7 +226,9 @@ def _e2e_translation_proxy():
     the same in-process proxy the L5 harness uses and publish its loopback URL
     via ``OSPREY_E2E_PROXY_BASE_URL``; ``_apply_e2e_overrides`` swaps that into
     each project's ``ANTHROPIC_BASE_URL``. The proxy thread lives in the pytest
-    process and serves every ``claude`` CLI subprocess on 127.0.0.1.
+    process and serves every ``claude`` CLI subprocess on 127.0.0.1. The proxy is
+    built with the request shape of the provider the run builds with, which the
+    matrix takes from the same provider entry as the upstream.
 
     Inert (pure no-op) when ``OSPREY_E2E_PROXY_UPSTREAM`` is unset, so normal
     e2e runs and the direct-routing ``claude-*`` models are unaffected.
@@ -243,7 +245,7 @@ def _e2e_translation_proxy():
     # keyless server). Provider-agnostic: the launcher exposes whichever provider's
     # key the cell needs; the proxy var is never tied to one provider name.
     key = os.environ.get("OSPREY_E2E_PROXY_KEY", "")
-    port = start_proxy(upstream, key)
+    port = start_proxy(upstream, key, provider=e2e_provider())
     os.environ["OSPREY_E2E_PROXY_BASE_URL"] = f"http://127.0.0.1:{port}"
     try:
         yield

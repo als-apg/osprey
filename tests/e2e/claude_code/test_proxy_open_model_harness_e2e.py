@@ -73,10 +73,10 @@ async def _read_pv(args):
     return {"content": [{"type": "text", "text": f"{args['name']} = 3.14159 mm"}]}
 
 
-async def _drive_harness(upstream_base: str, upstream_key: str, model: str):
+async def _drive_harness(upstream_base: str, upstream_key: str, model: str, provider: str):
     """Run the real claude CLI against `model` via the proxy; return (tool_calls, final_text)."""
     server = create_sdk_mcp_server(name="controls", version="1.0.0", tools=[_read_pv])
-    port = start_proxy(upstream_base, upstream_key)
+    port = start_proxy(upstream_base, upstream_key, provider=provider)
     options = ClaudeAgentOptions(
         model=model,
         permission_mode="bypassPermissions",
@@ -120,7 +120,7 @@ async def _drive_harness(upstream_base: str, upstream_key: str, model: str):
     reason="opt-in: set OSPREY_E2E_OLLAMA=1, install claude CLI, and create a large-num_ctx Ollama model",
 )
 async def test_open_model_drives_claude_code_harness_via_proxy_ollama():
-    tool_calls, final_text = await _drive_harness(OLLAMA_BASE, "ollama", OLLAMA_MODEL)
+    tool_calls, final_text = await _drive_harness(OLLAMA_BASE, "ollama", OLLAMA_MODEL, "ollama")
     assert any("read_pv" in t for t in tool_calls), (
         f"no MCP tool call: {tool_calls} / {final_text!r}"
     )
@@ -153,7 +153,7 @@ def _cborg_reachable() -> bool:
 )
 async def test_cborg_coder_drives_claude_code_harness_via_proxy():
     tool_calls, final_text = await _drive_harness(
-        CBORG_BASE, os.environ["CBORG_API_KEY"], CBORG_MODEL
+        CBORG_BASE, os.environ["CBORG_API_KEY"], CBORG_MODEL, "cborg"
     )
     assert any("read_pv" in t for t in tool_calls), (
         f"no MCP tool call: {tool_calls} / {final_text!r}"
