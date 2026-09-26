@@ -54,7 +54,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -461,6 +461,44 @@ def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
 
 def _docker_rm(name: str) -> None:
     subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=30)
+
+
+#: How many ports a boot tries before giving up on publishing one.
+PUBLISH_ATTEMPTS = 5
+
+
+def run_on_free_port(
+    container_for: Callable[[int], tuple[str, list[str]]],
+) -> tuple[int, str]:
+    """``docker run`` a container published on a free port, retrying a lost race.
+
+    A reserved port is free only until the probe socket closes, and anything on
+    the host can take it before ``docker run`` binds it. Docker then refuses
+    the publish with "address already in use", and the answer is another port
+    rather than a failed boot.
+
+    Args:
+        container_for: Given a port, the container's name and the arguments
+            after ``docker``.
+
+    Returns:
+        The port the container is published on, and its name.
+    """
+    for _ in range(PUBLISH_ATTEMPTS):
+        port = _reserve_free_port()
+        name, arguments = container_for(port)
+        # Stale-cleanup only, of a container an earlier run left under this name.
+        _docker_rm(name)
+        started = subprocess.run(
+            ["docker", *arguments], capture_output=True, text=True, timeout=120
+        )
+        if started.returncode == 0:
+            return port, name
+        # A refused publish still leaves the created container behind.
+        _docker_rm(name)
+        if "address already in use" not in started.stderr:
+            raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
+    raise RuntimeError(f"no free port could be published in {PUBLISH_ATTEMPTS} attempts")
 
 
 def _listening_ports(proc_net: str, *, tcp: bool) -> list[int]:
