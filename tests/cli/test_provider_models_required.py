@@ -112,14 +112,17 @@ class TestAliasSubstitutionIsLoud:
         assert not caplog.records
 
     def test_a_key_that_is_not_an_alias_name_is_named(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             ClaudeCodeModelResolver.resolve({"provider": "cborg", "aliases": {"opusx": "some-id"}})
         message = "\n".join(record.getMessage() for record in caplog.records)
         assert "claude_code.aliases" in message
         assert "opusx" in message
+        assert all(
+            r.levelno == logging.INFO for r in caplog.records if "ignoring" in r.getMessage()
+        )
 
     def test_a_catalog_alias_key_that_is_not_an_alias_name_is_named(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             ClaudeCodeModelResolver.resolve(
                 {"provider": "gw"},
                 api_providers={
@@ -134,6 +137,9 @@ class TestAliasSubstitutionIsLoud:
         message = "\n".join(record.getMessage() for record in caplog.records)
         assert "api.providers.gw.claude_code_aliases" in message
         assert "sonet" in message
+        assert all(
+            r.levelno == logging.INFO for r in caplog.records if "ignoring" in r.getMessage()
+        )
 
     def test_a_claude_gateway_warns_nothing(self, caplog):
         with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
