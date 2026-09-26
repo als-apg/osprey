@@ -31,6 +31,11 @@ from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
 
+#: Every wait the launcher makes goes through this name, and a test that counts
+#: those waits replaces it here. ``time.sleep`` itself is shared by every thread
+#: in the process, so a stand-in put there also counts other threads' sleeps.
+_sleep = time.sleep
+
 # When a port is genuinely unbindable on first check, it may be a predecessor
 # that is still shutting down after a restart. Wait a bounded grace period for
 # it to release the port so we can bind (own) it ourselves rather than trusting
@@ -590,7 +595,7 @@ class ServerLauncher:
         # with another process), a /health 200 would be a foreign responder, not
         # ours — trusting it would recreate the #327 false positive.
         for _attempt in range(3):
-            time.sleep(0.5)
+            _sleep(0.5)
             if not t.is_alive():
                 logger.warning("%s thread exited before health check passed", self._name)
                 self._launched = False
@@ -691,7 +696,7 @@ class ServerLauncher:
             # check above that every call makes first.
             if not self._refused_once:
                 for _attempt in range(self._release_grace_attempts):
-                    time.sleep(self._release_grace_interval)
+                    _sleep(self._release_grace_interval)
                     if self._port_is_bindable(host, port):
                         self._launch_in_thread(host, port)
                         return
