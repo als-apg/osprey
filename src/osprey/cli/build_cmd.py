@@ -2435,9 +2435,10 @@ def _render_project(
 def _warn_model_facts(spec: Any, reported: set[str]) -> None:
     """Warn, once per build, where the models the render names differ from the served list.
 
-    Two facts, each promoted through :func:`osprey.cli.output.warn_fact`
+    Three facts, each promoted through :func:`osprey.cli.output.warn_fact`
     because the altitude gate keeps raw warnings off the terminal while the
-    build draws its phases: Claude Code aliases that run the main model because
+    build draws its phases: alias-map keys that are not Claude Code alias
+    names and are ignored, Claude Code aliases that run the main model because
     the provider serves no model of their family, and configured ids the
     provider's served list does not carry, which are used as written.
 
@@ -2449,13 +2450,17 @@ def _warn_model_facts(spec: Any, reported: set[str]) -> None:
     """
     from osprey.build.claude_code_resolver import (
         ALIAS_SUBSTITUTION_REMEDY,
+        DROPPED_ALIAS_KEY_REMEDY,
         alias_substitution,
+        dropped_alias_key_facts,
         unserved_model_ids,
     )
 
     from . import output
 
-    facts: list[tuple[str, str | None, str | None]] = []
+    facts: list[tuple[str, str | None, str | None]] = [
+        (sentence, None, DROPPED_ALIAS_KEY_REMEDY) for sentence in dropped_alias_key_facts(spec)
+    ]
     substitution = alias_substitution(spec)
     if substitution:
         facts.append((substitution, None, ALIAS_SUBSTITUTION_REMEDY))

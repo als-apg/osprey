@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -606,6 +606,8 @@ class ClaudeCodeModelSpec:
             ``"claude_code.aliases"``, ``"catalog"`` (the entry's
             ``claude_code_aliases``), ``"derived"`` (the newest served id of
             that family) or ``"main model"``.
+        dropped_alias_keys: Per alias map that carried keys other than Claude
+            Code's alias names, those keys, which were ignored.
         agent_models: Agent name → model id, from ``claude_code.agent_models``.
         served_models: The ids the provider entry lists as served.
         shell_exports: Shell export lines the user must add to their profile
@@ -620,6 +622,7 @@ class ClaudeCodeModelSpec:
     env_block: dict[str, str] = field(default_factory=dict)
     alias_models: dict[str, str] = field(default_factory=dict)
     alias_origin: dict[str, str] = field(default_factory=dict)
+    dropped_alias_keys: dict[str, tuple[str, ...]] = field(default_factory=dict)
     agent_models: dict[str, str] = field(default_factory=dict)
     served_models: list[str] = field(default_factory=list)
     shell_exports: tuple[str, ...] = ()
@@ -656,21 +659,22 @@ class ClaudeCodeModelSpec:
         return conflicts
 
 
-def _warn_dropped_alias_keys(source: str, aliases: Mapping[str, Any]) -> None:
-    """Warn when an alias map carries keys that are not Claude Code alias names.
+def _dropped_alias_keys(aliases: Mapping[str, Any]) -> tuple[str, ...]:
+    """The keys of an alias map that are not Claude Code alias names.
 
-    The keys are still dropped — only haiku/sonnet/opus reach the env block —
-    but dropping them silently turns a typo like ``sonet:`` into an alias that
-    quietly falls back to another model. Name the dropped keys instead.
+    The keys are dropped — only haiku/sonnet/opus reach the env block — but
+    dropping them silently turns a typo like ``sonet:`` into an alias that
+    quietly falls back to another model, so each dropped key is named.
     """
-    dropped = [key for key in aliases if key not in TIER_MODEL_ENV_VARS]
-    if dropped:
-        logger.warning(
-            "%s: ignoring key(s) %s — Claude Code's alias names are %s.",
-            source,
-            ", ".join(str(key) for key in dropped),
-            ", ".join(TIER_MODEL_ENV_VARS),
-        )
+    return tuple(str(key) for key in aliases if key not in TIER_MODEL_ENV_VARS)
+
+
+def _dropped_alias_keys_text(source: str, keys: Sequence[str]) -> str:
+    """The one sentence naming the keys an alias map carried that were ignored."""
+    return (
+        f"{source}: ignoring key(s) {', '.join(keys)} — "
+        f"Claude Code's alias names are {', '.join(TIER_MODEL_ENV_VARS)}."
+    )
 
 
 def _served_models(
@@ -739,25 +743,35 @@ def _resolve_aliases(
     catalog_aliases: Mapping[str, Any],
     configured_aliases: Mapping[str, Any],
     main_model: str,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Claude Code's three alias models and where each came from.
+) -> tuple[dict[str, str], dict[str, str], dict[str, tuple[str, ...]]]:
+    """Claude Code's three alias models, where each came from, and the keys ignored.
 
     Derived from the served list by family name (newest version wins); a
     catalog entry's ``claude_code_aliases`` beats derivation; a deployment's
     ``claude_code.aliases`` beats both. An alias nothing resolves runs the main
-    model, and one INFO record names every such substitution. The record is for
-    the sinks: the verbs an operator reads promote the same sentence from the
-    resolved spec (:func:`alias_substitution`), once per run.
+    model, and one INFO record names every such substitution. A key in either
+    map that is not an alias name is ignored, and one INFO record per map names
+    it. The records are for the sinks: the verbs an operator reads promote each
+    sentence from the resolved spec (:func:`dropped_alias_key_facts`,
+    :func:`alias_substitution`), once per run.
     """
     models: dict[str, str] = {}
     origin: dict[str, str] = {}
+    dropped: dict[str, tuple[str, ...]] = {}
+
+    def _note_dropped(source: str, aliases: Mapping[str, Any]) -> None:
+        keys = _dropped_alias_keys(aliases)
+        if keys:
+            dropped[source] = keys
+            logger.info("%s %s", _dropped_alias_keys_text(source, keys), DROPPED_ALIAS_KEY_REMEDY)
+
     for alias, model_id in claude_code_alias_candidates(served).items():
         models[alias], origin[alias] = model_id, "derived"
-    _warn_dropped_alias_keys(f"api.providers.{provider_name}.claude_code_aliases", catalog_aliases)
+    _note_dropped(f"api.providers.{provider_name}.claude_code_aliases", catalog_aliases)
     for alias in TIER_MODEL_ENV_VARS:
         if alias in catalog_aliases:
             models[alias], origin[alias] = str(catalog_aliases[alias]), "catalog"
-    _warn_dropped_alias_keys("claude_code.aliases", configured_aliases)
+    _note_dropped("claude_code.aliases", configured_aliases)
     for alias in TIER_MODEL_ENV_VARS:
         if alias in configured_aliases:
             models[alias] = _checked_model_id(
@@ -774,11 +788,14 @@ def _resolve_aliases(
         for alias in missing:
             models[alias], origin[alias] = main_model, "main model"
     ordered = {alias: models[alias] for alias in TIER_MODEL_ENV_VARS}
-    return ordered, {alias: origin[alias] for alias in TIER_MODEL_ENV_VARS}
+    return ordered, {alias: origin[alias] for alias in TIER_MODEL_ENV_VARS}, dropped
 
 
 #: What to do about an alias substitution, printed as its remedy.
 ALIAS_SUBSTITUTION_REMEDY = "Set claude_code.aliases.<name> to choose."
+
+#: What to do about an ignored alias key, printed as its remedy.
+DROPPED_ALIAS_KEY_REMEDY = "Rename or remove each ignored key."
 
 
 def _alias_substitution_text(missing: list[str], main_model: str, provider_name: str) -> str:
@@ -802,6 +819,18 @@ def alias_substitution(spec: ClaudeCodeModelSpec) -> str | None:
     if not missing:
         return None
     return _alias_substitution_text(missing, spec.default_model_id, spec.provider)
+
+
+def dropped_alias_key_facts(spec: ClaudeCodeModelSpec) -> list[str]:
+    """The alias keys a resolved spec ignored, one sentence per alias map, in resolution order.
+
+    Read off ``dropped_alias_keys`` rather than kept from the resolve that made
+    the spec, so a verb that resolved several times still has one sentence per
+    map to say.
+    """
+    return [
+        _dropped_alias_keys_text(source, keys) for source, keys in spec.dropped_alias_keys.items()
+    ]
 
 
 def unserved_model_ids(spec: ClaudeCodeModelSpec) -> list[str]:
@@ -987,7 +1016,7 @@ class ClaudeCodeModelResolver:
                 f"profile-built projects, or in the providers.yml beside it — then run "
                 f"`osprey build`."
             )
-        alias_models, alias_origin = _resolve_aliases(
+        alias_models, alias_origin, dropped_alias_keys = _resolve_aliases(
             provider_name,
             served,
             catalog_aliases,
@@ -1076,6 +1105,7 @@ class ClaudeCodeModelResolver:
             env_block=env_block,
             alias_models=alias_models,
             alias_origin=alias_origin,
+            dropped_alias_keys=dropped_alias_keys,
             agent_models=agent_models,
             served_models=served,
             shell_exports=tuple(shell_exports),

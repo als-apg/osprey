@@ -13,6 +13,7 @@ from osprey.build.claude_code_resolver import (
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
     alias_substitution,
+    dropped_alias_key_facts,
     inject_provider_env,
     unserved_model_ids,
 )
@@ -413,13 +414,17 @@ class TestPerAliasOverrides:
         assert spec.alias_models["haiku"] == "claude-haiku-4-5"
         assert spec.alias_origin["haiku"] == "derived"
 
-    def test_a_key_that_is_not_an_alias_name_is_dropped_with_a_warning(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+    def test_a_key_that_is_not_an_alias_name_is_dropped_and_recorded(self, caplog):
+        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "cborg", "aliases": {"sonet": "claude-sonnet-9"}}
             )
         assert "sonet" not in spec.alias_models
-        assert "sonet" in caplog.text
+        assert spec.dropped_alias_keys == {"claude_code.aliases": ("sonet",)}
+        records = [r for r in caplog.records if "sonet" in r.getMessage()]
+        assert len(records) == 1
+        assert records[0].levelno == logging.INFO
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
     def test_an_alias_never_reaches_an_agent(self):
         """Agents name their model by id; overriding an alias does not move them."""
@@ -566,6 +571,31 @@ class TestServedListReaders:
         spec = ClaudeCodeModelResolver.resolve({"provider": "gw"}, {"gw": entry})
         assert alias_substitution(spec) is None
         assert unserved_model_ids(spec) == []
+
+    def test_the_dropped_alias_keys_are_read_off_the_spec(self):
+        entry = _gateway(
+            "claude-sonnet-5",
+            ("claude-sonnet-5",),
+            claude_code_aliases={"sonet": "claude-sonnet-5"},
+        )
+        spec = ClaudeCodeModelResolver.resolve(
+            {
+                "provider": "gw",
+                "aliases": {"opusx": "claude-sonnet-5", "haiku": "claude-sonnet-5"},
+            },
+            {"gw": entry},
+        )
+        assert dropped_alias_key_facts(spec) == [
+            "api.providers.gw.claude_code_aliases: ignoring key(s) sonet — "
+            "Claude Code's alias names are haiku, sonnet, opus.",
+            "claude_code.aliases: ignoring key(s) opusx — "
+            "Claude Code's alias names are haiku, sonnet, opus.",
+        ]
+
+    def test_an_alias_map_of_alias_names_drops_nothing(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        assert spec.dropped_alias_keys == {}
+        assert dropped_alias_key_facts(spec) == []
 
     def test_configured_ids_outside_the_list_are_named_once_each(self):
         entry = _gateway("gpt-6-sol", ("gpt-6-astra", "gpt-6-sol"))
