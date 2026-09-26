@@ -86,6 +86,9 @@ else
 fi
 echo ""
 
+# Each pytest run below goes through scripts/run_bounded.py, which stops the run's
+# whole process group once it passes its bound and exits 124, so a run that
+# outlives its last test ends instead of holding the terminal.
 echo "→ Running pytest with coverage..."
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
@@ -97,7 +100,7 @@ echo "→ Running pytest with coverage..."
 # than the index, so leaving it in made this script red on every branch. It runs
 # on demand — `uv run pytest tests/services/channel_finder/graph_index/test_scale.py`
 # — and in the benchmark job.
-if ! uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
@@ -111,7 +114,7 @@ echo ""
 # so it must not compete with four workers for the machine. Deselecting it
 # without this step would make a green run here mean less than it did before.
 echo "→ Running the real-terminal pty suite (serial)..."
-if ! uv run pytest tests/pty -m pty -v --tb=short; then
+if ! uv run python scripts/run_bounded.py 600 -- uv run pytest tests/pty -m pty -v --tb=short; then
     FAILED_CHECKS+=("pytest-pty")
     echo "❌ Real-terminal tests failed"
 else

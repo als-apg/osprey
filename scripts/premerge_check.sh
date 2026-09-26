@@ -76,7 +76,14 @@ fi
 # does not re-run the suite serially; ci_check.sh does, and so does CI.
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
-if ! uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n auto --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1; then
+# run_bounded.py exits 124 when the run is still going after its bound, which is
+# reported apart from a failure; `|| tests_rc=$?` keeps `set -e` from exiting here.
+tests_rc=0
+uv run python scripts/run_bounded.py 1800 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n auto --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1 || tests_rc=$?
+if [ "$tests_rc" -eq 124 ]; then
+  echo "✗ Tests still running after 1800 s — run them without -q to see which threads remain"
+  ERRORS=$((ERRORS + 1))
+elif [ "$tests_rc" -ne 0 ]; then
   echo "✗ Tests failing"
   ERRORS=$((ERRORS + 1))
 else
