@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 import osprey.infrastructure.proxy.app as app_module
 from osprey.infrastructure.proxy.app import create_proxy_app
+from osprey.models.providers.openai import OpenAIProviderAdapter
 
 
 class _FakeResp:
@@ -251,7 +253,7 @@ def test_proxy_sends_the_upstream_its_declared_request_shape(monkeypatch):
         "https://api.example.com/v1",
         upstream_api_key="secret-key",
         max_tokens_param="max_completion_tokens",
-        accepts_temperature=False,
+        accepts_temperature=lambda _model: False,
     )
     client = TestClient(app)
 
@@ -268,3 +270,36 @@ def test_proxy_sends_the_upstream_its_declared_request_shape(monkeypatch):
     assert captured["json"]["max_completion_tokens"] == 16
     assert "max_tokens" not in captured["json"]
     assert "temperature" not in captured["json"]
+
+
+@pytest.mark.parametrize(("model", "sent"), [("gpt-4o", True), ("gpt-6-sol", False)])
+def test_proxy_asks_the_provider_per_request_model_whether_a_temperature_is_sent(
+    monkeypatch, model, sent
+):
+    """One proxy fronts every model its provider serves, and each request's model decides."""
+    captured = _install_fake_upstream(
+        monkeypatch,
+        {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
+    )
+    app = create_proxy_app(
+        "https://api.example.com/v1",
+        upstream_api_key="secret-key",
+        max_tokens_param="max_completion_tokens",
+        accepts_temperature=OpenAIProviderAdapter.accepts_temperature,
+    )
+    client = TestClient(app)
+
+    resp = client.post(
+        "/v1/messages",
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 16,
+            "temperature": 0.0,
+        },
+    )
+    assert resp.status_code == 200
+    if sent:
+        assert captured["json"]["temperature"] == 0.0
+    else:
+        assert "temperature" not in captured["json"]
