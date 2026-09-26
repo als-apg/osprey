@@ -589,7 +589,14 @@ _TERMINAL_VIEWPORT = {"width": 1280, "height": 800}
 # CDN, so first paint and the canned PTY replay can take a few seconds.
 _NAV_TIMEOUT_MS = 30_000
 _SETTLE_MS = 600  # let the theme swap + layout settle (mirrors the visual suite)
-_PLOTLY_MS = 2_000  # Plotly draws async; give the preview time before shooting
+_PLOT_DRAWN_MS = 30_000  # Plotly.js draws in the preview frame; the shot requires it
+
+#: The line path of the beam-current plot's drawn trace. ``.plotly-graph-div``
+#: is in the served HTML before Plotly runs, while ``.js-plotly-plot`` and the
+#: trace's ``path.js-line`` exist only once Plotly has drawn. The artifacts
+#: server keeps ``.js-plotly-plot`` ``visibility: hidden`` until the chart is
+#: re-themed, so a *visible* line path means the plot is drawn and revealed.
+_PLOT_DRAWN_SELECTOR = ".js-plotly-plot .scatterlayer .trace path.js-line"
 
 
 def _variant_filename(
@@ -702,6 +709,52 @@ def _plot_row_selector(mode: str | None) -> str:
     """
     container = "#simple-list-body" if mode == "simple" else "#sidebar-body"
     return f'{container} [data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+
+
+def _plot_frame_selector(mode: str | None) -> str:
+    """CSS for the preview iframe that renders the selected plot, scoped by mode.
+
+    Each view renders the selected artifact into its own container: Expert into
+    ``#preview-content``, Simple into the latest-result card's
+    ``#simple-result-preview``. Both go through ``artifactViewportHtml``, which
+    renders a ``plot_html`` artifact as ``iframe.preview-iframe-light``. The frame
+    is therefore named by the active view's container, as the row is, so a
+    preview frame in the other view's container can never answer for it.
+    """
+    if mode == "simple":
+        return "#simple-result-preview iframe"
+    return "#preview-content iframe.preview-iframe-light"
+
+
+def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -> None:
+    """Block until the beam-current plot is drawn and revealed in the active preview.
+
+    This is a precondition for the shot, not a best-effort pause. The wait is for
+    the ``visible`` state because ``attached`` is already true for markup that
+    Plotly has not drawn, and ``visible`` stays false while the artifacts server
+    keeps the chart hidden.
+
+    Args:
+        page: The Playwright page showing the hub.
+        mode: The UI mode, which names the active preview frame.
+        variant: The variant being captured, named in the error.
+        moment: When the check runs, named in the error.
+
+    Raises:
+        RuntimeError: The plot did not draw within :data:`_PLOT_DRAWN_MS`.
+    """
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
+    try:
+        panel.frame_locator(_plot_frame_selector(mode)).locator(
+            _PLOT_DRAWN_SELECTOR
+        ).first.wait_for(state="visible", timeout=_PLOT_DRAWN_MS)
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError(
+            f"hub {variant}: the beam-current plot did not draw {moment} within "
+            f"{_PLOT_DRAWN_MS // 1000} s; no image was written."
+        ) from exc
 
 
 def _assert_fits_columns(fitted_cols: int) -> None:
@@ -997,6 +1050,9 @@ def capture_hub_view(
         accent: An accent candidate to recolour the chrome with, or ``None``.
         rail: A rail position (``"top"``), or ``None`` for the default rail.
         stage: A :data:`STAGES` key the page is driven into before the shot.
+
+    The view is shot only with its plot drawn; a plot that never draws raises
+    :class:`RuntimeError` instead of writing *dest*.
     """
     # Publish the fake session BEFORE the page loads. The terminal's session id
     # has to be DEMO_SESSION_ID — the seeded artifacts are tagged with it and
@@ -1006,6 +1062,17 @@ def capture_hub_view(
     # snapshot) and confirms DEMO_SESSION_ID synchronously.
     _write_fake_session(hub.session_dir)
 
+    variant = ", ".join(
+        f"{name}={value}"
+        for name, value in (
+            ("theme", theme),
+            ("mode", mode),
+            ("accent", accent),
+            ("rail", rail),
+            ("stage", stage),
+        )
+        if value is not None
+    )
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
         from osprey.interfaces._serving import authorize_browser_context
@@ -1057,21 +1124,7 @@ def capture_hub_view(
         panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
         panel.locator(_plot_row_selector(mode)).first.click(timeout=_NAV_TIMEOUT_MS)
 
-        # Anchor on the Plotly root actually appearing in the nested preview
-        # iframe, with the 2s as a cap — best-effort, since a not-yet-drawn plot
-        # should not fail the whole run (the settle below still gives it time).
-        # Expert's preview iframe is class-tagged; Simple renders the plot into
-        # the latest-result card's #simple-result-preview.
-        try:
-            if mode == "simple":
-                preview = panel.frame_locator("#simple-result-preview iframe")
-            else:
-                preview = panel.frame_locator("iframe.preview-iframe-light")
-            preview.locator(".plotly-graph-div").first.wait_for(
-                state="attached", timeout=_PLOTLY_MS
-            )
-        except Exception:
-            pass
+        _wait_for_plot_drawn(page, mode, variant=variant, moment="after its row was clicked")
 
         # Recolour the chrome for this accent candidate (all frames now exist).
         if accent is not None:
@@ -1081,6 +1134,9 @@ def capture_hub_view(
             STAGES[stage].run(page)
 
         page.wait_for_timeout(_SETTLE_MS)
+        # The accent, the stage and the settle may re-lay-out the page, so the
+        # plot is checked again where the shot is taken.
+        _wait_for_plot_drawn(page, mode, variant=variant, moment="before the shot")
 
         png = page.screenshot()
         dest.write_bytes(png)
