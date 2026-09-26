@@ -153,7 +153,7 @@ docs/build/
 
 # Development services and applications (keep locally but not in git)
 /.claude
-_issues
+_ISSUES
 /CLAUDE.md
 .mcp.json
 
