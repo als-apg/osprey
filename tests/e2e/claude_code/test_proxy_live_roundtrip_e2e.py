@@ -28,6 +28,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.infrastructure.proxy.app import create_proxy_app
+from osprey.infrastructure.proxy.lifecycle import _request_shape
 
 UPSTREAMS = {
     "ollama": {
@@ -75,7 +76,9 @@ def _usable(name: str) -> bool:
 
 def _client(name: str) -> TestClient:
     u = UPSTREAMS[name]
-    return TestClient(create_proxy_app(u["base_url"], upstream_api_key=u["key"]))
+    return TestClient(
+        create_proxy_app(u["base_url"], upstream_api_key=u["key"], **_request_shape(name))
+    )
 
 
 def _parse_sse(text: str) -> list[dict]:
