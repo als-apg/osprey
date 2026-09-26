@@ -410,6 +410,7 @@ def _serving(prefix: str, *, seeded: bool):
             raise RuntimeError(
                 f"{name} never served {REFERENCE_RB} within {BOOT_TIMEOUT_S}s.\n"
                 f"The client's last attempt: {last_attempt}\n"
+                f"{e2e_conftest.boot_report(name, port)}\n"
                 f"{logs.stdout}\n{logs.stderr}"
             )
 

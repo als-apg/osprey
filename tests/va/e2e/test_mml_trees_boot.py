@@ -478,17 +478,22 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
     """
     probe = served.tree.document.bindings[0].setpoint_address
     deadline = time.monotonic() + BOOT_TIMEOUT_S
+    # Kept so a boot that never answers says what the client last saw.
+    last_attempt = "no read completed"
     while time.monotonic() < deadline:
         try:
             if served.read(probe)[probe] is not None:
                 return
-        except Exception:  # "not up yet" is the expected case here
-            pass
+            last_attempt = f"{probe} read back as None"
+        except Exception as exc:  # "not up yet" is the expected case here
+            last_attempt = f"{type(exc).__name__}: {exc}"
         time.sleep(2.0)
 
     logs = _docker("logs", "--tail", "60", container)
     raise AssertionError(
-        f"{served.tree.name}: the container never served {probe} within {BOOT_TIMEOUT_S}s. "
+        f"{served.tree.name}: the container never served {probe} within {BOOT_TIMEOUT_S}s.\n"
+        f"The client's last attempt: {last_attempt}\n"
+        f"{e2e_conftest.boot_report(container, served.port)}\n"
         f"Container logs:\n{logs.stdout}\n{logs.stderr}"
     )
 
