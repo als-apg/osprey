@@ -90,8 +90,9 @@ def find_free_port() -> int:
 def _request_shape(provider: str | None) -> dict[str, Any]:
     """The request parameters *provider*'s adapter class declares for its endpoint.
 
-    An unregistered or absent provider gets ``max_tokens`` and a temperature,
-    the OpenAI Chat Completions defaults.
+    An unregistered or absent provider gets ``max_tokens`` and no temperature
+    rule (every model sent the caller's temperature), the OpenAI Chat
+    Completions defaults.
     """
     provider_class = None
     if provider:
@@ -100,7 +101,9 @@ def _request_shape(provider: str | None) -> dict[str, Any]:
         provider_class = get_provider_registry().get_provider(provider)
     return {
         "max_tokens_param": getattr(provider_class, "max_tokens_param", "max_tokens"),
-        "accepts_temperature": bool(getattr(provider_class, "accepts_temperature", True)),
+        "accepts_temperature": (
+            provider_class.accepts_temperature if provider_class is not None else None
+        ),
     }
 
 
@@ -116,7 +119,8 @@ def start_proxy(
         upstream_base_url: OpenAI-compatible endpoint the proxy forwards to.
         upstream_api_key: API key for the upstream provider.
         provider: The provider behind the upstream; its adapter class decides
-            the token-cap parameter and whether a temperature is sent.
+            the token-cap parameter and, for each request's model, whether a
+            temperature is sent.
 
     Returns the port number. Thread-safe; repeated calls are no-ops.
     """

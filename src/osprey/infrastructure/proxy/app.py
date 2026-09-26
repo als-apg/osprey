@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+from collections.abc import Callable
 
 import httpx
 from fastapi import FastAPI, Request
@@ -37,7 +38,7 @@ def create_proxy_app(
     upstream_api_key: str | None = None,
     *,
     max_tokens_param: str = "max_tokens",
-    accepts_temperature: bool = True,
+    accepts_temperature: Callable[[str], bool] | None = None,
 ) -> FastAPI:
     """Create the translation proxy FastAPI app.
 
@@ -45,7 +46,8 @@ def create_proxy_app(
         upstream_base_url: OpenAI-compatible endpoint (e.g. https://aiapi-prod.stanford.edu/v1).
         upstream_api_key: API key for the upstream provider.
         max_tokens_param: The upstream parameter that carries the output-token cap.
-        accepts_temperature: Whether the upstream takes a caller-chosen temperature.
+        accepts_temperature: Asked with each request's model whether the upstream
+            takes a caller-chosen temperature for it; None sends every temperature.
     """
     # One pooled client for the app's lifetime. A fresh AsyncClient per request
     # opens and tears down an upstream TCP connection every call; at matrix
@@ -92,7 +94,7 @@ def create_proxy_app(
         openai_body = anthropic_to_openai_request(
             body,
             max_tokens_param=max_tokens_param,
-            accepts_temperature=accepts_temperature,
+            accepts_temperature=accepts_temperature is None or accepts_temperature(model),
         )
 
         # Build upstream URL and headers

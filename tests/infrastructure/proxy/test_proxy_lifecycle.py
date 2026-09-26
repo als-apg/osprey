@@ -145,12 +145,14 @@ class TestStartStop:
         assert isinstance(lifecycle._state["server"], _FakeServer)
         assert lifecycle.get_proxy_url() == f"http://127.0.0.1:{port}"
         app_factory.assert_called_once_with(
-            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=True
+            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=None
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_builds_the_app_with_the_providers_request_shape(self, monkeypatch):
         """The proxy sends what the provider's adapter class declares."""
+        from osprey.models.providers.openai import OpenAIProviderAdapter
+
         app_factory = _install_fake_uvicorn(monkeypatch)
 
         lifecycle.start_proxy("https://api.openai.com/v1", upstream_api_key="k", provider="openai")
@@ -159,7 +161,7 @@ class TestStartStop:
             "https://api.openai.com/v1",
             "k",
             max_tokens_param="max_completion_tokens",
-            accepts_temperature=False,
+            accepts_temperature=OpenAIProviderAdapter.accepts_temperature,
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
@@ -169,7 +171,7 @@ class TestStartStop:
         lifecycle.start_proxy("https://up.example/v1", upstream_api_key="k", provider="house-llm")
 
         app_factory.assert_called_once_with(
-            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=True
+            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=None
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
