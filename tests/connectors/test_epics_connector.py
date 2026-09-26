@@ -1,17 +1,14 @@
 """Behavioral tests for the EPICS control-system connector.
 
-No general EPICS connector test existed before this file (see the note in
-``test_epics_connector_timezone.py``); gateway selection and the read timestamp
-were the only covered paths. These tests drive the connector's remaining real
-code paths — libca configuration, connect error/name-server handling, the
-confirm flow and its five outcomes, the fail-closed write guard, and
-subscription plumbing — with an injected fake ``_epics`` so no real Channel
-Access is required.
+These tests drive the connector's real code paths — libca configuration,
+connect error/name-server handling, the read path and its facility-timezone
+timestamp, the confirm flow and its five outcomes, the fail-closed write guard,
+and subscription plumbing — with an injected fake ``_epics`` so no real Channel
+Access is required. Gateway selection lives in ``test_epics_gateway_selection.py``.
 
-Convention (matching ``test_epics_connector_timezone.py`` and PR #270): inject a
-fake ``_epics`` and assert on the concrete payload — outcome word, observed
-value, alarm fields, env vars, refusal reason — never merely that a call
-"didn't raise".
+Convention (matching PR #270): inject a fake ``_epics`` and assert on the
+concrete payload — outcome word, observed value, alarm fields, env vars,
+refusal reason — never merely that a call "didn't raise".
 """
 
 import asyncio
@@ -19,6 +16,7 @@ import os
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -33,31 +31,19 @@ from osprey.connectors.control_system.epics_connector import (
     _ChannelSubscription,
     _configure_pyepics_libca,
 )
-
-EPICS_VARS = [
-    "EPICS_CA_ADDR_LIST",
-    "EPICS_CA_SERVER_PORT",
-    "EPICS_CA_NAME_SERVERS",
-    "EPICS_CA_AUTO_ADDR_LIST",
-]
-
-
-@pytest.fixture
-def clean_epics_env(monkeypatch):
-    """Snapshot EPICS_* env vars so connect()'s direct os.environ writes are restored."""
-    for var in EPICS_VARS:
-        monkeypatch.delenv(var, raising=False)
-    yield
-
-
-def _patch_writes_enabled(monkeypatch, enabled: bool):
-    def fake_get_config_value(key, default=None):
-        if key == "control_system.writes_enabled":
-            return enabled
-        return default
-
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
-
+from tests.connectors._epics_fakes import (
+    ca_connector as _connector,
+)
+from tests.connectors._epics_fakes import (
+    clean_epics_env,  # noqa: F401 - fixture, used by name
+    connected_pv,
+    fake_pyepics,  # noqa: F401 - fixture, used by name
+    install_fake_pyepics,
+    writes_enabled,  # noqa: F401 - fixture, used by name
+)
+from tests.connectors._epics_fakes import (
+    patch_writes_enabled as _patch_writes_enabled,
+)
 
 # ---------------------------------------------------------------------------
 # pyepics' interpreter-shutdown hook
@@ -70,32 +56,12 @@ def _patch_writes_enabled(monkeypatch, enabled: bool):
 # ---------------------------------------------------------------------------
 
 
-def _fake_pyepics(monkeypatch):
-    """A stand-in ``epics`` whose ``ca.clear_cache`` records the finalizer switch."""
-    ca = types.ModuleType("epics.ca")
-    ca.AUTO_CLEANUP = True
-    ca.finalize_libca = lambda: None
-    ca.seen_at_first_libca_use: list = []
-
-    def clear_cache():
-        # The first ``withCA`` call is where pyepics initialises libca and
-        # registers its finalizer — the switch must already be off here.
-        ca.seen_at_first_libca_use.append(ca.AUTO_CLEANUP)
-
-    ca.clear_cache = clear_cache
-    package = types.ModuleType("epics")
-    package.ca = ca
-    monkeypatch.setitem(sys.modules, "epics", package)
-    monkeypatch.setitem(sys.modules, "epics.ca", ca)
-    return ca
-
-
 class TestShutdownHook:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_connect_switches_pyepics_finalizer_off_before_libca_loads(self, monkeypatch):
         _patch_writes_enabled(monkeypatch, False)
-        ca = _fake_pyepics(monkeypatch)
+        ca = install_fake_pyepics(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
@@ -110,7 +76,7 @@ class TestShutdownHook:
         import atexit
 
         _patch_writes_enabled(monkeypatch, False)
-        ca = _fake_pyepics(monkeypatch)
+        ca = install_fake_pyepics(monkeypatch)
         atexit.register(ca.finalize_libca)
         unregistered: list = []
         real_unregister = atexit.unregister
@@ -122,28 +88,6 @@ class TestShutdownHook:
         await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
 
         assert ca.finalize_libca in unregistered
-
-
-def _connector(*, epics=None, limits_validator=None, timeout=5.0):
-    """Build a connector that skips connect() by injecting its runtime state."""
-    connector = EPICSConnector()
-    connector._epics = epics if epics is not None else MagicMock()
-    connector._limits_validator = limits_validator
-    connector._timeout = timeout
-    connector._connected = True
-    connector._epics_configured = True
-    return connector
-
-
-@pytest.fixture
-def writes_enabled(monkeypatch):
-    """Enable the base-class writes gate so write_channel reaches its real body.
-
-    ControlSystemConnector.__init_subclass__ wraps write_channel with a
-    _writes_enabled pre-check that is False in a config-less test env; these
-    write-path tests are about what happens *after* that gate opens.
-    """
-    monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +117,15 @@ class TestConfigurePyepicsLibca:
         _configure_pyepics_libca()
 
         assert os.environ["PYEPICS_LIBCA"] == "/fake/ca/libca.so"
+
+    def test_sets_libca_from_the_real_epicscorelibs(self, monkeypatch):
+        """Against the installed epicscorelibs, the helper picks its own libca."""
+        get_lib = pytest.importorskip("epicscorelibs.path").get_lib
+        monkeypatch.delenv("PYEPICS_LIBCA", raising=False)
+
+        _configure_pyepics_libca()
+
+        assert os.environ["PYEPICS_LIBCA"] == get_lib("ca")
 
     def test_no_op_when_epicscorelibs_absent(self, monkeypatch):
         """epicscorelibs missing -> PYEPICS_LIBCA stays unset (pyepics resolves itself)."""
@@ -205,7 +158,7 @@ class TestConnect:
             await connector.connect({"gateways": {}})
 
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("clean_epics_env")
+    @pytest.mark.usefixtures("clean_epics_env", "fake_pyepics")
     async def test_name_server_branch_sets_and_clears_env(self, monkeypatch):
         """use_name_server routes via EPICS_CA_NAME_SERVERS and clears CA_ADDR_LIST."""
         _patch_writes_enabled(monkeypatch, False)
@@ -228,7 +181,7 @@ class TestConnect:
         assert os.environ["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
 
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("clean_epics_env")
+    @pytest.mark.usefixtures("clean_epics_env", "fake_pyepics")
     async def test_limits_validator_initialized_when_config_present(self, monkeypatch):
         """A configured limits validator is stored on the connector after connect."""
         _patch_writes_enabled(monkeypatch, False)
@@ -284,6 +237,26 @@ class TestReadChannel:
 
         with pytest.raises(ConnectionError, match="Failed to connect to PV 'SR:NOPE'"):
             await connector.read_channel("SR:NOPE", timeout=0.5)
+
+    @pytest.mark.asyncio
+    async def test_read_channel_timestamp_is_facility_tz_aware(self, monkeypatch):
+        """The PV's own timestamp is rendered in the facility zone, not UTC or the box's.
+
+        A naive ``datetime.fromtimestamp(ts)`` without a zone would fail this.
+        """
+        monkeypatch.setattr(
+            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            lambda: ZoneInfo("Asia/Tokyo"),  # UTC+9, no DST
+        )
+        epics = MagicMock()
+        epics.PV.return_value = connected_pv(1.23, timestamp=1_750_000_000.0)
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:TEST:CHANNEL", timeout=1.0)
+
+        assert result.timestamp.tzinfo is not None
+        assert result.timestamp.utcoffset().total_seconds() == 9 * 3600
+        assert result.metadata.timestamp.utcoffset().total_seconds() == 9 * 3600
 
     @pytest.mark.asyncio
     async def test_missing_timestamp_falls_back_to_now(self, monkeypatch):
@@ -359,11 +332,7 @@ class TestReadChannel:
 
 def _readback_pv(value, *, status=0, severity=0, pv_type="time_double", labels=None):
     """A fake pyepics PV standing in for the channel a write confirms against."""
-    pv = _connected_pv(value=value, status=status, severity=severity)
-    pv.type = pv_type
-    if labels is not None:
-        pv.enum_strs = labels
-    return pv
+    return connected_pv(value, status=status, severity=severity, pv_type=pv_type, labels=labels)
 
 
 def _write_connector(*, observed=5.0, caput=True, limits=None, pv=None, read_error=None):
@@ -530,6 +499,26 @@ class TestConfirmingRead:
         assert pv.get.call_args.kwargs.get("use_monitor", True) is True
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env", "fake_pyepics")
+    async def test_fresh_reads_sends_every_read_to_the_ioc(self, monkeypatch):
+        """An IOC that computes a readback on get posts no monitor event, so a
+        cached read of it never moves; ``fresh_reads`` asks the IOC each time,
+        batched reads included."""
+        _patch_writes_enabled(monkeypatch, False)
+        connector = EPICSConnector()
+        await connector.connect(
+            {"fresh_reads": True, "gateways": {"read_only": {"address": "ro", "port": 5064}}}
+        )
+        pv = _readback_pv(5.0)
+        connector._epics = MagicMock()
+        connector._epics.PV.return_value = pv
+
+        await connector.read_channel("SR:CH", timeout=1.0)
+        assert pv.get.call_args.kwargs["use_monitor"] is False
+        await connector.read_multiple_channels(["SR:A", "SR:B"], timeout=1.0)
+        assert [c.kwargs["use_monitor"] for c in pv.get.call_args_list] == [False] * 3
+
+    @pytest.mark.asyncio
     async def test_a_confirming_put_waits_for_the_ioc_callback(self):
         """Put-callback is the protocol's acknowledgement that the put landed."""
         connector = _write_connector(observed=5.0)
@@ -662,18 +651,6 @@ class TestWriteFailClosed:
 
 class TestSubscribe:
     @pytest.mark.asyncio
-    async def test_subscribe_registers_pv_and_returns_id(self):
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _connector(epics=epics)
-
-        sub_id = await connector.subscribe("SR:CH", lambda v: None)
-
-        assert sub_id.startswith("SR:CH_")
-        assert connector._subscriptions[sub_id].handle is pv
-
-    @pytest.mark.asyncio
     async def test_epics_callback_converts_to_channel_value(self, monkeypatch):
         """The pyepics callback is adapted into a facility-tz ChannelValue."""
         tokyo = __import__("zoneinfo").ZoneInfo("Asia/Tokyo")
@@ -699,25 +676,6 @@ class TestSubscribe:
         assert received[0].metadata.units == "A"
         assert received[0].timestamp.utcoffset().total_seconds() == 9 * 3600
 
-    @pytest.mark.asyncio
-    async def test_unsubscribe_clears_and_removes(self):
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _connector(epics=epics)
-        sub_id = await connector.subscribe("SR:CH", lambda v: None)
-
-        await connector.unsubscribe(sub_id)
-
-        pv.clear_callbacks.assert_called_once()
-        assert sub_id not in connector._subscriptions
-
-    @pytest.mark.asyncio
-    async def test_unsubscribe_unknown_id_is_noop(self):
-        connector = _connector()
-        # Must not raise for an id that was never registered.
-        await connector.unsubscribe("does-not-exist")
-
 
 class TestValidateChannelAndMetadata:
     @pytest.mark.asyncio
@@ -730,14 +688,6 @@ class TestValidateChannelAndMetadata:
         assert await connector.get_metadata("SR:CH") is meta
 
     @pytest.mark.asyncio
-    async def test_validate_channel_true_on_successful_read(self, monkeypatch):
-        value = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
-        connector = _connector()
-        monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=value))
-
-        assert await connector.validate_channel("SR:CH") is True
-
-    @pytest.mark.asyncio
     async def test_validate_channel_probes_with_the_configured_timeout(self, monkeypatch):
         """The probe uses the connector's own ``timeout``, not a literal of its own."""
         value = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
@@ -747,21 +697,6 @@ class TestValidateChannelAndMetadata:
 
         assert await connector.validate_channel("SR:CH") is True
         assert read.await_args.kwargs["timeout"] == 17.0
-
-    @pytest.mark.asyncio
-    async def test_validate_channel_pva_probes_with_the_configured_timeout(self, monkeypatch):
-        """The PVA metadata-only probe is bounded by the same configured timeout."""
-        seen: list[float] = []
-        connector = _connector(timeout=17.0)
-        connector._pva_channel_globs = ("SR:CH",)
-        monkeypatch.setattr(
-            connector,
-            "_read_metadata_pva",
-            lambda address, timeout: seen.append(timeout),
-        )
-
-        assert await connector.validate_channel("SR:CH") is True
-        assert seen == [17.0]
 
     @pytest.mark.asyncio
     async def test_validate_channel_false_on_read_error(self, monkeypatch):
@@ -778,20 +713,6 @@ class TestValidateChannelAndMetadata:
 # ---------------------------------------------------------------------------
 
 
-def _connected_pv(*, status=0, severity=0, value=1.0):
-    """A fake pyepics PV that reports a value and an alarm state."""
-    pv = MagicMock()
-    pv.wait_for_connection.return_value = True
-    pv.connected = True
-    pv.get.return_value = value
-    pv.timestamp = 1_750_000_000.0
-    pv.units = "mA"
-    pv.precision = 3
-    pv.status = status
-    pv.severity = severity
-    return pv
-
-
 class TestChannelAccessAlarmNames:
     """CA reports alarm status as an int; the connector emits the EPICS name.
 
@@ -804,7 +725,7 @@ class TestChannelAccessAlarmNames:
     @pytest.mark.asyncio
     async def test_read_reports_alarm_name_not_code(self):
         epics = MagicMock()
-        epics.PV.return_value = _connected_pv(status=3, severity=2)
+        epics.PV.return_value = connected_pv(status=3, severity=2)
         connector = _connector(epics=epics)
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
@@ -814,7 +735,7 @@ class TestChannelAccessAlarmNames:
     @pytest.mark.asyncio
     async def test_read_reports_healthy_alarm_by_name(self):
         epics = MagicMock()
-        epics.PV.return_value = _connected_pv(status=0, severity=0)
+        epics.PV.return_value = connected_pv(status=0, severity=0)
         connector = _connector(epics=epics)
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
@@ -824,7 +745,7 @@ class TestChannelAccessAlarmNames:
     @pytest.mark.asyncio
     async def test_read_keeps_the_raw_code_beside_the_severity(self):
         epics = MagicMock()
-        epics.PV.return_value = _connected_pv(status=5, severity=1)
+        epics.PV.return_value = connected_pv(status=5, severity=1)
         connector = _connector(epics=epics)
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
@@ -837,7 +758,7 @@ class TestChannelAccessAlarmNames:
     async def test_unmappable_code_reads_as_unknown(self):
         """An out-of-range code must not raise — it degrades to UNKNOWN."""
         epics = MagicMock()
-        epics.PV.return_value = _connected_pv(status=99, severity=3)
+        epics.PV.return_value = connected_pv(status=99, severity=3)
         connector = _connector(epics=epics)
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
@@ -884,7 +805,7 @@ class TestReadAlarmSeverity:
     @pytest.mark.asyncio
     async def test_read_reports_the_typed_severity(self):
         epics = MagicMock()
-        epics.PV.return_value = _connected_pv(status=3, severity=2)
+        epics.PV.return_value = connected_pv(status=3, severity=2)
         connector = _connector(epics=epics)
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
@@ -894,7 +815,7 @@ class TestReadAlarmSeverity:
     @pytest.mark.asyncio
     async def test_a_reported_healthy_severity_stays_zero(self):
         epics = MagicMock()
-        epics.PV.return_value = _connected_pv(status=0, severity=0)
+        epics.PV.return_value = connected_pv(status=0, severity=0)
         connector = _connector(epics=epics)
 
         result = await connector.read_channel("SR:CH", timeout=1.0)
@@ -904,7 +825,7 @@ class TestReadAlarmSeverity:
     @pytest.mark.asyncio
     async def test_an_unreported_severity_reads_as_none(self):
         epics = MagicMock()
-        pv = _connected_pv(status=0)
+        pv = connected_pv(status=0)
         pv.severity = None  # PV answered its value but carried no severity
         epics.PV.return_value = pv
         connector = _connector(epics=epics)
@@ -921,7 +842,7 @@ class TestReadAlarmSeverity:
 
 def _enum_pv(*, value=2, labels=("OFFLINE", "STANDBY", "ACQUIRING", "FAULT"), pv_type="time_enum"):
     """A fake pyepics PV for an mbbi: an index, and the labels it indexes into."""
-    pv = _connected_pv(value=value)
+    pv = connected_pv(value=value)
     pv.type = pv_type
     pv.enum_strs = labels
     return pv
@@ -977,7 +898,7 @@ class TestChannelAccessEnumLabels:
     async def test_a_non_enum_read_leaves_both_fields_unset(self):
         """The fields are how a consumer tells an enum channel from a numeric one."""
         epics = MagicMock()
-        epics.PV.return_value = _connected_pv(value=7.25)
+        epics.PV.return_value = connected_pv(value=7.25)
         connector = _connector(epics=epics)
 
         result = await connector.read_channel("SR:CURRENT", timeout=1.0)

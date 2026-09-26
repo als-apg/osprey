@@ -13,13 +13,7 @@ from unittest.mock import patch
 
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
-
-
-def _config_with_writes_enabled(key, default=None):
-    """Config lookup that enables writes and leaves everything else defaulted."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
+from tests.connectors._write_fakes import writes_enabled_config
 
 
 def _write_limits_db(tmp_path, limits_db):
@@ -66,9 +60,7 @@ async def _connected_mock(monkeypatch, limits_file=None, **extra):
     Noise off is what makes the assertions about the *outcome* rather than the
     mock's synthetic jitter; the confirming read is noise-free either way.
     """
-    config = (
-        _config_with_writes_enabled if limits_file is None else _limits_config(limits_file, **extra)
-    )
+    config = writes_enabled_config if limits_file is None else _limits_config(limits_file, **extra)
     monkeypatch.setattr("osprey.utils.config.get_config_value", config)
 
     connector = MockConnector()
@@ -130,7 +122,10 @@ class TestConfirmResolution:
         await connector.disconnect()
 
     async def test_channel_entry_beats_the_defaults_block(self, tmp_path, monkeypatch):
-        """Layer 1: one channel's entry overrides the block, in both directions."""
+        """Layer 1: one channel's entry opts in over a declining block.
+
+        The other direction is the next test.
+        """
         limits_file = _write_limits_db(
             tmp_path,
             {

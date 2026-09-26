@@ -32,6 +32,10 @@ from osprey.connectors.control_system.va_connector import (
     VirtualAcceleratorConnector,
     fill_gateway_ports,
 )
+from tests.connectors._epics_fakes import (  # noqa: F401 - fixtures, used by name
+    clean_epics_env,
+    fake_pyepics,
+)
 
 CONTROL_ASSISTANT_PRESET = "control-assistant"
 PRESET_PATH = "profiles/presets/control-assistant.yml"
@@ -291,6 +295,7 @@ async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, mon
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("clean_epics_env", "fake_pyepics")
 async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeypatch) -> None:
     """A production EPICS gateway is external infrastructure — it must not move.
 
@@ -307,8 +312,6 @@ async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeyp
         return default
 
     monkeypatch.setattr(config_module, "get_config_value", fake_get_config_value)
-    for var in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CA_NAME_SERVERS"):
-        monkeypatch.delenv(var, raising=False)
 
     connector = EPICSConnector()
     await connector.connect({"gateways": {"read_only": {"address": "gw.example.org"}}})

@@ -425,7 +425,7 @@ def test_store_permits_takes_only_a_target():
 
 
 def test_store_permits_is_the_clause_effective_writes_uses(data_root):
-    """Same function, not a copy — a divergence here is a divergence there."""
+    """The clause refuses → the rule refuses; the clause permits → the ceiling decides."""
     _write_record(data_root, {"live": "sandbox"})
 
     # The clause alone refuses; the whole rule refuses for the same reason.
@@ -847,7 +847,6 @@ def test_store_verdict_takes_a_target_and_an_owner():
     the only question a container holding every identity's records can ask.
     """
     assert list(inspect.signature(posture_store.store_verdict).parameters) == ["target", "owner"]
-    assert list(inspect.signature(posture_store.store_permits).parameters) == ["target"]
 
 
 @pytest.mark.usefixtures("data_root")
@@ -1027,29 +1026,6 @@ def test_without_a_tree_bind_the_host_record_decides(data_root, monkeypatch):
     assert posture_store.store_verdict("live", "alice") is posture_store.StoreVerdict.NARROWING
 
 
-def test_store_permits_is_the_verdict_by_another_name(data_root, monkeypatch):
-    """One rule, two spellings — the bool is the enum compared against PERMITTED."""
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
-    for pin, posture, expected in (
-        (None, None, posture_store.StoreVerdict.PERMITTED),
-        (None, {"live": "sandbox"}, posture_store.StoreVerdict.NARROWING),
-        ("*=sandbox", None, posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE),
-    ):
-        if pin is None:
-            monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-        else:
-            monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, pin)
-        if posture is not None:
-            _write_record(data_root, posture)
-        posture_store.invalidate_cache()
-
-        verdict = posture_store.store_verdict("live")
-        assert verdict is expected, (pin, posture)
-        assert posture_store.store_permits("live") is (
-            verdict is posture_store.StoreVerdict.PERMITTED
-        ), (pin, posture)
-
-
 @pytest.mark.usefixtures("data_root")
 def test_a_raising_host_reader_still_leaves_the_ceiling_in_charge(monkeypatch):
     """The host rung keeps its fail-open; only the tree rung refuses on a bad read."""
@@ -1113,7 +1089,12 @@ def test_a_padded_owner_addresses_the_same_record(bound_tree):
     assert posture_store.store_verdict("live", "alice ") is posture_store.StoreVerdict.NARROWING
 
 
-def test_a_bind_that_is_set_but_unusable_refuses(monkeypatch, caplog):
+@pytest.mark.parametrize(
+    "bind",
+    ["control_target", "~nosuchuser0/control_target"],
+    ids=["relative", "unknown-user"],
+)
+def test_a_bind_that_is_set_but_unusable_refuses(bind, monkeypatch, caplog):
     """A bind is bound or it is not — one answer, so it cannot be a tree here and a host there.
 
     A relative path, or one through a ``~user`` this container has no passwd
@@ -1129,17 +1110,16 @@ def test_a_bind_that_is_set_but_unusable_refuses(monkeypatch, caplog):
     monkeypatch.setattr(posture_store, "recorded_posture", _boom)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
 
-    for bind in ("control_target", "~nosuchuser0/control_target"):
-        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, bind)
-        # One spelling of the question: the owner ladder calls this a container
-        # holding the tree, and the verdict must not call it a host.
-        assert posture_store.current_owner() is posture_store.NO_OWNER, bind
-        with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
-            assert (
-                posture_store.store_verdict("live", "alice")
-                is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
-            ), bind
-        assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in caplog.text
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, bind)
+    # One spelling of the question: the owner ladder calls this a container
+    # holding the tree, and the verdict must not call it a host.
+    assert posture_store.current_owner() is posture_store.NO_OWNER
+    with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
+        assert (
+            posture_store.store_verdict("live", "alice")
+            is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        )
+    assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in caplog.text
 
 
 def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
@@ -1207,16 +1187,6 @@ def test_a_permitted_or_narrowed_answer_carries_no_reason(bound_tree):
 
     assert permitted == (posture_store.StoreVerdict.PERMITTED, None)
     assert narrowing == (posture_store.StoreVerdict.NARROWING, None)
-
-
-def test_the_verdict_is_the_detail_by_another_name(bound_tree):
-    """Two spellings of one read: the bool consumers keep the short one."""
-    _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
-
-    for target in ("live", "va", None):
-        assert posture_store.store_verdict(target, "alice") is (
-            posture_store.store_verdict_detail(target, "alice").verdict
-        )
 
 
 def test_one_record_read_per_verdict(bound_tree, monkeypatch):

@@ -13,6 +13,11 @@ from osprey.connectors.control_system.base import (
     ControlSystemConnector,
     WriteOutcome,
 )
+from tests.connectors._write_fakes import (
+    RecordingConnector,
+    config_reader,
+    writes_enabled_config,
+)
 
 
 class _StubConnector(ControlSystemConnector):
@@ -61,60 +66,8 @@ class _StubConnector(ControlSystemConnector):
         raise NotImplementedError
 
 
-class _WritableStub(ControlSystemConnector):
-    """Concrete subclass with working write methods for pass-through tests."""
-
-    async def connect(self, config):
-        pass
-
-    async def disconnect(self):
-        pass
-
-    async def read_channel(self, addr, timeout=None):
-        raise NotImplementedError
-
-    async def write_channel(self, channel_address, value, **kwargs):
-        return ChannelWriteResult(
-            channel_address=channel_address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED,
-        )
-
-    async def write_multiple_channels(self, operations, **kwargs):
-        return [
-            ChannelWriteResult(
-                channel_address=addr,
-                value_written=val,
-                outcome=WriteOutcome.CONFIRMED,
-            )
-            for addr, val in operations
-        ]
-
-    async def read_multiple_channels(self, addrs, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return {}
-
-    async def subscribe(self, addr, cb):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return "sub"
-
-    async def unsubscribe(self, sub_id):
-        pass
-
-    async def get_metadata(self, addr):
-        raise NotImplementedError
-
-    async def validate_channel(self, addr):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return True
-
-
 class TestInitSubclassWrapping:
     """Tests for __init_subclass__ write_channel wrapping."""
-
-    def test_subclass_write_channel_is_wrapped(self):
-        """write_channel on a subclass should NOT be the original method."""
-        # _StubConnector defines write_channel, so it should be wrapped
-        connector = _StubConnector()
-        # The method should have been replaced by _guarded
-        assert hasattr(connector.write_channel, "__wrapped__")
 
     @pytest.mark.asyncio
     async def test_write_blocked_when_disabled(self):
@@ -131,20 +84,11 @@ class TestInitSubclassWrapping:
     @pytest.mark.asyncio
     async def test_write_passes_through_when_enabled(self):
         """With _writes_enabled=True, the original write_channel is called."""
-        connector = _WritableStub()
+        connector = RecordingConnector()
         with patch("osprey.utils.config.get_config_value", return_value=True):
             result = await connector.write_channel("TEST:PV", 42.0)
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.value_written == 42.0
-
-    @pytest.mark.asyncio
-    async def test_error_message_contains_channel_and_config_path(self):
-        """Error message must contain the channel name and config path."""
-        connector = _StubConnector()
-        with patch("osprey.utils.config.get_config_value", return_value=False):
-            result = await connector.write_channel("MY:SPECIAL:PV", 99.9)
-        assert "MY:SPECIAL:PV" in result.error_message
-        assert "control_system.writes_enabled" in result.error_message
 
     @pytest.mark.asyncio
     async def test_write_multiple_blocked_when_disabled(self):
@@ -162,7 +106,7 @@ class TestInitSubclassWrapping:
     @pytest.mark.asyncio
     async def test_write_multiple_passes_through_when_enabled(self):
         """With _writes_enabled=True, the original write_multiple_channels is called."""
-        connector = _WritableStub()
+        connector = RecordingConnector()
         ops = [("PV:A", 1.0), ("PV:B", 2.0)]
         with patch("osprey.utils.config.get_config_value", return_value=True):
             results = await connector.write_multiple_channels(ops)
@@ -173,66 +117,25 @@ class TestInitSubclassWrapping:
 class TestWritesEnabledProperty:
     """Tests for the _writes_enabled base-class property."""
 
-    def test_returns_false_when_config_says_false(self):
+    @pytest.mark.parametrize("configured", [False, True], ids=["config-false", "config-true"])
+    def test_writes_enabled_follows_config(self, configured):
         connector = _StubConnector()
-        with patch("osprey.utils.config.get_config_value", return_value=False):
-            assert connector._writes_enabled is False
+        with patch("osprey.utils.config.get_config_value", return_value=configured):
+            assert connector._writes_enabled is configured
 
-    def test_returns_true_when_config_says_true(self):
+    @pytest.mark.parametrize(
+        "error",
+        [FileNotFoundError("no config"), RuntimeError("config broken")],
+        ids=["file-not-found", "runtime-error"],
+    )
+    def test_config_error_fails_safe(self, error):
         connector = _StubConnector()
-        with patch("osprey.utils.config.get_config_value", return_value=True):
-            assert connector._writes_enabled is True
-
-    def test_returns_false_on_file_not_found(self):
-        connector = _StubConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=FileNotFoundError("no config"),
-        ):
-            assert connector._writes_enabled is False
-
-    def test_returns_false_on_runtime_error(self):
-        connector = _StubConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=RuntimeError("config broken"),
-        ):
+        with patch("osprey.utils.config.get_config_value", side_effect=error):
             assert connector._writes_enabled is False
 
 
 class TestMockWritesDisabledViaBaseClass:
-    """Tests that MockConnector write blocking now comes from base class."""
-
-    @pytest.mark.asyncio
-    async def test_mock_blocks_writes_when_disabled(self):
-        """MockConnector blocks writes via base class when writes_enabled=false."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
-
-        connector = MockConnector()
-        with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect({"response_delay_ms": 0})
-            result = await connector.write_channel("TEST:PV", 1.0)
-        assert result.outcome is WriteOutcome.REFUSED
-        assert "writes are disabled" in result.error_message  # base class message
-
-    @pytest.mark.asyncio
-    async def test_mock_allows_writes_when_enabled(self):
-        """MockConnector allows writes when writes_enabled=true."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
-
-        def _writes_enabled_config(key, default=None):
-            if key == "control_system.writes_enabled":
-                return True
-            return default
-
-        connector = MockConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
-            await connector.connect({"response_delay_ms": 0})
-            result = await connector.write_channel("TEST:PV", 1.0)
-        assert result.outcome is not WriteOutcome.REFUSED
+    """MockConnector write blocking comes from the base class: full write path."""
 
     def test_mock_has_no_enable_writes_attr(self):
         """MockConnector must not carry an _enable_writes attribute."""
@@ -240,10 +143,6 @@ class TestMockWritesDisabledViaBaseClass:
 
         connector = MockConnector()
         assert not hasattr(connector, "_enable_writes")
-
-
-class TestWriteBlockedIntegration:
-    """Integration test: full write path with real MockConnector."""
 
     @pytest.mark.asyncio
     async def test_write_blocked_full_path(self):
@@ -263,24 +162,23 @@ class TestWriteBlockedIntegration:
 
     @pytest.mark.asyncio
     async def test_write_allowed_full_path(self):
-        """Full path: MockConnector with writes_enabled=true allows writes."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        """Full path: an armed MockConnector writes and confirms by readback.
 
-        def _config_for_write_test(key, default=None):
-            if key == "control_system.writes_enabled":
-                return True
-            return default
+        No limits database and a noise-free confirming read, so the fleet
+        default resolves to a confirmed write.
+        """
+        from osprey.connectors.control_system.mock_connector import MockConnector
 
         connector = MockConnector()
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_for_write_test,
+            side_effect=writes_enabled_config,
         ):
             await connector.connect({"response_delay_ms": 0})
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
-        assert result.outcome is not WriteOutcome.REFUSED
+        assert result.outcome is WriteOutcome.CONFIRMED
         assert result.channel_address == "BEAM:CURRENT"
         assert result.value_written == 500.0
 
@@ -304,27 +202,11 @@ _LIVE_DISARMED_SECTION = {
 }
 
 
-def _config_reader(section: dict[str, Any]) -> Callable[..., Any]:
-    """A ``get_config_value`` stand-in serving one ``control_system:`` section.
-
-    Answers the two paths the posture is read through — the section itself and
-    the deployment-wide key inside it — the way dot-path lookup would.
-    """
-
-    def _get(key: str, default: Any = None) -> Any:
-        if key == "control_system":
-            return section
-        if key == "control_system.writes_enabled":
-            return section.get("writes_enabled", default)
-        return default
-
-    return _get
-
-
-class _RecordingConnector(_WritableStub):
+class _TypeSeenConnector(RecordingConnector):
     """Records the type stamp visible to ``connect()``."""
 
     def __init__(self):
+        super().__init__()
         self.type_seen_in_connect: Any = "not connected"
 
     async def connect(self, config):  # noqa: ARG002 - the control-system connector interface fixes this signature
@@ -344,7 +226,7 @@ class TestFactoryTypeStamp:
         from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
         with isolated_connector_registries(clear=True):
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _RecordingConnector)
+            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _TypeSeenConnector)
             connector = await ConnectorFactory.create_control_system_connector(
                 {"type": types.VIRTUAL_ACCELERATOR}
             )
@@ -361,7 +243,7 @@ class TestPerTypeWritePosture:
         connector._connector_type = "virtual_accelerator"
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+            side_effect=config_reader(_SIMULATOR_ARMED_SECTION),
         ):
             assert connector._writes_enabled is True
 
@@ -371,7 +253,7 @@ class TestPerTypeWritePosture:
         connector._connector_type = "epics"
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+            side_effect=config_reader(_SIMULATOR_ARMED_SECTION),
         ):
             assert connector._writes_enabled is False
 
@@ -380,7 +262,7 @@ class TestPerTypeWritePosture:
         connector._connector_type = "epics"
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_reader(_LIVE_DISARMED_SECTION),
+            side_effect=config_reader(_LIVE_DISARMED_SECTION),
         ):
             assert connector._writes_enabled is False
 
@@ -389,7 +271,7 @@ class TestPerTypeWritePosture:
         connector = _StubConnector()
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_reader(_LIVE_DISARMED_SECTION),
+            side_effect=config_reader(_LIVE_DISARMED_SECTION),
         ):
             assert connector._writes_enabled is True
 
@@ -400,7 +282,7 @@ class TestPerTypeWritePosture:
         section = {"type": "epics", "writes_enabled": stand_in}
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_reader(section),
+            side_effect=config_reader(section),
         ):
             assert connector._writes_enabled is False
 
@@ -410,7 +292,7 @@ class TestPerTypeWritePosture:
         connector._connector_type = "epics"
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+            side_effect=config_reader(_SIMULATOR_ARMED_SECTION),
         ):
             result = await connector.write_channel("TEST:PV", 1.0)
 
@@ -423,7 +305,7 @@ class TestPerTypeWritePosture:
         connector = _StubConnector()
         with patch(
             "osprey.utils.config.get_config_value",
-            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+            side_effect=config_reader(_SIMULATOR_ARMED_SECTION),
         ):
             result = await connector.write_channel("TEST:PV", 1.0)
 

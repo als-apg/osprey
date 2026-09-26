@@ -24,14 +24,25 @@ time in the parent — turning a refusal into a fabricated failure result
 manufactured on this side of the boundary rather than the real one from the
 child, and silently coupling the answer to whichever config the parent happens
 to hold. Subclassing would also drag in ``connect()``, ``subscribe()``,
-``unsubscribe()``, ``get_metadata()`` and ``validate_channel()`` as abstract
-members the proxy has no wire method for. Mirroring the signatures gives tools
+``unsubscribe()`` and ``get_metadata()`` as abstract members the proxy has no
+wire method for. Mirroring the signatures gives tools
 substitutability; not inheriting keeps enforcement in exactly one place. A test
 compares the signatures parameter-by-parameter so the mirror cannot drift.
 
 ``subscribe`` is absent on purpose: nothing in the codebase calls it, and a
 proxy method that could not deliver callbacks across the boundary would be a
 lie about the surface.
+
+``write_channel_checked`` is the one method that is not a wire method. It is
+the base class's own function, bound here unchanged: it only composes
+``write_channel`` — which crosses to the child, where the ``writes_enabled``
+guard and the limits checks run — with
+:func:`~osprey_connectors.control_system.base.raise_for_write_result`, which
+reads the result the child already decided. Running that composition in the
+parent keeps every refusal decision in the child while letting a
+``ChannelWriteFailedError`` reach the caller typed; raised in the child, that
+class is outside the IPC exception registry and would cross as a bare
+``ConnectionError``.
 
 Concurrency
 -----------
@@ -47,6 +58,16 @@ any other reason ends the proxy: every outstanding call completes with a
 :class:`ConnectionError` naming the connector-host child as the cause, and
 every later call raises the same. A dead proxy never revives — starting a
 fresh child and a fresh proxy is the supervisor's job, not this object's.
+:attr:`ConnectorHostProxy.dead_reason` says whether that has happened, which
+is how a supervisor tells a dead child from a ``ConnectionError`` the connector
+itself raised and the child relayed.
+
+A call the child does not answer in time fails with
+:class:`ChildUnresponsiveError` — a :class:`TimeoutError`, because that is what
+it is, so a generic timeout handler such as the MCP tool error mapping treats it
+as one — and leaves the proxy usable. The deadline is the call's own
+``timeout`` plus ``timeout_grace_s``, or ``deadline_s`` for a call that named
+no timeout. That the child may be wedged is the supervisor's call to make.
 
 Draining, for the target switch
 -------------------------------
@@ -64,10 +85,14 @@ import contextlib
 import logging
 from typing import Any
 
-from osprey_connectors.control_system.base import ChannelValue, ChannelWriteResult
+from osprey_connectors.control_system.base import (
+    ChannelValue,
+    ChannelWriteResult,
+    ControlSystemConnector,
+)
 from osprey_connectors.ipc import frames
 
-__all__ = ["CHILD", "ConnectorHostProxy"]
+__all__ = ["CHILD", "ChildUnresponsiveError", "ConnectorHostProxy", "raised_by_child"]
 
 logger = logging.getLogger("osprey_connectors.ipc.proxy")
 
@@ -78,6 +103,45 @@ CHILD = "connector-host child"
 #: Read size for the pipe. A frame is reassembled by ``frames.FrameReader``, so
 #: this only trades syscalls against buffer size.
 _READ_CHUNK = 65536
+
+
+#: Attribute set on an exception decoded from the child's own error frame.
+_FROM_CHILD = "_osprey_raised_by_child"
+
+
+def raised_by_child(exc: BaseException) -> bool:
+    """Whether *exc* is an error the child sent, rather than one this proxy made.
+
+    A :class:`ConnectionError` can mean two opposite things to a caller: the
+    connector in a healthy child could not reach a channel, or the child itself
+    is gone. The first arrives in an error frame and is marked here as it is
+    decoded; the second is manufactured by this proxy when the pipe ends. A
+    supervisor classifies by this mark, never by whatever state the proxy is
+    in when the caller happens to resume.
+    """
+    return bool(getattr(exc, _FROM_CHILD, False))
+
+
+def _consume_exception(future: asyncio.Future[Any]) -> None:
+    """Mark a finished future's exception as retrieved.
+
+    A reply future outlives its caller whenever the caller stopped waiting —
+    a local deadline, a disconnect that gave up on its acknowledgement — and a
+    later failure of that future is then an exception nobody will ever read.
+    asyncio logs those at ERROR; for a future the caller has already been
+    answered about, that log is noise, not news.
+    """
+    if not future.cancelled():
+        future.exception()
+
+
+class ChildUnresponsiveError(TimeoutError):
+    """The child did not answer a request before the proxy's own deadline.
+
+    Distinct from a :class:`TimeoutError` the child reported — that one means
+    the control-system call timed out in a child that is still answering. This
+    one means the child itself said nothing in time, so it may be wedged.
+    """
 
 
 class ConnectorHostProxy:
@@ -97,6 +161,10 @@ class ConnectorHostProxy:
             ``TimeoutError``, which is the more informative one; the local
             deadline exists only so a wedged child cannot hang a caller
             forever. Set it to ``0`` to make the local deadline the only one.
+        deadline_s: Local deadline for a call whose ``timeout`` is ``None``.
+            Never sent to the child — the connector keeps its own default — and
+            ``None`` (the default) means such a call waits as long as the child
+            takes.
 
     The transport is duck-typed rather than a subprocess handle so tests can
     drive the proxy over a socketpair, and so the supervisor can hand it a
@@ -110,10 +178,12 @@ class ConnectorHostProxy:
         writer: Any,
         *,
         timeout_grace_s: float = 1.0,
+        deadline_s: float | None = None,
     ) -> None:
         self._reader = reader
         self._writer = writer
         self._timeout_grace_s = timeout_grace_s
+        self._deadline_s = deadline_s
         self._pending: dict[str, asyncio.Future[Any]] = {}
         self._reader_task: asyncio.Task[None] | None = None
         #: Set once the pipe is gone; every later call repeats it.
@@ -134,6 +204,16 @@ class ConnectorHostProxy:
                 f"the {CHILD} must be spawned with stdin and stdout pipes for the proxy to use"
             )
         return cls(process.stdout, process.stdin, **kwargs)
+
+    @property
+    def dead_reason(self) -> str | None:
+        """Why the proxy is dead, or ``None`` while the child is still answering.
+
+        Set once the pipe to the child is gone for good — end of stream, an
+        unreadable stream, a failed write, or :meth:`disconnect` — and never
+        cleared. A refusal from :meth:`refuse_new_requests` is not death.
+        """
+        return self._dead_reason
 
     # ------------------------------------------------------------------
     # Connector call surface (signatures mirror ControlSystemConnector)
@@ -207,6 +287,16 @@ class ConnectorHostProxy:
         }
         return await self._call("write_multiple_channels", _with_confirm(kwargs, confirm), timeout)
 
+    #: The base class's own function, not a copy: see the module docstring.
+    write_channel_checked = ControlSystemConnector.write_channel_checked
+
+    async def validate_channel(self, channel_address: str) -> bool:
+        """Whether the channel exists and is reachable, as the child's connector sees it."""
+        valid: bool = await self._call(
+            "validate_channel", {"channel_address": channel_address}, timeout=None
+        )
+        return valid
+
     async def disconnect(self, *, ack_timeout: float = 2.0) -> None:
         """Ask the child to release its connector, then close the pipe.
 
@@ -230,10 +320,31 @@ class ConnectorHostProxy:
                 future = self._register(request_id)
                 self._ensure_reader_task()
                 await self._send(frames.encode_request(request_id, "disconnect", {}))
-                await asyncio.wait_for(asyncio.shield(future), ack_timeout)
+                # asyncio.wait, not wait_for(shield(...)): it leaves the future
+                # alone on timeout, where a cancelled shield would log the
+                # failure the reader later sets on it as an unhandled error.
+                await asyncio.wait({future}, timeout=max(ack_timeout, 0.0))
             self._pending.pop(request_id, None)
 
         await self._shutdown(f"the {CHILD} was disconnected before this request completed")
+
+    # ------------------------------------------------------------------
+    # Supervisor surface
+    # ------------------------------------------------------------------
+
+    async def supervisor_request(self, method: str, kwargs: dict[str, Any], timeout: float) -> Any:
+        """Send one supervisor request (``init``, ``ping``) and await its reply.
+
+        Not part of the connector surface: a supervisor that brings a child up
+        over this proxy's pipes, or asks whether it is still alive, uses this,
+        so the reply is demultiplexed and its error decoded by the same
+        plumbing every other call uses. A typed error frame is raised as its
+        real class (and :func:`raised_by_child` says so); a child that dies
+        before answering fails the call with a ``ConnectionError`` this proxy
+        made; no answer within ``timeout`` plus the grace raises
+        :class:`ChildUnresponsiveError`.
+        """
+        return await self._call(method, kwargs, timeout=timeout)
 
     # ------------------------------------------------------------------
     # Handoff surface consumed by the runtime target switch
@@ -291,22 +402,24 @@ class ConnectorHostProxy:
     async def _await_reply(
         self, future: asyncio.Future[Any], method: str, timeout: float | None
     ) -> Any:
-        if timeout is None:
+        if timeout is not None:
+            deadline = timeout + max(self._timeout_grace_s, 0.0)
+        elif self._deadline_s is not None:
+            deadline = self._deadline_s
+        else:
             return await future
-        try:
-            return await asyncio.wait_for(
-                asyncio.shield(future), timeout + max(self._timeout_grace_s, 0.0)
-            )
-        except TimeoutError:
-            # A TimeoutError with the future still pending is *our* deadline; one
-            # with the future resolved is the child's own, which is the better
-            # error and is re-raised untouched.
-            if future.done():
-                raise
-            raise TimeoutError(f"the {CHILD} did not answer {method!r} within {timeout}s") from None
+        # asyncio.wait never cancels or wraps the future, so a reply that lands
+        # at the deadline is still the answer — a result, or the child's own
+        # error, which is the better one — and a future abandoned here can be
+        # failed later without asyncio logging it as unhandled.
+        await asyncio.wait({future}, timeout=deadline)
+        if future.done():
+            return future.result()
+        raise ChildUnresponsiveError(f"the {CHILD} did not answer {method!r} within {deadline}s")
 
     def _register(self, request_id: str) -> asyncio.Future[Any]:
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+        future.add_done_callback(_consume_exception)
         self._pending[request_id] = future
         return future
 
@@ -347,8 +460,13 @@ class ConnectorHostProxy:
             # its stream ended — the supervisor's reader does exactly that when
             # it kills a child for a target switch. That sentence is better than
             # anything this layer could write about it, so it is passed through
-            # verbatim rather than wrapped in a description of the stream.
-            await self._fail_all(str(exc) or f"the {CHILD} closed its output stream")
+            # verbatim rather than wrapped in a description of the stream. An
+            # OS-level failure (errno set, e.g. ECONNRESET) names no one, so it
+            # is attributed to the child here.
+            if exc.errno is None and str(exc):
+                await self._fail_all(str(exc))
+            else:
+                await self._fail_all(f"the {CHILD}'s output stream failed: {exc}")
         except Exception as exc:
             await self._fail_all(f"the {CHILD} sent an unreadable reply stream: {exc}")
 
@@ -369,7 +487,10 @@ class ConnectorHostProxy:
             # decode_frame already ran the typed-exception registry, so this is
             # the real class with its fields, or a ConnectionError standing in
             # for a class this build does not know.
-            future.set_exception(frame.exception)
+            exception = frame.exception
+            with contextlib.suppress(AttributeError, TypeError):
+                setattr(exception, _FROM_CHILD, True)
+            future.set_exception(exception)
         else:
             future.set_result(frame.value)
 

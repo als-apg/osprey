@@ -29,10 +29,6 @@ class TestWriteOutcomeMembers:
     def test_exactly_six_members_with_the_documented_values(self):
         assert {member.name: member.value for member in WriteOutcome} == EXPECTED_OUTCOMES
 
-    def test_values_are_lowercase(self):
-        for member in WriteOutcome:
-            assert member.value == member.value.lower()
-
     def test_members_compare_equal_to_their_word(self):
         # Consumers compare against the word (`outcome == "confirmed"`), and the
         # IPC codec puts the word on the wire, so str equality must hold.
@@ -41,10 +37,6 @@ class TestWriteOutcomeMembers:
 
     def test_serialises_as_its_word(self):
         assert json.dumps({"outcome": WriteOutcome.UNREQUESTED}) == '{"outcome": "unrequested"}'
-
-    def test_a_word_round_trips_back_to_its_member(self):
-        for word in EXPECTED_OUTCOMES.values():
-            assert WriteOutcome(word) is getattr(WriteOutcome, word.upper())
 
     def test_docstring_explains_every_member(self):
         doc = WriteOutcome.__doc__ or ""

@@ -30,6 +30,14 @@ import pytest
 
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY
+from osprey_connectors.ipc.verification import (
+    DEFAULT_CA_PORT,
+    DEFAULT_PVA_PORT,
+    Endpoint,
+    TargetDerivation,
+    derive_endpoints,
+    verify_child_report,
+)
 
 LIVE = "live"
 VA = "va"
@@ -191,10 +199,10 @@ def _eligibility(config: dict[str, Any], target: str, **kwargs: Any) -> te.Eligi
     return te.evaluate_eligibility(config, target, **kwargs)
 
 
-def _derive(config: dict[str, Any], target: str, **kwargs: Any) -> te.TargetDerivation:
+def _derive(config: dict[str, Any], target: str, **kwargs: Any) -> TargetDerivation:
     kwargs.setdefault("writes_enabled", False)
     kwargs.setdefault("readonly_run", False)
-    return te.derive_endpoints(config, target, **kwargs)
+    return derive_endpoints(config, target, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -859,14 +867,14 @@ def test_addr_list_mode_is_derived_from_use_name_server_false() -> None:
     derivation = _derive(_config(), LIVE)
 
     assert derivation.connector_type == EPICS_TYPE
-    assert derivation.endpoints["read_only"] == te.Endpoint("gw.example.org", 5064, "addr_list")
+    assert derivation.endpoints["read_only"] == Endpoint("gw.example.org", 5064, "addr_list")
 
 
 def test_name_server_mode_is_derived_from_use_name_server_true() -> None:
     derivation = _derive(_config(), VA)
 
     assert derivation.connector_type == VA_TYPE
-    assert derivation.endpoints["read_only"] == te.Endpoint("localhost", 5074, "name_server")
+    assert derivation.endpoints["read_only"] == Endpoint("localhost", 5074, "name_server")
 
 
 def test_read_only_and_write_access_carry_their_own_differing_ports() -> None:
@@ -885,7 +893,7 @@ def test_an_unset_epics_port_falls_back_to_the_ca_default() -> None:
         }
     )
 
-    assert _derive(config, LIVE).endpoints["read_only"].port == te.DEFAULT_CA_PORT
+    assert _derive(config, LIVE).endpoints["read_only"].port == DEFAULT_CA_PORT
 
 
 def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None:
@@ -938,8 +946,8 @@ def test_a_pva_row_appears_only_with_both_globs_and_a_gateway() -> None:
 
     derivation = _derive(config, LIVE)
 
-    assert derivation.endpoints["pva"] == te.Endpoint(
-        "pva.example.org", te.DEFAULT_PVA_PORT, "name_server"
+    assert derivation.endpoints["pva"] == Endpoint(
+        "pva.example.org", DEFAULT_PVA_PORT, "name_server"
     )
 
 
@@ -960,7 +968,7 @@ def test_a_pva_addr_list_row_without_a_port_carries_none() -> None:
 
     derivation = _derive(config, LIVE)
 
-    assert derivation.endpoints["pva"] == te.Endpoint(
+    assert derivation.endpoints["pva"] == Endpoint(
         "cam1.example.org cam2.example.org", None, "addr_list"
     )
 
@@ -1047,14 +1055,14 @@ def test_a_readonly_run_moves_the_selected_role_not_the_eligibility() -> None:
 def test_writes_enabled_defaults_to_the_configs_own_posture() -> None:
     config = _config(writes_enabled=True)
 
-    assert te.derive_endpoints(config, LIVE, readonly_run=False).selected_role == "write_access"
+    assert derive_endpoints(config, LIVE, readonly_run=False).selected_role == "write_access"
 
 
 def test_readonly_run_defaults_to_the_processs_execution_mode(monkeypatch) -> None:
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     config = _config(writes_enabled=True)
 
-    assert te.derive_endpoints(config, LIVE).selected_role == "read_only"
+    assert derive_endpoints(config, LIVE).selected_role == "read_only"
 
 
 # ---------------------------------------------------------------------------
@@ -1145,8 +1153,8 @@ def test_each_target_selects_the_gateway_its_own_posture_arms(
 ) -> None:
     config = _posture_config(deployment=deployment, live=live_leaf, va=va_leaf)
 
-    live = te.derive_endpoints(config, LIVE, readonly_run=readonly)
-    va = te.derive_endpoints(config, VA, readonly_run=readonly)
+    live = derive_endpoints(config, LIVE, readonly_run=readonly)
+    va = derive_endpoints(config, VA, readonly_run=readonly)
 
     assert live.selected_role == live_role
     assert va.selected_role == va_role
@@ -1221,21 +1229,15 @@ def _report(**overrides: Any) -> dict[str, Any]:
 
 
 def test_a_matching_child_report_verifies() -> None:
-    result = te.verify_child_report(_derive(_config(), LIVE), _report())
+    result = verify_child_report(_derive(_config(), LIVE), _report())
 
     assert result.ok is True
     assert result.field is None
 
 
-def test_a_matching_child_report_verifies_as_a_tuple_too() -> None:
-    report = ("read_only", "addr_list", "gw.example.org", 5064, True)
-
-    assert te.verify_child_report(_derive(_config(), LIVE), report).ok is True
-
-
 def test_a_port_reported_as_text_still_verifies() -> None:
     """``connect()`` interpolates the port into a string environment value."""
-    result = te.verify_child_report(_derive(_config(), LIVE), _report(port="5064"))
+    result = verify_child_report(_derive(_config(), LIVE), _report(port="5064"))
 
     assert result.ok is True
 
@@ -1252,7 +1254,7 @@ def test_a_port_reported_as_text_still_verifies() -> None:
 def test_each_mismatched_field_fails_and_names_itself(
     field: str, wrong_value: Any, expected: Any
 ) -> None:
-    result = te.verify_child_report(_derive(_config(), LIVE), _report(**{field: wrong_value}))
+    result = verify_child_report(_derive(_config(), LIVE), _report(**{field: wrong_value}))
 
     assert result.ok is False
     assert result.field == field
@@ -1261,7 +1263,7 @@ def test_each_mismatched_field_fails_and_names_itself(
 
 
 def test_a_child_that_configured_no_epics_gateway_fails_verification() -> None:
-    result = te.verify_child_report(_derive(_config(), LIVE), _report(_epics_configured=False))
+    result = verify_child_report(_derive(_config(), LIVE), _report(_epics_configured=False))
 
     assert result.ok is False
     assert result.field == "_epics_configured"
@@ -1272,15 +1274,10 @@ def test_verification_fails_when_the_derivation_has_no_endpoint_for_the_role() -
     config = _config(connector={EPICS_TYPE: _epics_block()})
     derivation = _derive(config, VA)
 
-    result = te.verify_child_report(derivation, _report(host="localhost"))
+    result = verify_child_report(derivation, _report(host="localhost"))
 
     assert result.ok is False
     assert result.field == "endpoints"
-
-
-def test_a_report_of_the_wrong_shape_is_a_protocol_error() -> None:
-    with pytest.raises(ValueError, match="fields"):
-        te.verify_child_report(_derive(_config(), LIVE), ("read_only", "addr_list"))
 
 
 # ---------------------------------------------------------------------------

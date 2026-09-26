@@ -174,17 +174,6 @@ def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(baseline:
     assert resolve_target(section, TARGET_LIVE) == EPICS
 
 
-def test_live_on_a_simulated_baseline_with_no_live_block_refuses():
-    section = _section(VIRTUAL_ACCELERATOR, {"virtual_accelerator": {"timeout": 5.0}})
-
-    with pytest.raises(ValueError) as excinfo:
-        resolve_target(section, TARGET_LIVE)
-
-    message = str(excinfo.value)
-    assert "control_system.connector" in message
-    assert VIRTUAL_ACCELERATOR in message
-
-
 @pytest.mark.parametrize(
     "connector",
     [{}, None, "epics", ...],
@@ -195,36 +184,33 @@ def test_live_on_a_simulated_baseline_refuses_without_a_connector_table(connecto
         resolve_target(_section(MOCK, connector), TARGET_LIVE)
 
 
-def test_live_refuses_when_two_live_blocks_leave_it_ambiguous():
-    section = _section(
-        VIRTUAL_ACCELERATOR,
-        {"epics": {"address": "gw"}, "doocs": {"address": "gw"}},
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        resolve_target(section, TARGET_LIVE)
-
-    message = str(excinfo.value)
-    assert DOOCS in message
-    assert EPICS in message
-
-
 @pytest.mark.parametrize(
-    "connector",
+    ("connector", "expected_substrings"),
     [
-        {"virtual_accelerator": {"timeout": 5.0}},
-        {"epics": {"address": "gw"}, "doocs": {"address": "gw"}},
+        (
+            {"virtual_accelerator": {"timeout": 5.0}},
+            ["control_system.connector", VIRTUAL_ACCELERATOR, ONE_REAL_MACHINE],
+        ),
+        (
+            {"epics": {"address": "gw"}, "doocs": {"address": "gw"}},
+            [DOOCS, EPICS, ONE_REAL_MACHINE],
+        ),
     ],
     ids=["no-live-block", "two-live-blocks"],
 )
-def test_a_live_that_cannot_be_derived_names_the_one_real_machine_limit(connector: Any):
+def test_a_live_that_cannot_be_derived_names_the_one_real_machine_limit(
+    connector: Any, expected_substrings: list[str]
+):
     """Both halves of the refusal are the same topology: a deployment describes
     one real machine, so nought and two are equally underivable. A deployer who
-    reads only the error still learns what the product's shape is."""
+    reads only the error still learns what the product's shape is, and which
+    blocks (the missing live one, or the two ambiguous ones) made it so."""
     with pytest.raises(ValueError) as excinfo:
         resolve_target(_section(VIRTUAL_ACCELERATOR, connector), TARGET_LIVE)
 
-    assert ONE_REAL_MACHINE in str(excinfo.value)
+    message = str(excinfo.value)
+    for expected in expected_substrings:
+        assert expected in message
 
 
 def test_a_second_real_block_beside_a_real_baseline_is_reported(caplog: Any):

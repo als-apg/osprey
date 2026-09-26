@@ -14,16 +14,19 @@ The autouse ``reset_state_between_tests`` fixture clears the config singleton an
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+import pytest
+
 from osprey.utils.config import (
-    ConfigBuilder,
     get_agent_dir,
     get_config_builder,
     get_config_value,
     get_framework_service_config,
     get_full_configuration,
     load_config,
+    load_project_config,
 )
 
 
@@ -53,14 +56,16 @@ class TestGetConfigBuilderCaching:
         assert get_config_builder() is explicit
 
     def test_no_arg_uses_config_file_env(self, tmp_path, monkeypatch):
-        cfg = _write_config(tmp_path, "project_root: /via-env\n")
+        cfg = _write_config(
+            tmp_path,
+            "project_root: /via-env\ncontrol_system:\n  limits:\n    max_channels: 100\n",
+        )
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
         builder = get_config_builder()
         assert builder.get("project_root") == "/via-env"
-
-    def test_returns_config_builder_instance(self, tmp_path):
-        cfg = _write_config(tmp_path, "project_root: /x\n")
-        assert isinstance(get_config_builder(str(cfg)), ConfigBuilder)
+        # The no-arg value accessor reads the same file, dotted paths included.
+        assert get_config_value("project_root") == "/via-env"
+        assert get_config_value("control_system.limits.max_channels", 0) == 100
 
 
 class TestLoadConfig:
@@ -186,3 +191,51 @@ class TestGetAgentDir:
         assert result.is_absolute()
         assert result.name == "memory_dir"
         assert "_agent_data" in result.parts
+
+    def test_host_path_resolves_under_the_configured_root_even_when_it_is_absent(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = _write_config(
+            tmp_path,
+            "project_root: /nonexistent/project/root\nagent_data:\n  base_dir: _agent_data\n",
+        )
+        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+
+        result = Path(get_agent_dir("memory_dir", host_path=True))
+
+        assert result == Path("/nonexistent/project/root/_agent_data/memory_dir")
+
+    def test_no_project_root_resolves_relative_to_the_cwd_with_a_warning(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        cfg = _write_config(tmp_path, "agent_data:\n  base_dir: _agent_data\n")
+        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+        monkeypatch.chdir(tmp_path)
+
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            result = Path(get_agent_dir("memory_dir"))
+
+        assert result == (tmp_path / "_agent_data" / "memory_dir").resolve()
+        assert "No project root configured" in caplog.text
+
+
+class TestLoadProjectConfig:
+    def test_returns_the_expanded_mapping(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OSPREY_TEST_ROOT", "/expanded")
+        cfg = _write_config(tmp_path, "project_root: ${OSPREY_TEST_ROOT}\n")
+
+        assert load_project_config(cfg)["project_root"] == "/expanded"
+
+    def test_without_wrap_errors_the_original_failure_is_raised(self, tmp_path):
+        cfg = _write_config(tmp_path, "- not\n- a mapping\n")
+
+        with pytest.raises(ValueError, match="must contain a dictionary/mapping"):
+            load_project_config(cfg)
+
+    def test_with_wrap_errors_the_failure_names_the_config_file(self, tmp_path):
+        cfg = _write_config(tmp_path, "- not\n- a mapping\n")
+
+        with pytest.raises(RuntimeError, match=f"Could not load config file {cfg}: ") as caught:
+            load_project_config(cfg, wrap_errors=True)
+
+        assert isinstance(caught.value.__cause__, ValueError)

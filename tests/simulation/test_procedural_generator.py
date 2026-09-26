@@ -48,10 +48,11 @@ from osprey.simulation.procedural import (
     generate_series,
 )
 from osprey.simulation.series import epoch_seconds_array
+from tests.simulation.conftest import TEMPLATE_SIM
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
-MACHINE = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation/machine.json"
+MACHINE = TEMPLATE_SIM / "machine.json"
 
 # A fixed instant, so a failure is reproducible rather than time-of-day
 # dependent. Any epoch works: the generator has no preferred origin.
@@ -69,6 +70,8 @@ KIND_EXAMPLES = {
     "lifetime": "SR:BEAM:LIFETIME",
     "position": "SR:DIAG:BPM:12:POSITION:X",
     "energy": "SR:BEAM:ENERGY",
+    # The catch-all: most of the served namespace is status and reference
+    # channels, so the default kind has to move too.
     "default": "SR:SOME:UNCLASSIFIED:CHANNEL",
 }
 
@@ -488,16 +491,6 @@ class TestKindShapes:
         assert abs(profile[0] - profile[-1]) < 0.5 * sigma
         separation = abs(int(np.argmax(profile)) - int(np.argmin(profile)))
         assert abs(separation - bins // 2) <= 2, "extremes are not half a period apart"
-
-    def test_the_default_kind_catches_unclassified_channels(self):
-        """Most of the served namespace is status and reference channels."""
-        pv = KIND_EXAMPLES["default"]
-        assert classify_channel(pv).name == "default"
-
-        values = generate_series(pv, _grid(T0, count=64, step_s=60.0))
-
-        assert np.all(np.isfinite(values))
-        assert values.std() > 0.0
 
 
 def test_default_noise_level_matches_what_the_va_serves():

@@ -463,6 +463,49 @@ def _docker_rm(name: str) -> None:
     subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=30)
 
 
+def _listening_ports(proc_net: str, *, tcp: bool) -> list[int]:
+    """Local ports in a ``/proc/net/{tcp,tcp6,udp,udp6}`` dump; TCP in LISTEN only."""
+    ports: set[int] = set()
+    for line in proc_net.splitlines():
+        fields = line.split()
+        if len(fields) < 4 or ":" not in fields[1] or fields[0] == "sl":
+            continue
+        if tcp and fields[3] != "0A":
+            continue
+        ports.add(int(fields[1].rsplit(":", 1)[1], 16))
+    return sorted(ports)
+
+
+def boot_report(container: str, host_port: int) -> str:
+    """What the host and the container say about a port a client could not reach.
+
+    For a boot that logged it was serving yet never answered: which ports the
+    container publishes, which its server listens on inside, whether a plain
+    TCP connect to the published port lands, and who holds that port on the
+    host.
+    """
+
+    def run(*command: str) -> str:
+        try:
+            done = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return f"<{type(exc).__name__}: {exc}>"
+        return (done.stdout + done.stderr).strip() or "<nothing>"
+
+    lines = [f"docker port: {run('docker', 'port', container)}"]
+    for family, tcp in (("tcp", True), ("tcp6", True), ("udp", False), ("udp6", False)):
+        dump = run("docker", "exec", container, "cat", f"/proc/net/{family}")
+        lines.append(f"container {family} ports: {_listening_ports(dump, tcp=tcp)}")
+    try:
+        with socket.create_connection(("127.0.0.1", host_port), timeout=5):
+            lines.append(f"host TCP connect to 127.0.0.1:{host_port}: accepted")
+    except OSError as exc:
+        lines.append(f"host TCP connect to 127.0.0.1:{host_port}: {exc!r}")
+    if shutil.which("ss"):
+        lines.append(f"host holders of {host_port}: {run('ss', '-Htanp', f'sport = :{host_port}')}")
+    return "\n".join(lines)
+
+
 def _readiness_pv_served() -> bool:
     """Probe container readiness in a SUBPROCESS.
 

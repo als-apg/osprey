@@ -11,75 +11,23 @@ alike are blocked in a readonly run even on a write-enabled deployment.
 import sys
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from osprey.connectors.control_system.base import (
-    ChannelWriteResult,
-    ControlSystemConnector,
-    WriteOutcome,
-)
-
-
-class _WriteEnabledConnector(ControlSystemConnector):
-    """Concrete connector whose deployment posture says writes are on."""
-
-    def __init__(self):
-        self.writes: list[tuple[str, Any]] = []
-
-    async def connect(self, config: dict[str, Any]) -> None: ...
-    async def disconnect(self) -> None: ...
-
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
-        raise NotImplementedError
-
-    async def read_multiple_channels(self, channel_addresses, timeout=None):
-        raise NotImplementedError
-
-    async def write_channel(
-        self,
-        channel_address: str,
-        value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-    ) -> ChannelWriteResult:
-        self.writes.append((channel_address, value))
-        return ChannelWriteResult(
-            channel_address=channel_address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED,
-        )
-
-    async def write_multiple_channels(self, operations, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return [await self.write_channel(addr, val) for addr, val in operations]
-
-    async def subscribe(self, channel_address, callback):
-        raise NotImplementedError
-
-    async def unsubscribe(self, channel_address):
-        raise NotImplementedError
-
-    async def get_metadata(self, channel_address):
-        raise NotImplementedError
-
-    async def validate_channel(self, channel_address) -> bool:  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return True
+from osprey.connectors.control_system.base import WriteOutcome
+from tests.connectors._write_fakes import RecordingConnector, writes_enabled_config
 
 
 @pytest.fixture
 def writes_enabled_deployment(monkeypatch):
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: True if key == "control_system.writes_enabled" else default,
-    )
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
 
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("writes_enabled_deployment")
 async def test_readonly_run_refuses_write(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
@@ -93,7 +41,7 @@ async def test_readonly_run_refuses_write(monkeypatch):
 @pytest.mark.usefixtures("writes_enabled_deployment")
 async def test_readonly_run_refuses_multi_write(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     results = await connector.write_multiple_channels([("A:SP", 1.0), ("B:SP", 2.0)])
 
@@ -107,7 +55,7 @@ async def test_readonly_refusal_message_does_not_blame_deployment(monkeypatch):
     """The operator-facing text must not send anyone to flip writes_enabled —
     the deployment allows writes; this *run* was declared readonly."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
@@ -119,7 +67,7 @@ async def test_readonly_refusal_message_does_not_blame_deployment(monkeypatch):
 @pytest.mark.usefixtures("writes_enabled_deployment")
 async def test_readwrite_run_passes_through(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readwrite")
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
@@ -133,7 +81,7 @@ async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch):
     """Outside the sandbox (e.g. the controls MCP server) the variable is unset
     and the deployment posture alone decides."""
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
@@ -154,7 +102,7 @@ async def test_readonly_refusal_message_carries_the_shared_marker(monkeypatch):
     from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
 
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
@@ -233,7 +181,7 @@ async def test_readonly_run_refusal_names_the_deployment_wide_run():
     Not a posture, and not this one session — the variable is on the
     deployment, so every session it serves refuses writes while it is set.
     """
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
@@ -255,7 +203,7 @@ async def test_readonly_run_refusal_does_not_blame_config_or_a_script():
     one is a dead end. The variable is named, but as the run's own switch,
     never as an ``execution_mode`` argument the caller could resubmit with.
     """
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
@@ -272,14 +220,13 @@ async def test_readonly_run_refusal_says_the_chip_cannot_lift_it():
     operator would reach for: the control-target chip in the header already
     reads writes here and cannot lift a deployment-wide read-only run. Sending
     them there is the dead end this wording exists to close."""
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
     message = result.error_message.lower()
     assert "control-target chip in the header" in message
     assert "cannot lift it" in message
-    assert "switch the session to the writes posture" not in message
 
 
 @pytest.mark.asyncio
@@ -295,7 +242,7 @@ async def test_readonly_run_refusal_carries_the_shared_marker():
     """
     from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
 
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
@@ -309,7 +256,7 @@ async def test_readonly_run_refusal_keeps_the_shared_refusal_reason():
     contract every caller of ``raise_for_write_result`` already handles, and a
     read-only run's refusal is the same kind of refusal: writes are off for
     this caller, and the control system was never asked."""
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
@@ -320,7 +267,7 @@ async def test_readonly_run_refusal_keeps_the_shared_refusal_reason():
 @pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
 async def test_readonly_run_refusal_covers_the_multi_write_path():
     """Both guarded entry points build their result the same way."""
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     results = await connector.write_multiple_channels([("A:SP", 1.0), ("B:SP", 2.0)])
 
@@ -338,12 +285,13 @@ async def test_sandbox_script_run_keeps_the_script_shaped_message():
     run* was declared readonly, and resubmitting it as readwrite is the real
     remedy. Pins that the discriminator did not swallow the older branch.
     """
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
     assert "readwrite" in result.error_message
-    assert "posture" not in result.error_message.lower()
+    # The MCP-server branch's distinctive text must not leak into the script's.
+    assert "every session" not in result.error_message.lower()
 
 
 @pytest.mark.asyncio
@@ -360,9 +308,10 @@ async def test_deployment_refusal_is_unchanged_inside_an_mcp_server(monkeypatch)
     )
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.setattr(sys, "argv", [str(_controls_server_main())])
-    connector = _WriteEnabledConnector()
+    connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
     assert "writes_enabled" in result.error_message
-    assert "posture" not in result.error_message.lower()
+    # Not a readonly run, so neither readonly story may be told.
+    assert "readonly execution mode" not in result.error_message.lower()

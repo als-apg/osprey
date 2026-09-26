@@ -1,6 +1,7 @@
 """The connector-host child: the process that owns the control-system client.
 
-One target, one child. The parent (the controls MCP server) holds no ``libca``
+One target, one child. The parent (the controls MCP server, or a
+:class:`~osprey_connectors.ipc.pool.ConnectorHostPool`) holds no ``libca``
 and never sets an ``EPICS_CA_*`` variable of its own; it launches this module,
 which builds the real connector through the ordinary
 :class:`~osprey_connectors.factory.ConnectorFactory` and serves the proxy
@@ -109,8 +110,16 @@ nothing for the parent to verify because there is no endpoint to get wrong.
 Served methods
 --------------
 ``read_channel``, ``read_multiple_channels``, ``write_channel``,
-``write_multiple_channels``, ``disconnect`` — forwarded to the connector with
-the kwargs the frame carried — plus ``spawn_probe``.
+``write_multiple_channels``, ``validate_channel``, ``disconnect`` — forwarded
+to the connector with the kwargs the frame carried — plus ``spawn_probe`` and
+``ping``.
+
+``ping {}`` answers with this child's pid and touches nothing else. It is how a
+supervisor tells a child that is merely slow — a batched or confirmed write can
+legitimately take several of its call's timeouts — from one that is wedged:
+every request is served as its own task, so a ping is answered alongside any
+number of slow calls, and goes unanswered only when this process's event loop
+itself is stuck.
 
 A batched read is **one round trip**: ``read_multiple_channels`` fans out
 concurrently *inside* the child through the connector's own implementation, so
@@ -156,6 +165,7 @@ atexit hooks.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -197,6 +207,7 @@ PROXY_METHODS = (
     "read_multiple_channels",
     "write_channel",
     "write_multiple_channels",
+    "validate_channel",
     "disconnect",
 )
 
@@ -280,8 +291,27 @@ def _exit_now(code: int) -> None:
     """Flush the diagnostics and leave, without running interpreter shutdown."""
     try:
         sys.stderr.flush()
+        _save_coverage()
     finally:
-        os._exit(code)
+        os._exit(code)  # pragma: no cover - ends the process before the tracer records it
+
+
+def _save_coverage() -> None:
+    """Write coverage data a measured run collected in this child, if any.
+
+    ``os._exit`` skips the atexit hook coverage.py saves from, so without this a
+    test run that measures subprocesses sees none of the code a child ran. Only
+    a run that already imported coverage has anything to save; everywhere else
+    this is a dictionary lookup.
+    """
+    coverage = sys.modules.get("coverage")
+    if coverage is None:  # pragma: no cover - only true outside a measured run
+        return
+    with contextlib.suppress(Exception):
+        current = coverage.Coverage.current()
+        if current is not None:
+            current.stop()
+            current.save()
 
 
 # --------------------------------------------------------------------------
@@ -643,13 +673,15 @@ async def _spawn_probe(
 
 async def _invoke(connector: Any, method: str, kwargs: dict[str, Any]) -> Any:
     """Run one request against the connector."""
+    if method == "ping":
+        return os.getpid()
     if method == "spawn_probe":
         return await _spawn_probe(connector, **kwargs)
     if method in PROXY_METHODS:
         return await getattr(connector, method)(**kwargs)
     raise ValueError(
         f"connector host does not serve {method!r}; it serves "
-        f"{', '.join((*PROXY_METHODS, 'spawn_probe'))}"
+        f"{', '.join((*PROXY_METHODS, 'spawn_probe', 'ping'))}"
     )
 
 

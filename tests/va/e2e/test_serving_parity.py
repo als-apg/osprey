@@ -394,17 +394,23 @@ def _serving(prefix: str, *, seeded: bool):
     accelerator = LiveVA(port=port)
     try:
         deadline = time.monotonic() + BOOT_TIMEOUT_S
+        # Kept so a boot that never answers says what the client last saw,
+        # rather than only what the server logged.
+        last_attempt = "no read completed"
         while time.monotonic() < deadline:
             try:
                 if accelerator.value(REFERENCE_RB) is not None:
                     break
-            except Exception:  # not up yet is the expected case
-                pass
+                last_attempt = f"{REFERENCE_RB} read back as None"
+            except Exception as exc:  # not up yet is the expected case
+                last_attempt = f"{type(exc).__name__}: {exc}"
             time.sleep(1.0)
         else:
             logs = _docker("logs", "--tail", "40", name, timeout=60)
             raise RuntimeError(
                 f"{name} never served {REFERENCE_RB} within {BOOT_TIMEOUT_S}s.\n"
+                f"The client's last attempt: {last_attempt}\n"
+                f"{e2e_conftest.boot_report(name, port)}\n"
                 f"{logs.stdout}\n{logs.stderr}"
             )
 
