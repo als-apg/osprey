@@ -16,7 +16,7 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, _repo_cleanliness, ci_diagnostics
+from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
@@ -1311,6 +1311,11 @@ def pytest_configure(config):
     # one is not among them. See tests/_env_scope_guard.py.
     if not config.pluginmanager.is_registered(_env_scope_guard):
         config.pluginmanager.register(_env_scope_guard, "osprey-env-scope-guard")
+
+    # Reports what keeps the process alive after its last test; on for every
+    # run because it prints nothing when nothing is left. See tests/_live_threads.py.
+    if not config.pluginmanager.is_registered(_live_threads):
+        config.pluginmanager.register(_live_threads, _live_threads.PLUGIN_NAME)
 
     # Registered here rather than in pyproject.toml so the seam and its opt-out
     # marker live in one file; `--strict-markers` would otherwise reject it.
