@@ -1,5 +1,5 @@
 {
-  "total": 369,
+  "total": 368,
   "errors": [
     {
       "path": "packages/osprey-connectors/src/osprey_connectors/archiver/doocs_archiver_connector.py",
@@ -161,12 +161,6 @@
       "path": "src/osprey/agent_runner/artifact_resolve.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"dict[str, Any] | None\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/audit/writer.py",
-      "code": "assignment",
-      "message": "Incompatible types in assignment (expression has type \"str | None\", variable has type \"str\")",
       "count": 1
     },
     {
