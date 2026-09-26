@@ -696,9 +696,6 @@ source = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 # below documents that rather than leaving it implicit.
 patch = ["subprocess"]
 parallel = true
-# A supervisor stops a connector-host child with SIGTERM, whose default action
-# ends the process before coverage writes its data; this saves it first.
-sigterm = true
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
