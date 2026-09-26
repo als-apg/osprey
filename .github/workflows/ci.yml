@@ -612,11 +612,11 @@ jobs:
 
     - name: Run ruff (linting)
       run: |
-        uv run ruff check src/ packages/ tests/ --output-format=github
+        uv run ruff check . --output-format=github
 
     - name: Run ruff (formatting)
       run: |
-        uv run ruff format --check src/ packages/ tests/
+        uv run ruff format --check .
 
     - name: Run config-key resurrection guard (with back-test)
       # `!cancelled()` so folding this in never costs a signal: a ruff

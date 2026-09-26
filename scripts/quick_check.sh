@@ -9,8 +9,8 @@ echo "================================"
 
 # Auto-fix formatting issues
 echo "→ Auto-fixing code style..."
-uv run ruff check src/ tests/ --fix --quiet || true
-uv run ruff format src/ tests/ --quiet
+uv run ruff check . --fix --quiet || true
+uv run ruff format . --quiet
 
 # Prune stale bytecode. After deleting a package's .py files, git leaves the
 # now-empty dir behind if untracked __pycache__/*.pyc remain — and Python imports

@@ -21,7 +21,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "→ Running ruff (linting)..."
-if ! uv run ruff check src/ tests/ --output-format=github; then
+if ! uv run ruff check . --output-format=github; then
     FAILED_CHECKS+=("ruff-linting")
     echo "❌ Ruff linting failed"
 else
@@ -30,10 +30,10 @@ fi
 echo ""
 
 echo "→ Running ruff (formatting)..."
-if ! uv run ruff format --check src/ tests/; then
+if ! uv run ruff format --check .; then
     FAILED_CHECKS+=("ruff-formatting")
     echo "❌ Ruff formatting failed"
-    echo "💡 Run 'ruff format src/ tests/' to fix"
+    echo "💡 Run 'uv run ruff format .' to fix"
 else
     echo "✅ Ruff formatting passed"
 fi
@@ -258,8 +258,8 @@ else
     echo "Please fix the issues above before pushing."
     echo ""
     echo "💡 Tips:"
-    echo "   - Run 'uv run ruff format src/ tests/' to fix formatting"
-    echo "   - Run 'uv run ruff check src/ tests/ --fix' to auto-fix linting"
+    echo "   - Run 'uv run ruff format .' to fix formatting"
+    echo "   - Run 'uv run ruff check . --fix' to auto-fix linting"
     echo "   - Check test output above for specific failures"
     echo ""
     exit 1

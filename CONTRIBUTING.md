@@ -46,8 +46,8 @@ git checkout -b feature/your-feature-name
 pytest tests/ --ignore=tests/e2e -v
 
 # Run linters
-ruff check src/ tests/
-ruff format --check src/ tests/
+ruff check .
+ruff format --check .
 ```
 
 **Changelog.** If your change touches `src/` or `packages/`, add a fragment — a

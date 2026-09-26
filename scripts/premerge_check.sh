@@ -129,14 +129,14 @@ fi
 
 # MEDIUM checks
 echo -e "\n=== MEDIUM ==="
-if uv run ruff format --check src/ tests/ >/dev/null 2>&1; then
+if uv run ruff format --check . >/dev/null 2>&1; then
   echo "✓ Ruff formatted"
 else
   echo "⚠ Ruff formatting needed"
   WARNINGS=$((WARNINGS + 1))
 fi
 
-if uv run ruff check src/ tests/ --quiet >/dev/null 2>&1; then
+if uv run ruff check . --quiet >/dev/null 2>&1; then
   echo "✓ Ruff clean"
 else
   echo "⚠ Ruff issues found"
