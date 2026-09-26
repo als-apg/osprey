@@ -1053,7 +1053,9 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
 
     from osprey.build.claude_code_resolver import (
         ALIAS_SUBSTITUTION_REMEDY,
+        DROPPED_ALIAS_KEY_REMEDY,
         alias_substitution,
+        dropped_alias_key_facts,
         load_provider_spec,
     )
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
@@ -1147,9 +1149,12 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             rows.append(("Claude Code aliases", ""))
             for alias, model_id in spec.alias_models.items():
                 rows.append((alias, f"{model_id} ({spec.alias_origin.get(alias, '?')})"))
-            # Said here, from the spec this section already holds, because the
-            # resolver's own record is INFO and the drift check below resolves
-            # the provider a second time: one report, one sentence.
+            # Ignored alias keys and the alias substitution are said here, from
+            # the spec this section already holds, because the resolver's own
+            # records for them are INFO and the drift check below resolves the
+            # provider a second time: one report, one sentence per fact.
+            for sentence in dropped_alias_key_facts(spec):
+                troubles.append((sentence, DROPPED_ALIAS_KEY_REMEDY))
             substitution = alias_substitution(spec)
             if substitution:
                 troubles.append((substitution, ALIAS_SUBSTITUTION_REMEDY))

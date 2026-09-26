@@ -333,6 +333,9 @@ own background calls ask for ``haiku``. OSPREY fills all three at build:
    one line naming the substitution — on a gateway that serves no Claude
    models, all three.
 
+A key other than ``haiku``, ``sonnet`` or ``opus`` in either map is ignored, and
+``osprey build`` and ``osprey status`` each name it once.
+
 .. code-block:: yaml
 
    config:

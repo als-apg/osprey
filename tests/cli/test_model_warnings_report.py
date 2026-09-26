@@ -192,6 +192,10 @@ def test_status_says_it_once_and_the_log_handler_paints_nothing(
     assert "run the main model" not in terminal_probe.rendered_text
     assert any(SUBSTITUTION in m for m in terminal_probe.messages)
 
+    assert flowed.count(DROPPED) == 1, flowed
+    assert DROPPED not in terminal_probe.rendered_text
+    assert any(DROPPED in m for m in terminal_probe.messages)
+
     # Armed witness: an ERROR is above the gate on every path, so its absence
     # would mean the probe console was never reachable.
     logging.getLogger("tests.model_warnings_report").error(_WITNESS)
