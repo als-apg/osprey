@@ -96,10 +96,23 @@ class BaseProvider(ABC):
     # max_tokens to each route's own parameter for the models it recognises; an
     # endpoint that refuses max_tokens outright declares the parameter it takes.
     max_tokens_param: str = "max_tokens"
-    # Whether the endpoint takes a caller-chosen sampling temperature. An endpoint
-    # whose models refuse every temperature but their own default declares False,
-    # and its requests carry none.
-    accepts_temperature: bool = True
+
+    @classmethod
+    def accepts_temperature(cls, model_id: str) -> bool:
+        """Whether a request for *model_id* carries the caller's sampling temperature.
+
+        True on every model unless the adapter says otherwise. A provider whose
+        models differ overrides this and decides from the model id. A request for
+        a model that answers False carries no temperature and samples at the
+        model's default.
+
+        Args:
+            model_id: The provider's bare model identifier.
+
+        Returns:
+            True when the request carries the caller's temperature.
+        """
+        return True
 
     @classmethod
     def effective_base_url(cls, base_url: str | None) -> str | None:
