@@ -81,11 +81,11 @@ Linting and Formatting
 .. code-block:: bash
 
    # Lint and format
-   uv run ruff check src/ tests/
-   uv run ruff format src/ tests/
+   uv run ruff check .
+   uv run ruff format .
 
    # Auto-fix lint issues
-   uv run ruff check --fix src/ tests/
+   uv run ruff check --fix .
 
    # Type checking
    uv run python scripts/mypy_gate.py
