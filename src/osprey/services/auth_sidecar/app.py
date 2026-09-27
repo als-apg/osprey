@@ -254,7 +254,7 @@ _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 # and *only* that case is skipped: an ImportError raised from inside a module
 # that does exist propagates, so a broken route can never degrade into a
 # silently missing one.
-_ROUTE_MODULES = ("verify", "login", "logout", "oidc")
+_ROUTE_MODULES = ("verify", "login", "logout", "oidc", "entry")
 _ROUTES_PACKAGE = f"{__package__}.routes"
 
 

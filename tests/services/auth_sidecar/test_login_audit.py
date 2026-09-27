@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit import writer
 from osprey.audit.envelope import POSTURE_SOURCE_APP
+from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
     STATE_COOKIE_NAME,
@@ -887,6 +888,11 @@ class TestTheCategorySetIsClosed:
             if name.startswith("REASON_") and isinstance(getattr(audit, name), str)
         }
         assert exported == defined
+
+    def test_the_sign_in_subject_can_never_be_a_roster_name(self) -> None:
+        """The card-less subject sits outside the roster charset, so a record
+        filed under it can never be read as one about a roster user."""
+        assert not USERNAME_CHARSET_RE.match(audit.SIGN_IN_SUBJECT)
 
     def test_the_oidc_routes_name_the_same_categories(self) -> None:
         """The route module keeps its own spellings for readability at the point
