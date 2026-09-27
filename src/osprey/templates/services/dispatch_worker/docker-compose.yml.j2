@@ -238,7 +238,7 @@ services:
       # cross-boundary check.
       BLUESKY_BRIDGE_URL: http://bluesky-bridge:{{ services.bluesky.port | default(osprey_ports.bluesky, true) }}
 {%- endif %}
-{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
+{%- for lane_key in bluesky_second_lane_keys %}
 {%- if lane_key in (deployed_services | default([])) %}
       # The SECOND plan lane, when this deployment renders one: its own bridge
       # by its own in-network service key, spelled under the lane's env prefix
