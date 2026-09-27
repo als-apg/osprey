@@ -45,9 +45,11 @@ the next record filed for that user names how many were folded into it (see
 :data:`~osprey.services.auth_sidecar.routes.oidc.FOLDED_DETAIL_KEY`). The
 post-exchange OIDC categories are unbounded on purpose — reaching one costs a
 full IdP round trip, so they are not free to generate, and they are the records
-that describe a login that actually authenticated. The distinction matters
-because this file is root-owned in a directory nothing else in the deployment
-binds: nobody inside it can rotate or truncate what an unbounded append filled.
+that describe a login that actually authenticated. Card-less sign-in refusals
+are all post-credential or post-exchange, so they are unbounded on the same
+terms. The distinction matters because this file is root-owned in a directory
+nothing else in the deployment binds: nobody inside it can rotate or truncate
+what an unbounded append filled.
 
 **An audit failure never costs the decision.** Both record functions swallow
 everything the write can raise: a refusal that was audited and a refusal that
@@ -91,6 +93,7 @@ __all__ = [
     "REASON_MISSING_ROLE_CLAIM",
     "REASON_NON_ASCII_SUBJECT",
     "REASON_NO_ASSERTED_IDENTITY",
+    "REASON_NO_CARD",
     "REASON_NO_COVERING_PRINCIPAL",
     "REASON_OIDC_LOGIN",
     "REASON_PASSWORD_LOGIN",
@@ -103,6 +106,7 @@ __all__ = [
     "REASON_UNVALIDATED_TOKEN",
     "REASON_UNVERIFIED_EMAIL",
     "SIDECAR_POSTURE",
+    "SIGN_IN_SUBJECT",
     "SURFACE",
     "audit_directory",
     "ledger_path",
@@ -329,6 +333,22 @@ REASON_PASSWORD_LOGIN = "password_login"
 REASON_OIDC_LOGIN = "oidc_login"
 """An OIDC login succeeded — how the subject proved who they were."""
 
+REASON_NO_CARD = "no_card"
+"""A login proved who arrived, but no card on this deployment admits them.
+
+Nothing was unlocked. Its own category because it is reached only after the
+credential or token was accepted: the fix is the roster or a card's ``access:``
+rule, never the password or the provider."""
+
+SIGN_IN_SUBJECT = "(sign-in)"
+"""The record subject for a card-less sign-in refused before any card is known.
+
+That is an OIDC token that did not validate, asserted no identity, or matched no
+card. The envelope refuses an empty subject, and the asserted identity is a
+claim value, which the ledger does not take. The parentheses keep it from ever
+colliding with a roster name, which ``USERNAME_CHARSET_RE`` confines to
+``[a-z0-9_-]``."""
+
 
 _SUCCESS_REASONS: dict[str, str] = {
     METHOD_PASSWORD: REASON_PASSWORD_LOGIN,
@@ -355,6 +375,7 @@ LOGIN_REASONS: frozenset[str] = frozenset(
         REASON_MISSING_ROLE_CLAIM,
         REASON_NON_ASCII_SUBJECT,
         REASON_NO_ASSERTED_IDENTITY,
+        REASON_NO_CARD,
         REASON_NO_COVERING_PRINCIPAL,
         REASON_OIDC_LOGIN,
         REASON_PASSWORD_LOGIN,
