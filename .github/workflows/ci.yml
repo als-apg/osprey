@@ -1079,6 +1079,7 @@ jobs:
           tests/interfaces/design_system/test_panel_browser.py \
           tests/interfaces/design_system/test_dispatch_dashboard_modes.py \
           tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
+          tests/interfaces/design_system/test_dispatch_run_owner.py \
           tests/interfaces/design_system/test_osprey_drawer.py \
           tests/interfaces/design_system/test_splitter_surfaces.py \
           tests/interfaces/artifacts/test_gallery_interactions.py \
