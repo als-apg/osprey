@@ -15,6 +15,7 @@ from osprey.deployment.web_terminals.lint import (
     profile_config_errors,
 )
 from osprey.deployment.web_terminals.render import TLS_LISTEN_PORT
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import (
     _MAX_PORT,
     DEFAULT_PORT_BASE,
@@ -297,11 +298,12 @@ def test_lint_roster_index_past_the_family_band_is_an_error() -> None:
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.incomplete_port_families" for f in errors)
-    # The finding must be actionable: it carries the allocator's own refusal,
-    # which names the band and the `<family>_base_port` escape.
+    # The finding carries the allocator's refusal, which names the user ceiling
+    # and links the perimeter limits.
     message = next(f.message for f in errors if f.code == "web_terminals.incomplete_port_families")
-    assert str(INDEX_MAX) in message
-    assert "modules.web_terminals.artifact_base_port" in message
+    assert f"{INDEX_MAX + 1} users" in message
+    assert PERIMETER_LIMITS_URL in message
+    assert "modules.web_terminals.artifact_base_port" not in message
 
 
 def test_lint_roster_filling_the_family_band_is_not_an_error() -> None:

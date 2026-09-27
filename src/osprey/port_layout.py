@@ -39,9 +39,10 @@ display section it belongs to. Because the table is ordered, the tiers appear
 in display order too — ``dict.fromkeys(entry.tier for entry in LAYOUT)`` is the
 section order for a tier-grouped surface, with no second list to keep in step.
 
-This module is a stdlib-only leaf: it imports nothing from ``osprey`` and
-nothing third-party, so the registry, the template manager, the build, the
-preflight and the docs extension can all import it without a cycle.
+This module is a stdlib-only leaf: it imports nothing from ``osprey`` except
+the import-free constant module :mod:`osprey.docs_links`, and nothing
+third-party, so the registry, the template manager, the build, the preflight and
+the docs extension can all import it without a cycle.
 """
 
 from __future__ import annotations
@@ -51,6 +52,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
+
+from osprey.docs_links import PERIMETER_LIMITS_URL
 
 __all__ = [
     "BLOCK_SIZE",
@@ -409,15 +412,26 @@ def _index_refusal(entry: PortSlot, index: Any, low: int, high: int) -> str:
         high: Highest index the slot accepts.
 
     Returns:
-        A message naming the slot, its band, and the config key that widens it
-        where one exists.
+        A message naming the slot and its band. For a per-user family and an
+        index past the band, it names the deployment's user ceiling, says the
+        family's config key moves the band without widening it, and links the
+        documented perimeter limits; any other index on a family gets no
+        suffix. A non-family slot with a config key names that key as the way
+        to place the service off the layout.
     """
     if low == high:
         what = f"{entry.name!r} is a single port, so its only index is {low}"
     else:
         what = f"{entry.name!r} holds indices {low}..{high}"
     escape = ""
-    if entry.config_key:
+    if entry.per_index:
+        if isinstance(index, int) and not isinstance(index, bool) and index > high:
+            escape = (
+                f" A per-user family holds one port per user, so this is the deployment's "
+                f"ceiling of {high + 1} users; setting {entry.config_key} moves the band but "
+                f"does not widen it. See {PERIMETER_LIMITS_URL}"
+            )
+    elif entry.config_key:
         escape = (
             f" To place this service outside its band, set {entry.config_key} to an absolute port."
         )

@@ -32,6 +32,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 import osprey
 from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
+from osprey.docs_links import DEPLOY_DOCS_URL
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.utils.shell_resolver import resolve_shell_command
 from osprey.version import pins_prerelease
@@ -125,10 +126,6 @@ BOOT_HOOK_POLL_SEC: int = 5
 #: swapping it out afterwards.
 BOOT_HOOK_LOG_DIR: str = "/tmp/osprey-boot-hook.$(id -u)"
 BOOT_HOOK_LOG: str = f"{BOOT_HOOK_LOG_DIR}/boot.log"
-
-#: Where the unit's ``Documentation=`` points. The deployment how-to is the page
-#: that covers what a host needs before the unit can bring a stack up.
-DEPLOY_DOCS_URL: str = "https://als-apg.github.io/osprey/how-to/deploy-a-facility.html"
 
 #: The CI-only variable holding the deploy host's SSH private key. Fixed rather
 #: than profile-named: it authenticates the pipeline to the host and is never
