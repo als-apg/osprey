@@ -51,7 +51,13 @@ from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     SessionState,
 )
-from osprey.services.auth_sidecar.throttle import AttemptThrottle
+from osprey.services.auth_sidecar.throttle import (
+    DEFAULT_FORGET_AFTER,
+    DEFAULT_INITIAL_DELAY,
+    DEFAULT_MAX_DELAY,
+    DEFAULT_MULTIPLIER,
+    AttemptThrottle,
+)
 
 SESSION_SECRET = "session-secret-value"
 STATE_SECRET = "state-secret-value"
@@ -64,6 +70,14 @@ PASSWORD_ENV = {
     "OSPREY_AUTH_EXTERNAL_ORIGIN": "https://terminals.example.org",
     "OSPREY_AUTH_TLS_ENABLED": "true",
 }
+
+THROTTLE_ENV = {
+    "OSPREY_AUTH_THROTTLE_INITIAL_DELAY": "2",
+    "OSPREY_AUTH_THROTTLE_MULTIPLIER": "1.5",
+    "OSPREY_AUTH_THROTTLE_MAX_DELAY": "90",
+    "OSPREY_AUTH_THROTTLE_FORGET_AFTER": "600",
+}
+"""A login throttle set away from every default."""
 
 BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
 """A stored hash cut to five fields: provisioned, and impossible to evaluate."""
@@ -488,6 +502,45 @@ class TestRequirements:
             with TestClient(create_app(env)) as client:
                 assert client.get(HEALTH_PATH).status_code == 200
 
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            ({"throttle_max_delay": 0.5}, "OSPREY_AUTH_THROTTLE_MAX_DELAY"),
+            ({"throttle_initial_delay": float("nan")}, "OSPREY_AUTH_THROTTLE_INITIAL_DELAY"),
+            ({"throttle_multiplier": 0.5}, "OSPREY_AUTH_THROTTLE_MULTIPLIER"),
+        ],
+        ids=["cap-below-initial", "nan-initial", "shrinking-multiplier"],
+    )
+    def test_a_throttle_the_sidecar_cannot_build_takes_it_down(
+        self, overrides: dict[str, Any], expected: str
+    ) -> None:
+        """Servable implies the login throttle is constructible, however settings were built."""
+        kwargs: dict[str, Any] = {"method": "password", "session_secret": SESSION_SECRET}
+        kwargs.update(overrides)
+        settings = AuthSettings(**kwargs)
+        assert expected in settings.missing_requirements()
+        assert settings.configured is False
+
+    def test_the_factory_survives_an_unbuildable_throttle(self) -> None:
+        """An initial delay above the default ceiling degrades to 503, never a dead factory."""
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_THROTTLE_INITIAL_DELAY="60")
+        app = create_app(env)
+        with TestClient(app) as client:
+            response = client.get(HEALTH_PATH)
+        assert response.status_code == 200
+        assert response.json()["configured"] is False
+        assert app.state.attempt_throttle is None
+
+    def test_an_unreadable_throttle_value_is_named_in_the_startup_log(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_THROTTLE_MAX_DELAY="thirty")
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            create_app(env)
+        assert "OSPREY_AUTH_THROTTLE_MAX_DELAY" in caplog.text
+        assert "'thirty'" in caplog.text
+        assert str(DEFAULT_MAX_DELAY) in caplog.text
+
     def test_a_user_without_a_hash_is_denied_individually_not_globally(self) -> None:
         settings = AuthSettings.from_env(PASSWORD_ENV)
         assert settings.configured is True
@@ -513,6 +566,44 @@ class TestSettingsParsing:
         for name, value in PASSWORD_ENV.items():
             monkeypatch.setenv(name, value)
         assert AuthSettings.from_env().configured is True
+
+    def test_throttle_settings_default_to_the_throttle_defaults(self) -> None:
+        assert AuthSettings.from_env(PASSWORD_ENV).throttle_parameters == {
+            "initial_delay": DEFAULT_INITIAL_DELAY,
+            "multiplier": DEFAULT_MULTIPLIER,
+            "max_delay": DEFAULT_MAX_DELAY,
+            "forget_after": DEFAULT_FORGET_AFTER,
+        }
+
+    def test_throttle_settings_are_read_from_the_environment(self) -> None:
+        settings = AuthSettings.from_env(dict(PASSWORD_ENV, **THROTTLE_ENV))
+        assert settings.throttle_parameters == {
+            "initial_delay": 2.0,
+            "multiplier": 1.5,
+            "max_delay": 90.0,
+            "forget_after": 600.0,
+        }
+        assert all(isinstance(value, float) for value in settings.throttle_parameters.values())
+
+    @pytest.mark.parametrize(
+        "raw", ["abc", "nan", "inf", "  "], ids=["nonsense", "nan", "inf", "blank"]
+    )
+    def test_an_unreadable_throttle_value_falls_back_to_its_default(self, raw: str) -> None:
+        env = dict(
+            PASSWORD_ENV,
+            OSPREY_AUTH_THROTTLE_INITIAL_DELAY=raw,
+            OSPREY_AUTH_THROTTLE_MULTIPLIER=raw,
+            OSPREY_AUTH_THROTTLE_MAX_DELAY=raw,
+            OSPREY_AUTH_THROTTLE_FORGET_AFTER=raw,
+        )
+        settings = AuthSettings.from_env(env)
+        assert settings.throttle_parameters == {
+            "initial_delay": DEFAULT_INITIAL_DELAY,
+            "multiplier": DEFAULT_MULTIPLIER,
+            "max_delay": DEFAULT_MAX_DELAY,
+            "forget_after": DEFAULT_FORGET_AFTER,
+        }
+        assert settings.configured is True
 
     def test_roster_is_ordered_and_deduplicated(self) -> None:
         env = dict(PASSWORD_ENV, OSPREY_AUTH_USERS=" bob , alice ,, bob ")
@@ -1007,6 +1098,18 @@ class TestSharedStores:
     a second throttle counts every attempt as the first, so neither ever closes
     a window.
     """
+
+    def test_the_login_throttle_takes_the_deployment_settings(self) -> None:
+        throttle = create_app(dict(PASSWORD_ENV, **THROTTLE_ENV)).state.attempt_throttle
+        assert throttle.max_delay == 90.0
+        assert throttle.record_failure("alice") == 2.0
+        assert throttle.record_failure("alice") == 3.0
+
+    def test_the_audit_throttle_keeps_the_default_shape(self) -> None:
+        """The deployment's settings describe how logins are slowed, not the ledger window."""
+        state = create_app(dict(PASSWORD_ENV, **THROTTLE_ENV)).state
+        assert state.audit_throttle.max_delay == DEFAULT_MAX_DELAY
+        assert state.audit_throttle.record_failure("alice") == DEFAULT_INITIAL_DELAY
 
     STORES = [
         ("revocation_store", get_revocation_store, RevocationStore, "revocation store"),

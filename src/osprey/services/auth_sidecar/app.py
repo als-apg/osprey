@@ -19,11 +19,11 @@ objects are built here for the same reason — the session codec
 (:func:`get_audit_throttle`). Each only means anything if every route touches
 the same instance: four differently-parameterised codecs (or four clocks) let
 expiries disagree, a second revocation store is a logout nothing checks, and a
-second throttle counts every attempt as the first. The last two are the same
-class and never the same object, for the opposite reason — see
-:func:`get_audit_throttle`. Anything else shared across routes belongs here
-too, on the same pattern — built once in the factory, reached through an
-accessor.
+second throttle counts every attempt as the first. The login throttle is built
+from the deployment's settings. The last two are the same class and never the
+same object, for the opposite reason — see :func:`get_audit_throttle`. Anything
+else shared across routes belongs here too, on the same pattern — built once in
+the factory, reached through an accessor.
 
 Per-user values are keyed by
 :func:`~osprey.deployment.web_terminals.personas.env_var_suffix` — the one
@@ -53,11 +53,12 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -77,7 +78,14 @@ from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from .passwords import stored_hash_problem
 from .revocation import RevocationStore
 from .sessions import SessionCodec
-from .throttle import AttemptThrottle
+from .throttle import (
+    DEFAULT_FORGET_AFTER,
+    DEFAULT_INITIAL_DELAY,
+    DEFAULT_MAX_DELAY,
+    DEFAULT_MULTIPLIER,
+    AttemptThrottle,
+    throttle_problems,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,9 +132,38 @@ ENV_METHOD = "OSPREY_AUTH_METHOD"
 ENV_SESSION_SECRET = "OSPREY_AUTH_SESSION_SECRET"
 ENV_STATE_SECRET = "OSPREY_AUTH_STATE_SECRET"
 ENV_SESSION_LIFETIME = "OSPREY_AUTH_SESSION_LIFETIME"
+ENV_THROTTLE_INITIAL_DELAY = "OSPREY_AUTH_THROTTLE_INITIAL_DELAY"
+ENV_THROTTLE_MULTIPLIER = "OSPREY_AUTH_THROTTLE_MULTIPLIER"
+ENV_THROTTLE_MAX_DELAY = "OSPREY_AUTH_THROTTLE_MAX_DELAY"
+ENV_THROTTLE_FORGET_AFTER = "OSPREY_AUTH_THROTTLE_FORGET_AFTER"
 ENV_TLS_ENABLED = "OSPREY_AUTH_TLS_ENABLED"
 ENV_EXTERNAL_ORIGIN = "OSPREY_AUTH_EXTERNAL_ORIGIN"
 ENV_USERS = "OSPREY_AUTH_USERS"
+
+_THROTTLE_ENV: dict[str, str] = {
+    "initial_delay": ENV_THROTTLE_INITIAL_DELAY,
+    "multiplier": ENV_THROTTLE_MULTIPLIER,
+    "max_delay": ENV_THROTTLE_MAX_DELAY,
+    "forget_after": ENV_THROTTLE_FORGET_AFTER,
+}
+"""Each login-throttle parameter, keyed by its ``AttemptThrottle`` keyword, to its variable."""
+
+
+class ThrottleParameters(TypedDict):
+    """The login throttle's settings, keyed by ``AttemptThrottle`` keyword."""
+
+    initial_delay: float
+    multiplier: float
+    max_delay: float
+    forget_after: float
+
+
+_THROTTLE_DEFAULTS: dict[str, float] = {
+    "initial_delay": DEFAULT_INITIAL_DELAY,
+    "multiplier": DEFAULT_MULTIPLIER,
+    "max_delay": DEFAULT_MAX_DELAY,
+    "forget_after": DEFAULT_FORGET_AFTER,
+}
 
 ENV_PW_HASH_PREFIX = "OSPREY_AUTH_PW_HASH_"
 """Per-user stored hash: ``OSPREY_AUTH_PW_HASH_<SUFFIX>``."""
@@ -298,6 +335,23 @@ def _positive_int(raw: str | None, default: int) -> int:
     return value if is_positive_int(value) else default
 
 
+def _throttle_number(raw: str | None, default: float) -> float:
+    """Read one login-throttle parameter from the environment.
+
+    Blank, absent, unparseable or non-finite gives ``default``, so a hand-edited
+    value never stops the sidecar from coming up; the startup log names it.
+    Range is not judged here: :meth:`AuthSettings.missing_requirements` holds
+    the four values to :func:`~osprey.services.auth_sidecar.throttle.throttle_problems`.
+    """
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return default
+    return value if math.isfinite(value) else default
+
+
 def _logged_value(value: str) -> str:
     """A bounded, escape-safe rendering of an env value for a warning line.
 
@@ -463,6 +517,15 @@ class AuthSettings:
             default.
         web_app_name: The facility name shown above the login page's wordmark.
             Empty when the deployment names none.
+        throttle_initial_delay: The login throttle's first window after a
+            wrong password, seconds; the audit-ledger window does not read it.
+        throttle_multiplier: The login throttle's growth factor per further
+            failure; the audit-ledger window does not read it.
+        throttle_max_delay: The login throttle's window ceiling, seconds; the
+            audit-ledger window does not read it.
+        throttle_forget_after: The login throttle's quiet period after which a
+            user's escalation is discarded, seconds; the audit-ledger window
+            does not read it.
         roster_access: ``{username: admitted principals}`` for every roster
             user, as :func:`_access_principals` read the entry's
             ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>``. :data:`OWNER_ONLY` for the
@@ -492,6 +555,10 @@ class AuthSettings:
     roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
     web_theme: str = ""
     web_app_name: str = ""
+    throttle_initial_delay: float = DEFAULT_INITIAL_DELAY
+    throttle_multiplier: float = DEFAULT_MULTIPLIER
+    throttle_max_delay: float = DEFAULT_MAX_DELAY
+    throttle_forget_after: float = DEFAULT_FORGET_AFTER
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> AuthSettings:
@@ -571,7 +638,29 @@ class AuthSettings:
             roster_access=roster_access,
             web_theme=(source.get(ENV_WEB_THEME) or "").strip(),
             web_app_name=(source.get(ENV_WEB_APP_NAME) or "").strip(),
+            throttle_initial_delay=_throttle_number(
+                source.get(ENV_THROTTLE_INITIAL_DELAY), DEFAULT_INITIAL_DELAY
+            ),
+            throttle_multiplier=_throttle_number(
+                source.get(ENV_THROTTLE_MULTIPLIER), DEFAULT_MULTIPLIER
+            ),
+            throttle_max_delay=_throttle_number(
+                source.get(ENV_THROTTLE_MAX_DELAY), DEFAULT_MAX_DELAY
+            ),
+            throttle_forget_after=_throttle_number(
+                source.get(ENV_THROTTLE_FORGET_AFTER), DEFAULT_FORGET_AFTER
+            ),
         )
+
+    @property
+    def throttle_parameters(self) -> ThrottleParameters:
+        """The login throttle's four settings, keyed by ``AttemptThrottle`` keyword."""
+        return {
+            "initial_delay": self.throttle_initial_delay,
+            "multiplier": self.throttle_multiplier,
+            "max_delay": self.throttle_max_delay,
+            "forget_after": self.throttle_forget_after,
+        }
 
     def missing_requirements(self) -> tuple[str, ...]:
         """Names of the settings that must be present before auth can be served.
@@ -599,7 +688,11 @@ class AuthSettings:
         the parser — otherwise a directly-constructed
         ``AuthSettings(method="password", session_secret="   ")`` reports
         servable and then kills the factory, taking the healthcheck that would
-        have explained it down too.
+        have explained it down too. The login throttle's four parameters are
+        held to the same rule: each one
+        :func:`~osprey.services.auth_sidecar.throttle.throttle_problems` names
+        is reported under its variable, because the factory builds the throttle
+        from them.
 
         Returns:
             Env-var names (never values), sorted for a stable log line. Empty
@@ -612,6 +705,9 @@ class AuthSettings:
             missing.add(ENV_SESSION_SECRET)
         if self.session_lifetime <= 0:
             missing.add(ENV_SESSION_LIFETIME)
+        missing.update(
+            _THROTTLE_ENV[name] for name in throttle_problems(**self.throttle_parameters)
+        )
         if self.method == METHOD_OIDC:
             if not self.state_secret.strip():
                 missing.add(ENV_STATE_SECRET)
@@ -1077,12 +1173,16 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
             "of this service forgets them",
             AUDIT_DIR_ENV,
         )
-    app.state.attempt_throttle = AttemptThrottle() if servable else None
+    app.state.attempt_throttle = (
+        AttemptThrottle(**settings.throttle_parameters) if servable else None
+    )
     # A THIRD window, and never the login one: this is the bound on how often
     # the audit ledger repeats itself, grown by refusals that were never
     # evaluated. `throttle.py` forbids growing the login window that way — it
     # would let an unauthenticated caller delay a named operator's real login —
-    # so the two uses get their own instances. See `get_audit_throttle`.
+    # so the two uses get their own instances. It keeps the fixed default shape
+    # on purpose: the deployment's throttle settings describe how logins are
+    # slowed, and this window bounds how often the ledger repeats a refusal.
     app.state.audit_throttle = AttemptThrottle() if servable else None
 
     @app.get(HEALTH_PATH)
@@ -1180,6 +1280,16 @@ def _log_configuration(settings: AuthSettings, env: Mapping[str, str] | None) ->
             "so cookies will be issued without the Secure attribute",
             ENV_TLS_ENABLED,
         )
+    for name, var in _THROTTLE_ENV.items():
+        raw = source.get(var)
+        if raw is not None and raw.strip() and math.isnan(_throttle_number(raw, math.nan)):
+            logger.warning(
+                "%s is set to %s, which is not a finite number; the login throttle uses "
+                "the default %s instead",
+                var,
+                _logged_value(raw),
+                _THROTTLE_DEFAULTS[name],
+            )
 
     origin_is_https = settings.external_origin.startswith("https://")
     if settings.external_origin and origin_is_https != settings.tls_enabled:
