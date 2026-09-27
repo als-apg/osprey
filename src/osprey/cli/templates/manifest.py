@@ -8,7 +8,6 @@ catalog-aware generation/validation logic that stays in this module.
 
 import json
 import logging
-import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +15,7 @@ from typing import Any
 from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
 from osprey.errors import BuildProfileError
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.services.build_artifacts.ownership import framework_template_hash
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -57,55 +57,6 @@ REGEN_TRACKED_FILES = sorted(
     {"CLAUDE.md", ".mcp.json", ".claude/settings.json", ".claude/statusline.py"}
     | {artifact.output_path for artifact in BuildArtifactCatalog.default().all_artifacts()}
 )
-
-
-def framework_template_hash(
-    claude_code_dir: Path,
-    template_path: str,
-    jinja_env: Any,
-    context: dict[str, Any],
-) -> str | None:
-    """``sha256:`` digest of the framework's own version of one artifact.
-
-    Recorded when an artifact is claimed and recomputed on every regen, so the
-    two must be computed identically or every regen would report drift that is
-    not there. That is the whole reason this lives in one function: the two
-    callers are in different modules and would otherwise be free to differ on
-    the render context, the encoding, or the ``sha256:`` prefix.
-
-    A ``.j2`` template is rendered first — the digest is of what the framework
-    would *write*, not of the template that writes it, so a context change is
-    drift and a comment change in the template is not.
-
-    Args:
-        claude_code_dir: The ``claude_code`` template directory.
-        template_path: The artifact's template path below it.
-        jinja_env: Jinja environment the render goes through.
-        context: Template context for the render.
-
-    Returns:
-        ``sha256:<hex>``, or ``None`` when the template is missing or will not
-        render. Callers treat ``None`` as "no comparison possible" rather than
-        as drift: a template that cannot render is a framework problem, and
-        reporting it as the operator's artifact having drifted would misdirect.
-    """
-    template_file = claude_code_dir / template_path
-    if not template_file.exists():
-        return None
-    try:
-        if template_file.suffix != ".j2":
-            return f"sha256:{sha256_file(template_file)}"
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=template_file.stem, delete=False, encoding="utf-8"
-        ) as tmp:
-            template = jinja_env.get_template(f"claude_code/{template_path}")
-            tmp.write(template.render(**context))
-            tmp_path = Path(tmp.name)
-        digest = f"sha256:{sha256_file(tmp_path)}"
-        tmp_path.unlink(missing_ok=True)
-        return digest
-    except Exception:
-        return None
 
 
 def _stored_artifacts(project_dir: Path | None) -> dict | None:
@@ -454,9 +405,9 @@ def build_user_owned_manifest(
 ) -> dict[str, Any]:
     """Build user_owned section for the manifest.
 
-    For each user-owned artifact, records the SHA-256 of the framework
-    template as rendered at claim time. During regen, if the framework
-    hash changes, a drift warning is shown.
+    Records the framework hash of each user-owned artifact (a rendered file,
+    a verbatim file, or a directory tree digest) at claim time. During regen,
+    if the framework hash changes, a drift warning is shown.
 
     Args:
         template_root: Path to osprey's bundled templates directory
@@ -473,16 +424,13 @@ def build_user_owned_manifest(
 
     registry = BuildArtifactCatalog.default()
     result: dict[str, Any] = {}
-    claude_code_dir = template_root / "claude_code"
 
     for canonical_name in user_owned:
         artifact = registry.get(canonical_name)
         if artifact is None:
             continue
 
-        framework_hash = framework_template_hash(
-            claude_code_dir, artifact.template_path, jinja_env, context
-        )
+        framework_hash = framework_template_hash(template_root, artifact, jinja_env, context)
 
         entry: dict[str, Any] = {
             "claimed_at": datetime.now(UTC).isoformat(),
