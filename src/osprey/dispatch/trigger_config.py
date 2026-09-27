@@ -11,6 +11,7 @@ from typing import Any
 
 import yaml
 
+from osprey.dispatch.clock_schedule import ClockSchedule, parse_clock_schedule
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 
 __all__ = [
@@ -52,6 +53,8 @@ class TriggerConfig:
         max_turns: Optional per-trigger ceiling on agentic turns. ``None`` when
             ``action.max_turns`` is absent, in which case the worker applies
             the deployment's own ``dispatch.max_turns``.
+        schedule: The parsed ``at``/``days`` of a clock-time cron trigger;
+            ``None`` for every other trigger.
     """
 
     name: str
@@ -62,6 +65,7 @@ class TriggerConfig:
     surface: str | None = None
     surface_prompt: str | None = None
     max_turns: int | None = None
+    schedule: ClockSchedule | None = None
 
 
 @dataclass
@@ -132,6 +136,13 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
 
     source_config = raw.get("source_config", {})
 
+    # A schedule that cannot be read would otherwise surface only when the
+    # dispatcher starts, or never for a mistyped key, so it is refused here,
+    # where the author wrote it.
+    schedule = None
+    if source == "cron" and isinstance(source_config, dict):
+        schedule = parse_clock_schedule(name, source_config)
+
     return TriggerConfig(
         name=name,
         source=source,
@@ -141,6 +152,7 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
         surface=surface,
         surface_prompt=surface_prompt,
         max_turns=max_turns,
+        schedule=schedule,
     )
 
 
