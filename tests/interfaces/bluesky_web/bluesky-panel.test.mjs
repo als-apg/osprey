@@ -2514,6 +2514,21 @@ describe('booting the shipped bundle', () => {
     document.body.innerHTML = '';
   });
 
+  test('the plan browser width is read under the storage scope', async () => {
+    document.documentElement.setAttribute('data-osprey-storage-scope', 'bob');
+    localStorage.setItem('osprey-plan-sidebar-width', '420');
+    localStorage.setItem('osprey-plan-sidebar-width--bob', '300');
+    try {
+      boot();
+      await import(`${BUNDLE}panel.js`);
+      const sidebar = /** @type {HTMLElement} */ (document.getElementById('plan-sidebar'));
+      expect(sidebar.style.flexBasis).toBe('300px');
+    } finally {
+      document.documentElement.removeAttribute('data-osprey-storage-scope');
+      localStorage.clear();
+    }
+  });
+
   test('the halt is live from first paint, before any frame arrives', async () => {
     const panel = boot();
     // Pre-import: the shipped markup itself must not disable it.

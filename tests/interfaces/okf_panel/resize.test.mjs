@@ -8,7 +8,7 @@
  * restore, and the keyboard nudge path — the parts happy-dom can host.
  */
 
-import { test, expect, describe, beforeEach } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach } from 'vitest';
 
 import {
   clampWidth,
@@ -76,5 +76,32 @@ describe('initSidebarResize', () => {
     // The shared splitter persists a {size, collapsed} record, not a bare
     // width — a collapse has to remember what to restore to.
     expect(JSON.parse(String(localStorage.getItem(STORAGE_KEY))).size).toBe(180);
+  });
+});
+
+describe('on a multi-user mount (storage scope)', () => {
+  const SCOPE_ATTR = 'data-osprey-storage-scope';
+
+  beforeEach(() => {
+    localStorage.clear();
+    renderApp();
+    document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
+  });
+
+  afterEach(() => {
+    document.documentElement.removeAttribute(SCOPE_ATTR);
+  });
+
+  test('a scoped page restores its own width, not the shared one', () => {
+    localStorage.setItem(STORAGE_KEY, '420');
+    localStorage.setItem(STORAGE_KEY + '--bob', '300');
+    initSidebarResize();
+    expect(document.getElementById('sidebar')?.style.flexBasis).toBe('300px');
+  });
+
+  test('a scoped page with no width of its own starts at the default', () => {
+    localStorage.setItem(STORAGE_KEY, '420');
+    initSidebarResize();
+    expect(document.getElementById('sidebar')?.style.flexBasis).toBe('');
   });
 });
