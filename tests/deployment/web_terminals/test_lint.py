@@ -3119,15 +3119,14 @@ def test_lint_auth_without_tls_and_allow_insecure_http_is_a_warning() -> None:
     assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
 
 
-def test_lint_auth_insecure_http_warning_is_withheld_on_loopback() -> None:
-    """With `deploy.fqdn` naming loopback the deployment advertises itself as
+@pytest.mark.parametrize("fqdn", ["127.0.0.1", "localhost", "LOCALHOST"])
+def test_lint_auth_insecure_http_warning_is_withheld_on_loopback(fqdn: str) -> None:
+    """With the origin browsers use naming loopback the deployment is
     same-host-only, so its cookies cross no network path — the exact case the
     escape hatch exists for (and the control-assistant preset's demo posture).
     A real hostname brings the warning back with the exposure."""
     # Arrange
-    config = _auth_config(
-        {"method": "password", "allow_insecure_http": True}, tls=False, fqdn="127.0.0.1"
-    )
+    config = _auth_config({"method": "password", "allow_insecure_http": True}, tls=False, fqdn=fqdn)
 
     # Act
     findings = lint_web_terminals(config)
@@ -3135,6 +3134,51 @@ def test_lint_auth_insecure_http_warning_is_withheld_on_loopback() -> None:
     # Assert
     assert not any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
     assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_auth_insecure_http_warns_for_a_loopback_fqdn_behind_a_real_http_origin() -> None:
+    """Browsers log in at `external_origin`, so a loopback `deploy.fqdn` behind a
+    plain-HTTP origin on a real host still sends the cookie over the network."""
+    # Arrange
+    config = _auth_config(
+        {"method": "password", "allow_insecure_http": True}, tls=False, fqdn="127.0.0.1"
+    )
+    config["modules"]["web_terminals"]["external_origin"] = "http://ops.example.org:8080"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+
+
+def test_lint_auth_insecure_http_is_withheld_behind_an_https_external_origin() -> None:
+    """An `https` origin in front of a plain-HTTP nginx is the topology the escape
+    hatch is documented for: the browser's leg is carried over TLS."""
+    # Arrange
+    config = _auth_config(
+        {"method": "password", "allow_insecure_http": True}, tls=False, fqdn="ops.example.org"
+    )
+    config["modules"]["web_terminals"]["external_origin"] = "https://ops.example.org"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_auth_insecure_http_still_warns_when_the_origin_cannot_be_derived() -> None:
+    """An origin that cannot be derived is never read as loopback."""
+    # Arrange
+    config = _auth_config({"method": "password", "allow_insecure_http": True}, tls=False, fqdn=None)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
 
 
 def test_lint_auth_with_tls_reports_no_transport_finding() -> None:

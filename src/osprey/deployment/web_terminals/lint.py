@@ -70,6 +70,7 @@ from osprey.deployment.web_terminals.render import (
     _external_origin,
     _port_int,
     _scope_list,
+    deployment_origin,
 )
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
@@ -2996,11 +2997,12 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
     risk is restated at every lint rather than only in the commit that took it.
 
     With TLS on, ``allow_insecure_http`` is inert and nothing is reported. The
-    WARN is also withheld when ``deploy.fqdn`` names loopback: the deployment
-    advertises itself as same-host-only, so its cookies cross no network path —
-    the exact case the escape hatch exists for, and the posture the
-    control-assistant preset ships in. Pointing ``fqdn`` at a real host brings
-    the WARN back with the config change that creates the exposure.
+    WARN is withheld when the origin browsers use (``external_origin`` when set,
+    else the one derived from ``deploy.fqdn``) is on a loopback host, because no
+    cookie crosses a network path. It is also withheld when that origin is
+    ``https``, because a terminator in front carries the browser's leg over TLS,
+    which is the topology the escape hatch is documented for. An origin that
+    cannot be derived keeps the WARN.
     """
     context = _auth_context(web_terminals)
     if context is None or not context["sidecar_active"]:
@@ -3008,9 +3010,13 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
     if context["tls_enabled"]:
         return []
     if context["auth_allow_insecure_http"]:
-        fqdn = str(as_dict(root.get("deploy")).get("fqdn") or "").strip()
-        if fqdn in ("127.0.0.1", "localhost", "::1"):
-            return []
+        try:
+            origin = deployment_origin(root)
+        except ValueError:
+            pass
+        else:
+            if origin.is_loopback or origin.scheme == "https":
+                return []
         return [
             Finding(
                 severity="warn",
