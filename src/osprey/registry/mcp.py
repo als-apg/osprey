@@ -257,6 +257,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             # panel_focus targets the matching web-terminal tab). extends
             # clones get this auto-rewritten to their own name.
             "OSPREY_SERVER_NAME": "phoebus",
+            # PHOEBUS_REQUIRE_HANDLE is deliberately absent: an entry here would
+            # materialize on every launch and override phoebus.require_handle,
+            # so only the multi-user render sets it, on the containers that
+            # share one product.
         },
         permissions_allow=[
             "phoebus_list_displays",

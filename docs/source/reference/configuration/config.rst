@@ -908,7 +908,11 @@ These keys configure the ``phoebus`` MCP server, which is off until
        path resolves against the directory of ``config.yml``.
    * - ``phoebus.require_handle``
      - ``true`` refuses the implicit ``"active"`` display, so callers pass a
-       handle or a display name. Default ``false``.
+       handle or a display name. A multi-user web-terminal deployment stamps
+       ``PHOEBUS_REQUIRE_HANDLE=1`` on every terminal whose project runs a
+       Phoebus server. Elsewhere the default is ``false``, turned on with
+       ``true`` or ``PHOEBUS_REQUIRE_HANDLE=1``. ``false`` keeps ``"active"``
+       in a multi-user deployment too.
    * - ``phoebus.archiver_url``
      - The archiver bound into generated Data Browser plots. Unset, plots show
        live values only.

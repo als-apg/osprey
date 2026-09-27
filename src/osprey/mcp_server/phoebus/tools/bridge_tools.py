@@ -44,10 +44,13 @@ Every tool that accepts a ``display`` argument supports three forms:
 
 On a backend shared by multiple web terminals, ``"active"`` resolves the
 process-global focused display — a race when two terminals perceive/drive
-concurrently. Set ``PHOEBUS_REQUIRE_HANDLE=1`` (or ``phoebus.require_handle:
-true`` in config.yml) to reject the implicit ``"active"`` fallback and force
-callers to address a specific display (a handle or an explicit name). Off by
-default — a single-instance deployment is unaffected.
+concurrently. A multi-user web-terminal deployment therefore stamps
+``PHOEBUS_REQUIRE_HANDLE=1`` on every terminal whose project runs a Phoebus
+server, which rejects the implicit ``"active"`` fallback and makes callers
+address a specific display (a handle or an explicit name). Elsewhere the switch
+is off by default and is turned on with ``phoebus.require_handle: true`` in
+config.yml or ``PHOEBUS_REQUIRE_HANDLE=1``. ``phoebus.require_handle: false``
+keeps ``"active"`` in a multi-user deployment too.
 
 Panel name registry
 -------------------
@@ -196,7 +199,11 @@ def _require_handle() -> bool:
     Resolution order (mirrors ``osprey.interfaces.vendor.is_offline``):
 
     1. ``PHOEBUS_REQUIRE_HANDLE`` env var (truthy: 1/true/yes/on; falsy:
-       0/false/no/off) — set by the framework server definition; wins outright.
+       0/false/no/off) — wins outright. The multi-user web-terminal render
+       stamps ``PHOEBUS_REQUIRE_HANDLE=1`` on every terminal container whose
+       project runs a Phoebus server and does not set rung 2 to false. The
+       server definition never sets it, so a single-instance deployment is
+       governed by rung 2.
     2. ``phoebus.require_handle`` in config.yml.
     3. ``False`` default — existing ``"active"`` fallback behavior is unchanged.
     """
