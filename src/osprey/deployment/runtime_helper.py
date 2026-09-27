@@ -768,6 +768,18 @@ def get_ps_command(
     return ps_cmd
 
 
+def runtime_reports_absent(stderr: str) -> bool:
+    """Whether a failed removal failed only because there was nothing there.
+
+    Matched on the runtime's own wording because neither docker nor podman
+    distinguishes "already gone" from "would not go" by exit code. Kept
+    deliberately narrow: anything else is surfaced to the operator. Every
+    exact-named removal in :mod:`osprey.deployment` classifies its failures here.
+    """
+    lowered = stderr.lower()
+    return "no such" in lowered or "not found" in lowered
+
+
 def _inspect_image_id(cmd: list[str], env: dict[str, str] | None) -> str | None:
     """Run an inspect ``cmd`` that prints one image ID; normalize or return None.
 

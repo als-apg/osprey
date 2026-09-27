@@ -110,7 +110,11 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.container_lifecycle import as_built_config_path, down_deployment
-from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+from osprey.deployment.runtime_helper import (
+    get_runtime_command,
+    runtime_env,
+    runtime_reports_absent,
+)
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.env_production import (
@@ -670,7 +674,7 @@ class RuntimeProbe:
             logger.debug("Removed %s", subject)
             return
         stderr = (result.stderr or "").strip()
-        if _is_absent(stderr):
+        if runtime_reports_absent(stderr):
             logger.debug("%s was already gone", subject)
             return
         # Recorded, not raised: one volume that will not go is a reason to tell
@@ -681,17 +685,6 @@ class RuntimeProbe:
         reason = stderr or f"exit {result.returncode}"
         self.failures.append((subject, reason))
         logger.warning("Could not remove %s: %s", subject, reason)
-
-
-def _is_absent(stderr: str) -> bool:
-    """Whether a failed removal failed only because there was nothing there.
-
-    Matched on the runtime's own wording because neither docker nor podman
-    distinguishes "already gone" from "would not go" by exit code. Kept
-    deliberately narrow: anything else is surfaced to the operator.
-    """
-    lowered = stderr.lower()
-    return "no such" in lowered or "not found" in lowered
 
 
 # ---------------------------------------------------------------------------
