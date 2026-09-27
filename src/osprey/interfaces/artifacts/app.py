@@ -376,6 +376,39 @@ def _resolve_pinned_web_theme() -> str | None:
     return resolved.id if resolved.pinned_mode else None
 
 
+def _agent_artifact_dir(artifact_dir: Path, repo_root: Path, base_dir: str) -> str:
+    """The spelling of the store's artifact directory handed to the agent.
+
+    Repo-relative exactly when the configured ``agent_data.base_dir`` is
+    relative and the directory, taken relative to ``repo_root``, begins with
+    that base directory; the absolute directory otherwise. ``~`` counts as
+    absolute, because the agent-data root expands it.
+
+    ``artifact_dir.relative_to(repo_root)`` alone is not the test: when the
+    base directory does not match the root's tail, ``repo_root_for_agent_data``
+    falls back to the root's parent, an ancestor of everything under the root,
+    so ``relative_to`` succeeds and yields a wrong-but-plausible path such as
+    ``agent/artifacts``. An absolute path is always openable; a relative one is
+    only honest when it starts with the configured base directory.
+
+    Args:
+        artifact_dir: The directory the store writes artifact files to.
+        repo_root: The repo root the store anchors its relative pointers at.
+        base_dir: The configured ``agent_data.base_dir``.
+
+    Returns:
+        A POSIX repo-relative path, or the absolute directory.
+    """
+    tail = Path(base_dir).parts
+    if (
+        not Path(base_dir).expanduser().is_absolute()
+        and artifact_dir.is_relative_to(repo_root)
+        and artifact_dir.relative_to(repo_root).parts[: len(tail)] == tail
+    ):
+        return artifact_dir.relative_to(repo_root).as_posix()
+    return str(artifact_dir)
+
+
 def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
     """Inject an HTML snippet (CSS/JS) into HTML content, before </head>."""
     html = html_bytes.decode("utf-8", errors="replace")
@@ -678,6 +711,14 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # opened outside the hub.
     web_theme_pin = _resolve_pinned_web_theme()
 
+    # Resolved once, after config priming like the theme pin: the spelling of
+    # the artifact directory that the page's artifactPath hands the agent.
+    from osprey.utils.workspace import agent_data_base_dir, load_osprey_config
+
+    artifact_dir_for_agent = _agent_artifact_dir(
+        store.artifact_dir, store.repo_root, agent_data_base_dir(load_osprey_config())
+    )
+
     # Resolved once, after config priming like the theme pin, because the
     # priming above is what points the resolver at this deployment's config.
     facility_timezone = get_facility_timezone().key
@@ -775,7 +816,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "index.html",
-            {"web_theme_pin": web_theme_pin, "facility_timezone": facility_timezone},
+            {
+                "web_theme_pin": web_theme_pin,
+                "facility_timezone": facility_timezone,
+                "artifact_dir": artifact_dir_for_agent,
+            },
         )
 
     @app.get("/health")

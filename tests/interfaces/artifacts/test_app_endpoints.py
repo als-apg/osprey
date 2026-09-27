@@ -11,11 +11,13 @@ Covers:
 """
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.artifacts.app import (
+    _agent_artifact_dir,
     _inject_html_snippet,
     _SSEBroadcaster,
     create_app,
@@ -492,3 +494,61 @@ class TestIndexPlotlyVendorMeta:
         client, _ = app_client
         html = client.get("/").text
         assert 'name="osprey-vendor-plotly" content="/static/js/vendor/plotly-3.3.1.min.js"' in html
+
+
+class TestIndexArtifactDirMeta:
+    """GET / carries the store's artifact directory for types.js's ``artifactPath``.
+
+    The path chip, the copy-path button and the drag-to-terminal text all name
+    an artifact by this directory, so it has to be the one the deployment's
+    store writes to: repo-relative when an honest repo-relative spelling
+    exists, absolute otherwise.
+    """
+
+    @staticmethod
+    def _client(tmp_path, monkeypatch, root: Path, base_dir: str | None) -> TestClient:
+        repo_root = tmp_path / "repo"
+        (repo_root / "build").mkdir(parents=True)
+        config = f"project_root: {repo_root}\n"
+        if base_dir is not None:
+            config += f"agent_data:\n  base_dir: {base_dir}\n"
+        config_path = repo_root / "build" / "config.yml"
+        config_path.write_text(config)
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+        monkeypatch.chdir(repo_root)
+        return TestClient(create_app(workspace_root=root))
+
+    def test_default_layout_is_stamped_repo_relative(self, tmp_path, monkeypatch):
+        root = tmp_path / "repo" / "var" / "agent_data"
+        html = self._client(tmp_path, monkeypatch, root, None).get("/").text
+        assert 'name="osprey-artifact-dir" content="var/agent_data/artifacts"' in html
+
+    def test_relocated_base_dir_is_stamped_repo_relative(self, tmp_path, monkeypatch):
+        root = tmp_path / "repo" / "state" / "agent"
+        html = self._client(tmp_path, monkeypatch, root, "state/agent").get("/").text
+        assert 'name="osprey-artifact-dir" content="state/agent/artifacts"' in html
+
+    def test_absolute_base_dir_is_stamped_absolute(self, tmp_path, monkeypatch):
+        root = tmp_path / "abs" / "agent"
+        html = self._client(tmp_path, monkeypatch, root, str(root)).get("/").text
+        assert f'name="osprey-artifact-dir" content="{root}/artifacts"' in html
+        assert 'content="agent/artifacts"' not in html
+
+    @pytest.mark.parametrize(
+        ("root", "base_dir", "expected"),
+        [
+            ("/r/var/agent_data", "var/agent_data", "var/agent_data/artifacts"),
+            ("/r/state/agent", "state/agent", "state/agent/artifacts"),
+            ("/r/data", "data", "data/artifacts"),
+            ("/abs/agent", "/abs/agent", "/abs/agent/artifacts"),
+            ("/home/u/osprey-data", "~/osprey-data", "/home/u/osprey-data/artifacts"),
+            ("/r/tests/root", "var/agent_data", "/r/tests/root/artifacts"),
+        ],
+        ids=["default", "two-segment", "single-segment", "absolute", "home", "mismatched"],
+    )
+    def test_agent_artifact_dir_spells_each_layout(self, root, base_dir, expected):
+        from osprey.utils.workspace import repo_root_for_agent_data
+
+        root_path = Path(root)
+        repo_root = repo_root_for_agent_data(root_path, base_dir)
+        assert _agent_artifact_dir(root_path / "artifacts", repo_root, base_dir) == expected
