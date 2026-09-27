@@ -713,13 +713,14 @@ class ARIELConfig:
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
-            entry URL, e.g. ``"https://logbook.example/olog.php?id={entry_id}"``.
+            entry URL, e.g. ``"https://logbook.example.org/entry/{entry_id}"``.
             Read at egress time via ``get_config_value("ariel.entry_url_template")``
             (see ``mcp_server.ariel.server.build_entry_url``), NOT parsed by
             ``from_dict`` — the ARIEL read tools render it with the URL-encoded
-            ``entry_id`` so the agent links entries verbatim. Facility-neutral by
-            default (unset -> no ``entry_url`` emitted); a facility supplies the
-            value in its own sibling base file.
+            ``entry_id`` so the agent links entries verbatim. Unset by default (no
+            ``entry_url`` emitted); a deployment sets it in its profile's
+            ``config:`` block, where the presets that ship an ``ariel:`` block
+            carry it as a commented example.
     """
 
     database: DatabaseConfig
