@@ -166,7 +166,9 @@ and nginx asks it about every request under ``/u/<name>/`` before proxying
 anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
 set it — see :ref:`reference-ports`),
 ``auth.session_lifetime`` in whole seconds (default ``43200``), and
-``auth.image``, required with ``image_source: registry``.
+``auth.image``, required with ``image_source: registry`` — a published build of
+OSPREY's login service; :ref:`multi-user-login-service-contract` says what it
+answers.
 
 .. dropdown:: Where ``auth.session_lifetime`` applies
    :icon: gear
@@ -213,9 +215,9 @@ releases for each person. The rest of this page applies unchanged:
 
 OSPREY takes no identity from a request header. The four ``X-Osprey-Auth-*``
 headers the terminals read are written by nginx from the login service's
-answer and cleared on every other route (see *What the login service answers*,
-later on this page), so a proxy in front of OSPREY cannot say who a user is,
-and whatever it sends is overwritten. A login that trusted such a header would
+answer and cleared on every other route
+(:ref:`multi-user-login-service-contract`), so a proxy in front of OSPREY
+cannot say who a user is, and whatever it sends is overwritten. A login that trusted such a header would
 let anyone who reaches nginx without passing that proxy name themselves. A
 broker keeps the proof in a signed token that the login service checks itself.
 
@@ -286,6 +288,73 @@ what the chain delivers to which container.
 This applies to the image OSPREY builds. In registry mode
 (``modules.web_terminals.auth.image``) the login service runs a published image
 the facility built itself, so its trust store is that build's business.
+
+.. _multi-user-login-service-contract:
+
+What the login service answers
+==============================
+
+In both image modes the stack starts the login service with a fixed command,
+``uvicorn osprey.services.auth_sidecar.app:create_app --factory``, bound to the
+loopback address on ``auth.port``, and probes it with the image's own
+``python``. An ``auth.image`` is therefore a build of OSPREY's login service
+from the same release as the terminals, published by the facility's CI. It is
+not a place for a login service of the site's own. What follows is what nginx
+and the terminals rely on, and what a build has to keep answering across an
+upgrade.
+
+``GET /verify?user=<card>`` is asked once for every request under
+``/u/<card>/``, from an internal location whose card name is fixed when the
+stack is rendered, so nothing in the request picks the card. It is answered
+over loopback within 2 s to connect and 5 s to read. An empty 200 admits the
+request and a bare 401 refuses it, with no body and no redirect; any other
+status fails the request. A refused browser page load is sent to
+``/auth/login?user=<card>``, and a program gets the bare 401. ``/verify`` is not
+under ``/auth/`` and cannot be reached from outside.
+
+A 200 carries up to four headers:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - Header
+     - Present
+     - What it names
+   * - ``X-Osprey-Auth-Account``
+     - On every 200.
+     - The roster card the request is on.
+   * - ``X-Osprey-Auth-Subject``
+     - When the session holds who proved the login.
+     - The provider's asserted identity, or under ``password`` the roster name
+       of whoever typed the password. It equals the account on an own card and
+       differs on a shared one.
+   * - ``X-Osprey-Auth-Role``
+     - Only when the session holds a role.
+     - The role. Absent means no privileges, never a default.
+   * - ``X-Osprey-Auth-Role-Source``
+     - Only beside a role.
+     - ``roster`` or ``claim``, for display only.
+
+Values are printable ASCII with no leading or trailing space. A value that
+cannot travel refuses the request rather than leaving its header off.
+
+``/auth/`` is the public login surface: the login page ``/auth/login``,
+``/auth/oidc/login``, the provider callback ``/auth/oidc/callback`` and
+``/auth/logout``. nginx proxies the whole prefix without a gate, because it is
+where a session comes from.
+
+``/health`` answers 200 with ``status``, ``service``, ``method`` and
+``configured``, even when the service is misconfigured. In that state it
+reports ``configured: false`` and every other path answers 503. The container
+healthcheck polls it on the service's own port, and nginx never proxies it.
+
+nginx writes all four header names in every location that proxies. A gated
+``/u/<card>/`` sets them from the ``/verify`` answer; the ungated branch, the
+internal ``/verify`` target and ``/auth/`` clear them. A client's own copy of
+these headers therefore never reaches a terminal or the login service, and the
+answer to ``/verify`` is the only way an identity reaches a terminal. How the
+terminals record them: :ref:`audit-trail-identity-keys`.
 
 .. _multi-user-shared-card:
 
