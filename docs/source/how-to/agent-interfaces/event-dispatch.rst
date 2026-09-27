@@ -334,6 +334,15 @@ Authoring Triggers
    be a whole number of turns of at least one, and the dispatcher refuses the
    triggers file at load if it is not.
 
+   **Surface prompt and tools.** ``action.surface_prompt`` is a fixed piece of
+   text appended to the dispatched agent's system prompt on every run of that
+   trigger. It is not filled in per event: the event itself reaches the agent
+   as the payload. The dispatcher refuses the triggers file at load if it is not
+   a string. ``action.surface_tools`` is a list of tool names that narrows
+   ``allowed_tools`` to the ones it also names. It can only remove a tool, never
+   add one, and the worker's denylist applies either way. Left out or empty, the
+   run gets ``allowed_tools`` as written.
+
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,
    the Playwright browser tools, and all shell tools (``Bash``, ``BashOutput``,
