@@ -25,6 +25,7 @@ from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 from osprey.port_layout import default_port
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
@@ -678,6 +679,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     web_theme_pin = _resolve_pinned_web_theme()
 
     # Resolved once, after config priming like the theme pin, because the
+    # priming above is what points the resolver at this deployment's config.
+    facility_timezone = get_facility_timezone().key
+
+    # Resolved once, after config priming like the theme pin, because the
     # listing route's own ``limit`` default is built from it when the route is
     # defined.
     page_size = _page_size()
@@ -767,7 +772,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # A pinned web.theme reaches the gallery shell too. Embedded, the hub's
         # ?theme= outranks it in theme-boot.js's ladder, so this only shows up
         # on a first standalone visit.
-        return templates.TemplateResponse(request, "index.html", {"web_theme_pin": web_theme_pin})
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"web_theme_pin": web_theme_pin, "facility_timezone": facility_timezone},
+        )
 
     @app.get("/health")
     async def health():

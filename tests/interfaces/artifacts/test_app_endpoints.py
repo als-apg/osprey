@@ -364,6 +364,46 @@ class TestServedPlotThemeBridge:
         assert "data-theme=" not in body
 
 
+class TestGalleryFacilityTimezone:
+    """The gallery shell carries the facility zone on ``<html>``."""
+
+    @staticmethod
+    def _html_tag(body: str) -> str:
+        return body.split("<head>", 1)[0]
+
+    def test_gallery_shell_stamps_the_facility_zone(self, tmp_path):
+        from unittest.mock import patch
+        from zoneinfo import ZoneInfo
+
+        with patch(
+            "osprey.interfaces.artifacts.app.get_facility_timezone",
+            return_value=ZoneInfo("Asia/Tokyo"),
+        ):
+            client = TestClient(create_app(workspace_root=tmp_path))
+        body = client.get("/").text
+        assert 'data-facility-timezone="Asia/Tokyo"' in self._html_tag(body)
+
+    def test_zone_comes_from_the_primed_config(self, tmp_path, monkeypatch):
+        """The zone is resolved after config priming points the resolver at
+        this deployment's config."""
+        import osprey.utils.config as config_module
+
+        for name in ("_default_config", "_default_configurable", "_tz_drift_warned"):
+            monkeypatch.setattr(config_module, name, getattr(config_module, name))
+
+        cfg = tmp_path / "cfg"
+        cfg.mkdir()
+        config_file = cfg / "config.yml"
+        config_file.write_text("project_name: tz-test\nsystem:\n  timezone: Asia/Tokyo\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        client = TestClient(create_app(workspace_root=ws))
+        body = client.get("/").text
+        assert 'data-facility-timezone="Asia/Tokyo"' in self._html_tag(body)
+
+
 def test_inject_snippet_without_head_or_body_prepends():
     result = _inject_html_snippet(b"<div>fragment</div>", "<style>s</style>")
     assert result == b"<style>s</style><div>fragment</div>"

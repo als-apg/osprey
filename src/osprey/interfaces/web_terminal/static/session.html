@@ -11,7 +11,9 @@
     for the labels it words panel actions with, so this page needs the same
     stamp the index carries. SINGLE-quoted because Jinja's tojson escapes '
     (and < > &) but leaves " alone. -#}
-<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}'{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
+{#- data-facility-timezone: this page renders the same hook and session times
+    the index does, so it carries the same stamp. -#}
+<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
