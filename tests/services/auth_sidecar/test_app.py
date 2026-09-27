@@ -44,8 +44,9 @@ from osprey.services.auth_sidecar.app import (
     get_session_codec,
     get_settings,
 )
+from osprey.services.auth_sidecar.audit import AUDIT_DIR_ENV
 from osprey.services.auth_sidecar.exceptions import InvalidSessionError
-from osprey.services.auth_sidecar.revocation import RevocationStore
+from osprey.services.auth_sidecar.revocation import REVOCATION_FILE_NAME, RevocationStore
 from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     SessionState,
@@ -1087,6 +1088,29 @@ class TestSharedStores:
         state = create_app(PASSWORD_ENV).state
         assert state.revocation_store._clock is time.time
         assert state.attempt_throttle._clock is time.monotonic
+
+    def test_the_revocation_store_files_under_the_audit_directory(self, tmp_path: Any) -> None:
+        state = create_app({**PASSWORD_ENV, AUDIT_DIR_ENV: str(tmp_path)}).state
+        assert state.revocation_store.path == tmp_path / REVOCATION_FILE_NAME
+
+    def test_the_revocation_store_is_memory_only_without_an_audit_directory(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            state = create_app(PASSWORD_ENV).state
+        assert state.revocation_store.path is None
+        named = [r for r in caplog.records if AUDIT_DIR_ENV in r.getMessage()]
+        assert len(named) == 1
+        assert named[0].levelno == logging.WARNING
+        for value in PASSWORD_ENV.values():
+            assert value not in named[0].getMessage()
+
+    def test_the_revocation_directory_comes_from_the_factorys_env_not_the_process(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(AUDIT_DIR_ENV, str(tmp_path))
+        state = create_app(PASSWORD_ENV).state
+        assert state.revocation_store.path is None
 
 
 class TestSessionCodec:

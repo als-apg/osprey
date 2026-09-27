@@ -71,6 +71,7 @@ from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suf
 # module; the terminal cookie and this sidecar share it.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 
+from .audit import AUDIT_DIR_ENV, audit_directory
 from .identity_headers import same_domain, same_identity
 from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from .passwords import stored_hash_problem
@@ -1062,8 +1063,20 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
     # throttle counts every attempt as the first. Both keep their own clocks
     # (`time.time` for the store, to match the absolute expiries in session
     # cookies; `time.monotonic` for the throttle, so a clock step cannot open a
-    # window early) — deliberately not the codec's.
-    app.state.revocation_store = RevocationStore() if servable else None
+    # window early) — deliberately not the codec's. The revocation store is the
+    # one of these that also keeps a copy on disk, in the audit directory, so a
+    # logout survives a restart; the in-process instance is still the
+    # authoritative one. The directory comes from this factory's `env`, so a test
+    # that configures the app with an explicit mapping never picks up a variable
+    # from the real process environment.
+    revocation_directory = audit_directory(env) if servable else None
+    app.state.revocation_store = RevocationStore(revocation_directory) if servable else None
+    if servable and revocation_directory is None:
+        logger.warning(
+            "logouts are held in memory only: %s names no absolute directory, so a restart "
+            "of this service forgets them",
+            AUDIT_DIR_ENV,
+        )
     app.state.attempt_throttle = AttemptThrottle() if servable else None
     # A THIRD window, and never the login one: this is the bound on how often
     # the audit ledger repeats itself, grown by refusals that were never
