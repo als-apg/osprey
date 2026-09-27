@@ -41,6 +41,7 @@ from osprey.deployment.web_terminals.personas import (
     effective_persona,
     entry_is_shared,
     env_var_suffix_collisions,
+    normalize_users,
     persona_privileges,
     privilege_phrase,
     privileged_default_persona_problem,
@@ -235,6 +236,9 @@ def lint_web_terminals(
         # answered anyway would be guessing at the one file the deploy gate
         # refuses on.
         findings.extend(_check_open_mode_egress(root, project_root=project_root))
+        # Reads the deployment's `.env` and `.env.auth`, so it rides the same
+        # gate: at profile altitude neither file exists yet.
+        findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
@@ -2675,14 +2679,13 @@ def _check_external_origin(web_terminals: dict[str, Any]) -> list[Finding]:
 
 # --- auth seam checks --------------------------------------------------------
 #
-# These are scaffold-time feedback only. The authoritative deploy-path gates
-# live elsewhere and fail closed on their own: render.py raises on an unknown
-# `auth.method` and on auth-without-TLS, and `auth_credentials.py` raises on a
-# roster it cannot key credentials for. `osprey up` never runs this module,
-# so nothing here may be the only thing standing between a bad config and a
-# deployment — every check below mirrors a gate that also exists downstream,
-# except where the downstream path *cannot* see the mistake (see
-# :func:`_check_auth_method` and :func:`_check_auth_session_lifetime`).
+# The authoritative deploy-path gates live elsewhere and fail closed on their
+# own: render.py raises on an unknown `auth.method` and on auth-without-TLS, and
+# `auth_credentials.py` raises on a roster it cannot key credentials for.
+# `osprey up` runs this module but refuses only on the codes in
+# `provision._UP_BLOCKING_LINT_CODES`, so every other check below mirrors a gate
+# that also exists downstream, except where the downstream path *cannot* see the
+# mistake (see :func:`_check_auth_method` and :func:`_check_auth_session_lifetime`).
 
 
 def _auth_context(
@@ -3040,6 +3043,79 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
                 "HTTP. Enable modules.web_terminals.tls, or set "
                 "auth.allow_insecure_http: true to accept that risk (only sensible on "
                 "a trusted network)"
+            ),
+        )
+    ]
+
+
+def _check_seeded_passwords(
+    root: dict[str, Any], web_terminals: dict[str, Any], *, project_root: Path | None
+) -> list[Finding]:
+    """A login that still accepts a published password, on an origin off this machine.
+
+    ``profile.yml`` publishes demo passwords under ``env.defaults``, and anyone
+    who can read that file can sign in with them. That is harmless while the
+    origin browsers use is on a loopback host, and an open login once it is not.
+    HTTPS does not change this: it keeps a password from being sniffed, not a
+    published one secret. An origin that cannot be derived is not read as
+    loopback.
+
+    Keyed on what the login wall accepts
+    (:func:`~osprey.deployment.web_terminals.auth_credentials.seeded_password_users`),
+    so a stored hash of the published value counts after its ``.env`` line is
+    gone. A shared card's password cannot be changed while it is shared, so its
+    remedy is decommissioning the card.
+
+    Imported at call time, for the reason :func:`_check_open_mode_egress` gives.
+
+    Args:
+        root: The whole parsed config, which the origin is derived from.
+        web_terminals: The ``modules.web_terminals`` block being linted.
+        project_root: The deployment repo holding ``profile.yml``, ``.env`` and
+            ``.env.auth``. ``None`` falls back to the working directory.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "password":
+        return []
+    roster = normalize_users(web_terminals.get("users"), strict=False)
+    shared: set[str] = set()
+    for entry in roster:
+        try:
+            if entry_is_shared(entry):
+                shared.add(entry["name"])
+        except ValueError:
+            continue
+
+    from osprey.deployment.web_terminals.auth_credentials import seeded_password_users
+
+    seeded = seeded_password_users(
+        project_root or Path("."),
+        [entry["name"] for entry in roster],
+        shared=frozenset(shared),
+    )
+    if not seeded:
+        return []
+    try:
+        origin = deployment_origin(root)
+    except ValueError as exc:
+        where = f"this deployment's origin cannot be derived ({exc})"
+    else:
+        if origin.is_loopback:
+            return []
+        where = f"browsers reach this deployment at {origin.origin}"
+    names = ", ".join(repr(name) for name in seeded)
+    remedies = "; ".join(
+        f"`osprey users decommission {name}`" if name in shared else f"`osprey users passwd {name}`"
+        for name in seeded
+    )
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.auth_seeded_password",
+            message=(
+                f"{where}, and these logins still accept the password profile.yml "
+                "publishes under env.defaults, so anyone who can read that file can sign "
+                f"in: {names}. Run {remedies}"
             ),
         )
     ]

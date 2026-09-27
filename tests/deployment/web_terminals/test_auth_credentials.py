@@ -26,6 +26,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     purge_terminal_secret,
     seeded_logins,
     seeded_logins_report,
+    seeded_password_users,
     set_auth_password,
 )
 from osprey.services.auth_sidecar.passwords import (
@@ -955,6 +956,89 @@ def test_logins_come_back_in_roster_order(tmp_path: Path) -> None:
     )
 
     assert seeded_logins(tmp_path, ["bob", "alice"]) == [("bob", "bob"), ("alice", "alice")]
+
+
+# ---------------------------------------------------------------------------
+# seeded_password_users: the logins the login wall would accept a published
+# password for
+# ---------------------------------------------------------------------------
+
+
+def _store_hash(root: Path, name: str, stored: str) -> None:
+    """Write one user's stored hash into `.env.auth`."""
+    (root / AUTH_ENV_FILENAME).write_text(f"{PW_HASH_VAR_PREFIX}{name.upper()}={stored}\n")
+
+
+def test_seeded_password_users_names_a_default_nothing_has_hashed_yet(tmp_path: Path) -> None:
+    """No hash yet: the next deploy hashes the `.env` value, which is the default."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ("alice",)
+
+
+def test_seeded_password_users_names_a_stored_hash_of_the_default_after_the_env_line_is_gone(
+    tmp_path: Path,
+) -> None:
+    """A stored hash outlives its `.env` line, and it still accepts the default."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / ".env").write_text("")
+    _store_hash(tmp_path, "alice", hash_password("alice"))
+
+    assert seeded_logins_report(tmp_path, ["alice"]).printable == ()
+    assert seeded_password_users(tmp_path, ["alice"]) == ("alice",)
+
+
+def test_seeded_password_users_skips_a_rotated_hash_even_while_env_keeps_the_default(
+    tmp_path: Path,
+) -> None:
+    """The stored hash is what the login wall checks; a rotated one refuses the default."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    _store_hash(tmp_path, "alice", hash_password("chosen"))
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ()
+
+
+def test_seeded_password_users_counts_a_shared_card_only_by_its_stored_hash(
+    tmp_path: Path,
+) -> None:
+    """A shared card is never hashed from `.env`, so only a stored hash can make it seeded."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+
+    assert seeded_password_users(tmp_path, ["alice"], shared=frozenset({"alice"})) == ()
+
+    _store_hash(tmp_path, "alice", hash_password("alice"))
+
+    assert seeded_password_users(tmp_path, ["alice"], shared=frozenset({"alice"})) == ("alice",)
+
+
+def test_seeded_password_users_skips_an_unevaluable_stored_hash(tmp_path: Path) -> None:
+    """A hash nothing can verify refuses every password, the default included."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    _store_hash(tmp_path, "alice", "not-a-hash")
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ()
+
+
+def test_seeded_password_users_names_nothing_without_a_profile(tmp_path: Path) -> None:
+    """With no `profile.yml`, nothing is published."""
+    (tmp_path / ".env").write_text(f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=alice\n")
+    _store_hash(tmp_path, "alice", hash_password("alice"))
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ()
+
+
+def test_seeded_password_users_keeps_roster_order(tmp_path: Path) -> None:
+    (tmp_path / "profile.yml").write_text(
+        "env:\n"
+        "  defaults:\n"
+        f"    {PW_PLAINTEXT_VAR_PREFIX}ALICE: alice\n"
+        f"    {PW_PLAINTEXT_VAR_PREFIX}BOB: bob\n"
+    )
+    (tmp_path / ".env").write_text(
+        f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=alice\n{PW_PLAINTEXT_VAR_PREFIX}BOB=bob\n"
+    )
+
+    assert seeded_password_users(tmp_path, ["bob", "alice"]) == ("bob", "alice")
 
 
 # ---------------------------------------------------------------------------
