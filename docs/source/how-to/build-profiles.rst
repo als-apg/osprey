@@ -109,6 +109,10 @@ the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
+A preset with a simulated machine carries it under ``data/simulation/``:
+``machine.json`` and one directory per scenario under ``scenarios/``. What those
+files hold is the :doc:`/reference/contracts/simulation-bundle`.
+
 Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
 **not** created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.

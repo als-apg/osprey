@@ -30,6 +30,15 @@ guides are the better starting point.
       come back, how a write reports whether it took effect and which safety
       gates it passes first, and the archiver's historical-data contract.
 
+   .. grid-item-card:: Simulation Bundle Contract
+      :link: simulation-bundle
+      :link-type: doc
+      :shadow: md
+
+      The files a facility writes to describe a simulated machine and its
+      scenarios, how scenarios compose, and what the loader and
+      ``osprey sim apply`` refuse.
+
    .. grid-item-card:: Python Executor Contract
       :link: python-executor
       :link-type: doc
@@ -88,6 +97,7 @@ guides are the better starting point.
 
    health-json
    connectors
+   simulation-bundle
    python-executor
    ariel
    channel-finder
