@@ -3346,6 +3346,7 @@ def _build_repo(
         deploy_aware_config_warnings,
         limits_block_errors,
     )
+    from .build_profile_timezone import system_timezone_errors
     from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
@@ -3406,8 +3407,14 @@ def _build_repo(
         # A sibling call, exactly as `osprey validate` makes it — see the note
         # beside the same line in `validate_cmd.py`. Raising here, profile-side,
         # is what keeps the render-side `_incomplete_limits_errors` from
-        # reporting the same half-written block a second time.
-        web_errors = [*web_errors, *limits_block_errors(build_profile.config)]
+        # reporting the same half-written block a second time. The zone is
+        # judged here, profile-side, because the render bakes it into the
+        # agent's rules and every container's `TZ`.
+        web_errors = [
+            *web_errors,
+            *limits_block_errors(build_profile.config),
+            *system_timezone_errors(build_profile.config),
+        ]
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
         web_warnings = deploy_aware_config_warnings(
