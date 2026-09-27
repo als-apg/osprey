@@ -56,7 +56,11 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.websockets import WebSocketState
 
 from osprey.dispatch import DISPATCHER_MCP_PATH
-from osprey.interfaces.common_middleware import compute_url_prefix
+from osprey.interfaces.common_middleware import (
+    STORAGE_SCOPE_ATTRIBUTE,
+    compute_url_prefix,
+    resolve_storage_scope,
+)
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
@@ -1207,6 +1211,51 @@ def _inject_control_target_bar(
     return f"{text[: head.end()]}{markup}{text[head.end() :]}"
 
 
+#: The opening of the document's root tag.
+#:
+#: The lookahead refuses a longer tag name such as ``<htmlx>`` or
+#: ``<html-embed>``. The FIRST match wins; as with :data:`_HEAD_OPEN_RE`, a
+#: backend that put the string in a comment ahead of the real tag would be
+#: stamped there instead.
+_HTML_OPEN_RE = re.compile(r"<html(?=[\s/>])", re.IGNORECASE)
+
+
+def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
+    """Stamp the mount's storage scope on a relayed document's ``<html>`` tag.
+
+    Why the proxy: every panel page reaches the browser through this hop, and
+    only the hub knows whose mount it is. A companion server may be shared by
+    the whole roster, so it cannot name the person it renders for.
+
+    Why first: an HTML parser keeps the first of two same-named attributes, so
+    a backend that spelled its own scope cannot outrank the hub's.
+
+    Why an empty scope relays byte for byte: single-user serving stays exactly
+    as it is, so the absent attribute keeps meaning "use the bare key"
+    (``storage-scope.js``).
+
+    What the stamp is not: it separates preferences, not secrets. Any script
+    on the origin can read every key.
+
+    Args:
+        text: The relayed body, already rewritten for this deployment.
+        base_type: The response's media type without parameters.
+        scope: The mount's storage scope, ``""`` when there is no mount user.
+
+    Returns:
+        ``text`` with the attribute as the root tag's first attribute, or
+        ``text`` unchanged when there is no scope, the body is not HTML, or it
+        has no root tag.
+    """
+    if not scope or base_type != "text/html":
+        return text
+    match = _HTML_OPEN_RE.search(text)
+    if match is None:
+        return text
+    stamp = f' {STORAGE_SCOPE_ATTRIBUTE}="{html.escape(scope, quote=True)}"'
+    return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
+
+
 @router.api_route(
     "/panel/{panel_id}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
@@ -1435,6 +1484,11 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         # fully formed for this deployment, and a second pass over it would
         # aim the bar's own URLs into the panel's namespace.
         text = _inject_control_target_bar(text, panel_id, path, base_type, outer_prefix)
+        text = _stamp_storage_scope(
+            text,
+            base_type,
+            resolve_storage_scope(getattr(request.app.state, "terminal_user", "")),
+        )
         return Response(
             content=text,
             status_code=resp.status_code,
