@@ -69,6 +69,7 @@ import {
 import { planLayout, summarizePlanArgs } from './plan-presentation.js';
 import { renderSchemaForm } from './schema-form.js';
 import { initSplitter } from '/design-system/js/splitter.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -86,6 +87,8 @@ import {
   buildLaunchBanner,
   buildAgentDraftBanner,
 } from './draft-client.js';
+
+const PLAN_SIDEBAR_WIDTH_KEY = 'osprey-plan-sidebar-width';
 
 /**
  * @typedef {object} PlansViewDeps
@@ -1032,11 +1035,11 @@ export function createPlansView({
   // browser needs to be widenable at the cost of the parameter form — the same
   // affordance (and the same shared implementation) as the OKF panel's
   // sidebar/reader split and the artifact gallery's browse view. The chosen
-  // width is persisted per origin; the bounds match OKF's.
+  // width is persisted per person; the bounds match OKF's.
   initSplitter({
     handle: byId('browser-splitter'),
     pane: byId('plan-sidebar'),
-    storageKey: 'osprey-plan-sidebar-width',
+    storageKey: scopedStorageKey(PLAN_SIDEBAR_WIDTH_KEY),
     min: 180,
     max: 560,
     collapsedSize: 0,
