@@ -597,10 +597,12 @@ A credential can outlive an account, so:
   decommission** and would be hashed straight back in for the next alice.
   Delete the line by hand when the person leaves.
 - **Logging out ends a terminal session** on the server: the cookie it was
-  carrying is refused from that moment on. The login page's cookie is the
-  other case — that logout is remembered in the authentication service's
-  memory only, so a copy captured beforehand can be replayed until it
-  expires, within ``auth.session_lifetime``.
+  carrying is refused from that moment on. The login page's cookie is refused
+  too, and stays refused when the authentication service restarts or is
+  recreated (``osprey up``, ``osprey users passwd``): the service keeps each
+  logged-out session as a one-way digest in ``var/audit/sidecar/``, until that
+  session would have expired anyway. If that directory cannot be written, the
+  service logs a warning and a logout lasts until the service restarts.
 - **Terminal sessions are kept on disk** — behind ``auth.method: token`` and
   ``osprey web``, not behind the login page here — so there they outlive a
   restart of the web terminals and a change of the operator secret. A
