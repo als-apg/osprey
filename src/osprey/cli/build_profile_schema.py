@@ -535,6 +535,10 @@ class DispatchConfig:
     ``max_turns``; this is what a trigger that names none is given."""
 
     facility_name: str = ""
+    """Display name the dispatcher dashboard shows.
+
+    Empty means the deployment's ``facility.name``; set it only when the
+    dashboard should say something else."""
 
     channel_strip_prefix: str = ""
     """Leading prefix trimmed off a channel address before the dashboard shows it.
