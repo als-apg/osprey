@@ -38,6 +38,7 @@ import copy
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Iterator
@@ -2747,6 +2748,82 @@ def _model_free_selected_paths(wf: dict[str, Any]) -> list[str]:
     return selected
 
 
+def _model_free_deselected(wf: dict[str, Any]) -> list[str]:
+    """Every node id the model-free lane's run step takes out with ``--deselect``."""
+    tokens = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"].split()
+    return [tokens[i + 1] for i, token in enumerate(tokens[:-1]) if token == "--deselect"]
+
+
+def _collected_ids(args: list[str]) -> set[str]:
+    """The node ids pytest collects for ``args``, from the repo root.
+
+    ``--collect-only`` is exempt from the e2e provider refusal, so no provider
+    has to be named.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-o",
+            "addopts=",
+            "-p",
+            "no:cacheprovider",
+            *args,
+        ],
+        cwd=CI_YML.parents[2],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return {line.strip() for line in result.stdout.splitlines() if "::" in line}
+
+
+def test_the_model_free_marker_equals_the_model_free_lane_selection(
+    workflow: dict[str, Any],
+) -> None:
+    """A run that names no provider may select only ``model_free`` tests, and
+    the lane is where those tests run. A test the lane runs without the marker
+    would be refused in a run with no provider; a marked test the lane leaves
+    out claims a lane that never runs it."""
+    paths = _model_free_selected_paths(workflow)
+    deselect = [arg for node in _model_free_deselected(workflow) for arg in ("--deselect", node)]
+    marked = _collected_ids([*paths, "-m", "model_free"])
+    selected = _collected_ids([*paths, *deselect])
+    assert marked == selected, (
+        f"marked model_free but not run by '{NO_MODEL_JOB}': {sorted(marked - selected)}; "
+        f"run by '{NO_MODEL_JOB}' but not marked model_free: {sorted(selected - marked)}"
+    )
+
+
+def test_the_model_free_marker_equals_the_model_free_lane_selection__mutation_drops_the_deselection() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(f"--deselect {NO_MODEL_DESELECTED}", "")
+    with pytest.raises(AssertionError, match="not marked model_free"):
+        test_the_model_free_marker_equals_the_model_free_lane_selection(mutated)
+
+
+def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any]) -> None:
+    """The equality above collects only the lane's own files; a marked module
+    anywhere else under ``tests/e2e/`` is read from source instead of from a
+    whole-directory collection."""
+    root = CI_YML.parents[2]
+    lane = set(_model_free_selected_paths(workflow))
+    stray = sorted(
+        path.relative_to(root).as_posix()
+        for path in (root / "tests" / "e2e").rglob("test_*.py")
+        if "mark.model_free" in path.read_text(encoding="utf-8")
+        and path.relative_to(root).as_posix() not in lane
+    )
+    assert stray == [], f"marked model_free but not named in '{NO_MODEL_RUN_STEP}': {stray}"
+
+
 def test_model_free_lane_exists(workflow: dict[str, Any]) -> None:
     assert NO_MODEL_JOB in _jobs(workflow)
 
@@ -2855,9 +2932,11 @@ def test_model_free_lane_deselects_the_one_credential_gated_test__mutation_drops
 
 
 def test_model_free_lane_declares_no_gateway_key(workflow: dict[str, Any]) -> None:
-    """The directory's provider refusal is satisfied by the workflow-level
-    ``OSPREY_E2E_PROVIDER`` alone, so a gateway key here would buy nothing and
-    would move the lane into the label-gated posture it was built to leave."""
+    """Every test this lane selects carries ``model_free``, so the directory's
+    provider refusal does not apply to it; the workflow-level
+    ``OSPREY_E2E_PROVIDER`` is still present but not needed here. A gateway key
+    would buy nothing and would move the lane into the label-gated posture it
+    was built to leave."""
     assert not _job_declares_secret(workflow, NO_MODEL_JOB, SECRET_TOKEN)
 
 
@@ -3140,8 +3219,9 @@ def _e2e_provider_overrides(wf: dict[str, Any]) -> list[str]:
 def test_the_workflow_names_the_end_to_end_provider(workflow: dict[str, Any]) -> None:
     """Every lane that collects ``tests/e2e/`` states what it builds with.
 
-    There is no constant behind the variable any more — an e2e run that names
-    no provider is refused at collection — so the name has to be stated
+    There is no constant behind the variable any more — a run that names no
+    provider is refused when it selects a test not marked model_free — so the
+    name has to be stated
     somewhere, and workflow level is the one place that covers every lane at
     once. A fork driving its own gateway changes this line and nothing else,
     which is also why the value is a plain name rather than an expression: a
