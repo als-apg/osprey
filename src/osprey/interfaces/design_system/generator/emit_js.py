@@ -84,8 +84,8 @@ STORAGE_KEY = "osprey-theme"
 #: picker decides what everybody else boots into. When the attribute is present,
 #: theme-boot.js reads ``osprey-theme--<scope>`` instead — and never falls back
 #: to the bare key, which is precisely the polluted slot the scoping exists to
-#: escape. When it is absent (single-user serving, and every other interface
-#: that loads this script) the bare key is used unchanged.
+#: escape. When it is absent (single-user serving, where nothing is stamped)
+#: the bare key is used unchanged.
 #:
 #: ``static/js/storage-scope.js`` is the written-down definition of this rule;
 #: theme-boot.js is a pre-paint IIFE that cannot import it, so the generated
@@ -408,9 +408,8 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     not yet picked — the exact cross-persona bug the scoping closes. A scoped
     page with no scoped value simply has no stored preference, and resolution
     falls through to the server attribute and then to ``'auto'``. With the
-    attribute absent (single-user serving, and every other interface that
-    loads this script) both rungs read the bare key exactly as before, legacy
-    bare token included. The stored VALUE shape is untouched by any of this.
+    attribute absent (single-user serving, where nothing is stamped) both rungs
+    read the bare key exactly as before, legacy bare token included. The stored VALUE shape is untouched by any of this.
 
     The emitted ``storageKey()`` inlines ``storage-scope.js``'s
     ``scopedStorageKey()`` rather than importing it — this script imports
@@ -481,9 +480,8 @@ def render_theme_boot_js(tree: TokenTree) -> str:
 // storage rungs read `osprey-theme--<scope>` instead — and do NOT fall back to
 // the bare key, since that polluted slot is the very thing being escaped; a
 // scoped page with no scoped value simply falls through to the server rung.
-// With the attribute absent (single-user serving, and every non-web_terminal
-// interface that loads this script) the legacy bare key is used unchanged,
-// legacy bare-token format included.
+// With the attribute absent (single-user serving, where nothing is stamped)
+// the legacy bare key is used unchanged, legacy bare-token format included.
 (function () {{
   "use strict";
 
