@@ -20,7 +20,7 @@ from osprey.services.auth_sidecar.identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
 )
-from osprey.services.auth_sidecar.routes import login, logout, oidc, verify
+from osprey.services.auth_sidecar.routes import entry, login, logout, oidc, verify
 
 _REPO = Path(__file__).resolve().parents[2]
 _ROOTS = ("docs/source", "src/osprey", "plugins")
@@ -113,6 +113,8 @@ def test_the_login_guide_names_the_login_service_paths() -> None:
         oidc.LOGIN_PATH,
         oidc.CALLBACK_PATH,
         logout.LOGOUT_PATH,
+        entry.ENTRY_PATH,
+        oidc.ENTRY_PATH,
     )
 
     # Act
