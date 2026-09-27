@@ -538,6 +538,10 @@ only. On every ``osprey up``, for each user in order:
 
 #. An existing hash in ``.env.auth`` is kept; deploying never resets a
    password.
+   A hash the authentication service cannot read, such as a truncated paste
+   or another tool's format, is kept as well, and ``osprey up``,
+   ``osprey scaffold web-terminals lint`` and the service's startup log each
+   name the user. ``osprey users passwd <user>`` replaces it.
 #. Otherwise a plaintext ``OSPREY_AUTH_PW_<USER>`` in ``.env`` is hashed in —
    the way to set a password you chose. ``<USER>`` is the name uppercased with
    ``-`` turned into ``_``.

@@ -51,6 +51,9 @@ from osprey.utils.dotenv import (
 # root ignores it, so those assertions would be vacuous there.
 running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
 
+BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
 
 class Echo:
     """Collects the one-time minted-password notices."""
@@ -162,6 +165,26 @@ def test_minted_password_never_reaches_the_log(tmp_path: Path, caplog) -> None:
     assert password not in caplog.text
     stored = read_auth_env(tmp_path)[f"{PW_HASH_VAR_PREFIX}ALICE"]
     assert stored not in caplog.text
+
+
+def test_an_unevaluable_existing_hash_is_kept_and_named(tmp_path: Path, caplog) -> None:
+    """An entry the login service cannot read is the operator's to replace: it
+    is kept byte for byte and named, never re-minted."""
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+    env_auth.write_text(f"{PW_HASH_VAR_PREFIX}ALICE={BROKEN_HASH}\n")
+    before = env_auth.read_bytes()
+    echo = Echo()
+
+    with caplog.at_level(logging.WARNING):
+        result = ensure_auth_credentials(["alice"], tmp_path, echo=echo)
+
+    assert result.preexisting == ("alice",)
+    assert result.minted == ()
+    assert result.changed is False
+    assert env_auth.read_bytes() == before
+    assert f"{PW_HASH_VAR_PREFIX}ALICE" in caplog.text
+    assert "osprey users passwd alice" in caplog.text
+    assert "c2FsdA" not in caplog.text
 
 
 def test_plaintext_from_project_dotenv_is_hashed_in(tmp_path: Path) -> None:
@@ -1515,6 +1538,18 @@ def test_the_report_names_the_contradicted_user_as_stale(tmp_path: Path) -> None
     (tmp_path / AUTH_ENV_FILENAME).write_text(
         f"{PW_HASH_VAR_PREFIX}ALICE={hash_password('minted-by-an-older-deploy')}\n"
     )
+
+    report = seeded_logins_report(tmp_path, ["alice"])
+
+    assert report.printable == ()
+    assert report.stale == ("alice",)
+
+
+def test_an_unevaluable_hash_demotes_a_seeded_login_to_stale(tmp_path: Path) -> None:
+    """A hash the login service cannot read will refuse the seeded default too,
+    so the card must not print it."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / AUTH_ENV_FILENAME).write_text(f"{PW_HASH_VAR_PREFIX}ALICE={BROKEN_HASH}\n")
 
     report = seeded_logins_report(tmp_path, ["alice"])
 

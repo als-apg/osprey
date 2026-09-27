@@ -70,7 +70,11 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix_collisions,
 )
 from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
-from osprey.services.auth_sidecar.passwords import hash_password, verify_password
+from osprey.services.auth_sidecar.passwords import (
+    hash_password,
+    stored_hash_problem,
+    verify_password,
+)
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
@@ -352,7 +356,9 @@ def ensure_auth_credentials(
        count as established: that user falls through to the steps below and the
        freshly written entry, appended after the empty one, is the one the
        parser returns (last assignment wins). An empty value would otherwise
-       leave a roster user permanently unable to log in.
+       leave a roster user permanently unable to log in. An entry the login
+       service cannot evaluate is kept too, and named in a warning; this
+       function never replaces an operator's entry.
     2. Otherwise a plaintext ``OSPREY_AUTH_PW_<USER>`` in the project ``.env``
        is hashed in. Leading and trailing whitespace is trimmed before hashing,
        so a value padded by an editor or a copy-paste hashes to what the
@@ -417,8 +423,20 @@ def ensure_auth_credentials(
     for name in ordered:
         suffix = env_var_suffix(name)
         hash_var = f"{PW_HASH_VAR_PREFIX}{suffix}"
-        if stored.get(hash_var, "").strip():
+        existing = stored.get(hash_var, "").strip()
+        if existing:
             preexisting.append(name)
+            problem = stored_hash_problem(existing)
+            if problem is not None:
+                logger.warning(
+                    "%s for %r in %s cannot be evaluated by the login service (%s); it is "
+                    "kept as is, and `osprey users passwd %s` replaces it",
+                    hash_var,
+                    name,
+                    env_auth_path,
+                    problem,
+                    name,
+                )
             continue
         plaintext = project_env.get(f"{PW_PLAINTEXT_VAR_PREFIX}{suffix}", "").strip()
         if plaintext:
@@ -542,8 +560,9 @@ def seeded_logins_report(project_root: str | Path, usernames: Iterable[str]) -> 
     * No stored hash — printable. Nothing deployed disagrees, and the next
       deploy's :func:`ensure_auth_credentials` will hash exactly this value.
     * The stored hash verifies against the default — printable.
-    * The stored hash exists and does NOT verify — ``stale``. The card must
-      not print a password the sidecar will refuse.
+    * The stored hash exists and does NOT verify, or cannot be evaluated at
+      all — ``stale``. The card must not print a password the sidecar will
+      refuse.
 
     Advisory like :func:`seeded_logins` itself: an unreadable ``.env.auth``
     verifies nothing and demotes nothing, so a closing card can never be the
