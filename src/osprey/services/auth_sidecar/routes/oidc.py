@@ -50,13 +50,13 @@ weaker trust path.
 **The role comes from the same token, and only from it.** When the deployment
 binds roles to an IdP group claim (:class:`RoleBinding`), the claim is read out
 of those already-validated claims — the same ones the identity came from — and
-resolved by *intersecting* its values with the configured map. Two rules make
-that resolution safe to hand a privilege to: the intersection must name exactly
-one distinct role, and anything else fails the login closed under its own
-audited category. An empty intersection is "this deployment maps nothing to
-what you are in"; more than one distinct role is ambiguity, and picking the
-first would make the granted privilege depend on the order the provider
-happened to list groups in. A claim that never arrived — Entra's group overage
+resolved by *intersecting* its values with the configured map, which yields the
+set of roles this login may carry. The card's own roster role is granted when it
+is in that set; only a card naming no role requires the set to hold exactly one,
+and refuses several under its own audited category. An empty intersection is
+"this deployment maps nothing to what you are in". Picking a member by order is
+never done: it would make the granted privilege depend on the order the
+provider happened to list groups in. A claim that never arrived — Entra's group overage
 strips ``groups`` from the ID token and leaves a pointer to Microsoft Graph
 behind — is the missing-claim refusal, not a fallback: the userinfo endpoint
 this module refuses to call could not have answered it either.
@@ -198,7 +198,8 @@ REASON_UNMAPPED_ROLE_CLAIM = audit.REASON_UNMAPPED_ROLE_CLAIM
 """No value in the group claim is mapped to a role by this deployment."""
 
 REASON_AMBIGUOUS_ROLE_CLAIM = audit.REASON_AMBIGUOUS_ROLE_CLAIM
-"""The group claim maps to more than one distinct role."""
+"""The group claim maps to more than one distinct role and the card names none to
+choose among them."""
 
 REASON_UNSAFE_ROLE = audit.REASON_UNSAFE_ROLE
 """The resolved role cannot be carried in an identity header."""
@@ -581,8 +582,11 @@ def _refuse_login(
     return HTTPException(status_code=status_code, detail=message)
 
 
-def _resolved_role(request: Request, *, user: str, claims: Mapping[str, Any]) -> str:
-    """The one role ``claims`` resolves to, or ``""`` when none is bound.
+def _mapped_roles(request: Request, *, user: str, claims: Mapping[str, Any]) -> frozenset[str]:
+    """Every role ``claims`` maps to, or the empty set when none is bound.
+
+    Which of them the login carries is :func:`~.recheck.recheck_login`'s
+    decision, since only it knows the role the clicked card was built as.
 
     Args:
         request: The callback request, carrying the app's role binding.
@@ -590,16 +594,16 @@ def _resolved_role(request: Request, *, user: str, claims: Mapping[str, Any]) ->
         claims: The validated ID token's claims.
 
     Returns:
-        The resolved role, or ``""`` for a deployment that binds no roles.
+        The mapped roles, every one header-safe, or ``frozenset()`` for a
+        deployment that binds no roles.
 
     Raises:
         HTTPException: 403, audited, when the claim is missing, maps to nothing,
-            maps to more than one distinct role, or names a role that could not
-            be carried in an identity header.
+            or names a role that could not be carried in an identity header.
     """
     binding = _role_binding(request)
     if not binding.configured:
-        return ""
+        return frozenset()
 
     logger.debug(
         "oidc callback for %r: the ID token carried these claims: %s", user, _claim_names(claims)
@@ -626,7 +630,7 @@ def _resolved_role(request: Request, *, user: str, claims: Mapping[str, Any]) ->
 
     # Intersection, not first match: the granted privilege must not depend on
     # the order the provider listed groups in.
-    roles = {binding.claim_map[value] for value in values if value in binding.claim_map}
+    roles = frozenset(binding.claim_map[value] for value in values if value in binding.claim_map)
 
     if not roles:
         logger.warning(
@@ -642,13 +646,12 @@ def _resolved_role(request: Request, *, user: str, claims: Mapping[str, Any]) ->
         )
 
     # Header safety is settled for EVERY candidate before anything else reads a
-    # role name, not just for the one that survives. Two reasons, and the second
-    # is why it moved up here: a map that names an uncarryable role is a
-    # poisoned table whatever the intersection turns out to be, and the
-    # ambiguity refusal below puts the role names it found into the audit
-    # record — so an unchecked candidate is a deployer-supplied string with CR
-    # and LF in it landing in the ledger's `detail`, which bounds length but
-    # validates no charset.
+    # role name, not just for the one that is granted. Two reasons: a map that
+    # names an uncarryable role is a poisoned table whatever the intersection
+    # turns out to be, and the mapped role names are recorded in the login
+    # record's `detail` (`_mapped_roles_detail`) — so an unchecked candidate
+    # would be a deployer-supplied string with CR and LF in it landing in a
+    # field that bounds length but validates no charset.
     if any(not is_header_safe(candidate) for candidate in roles):
         logger.warning(
             "oidc callback refused for %r: a role mapped to the %r claim cannot be carried in "
@@ -666,25 +669,20 @@ def _resolved_role(request: Request, *, user: str, claims: Mapping[str, Any]) ->
             detail=binding.claim or None,
         )
 
-    if len(roles) > 1:
-        logger.warning(
-            "oidc callback refused for %r: the %r claim maps to more than one role (%s)",
-            user,
-            binding.claim,
-            ", ".join(sorted(roles)),
-        )
-        raise _refuse_login(
-            user,
-            reason=REASON_AMBIGUOUS_ROLE_CLAIM,
-            # Role names are this deployment's own identifiers — the actionable
-            # half — while the group values that produced them are the IdP's and
-            # stay out of the ledger. Every one of them passed the header-safety
-            # gate above, so the join cannot carry a control character.
-            detail=", ".join(sorted(roles)),
-            message="this account's group membership maps to more than one role",
-        )
+    return roles
 
-    return roles.pop()
+
+def _mapped_roles_detail(roles: frozenset[str]) -> str | None:
+    """The record's ``detail`` naming several mapped roles, or ``None`` for one.
+
+    Role names are this deployment's own identifiers — the actionable half —
+    while the group values that produced them are the IdP's and stay out of the
+    ledger. Every name here passed the header-safety gate in
+    :func:`_mapped_roles`, so the join cannot carry a control character.
+    """
+    if len(roles) > 1:
+        return "mapped_roles=" + ",".join(sorted(roles))
+    return None
 
 
 def _discovery_url(issuer: str) -> str:
@@ -757,7 +755,7 @@ def _claims_options(settings: AuthSettings) -> dict[str, dict[str, list[str]]]:
     "these claims must be present and must equal these values" — and a group
     claim has no expected value to check against: naming it here would demand
     every roster user carry the same membership. Its own absence is a decision
-    :func:`_resolved_role` makes, with a category and an audit record; Authlib's
+    :func:`_mapped_roles` makes, with a category and an audit record; Authlib's
     would be an unvalidatable-token 502 that says nothing about roles.
 
     Both spellings of the issuer are accepted. OIDC Discovery requires the
@@ -806,7 +804,7 @@ def _claims_request(settings: AuthSettings, binding: RoleBinding) -> dict[str, A
     voluntarily when the identity is an address, because
     :func:`token_admissible` reads it. The role-binding claim is asked for
     voluntarily when the deployment binds roles, because
-    :func:`_resolved_role` needs it — voluntary, not essential, because its
+    :func:`_mapped_roles` needs it — voluntary, not essential, because its
     absence has its own audited category and a provider refusing the whole
     request over a missing group claim would hide it.
 
@@ -1374,8 +1372,8 @@ async def oidc_callback(request: Request) -> Response:
         # own card can still open a shared one. Membership gating and shared
         # cards do not compose — the binding answers "which role is THIS
         # person's terminal built as", and a shared card's terminal is only
-        # ever its own. `claim_role=""` is the matrix's binds-no-roles row,
-        # which grants the card's roster role with source `roster`.
+        # ever its own. `claim_roles=frozenset()` is the matrix's binds-no-roles
+        # row, which grants the card's roster role with source `roster`.
         try:
             grant = recheck_login(
                 method=settings.method,
@@ -1386,11 +1384,16 @@ async def oidc_callback(request: Request) -> Response:
                 # there the deployment named a principal rather than an
                 # identity, so the provider's spelling is the only one there is.
                 asserted_subject=proved_subject,
-                claim_role="",
+                claim_roles=frozenset(),
             )
         except RecheckRefused as refused:
             logger.warning("oidc callback refused for %r: %s", user, refused.reason)
             raise _refuse_login(user, reason=refused.reason, message=refused.message) from None
+        # Only where there is an opener to name. A rule-admitted login has
+        # none, and `opener=` with nothing after it would put an empty value in
+        # a field that carries identifiers — the asserted identity that WOULD
+        # go there is a claim value, which the ledger does not take.
+        success_detail = f"opener={opener_name}" if opener_name else None
     else:
         opener_name = ""
         admitted_identity = ""
@@ -1420,24 +1423,34 @@ async def oidc_callback(request: Request) -> Response:
         # Identity first, privilege second, and both from the same validated
         # token: the role question is only worth asking about a login that
         # already proved it is the user whose card was clicked.
-        claim_role = _resolved_role(request, user=user, claims=claims)
+        claim_roles = _mapped_roles(request, user=user, claims=claims)
 
         # The same matrix the password path is held to, asked the same way and
-        # before anything is minted. `expected_subject` and `claim_role` are
+        # before anything is minted. `expected_subject` and `claim_roles` are
         # what this method is *allowed* to supply; a deployment that binds no
-        # roles supplies `""`, which is an answer, and the re-check refuses a
-        # caller that supplies neither.
+        # roles supplies the empty set, which is an answer, and the re-check
+        # refuses a caller that supplies neither. The session carries the
+        # card's role where the token maps to it.
         try:
             grant = recheck_login(
                 method=settings.method,
                 user=user,
                 roster_roles=roster_roles(request),
                 asserted_subject=expected_subject,
-                claim_role=claim_role,
+                claim_roles=claim_roles,
             )
         except RecheckRefused as refused:
             logger.warning("oidc callback refused for %r: %s", user, refused.reason)
-            raise _refuse_login(user, reason=refused.reason, message=refused.message) from None
+            raise _refuse_login(
+                user,
+                reason=refused.reason,
+                message=refused.message,
+                detail=_mapped_roles_detail(claim_roles),
+            ) from None
+        # A token that mapped to several roles names them, on success as on
+        # refusal; the shared branch never reads the claims, so the two details
+        # never coexist.
+        success_detail = _mapped_roles_detail(claim_roles)
     role = grant.role
 
     codec = get_session_codec(request)
@@ -1472,10 +1485,10 @@ async def oidc_callback(request: Request) -> Response:
         # consulted to admit it, so nothing else records who is behind this
         # session, and verify re-runs the rule against it on every subrequest.
         admitted_identity=admitted_identity,
-        # The matrix's answer, not this route's: the claim's role where this
-        # deployment binds claims (cross-checked there against the role the
-        # render bound for this user), and the roster's own where it binds
-        # none. Empty means "no privileges" — the deny-safe value, which verify
+        # The matrix's answer, not this route's: the card's role where the
+        # token maps to it (or the claim's one role on an entry naming none)
+        # where this deployment binds claims, and the roster's own where it
+        # binds none. Empty means "no privileges" — the deny-safe value, which verify
         # turns into an omitted role header rather than a default privilege.
         # Every other outcome refused the login above, so `with_user` can only
         # be reached with a role it can carry. The source comes from the same
@@ -1508,15 +1521,12 @@ async def oidc_callback(request: Request) -> Response:
     # value, and the record names the roster user the login unlocked. A shared
     # card additionally names its opener in `detail`: a roster name, not a
     # claim value, and the one fact "who is in this deployment" needs on a
-    # card the whole roster can open.
+    # card the whole roster can open. An own-card login whose token mapped to
+    # several roles names them there instead.
     audit.record_login_success(
         user=user,
         method=settings.method,
         role=role,
-        # Only where there is an opener to name. A rule-admitted login has
-        # none, and `opener=` with nothing after it would put an empty value in
-        # a field that carries identifiers — the asserted identity that WOULD
-        # go there is a claim value, which the ledger does not take.
-        detail=f"opener={opener_name}" if opener_name else None,
+        detail=success_detail,
     )
     return response

@@ -52,7 +52,11 @@ from osprey.services.auth_sidecar.routes.oidc import (
     PENDING_FLOW_SESSION_KEY,
     RoleBinding,
 )
-from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, ROLE_SOURCE_ROSTER
+from osprey.services.auth_sidecar.routes.recheck import (
+    ENV_ROSTER_ROLE_PREFIX,
+    ROLE_SOURCE_CLAIM,
+    ROLE_SOURCE_ROSTER,
+)
 from osprey.services.auth_sidecar.routes.verify import VERIFY_PATH
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -1013,6 +1017,50 @@ def test_the_claims_binding_is_not_consulted_on_a_shared_card(
         ("bob", audit.REASON_OIDC_LOGIN),
         ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
     ]
+
+
+def test_a_person_in_two_mapped_groups_opens_their_own_card(
+    idp: MockIdP, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card names the role, and the signed token proves it is one of hers."""
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
+    monkeypatch.setenv(
+        "OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator","als-experts":"expert"}'
+    )
+    _bind_roster_role(monkeypatch, "alice", "operator")
+    idp.extra_claims = {"groups": ["als-operators", "als-experts"]}
+
+    with _browser(_sidecar(idp)) as client:
+        response = _log_in(client, "alice")
+
+    assert response.status_code == 303
+    entry = _session_from(response).entry("alice")
+    assert entry is not None
+    assert entry.role == "operator"
+    assert entry.role_source == ROLE_SOURCE_CLAIM
+
+
+def test_a_shared_card_ignores_several_mapped_groups(
+    idp: MockIdP, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The binding is not asked on a shared card, so several mapped groups do not
+    change what the card carries."""
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
+    monkeypatch.setenv(
+        "OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator","als-experts":"expert"}'
+    )
+    _bind_roster_role(monkeypatch, "bob", "observer")
+    idp.extra_claims = {"groups": ["als-operators", "als-experts"]}
+
+    with _browser(_sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_BOB="any")) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 303
+    entry = _session_from(response).entry("bob")
+    assert entry is not None
+    assert entry.opener == "alice"
+    assert entry.role == "observer"
+    assert entry.role_source == ROLE_SOURCE_ROSTER
 
 
 # --- shared cards: admission by a `user:` or `domain:` principal -------------

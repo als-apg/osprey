@@ -1004,7 +1004,7 @@ async def login_submit(
     # The credential is settled; what it is *worth* is the matrix's answer, and
     # it is asked before anything is minted so a refusal cannot leave the
     # browser holding a session the matrix rejected. `asserted_subject` and
-    # `claim_role` are deliberately not passed: a password login has no IdP
+    # `claim_roles` are deliberately not passed: a password login has no IdP
     # behind it, and the re-check refuses a caller that claims otherwise.
     try:
         grant = recheck_login(
