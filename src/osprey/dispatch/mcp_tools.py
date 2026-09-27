@@ -64,8 +64,8 @@ def register_tools(
             limit: Maximum number of recent events to return (default 20).
 
         Returns:
-            JSON array of event records (timestamp, event_data, result),
-            newest-last order.
+            JSON array of event records (timestamp, event_data, result, and
+            owner when a person fired it), newest-last order.
         """
         try:
             history = await registry.get_history(name, limit=limit)
