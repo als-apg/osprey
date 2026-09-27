@@ -86,11 +86,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
     AUDIT_DECISION_REFUSED,
+    agent_data_subdirs,
     emit_audit,
     get_hook_input,
     get_project_dir,
-    get_repo_root,
-    load_osprey_config,
     log_hook,
 )
 
@@ -127,19 +126,9 @@ _PATH_KEYS = {
 #: Jupyter panel serves. These are the two subdirectories in the
 #: ``Edit(<agent_data_root>/artifacts/**)`` and
 #: ``Edit(<agent_data_root>/notebooks/**)`` allow rules as rendered by
-#: ``settings.json.j2``. The order is the order a refusal lists them in.
+#: ``settings.json.j2``. The order is the order a refusal lists them in. Each is
+#: resolved under every anchor by ``osprey_hook_log.agent_data_subdirs``.
 _NOTEBOOK_SUBDIRS = ("artifacts", "notebooks")
-
-# The framework DEFAULT agent-data root, imported rather than spelled out here
-# so the two cannot drift apart. Only the default is imported: a project that
-# overrides ``agent_data.base_dir`` is honoured through the config read in
-# :func:`agent_data_base_dir` below, the same key ``settings.json.j2`` renders
-# its allow rule from. The literal fallback covers a hook running with osprey
-# off the path, the one case where guessing beats crashing.
-try:
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _DEFAULT_AGENT_DATA_ROOT
-except Exception:  # pragma: no cover - hooks must never crash the agent
-    _DEFAULT_AGENT_DATA_ROOT = "var/agent_data"
 
 
 def resolve_memory_dir(project_dir: str) -> Path:
@@ -162,66 +151,9 @@ def resolve_memory_dir(project_dir: str) -> Path:
     return config_dir / "projects" / encoded / "memory"
 
 
-def agent_data_base_dir(config: dict | None) -> str:
-    """Read ``agent_data.base_dir`` out of an already-loaded config mapping.
-
-    A restatement of ``osprey_connectors.workspace.agent_data_base_dir`` using
-    the standard library only, for the same reason the project-path regex above
-    is duplicated: the hook runs in user projects where ``osprey`` may not be
-    importable. The key is the single spelling of the agent-data root, so a
-    project that relocates it keeps this guard and the rendered
-    ``Edit(...)`` allow rules pointing at the same tree.
-
-    Args:
-        config: Loaded ``config.yml`` mapping, or ``None``.
-
-    Returns:
-        The configured base directory, possibly relative to a project anchor.
-    """
-    section = (config or {}).get("agent_data") or {}
-    if not isinstance(section, dict):
-        return _DEFAULT_AGENT_DATA_ROOT
-    return str(section.get("base_dir") or _DEFAULT_AGENT_DATA_ROOT)
-
-
 def resolve_agent_data_subdirs(hook_input, subdir) -> list[Path]:
-    """Resolve one agent-data subdirectory under every anchor it can have.
-
-    A relative ``agent_data.base_dir`` — the normal case — needs an anchor, and
-    under the four-zone layout there are two plausible ones: the repo root that
-    owns durable agent state (:func:`get_repo_root`) and the render Claude Code
-    actually runs in (:func:`get_project_dir`). They coincide in a flat layout
-    and diverge in a zoned one, and the gallery has been observed writing under
-    each, so both are accepted rather than picking one and denying the agent its
-    own notebooks under the other. An absolute ``base_dir`` needs no anchor and
-    yields exactly one directory.
-
-    Args:
-        hook_input: The parsed hook payload, used to locate the project.
-        subdir: The agent-data subdirectory to resolve, e.g. ``artifacts``.
-
-    Returns:
-        Resolved ``.../<subdir>`` directories, deduplicated, possibly empty.
-    """
-    base = Path(agent_data_base_dir(load_osprey_config(hook_input))).expanduser()
-
-    if base.is_absolute():
-        candidates = [base]
-    else:
-        candidates = [
-            Path(anchor).expanduser() / base
-            for anchor in (get_repo_root(hook_input), get_project_dir(hook_input))
-            if anchor
-        ]
-
-    subdirs = []
-    for candidate in candidates:
-        try:
-            resolved = (candidate / subdir).resolve()
-        except (OSError, ValueError):
-            continue
-        if resolved not in subdirs:
-            subdirs.append(resolved)
+    """Resolve one agent-data subdirectory; see ``osprey_hook_log.agent_data_subdirs``."""
+    subdirs: list[Path] = agent_data_subdirs(hook_input, subdir)
     return subdirs
 
 
