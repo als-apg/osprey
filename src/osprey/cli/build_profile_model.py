@@ -27,6 +27,7 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     resolve_graphdb_service_config,
 )
+from osprey.deployment.host_binding import osprey_owns_binding
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
@@ -705,7 +706,7 @@ class BuildProfile:
             errors.extend(http_errors(value, key))
         return errors
 
-    def _validate_bind_axis(self) -> list[str]:
+    def _validate_bind_axis(self, profile_dir: Path) -> list[str]:
         """Return validation errors for every ``listens:`` / ``bind_env:`` declaration.
 
         Same two authoring surfaces and the same as-authored timing as the
@@ -715,13 +716,36 @@ class BuildProfile:
         ``network: host``, so changing a service's network must not force the
         author to delete it.
 
+        A declaration on a service OSPREY declares itself
+        (:func:`~osprey.deployment.host_binding.osprey_owns_binding`) is
+        refused: the build writes OSPREY's value, and an authored one could
+        only disagree with the template it describes. Claiming the service
+        (a directory under ``<profile>/services/<name>``) hands the
+        declaration to the author.
+
+        Args:
+            profile_dir: Directory holding the profile, where a claimed service
+                lives.
+
         Returns:
             Human-readable error messages; empty when every value has the right
-            type and no service both opens no socket and names a bind address.
+            type, no service both opens no socket and names a bind address, and
+            no declaration sits on a service OSPREY declares.
         """
         errors: list[str] = []
         silent: set[str] = set()
         bound: set[str] = set()
+        for axis in ("listens", "bind_env"):
+            for name, _value, key in self._service_axis_declarations(axis):
+                entry = self.services.get(name)
+                claimed = (profile_dir / "services" / name).is_dir()
+                template = entry.template if entry is not None else None
+                if osprey_owns_binding(name, template=template, claimed=claimed):
+                    errors.append(
+                        f"`{key}` is declared by OSPREY for its bundled {name} service. "
+                        "Remove it. To declare your own, claim the service: "
+                        f"`osprey scaffold claim services/{name}`."
+                    )
         for name, value, key in self._service_axis_declarations("listens"):
             errors.extend(listens_errors(value, key))
             if value is False:
@@ -1473,7 +1497,7 @@ class BuildProfile:
         errors.extend(self._validate_network_axis())
         errors.extend(self._validate_env_axis())
         errors.extend(self._validate_http_axis())
-        errors.extend(self._validate_bind_axis())
+        errors.extend(self._validate_bind_axis(profile_dir))
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):

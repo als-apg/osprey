@@ -464,12 +464,27 @@ def _dispatch_host_network_deltas() -> tuple[Delta, ...]:
     Only ``control-assistant`` deploys a dispatch pair; the other presets gain
     nothing and are absent below.
 
+    On the host network each half also declares the variable its compose file
+    renders the bind address into, which the off-host bind check reads.
+
     Returns:
-        The three root-document deltas.
+        The five root-document deltas.
     """
     return (
         Delta(
             document="root", path="services.event_dispatcher.network", fixture=ABSENT, live="host"
+        ),
+        Delta(
+            document="root",
+            path="services.event_dispatcher.bind_env",
+            fixture=ABSENT,
+            live="FASTMCP_HOST",
+        ),
+        Delta(
+            document="root",
+            path="services.dispatch_worker.bind_env",
+            fixture=ABSENT,
+            live="DISPATCH_WORKER_BIND",
         ),
         Delta(
             document="root", path="services.dispatch_worker.network", fixture=ABSENT, live="host"

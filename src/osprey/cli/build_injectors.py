@@ -18,12 +18,18 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
-from osprey.deployment.host_binding import BIND_ENV_KEY, LISTENS_KEY
+from osprey.cli.build_profile_schema import ServiceDef
+from osprey.deployment.host_binding import (
+    BIND_ENV_KEY,
+    BUNDLED_HOST_BINDINGS,
+    LISTENS_KEY,
+    osprey_owns_binding,
+)
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
@@ -496,6 +502,68 @@ def _inject_profile_services(
     save_config_document(config_path, config)
 
     return count
+
+
+def _declare_bundled_host_bindings(
+    project_path: Path, profile_dir: Path, services: Mapping[str, ServiceDef] | None
+) -> None:
+    """Write OSPREY's own host-binding declarations into the rendered service blocks.
+
+    Each bundled host-capable template holds one fact about what it binds
+    (:data:`~osprey.deployment.host_binding.BUNDLED_HOST_BINDINGS`). Writing it
+    into the ``services.<name>`` block means the readers at ``osprey up`` — the
+    host-port preflight, the off-host bind check — read one spelling whether
+    OSPREY or a facility wrote it. A service is declared here only when OSPREY
+    owns it (:func:`~osprey.deployment.host_binding.osprey_owns_binding`): a
+    claimed service, or a facility template reusing a bundled name, declares
+    its own. Claimed is read from the profile, a ``services/<name>`` directory
+    beside it, the same test profile validation applies; the render's
+    ``scaffold.user_owned`` is registered only after the services are injected.
+
+    Written only off the default, as :func:`_inject_dispatch` writes
+    ``network``: only a block on the host network gains a key, and only a
+    non-default one (``listens: false`` or ``bind_env``). Readers consult the
+    declaration only under ``network: host``, so a bridge-mode render's
+    ``config.yml`` stays byte-for-byte what it was, and the file is saved only
+    when something was written.
+
+    Args:
+        project_path: Root of the built project.
+        profile_dir: Directory holding the profile, where a claimed service
+            lives.
+        services: The profile's ``services:`` entries, whose templates decide
+            whether a bundled name is rendered from OSPREY's own template.
+    """
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return
+    config = load_config_document(config_path)
+    rendered = config.get("services")
+    if not isinstance(rendered, Mapping):
+        return
+    services = services or {}
+
+    wrote = False
+    for name, entry in BUNDLED_HOST_BINDINGS.items():
+        block = rendered.get(name)
+        if not isinstance(block, MutableMapping):
+            continue
+        if ServiceDef(template="", config=dict(block)).network_mode() != "host":
+            continue
+        declared = services.get(name)
+        template = declared.template if declared is not None else None
+        claimed = (profile_dir / "services" / name).is_dir()
+        if not osprey_owns_binding(name, template=template, claimed=claimed):
+            continue
+        if not entry.binding.listens:
+            block[LISTENS_KEY] = False
+            wrote = True
+        if entry.binding.bind_env is not None:
+            block[BIND_ENV_KEY] = entry.binding.bind_env
+            wrote = True
+
+    if wrote:
+        save_config_document(config_path, config)
 
 
 def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: Path) -> None:

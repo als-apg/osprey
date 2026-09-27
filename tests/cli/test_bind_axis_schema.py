@@ -171,3 +171,44 @@ def test_a_declaration_on_a_bridge_mode_service_validates(tmp_path: Path) -> Non
     profile = _profile(services=_facility({"network": "bridge", "bind_env": "SITE_BIND"}))
 
     profile.validate(tmp_path)
+
+
+# --- OSPREY's own services ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "key"),
+    [
+        (
+            {"services": {"qmd": {"template": "osprey.qmd", "config": {"listens": False}}}},
+            "services.qmd.listens",
+        ),
+        ({"config": {"services.teams_bridge.listens": False}}, "services.teams_bridge.listens"),
+        (
+            {"config": {"services.event_dispatcher.bind_env": "SITE_BIND"}},
+            "services.event_dispatcher.bind_env",
+        ),
+    ],
+    ids=["services-entry", "dotted", "dispatch-half"],
+)
+def test_a_declaration_on_a_bundled_service_is_refused(
+    tmp_path: Path, raw: dict[str, Any], key: str
+) -> None:
+    name = key.split(".")[1]
+    profile = _profile(**raw)
+
+    assert _bind_errors(profile, tmp_path) == [
+        f"`{key}` is declared by OSPREY for its bundled {name} service. Remove it. "
+        f"To declare your own, claim the service: `osprey scaffold claim services/{name}`."
+    ]
+
+
+def test_a_declaration_on_a_claimed_bundled_service_validates(tmp_path: Path) -> None:
+    claimed = tmp_path / "services" / "archive"
+    claimed.mkdir(parents=True)
+    (claimed / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
+    profile = _profile(
+        services={"archive": {"template": "osprey.archive", "config": {"listens": False}}}
+    )
+
+    profile.validate(tmp_path)
