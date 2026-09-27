@@ -32,6 +32,7 @@ from osprey.interfaces.common_middleware import (
     apply_url_prefix,
     compute_url_prefix,
     forwarded_identity,
+    resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.bar_items_store import (
@@ -338,40 +339,6 @@ def resolve_ui_mode(configured: str) -> str:
         DEFAULT_UI_MODE,
     )
     return DEFAULT_UI_MODE
-
-
-def resolve_storage_scope(terminal_user: str | None) -> str:
-    """Resolve the per-user namespace for the browser's ``localStorage``.
-
-    Multi-user deployments put one container per user behind a shared nginx
-    front door at ``/u/<user>/`` — **same origin**, so every user shares one
-    ``localStorage``. Without a namespace, one user's dock layout, rail
-    position, palette history and active PTY session id are read and
-    overwritten by the next user to log in on that browser.
-
-    The namespace is decided here rather than in the browser: the served
-    documents stamp it onto ``<html data-osprey-storage-scope>`` and every JS
-    storage site reads it from there, so no client-side code has to parse
-    ``location.pathname`` to work out which mount it is running under (a page
-    fetched through a rewriting proxy, or opened at a path nginx normalised,
-    would parse the wrong answer out of it).
-
-    Reads the same value :func:`~osprey.interfaces.common_middleware.compute_url_prefix`
-    reads, with the same blank-means-unset rule, so the scope and the
-    ``/u/<user>`` prefix can never name different users.
-
-    Args:
-        terminal_user: The deployment's mount user (``OSPREY_TERMINAL_USER``,
-            as captured on ``app.state.terminal_user``). ``None``, empty or
-            blank is a single-user/dev deployment.
-
-    Returns:
-        The namespace token, or ``""`` when there is no mount user. Callers
-        must render the attribute **only** for a truthy result: an empty
-        ``data-osprey-storage-scope=""`` reads as "scoped to nothing" rather
-        than "unscoped", and single-user markup must stay exactly as it was.
-    """
-    return str(terminal_user or "").strip()
 
 
 #: The two supported rail positions. ``left`` is the icon-rail column;

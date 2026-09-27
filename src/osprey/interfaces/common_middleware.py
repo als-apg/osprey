@@ -79,6 +79,7 @@ __all__ = [
     "SAFE_METHODS",
     "SESSION_COOKIE_BASE",
     "STATIC_MOUNT_PREFIXES",
+    "STORAGE_SCOPE_ATTRIBUTE",
     "TERMINAL_USER_ENV",
     "TOKEN_EXCHANGE_PATHS",
     "UNSAFE_FORWARDED_VALUE",
@@ -98,6 +99,7 @@ __all__ = [
     "is_exempt_path",
     "read_cookie_candidates",
     "read_cookies",
+    "resolve_storage_scope",
     "session_cookie_name",
     "url_mount_prefix",
 ]
@@ -603,6 +605,47 @@ def apply_url_prefix(prefix: str, path: str) -> str:
     if not prefix or path.startswith(("http://", "https://", "//")):
         return path
     return f"{prefix}{path}"
+
+
+#: The ``<html>`` attribute a served document carries its storage scope in.
+#: ``design_system/static/js/storage-scope.js`` (and the three boot scripts that
+#: mirror it) is the reader.
+STORAGE_SCOPE_ATTRIBUTE = "data-osprey-storage-scope"
+
+
+def resolve_storage_scope(terminal_user: str | None) -> str:
+    """Resolve the per-user namespace for the browser's ``localStorage``.
+
+    Multi-user deployments put one container per user behind a shared nginx
+    front door at ``/u/<user>/`` — **same origin**, so every user shares one
+    ``localStorage``. Without a namespace, one user's dock layout, rail
+    position, palette history and active PTY session id are read and
+    overwritten by the next user to log in on that browser.
+
+    The namespace is decided here rather than in the browser: the served
+    documents stamp it onto ``<html data-osprey-storage-scope>`` and every JS
+    storage site reads it from there, so no client-side code has to parse
+    ``location.pathname`` to work out which mount it is running under (a page
+    fetched through a rewriting proxy, or opened at a path nginx normalised,
+    would parse the wrong answer out of it).
+
+    Reads the same value :func:`compute_url_prefix` reads, with the same
+    blank-means-unset rule, so the scope and the ``/u/<user>`` prefix can never
+    name different users. The hub's own pages and the panel proxy both stamp
+    from this function, so every document on a mount names the same person.
+
+    Args:
+        terminal_user: The deployment's mount user (``OSPREY_TERMINAL_USER``,
+            as captured on ``app.state.terminal_user``). ``None``, empty or
+            blank is a single-user/dev deployment.
+
+    Returns:
+        The namespace token, or ``""`` when there is no mount user. Callers
+        must render the attribute **only** for a truthy result: an empty
+        ``data-osprey-storage-scope=""`` reads as "scoped to nothing" rather
+        than "unscoped", and single-user markup must stay exactly as it was.
+    """
+    return str(terminal_user or "").strip()
 
 
 def is_exempt_path(path: str) -> bool:
