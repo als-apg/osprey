@@ -16,7 +16,7 @@ import time
 from collections.abc import Collection, Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import TracebackType
 from typing import Any, NamedTuple
 
@@ -56,6 +56,7 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     preflight_graphdb_config,
 )
+from osprey.deployment.host_binding import HostBinding, host_binding_of
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
@@ -6835,13 +6836,6 @@ def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
     )
 
 
-# The env vars the host-network templates render to name the interface a
-# service binds. Read off the RENDERED files rather than off the config keys
-# behind them: the rendered value is what the process binds, and a hand-authored
-# override (``services.event_dispatcher.bind``) reaches this check without this
-# module having to know the key exists.
-_HOST_BIND_ENV_VARS = ("FASTMCP_HOST", "DISPATCH_WORKER_BIND")
-
 # The one ``network_mode`` spelling that puts a service in the host's network
 # namespace. Mirrors host_ports._HOST_NETWORK_MODE, on the rendered side.
 _HOST_NETWORK_MODE = "host"
@@ -6886,26 +6880,65 @@ def _rendered_environment(service: Mapping) -> dict[str, str]:
     return {}
 
 
-def _host_network_bound_off_host(compose_files: list[str]) -> list[tuple[str, str]]:
-    """Services in these compose files that bind off-host on the host network.
+def _declared_binding_for(compose_file: str, services: Mapping[str, Any] | None) -> HostBinding:
+    """The host-binding declaration of the service block that renders ``compose_file``.
+
+    A block renders the file under its template directory: the parts of the
+    block's normalized ``path`` equal the trailing parts of the file's parent
+    directory, which is how the build lays out ``<build_dir>/<path>/`` without
+    anchoring on any working directory. Blocks sharing one ``path`` with
+    different declarations leave the file undeclared, because only the laxer
+    of two answers could be picked and the check this feeds is fail-closed.
+    """
+    if not isinstance(services, Mapping):
+        return HostBinding()
+    parent = PurePosixPath(Path(compose_file).parent.as_posix()).parts
+    declarations = set()
+    for block in services.values():
+        if not isinstance(block, Mapping):
+            continue
+        path = block.get("path")
+        if not isinstance(path, str) or not path.strip():
+            continue
+        parts = PurePosixPath(path).parts
+        if parts and parent[-len(parts) :] == parts:
+            declarations.add(host_binding_of(block))
+    if len(declarations) != 1:
+        return HostBinding()
+    return declarations.pop()
+
+
+def _host_network_bound_off_host(
+    compose_files: list[str], services: Mapping[str, Any] | None
+) -> list[tuple[str, str]]:
+    """Services in these compose files that may be reachable off-host on the host network.
 
     A service in the host's network namespace publishes nothing — compose has no
     port map to publish — so :func:`_published_on_all_interfaces`, which reads
-    ``ports:`` entries, cannot see it at all. What decides its reach is the
-    interface it binds, which the host-mode templates render into a bind env var
-    (:data:`_HOST_BIND_ENV_VARS`). Loopback keeps it on this machine; anything
-    else is off-host reachable with no published port anywhere in the render.
+    ``ports:`` entries, cannot see it at all. What decides its reach is what the
+    service declares on its ``services.<key>`` block, and each compose file is
+    attributed to the block that renders it (:func:`_declared_binding_for`).
+    Every host-mode compose service in the file is then in one of three states:
 
-    Read out of the rendered files for the same reason the wildcard check is: a
-    start re-renders nothing, so the files are both what the build decided and
-    what compose will act on — including an edit made to them after the build.
+    * ``listens: false`` — it opens no socket and is not reachable;
+    * ``bind_env: X`` — the rendered value of ``X`` is what it binds: loopback
+      keeps it on this machine, anything else is reachable, and a render that
+      lacks ``X`` cannot be read and counts as reachable;
+    * undeclared (no owning block, or neither key) — its binding is whatever
+      the process defaults to, which this cannot see, so it counts as reachable.
 
-    A host-mode service naming no bind var at all counts as reachable: its
-    binding is then whatever the process defaults to, which this cannot see.
+    The bind value is read out of the rendered files for the same reason the
+    wildcard check is: a start re-renders nothing, so the files are both what
+    the build decided and what compose will act on — including an edit made to
+    them after the build.
+
+    Args:
+        compose_files: The services stack's rendered compose files.
+        services: The rendered config's ``services`` mapping.
 
     Returns:
-        ``(service, bind address)`` pairs, sorted by service. The address is the
-        rendered value, or ``""`` when the service names no bind var.
+        ``(service, clause)`` pairs, sorted by service, where ``clause``
+        completes "<service> runs on the host network and …".
     """
     found: dict[str, str] = {}
     for compose_file in compose_files:
@@ -6918,20 +6951,32 @@ def _host_network_bound_off_host(compose_files: list[str]) -> list[tuple[str, st
                 f"Could not read compose file {compose_file} for the exposure check: {exc}"
             )
             continue
-        services = doc.get("services") if isinstance(doc, Mapping) else None
-        if not isinstance(services, Mapping):
+        rendered = doc.get("services") if isinstance(doc, Mapping) else None
+        if not isinstance(rendered, Mapping):
             continue
-        for name, service in services.items():
+        binding = _declared_binding_for(compose_file, services)
+        for name, service in rendered.items():
             if not isinstance(service, Mapping):
                 continue
             if str(service.get("network_mode") or "").strip() != _HOST_NETWORK_MODE:
                 continue
-            environment = _rendered_environment(service)
-            binds = [environment[var] for var in _HOST_BIND_ENV_VARS if var in environment]
-            off_host = [bind for bind in binds if _binds_off_host(bind)]
-            if binds and not off_host:
+            if not binding.listens:
                 continue
-            found[str(name)] = off_host[0] if off_host else ""
+            if binding.bind_env is None:
+                found[str(name)] = (
+                    "declares neither `listens: false` nor `bind_env:`, "
+                    "so its bind address cannot be read"
+                )
+                continue
+            environment = _rendered_environment(service)
+            if binding.bind_env not in environment:
+                found[str(name)] = (
+                    f"renders no {binding.bind_env}, so its bind address cannot be read"
+                )
+                continue
+            address = environment[binding.bind_env]
+            if _binds_off_host(address):
+                found[str(name)] = f"binds {address}"
     return sorted(found.items())
 
 
@@ -6958,11 +7003,13 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     would call private.
 
     The third is a services-stack service the build put on the host network. It
-    publishes no port either, so only the interface it was rendered to bind says
-    whether it is reachable (:func:`_host_network_bound_off_host`). The
-    templates bind loopback there, which is what keeps the default host-mode
-    deployment private — but the bind is overridable, and an overridden one is
-    as reachable as any wildcard publication.
+    publishes no port either, so only its declaration says whether it is
+    reachable (:func:`_host_network_bound_off_host`): ``listens: false`` opens no
+    socket, and ``bind_env:`` names the variable whose rendered value is the
+    interface it binds. The bundled templates bind loopback there, which is
+    what keeps the default host-mode deployment private — but the bind is
+    overridable, an overridden one is as reachable as any wildcard publication,
+    and a service that declares neither counts as reachable.
 
     Args:
         config: The rendered config, read for whether the web stack is part of
@@ -6974,15 +7021,14 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     """
     wildcard_services = _published_on_all_interfaces(compose_files)
     host_networked = _web_terminals_enabled(config)
-    host_bound = _host_network_bound_off_host(compose_files)
+    host_bound = _host_network_bound_off_host(compose_files, config.get("services"))
     reasons = []
     if wildcard_services:
         reasons.append(f"{', '.join(wildcard_services)} publish on 0.0.0.0")
     if host_networked:
         reasons.append("the web-terminal stack runs on the host network")
-    for service, address in host_bound:
-        where = f"binds {address}" if address else "names no bind address"
-        reasons.append(f"{service} runs on the host network and {where}")
+    for service, clause in host_bound:
+        reasons.append(f"{service} runs on the host network and {clause}")
 
     if reasons:
         _warn_fact(
