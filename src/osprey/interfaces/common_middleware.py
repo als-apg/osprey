@@ -82,6 +82,7 @@ __all__ = [
     "TERMINAL_USER_ENV",
     "TOKEN_EXCHANGE_PATHS",
     "UNSAFE_FORWARDED_VALUE",
+    "URL_MOUNT_ROOT",
     "WEBSOCKET_REFUSAL_CODE",
     "WEB_AUTH_POSTURE",
     "WEB_AUTH_SURFACE",
@@ -98,6 +99,7 @@ __all__ = [
     "read_cookie_candidates",
     "read_cookies",
     "session_cookie_name",
+    "url_mount_prefix",
 ]
 
 
@@ -186,6 +188,42 @@ TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
 #: each), this one asks which names this process can spell. A rendered
 #: deployment clears both; a hand-set variable is what this one is here for.
 MOUNT_SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+#: The URL path every per-user container is mounted under: user ``alice``'s
+#: container is served at ``<URL_MOUNT_ROOT>/alice/``.
+#:
+#: This is the one spelling of the root. nginx's locations and its return-to
+#: allowlist, the landing cards, the login URLs, the auth sidecar's default
+#: return-to and :func:`compute_url_prefix` all derive from it; the logout
+#: script reads the user from the prefix's last segment and restates nothing.
+#: Changing the value moves every mount and every URL an operator has saved.
+#:
+#: No trailing slash: the prefix form ``<root>/<user>`` is what
+#: :func:`compute_url_prefix` returns and what every caller appends to.
+URL_MOUNT_ROOT = "/u"
+
+
+def url_mount_prefix(user: str) -> str:
+    """Return the URL prefix of ``user``'s mount.
+
+    The prefix is :data:`URL_MOUNT_ROOT` plus one path segment, with no
+    trailing slash.
+
+    ``user`` is spliced unescaped, so callers pass a name that has already
+    cleared :data:`MOUNT_SEGMENT_RE` (as :func:`compute_url_prefix` checks) or
+    the roster's
+    :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`. The
+    helper validates nothing, because each caller already refuses a bad name
+    with its own message.
+
+    Args:
+        user: The mount segment naming the user.
+
+    Returns:
+        ``<URL_MOUNT_ROOT>/<user>``.
+    """
+    return f"{URL_MOUNT_ROOT}/{user}"
+
 
 #: How many same-named session cookies the gate will weigh before giving up.
 #: A page on a neighbouring host under the same registrable domain can set a
@@ -526,9 +564,9 @@ def compute_url_prefix() -> str:
     boots, serves its own pages, and answers 500 for every panel.
 
     Returns:
-        ``"/u/<user>"`` when :data:`TERMINAL_USER_ENV` is set and non-empty;
-        otherwise ``""``, which makes every application of it a no-op and
-        preserves single-origin/dev behaviour exactly.
+        :func:`url_mount_prefix` of the user when :data:`TERMINAL_USER_ENV` is
+        set and non-empty; otherwise ``""``, which makes every application of
+        it a no-op and preserves single-origin/dev behaviour exactly.
 
     Raises:
         ValueError: If the variable holds a name outside
@@ -548,7 +586,7 @@ def compute_url_prefix() -> str:
             "fails the panel hop. Rename the account, or unset the variable to serve "
             "at the root."
         )
-    return f"/u/{user}"
+    return url_mount_prefix(user)
 
 
 def apply_url_prefix(prefix: str, path: str) -> str:
