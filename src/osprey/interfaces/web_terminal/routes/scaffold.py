@@ -61,6 +61,9 @@ def _require_scaffold_writes(request: Request) -> None:
     Read routes are deliberately not gated. Seeing what the agent is running is
     not authoring it, and a tier that cannot edit still has to be able to look.
 
+    When writes are closed because the config file could not be read, the
+    refusal names that file.
+
     Args:
         request: Incoming request carrying ``app.state``.
 
@@ -68,6 +71,12 @@ def _require_scaffold_writes(request: Request) -> None:
         HTTPException: 403 when gallery writes are disabled for this deployment.
     """
     if not getattr(request.app.state, "scaffold_write_enabled", True):
+        unreadable = getattr(request.app.state, "config_unreadable_path", None)
+        if unreadable:
+            raise HTTPException(
+                status_code=403,
+                detail=f"scaffold writes are closed because {unreadable} could not be read",
+            )
         raise HTTPException(
             status_code=403,
             detail=(

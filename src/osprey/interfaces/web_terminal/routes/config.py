@@ -101,7 +101,9 @@ def _require_config_panel(request: Request) -> None:
     far as having a key to judge.
 
     The refusal names the key, so an operator who meets it knows which switch
-    produced it rather than suspecting a broken deployment.
+    produced it rather than suspecting a broken deployment. When the panel is
+    closed because the config file could not be read, the refusal names that
+    file instead.
 
     Args:
         request: Incoming request carrying ``app.state``.
@@ -110,6 +112,12 @@ def _require_config_panel(request: Request) -> None:
         HTTPException: 403 when the panel is disabled for this deployment.
     """
     if not getattr(request.app.state, "config_panel_enabled", True):
+        unreadable = getattr(request.app.state, "config_unreadable_path", None)
+        if unreadable:
+            raise HTTPException(
+                status_code=403,
+                detail=f"the Config panel is closed because {unreadable} could not be read",
+            )
         raise HTTPException(
             status_code=403,
             detail=(

@@ -2400,7 +2400,7 @@ keys:
       pushes an unrelated call past the margin.
     default: https://als-apg.github.io/osprey
   web.config_panel:
-    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.'
+    evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -2410,7 +2410,7 @@ keys:
       this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
-    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
+    evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
     note: >-
       Tier gate for the Config panel, and a SERVER-side one: false makes
       /api/config and /api/claude-setup refuse every verb with 403 and takes
@@ -2419,12 +2419,12 @@ keys:
       client-only gate would be undone by typing the route's URL. Shipped
       true — the panel every single-user deployment has always had — and
       pinned false by the multi-user persona presets that are not the admin
-      tier. The default is spelled in the evidence because it is the
-      fail-open posture: an unreadable config must not silently take an
-      operator's own config editor away.
+      tier. The default is spelled in the evidence because it is the posture
+      for a key the file does not mention; a config file that exists but
+      cannot be read closes the gate instead.
     default: true
   web.scaffold_gallery:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.'
+    evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -2434,7 +2434,7 @@ keys:
       this is deliberately not all-templates, same as `web.config_panel`.
     default: {}
   web.scaffold_gallery.write_enabled:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
+    evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
     note: >-
       Tier gate for the Scaffold gallery, and a SERVER-side one: false makes
       every write and delete verb under /api/scaffold refuse with 403 (create,
@@ -2445,8 +2445,8 @@ keys:
       simple` was. Shipped true — the gallery every single-user deployment has
       always had — and pinned false by the multi-user persona presets that are
       not the admin tier. The default is spelled in the evidence because it is
-      the fail-open posture: a config-read error must not silently revoke an
-      operator's own gallery. The `\s*` between the call's parts is
+      the posture for a key the file does not mention; a config file that
+      exists but cannot be read closes the gate instead. The `\s*` between the call's parts is
       load-bearing for the same reason `web.docs_url` carries it: the formatter
       wraps this call across lines on length alone.
     default: true

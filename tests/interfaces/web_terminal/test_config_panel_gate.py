@@ -25,16 +25,18 @@ Three properties are asserted directly, because each can regress on its own:
   the key) behaves exactly as it did before this key existed. The default-true
   path is the shipped single-user posture and must stay byte-for-byte the
   behaviour it was.
-* **The lifespan resolves it once.** ``create_app`` reads the key into
-  ``app.state.config_panel_enabled``; a quoted ``"false"`` is honoured as the
-  boolean a human meant, and a value nobody can interpret falls back to the
-  enabled default with a warning rather than silently taking an operator's own
-  config editor away.
+* **The lifespan resolves it once.** ``create_app`` reads the key out of the
+  config file it resolved into ``app.state.config_panel_enabled``; a quoted
+  ``"false"`` is honoured as the boolean a human meant, and a value nobody can
+  interpret falls back to the enabled default with a warning. A config file
+  that exists but cannot be read closes the panel and is named in the refusal;
+  no config file at all keeps the shipped default.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from collections import deque
 from unittest.mock import patch
 
@@ -44,9 +46,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
+    PrivilegeGates,
     coerce_config_flag,
     create_app,
-    resolve_config_flag,
+    resolve_privilege_gates,
 )
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
@@ -163,6 +166,18 @@ class TestDisabledRefusesEveryVerb:
             assert "Config panel is disabled" in detail, f"{label}: {detail!r}"
             assert CONFIG_PANEL_KEY in detail, f"{label}: {detail!r}"
 
+    def test_an_unreadable_config_names_the_file_in_every_refusal(self, project_dir):
+        unreadable = project_dir / "config.yml"
+        with _client(project_dir, config_panel_enabled=False) as client:
+            client.app.state.config_unreadable_path = unreadable
+            for label, send in _requests(client):
+                response = send()
+                assert response.status_code == 403, f"{label} returned {response.status_code}"
+                detail = response.json()["detail"]
+                assert detail == (
+                    f"the Config panel is closed because {unreadable} could not be read"
+                ), f"{label}: {detail!r}"
+
 
 class TestGateRunsFirst:
     """Ahead of the protected set, and ahead of anything that touches disk."""
@@ -268,6 +283,18 @@ class TestPanelsPayload:
     def test_absent_state_attribute_reads_as_enabled(self, default_client):
         assert self._payload(default_client)["config_panel_enabled"] is True
 
+    def test_unreadable_payload_names_the_file(self, project_dir):
+        unreadable = project_dir / "config.yml"
+        with _client(project_dir, config_panel_enabled=False) as client:
+            client.app.state.config_unreadable_path = unreadable
+
+            payload = self._payload(client)
+
+        assert payload["config_unreadable_path"] == str(unreadable)
+
+    def test_readable_payload_carries_no_path(self, enabled_client):
+        assert self._payload(enabled_client)["config_unreadable_path"] is None
+
     def test_disabled_payload_never_lists_config(self, project_dir):
         """Not as a built-in, not as a custom panel, not as a focus target.
 
@@ -343,28 +370,40 @@ class TestCoerceConfigFlag:
         ), "expected a WARNING naming the key"
 
 
-class TestResolveConfigFlagFromANamedFile:
-    """The reader answers out of the file it is handed, expansion included."""
-
-    ON_ERROR = "Could not read web.config_panel.enabled; leaving the Config panel enabled"
+class TestResolvePrivilegeGates:
+    """One reader answers both gates out of the file the surface resolved."""
 
     @staticmethod
-    def _write(tmp_path, enabled):
+    def _write(tmp_path, enabled, write_enabled=True):
         config_file = tmp_path / "config.yml"
-        config_file.write_text(yaml.dump({"web": {"config_panel": {"enabled": enabled}}}))
+        config_file.write_text(
+            yaml.dump(
+                {
+                    "web": {
+                        "config_panel": {"enabled": enabled},
+                        "scaffold_gallery": {"write_enabled": write_enabled},
+                    }
+                }
+            )
+        )
         return config_file
 
-    def test_a_named_file_answers_the_read(self, tmp_path):
-        config_file = self._write(tmp_path, False)
+    def test_a_named_file_answers_both_gates(self, tmp_path):
+        config_file = self._write(tmp_path, False, write_enabled=False)
 
-        result = resolve_config_flag(CONFIG_PANEL_KEY, True, self.ON_ERROR, config_path=config_file)
+        gates = resolve_privilege_gates(config_file)
 
-        assert result is False
+        assert gates == PrivilegeGates(False, False)
 
-    def test_no_named_file_reads_the_process_default(self, tmp_path):
-        self._write(tmp_path, False)
+    def test_no_config_file_keeps_the_shipped_defaults_without_reading(self):
+        def refuse_to_read(*args, **kwargs):
+            pytest.fail("no config file was resolved, so nothing may be read")
 
-        assert resolve_config_flag(CONFIG_PANEL_KEY, True, self.ON_ERROR) is True
+        with patch("osprey.utils.config.get_config_value", refuse_to_read):
+            gates = resolve_privilege_gates(None)
+
+        assert gates == PrivilegeGates(True, True)
+        assert gates.unreadable_config is None
 
     @pytest.mark.parametrize(
         ("value", "variable", "expected"),
@@ -383,19 +422,67 @@ class TestResolveConfigFlagFromANamedFile:
             monkeypatch.setenv("OSPREY_TEST_CONFIG_PANEL", variable)
         config_file = self._write(tmp_path, value)
 
-        result = resolve_config_flag(CONFIG_PANEL_KEY, True, self.ON_ERROR, config_path=config_file)
+        assert resolve_privilege_gates(config_file).config_panel_enabled is expected
 
-        assert result is expected
+    @pytest.mark.parametrize(
+        "breakage",
+        [
+            "broken-yaml",
+            "not-a-mapping",
+            pytest.param(
+                "permission-denied",
+                marks=pytest.mark.skipif(
+                    os.geteuid() == 0, reason="root reads a file whatever its mode"
+                ),
+            ),
+        ],
+    )
+    def test_an_unreadable_file_closes_both_gates_and_names_it(self, tmp_path, breakage):
+        config_file = tmp_path / "config.yml"
+        if breakage == "broken-yaml":
+            config_file.write_text("web: [unclosed\n  config_panel: {\n")
+        elif breakage == "not-a-mapping":
+            config_file.write_text("- web\n- config_panel\n")
+        else:
+            config_file.write_text(yaml.dump({"web": {"config_panel": {"enabled": True}}}))
+            config_file.chmod(0)
+        try:
+            gates = resolve_privilege_gates(config_file)
+        finally:
+            config_file.chmod(0o644)
 
-    def test_an_uninterpretable_value_still_fails_open(self, tmp_path, caplog):
+        assert gates.config_panel_enabled is False
+        assert gates.scaffold_write_enabled is False
+        assert gates.unreadable_config == config_file
+
+    def test_the_failure_is_one_error_naming_the_file_and_both_surfaces(self, tmp_path, caplog):
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("web: [unclosed\n")
+
+        with caplog.at_level(logging.WARNING):
+            resolve_privilege_gates(config_file)
+
+        # The config loader reports its own parse error; the gates add exactly one.
+        errors = [
+            record
+            for record in caplog.records
+            if record.levelno == logging.ERROR
+            and record.name == "osprey.interfaces.web_terminal.app"
+        ]
+        assert len(errors) == 1
+        message = errors[0].getMessage()
+        assert str(config_file) in message
+        assert "Config panel" in message
+        assert "scaffold gallery" in message
+
+    def test_an_uninterpretable_value_still_takes_the_default(self, tmp_path, caplog):
         config_file = self._write(tmp_path, {"nested": 1})
 
         with caplog.at_level(logging.WARNING):
-            result = resolve_config_flag(
-                CONFIG_PANEL_KEY, True, self.ON_ERROR, config_path=config_file
-            )
+            gates = resolve_privilege_gates(config_file)
 
-        assert result is True
+        assert gates.config_panel_enabled is True
+        assert gates.unreadable_config is None
         assert any(
             CONFIG_PANEL_KEY in record.message and record.levelno == logging.WARNING
             for record in caplog.records
@@ -412,20 +499,40 @@ def workspace_dir(tmp_path):
     return workspace
 
 
-def _started_app(workspace_dir, configured):
+def _started_app(
+    workspace_dir, configured, *, raises=False, no_config_file=False, monkeypatch=None
+):
     """Run ``create_app``'s lifespan with *configured* as the key's value.
 
-    ``configured`` of ``None`` omits the key, exercising the absent-key path.
-    ``get_config_value`` is patched at its definition site because the lifespan
-    imports it inside the function; every other key it reads falls through to
-    the default the caller passed, which is what an absent config.yml gives
-    them anyway.
+    ``configured`` of ``None`` omits the key, exercising the absent-key path;
+    ``raises=True`` makes the privilege read blow up, which is the
+    unreadable-config path. The app is handed a real ``config.yml`` under the
+    test's tmp dir, because the gates answer out of the file the lifespan
+    resolved. ``no_config_file=True`` hands it none and leaves neither
+    ``CONFIG_FILE`` nor a ``config.yml`` in the working directory to find
+    (it needs *monkeypatch*). ``get_config_value`` is patched at its definition
+    site because the reader imports it inside the function; every other key it
+    reads falls through to the default the caller passed.
     """
 
     def fake_get_config_value(key, default=None, *args, **kwargs):
-        if key == CONFIG_PANEL_KEY and configured is not None:
-            return configured
+        if key == CONFIG_PANEL_KEY:
+            if raises:
+                raise OSError("config.yml is unreadable")
+            if configured is not None:
+                return configured
         return default
+
+    root = workspace_dir.parent
+    if no_config_file:
+        empty = root / "empty"
+        empty.mkdir()
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.chdir(empty)
+        config_path = None
+    else:
+        config_path = root / "config.yml"
+        config_path.write_text(yaml.safe_dump({"project_name": "config-panel-gate"}))
 
     with (
         patch(
@@ -434,7 +541,7 @@ def _started_app(workspace_dir, configured):
         ),
         patch("osprey.utils.config.get_config_value", fake_get_config_value),
     ):
-        app = create_app(shell_command="echo")
+        app = create_app(config_path=config_path, shell_command="echo")
         with TestClient(app) as client:
             yield client
 
@@ -467,5 +574,42 @@ def test_lifespan_disabled_refuses_the_routes(workspace_dir):
     try:
         assert client.get("/api/config").status_code == 403
         assert client.get("/api/claude-setup").status_code == 403
+    finally:
+        next(generator, None)
+
+
+def test_lifespan_closes_both_gates_on_an_unreadable_config(workspace_dir):
+    generator = _started_app(workspace_dir, None, raises=True)
+    client = next(generator)
+    try:
+        resolved = (workspace_dir.parent / "config.yml").resolve()
+        assert client.app.state.config_panel_enabled is False
+        assert client.app.state.scaffold_write_enabled is False
+        assert client.get("/api/panels").json()["config_unreadable_path"] == str(resolved)
+        response = client.get("/api/config")
+        assert response.status_code == 403
+        assert str(resolved) in response.json()["detail"]
+    finally:
+        next(generator, None)
+
+
+def test_lifespan_keeps_the_defaults_when_no_config_file_exists(workspace_dir, monkeypatch):
+    generator = _started_app(workspace_dir, None, no_config_file=True, monkeypatch=monkeypatch)
+    client = next(generator)
+    try:
+        assert client.app.state.config_panel_enabled is True
+        assert client.app.state.scaffold_write_enabled is True
+        assert client.app.state.config_unreadable_path is None
+        assert client.get("/api/panels").json()["config_unreadable_path"] is None
+    finally:
+        next(generator, None)
+
+
+def test_lifespan_cosmetic_flags_stay_open_on_an_unreadable_config(workspace_dir):
+    generator = _started_app(workspace_dir, None, raises=True)
+    client = next(generator)
+    try:
+        assert client.app.state.config_panel_enabled is False
+        assert client.app.state.web_ui_mode == "expert"
     finally:
         next(generator, None)

@@ -437,6 +437,11 @@ async def get_panels(request: Request):
         "feedback_escalation_url": feedback_escalation_url,
         "config_panel_enabled": config_panel_enabled,
         "scaffold_write_enabled": scaffold_write_enabled,
+        # The config file that exists but could not be read, which closed both
+        # gates above; the browser names the file from this key and invents nothing.
+        "config_unreadable_path": (
+            str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
+        ),
         "tour": tour,
     }
 
