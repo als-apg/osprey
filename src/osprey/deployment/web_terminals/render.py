@@ -68,6 +68,16 @@ from osprey.docs_links import PERIMETER_LIMITS_URL
 # stdlib-only, so importing it here cannot cycle.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
+
+# A stdlib-only leaf of the sidecar: the throttle's defaults and its one
+# validity predicate, shared with the sidecar that builds the throttle.
+from osprey.services.auth_sidecar.throttle import (
+    DEFAULT_FORGET_AFTER,
+    DEFAULT_INITIAL_DELAY,
+    DEFAULT_MAX_DELAY,
+    DEFAULT_MULTIPLIER,
+    throttle_problems,
+)
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
@@ -144,6 +154,25 @@ SUPPORTED_AUTH_METHODS = ("none", "token", "password", "oidc")
 #: into its port-collision check. Resolved per deployment rather than pinned
 #: here — see :func:`_auth_tls_context`'s ``base``.
 _AUTH_PORT_SLOT = "auth"
+
+#: ``modules.web_terminals.auth.throttle`` key -> the ``AttemptThrottle``
+#: parameter it sets. The one spelling of the four keys: render, lint and the
+#: compose template's context all read it.
+AUTH_THROTTLE_KEYS: dict[str, str] = {
+    "initial_delay_s": "initial_delay",
+    "multiplier": "multiplier",
+    "max_delay_s": "max_delay",
+    "forget_after_s": "forget_after",
+}
+
+_THROTTLE_DEFAULTS: dict[str, float] = {
+    "initial_delay": DEFAULT_INITIAL_DELAY,
+    "multiplier": DEFAULT_MULTIPLIER,
+    "max_delay": DEFAULT_MAX_DELAY,
+    "forget_after": DEFAULT_FORGET_AFTER,
+}
+
+_AUTH_THROTTLE_PATH = "modules.web_terminals.auth.throttle"
 
 #: The auth sidecar's audit identity — the subdirectory of ``var/audit/`` it
 #: binds and writes its login and denial events to. A FIXED name, unlike every
@@ -1282,6 +1311,10 @@ def render_web_terminals(
     # through the roster in every posture, and an incoherent stanza must stop
     # the deployment rather than render artifacts that bind the wrong ones.
     authorization_ctx = _authorization_context(web_terminals)
+    # Refused here, before any artifact is written: failed logins are slowed by
+    # these settings, so a value the throttle cannot be built with never
+    # renders as a quiet fall-back.
+    auth_throttle = _auth_throttle_context(web_terminals)
 
     # Built (and refused) ahead of the Jinja pass so a roster user with no
     # operator secret stops the render before any artifact exists, rather than
@@ -1466,6 +1499,9 @@ def render_web_terminals(
         # Emitted unconditionally, like every other key here; a deployment
         # that declares no roles carries the inert empty ones.
         **authorization_ctx,
+        # The authored login-throttle parameters only (see
+        # `_auth_throttle_context`); an unset key emits no env line.
+        "auth_throttle": auth_throttle,
         # The ONE host directory every entitled user's mirror mount writes into
         # — the deployment's mirror, the same one the qmd sidecar indexes and
         # the host exporter fills — spelled through the same bind-source rule
@@ -2322,6 +2358,75 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         # `tls.cert`. Derived rather than configured so the mount and the
         # `ssl_certificate` directive cannot name different places.
         "tls_mount_target": _tls_mount_target(tls),
+    }
+
+
+def _auth_throttle_problems(web_terminals: dict[str, Any]) -> list[str]:
+    """Every reason ``modules.web_terminals.auth.throttle`` cannot build the login throttle.
+
+    The one reader of the block, shared by the render refusal and the lint
+    rule. A non-mapping ``auth`` is :func:`_auth_tls_context`'s and lint's
+    ``invalid_auth_stanza`` concern, and an absent or empty ``throttle`` is the
+    documented default; both give no problem. A key outside
+    :data:`AUTH_THROTTLE_KEYS` is a problem, so a misspelt key is never ignored.
+    Values are judged by the throttle's own
+    :func:`~osprey.services.auth_sidecar.throttle.throttle_problems`, with the
+    default standing in for an unauthored key.
+
+    Returns:
+        One message per problem, each naming the full dotted key.
+    """
+    auth = web_terminals.get("auth")
+    if not isinstance(auth, dict):
+        return []
+    throttle = auth.get("throttle")
+    if throttle is None:
+        return []
+    if not isinstance(throttle, dict):
+        return [
+            f"{_AUTH_THROTTLE_PATH} {throttle!r} is not a mapping of "
+            f"{', '.join(AUTH_THROTTLE_KEYS)}"
+        ]
+    problems = [
+        f"{_AUTH_THROTTLE_PATH}.{key} is not a throttle setting; expected one of "
+        f"{', '.join(AUTH_THROTTLE_KEYS)}"
+        for key in throttle
+        if key not in AUTH_THROTTLE_KEYS
+    ]
+    parameters: dict[str, Any] = dict(_THROTTLE_DEFAULTS)
+    key_for = {parameter: key for key, parameter in AUTH_THROTTLE_KEYS.items()}
+    for key, parameter in AUTH_THROTTLE_KEYS.items():
+        if key in throttle:
+            parameters[parameter] = throttle[key]
+    for parameter, reason in throttle_problems(**parameters).items():
+        key = key_for[parameter]
+        suffix = "" if key in throttle else " (default)"
+        problems.append(f"{_AUTH_THROTTLE_PATH}.{key} {parameters[parameter]!r}{suffix} {reason}")
+    return problems
+
+
+def _auth_throttle_context(web_terminals: dict[str, Any]) -> dict[str, int | float]:
+    """The authored login-throttle parameters, keyed by ``AttemptThrottle`` keyword.
+
+    Only the keys the deployment wrote: an unset key emits no env line, so the
+    sidecar's own default applies and the default lives in one place.
+
+    Raises:
+        ValueError: If :func:`_auth_throttle_problems` names anything. The
+            render refuses rather than falling back, because a field-wise
+            fall-back could still produce a combination the throttle refuses,
+            and ``--no-lint`` skips the lint rule that reports it first.
+    """
+    problems = _auth_throttle_problems(web_terminals)
+    if problems:
+        raise ValueError(
+            "; ".join(problems)
+            + ". Failed logins are slowed by these settings, so a value the login "
+            "throttle cannot be built with is refused rather than replaced."
+        )
+    throttle = as_dict(as_dict(web_terminals.get("auth")).get("throttle"))
+    return {
+        parameter: throttle[key] for key, parameter in AUTH_THROTTLE_KEYS.items() if key in throttle
     }
 
 

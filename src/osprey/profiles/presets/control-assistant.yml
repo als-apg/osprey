@@ -1074,6 +1074,12 @@ config:
       # How long a browser stays signed in, in whole seconds. Applies to every
       # terminal here and to `osprey web`; 43200 is twelve hours.
       session_lifetime: 43200
+      # Failed password logins are slowed per user, never locked out (defaults):
+      # throttle:
+      #   initial_delay_s: 1.0     # first wait after a wrong password
+      #   multiplier: 2.0          # each further failure multiplies it
+      #   max_delay_s: 30.0        # the wait never exceeds this
+      #   forget_after_s: 300.0    # quiet this long and it starts over
       # Accepts login over plain HTTP, which fits 127.0.0.1 and nothing else.
       # For any reachable host, delete this line and configure tls instead.
       allow_insecure_http: true

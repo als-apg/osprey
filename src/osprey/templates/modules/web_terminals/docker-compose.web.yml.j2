@@ -241,6 +241,12 @@
       Emitted unconditionally because the container cannot know at build time
       which it is, and it cannot ride in the persona's `config.yml`, which is
       baked into the image at build time and so cannot see a deploy-time edit.
+    auth_throttle: dict[str, int | float], required (possibly empty)
+      -> OSPREY_AUTH_THROTTLE_{INITIAL_DELAY,MULTIPLIER,MAX_DELAY,FORGET_AFTER}
+      (sidecar only). The login throttle parameters the deployment authored
+      under `auth.throttle`, keyed by throttle parameter; render has already
+      refused any value the throttle cannot be built with. An unset key emits
+      nothing and the sidecar's own default applies.
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
       `<facility_prefix>-assistant-auth:local` is referenced instead — the
@@ -699,6 +705,18 @@ services:
       - OSPREY_AUTH_AUDIT_DIR={{ auth_audit_dir }}
       - OSPREY_AUTH_METHOD={{ auth_method }}
       - OSPREY_AUTH_SESSION_LIFETIME={{ auth_session_lifetime }}
+{%- if auth_throttle.initial_delay is defined %}
+      - OSPREY_AUTH_THROTTLE_INITIAL_DELAY={{ auth_throttle.initial_delay }}
+{%- endif %}
+{%- if auth_throttle.multiplier is defined %}
+      - OSPREY_AUTH_THROTTLE_MULTIPLIER={{ auth_throttle.multiplier }}
+{%- endif %}
+{%- if auth_throttle.max_delay is defined %}
+      - OSPREY_AUTH_THROTTLE_MAX_DELAY={{ auth_throttle.max_delay }}
+{%- endif %}
+{%- if auth_throttle.forget_after is defined %}
+      - OSPREY_AUTH_THROTTLE_FORGET_AFTER={{ auth_throttle.forget_after }}
+{%- endif %}
       - OSPREY_AUTH_TLS_ENABLED={{ "true" if tls_enabled else "false" }}
       - OSPREY_AUTH_EXTERNAL_ORIGIN={{ external_origin }}
       {#- The roster the sidecar will answer for, in declaration order (the

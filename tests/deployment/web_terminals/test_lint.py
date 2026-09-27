@@ -2673,6 +2673,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.auth_credential_collision",
         "web_terminals.auth_credential_unevaluable",
         "web_terminals.invalid_session_lifetime",
+        "web_terminals.invalid_auth_throttle",
     }
 )
 
@@ -2957,6 +2958,82 @@ def test_lint_empty_session_lifetime_reports_no_auth_findings() -> None:
 
 
 def test_lint_session_lifetime_on_a_non_mapping_auth_stanza_is_not_reported_twice() -> None:
+    """A scalar `auth` has no keys to read; the stanza ERROR is the whole story."""
+    # Arrange
+    config = _auth_config("password")
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert [f.code for f in _auth_findings(findings)] == ["web_terminals.invalid_auth_stanza"]
+
+
+@pytest.mark.parametrize(
+    ("throttle", "dotted"),
+    [
+        ({"max_delay_s": 0.5}, "modules.web_terminals.auth.throttle.max_delay_s"),
+        ({"initial_delay_s": 0}, "modules.web_terminals.auth.throttle.initial_delay_s"),
+        ({"multiplier": 0.5}, "modules.web_terminals.auth.throttle.multiplier"),
+        ({"forget_after_s": -1}, "modules.web_terminals.auth.throttle.forget_after_s"),
+        ({"initial_delay_s": True}, "modules.web_terminals.auth.throttle.initial_delay_s"),
+        ({"max_delay_s": float("inf")}, "modules.web_terminals.auth.throttle.max_delay_s"),
+        ({"max_delay": 60}, "modules.web_terminals.auth.throttle.max_delay"),
+        (5, "modules.web_terminals.auth.throttle"),
+    ],
+)
+def test_lint_unusable_auth_throttle_is_an_error(throttle: object, dotted: str) -> None:
+    """render refuses the same config; lint reports it at scaffold time."""
+    # Arrange
+    config = _auth_config({"method": "password", "throttle": throttle})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.invalid_auth_throttle"]
+    assert errors, [f.code for f in findings]
+    assert any(dotted in f.message for f in errors)
+
+
+def test_lint_valid_auth_throttle_reports_no_auth_findings() -> None:
+    """Four usable values are exactly what the login throttle is built from."""
+    # Arrange
+    config = _auth_config(
+        {
+            "method": "password",
+            "throttle": {
+                "initial_delay_s": 2,
+                "multiplier": 1.5,
+                "max_delay_s": 90,
+                "forget_after_s": 0,
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+    assert _errors(findings) == []
+
+
+@pytest.mark.parametrize("auth", [{"method": "password"}, {"method": "password", "throttle": None}])
+def test_lint_absent_auth_throttle_reports_no_auth_findings(auth: dict) -> None:
+    """Leaving `throttle` out, or writing it empty, is the documented default."""
+    # Arrange
+    config = _auth_config(auth)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_auth_throttle" for f in findings)
+    assert _errors(findings) == []
+
+
+def test_lint_auth_throttle_on_a_non_mapping_auth_stanza_is_not_reported_twice() -> None:
     """A scalar `auth` has no keys to read; the stanza ERROR is the whole story."""
     # Arrange
     config = _auth_config("password")
