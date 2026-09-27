@@ -519,6 +519,9 @@ terminals accept actions only from the origin.
 ``allow_insecure_http`` is not a way to postpone certificates on a reachable
 host; with nothing terminating TLS, anyone watching the traffic can become
 that user.
+Lint does not warn about plain HTTP in this shape because the browser's
+origin is ``https``; the hop from the terminator to this nginx is still plain
+HTTP, so keep it on a network you trust.
 
 A single-user ``osprey web`` behind the same kind of TLS terminator sets
 ``OSPREY_TERMINAL_EXTERNAL_ORIGIN`` to that address instead. It is the same
@@ -539,6 +542,14 @@ only. On every ``osprey up``, for each user in order:
    the way to set a password you chose. ``<USER>`` is the name uppercased with
    ``-`` turned into ``_``.
 #. Otherwise a password is generated, hashed, and printed once. Capture it.
+
+A password ``profile.yml`` publishes under ``env.defaults`` (the preset's
+demo logins are one example) is refused by ``osprey up`` once browsers reach
+the deployment anywhere but this machine: ``external_origin``, or
+``deploy.fqdn`` when that is unset, names a host other than ``127.0.0.1`` or
+``localhost``. Run ``osprey users passwd <user>`` for each login it
+names, or ``osprey users decommission <card>`` for a shared card. HTTPS does
+not lift the refusal.
 
 To change one later, ``osprey users passwd alice`` prompts, rewrites that hash
 and ends alice's sessions — her own card's, and every
