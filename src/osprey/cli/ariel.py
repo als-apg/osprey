@@ -383,7 +383,9 @@ def sync_command(limit: int | None, watch: bool) -> None:
     default=None,
     help="Adapter type (overrides config)",
 )
-@click.option("--since", type=click.DateTime(), help="Only ingest entries after this date")
+@click.option(
+    "--since", type=click.DateTime(), help="Only ingest entries after this date (facility time)"
+)
 @click.option("--limit", type=int, help="Maximum entries to ingest")
 @click.option("--dry-run", is_flag=True, help="Parse entries without storing")
 def ingest_command(

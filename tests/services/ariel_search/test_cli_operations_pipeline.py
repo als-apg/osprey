@@ -40,6 +40,7 @@ import signal
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -413,6 +414,28 @@ class TestRunIngestStoring:
         )
 
         assert adapter.fetch_calls == [{"since": since, "limit": 7}]
+
+    async def test_a_naive_since_is_read_in_the_facility_zone(self, monkeypatch, mock_repository):
+        monkeypatch.setattr(
+            "osprey.utils.config.get_facility_timezone", lambda: ZoneInfo("Europe/Berlin")
+        )
+        adapter = _Adapter(_entries(1))
+        _patch_adapter(monkeypatch, adapter)
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+
+        await ops.run_ingest(
+            dict(_DB),
+            source=_SOURCE,
+            adapter="generic_json",
+            since=datetime(2026, 5, 5),
+            limit=7,
+            dry_run=False,
+        )
+
+        assert adapter.fetch_calls == [
+            {"since": datetime(2026, 5, 4, 22, 0, tzinfo=UTC), "limit": 7}
+        ]
 
     async def test_enhancer_failure_is_recorded_per_entry_and_does_not_abort(
         self, monkeypatch, mock_repository

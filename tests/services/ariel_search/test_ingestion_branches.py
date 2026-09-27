@@ -43,7 +43,7 @@ from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapte
 from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
 from osprey.services.ariel_search.ingestion.adapters.jlab import JLabLogbookAdapter
 from osprey.services.ariel_search.ingestion.adapters.ornl import ORNLLogbookAdapter
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
 # ---------------------------------------------------------------------------
@@ -1101,6 +1101,68 @@ def facility_tz(monkeypatch) -> ZoneInfo:
     return zone
 
 
+@pytest.fixture
+def facility_berlin(monkeypatch) -> ZoneInfo:
+    """Pin the facility zone a time without an offset is read in.
+
+    Patched on the config module, because ``localize_facility`` resolves the
+    zone there.
+    """
+    zone = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+    return zone
+
+
+@pytest.mark.usefixtures("facility_berlin")
+class TestParseEntryTime:
+    """The one rule every adapter reads a logbook time through."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            1704412800,
+            1704412800.0,
+            "1704412800",
+            "2024-01-05T00:00:00Z",
+            "2024-01-05T01:00:00+01:00",
+        ],
+        ids=["epoch-int", "epoch-float", "epoch-string", "iso-z", "iso-offset"],
+    )
+    def test_accepted_formats(self, value):
+        """An epoch, a ``Z`` or an offset keeps its instant, returned in UTC."""
+        parsed = parse_entry_time(value)
+
+        assert parsed == datetime(2024, 1, 5, tzinfo=UTC)
+        assert parsed.tzinfo is UTC
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2026-03-04T02:15:00", datetime(2026, 3, 4, 1, 15, tzinfo=UTC)),
+            ("2026-07-04T02:15:00", datetime(2026, 7, 4, 0, 15, tzinfo=UTC)),
+        ],
+        ids=["winter", "summer"],
+    )
+    def test_a_time_without_an_offset_is_facility_local(self, value, expected):
+        """No offset means the facility's wall clock, whichever offset is in force."""
+        assert parse_entry_time(value) == expected
+
+    def test_wall_times_around_a_clock_change(self):
+        """A skipped wall time reads with the old offset; a repeated one as its first."""
+        assert parse_entry_time("2026-03-29T02:30:00") == datetime(2026, 3, 29, 1, 30, tzinfo=UTC)
+        assert parse_entry_time("2026-10-25T02:30:00") == datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+
+    @pytest.mark.parametrize(
+        "value",
+        [None, "", "   ", True, "yesterday", "nan", "inf", 1e20, []],
+        ids=["none", "empty", "blank", "bool", "prose", "nan", "inf", "overflow", "list"],
+    )
+    def test_rejects_unreadable_values(self, value):
+        """Anything that is not a readable time raises instead of being guessed."""
+        with pytest.raises(ValueError, match="Cannot parse timestamp"):
+            parse_entry_time(value)
+
+
 class TestGenericAdapterGuards:
     """Construction and read-loop guards for the generic JSON adapter."""
 
@@ -1164,7 +1226,7 @@ class TestGenericAdapterGuards:
     async def test_unparseable_timestamp_drops_the_entry(self, tmp_path, caplog):
         """The generic adapter drops an entry with a bad timestamp, unlike ALS/ORNL.
 
-        ``_parse_timestamp`` raises rather than defaulting to now, and
+        ``parse_entry_time`` raises rather than defaulting to now, and
         ``fetch_entries`` turns that into a warning plus a skipped entry — so a
         malformed export loses rows instead of misdating them.
         """
@@ -1186,6 +1248,21 @@ class TestGenericAdapterGuards:
 
         assert [e["entry_id"] for e in entries] == ["good"]
         assert "Failed to convert entry" in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("facility_berlin")
+    async def test_a_naive_time_passes_an_aware_since_bound(self, tmp_path):
+        """A time without an offset compares against an aware bound as an instant."""
+        path = tmp_path / "entries.json"
+        path.write_text(
+            json.dumps({"entries": [{"id": "n", "timestamp": "2026-03-04T02:15:00", "title": "N"}]})
+        )
+        adapter = _generic_adapter(str(path))
+
+        entries = await _collect(adapter.fetch_entries(since=datetime(2026, 1, 1, tzinfo=UTC)))
+
+        assert [e["entry_id"] for e in entries] == ["n"]
+        assert entries[0]["timestamp"] == datetime(2026, 3, 4, 1, 15, tzinfo=UTC)
 
 
 class TestGenericLoadData:
@@ -1461,29 +1538,16 @@ class TestGenericConvertEntry:
 
         assert entry["timestamp"] == datetime(2024, 1, 5, 6, 0, tzinfo=UTC)
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (1704412800, datetime(2024, 1, 5, tzinfo=UTC)),
-            ("1704412800", datetime(2024, 1, 5, tzinfo=UTC)),
-            ("2024-01-05T00:00:00Z", datetime(2024, 1, 5, tzinfo=UTC)),
-            ("2024-01-05T00:00:00+00:00", datetime(2024, 1, 5, tzinfo=UTC)),
-        ],
-        ids=["epoch-int", "epoch-string", "iso-z", "iso-offset"],
-    )
-    def test_parse_timestamp_accepted_formats(self, value, expected):
-        """Epoch numbers, epoch strings, and ISO 8601 (Z or offset) all parse."""
+    @pytest.mark.usefixtures("facility_berlin")
+    def test_a_timestamp_without_an_offset_is_facility_local(self):
+        """A naive absolute timestamp is read as facility-local wall clock."""
         adapter = _generic_adapter("/tmp/entries.json")
 
-        assert adapter._parse_timestamp(value) == expected
+        entry = adapter._convert_entry(
+            {"id": "1", "title": "T", "timestamp": "2026-03-04T02:15:00"}
+        )
 
-    @pytest.mark.parametrize("value", ["yesterday", "", None], ids=["prose", "empty", "none"])
-    def test_parse_timestamp_rejects_unparseable(self, value):
-        """Unparseable values raise rather than defaulting, so the entry is dropped."""
-        adapter = _generic_adapter("/tmp/entries.json")
-
-        with pytest.raises(ValueError, match="Cannot parse timestamp"):
-            adapter._parse_timestamp(value)
+        assert entry["timestamp"] == datetime(2026, 3, 4, 1, 15, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
