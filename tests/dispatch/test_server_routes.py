@@ -21,12 +21,15 @@ from an earlier ``create_server()`` would shadow the live one and 503).
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 
 import pytest
 from starlette.testclient import TestClient
 
 from osprey.dispatch import server
 from osprey.dispatch.sources.webhook import WebhookSource
+from osprey.utils.owner_header import OWNER_HEADER
 from tests.conftest import dispatcher_route_registry
 
 
@@ -818,3 +821,109 @@ def test_dashboard_cancel_worker_auth_failure_returns_502(app, monkeypatch):
     with TestClient(app) as client:
         resp = client.post("/dashboard/cancel/run-1", headers={"Authorization": "Bearer secret"})
     assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Who asked for a dashboard write
+# ---------------------------------------------------------------------------
+
+_SERVER_LOGGER = "osprey.dispatch.server"
+
+
+def _owner_lines(caplog, needle: str) -> list[str]:
+    """Messages the dispatcher logged that contain *needle*."""
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == _SERVER_LOGGER and needle in r.getMessage()
+    ]
+
+
+def test_dashboard_cancel_logs_the_owner_it_was_given(app, monkeypatch, caplog):
+    async def fake_cancel(_url, _token, run_id):
+        return {"run_id": run_id, "cancelled": True}
+
+    monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post(
+            "/dashboard/cancel/run-1",
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 200
+    lines = _owner_lines(caplog, "asked by alice")
+    assert len(lines) == 1
+    assert "cancelled" in lines[0]
+
+
+def test_dashboard_cancel_without_an_owner_logs_no_owner(app, monkeypatch, caplog):
+    async def fake_cancel(_url, _token, run_id):
+        return {"run_id": run_id, "cancelled": True}
+
+    monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post("/dashboard/cancel/run-1", headers={"Authorization": "Bearer secret"})
+    assert resp.status_code == 200
+    assert len(_owner_lines(caplog, "asked by no owner")) == 1
+
+
+def test_dashboard_clear_history_logs_the_owner_it_was_given(app, monkeypatch, caplog):
+    async def fake_clear(_url, _token, older_than_days):
+        return {"cleared": 4, "records_deleted": 4, "older_than_days": older_than_days}
+
+    monkeypatch.setattr(server, "clear_worker_history", fake_clear)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post(
+            "/dashboard/clear-history",
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 200
+    assert len(_owner_lines(caplog, "cleared by alice")) == 1
+
+
+def test_trigger_status_change_logs_the_owner_it_was_given(app, caplog):
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.put(
+            "/trigger/deploy/status",
+            json={"status": "disabled"},
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 200
+    assert len(_owner_lines(caplog, "Trigger 'deploy' set disabled by alice")) == 1
+
+
+def test_refused_dashboard_write_logs_no_owner_line(app, monkeypatch, caplog):
+    from osprey.dispatch.worker_client import WorkerAuthRejectedError
+
+    async def fake_cancel(_url, _token, _run_id):
+        raise WorkerAuthRejectedError("nope")
+
+    monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post(
+            "/dashboard/cancel/run-1",
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 502
+    assert _owner_lines(caplog, "asked by") == []
+
+
+def test_webhook_fire_records_no_owner(app):
+    """A webhook fires on nobody's behalf, even when an owner header rides along."""
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook/deploy",
+            json={},
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+        assert resp.status_code == 202
+        registry = server.mcp._dispatcher_registry
+        deadline = time.monotonic() + 5
+        history: list = []
+        while not history:
+            assert time.monotonic() < deadline, "no history entry within 5 s"
+            history = client.portal.call(registry.get_history, "deploy")
+            if not history:
+                time.sleep(0.02)
+
+    (entry,) = history
+    assert "owner" not in entry
