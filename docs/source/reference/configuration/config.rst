@@ -8,15 +8,16 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Nine parts of that file are gathered here — the facility this deployment
+Ten parts of that file are gathered here — the facility this deployment
 belongs to (``facility:``), the diagnostic suite (``health:``), the browser
 UI's documentation and feedback settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), the full tool-call record (``audit.tool_call:``), the
 links from an answer to a logbook entry (``ariel.entry_url_template``), the
-signals the agent exports (``claude_code.telemetry.signals``), and the
-deployment keys that decide which container image each service runs and how
-``${VAR}`` placeholders in the compose files are filled in. Settings that only
+signals the agent exports (``claude_code.telemetry.signals``), the Phoebus
+display bridge (``phoebus:``), and the deployment keys that decide which
+container image each service runs and how ``${VAR}`` placeholders in the
+compose files are filled in. Settings that only
 ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
@@ -881,6 +882,45 @@ so a list without ``traces`` leaves it out of the store; the tool-call record
 web terminals, the dispatch worker, ``osprey chat`` and SDK agent runs. The
 rest of the block is covered in
 :doc:`/how-to/health-and-monitoring/monitor-agent`.
+
+.. _config-phoebus:
+
+``phoebus:`` — the Phoebus display bridge
+-----------------------------------------
+
+These keys configure the ``phoebus`` MCP server, which is off until
+``claude_code.servers.phoebus.enabled`` is ``true``; setting it up is covered in
+:doc:`/how-to/control-systems/phoebus-bridge`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - What it does
+   * - ``phoebus.host``
+     - Host of the Phoebus agent bridge. Default ``127.0.0.1``.
+   * - ``phoebus.port``
+     - Port of the agent bridge. Default ``7979``; it must match the bridge's
+       own port.
+   * - ``phoebus.panels``
+     - Panel name to ``.bob`` path, one dotted line per display. A relative
+       path resolves against the directory of ``config.yml``.
+   * - ``phoebus.require_handle``
+     - ``true`` refuses the implicit ``"active"`` display, so callers pass a
+       handle or a display name. Default ``false``.
+   * - ``phoebus.archiver_url``
+     - The archiver bound into generated Data Browser plots. Unset, plots show
+       live values only.
+   * - ``phoebus.plot_dir``
+     - Where Data Browser ``.plt`` files are written. Default ``plots/`` under
+       ``agent_data.base_dir``.
+   * - ``phoebus.snapshot_dir``
+     - Where PNG snapshots are written. Default ``screenshots/`` under
+       ``agent_data.base_dir``.
+
+``PHOEBUS_BRIDGE_URL``, ``PHOEBUS_REQUIRE_HANDLE`` and ``PHOEBUS_ARCHIVER_URL``
+outrank their keys; see :doc:`environment-variables`.
 
 .. _config-deployment:
 
