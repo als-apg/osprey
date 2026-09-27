@@ -12,6 +12,15 @@
 # presets and value-equality across them are separate properties, and neither
 # may be inferred from the other.
 #
+# `same-value: true` is the other property: every root preset that states the
+# key states the same value. The value is written only in the presets; the mark
+# says they agree, and failure mode 6 compares them. With `all-templates: true`
+# beside it the claim is "the same value in all four"; alone it is "the same
+# value wherever stated". The mark applies to leaves only and needs at least two
+# presets stating the key, so a mark on a block, a derived key or a key only one
+# preset ships is refused instead of passing with nothing compared. The reason
+# each key carries it is in scripts/config_key_parity.md.
+#
 # Each key carries exactly one disposition:
 #
 #   evidence: <regex>   A regex that MUST match at least once under src/osprey/.
@@ -160,6 +169,7 @@ keys:
   # ── Container runtime / deployment ──────────────────────────────────
   container_runtime:
     all-templates: true
+    same-value: true
     evidence: 'config\.get\("container_runtime", "auto"\) if config else None'
     note: >-
       An absent key behaves identically to "auto" (runtime_helper `_runtimes_to_try`),
@@ -775,6 +785,7 @@ keys:
     default: {}
   approval.enabled:
     all-templates: true
+    same-value: true
     covered-by: approval
     default: required
     default_note: >-
@@ -783,6 +794,7 @@ keys:
       those tools to the rendered settings.json permissions alone.
   approval.default_policy:
     all-templates: true
+    same-value: true
     evidence: 'default_policy'
     default: required
     default_note: >-
@@ -797,7 +809,10 @@ keys:
       (setup_patch and the three panel-rail verbs) is covered by
       default_policy. See governed_sets.
     default: {}
+  # A tool's policy follows what the tool does, not which deployment serves it, so every
+  # preset that lists a tool lists it at one policy; an unlisted tool falls to default_policy.
   approval.tools.channel_write:
+    same-value: true
     evidence: 'approval\.tools\.channel_write'
     note: >-
       Anchored for the same reason as channel_read below: `channel_write`
@@ -808,6 +823,7 @@ keys:
     default: derived
     default_note: falls through to approval.default_policy
   approval.tools.channel_read:
+    same-value: true
     evidence: 'approval\.tools\.channel_read'
     note: >-
       Anchored on the settings-panel schema that serves this key rather than
@@ -816,11 +832,12 @@ keys:
       vacuity guard -- a match that no longer proved a reader existed.
     default: derived
     default_note: falls through to approval.default_policy
-  approval.tools.archiver_read: {evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.execute: {covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.setup_patch: {evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.entry_create: {evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.archiver_read: {same-value: true, evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.execute: {same-value: true, covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.setup_patch: {same-value: true, evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.entry_create: {same-value: true, evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.entry_publish:
+    same-value: true
     evidence: 'entry_publish'
     note: >-
       The second half of the logbook write: entry_create drafts, entry_publish
@@ -833,13 +850,13 @@ keys:
   # because the reader is the same approval table `execute` is read from, and a
   # bare literal would pin the tool name instead of the policy key.
   approval.tools.add_panel_to_rail:
-    {covered-by: approval.tools, default: derived,
+    {same-value: true, covered-by: approval.tools, default: derived,
      default_note: falls through to approval.default_policy}
   approval.tools.remove_panel_from_rail:
-    {covered-by: approval.tools, default: derived,
+    {same-value: true, covered-by: approval.tools, default: derived,
      default_note: falls through to approval.default_policy}
   approval.tools.register_panel:
-    {covered-by: approval.tools, default: derived,
+    {same-value: true, covered-by: approval.tools, default: derived,
      default_note: falls through to approval.default_policy}
   hooks:
     all-templates: true
@@ -1534,6 +1551,7 @@ keys:
   execution: {all-templates: true, evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None', default: null}
   execution.execution_method:
     all-templates: true
+    same-value: true
     evidence: 'execution\.get\("execution_method"\) if isinstance\(execution, dict\) else None'
     default: subprocess
   execution.environment:
@@ -1587,6 +1605,7 @@ keys:
     default: {}
   system.timezone:
     all-templates: true
+    same-value: true
     evidence: '"facility_timezone": self\.get\("system\.timezone", "UTC"\)'
     note: >-
       Anchored on the read that SUPPLIES the value (the loader's configurable
@@ -1738,10 +1757,12 @@ keys:
   claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve, default: default}
-  claude_code.telemetry.log_user_prompts: {evidence: 'log_user_prompts', default: true}
-  claude_code.telemetry.log_assistant_responses: {evidence: 'log_assistant_responses', default: true}
-  claude_code.telemetry.log_tool_details: {evidence: 'log_tool_details', default: true}
-  claude_code.telemetry.log_raw_api_bodies: {evidence: 'log_raw_api_bodies', default: true}
+  # Every preset that ships the bundled store opens its gate block "Content gates, all on",
+  # so the capture posture is one claim about one store.
+  claude_code.telemetry.log_user_prompts: {same-value: true, evidence: 'log_user_prompts', default: true}
+  claude_code.telemetry.log_assistant_responses: {same-value: true, evidence: 'log_assistant_responses', default: true}
+  claude_code.telemetry.log_tool_details: {same-value: true, evidence: 'log_tool_details', default: true}
+  claude_code.telemetry.log_raw_api_bodies: {same-value: true, evidence: 'log_raw_api_bodies', default: true}
   claude_code.transcripts: {evidence: '\.get\("transcripts"\)', default: {}}
   claude_code.transcripts.retention_days:
     evidence: '_transcripts_retention_days'
@@ -2110,9 +2131,9 @@ keys:
       None is derived: a facility_knowledge section naming no bundle has
       nothing to serve, so the knowledge commands refuse rather than guess.
   artifact_server: {all-templates: true, evidence: 'config\.get\("artifact_server"\) or \{\}', default: {}}
-  artifact_server.host: {all-templates: true, covered-by: artifact_server, default: 127.0.0.1}
+  artifact_server.host: {all-templates: true, same-value: true, covered-by: artifact_server, default: 127.0.0.1}
   artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}
-  artifact_server.auto_launch: {all-templates: true, evidence: 'auto_launch', default: derived, default_note: the artifact server's registry auto_launch_default}
+  artifact_server.auto_launch: {all-templates: true, same-value: true, evidence: 'auto_launch', default: derived, default_note: the artifact server's registry auto_launch_default}
   artifact_server.categories:
     rendered: false
     data-map: true
