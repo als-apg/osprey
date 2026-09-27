@@ -22,10 +22,11 @@ Three properties are asserted directly, because each can regress on its own:
 * **Absent means enabled.** An app with no ``scaffold_write_enabled`` on
   ``app.state`` (every route unit suite, and any deployment that never mentions
   the key) behaves byte-for-byte as it did before this key existed.
-* **The lifespan resolves it once.** ``create_app`` reads the key into
-  ``app.state.scaffold_write_enabled``; a quoted ``"false"`` is honoured as the
-  boolean a human meant, and an unreadable config fails OPEN — the shipped
-  single-user posture must not be revoked by a config-read error.
+* **The lifespan resolves it once.** ``create_app`` reads the key out of the
+  config file it resolved into ``app.state.scaffold_write_enabled``; a quoted
+  ``"false"`` is honoured as the boolean a human meant, and a config file that
+  exists but cannot be read closes writes and is named in the refusal. No
+  config file at all keeps the shipped default.
 
 Read routes are untouched throughout: seeing what the agent is running is not
 a write, and a tier that may not author still has to be able to look.
@@ -37,6 +38,7 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -311,15 +313,20 @@ def workspace_dir(tmp_path):
     return workspace
 
 
-def _started_app(workspace_dir, configured, *, raises=False):
+def _started_app(
+    workspace_dir, configured, *, raises=False, no_config_file=False, monkeypatch=None
+):
     """Run ``create_app``'s lifespan with *configured* as the key's value.
 
     ``configured`` of ``None`` omits the key, exercising the absent-key path;
     ``raises=True`` makes the config read blow up, which is the unreadable-config
-    path the gate must fail OPEN on. ``get_config_value`` is patched at its
-    definition site because the lifespan imports it inside the function; every
-    other key it reads falls through to the default the caller passed, which is
-    what an absent config.yml gives them anyway.
+    path the gate must close on. The app is handed a real ``config.yml`` under
+    the test's tmp dir, because the gates answer out of the file the lifespan
+    resolved. ``no_config_file=True`` hands it none and leaves neither
+    ``CONFIG_FILE`` nor a ``config.yml`` in the working directory to find (it
+    needs *monkeypatch*). ``get_config_value`` is patched at its definition
+    site because the reader imports it inside the function; every other key it
+    reads falls through to the default the caller passed.
     """
 
     def fake_get_config_value(key, default=None, *args, **kwargs):
@@ -330,6 +337,17 @@ def _started_app(workspace_dir, configured, *, raises=False):
                 return configured
         return default
 
+    root = workspace_dir.parent
+    if no_config_file:
+        empty = root / "empty"
+        empty.mkdir()
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.chdir(empty)
+        config_path = None
+    else:
+        config_path = root / "config.yml"
+        config_path.write_text(yaml.safe_dump({"project_name": "scaffold-tier-gate"}))
+
     with (
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -337,7 +355,7 @@ def _started_app(workspace_dir, configured, *, raises=False):
         ),
         patch("osprey.utils.config.get_config_value", fake_get_config_value),
     ):
-        app = create_app(shell_command="echo")
+        app = create_app(config_path=config_path, shell_command="echo")
         with TestClient(app) as client:
             yield client
 
@@ -363,9 +381,24 @@ def test_lifespan_resolves_the_flag(workspace_dir, configured, expected):
         next(generator, None)
 
 
-def test_lifespan_fails_open_on_an_unreadable_config(workspace_dir):
-    """A config-read error must not silently revoke the shipped posture."""
+def test_lifespan_closes_writes_on_an_unreadable_config(workspace_dir):
+    """An unreadable config is not permission to author what the agent obeys."""
     generator = _started_app(workspace_dir, None, raises=True)
+    client = next(generator)
+    try:
+        resolved = (workspace_dir.parent / "config.yml").resolve()
+        assert client.app.state.scaffold_write_enabled is False
+        response = client.post("/api/scaffold/create", json={"category": "rules", "name": "x"})
+        assert response.status_code == 403
+        assert str(resolved) in response.json()["detail"]
+        # Reading is not authoring, so the list route still answers.
+        assert client.get("/api/scaffold").status_code == 200
+    finally:
+        next(generator, None)
+
+
+def test_lifespan_keeps_writes_open_when_no_config_file_exists(workspace_dir, monkeypatch):
+    generator = _started_app(workspace_dir, None, no_config_file=True, monkeypatch=monkeypatch)
     client = next(generator)
     try:
         assert client.app.state.scaffold_write_enabled is True

@@ -1,0 +1,1 @@
+The Config panel and the scaffold gallery's write routes stay closed when the deployment's config file exists but cannot be read or parsed, instead of opening at their shipped defaults; the refusal and the settings drawer name the file. A deployment with no config file keeps the shipped defaults.

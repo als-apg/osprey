@@ -14,6 +14,7 @@ import shlex
 from collections import deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -1004,39 +1005,64 @@ _FALSE_WORDS = frozenset({"false", "no", "off", "0"})
 _TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
 
 
-def resolve_config_flag(
-    key: str, default: bool, on_error: str, *, config_path: str | Path | None = None
-) -> bool:
-    """Read a configured boolean switch at startup, failing OPEN to *default*.
+@dataclass(frozen=True)
+class PrivilegeGates:
+    """The two privilege gates a surface resolves out of its config file.
 
-    The read and the coercion are one step because the two failure modes want
-    the same answer: a config that cannot be loaded and a value nobody can
-    interpret both leave the switch at the deployment's shipped posture. A
-    startup switch that silently revoked a surface because the config file was
-    briefly unreadable would be the worst possible failure here.
+    Attributes:
+        config_panel_enabled: Whether the Config panel's server surface
+            (``/api/config`` and ``/api/claude-setup``) is live.
+        scaffold_write_enabled: Whether the scaffold gallery's write and delete
+            routes under ``/api/scaffold`` are live.
+        unreadable_config: The resolved config file that exists but could not
+            be read, or ``None``.
+    """
+
+    config_panel_enabled: bool
+    scaffold_write_enabled: bool
+    unreadable_config: Path | None = None
+
+
+def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
+    """Read both privilege gates out of the config file a surface resolved.
+
+    No file resolved means the shipped defaults, read out of nothing: a
+    privilege gate answered out of a file the surface was not pointed at is
+    worse than one at its default. A resolved file that cannot be read closes
+    both gates, because an unreadable config is not permission to author what
+    the agent obeys. A readable file holding a value nobody can interpret takes
+    the default through :func:`coerce_config_flag`.
+
+    Both keys are read in one pass, so one file gives one answer for both
+    gates and a failure is reported once.
 
     Args:
-        key: Dotted config key, read and reported verbatim.
-        default: Posture for a deployment that never mentions the key.
-        on_error: Warning logged when the config cannot be read at all; it says
-            which switch was left at its default and what that means.
-        config_path: The config file to answer from. A surface that resolved its
-            own config file names it here, so the switch is read out of that file
-            rather than out of whichever one this process defaults to. None reads
-            the process default (``CONFIG_FILE``, else ``config.yml`` in the
-            working directory).
+        config_path: The config file this surface resolved, or ``None``.
 
     Returns:
-        The configured boolean, or *default*.
+        The two gates, and the unreadable file when there is one.
     """
-    try:
-        from osprey.utils.config import get_config_value
+    if config_path is None:
+        return PrivilegeGates(True, True)
+    from osprey.utils.config import get_config_value
 
-        raw = get_config_value(key, default, str(config_path) if config_path is not None else None)
-    except Exception:  # never let config load block startup
-        logger.warning(on_error, exc_info=True)
-        raw = None
-    return coerce_config_flag(key, raw, default)
+    try:
+        panel_raw = get_config_value("web.config_panel.enabled", True, str(config_path))
+        scaffold_raw = get_config_value(
+            "web.scaffold_gallery.write_enabled", True, str(config_path)
+        )
+    except Exception:
+        logger.error(
+            "Could not read the config file %s; the Config panel and scaffold gallery "
+            "writes are closed until it reads cleanly",
+            config_path,
+            exc_info=True,
+        )
+        return PrivilegeGates(False, False, Path(config_path))
+    return PrivilegeGates(
+        coerce_config_flag("web.config_panel.enabled", panel_raw, True),
+        coerce_config_flag("web.scaffold_gallery.write_enabled", scaffold_raw, True),
+    )
 
 
 def coerce_config_flag(key: str, value: object, default: bool) -> bool:
@@ -2082,15 +2108,10 @@ def _create_lifespan(
         # Resolved once here and read back as
         # ``getattr(app.state, "config_panel_enabled", True)``, so an app built
         # without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. Fails OPEN, deliberately:
-        # the default posture is the panel every single-user deployment has
-        # always had, and an unreadable config must not silently take an
-        # operator's own config editor away.
-        app.state.config_panel_enabled = resolve_config_flag(
-            "web.config_panel.enabled",
-            True,
-            "Could not read web.config_panel.enabled; leaving the Config panel enabled",
-        )
+        # deployment that never mentioned the key. The gate answers out of the
+        # file this terminal resolved; with none resolved, the lifespan-less
+        # default; with one that cannot be read, closed, because an unreadable
+        # config is not permission to author what the agent obeys.
 
         # ── Scaffold gallery writes (server-side tier gate) ──
         # `web.scaffold_gallery.write_enabled: false` closes the gallery's whole
@@ -2105,15 +2126,15 @@ def _create_lifespan(
         # Resolved once here and read back as
         # ``getattr(app.state, "scaffold_write_enabled", True)``, so an app
         # built without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. Fails OPEN, deliberately:
-        # the default posture is the gallery every single-user deployment has
-        # always had, and a config-read error must not silently revoke it.
-        app.state.scaffold_write_enabled = resolve_config_flag(
-            "web.scaffold_gallery.write_enabled",
-            True,
-            "Could not read web.scaffold_gallery.write_enabled; "
-            "leaving the scaffold gallery writable",
-        )
+        # deployment that never mentioned the key. The gate answers out of the
+        # file this terminal resolved; with none resolved, the lifespan-less
+        # default; with one that cannot be read, closed, because an unreadable
+        # config is not permission to author what the agent obeys. Both gates
+        # come from one read, so they cannot disagree about the file.
+        gates = resolve_privilege_gates(resolved_config_path)
+        app.state.config_panel_enabled = gates.config_panel_enabled
+        app.state.scaffold_write_enabled = gates.scaffold_write_enabled
+        app.state.config_unreadable_path = gates.unreadable_config
 
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
