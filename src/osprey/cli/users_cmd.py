@@ -554,6 +554,8 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
       • If the workspace was removed but profile.yml could not be written, the
         command says exactly that and exits non-zero. Re-run it, or drop the
         entry from profile.yml by hand.
+      • If the runtime refuses to remove a volume, the removal still
+        finishes, names the volume and the reason, and exits non-zero.
 
     Containers or volumes an interrupted run left behind are removed by
     'osprey users prune'.
@@ -563,6 +565,7 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
     _check_archive_purge(archive, purge)
 
     with _users_session(repo) as session:
+        from osprey.deployment.errors import RemovalIncompleteError
         from osprey.deployment.staleness import check_drift
         from osprey.deployment.web_terminals.lifecycle import decommission_user
 
@@ -576,6 +579,7 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
         resuming = not _rendered_roster_lists(session.config, user) and _profile_roster_lists(
             profile_path, user
         )
+        incomplete: RemovalIncompleteError | None = None
         if resuming:
             warn(
                 f"{user} is already off the deployed roster",
@@ -588,7 +592,12 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
             # build/config.yml; that write is now redundant (the profile is what
             # the next build renders from) but harmless, since this command
             # makes the same removal in both files.
-            decommission_user(session.config, user, archive=archive, purge=purge, assume_yes=yes)
+            try:
+                decommission_user(
+                    session.config, user, archive=archive, purge=purge, assume_yes=yes
+                )
+            except RemovalIncompleteError as kept_error:
+                incomplete = kept_error
 
         # After the engine, never before it: the engine owns the typed
         # confirmation, and a declined gate must leave the deployment exactly as
@@ -648,6 +657,11 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
 
         report(check_drift(session.root).status_line)
 
+        # The workspace's other effects and the roster edit landed; the volumes
+        # the engine already named did not, and the exit status says so.
+        if incomplete is not None:
+            raise click.Abort()
+
 
 @users.command()
 @repo_option
@@ -668,9 +682,16 @@ def prune(repo: Path | None, archive: bool, purge: bool, yes: bool, dry_run: boo
     _check_archive_purge(archive, purge)
 
     with _users_session(repo) as session:
+        from osprey.deployment.errors import RemovalIncompleteError
         from osprey.deployment.web_terminals.lifecycle import prune_users
 
-        prune_users(session.config, dry_run=dry_run, archive=archive, purge=purge, assume_yes=yes)
+        incomplete: RemovalIncompleteError | None = None
+        try:
+            prune_users(
+                session.config, dry_run=dry_run, archive=archive, purge=purge, assume_yes=yes
+            )
+        except RemovalIncompleteError as kept_error:
+            incomplete = kept_error
         if not dry_run:
             # Asked of the roster rather than of the runtime, which is what
             # makes it answerable here at all: `prune_users` discovers orphans
@@ -679,6 +700,10 @@ def prune(repo: Path | None, archive: bool, purge: bool, yes: bool, dry_run: boo
             # not a container survived to be pruned. `--dry-run` touches
             # nothing, here as everywhere else in this verb.
             _purge_orphan_terminal_secrets(session)
+        # Every orphan was handled; the volumes the engine already named are
+        # still on the host, and the exit status says so.
+        if incomplete is not None:
+            raise click.Abort()
 
 
 @users.command()
