@@ -421,7 +421,7 @@ def test_seam_tls_enabled_with_both_cert_and_key_emits_ssl_listen_and_paths() ->
     assert "location" not in catch_all
     assert "auth_request" not in catch_all
     assert "http2" not in catch_all
-    assert "return 301 https://$host$request_uri;" in redirect
+    assert "return 301 https://dls-deploy.dls.example.org$request_uri;" in redirect
     assert "location" not in redirect
     assert "listen 443 ssl;" in content
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
@@ -456,8 +456,8 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     assert "listen [::]:443 ssl;" not in content
 
     # Assert — the redirect names the port the content server is actually on
-    assert f"return 301 https://$host:{_ALT_TLS_PORT}$request_uri;" in redirect
-    assert "return 301 https://$host$request_uri;" not in redirect
+    assert f"return 301 https://dls-deploy.dls.example.org:{_ALT_TLS_PORT}$request_uri;" in redirect
+    assert "return 301 https://dls-deploy.dls.example.org$request_uri;" not in redirect
 
     # Assert — the split itself is unchanged: cleartext redirects, TLS serves
     assert "location" not in redirect

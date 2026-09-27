@@ -2599,6 +2599,24 @@ def test_lint_external_origin_nginx_would_read_as_a_pattern_is_an_error() -> Non
     assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
 
 
+def test_lint_cleartext_external_origin_under_tls_is_an_error() -> None:
+    """With TLS on, the plain port redirects to the origin, so it must be https."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+    config["modules"]["web_terminals"]["external_origin"] = "http://terminals.example.org:10000"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
+
+
 def test_lint_non_string_external_origin_is_an_error() -> None:
     """A non-string cannot be an origin — fail closed, as render does."""
     # Arrange

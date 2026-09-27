@@ -6,3 +6,6 @@ nginx now serves a multi-user deployment only on its external origin's host and
 answers any other name (another DNS name, the bare IP, `localhost`) with a
 `301` to the same path on the origin. Before, such a page loaded and every
 action on it was refused.
+
+With TLS on, the plain port redirects to the external origin, and an `http://`
+`external_origin` is refused while `tls.enabled` is true.
