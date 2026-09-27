@@ -1,9 +1,11 @@
 """Unit tests for TriggerConfig dataclass and load_triggers() function."""
 
 import textwrap
+from datetime import time
 
 import pytest
 
+from osprey.dispatch.clock_schedule import ClockSchedule
 from osprey.dispatch.trigger_config import (
     DEFAULT_MAX_CONCURRENT_RUNS,
     DEFAULT_MAX_QUEUE_DEPTH,
@@ -550,3 +552,83 @@ def test_a_tool_that_merely_mentions_the_dispatcher_elsewhere_is_allowed(tmp_pat
         "mcp__controls__event_dispatcher_status",
         "get_pv",
     ]
+
+
+# ---------------------------------------------------------------------------
+# Clock schedule of a cron trigger
+# ---------------------------------------------------------------------------
+
+
+def test_a_clock_schedule_is_parsed_onto_the_trigger(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: morning-report
+            source: cron
+            source_config:
+              at: ["07:45", "17:00"]
+              days: [mon, tue, wed, thu, fri]
+            action:
+              prompt: "Summarise the night"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].schedule == ClockSchedule(
+        times=(time(7, 45), time(17, 0)), days=frozenset({0, 1, 2, 3, 4})
+    )
+
+
+def test_an_unreadable_clock_schedule_is_refused_when_the_file_is_loaded(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: evening-report
+            source: cron
+            source_config:
+              at: [17:00]
+            action:
+              prompt: "Summarise the day"
+        """,
+    )
+    with pytest.raises(ValueError, match="evening-report"):
+        load_triggers(path)
+
+
+@pytest.mark.parametrize("interval", [3600, 0])
+def test_an_interval_trigger_loads_without_a_schedule(tmp_path, interval):
+    path = write_yaml(
+        tmp_path,
+        f"""\
+        triggers:
+          - name: hourly
+            source: cron
+            source_config:
+              interval_sec: {interval}
+            action:
+              prompt: "tick"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].schedule is None
+
+
+def test_a_non_cron_trigger_is_not_read_for_a_schedule(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: hook
+            source: webhook
+            source_config:
+              at: 5
+            action:
+              prompt: "handle {payload}"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].schedule is None
