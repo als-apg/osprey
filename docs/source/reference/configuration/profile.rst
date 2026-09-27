@@ -755,6 +755,17 @@ service answers HTTP on the port it publishes, and the deploy summary prints
 its address as a link instead of a bare ``host:port``. Leave it out for a
 service that speaks any other protocol.
 
+A fourth pair of ``config`` keys says what a service on the host network binds.
+``listens`` defaults to true; ``listens: false`` says the service opens no
+listening socket. ``bind_env`` defaults to none; it names the environment
+variable the service's compose template renders its bind address into. The two
+may not be combined, and both are read only under ``network: host``: ``osprey
+up`` reads the bind address from the rendered compose file to decide whether the
+deployment is reachable from other machines, and skips a service that listens on
+nothing in its host-port check. OSPREY's bundled services declare their own, so a
+declaration on one is refused unless the service is claimed with ``osprey
+scaffold claim services/<name>``.
+
 .. _profile-dispatch-block:
 
 The ``dispatch:`` block
