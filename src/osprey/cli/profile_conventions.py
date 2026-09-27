@@ -264,7 +264,7 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         # build renders into `api.providers`. Source zone like the profile
         # itself: tracked, and the file an operator adds a gateway to.
         PROVIDERS_FILENAME,
-        "triggers.yml",
+        PROFILE_TRIGGERS_FILENAME,
         "data",
         "personas",
         "profiles",

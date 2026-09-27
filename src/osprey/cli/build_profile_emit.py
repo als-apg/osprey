@@ -362,14 +362,16 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #
 # default_panel: artifacts
 """,
-    "dispatch": """
+    "dispatch": f"""
 # --- Event dispatch ----------------------------------------------------------
 # Runs the agent unattended against a trigger file (facility events in, agent
-# runs out). worker_count sets parallelism; workspace_mode isolated gives each
-# run its own copy of the project.
+# runs out). triggers names that file: one beside this profile, or a bundled
+# trigger set by name. worker_count sets parallelism; workspace_mode isolated
+# gives each run its own copy of the project. The dashboard shows
+# `config: facility.name`; facility_name overrides it there alone.
 #
 # dispatch:
-#   triggers: triggers/my-facility.yml
+#   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
 #   facility_name: Example Research Facility
