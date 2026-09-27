@@ -23,12 +23,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
-from osprey.cli.build_profile_schema import ServiceDef
+from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
 from osprey.deployment.host_binding import (
     BIND_ENV_KEY,
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
-    osprey_owns_binding,
 )
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
@@ -514,11 +513,11 @@ def _declare_bundled_host_bindings(
     into the ``services.<name>`` block means the readers at ``osprey up`` — the
     host-port preflight, the off-host bind check — read one spelling whether
     OSPREY or a facility wrote it. A service is declared here only when OSPREY
-    owns it (:func:`~osprey.deployment.host_binding.osprey_owns_binding`): a
-    claimed service, or a facility template reusing a bundled name, declares
-    its own. Claimed is read from the profile, a ``services/<name>`` directory
-    beside it, the same test profile validation applies; the render's
-    ``scaffold.user_owned`` is registered only after the services are injected.
+    owns it (:func:`~osprey.cli.build_profile_schema.osprey_declares_binding`):
+    a claimed service, or a facility template reusing a bundled name, declares
+    its own. Claimed is read from the profile, by the same test profile
+    validation applies; the render's ``scaffold.user_owned`` is registered only
+    after the services are injected.
 
     Written only off the default, as :func:`_inject_dispatch` writes
     ``network``: only a block on the host network gains a key, and only a
@@ -550,10 +549,7 @@ def _declare_bundled_host_bindings(
             continue
         if ServiceDef(template="", config=dict(block)).network_mode() != "host":
             continue
-        declared = services.get(name)
-        template = declared.template if declared is not None else None
-        claimed = (profile_dir / "services" / name).is_dir()
-        if not osprey_owns_binding(name, template=template, claimed=claimed):
+        if not osprey_declares_binding(name, services, profile_dir):
             continue
         if not entry.binding.listens:
             block[LISTENS_KEY] = False

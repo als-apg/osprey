@@ -15,11 +15,12 @@ without importing the loader.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from osprey.deployment.host_binding import HostBinding, host_binding_of
+from osprey.deployment.host_binding import HostBinding, host_binding_of, osprey_owns_binding
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
 
@@ -446,6 +447,34 @@ def bind_env_errors(value: Any, key: str) -> list[str]:
         f"{key} must name the environment variable its compose template renders the "
         f"bind address into (got {value!r})"
     ]
+
+
+def osprey_declares_binding(
+    name: str, services: Mapping[str, ServiceDef], profile_dir: Path
+) -> bool:
+    """Whether OSPREY, not the profile, declares what service ``name`` binds.
+
+    The profile-side reading of
+    :func:`~osprey.deployment.host_binding.osprey_owns_binding`: the template
+    comes from the profile's ``services:`` entry (none for an injected
+    service), and a service is claimed when a ``services/<name>`` directory
+    sits beside the profile.
+
+    Args:
+        name: The ``services.<name>`` key.
+        services: The profile's ``services:`` entries.
+        profile_dir: Directory holding the profile, where a claimed service
+            lives.
+
+    Returns:
+        True when the build writes OSPREY's own declaration for ``name``.
+    """
+    entry = services.get(name)
+    return osprey_owns_binding(
+        name,
+        template=entry.template if entry is not None else None,
+        claimed=(profile_dir / "services" / name).is_dir(),
+    )
 
 
 @dataclass

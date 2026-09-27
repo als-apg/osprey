@@ -27,7 +27,6 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     resolve_graphdb_service_config,
 )
-from osprey.deployment.host_binding import osprey_owns_binding
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
@@ -67,6 +66,7 @@ from .build_profile_schema import (
     http_errors,
     listens_errors,
     network_mode_errors,
+    osprey_declares_binding,
 )
 from .build_profile_va_faults import (
     live_standin_errors,
@@ -737,10 +737,7 @@ class BuildProfile:
         bound: set[str] = set()
         for axis in ("listens", "bind_env"):
             for name, _value, key in self._service_axis_declarations(axis):
-                entry = self.services.get(name)
-                claimed = (profile_dir / "services" / name).is_dir()
-                template = entry.template if entry is not None else None
-                if osprey_owns_binding(name, template=template, claimed=claimed):
+                if osprey_declares_binding(name, self.services, profile_dir):
                     errors.append(
                         f"`{key}` is declared by OSPREY for its bundled {name} service. "
                         "Remove it. To declare your own, claim the service: "
