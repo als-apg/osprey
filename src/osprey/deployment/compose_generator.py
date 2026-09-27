@@ -217,6 +217,12 @@ def resolve_repo_root(config=None, config_path=None):
 #: refuse to remove the other checkout's resources.
 REPO_ID_LABEL = "com.osprey.repo-id"
 
+#: Label naming the compose project a container belongs to. Every packaged
+#: service template writes it (``osprey.project.name:`` in each
+#: ``docker-compose.yml.j2``), with the value :func:`resolve_project_name`
+#: returns.
+PROJECT_LABEL = "osprey.project.name"
+
 
 def repo_identity(repo_root):
     """A short, stable identity for the deployment repo at *repo_root*.

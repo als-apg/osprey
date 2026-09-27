@@ -33,12 +33,14 @@ from rich.text import Text
 from osprey.cli import output
 from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import (
+    PROJECT_LABEL,
     REPO_ID_LABEL,
     audit_identity_dir,
     repo_identity,
     resolve_project_name,
     resolve_user_volume_names,
 )
+from osprey.deployment.container_ownership import container_label, container_names
 from osprey.deployment.errors import NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
 from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
@@ -47,13 +49,6 @@ from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.status")
-
-#: Label naming the compose project a container belongs to. Spelled here as
-#: every service template spells it (``osprey.project.name:`` in each
-#: ``docker-compose.yml.j2``) because there is no shared constant to import —
-#: this module only ever reads it, and a divergence would show up immediately as
-#: containers filed under the wrong project.
-PROJECT_LABEL = "osprey.project.name"
 
 #: How much of a pre-flight refusal reason a state cell carries. The findings
 #: are written for a log line and can be a sentence each; the Container column
@@ -280,42 +275,9 @@ def _extract_web_terminal_user_names(users_raw):
 # ---------------------------------------------------------------------------
 
 
-def _container_label(container, key):
-    """Read one label off a runtime ``ps --format json`` record.
-
-    Two shapes, because two runtimes: podman emits ``Labels`` as an object,
-    docker as a comma-joined ``k=v`` string. ``None`` when the label is absent,
-    and that absence is a real answer here rather than a parse failure — a
-    container created by an OSPREY that did not stamp :data:`REPO_ID_LABEL`
-    carries none.
-
-    :param container: One decoded ``ps`` record
-    :param key: Label key to read
-    :return: The label's value, or ``None``
-    """
-    labels = container.get("Labels", {})
-    if isinstance(labels, dict):
-        value = labels.get(key)
-        return value if isinstance(value, str) else None
-    if isinstance(labels, str):
-        for label in labels.split(","):
-            if "=" in label:
-                name, value = label.split("=", 1)
-                if name.strip() == key:
-                    return value.strip()
-    return None
-
-
-def _container_names(container):
-    """Every name a ``ps`` record carries, without docker's leading ``/``."""
-    names = container.get("Names", [])
-    candidates = names if isinstance(names, list) else [names]
-    return [str(name).lstrip("/") for name in candidates if name]
-
-
 def _container_display_name(container):
     """The one name to show for a container; ``"unknown"`` when it has none."""
-    names = _container_names(container)
+    names = container_names(container)
     return names[0] if names else "unknown"
 
 
@@ -458,7 +420,7 @@ def _format_ports(container):
 
 def _add_container_to_table(table, container):
     """Add a container as a row in the status table."""
-    project_name = _container_label(container, PROJECT_LABEL) or "unknown"
+    project_name = container_label(container, PROJECT_LABEL) or "unknown"
     if len(project_name) > 12:
         project_name = project_name[:9] + "..."
 
@@ -514,7 +476,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
 
     by_name = {}
     for container in all_containers:
-        for name in _container_names(container):
+        for name in container_names(container):
             by_name.setdefault(name, container)
 
     existing_volumes = _existing_volume_names(config)
@@ -605,8 +567,8 @@ def show_status(
     project_containers = []
     other_containers = []
     for container in all_containers:
-        container_project = _container_label(container, PROJECT_LABEL) or "unknown"
-        names_str = " ".join(_container_names(container)).lower()
+        container_project = container_label(container, PROJECT_LABEL) or "unknown"
+        names_str = " ".join(container_names(container)).lower()
         matches_service = any(
             service.split(".")[-1].lower() in names_str for service in deployed_service_names
         )
@@ -748,8 +710,8 @@ def _partition_by_checkout(containers, identity, project_name):
     """
     mine, unlabelled, foreign, others = [], [], [], []
     for container in containers:
-        repo_id = _container_label(container, REPO_ID_LABEL)
-        project = _container_label(container, PROJECT_LABEL)
+        repo_id = container_label(container, REPO_ID_LABEL)
+        project = container_label(container, PROJECT_LABEL)
         if repo_id == identity:
             mine.append(container)
         elif project is None:
@@ -822,7 +784,7 @@ def _print_containers_section(repo_root, config):
         output.warn(
             f"{len(foreign)} container(s) named for '{project_name}' were started from a "
             f"DIFFERENT copy of this deployment "
-            f"({', '.join(sorted({_container_label(c, REPO_ID_LABEL) or '?' for c in foreign}))}; "
+            f"({', '.join(sorted({container_label(c, REPO_ID_LABEL) or '?' for c in foreign}))}; "
             f"this copy is {identity})",
             "They share a name with yours, so `osprey down` run here stops them too. "
             "Only their label tells the two copies apart.",
