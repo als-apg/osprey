@@ -1385,7 +1385,7 @@ def render_web_terminals(
         "services": services,
         "nginx_port": nginx_port,
         "landing_url": landing_url,
-        "facility_timezone": facility.get("timezone") or "UTC",
+        "facility_timezone": as_dict(root.get("system")).get("timezone") or "UTC",
         # The navigation-only perimeter stamp (see the derivation above).
         # `open_perimeter` is the ONE gate the template reads for it, rather
         # than the template re-combining `inject_secret`/`sidecar_active`

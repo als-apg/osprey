@@ -3480,6 +3480,29 @@ def _env_names(service: dict) -> list[str]:
 
 
 @pytest.mark.parametrize(
+    ("system", "expected"),
+    [({"timezone": "Asia/Tokyo"}, "Asia/Tokyo"), (None, "UTC")],
+    ids=["declared", "absent"],
+)
+def test_every_web_tier_container_runs_in_the_system_timezone(
+    system: dict | None, expected: str
+) -> None:
+    """nginx, the auth sidecar and each terminal carry `TZ` from `system.timezone`,
+    the key every other service's compose reads, and UTC when it is absent. A
+    `timezone` under `facility` is not a key and moves nothing."""
+    config = _auth_config(["alice"])
+    config.pop("system", None)
+    if system is not None:
+        config["system"] = system
+    config["facility"]["timezone"] = "America/Los_Angeles"
+
+    services = _compose(config)["services"]
+
+    for name in ("nginx", "auth", "web-alice"):
+        assert f"TZ={expected}" in services[name]["environment"], name
+
+
+@pytest.mark.parametrize(
     "auth", [None, {"method": "token"}, {"method": "none"}], ids=["absent", "token", "open"]
 )
 def test_no_sidecar_service_is_rendered_for_a_method_that_stands_no_wall(

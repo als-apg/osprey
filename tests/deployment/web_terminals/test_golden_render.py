@@ -85,8 +85,8 @@ EXAMPLE_CONFIG: dict = {
     "facility": {
         "name": "Demo Light Source",
         "prefix": "dls",
-        "timezone": "America/Los_Angeles",
     },
+    "system": {"timezone": "America/Los_Angeles"},
     "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
     "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
     "modules": {
