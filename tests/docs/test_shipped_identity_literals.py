@@ -8,10 +8,12 @@ deployer cannot edit: files that `osprey init --force` and `profile expand`
 regenerate.
 
 The rule this pins is therefore not "fewer names" but "no identities": shipped
-text under ``src/osprey/`` and ``docs/source/`` names no real person, mailbox,
-institution or site. Magnitudes stay — "~135,000 documents", "~41 minutes" —
-because they are facts about the software's behaviour rather than about whose
-machine produced them. Examples use the placeholder cast the roster
+text — the framework under ``src/osprey/``, the installable packages under
+``packages/``, the agent-skills plugin under ``plugins/`` and the documentation
+under ``docs/source/`` — names no real person, mailbox, institution or site.
+Magnitudes stay — "~135,000 documents", "~41 minutes" — because they are
+facts about the software's behaviour rather than about whose machine produced
+them. Examples use the placeholder cast the roster
 documentation already uses: ``alice`` and ``carol`` at ``example.org``, a
 facility called *Example Research Facility*, a gateway written as its own
 dotted keys (``gw.example.org``), a project at ``~/my-assistant``.
@@ -50,8 +52,11 @@ _THIS_FILE = Path(__file__).resolve()
 
 #: Everything OSPREY ships that a deployer or operator can read. Code and
 #: comments as much as documentation: a rendered template's comment reaches a
-#: deployment, and a docstring reaches the API reference.
-SHIPPED_ROOTS = ("src/osprey", "docs/source")
+#: deployment, and a docstring reaches the API reference. The installable
+#: packages and the agent-skills plugin ship on their own, apart from the
+#: framework, so each is read as a whole tree rather than one package or plugin
+#: at a time.
+SHIPPED_ROOTS = ("src/osprey", "docs/source", "packages", "plugins")
 
 #: The trees that describe what ships without shipping themselves. An identity
 #: reaches them once the repo is clean of it there, so a sweep stays swept
@@ -193,6 +198,13 @@ DENIED: tuple[Denied, ...] = (
         ),
     ),
     Denied(
+        name="institutional domain (nersc.gov)",
+        pattern=re.compile(r"nersc\.gov", re.IGNORECASE),
+        why="an institution's own domain is not an example anyone else can copy",
+        sample="        >>>     'host': 'mongodb05.nersc.gov',",
+        roots=REPO_ROOTS,
+    ),
+    Denied(
         name="ring name",
         pattern=re.compile(r"ALS-U", re.IGNORECASE),
         why=(
@@ -262,6 +274,9 @@ DENIED: tuple[Denied, ...] = (
                 "docs/source/how-to/llm-providers/configure-providers.rst",
                 "src/osprey/models/providers/als_apg.py",
                 "src/osprey/services/channel_finder/benchmarks/evaluation.py",
+                # The shipped plugin manifest, whose author field is the project's
+                # own packaging metadata.
+                "plugins/osprey/.claude-plugin/plugin.json",
                 # The suites that exercise the bundled demo ring, whose name carries
                 # the abbreviation.
                 "tests/simulation/matlab_reference.py",
@@ -443,7 +458,9 @@ def test_the_sweep_reaches_shipped_templates_and_docs() -> None:
     A rendered template's comment and a how-to page are exactly where an
     identity survives review, and both would be missed by a rule written for
     ``.py`` alone. A container recipe is the same surface under no extension
-    at all.
+    at all. The installable connectors package and the agent-skills plugin
+    ship apart from the framework, and a manifest lives under a dot-directory,
+    so each is named here too.
     """
     scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, SHIPPED_ROOTS)}
     for required in (
@@ -451,6 +468,8 @@ def test_the_sweep_reaches_shipped_templates_and_docs() -> None:
         "src/osprey/profiles/presets/control-assistant.yml",
         "docs/source/how-to/web-terminal/multi-user/login.rst",
         "src/osprey/templates/services/qmd/Dockerfile",
+        "packages/osprey-connectors/src/osprey_connectors/factory.py",
+        "plugins/osprey/.claude-plugin/plugin.json",
     ):
         assert required in scanned, f"{required} is shipped but the sweep cannot see it"
 
