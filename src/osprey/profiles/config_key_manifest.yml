@@ -1708,7 +1708,7 @@ keys:
     evidence: 'claude_code_config\.get\("servers", \{\}\)'
     note: >-
       Server enable/disable overrides, consumed by registry.mcp.resolve_servers.
-      Anchored because EIGHT covered-by children terminate here — a weak regex
+      Anchored because FOURTEEN covered-by children terminate here — a weak regex
       at this node would silently hollow out all of them.
     default: {}
   claude_code.servers.controls: {covered-by: claude_code.servers, default: n/a}
@@ -1725,6 +1725,8 @@ keys:
   claude_code.servers.bluesky.enabled: {covered-by: claude_code.servers.bluesky, default: derived, default_note: the bluesky server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.health: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.health.enabled: {covered-by: claude_code.servers.health, default: derived, default_note: the health server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.phoebus: {covered-by: claude_code.servers, rendered: false, default: n/a}
+  claude_code.servers.phoebus.enabled: {covered-by: claude_code.servers.phoebus, rendered: false, default: derived, default_note: the phoebus server's FRAMEWORK_SERVERS default_enabled}
   claude_code.permissions:
     evidence: 'claude_code_config\.get\("permissions", \{\}\)'
     note: >-
@@ -2196,6 +2198,67 @@ keys:
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
     default: false
+
+  # ── Phoebus display bridge ──────────────────────────────────────────
+  # The `phoebus` server is off in every preset, so nothing renders these keys;
+  # a deployment that enables the server states them in its profile's `config:` block.
+  phoebus.host:
+    rendered: false
+    evidence: 'ph\.get\("host", "127\.0\.0\.1"\)'
+    note: >-
+      Host of the Phoebus agent bridge the phoebus server talks to, and half of
+      the fallback the build renders into its PHOEBUS_BRIDGE_URL. No preset
+      carries it.
+    default: 127.0.0.1
+  phoebus.port:
+    rendered: false
+    evidence: 'ph\.get\("port", 7979\)'
+    note: >-
+      Port of the Phoebus agent bridge; it must match the bridge's own port
+      preference. No preset carries it.
+    default: 7979
+  phoebus.panels:
+    rendered: false
+    data-map: true
+    evidence: 'config\.get\("phoebus", \{\}\)\.get\("panels", \{\}\)'
+    note: >-
+      Panel name to display-file path, the names phoebus_open_panel opens. The
+      names are the deployment's own vocabulary, so this is a data map; no
+      preset carries it.
+    default: {}
+  phoebus.require_handle:
+    rendered: false
+    evidence: 'config\.get\("phoebus", \{\}\)\.get\("require_handle", False\)'
+    note: >-
+      Refuses the implicit "active" display, so callers on a shared Phoebus
+      pass a handle or a display name; PHOEBUS_REQUIRE_HANDLE outranks it. No
+      preset carries it.
+    default: false
+  phoebus.snapshot_dir:
+    rendered: false
+    evidence: '\(config\.get\("phoebus", \{\}\) or \{\}\)\.get\("snapshot_dir"\)'
+    note: >-
+      Directory phoebus_snapshot writes its PNG files to. No preset carries it.
+    default: derived
+    default_note: <agent_data.base_dir>/screenshots, anchored on the project root
+  phoebus.plot_dir:
+    rendered: false
+    evidence: '\(config\.get\("phoebus", \{\}\) or \{\}\)\.get\("plot_dir"\)'
+    note: >-
+      Directory phoebus_open_databrowser writes its .plt files to. No preset
+      carries it.
+    default: derived
+    default_note: <agent_data.base_dir>/plots, anchored on the project root
+  phoebus.archiver_url:
+    rendered: false
+    evidence: 'config\.get\("phoebus", \{\}\)\.get\("archiver_url"\)'
+    note: >-
+      Archiver bound into the Data Browser plots phoebus_open_databrowser
+      generates. No preset carries it.
+    default: no-fallback
+    default_note: >-
+      unset, the generated .plt binds no archiver and plots show live values
+      only; PHOEBUS_ARCHIVER_URL outranks the key when set
 
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
