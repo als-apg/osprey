@@ -42,6 +42,8 @@ import pytest
 
 from tests.e2e.profile_edits import set_pairs
 
+pytestmark = pytest.mark.model_free
+
 #: The deployment repo's directory name IS the deployment's name, and the name
 #: the compose templates namespace every container by.
 PROJECT_NAME = "e2e-dispatch-render"

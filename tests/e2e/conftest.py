@@ -12,9 +12,16 @@ from pathlib import Path
 import pytest
 
 from osprey.registry import reset_registry
-from tests.e2e.provider import e2e_provider, provider_refusal
+from tests.e2e.provider import MODEL_FREE_MARKER, e2e_provider, provider_refusal
 
 _E2E_ROOT = Path(__file__).resolve().parent
+
+#: ``workerinput`` flag the controller sets when it relays a worker's refusal.
+_RELAY_KEY = "osprey_e2e_refusal_relay"
+#: ``workeroutput`` key a worker hands its refusal to the controller under.
+_REFUSAL_KEY = "osprey_e2e_refusal"
+#: The refusals the controller collected from its workers.
+_REFUSALS = pytest.StashKey[list[str]]()
 
 
 def _print_failure_now(report) -> None:
@@ -121,61 +128,92 @@ def _run_names_a_provider() -> bool:
     return True
 
 
-def _refusal_applies(config) -> bool:
-    """Whether this run has to name a provider before it goes any further.
-
-    A ``--collect-only`` run is exempt. It enumerates the suite instead of
-    building anything, so no gateway is reached and nothing needs a credential
-    — and enumerating is how the benchmark lane gate reads each test's lane
-    marker out of a real collection.
-    """
-    if config.getoption("collectonly", False):
-        return False
-    return not _run_names_a_provider()
-
-
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
-    """End the session when an e2e run has not said which provider to build with.
+    """End the session when an e2e run names no provider and selects a test that needs one.
 
     The lanes under this directory stand up a real deployment repo and drive an
     agent through it, so the provider is not a detail one of them can shrug off
     — it decides which gateway the run talks to and which credential it needs.
-    One rule for the whole directory rather than a per-module one: a module that
-    pins its own provider still builds inside a run whose provider decides the
-    rest, and a rule with exceptions is a rule nobody can read off the failure.
+    One rule for the whole directory, and it fails closed: a test is exempt only
+    by declaring, with the ``model_free`` marker, that it reaches no model. The
+    failure names every selected test that did not declare it, so the rule
+    still reads off the failure.
+
+    ``trylast`` because the rule judges the final selection, after ``-m``,
+    ``-k`` and ``--deselect`` have applied. ``--collect-only`` is exempt: it
+    enumerates the suite instead of building anything, and enumerating is how
+    the benchmark lane gate reads each test's lane marker out of a real
+    collection.
 
     ``UsageError`` rather than a skip or a collection error: it ends the session
-    with the message and no traceback, which is what a misconfigured invocation
-    deserves. This hook is the refusal for an invocation that reaches these
-    tests without naming this directory, so ``pytest_configure`` below never
-    loads; the two are the same refusal, and whichever fires first states it.
-    The rest of ``tests/`` is untouched — the fast lane runs
-    ``pytest tests/ --ignore=tests/e2e`` and never loads this conftest.
+    with the message and no traceback. Under xdist collection runs in a worker,
+    where a ``UsageError`` reaches the operator as an ``INTERNALERROR``
+    traceback, so a worker whose controller relays the refusal selects nothing
+    and hands the message over; the controller prints it and ends the session
+    as a usage error. A worker with no relay raises, so the run still stops.
+    The rest of ``tests/`` is untouched.
     """
-    if not _refusal_applies(config):
+    if config.getoption("collectonly", False) or _run_names_a_provider():
         return
+    unmarked = []
     for item in items:
         path = Path(str(getattr(item, "path", "") or item.fspath)).resolve()
-        if path == _E2E_ROOT or _E2E_ROOT in path.parents:
-            raise pytest.UsageError(provider_refusal())
+        in_e2e = path == _E2E_ROOT or _E2E_ROOT in path.parents
+        if in_e2e and item.get_closest_marker(MODEL_FREE_MARKER) is None:
+            unmarked.append(item.nodeid)
+    if not unmarked:
+        return
+    message = provider_refusal(unmarked=unmarked)
+    workerinput = getattr(config, "workerinput", None)
+    if workerinput is None or not workerinput.get(_RELAY_KEY):
+        raise pytest.UsageError(message)
+    config.workeroutput[_REFUSAL_KEY] = message
+    config.hook.pytest_deselected(items=list(items))
+    items[:] = []
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node):
+    """Tell each xdist worker that this controller prints its refusal."""
+    node.workerinput[_RELAY_KEY] = True
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node):
+    """Collect the refusal a worker handed over."""
+    message = getattr(node, "workeroutput", {}).get(_REFUSAL_KEY)
+    if message:
+        node.config.stash.setdefault(_REFUSALS, []).append(message)
+
+
+@pytest.hookimpl(optionalhook=True, trylast=True)
+def pytest_sessionfinish(session):
+    """Print a relayed refusal and end the session as a usage error.
+
+    Every worker collects the same selection, so every refusal is identical and
+    the first one is printed.
+    """
+    refusals = session.config.stash.get(_REFUSALS, [])
+    if not refusals:
+        return
+    sys.stdout.flush()
+    sys.stderr.write(f"ERROR: {refusals[0]}\n")
+    sys.stderr.flush()
+    session.exitstatus = pytest.ExitCode.USAGE_ERROR
 
 
 def pytest_configure(config):
-    """Refuse a run that names no provider, register E2E markers, and warn if
-    tests are being run incorrectly."""
-    # The refusal belongs here as well as at collection because the e2e lanes
-    # run distributed (`-n 4 --dist loadfile`), and collection there happens
-    # inside a worker, where a UsageError reaches the operator as an
-    # INTERNALERROR traceback instead of as the message it carries. This
-    # conftest is loaded from the initial arguments, so this hook runs once in
-    # the controlling process before any worker is spawned.
-    if _refusal_applies(config):
-        raise pytest.UsageError(provider_refusal())
-
+    """Register E2E markers, and warn if tests are being run incorrectly."""
     # Register custom markers
     config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
     config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
     config.addinivalue_line("markers", "e2e_tutorial: Tutorial workflow validation tests")
+    config.addinivalue_line(
+        "markers",
+        "model_free: tests/e2e test that reaches no model, so it runs when the session names "
+        "no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model CI lane's selection",
+    )
     config.addinivalue_line(
         "markers", "channel_finder_benchmark: Channel finder benchmark validation tests"
     )
