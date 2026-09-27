@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.deployment.web_terminals import postup_hooks
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import default_port
 
 # ---------------------------------------------------------------------------
@@ -228,6 +229,22 @@ def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplo
 
     assert f"http://127.0.0.1:{default_port('nginx')}/" in caplog.text
     assert "Enable host networking" in caplog.text
+    assert PERIMETER_LIMITS_URL in caplog.text
+
+
+def test_a_disabled_forwarder_names_the_host_network_limit(monkeypatch, caplog):
+    def _refuse(_url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: False)
+
+    with caplog.at_level("WARNING"):
+        postup_hooks.warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=1, delay=0)
+
+    assert "Host networking is turned off" in caplog.text
+    assert PERIMETER_LIMITS_URL in caplog.text
 
 
 def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, caplog):
@@ -242,6 +259,7 @@ def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, 
 
     assert "not reachable" in caplog.text
     assert "Enable host networking" not in caplog.text
+    assert PERIMETER_LIMITS_URL not in caplog.text
 
 
 # ---------------------------------------------------------------------------

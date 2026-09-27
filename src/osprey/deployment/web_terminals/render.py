@@ -59,6 +59,7 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
     resolve_nginx_port,
 )
+from osprey.docs_links import PERIMETER_LIMITS_URL
 
 # The one definition of the session-lifetime default lives in web_auth, which is
 # stdlib-only, so importing it here cannot cycle.
@@ -1660,7 +1661,9 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
             "slash, no query (e.g. 'https://terminals.example.org', "
             "'http://terminals.example.org:8443'). Each terminal compares it against the "
             "browser's Origin header as a whole string, so anything else renders a "
-            "deployment whose pages load and whose every write is refused"
+            "deployment whose pages load and whose every write is refused. A deployment "
+            "is served from the root of its own hostname or host:port, never under a "
+            f"path. See {PERIMETER_LIMITS_URL}"
         )
     return origin
 

@@ -44,6 +44,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.interfaces.web_auth import Tier, WebCredentials, classify, get_web_credentials
 from osprey.utils.owner_header import OWNER_HEADER
 
@@ -1506,6 +1507,7 @@ class WebAuthMiddleware:
         JSON detail says only that the request was cross-origin. Neither origin
         is a credential and neither is echoed to the browser, so both can be
         named. No rate limiting: this fires only on requests already refused.
+        The line names the one-origin limit and links where it is documented.
         """
         origin = headers.get("origin")
         received = (
@@ -1516,13 +1518,15 @@ class WebAuthMiddleware:
         method = WEBSOCKET_METHOD if scope["type"] == "websocket" else (scope.get("method") or "?")
         logger.warning(
             "Refusing %s %s: Origin %s does not match this app's own origin %r. "
-            "If the two differ only in how this deployment is addressed, %s is "
-            "what the app was told to expect.",
+            "This deployment accepts writes from one origin only, so every browser "
+            "has to reach it on that address. If the two differ only in how this "
+            "deployment is addressed, %s is what the app was told to expect. See %s",
             method,
             scope.get("path") or "?",
             received,
             self._resolve_external_origin(scope, headers),
             EXTERNAL_ORIGIN_ENV,
+            PERIMETER_LIMITS_URL,
         )
 
     def _origin_check_applies(self, scope: Scope) -> bool:

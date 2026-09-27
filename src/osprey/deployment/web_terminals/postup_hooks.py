@@ -19,6 +19,7 @@ from osprey.cli.output import report_fact, warn_fact
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.docker_desktop import (
+    HOST_NETWORK_LIMIT,
     HOST_NETWORKING_REMEDY,
     host_networking_enabled,
     on_docker_desktop,
@@ -366,7 +367,7 @@ def warn_if_web_stack_unreachable(
             f"every container is healthy and nginx is listening on port {nginx_port}, but it "
             "is listening inside the Docker Desktop Linux VM. Host networking is turned off "
             f"in Docker Desktop, so {url} never reaches this machine and the landing page "
-            "will not load in a browser."
+            f"will not load in a browser. {HOST_NETWORK_LIMIT}"
         )
         remedy = f"{HOST_NETWORKING_REMEDY}, and re-run `osprey up`"
     elif desktop:
@@ -377,7 +378,8 @@ def warn_if_web_stack_unreachable(
             f"{url} did not answer after {attempts} probes, so the landing page will not "
             "load in a browser. On Docker Desktop the web stack binds its port inside the "
             "Docker Linux VM and reaches this machine only through the host-network "
-            f"forwarder, which is off unless host networking is enabled.{bounced}"
+            f"forwarder, which is off unless host networking is enabled.{bounced} "
+            f"{HOST_NETWORK_LIMIT}"
         )
         remedy = f"check that host networking is on: {HOST_NETWORKING_REMEDY}"
     else:
