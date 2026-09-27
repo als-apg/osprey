@@ -32,6 +32,7 @@ class IngestResult:
     count: int
     enhanced_count: int
     failed_count: int
+    unreadable_count: int
     dry_run: bool
     enhancer_names: list[str] = field(default_factory=list)
 
@@ -616,6 +617,7 @@ async def run_ingest(
             count=count,
             enhanced_count=0,
             failed_count=0,
+            unreadable_count=adapter_instance.unreadable_entries,
             dry_run=True,
             enhancer_names=enhancer_names,
         )
@@ -662,7 +664,7 @@ async def run_ingest(
                 run_id,
                 entries_added=count,
                 entries_updated=0,
-                entries_failed=failed_count,
+                entries_failed=failed_count + adapter_instance.unreadable_entries,
             )
         except Exception as e:
             await service.repository.fail_ingestion_run(run_id, str(e))
@@ -672,6 +674,7 @@ async def run_ingest(
         count=count,
         enhanced_count=enhanced_count,
         failed_count=failed_count,
+        unreadable_count=adapter_instance.unreadable_entries,
         dry_run=False,
         enhancer_names=enhancer_names,
     )
@@ -1739,6 +1742,11 @@ async def run_quickstart(
 
                 if progress:
                     progress(f"  Entries: {count} ingested")
+                    if adapter_instance.unreadable_entries:
+                        progress(
+                            f"  Skipped: {adapter_instance.unreadable_entries} entries"
+                            " that could not be read"
+                        )
                     if enhancers:
                         msg = f"  Enhancements: {enhanced_count} applied"
                         if failed_count:

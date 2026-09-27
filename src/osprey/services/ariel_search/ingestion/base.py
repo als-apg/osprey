@@ -47,6 +47,8 @@ class FacilityAdapter(ABC):
         verify_ssl: Whether outbound logbook requests verify TLS certificates.
         ca_bundle: PEM bundle those requests verify against, or ``None`` to use
             the trust store the image ships.
+        unreadable_entries: Entries the current or most recent
+            ``fetch_entries`` pass read from the source but could not convert.
 
     The three transport attributes are class-level defaults so that every
     adapter answers the TLS and proxy questions the same way, whether or not it
@@ -65,6 +67,11 @@ class FacilityAdapter(ABC):
 
     #: See the class docstring. ``None`` leaves aiohttp on the image trust store.
     ca_bundle: str | None = None
+
+    #: Entries the current or most recent ``fetch_entries`` pass read from the
+    #: source but could not convert. Each pass starts it at zero; a caller reads
+    #: it once the pass is exhausted.
+    unreadable_entries: int = 0
 
     def __init__(self, config: "ARIELConfig") -> None:
         """Initialize the adapter with configuration.
@@ -167,6 +174,9 @@ class FacilityAdapter(ABC):
             since: Only fetch entries after this timestamp
             until: Only fetch entries before this timestamp
             limit: Maximum number of entries to fetch
+
+        An entry the adapter cannot convert is logged, skipped and counted in
+        ``unreadable_entries``.
 
         Yields:
             EnhancedLogbookEntry objects with base fields populated.

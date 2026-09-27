@@ -62,6 +62,7 @@ class JLabLogbookAdapter(FacilityAdapter):
         Yields:
             EnhancedLogbookEntry objects
         """
+        self.unreadable_entries = 0
         data = await self._load_data()
 
         # JLab API returns entries in data.entries
@@ -94,6 +95,7 @@ class JLabLogbookAdapter(FacilityAdapter):
                     break
 
             except Exception as e:
+                self.unreadable_entries += 1
                 logger.warning(f"Failed to convert entry: {e}")
                 continue
 

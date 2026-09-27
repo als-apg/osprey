@@ -355,6 +355,7 @@ class TestALSFileSource:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Invalid JSON at line 1" in caplog.text
+        assert adapter.unreadable_entries == 1
 
     @pytest.mark.asyncio
     async def test_unconvertible_line_is_logged_and_skipped(self, tmp_path, caplog):
@@ -372,6 +373,7 @@ class TestALSFileSource:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Failed to convert entry at line 1" in caplog.text
+        assert adapter.unreadable_entries == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1237,6 +1239,29 @@ class TestGenericAdapterGuards:
 
         assert [e["entry_id"] for e in entries] == ["good"]
         assert "Failed to convert entry" in caplog.text
+        assert adapter.unreadable_entries == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("facility_tz")
+    async def test_each_pass_starts_the_count_at_zero(self, tmp_path):
+        """A second fetch pass counts its own unreadable entries, not the sum."""
+        path = tmp_path / "entries.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "entries": [
+                        {"id": "bad", "timestamp": "yesterday-ish", "title": "Bad"},
+                        {"id": "good", "timestamp": "2024-01-05T00:00:00Z", "title": "Good"},
+                    ]
+                }
+            )
+        )
+        adapter = _generic_adapter(str(path))
+
+        await _collect(adapter.fetch_entries())
+        await _collect(adapter.fetch_entries())
+
+        assert adapter.unreadable_entries == 1
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("facility_berlin")
@@ -1680,6 +1705,7 @@ class TestJLabAdapter:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Failed to convert entry" in caplog.text
+        assert adapter.unreadable_entries == 1
 
     @pytest.mark.asyncio
     async def test_missing_file_raises(self, tmp_path):
@@ -1968,6 +1994,7 @@ class TestORNLAdapter:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Failed to convert entry" in caplog.text
+        assert adapter.unreadable_entries == 1
 
     @pytest.mark.asyncio
     async def test_missing_file_raises(self, tmp_path):
@@ -2041,6 +2068,7 @@ class TestORNLAdapter:
         assert entries[0]["timestamp"] == datetime(2026, 3, 4, 1, 15, tzinfo=UTC)
         assert "Cannot parse timestamp: None" in caplog.text
         assert "Cannot parse timestamp: 'garbage'" in caplog.text
+        assert adapter.unreadable_entries == 2
 
     @pytest.mark.usefixtures("facility_berlin")
     def test_naive_times_are_facility_local(self):

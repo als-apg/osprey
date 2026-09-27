@@ -480,6 +480,20 @@ class TestRunQuickstart:
         assert "  Entries: 2 ingested" in messages
         assert fake_pool.closed
 
+    async def test_unreadable_entries_are_reported_in_progress(
+        self, monkeypatch, fake_pool, mock_repository
+    ):
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_adapter(monkeypatch, _Adapter([{"entry_id": "E1"}], unreadable=3))
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository, mock_repository.pool))
+
+        messages: list[str] = []
+        await ops.run_quickstart(dict(_DB), source="file:///entries.json", progress=messages.append)
+
+        assert "  Skipped: 3 entries that could not be read" in messages
+
     async def test_no_source_configured_skips_ingestion_entirely(self, monkeypatch, fake_pool):
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=[])

@@ -621,6 +621,7 @@ class TestRunIngestDryRun:
 
         class _Adapter:
             source_system_name = "TestSource"
+            unreadable_entries = 0
 
             async def fetch_entries(self, since=None, limit=None):  # noqa: ARG002 - the ingestion adapter fetch_entries signature
                 for i in range(3):
@@ -652,6 +653,7 @@ class TestRunIngestDryRun:
 
         class _Adapter:
             source_system_name = "TestSource"
+            unreadable_entries = 0
 
             async def fetch_entries(self, since=None, limit=None):  # noqa: ARG002 - the ingestion adapter fetch_entries signature
                 if False:

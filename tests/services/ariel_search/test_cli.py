@@ -183,6 +183,7 @@ class TestARIELCLIGroup:
 
         mock_adapter = MagicMock()
         mock_adapter.source_system_name = "test"
+        mock_adapter.unreadable_entries = 0
         mock_adapter.fetch_entries = _fetch
 
         with (
@@ -210,6 +211,36 @@ class TestARIELCLIGroup:
         mock_repo.complete_ingestion_run.assert_called_once_with(
             42, entries_added=1, entries_updated=0, entries_failed=0
         )
+
+    @pytest.mark.parametrize(("unreadable", "warned"), [(2, True), (0, False)])
+    def test_ingest_warns_about_unreadable_entries(self, runner, monkeypatch, unreadable, warned):
+        """ingest names how many entries it skipped, and says nothing when none were."""
+        from osprey.services.ariel_search import cli_operations as ops
+
+        async def _fake_ingest(*args, **kwargs):
+            return ops.IngestResult(
+                count=1,
+                enhanced_count=0,
+                failed_count=0,
+                unreadable_count=unreadable,
+                dry_run=False,
+            )
+
+        async def _no_resync(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(ops, "run_ingest", _fake_ingest)
+        monkeypatch.setattr(ops, "resync_qmd_mirror_best_effort", _no_resync)
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "postgresql://localhost/test"}},
+        )
+
+        result = runner.invoke(ariel_group, ["ingest", "-s", "entries.json"])
+
+        assert result.exit_code == 0, result.output
+        assert ("Skipped 2 entries that could not be read" in result.output) is warned
+        assert ("Skipped" in result.output) is warned
 
     def test_ingest_missing_tables_shows_user_friendly_error(self, runner, tmp_path, monkeypatch):
         """ingest shows helpful error when database tables don't exist."""

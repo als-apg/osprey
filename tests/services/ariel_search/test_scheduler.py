@@ -62,10 +62,11 @@ def _make_entry(entry_id: str = "e1") -> dict:
     }
 
 
-def _mock_adapter(entries: list[dict] | None = None):
-    """Create a mock adapter that yields entries."""
+def _mock_adapter(entries: list[dict] | None = None, unreadable: int = 0):
+    """Create a mock adapter that yields entries and reports ``unreadable`` skips."""
     adapter = MagicMock()
     adapter.source_system_name = "test_system"
+    adapter.unreadable_entries = unreadable
 
     async def _fetch(since=None, until=None, limit=None):  # noqa: ARG001 - the ingestion adapter fetch_entries signature
         for entry in entries or []:
@@ -286,6 +287,58 @@ class TestIngestionScheduler:
         # No repository writes in dry-run mode
         repository.start_ingestion_run.assert_not_called()
         repository.upsert_entry.assert_not_called()
+        repository.complete_ingestion_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_poll_once_counts_unreadable_entries_as_failed(self, config, repository) -> None:
+        """Entries the adapter could not read count as failed in the run and the result."""
+        adapter = _mock_adapter([_make_entry("e1")], unreadable=2)
+        repository.get_last_successful_run = AsyncMock(
+            return_value=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        with (
+            patch(
+                "osprey.services.ariel_search.ingestion.get_adapter",
+                return_value=adapter,
+            ),
+            patch(
+                "osprey.services.ariel_search.enhancement.create_enhancers_from_config",
+                return_value=[],
+            ),
+        ):
+            scheduler = IngestionScheduler(config=config, repository=repository)
+            result = await scheduler.poll_once()
+
+        assert result.entries_added == 1
+        assert result.entries_failed == 2
+        repository.complete_ingestion_run.assert_awaited_once_with(
+            1, entries_added=1, entries_updated=0, entries_failed=2
+        )
+
+    @pytest.mark.asyncio
+    async def test_poll_once_dry_run_reports_unreadable_entries(self, config, repository) -> None:
+        """A dry run reports the entries the adapter could not read as failed."""
+        adapter = _mock_adapter([_make_entry("e1")], unreadable=2)
+        repository.get_last_successful_run = AsyncMock(
+            return_value=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+
+        with (
+            patch(
+                "osprey.services.ariel_search.ingestion.get_adapter",
+                return_value=adapter,
+            ),
+            patch(
+                "osprey.services.ariel_search.enhancement.create_enhancers_from_config",
+                return_value=[],
+            ),
+        ):
+            scheduler = IngestionScheduler(config=config, repository=repository)
+            result = await scheduler.poll_once(dry_run=True)
+
+        assert result.entries_added == 1
+        assert result.entries_failed == 2
         repository.complete_ingestion_run.assert_not_called()
 
     @pytest.mark.asyncio

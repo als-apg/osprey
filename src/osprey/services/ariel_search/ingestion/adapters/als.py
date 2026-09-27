@@ -142,6 +142,7 @@ class ALSLogbookAdapter(FacilityAdapter):
         Yields:
             EnhancedLogbookEntry objects
         """
+        self.unreadable_entries = 0
         if self.source_type == "http":
             async for entry in self._fetch_entries_http(since, until, limit):
                 yield entry
@@ -180,9 +181,11 @@ class ALSLogbookAdapter(FacilityAdapter):
                         break
 
                 except json.JSONDecodeError as e:
+                    self.unreadable_entries += 1
                     logger.warning(f"Invalid JSON at line {line_num}: {e}")
                     continue
                 except Exception as e:
+                    self.unreadable_entries += 1
                     logger.warning(f"Failed to convert entry at line {line_num}: {e}")
                     continue
 
@@ -429,6 +432,7 @@ class ALSLogbookAdapter(FacilityAdapter):
                             return
 
                     except Exception as e:
+                        self.unreadable_entries += 1
                         logger.warning(f"Failed to convert entry {entry_id}: {e}")
                         continue
 

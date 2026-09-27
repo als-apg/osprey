@@ -43,7 +43,7 @@ class IngestionPollResult:
     Attributes:
         entries_added: Number of new entries stored
         entries_updated: Number of existing entries updated
-        entries_failed: Number of entries that failed enhancement
+        entries_failed: Number of entries that could not be read, stored or enhanced
         duration_seconds: Wall-clock time for the poll cycle
         since: The since-timestamp used for this poll (None = full ingest)
     """
@@ -185,7 +185,7 @@ class IngestionScheduler:
             return IngestionPollResult(
                 entries_added=count,
                 entries_updated=0,
-                entries_failed=0,
+                entries_failed=adapter.unreadable_entries,
                 duration_seconds=time.monotonic() - start_time,
                 since=since,
             )
@@ -224,6 +224,7 @@ class IngestionScheduler:
                 except Exception:
                     entries_failed += 1
                     logger.exception("Failed to process entry")
+            entries_failed += adapter.unreadable_entries
 
             await self.repository.complete_ingestion_run(
                 run_id,
