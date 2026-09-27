@@ -301,6 +301,32 @@ describe('initLogoutButton: auth-session chaining', () => {
     expect(query.getAll('user')).toEqual(['alice-b']);
   });
 
+  test("takes the user from the prefix's last segment, not from a spelled mount root", async () => {
+    window.__OSPREY_PREFIX__ = '/m/carol';
+    const btn = renderLogoutButton('/landing');
+    const { urls } = captureFetches();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign: vi.fn() });
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(urls).toHaveLength(2));
+    expect(urls).toEqual(['/m/carol/api/terminal/logout', '/auth/logout?user=carol']);
+  });
+
+  test('a trailing slash on the prefix does not empty the user', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice/';
+    const btn = renderLogoutButton('/landing');
+    const { urls } = captureFetches();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign: vi.fn() });
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(urls).toHaveLength(2));
+    expect(urls[1]).toBe('/auth/logout?user=alice');
+  });
+
   test('carries same-origin credentials, or the session cookie never arrives', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     const btn = renderLogoutButton('/landing');
