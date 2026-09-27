@@ -1549,7 +1549,7 @@ def test_an_unevaluable_hash_demotes_a_seeded_login_to_stale(tmp_path: Path) -> 
     """A hash the login service cannot read will refuse the seeded default too,
     so the card must not print it."""
     write_seeded_repo(tmp_path, "alice", "alice")
-    (tmp_path / AUTH_ENV_FILENAME).write_text(f"{PW_HASH_VAR_PREFIX}ALICE={BROKEN_HASH}\n")
+    _store_hash(tmp_path, "alice", BROKEN_HASH)
 
     report = seeded_logins_report(tmp_path, ["alice"])
 

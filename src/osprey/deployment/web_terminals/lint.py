@@ -240,10 +240,9 @@ def lint_web_terminals(
         # answered anyway would be guessing at the one file the deploy gate
         # refuses on.
         findings.extend(_check_open_mode_egress(root, project_root=project_root))
-        # Reads the deployment's `.env` and `.env.auth`, so it rides the same
-        # gate: at profile altitude neither file exists yet.
+        # Both read the deployment's `.env` or `.env.auth`, so they ride the
+        # same gate: at profile altitude neither file exists yet.
         findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
-        # Reads the deployment repo's `.env.auth`, so it rides the same gate.
         findings.extend(_check_auth_stored_hashes(web_terminals, users, project_root=project_root))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
@@ -3083,21 +3082,17 @@ def _check_seeded_passwords(
     context = _auth_context(web_terminals)
     if context is None or context["auth_method"] != "password":
         return []
+    # The lenient normalizer drops an entry whose `access` is unreadable, so
+    # `entry_is_shared` never refuses one of these.
     roster = normalize_users(web_terminals.get("users"), strict=False)
-    shared: set[str] = set()
-    for entry in roster:
-        try:
-            if entry_is_shared(entry):
-                shared.add(entry["name"])
-        except ValueError:
-            continue
+    shared = frozenset(entry["name"] for entry in roster if entry_is_shared(entry))
 
     from osprey.deployment.web_terminals.auth_credentials import seeded_password_users
 
     seeded = seeded_password_users(
         project_root or Path("."),
         [entry["name"] for entry in roster],
-        shared=frozenset(shared),
+        shared=shared,
     )
     if not seeded:
         return []
