@@ -200,8 +200,9 @@ are already present with a different value; some ship commented out.
 
 ``control_system.type: virtual_accelerator`` points the agent at the deployed
 simulator, so correctors move and BPMs read through exactly the approval and
-limit layers a live machine would use. The preset ships ``mock``, which touches
-nothing.
+limit layers a live machine would use. The preset already ships this value; it
+is written out here because it is the line that changes when the deployment
+goes live (`Changing something later`_).
 
 A deployment describes **one real machine**. ``control_system.type`` names it,
 or — on a simulated baseline like this one — the single non-simulated block
@@ -686,11 +687,17 @@ anywhere inside the repository:
 
 .. code-block:: bash
 
-   osprey set connector=epics          # or edit profile.yml by hand
-   osprey set config.archiver.type=epics_archiver
-   osprey set va_archiver=null         # the recorded archive goes with the stand-in
+   osprey set connector=epics                      # your control system; or edit profile.yml by hand
+   osprey set config.archiver.type=epics_archiver  # the archiver that records it
+   osprey set va_archiver=null                     # the recorded archive goes with the stand-in
    osprey build
    osprey up -d
+
+The three ``osprey set`` lines are the go-live edit, with EPICS as the example:
+``connector`` names your control system (``epics``, ``doocs`` or ``tango``) and
+``config.archiver.type`` the archiver that records it (``epics_archiver``,
+``doocs_archiver``, ``mongodb_archiver`` or ``mya_archiver``).
+:doc:`control-systems/use-connectors` lists each one and the keys it needs.
 
 Or in one step, ``osprey up --build -d``. Every build re-renders everything the
 framework owns and preserves what you own: ``.env``, ``var/``, and the
@@ -904,6 +911,10 @@ a boot does exactly what you do by hand.
 
    :doc:`control-systems/use-virtual-accelerator`
        Running the simulator, and driving it from the agent.
+
+   :doc:`control-systems/use-connectors`
+       Every control system and archiver OSPREY connects to, and the keys each
+       one needs.
 
    :doc:`/reference/cli`
        Every ``osprey`` command and flag.
