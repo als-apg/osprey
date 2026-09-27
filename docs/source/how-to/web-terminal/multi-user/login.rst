@@ -22,7 +22,8 @@ decides what stands between a card and the terminal behind it.
    * - ``password``
      - A login page, against passwords OSPREY manages.
    * - ``oidc``
-     - A login page, against the single sign-on your facility already runs.
+     - A login page, against your facility's single sign-on, spoken as OIDC
+       (:ref:`multi-user-site-sign-in`).
 
 .. raw:: html
    :file: ../../../_diagrams/auth-postures.html
@@ -192,6 +193,31 @@ key's default, which ``osprey scaffold web-terminals lint`` reports as
    ``$`` sequences on the way through, and the only symptom is a login that
    refuses for no visible reason. ``osprey up`` refuses such a stack and names
    the variable; if a provider issued the secret, issue a new one.
+
+.. _multi-user-site-sign-in:
+
+When your site's sign-in is not OIDC
+====================================
+
+The login service serves two methods, ``password`` and ``oidc``, and no
+others. A site whose single sign-on is SAML, Kerberos, CAS, or a header set by
+a proxy after its own login reaches OSPREY through an **OIDC broker**: an
+identity provider that signs people in against the site's system and issues
+OIDC ID tokens to OSPREY. Keycloak and Dex are two widely used ones. Many site
+identity providers also publish an OIDC endpoint beside their SAML one, so ask
+the site's identity team before running a second service.
+
+Point ``auth.oidc.issuer`` at the broker and set ``claim`` to the attribute it
+releases for each person. The rest of this page applies unchanged:
+``oidc_subject``, ``scopes``, role binding, shared cards.
+
+OSPREY takes no identity from a request header. The four ``X-Osprey-Auth-*``
+headers the terminals read are written by nginx from the login service's
+answer and cleared on every other route (see *What the login service answers*,
+later on this page), so a proxy in front of OSPREY cannot say who a user is,
+and whatever it sends is overwritten. A login that trusted such a header would
+let anyone who reaches nginx without passing that proxy name themselves. A
+broker keeps the proof in a signed token that the login service checks itself.
 
 .. _multi-user-role-from-sso:
 
