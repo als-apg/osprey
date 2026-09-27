@@ -4,8 +4,8 @@
 Event Dispatch
 ==============
 
-How to turn external events (a webhook call, a fixed interval, an EPICS channel
-crossing a threshold) into headless OSPREY agent runs.
+How to turn external events (a webhook call, a fixed interval or a time of day,
+an EPICS channel crossing a threshold) into headless OSPREY agent runs.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -29,7 +29,7 @@ Event dispatch lets an external event start an agent run with no human at a
 keyboard. It is built from two services:
 
 - **Event dispatcher** (``python -m osprey.dispatch``, port ``10010``) — accepts
-  authenticated webhook ``POST``\s, interval ticks and EPICS channel crossings,
+  authenticated webhook ``POST``\s, interval and clock-time ticks and EPICS channel crossings,
   matches each to a trigger, applies the trigger's tool allowlist and error policy, and forwards the run to
   a worker. It also serves the monitoring **dashboard**.
 - **Dispatch worker** (``python -m osprey.mcp_server.dispatch_worker``, port
@@ -243,7 +243,7 @@ terminal. The name comes from the session the call left, never from a tool
 argument or a header the agent can set, so there is no way to fire on someone
 else's behalf.
 
-A job that a trigger source started — an interval tick, a channel crossing or
+A job that a trigger source started — an interval or clock-time tick, a channel crossing or
 an inbound webhook — carries no name, and neither does one whose account name
 the dispatcher cannot read — a name that is not a plain account spelling is
 refused, and the only trace is a warning in the dispatcher's own log. No chip narrows a job with no name: it runs with whatever writes the
@@ -379,6 +379,15 @@ loads.
          prompt: >-
            Summarise what changed in the last hour.
          allowed_tools: []
+     - name: morning-summary
+       source: cron
+       source_config:
+         at: ["07:45"]
+         days: [mon, tue, wed, thu, fri]
+       action:
+         prompt: >-
+           Summarise what happened overnight.
+         allowed_tools: []
      - name: vacuum-alarm
        source: epics_ca
        source_config:
@@ -402,7 +411,8 @@ loads.
    :ref:`Fire a Trigger <event-dispatch-fire>` walks through one call.
 
 ``source: cron``
-   Fires on a fixed interval.
+   Fires on a fixed interval or at clock times; a trigger uses ``interval_sec``
+   or ``at``, never both.
 
    .. list-table::
       :header-rows: 1
@@ -412,8 +422,14 @@ loads.
         - Default
         - Meaning
       * - ``interval_sec``
-        - none (required)
+        - none (required without ``at``)
         - Seconds between fires, a number greater than zero.
+      * - ``at``
+        - none
+        - A list of quoted 24-hour ``"HH:MM"`` times, read in the facility zone.
+      * - ``days``
+        - every day
+        - A list of ``mon`` … ``sun`` limiting ``at`` to those weekdays.
 
    An ``interval_sec`` trigger first fires one full interval after the
    dispatcher starts, then an interval after each fire is handed to the queue.
@@ -426,6 +442,21 @@ loads.
    meets a full queue is dropped with a warning and not retried; the next one
    comes an interval later. The payload carries ``source``, ``trigger`` and
    ``timestamp``.
+
+   **Clock times.** An ``at`` trigger reads its times in the zone named by
+   ``system.timezone``; the container's ``TZ`` does not matter. A time that
+   daylight saving skips fires once at the first minute after the jump
+   (``02:30`` fires at ``03:00`` that night). A time that happens twice fires
+   once, at its first occurrence. A time that passes while the dispatcher is
+   stopped, or while its host is asleep, is skipped and not made up. At start
+   the dispatcher logs each clock trigger's zone, the slot before start and the
+   next fire, and the dashboard's trigger list shows the next fire. Times must
+   be quoted, because YAML reads an unquoted ``17:00`` as a number. A schedule
+   the dispatcher cannot read stops it from starting, with an error naming the
+   trigger: a bad time or day, ``days`` without ``at``, ``at`` beside
+   ``interval_sec``, or any other key beside ``at``, whereas a bad
+   ``interval_sec`` only skips its trigger. A tick on a disabled trigger, and a
+   tick that meets a full queue, behave as for an interval trigger.
 
 ``source: epics_ca``
    Monitors one EPICS Channel Access PV and fires when its value crosses a
