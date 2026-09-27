@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 import yaml
 
 import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
+from osprey.utils import workspace
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -153,6 +156,84 @@ def test_load_osprey_config_caches(tmp_path):
     first = hook_log.load_osprey_config({"cwd": str(tmp_path)})
     (tmp_path / "config.yml").unlink()
     assert hook_log.load_osprey_config({"cwd": str(tmp_path)}) == first == {"x": 1}
+
+
+# ---------------------------------------------------------------------------
+# agent_data_base_dir
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {},
+        {"agent_data": None},
+        {"agent_data": "x"},
+        {"agent_data": {}},
+        {"agent_data": {"base_dir": ""}},
+        {"agent_data": {"base_dir": "custom/agent_data"}},
+        {"agent_data": {"base_dir": "/abs/root"}},
+    ],
+)
+def test_agent_data_base_dir_matches_the_framework_reader(config):
+    assert hook_log.agent_data_base_dir(config) == workspace.agent_data_base_dir(config)
+
+
+def test_agent_data_fallback_literal_is_the_framework_default():
+    source = Path(hook_log.__file__).read_text()
+    assert '_DEFAULT_AGENT_DATA_ROOT = "' + DEFAULT_AGENT_DATA_BASE_DIR + '"' in source
+
+
+def test_repo_agent_data_root_follows_a_relocated_base_dir(tmp_path):
+    (tmp_path / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+
+    root = hook_log.repo_agent_data_root({"cwd": str(tmp_path)})
+
+    assert root == str(tmp_path / "relocated/agent_data")
+
+
+def test_repo_agent_data_root_defaults_without_a_config(tmp_path):
+    root = hook_log.repo_agent_data_root({"cwd": str(tmp_path)})
+
+    assert root == str(tmp_path / DEFAULT_AGENT_DATA_BASE_DIR)
+
+
+def test_an_absolute_base_dir_is_not_re_anchored(tmp_path, monkeypatch):
+    absolute = str(tmp_path / "abs")
+    config = {"agent_data": {"base_dir": absolute}}
+
+    assert hook_log.agent_data_root_at("/anchor", config) == absolute
+
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump(config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    subdirs = hook_log.agent_data_subdirs({"cwd": str(tmp_path / "elsewhere")}, "notebooks")
+
+    assert subdirs == [(tmp_path / "abs" / "notebooks").resolve()]
+
+
+def test_agent_data_subdirs_covers_both_anchors_once(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    build = repo / "build"
+    build.mkdir(parents=True)
+    (build / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+    monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
+
+    zoned = hook_log.agent_data_subdirs({"cwd": str(build)}, "notebooks")
+
+    assert zoned == [
+        (repo / "relocated/agent_data/notebooks").resolve(),
+        (build / "relocated/agent_data/notebooks").resolve(),
+    ]
+
+    hook_log._osprey_config_cache = None
+    (repo / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+    monkeypatch.setenv("OSPREY_CONFIG", str(repo / "config.yml"))
+
+    flat = hook_log.agent_data_subdirs({"cwd": str(repo)}, "notebooks")
+
+    assert flat == [(repo / "relocated/agent_data/notebooks").resolve()]
 
 
 # ---------------------------------------------------------------------------
