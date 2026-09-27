@@ -280,3 +280,27 @@ def test_the_nested_spelling_still_outranks_a_dotted_network(tmp_path):
     _inject_profile_services(tmp_path, project, services)
 
     assert _services(project)["qmd"]["network"] == "bridge"
+
+
+def test_a_profile_service_carries_a_dotted_bind_declaration(tmp_path):
+    """A dotted ``listens`` / ``bind_env`` survives the profile-service rewrite."""
+    project = _project(
+        tmp_path,
+        {
+            "site_poller": {"network": "host", "listens": False},
+            "site_api": {"network": "host", "bind_env": "SITE_BIND"},
+        },
+    )
+    template = tmp_path / "profile" / "services" / "site"
+    template.mkdir(parents=True)
+    (template / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
+    services = {
+        "site_poller": ServiceDef(template="services/site", config={}),
+        "site_api": ServiceDef(template="services/site", config={}),
+    }
+
+    _inject_profile_services(tmp_path / "profile", project, services)
+
+    rendered = _services(project)
+    assert rendered["site_poller"]["listens"] is False
+    assert rendered["site_api"]["bind_env"] == "SITE_BIND"

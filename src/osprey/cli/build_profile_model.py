@@ -61,8 +61,10 @@ from .build_profile_schema import (
     ServiceDef,
     TeamsBridgeProfileConfig,
     VAConfig,
+    bind_env_errors,
     env_names_errors,
     http_errors,
+    listens_errors,
     network_mode_errors,
 )
 from .build_profile_va_faults import (
@@ -701,6 +703,37 @@ class BuildProfile:
         errors: list[str] = []
         for _name, value, key in self._service_axis_declarations("http"):
             errors.extend(http_errors(value, key))
+        return errors
+
+    def _validate_bind_axis(self) -> list[str]:
+        """Return validation errors for every ``listens:`` / ``bind_env:`` declaration.
+
+        Same two authoring surfaces and the same as-authored timing as the
+        network axis. ``listens: true`` is valid with or without a
+        ``bind_env``, and a declaration on a service that is not on the host
+        network is valid and inert: readers consult it only under
+        ``network: host``, so changing a service's network must not force the
+        author to delete it.
+
+        Returns:
+            Human-readable error messages; empty when every value has the right
+            type and no service both opens no socket and names a bind address.
+        """
+        errors: list[str] = []
+        silent: set[str] = set()
+        bound: set[str] = set()
+        for name, value, key in self._service_axis_declarations("listens"):
+            errors.extend(listens_errors(value, key))
+            if value is False:
+                silent.add(name)
+        for name, value, key in self._service_axis_declarations("bind_env"):
+            errors.extend(bind_env_errors(value, key))
+            bound.add(name)
+        for name in sorted(silent & bound):
+            errors.append(
+                f"services.{name} declares both `listens: false` and `bind_env:`; a "
+                "service that opens no socket has no bind address. Remove one."
+            )
         return errors
 
     def _validate_env_axis(self) -> list[str]:
@@ -1440,6 +1473,7 @@ class BuildProfile:
         errors.extend(self._validate_network_axis())
         errors.extend(self._validate_env_axis())
         errors.extend(self._validate_http_axis())
+        errors.extend(self._validate_bind_axis())
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):
