@@ -285,8 +285,8 @@ def _carry_authored_keys(services: Any, name: str, block: dict[str, Any]) -> dic
     services with no injector at all.
 
     Copied by reference and only when present, so a service that declares
-    nothing renders byte-for-byte what it rendered before: no authored key
-    appears in any config.yml that did not already carry one.
+    nothing gains nothing: no authored key appears in any config.yml that did
+    not already carry one.
 
     A key the new block already carries is left alone, which is what keeps this
     usable from :func:`_inject_profile_services` too. That injector builds its
@@ -523,8 +523,8 @@ def _declare_bundled_host_bindings(
     ``network``: only a block on the host network gains a key, and only a
     non-default one (``listens: false`` or ``bind_env``). Readers consult the
     declaration only under ``network: host``, so a bridge-mode render's
-    ``config.yml`` stays byte-for-byte what it was, and the file is saved only
-    when something was written.
+    ``config.yml`` is left untouched, and the file is saved only when something
+    was written.
 
     Args:
         project_path: Root of the built project.
