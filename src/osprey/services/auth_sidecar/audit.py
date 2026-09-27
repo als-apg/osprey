@@ -263,12 +263,17 @@ REASON_UNMAPPED_ROLE_CLAIM = "unmapped_role_claim"
 """No value in the group claim is mapped to a role by this deployment."""
 
 REASON_AMBIGUOUS_ROLE_CLAIM = "ambiguous_role_claim"
-"""The group claim maps to more than one distinct role.
+"""The group claim maps to more than one distinct role, on a card that names none.
 
-Refused rather than resolved. The alternative — take the first — would make the
-privilege granted depend on the order the provider listed the groups in, or on
-the order the roles were declared in YAML, which is exactly how an operator ends
-up with a privilege nobody decided to give them."""
+Refused only where the clicked card's roster entry names no role; where it names
+one, the card's role is granted if the claim maps to it, and refused as
+:data:`REASON_ROLE_MISMATCH` otherwise.
+
+With no card role to anchor on it is refused rather than resolved. The
+alternative — take the first — would make the privilege granted depend on the
+order the provider listed the groups in, or on the order the roles were declared
+in YAML, which is exactly how an operator ends up with a privilege nobody
+decided to give them."""
 
 REASON_ROLE_MISMATCH = "role_mismatch"
 """The claim's role is not the role this user's terminal was rendered into.
@@ -282,9 +287,9 @@ session that names one role while sitting in another's container, and taking the
 roster's would grant a privilege the login never proved.
 
 Distinct from :data:`REASON_UNMAPPED_ROLE_CLAIM` (the claim maps to nothing at
-all) and from :data:`REASON_AMBIGUOUS_ROLE_CLAIM` (it maps to several): here the
-provider asserted exactly one role, and the disagreement is with the deployment
-rather than inside the token. A run of these is a roster and an IdP that have
+all) and from :data:`REASON_AMBIGUOUS_ROLE_CLAIM` (it maps to several on a card
+naming none): here none of the roles the claim maps to is the card's, and the
+disagreement is with the deployment rather than inside the token. A run of these is a roster and an IdP that have
 drifted apart — someone moved between groups without their roster entry
 following — which is the one refusal in this set an operator fixes in *both*
 places.
@@ -436,7 +441,9 @@ def record_login_success(
             names the category the success is recorded under.
         detail: Optional supplementary context — identifiers and config keys
             only, on the same terms as a refusal's ``detail``. A shared-card
-            login records the opener here (``opener=<name>``).
+            login records the opener here (``opener=<name>``), and an OIDC
+            login whose token mapped to several roles records them
+            (``mapped_roles=<a>,<b>``).
         role: The role the session was minted with, where the deployment binds
             one. Empty is the deny-safe value and is recorded as no role at all,
             never as a role named ``""``.

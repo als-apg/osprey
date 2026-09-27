@@ -63,6 +63,7 @@ from osprey.services.auth_sidecar.routes.oidc import (
     REASON_UNSAFE_ROLE,
     RoleBinding,
 )
+from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
@@ -591,6 +592,31 @@ class TestARefusedOidcLogin:
         refused login never also files the success record."""
         assert _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
         assert len(_records(zone)) == 1
+
+
+class TestAnOidcLoginResolvedFromSeveralRoles:
+    """A login whose token mapped to several roles says which ones in its record."""
+
+    @staticmethod
+    def _app(groups: list[str]) -> FastAPI:
+        app = _oidc_app(
+            userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: groups},
+            binding=RoleBinding(claim=GROUP_CLAIM, claim_map=CLAIM_MAP),
+        )
+        app.state.roster_roles = RosterRoles({"alice": "observer"})
+        return app
+
+    def test_the_success_record_names_the_mapped_roles(self, zone: Path) -> None:
+        assert _callback(self._app([OPERATOR_GROUP, OBSERVER_GROUP])).status_code == 303
+        records = _records(zone)
+        assert len(records) == 1
+        assert records[0]["decision"] == "allowed"
+        assert records[0]["role"] == "observer"
+        assert records[0]["detail"] == "mapped_roles=observer,operator"
+
+    def test_one_mapped_role_records_no_detail(self, zone: Path) -> None:
+        assert _callback(self._app([OBSERVER_GROUP])).status_code == 303
+        assert "detail" not in _records(zone)[0]
 
 
 # --- the emitter never costs the decision -----------------------------------

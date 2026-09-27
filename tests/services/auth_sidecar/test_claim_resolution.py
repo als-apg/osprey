@@ -50,6 +50,7 @@ from osprey.services.auth_sidecar.routes.oidc import (
     RoleBinding,
     _claims_options,
 )
+from osprey.services.auth_sidecar.routes.recheck import REASON_ROLE_MISMATCH, RosterRoles
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from tests.services.auth_sidecar.mock_idp import MockIdP
 
@@ -247,7 +248,8 @@ class TestClaimValueShapes:
 
 
 class TestAmbiguityFailsClosed:
-    """More than one distinct role is a refusal, never a pick."""
+    """On a card whose roster entry names no role, more than one distinct role is a
+    refusal, never a pick."""
 
     def _response(self) -> httpx.Response:
         return _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP, EXPERT_GROUP])))
@@ -286,6 +288,73 @@ class TestAmbiguityFailsClosed:
         """Naming one of the two would claim the login resolved to it."""
         self._response()
         assert recorded[0].to_dict().get("role") in (None, "")
+
+
+class TestSeveralRolesOnARoleBoundCard:
+    """A card whose roster entry names a role picks that role out of the set the
+    token maps to, whatever order the values arrive in."""
+
+    @staticmethod
+    def _response(
+        card_role: str,
+        groups: list[str],
+        claim_map: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        app = _app(
+            userinfo=_claims(groups=groups),
+            binding=RoleBinding(
+                claim=GROUP_CLAIM, claim_map=claim_map if claim_map is not None else CLAIM_MAP
+            ),
+        )
+        app.state.roster_roles = RosterRoles({"alice": card_role})
+        return _callback(app)
+
+    def test_the_card_role_is_admitted_when_it_is_one_of_them(self) -> None:
+        response = self._response("expert", [OPERATOR_GROUP, EXPERT_GROUP])
+        assert response.status_code == 303
+        assert _role_of(response) == "expert"
+
+    def test_the_order_the_values_arrive_in_grants_the_same_role(self) -> None:
+        forward = self._response("expert", [OPERATOR_GROUP, EXPERT_GROUP])
+        backward = self._response("expert", [EXPERT_GROUP, OPERATOR_GROUP])
+        assert _role_of(forward) == "expert"
+        assert _role_of(backward) == "expert"
+
+    def test_the_record_names_the_roles_and_never_the_claim_values(
+        self, recorded: list[Any]
+    ) -> None:
+        self._response("expert", [OPERATOR_GROUP, EXPERT_GROUP])
+        assert len(recorded) == 1
+        record = recorded[0].to_dict()
+        assert record["decision"] == "allowed"
+        assert record["role"] == "expert"
+        assert record["detail"] == "mapped_roles=expert,operator"
+        assert OPERATOR_GROUP not in json.dumps(record)
+        assert EXPERT_GROUP not in json.dumps(record)
+
+    def test_a_card_role_outside_the_set_is_refused_as_a_mismatch(
+        self, recorded: list[Any]
+    ) -> None:
+        response = self._response("observer", [OPERATOR_GROUP, EXPERT_GROUP])
+        assert response.status_code == 403
+        assert SESSION_COOKIE_NAME not in response.cookies
+        record = recorded[0].to_dict()
+        assert record["reason"] == REASON_ROLE_MISMATCH
+        assert record["detail"] == "mapped_roles=expert,operator"
+
+    def test_an_uncarryable_candidate_refuses_before_the_card_is_consulted(
+        self, recorded: list[Any]
+    ) -> None:
+        response = self._response(
+            "operator",
+            [OPERATOR_GROUP, EXPERT_GROUP],
+            claim_map={OPERATOR_GROUP: "operator", EXPERT_GROUP: "exp\nert"},
+        )
+        assert response.status_code == 403
+        record = recorded[0].to_dict()
+        assert record["reason"] == REASON_UNSAFE_ROLE
+        assert "exp\nert" not in (record.get("detail") or "")
+        assert "exp\\nert" not in json.dumps(record)
 
 
 class TestEmptyIntersection:
