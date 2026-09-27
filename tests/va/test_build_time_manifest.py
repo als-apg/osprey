@@ -214,6 +214,40 @@ class TestManifestPaths:
         )
 
 
+class TestMachineStateCandidates:
+    """Every non-underscore key of the machine-state list is a candidate address."""
+
+    @staticmethod
+    def _candidates(tree: Path, document) -> list[str]:
+        text = document if isinstance(document, str) else json.dumps(document, indent=2)
+        (tree / "machine_state_channels.json").write_text(text)
+        return loaders.load_machine_state_candidate_addresses(
+            ManifestPaths(data_root=tree, tier=DEFAULT_TIER)
+        )
+
+    def test_candidates_are_the_document_keys_whatever_the_member_order(self, editable_tree):
+        document = {
+            "B:X": {"group": "Beam", "label": "B X"},
+            "A:Y": {"label": "A Y", "group": "Beam"},
+        }
+
+        assert self._candidates(editable_tree, document) == ["B:X", "A:Y"]
+
+    def test_underscore_keys_are_metadata_not_candidates(self, editable_tree):
+        document = {"_comment": "text", "_version": "1", "_provenance": "stamp"}
+
+        assert self._candidates(editable_tree, document) == []
+
+    def test_an_entry_is_a_candidate_whatever_its_value(self, editable_tree):
+        assert self._candidates(editable_tree, {"A": {}, "B": "text"}) == ["A", "B"]
+
+    def test_a_list_that_is_not_a_json_object_is_refused_naming_the_file(self, editable_tree):
+        with pytest.raises(loaders.ManifestFileError) as excinfo:
+            self._candidates(editable_tree, "[]")
+
+        assert "machine_state_channels.json" in str(excinfo.value)
+
+
 class TestNonProfileBehaviorUnchanged:
     """A build that sources the bundled tree must produce today's manifest.
 
@@ -262,6 +296,39 @@ class TestPreparedFromFacilityTree:
             edited.manifest["_metadata"]["total_channels"]
             == baseline.manifest["_metadata"]["total_channels"] + 1
         )
+
+    def test_a_machine_state_list_with_sorted_keys_is_reconciled_whole(self, editable_tree):
+        state_list = editable_tree / "machine_state_channels.json"
+        document = json.loads(state_list.read_text())
+        state_list.write_text(json.dumps(document, sort_keys=True, indent=2))
+        addresses = [key for key in document if not key.startswith("_")]
+
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        reconciliation = prepared.manifest["_metadata"]["machine_state_reconciliation"]
+        assert addresses
+        assert reconciliation["candidates_checked"] == len(addresses)
+        assert reconciliation["invalid"] == []
+
+    def test_an_unreadable_machine_state_list_raises_naming_the_file(self, editable_tree):
+        from osprey.errors import BuildProfileError
+
+        (editable_tree / "machine_state_channels.json").write_text("not json {")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert "machine_state_channels.json" in str(excinfo.value)
+
+    def test_a_machine_state_list_that_is_not_an_object_raises_naming_the_file(self, editable_tree):
+        from osprey.errors import BuildProfileError
+
+        (editable_tree / "machine_state_channels.json").write_text("[]")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert "machine_state_channels.json" in str(excinfo.value)
 
 
 class TestStagedSubset:
@@ -1762,3 +1829,16 @@ class TestGraphYieldsNothing:
             prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
         assert "machine.json" in str(excinfo.value)
+
+    def test_a_graph_tree_machine_state_list_that_is_not_an_object_raises_naming_the_file(
+        self, tmp_path
+    ):
+        from osprey.errors import BuildProfileError
+
+        root, config = _graph_tree(tmp_path / "data")
+        (root / "machine_state_channels.json").write_text("[]")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert "machine_state_channels.json" in str(excinfo.value)

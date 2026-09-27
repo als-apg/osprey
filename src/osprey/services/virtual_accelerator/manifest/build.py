@@ -1042,7 +1042,7 @@ def _prepare_graph_manifest(roster, paths: ManifestPaths) -> PreparedManifest | 
             corrupt_paradigms=[],
             source_corpus=roster.source.for_display(),
         )
-    except (json.JSONDecodeError, KeyError, OSError) as exc:
+    except (json.JSONDecodeError, KeyError, OSError, loaders.ManifestFileError) as exc:
         culprit = _first_unreadable_source(paths)
         detail = (
             f"{culprit} is not readable as JSON"
@@ -1180,7 +1180,7 @@ def prepare_project_manifest(
             exc,
         )
         return None
-    except (json.JSONDecodeError, KeyError, OSError) as exc:
+    except (json.JSONDecodeError, KeyError, OSError, loaders.ManifestFileError) as exc:
         culprit = _first_unreadable_source(paths)
         detail = (
             f"{culprit} is not readable as JSON"

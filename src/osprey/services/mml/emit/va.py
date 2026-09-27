@@ -39,8 +39,8 @@ holding ``ctx.provenance_string``, and so does the bindings document. That stamp
 tells a file this lane wrote from one a person hand-authored: an unstamped
 file at either path is refused with the ``rm`` line that names it, rather than
 overwritten. Both readers already tolerate it -- ``load_machine_json_channels``
-reads only ``channels``, and the machine-state loader keys off each entry's
-``label`` member, so a top-level string is not mistaken for a channel.
+reads only ``channels``, and the machine-state loader skips every
+underscore-prefixed key, so the stamp is not mistaken for an address.
 
 Rules the two emitters share:
 
