@@ -11,8 +11,9 @@ compose ``ports:`` list, so the service says it on its rendered
 * ``bind_env: NAME`` — the address it binds is the rendered value of the
   environment variable ``NAME`` in its compose file.
 
-This module is a leaf: it holds the two key names and the one reader that
-applies their defaults, so every consumer reads a block the same way.
+This module is a leaf: it holds the two key names, the one reader that
+applies their defaults, and OSPREY's own declarations for its bundled
+host-capable templates, so every consumer reads a block the same way.
 """
 
 from __future__ import annotations
@@ -79,3 +80,84 @@ def host_binding_of(block: Any) -> HostBinding:
         listens=listens if isinstance(listens, bool) else True,
         bind_env=bind_env if isinstance(bind_env, str) and bind_env else None,
     )
+
+
+@dataclass(frozen=True)
+class BundledHostBinding:
+    """OSPREY's declaration for one of its own host-capable templates.
+
+    Attributes:
+        binding: What the template binds under ``network: host``.
+        why: The fact about the service that makes the declaration true.
+    """
+
+    binding: HostBinding
+    why: str
+
+
+BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
+    "nextcloud_bridge": BundledHostBinding(
+        HostBinding(listens=False),
+        "a chat poller that dials the dispatcher; nothing in a container dials it",
+    ),
+    "gchat_bridge": BundledHostBinding(
+        HostBinding(listens=False),
+        "a chat bridge that dials the dispatcher; nothing in a container dials it",
+    ),
+    "teams_bridge": BundledHostBinding(
+        HostBinding(listens=False),
+        "a chat bridge that dials the dispatcher; nothing in a container dials it",
+    ),
+    "ariel_sync": BundledHostBinding(
+        HostBinding(listens=False),
+        "a logbook poller that dials the store and the facility logbook; "
+        "nothing in a container dials it",
+    ),
+    "archive": BundledHostBinding(
+        HostBinding(listens=False),
+        "copies the deployment's volumes into var/archive; nothing in a container dials it",
+    ),
+    "event_dispatcher": BundledHostBinding(
+        HostBinding(bind_env="FASTMCP_HOST"),
+        "its compose file renders the server's bind address into FASTMCP_HOST",
+    ),
+    "dispatch_worker": BundledHostBinding(
+        HostBinding(bind_env="DISPATCH_WORKER_BIND"),
+        "its compose file renders each worker's bind address into DISPATCH_WORKER_BIND",
+    ),
+    "graphdb": BundledHostBinding(
+        HostBinding(bind_env="NEO4J_server_default__listen__address"),
+        "under host its compose file binds Neo4j itself to loopback through "
+        "NEO4J_server_default__listen__address",
+    ),
+    "qmd": BundledHostBinding(
+        HostBinding(),
+        "its socat forwarder listens on every interface and no variable narrows it",
+    ),
+}
+"""OSPREY's declaration for each bundled template that can render ``network: host``.
+
+Keyed by bundled template name, which is also the ``services.<name>`` key the
+template reads. One entry per template importing ``_network_axis.j2``; an
+undeclared entry (qmd) still belongs here, so a profile cannot declare on
+OSPREY's behalf what the template does not do."""
+
+
+def osprey_owns_binding(name: str, *, template: str | None, claimed: bool) -> bool:
+    """Whether OSPREY, not the author, declares what service ``name`` binds.
+
+    Args:
+        name: The ``services.<name>`` key.
+        template: The profile's ``services:`` entry template for ``name``, or
+            None when the profile has no entry (an injected service).
+        claimed: Whether the deployment claimed the service's template with
+            ``osprey scaffold claim``.
+
+    Returns:
+        True for an unclaimed bundled service rendered from OSPREY's own
+        template; a claimed one, or a facility template reusing a bundled name,
+        declares its own.
+    """
+    if name not in BUNDLED_HOST_BINDINGS or claimed:
+        return False
+    return template is None or template == f"osprey.{name}"

@@ -314,6 +314,23 @@ def test_deploying_render_keeps_the_services_its_profile_declares(
     assert unprojected, "the deployment render carries none of the preset's own service keys"
 
 
+@pytest.mark.slow
+def test_the_deploying_render_declares_the_host_pairs_bind_variables(
+    rendered: dict[str, dict[str, Any]],
+) -> None:
+    """The preset's host-mode dispatch pair names what each half binds through.
+
+    The off-host bind check at ``osprey up`` reads the address from the
+    variable a host-mode service declares; a pair that declared nothing would
+    be counted reachable from the network.
+    """
+    services = rendered["root"]["services"]
+
+    assert services["event_dispatcher"]["network"] == "host"
+    assert services["event_dispatcher"]["bind_env"] == "FASTMCP_HOST"
+    assert services["dispatch_worker"]["bind_env"] == "DISPATCH_WORKER_BIND"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # The attached renders
 # ─────────────────────────────────────────────────────────────────────────────

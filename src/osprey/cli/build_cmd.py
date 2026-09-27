@@ -73,6 +73,7 @@ from .build_environment import (
 )
 from .build_injectors import (
     _copy_service_templates,
+    _declare_bundled_host_bindings,
     _inject_bluesky,
     _inject_bluesky_web,
     _inject_dispatch,
@@ -4227,7 +4228,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     their in-network dispatcher URLs on ``event_dispatcher``/``dispatch_worker``
     already being in ``deployed_services``, which is what the dispatch injector
     writes there; the bluesky-web sidecar read-proxies the bluesky bridge and
-    follows it for the same reason.
+    follows it for the same reason. OSPREY's own host-binding declarations are
+    written last, once every injector (the dispatch pair's ``network`` among
+    them) has settled which blocks are on the host network.
 
     Returns:
         The name of each component injected, in injection order — what the
@@ -4301,6 +4304,7 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
 
+    _declare_bundled_host_bindings(project_path, profile_dir, build_profile.services)
     return injected
 
 
