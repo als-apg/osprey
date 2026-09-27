@@ -21,7 +21,7 @@ from osprey.services.ariel_search.exceptions import (
     AuthenticationRequiredError,
     IngestionError,
 )
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
@@ -571,13 +571,8 @@ class ALSLogbookAdapter(FacilityAdapter):
         """Convert ALS JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
-        # Parse timestamp - ALS uses Unix epoch STRING (not int)
-        timestamp_str = data.get("timestamp", "0")
-        try:
-            timestamp_epoch = int(timestamp_str)
-            timestamp = datetime.fromtimestamp(timestamp_epoch, tz=UTC)
-        except (ValueError, TypeError):
-            timestamp = now
+        # ALS uses a Unix epoch STRING (not int)
+        timestamp = parse_entry_time(data.get("timestamp"))
 
         subject = data.get("subject", "")
         details = data.get("details", "")
