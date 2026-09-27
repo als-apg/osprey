@@ -524,6 +524,22 @@ Anything that drives the pipeline from outside holds both. A :doc:`chat bridge
 from the worker with ``DISPATCH_WORKER_TOKEN``, so a bridge that has only one of
 them stalls partway through every question.
 
+``EVENT_DISPATCHER_TOKEN`` is an admin credential. One value covers the
+webhook, the ``/mcp`` transport and every dashboard write — re-firing a
+trigger, cancelling a run, clearing the run history, and enabling or disabling
+a trigger — and there is no narrower per-trigger token. Hand it only to the
+web terminal and to the bridges that fire triggers.
+
+The dispatcher records who asked, but it does not check it. A fire or re-fire
+made from the web terminal carries your account name, added by the terminal's
+panel proxy, and the dispatcher stores it as ``owner`` on the trigger's history
+entry and on the run record; cancelling a run, clearing the history and
+enabling or disabling a trigger log the same name. A webhook, a ``cron``
+trigger and a chat-bridge fire name nobody and are recorded without an owner.
+The recorded owner is attribution, never authorization: the token decides what
+a request may do, and anyone holding it can call the dispatcher's port directly
+under any account name or none.
+
 .. dropdown:: How the tokens work
    :icon: shield-lock
 
