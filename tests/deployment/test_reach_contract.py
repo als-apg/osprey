@@ -33,6 +33,7 @@ from osprey.bluesky_bridge_connection import (
     SECOND_LANE_KEYS,
     lane_env_prefix,
 )
+from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
 from osprey.deployment.reach import (
     REACH_CONTRACTS,
     SHARED_PATHS,
@@ -115,6 +116,25 @@ def test_every_deployable_service_has_a_contract():
         f"osprey.deployment.reach — with its consumers and projected keys, or with "
         f"no_client_reach=True and a note saying why nothing in a container dials it."
     )
+
+
+def test_every_outbound_only_service_has_a_derived_contract():
+    """A service that opens no socket is dialed by nothing, for the reason it declares."""
+    outbound = {name: e for name, e in BUNDLED_HOST_BINDINGS.items() if not e.binding.listens}
+    assert outbound, "the bundled declaration names no outbound-only service"
+    for name, entry in outbound.items():
+        contract = REACH_CONTRACTS[name]
+        assert contract.service == name
+        assert contract.no_client_reach is True
+        assert contract.note == entry.why
+
+
+def test_a_service_that_listens_keeps_its_hand_written_contract():
+    """Dialed by nothing does not mean listening on nothing."""
+    for name in ("dispatch_worker", "archiver_recorder"):
+        assert REACH_CONTRACTS[name].no_client_reach is True
+        entry = BUNDLED_HOST_BINDINGS.get(name)
+        assert entry is None or entry.binding.listens is True
 
 
 def test_every_contract_names_a_deployable_service():
