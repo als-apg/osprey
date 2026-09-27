@@ -288,7 +288,9 @@ directory. ``http: true`` says this service answers HTTP on the port it
 publishes, so the deploy summary prints its address as a link rather than as a
 bare ``host:port`` — the framework recognises its own services by name and has
 no way to know what protocol sits behind yours. Leave it out for a service that
-speaks anything else; a link that cannot open is worse than no link.
+speaks anything else; a link that cannot open is worse than no link. Were
+``facility-mcp`` moved to the host network, its template would render the bind
+address into a variable and name it with ``bind_env:``.
 
 The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it. ``10900`` is the
