@@ -8,6 +8,7 @@ byte-compare that keeps unchanged entries from being rewritten.
 import os
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -23,6 +24,18 @@ from osprey.services.ariel_search.enhancement.qmd_export.writer import (
     sanitize_text,
     write_entry,
 )
+
+
+@pytest.fixture
+def facility_zone(monkeypatch):
+    """Pin the facility zone the body states times in; call it with the zone name."""
+
+    def _pin(name: str) -> None:
+        zone = ZoneInfo(name)
+        monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+
+    return _pin
+
 
 # Ids that must survive a round trip through the filesystem.
 HOSTILE_IDS = [
@@ -136,6 +149,14 @@ class TestMirrorPath:
         path = mirror_path(tmp_path, make_entry(timestamp=stamp))
         assert path.parent == tmp_path.resolve() / "2024" / "05"
 
+    def test_shard_stays_on_the_utc_month_in_a_facility_zone(self, tmp_path, facility_zone):
+        """The body states the facility-local date; the shard keeps the UTC month."""
+        facility_zone("Europe/Berlin")
+        entry = make_entry(timestamp=datetime(2024, 5, 31, 23, 30, tzinfo=UTC))
+
+        assert "2024-06-01T01:30:00+02:00" in render_entry(entry)
+        assert mirror_path(tmp_path, entry).parent == tmp_path.resolve() / "2024" / "05"
+
     def test_missing_timestamp_uses_unknown_shard(self, tmp_path):
         """A row without a usable timestamp still gets a stable home."""
         path = mirror_path(tmp_path, make_entry(timestamp=None))
@@ -229,14 +250,21 @@ class TestSanitize:
 class TestRender:
     """Document rendering: body prose, determinism, cap."""
 
-    def test_metadata_is_body_text_not_frontmatter(self):
+    def test_metadata_is_body_text_not_frontmatter(self, facility_zone):
         """Author, timestamp and source are prose; there is no frontmatter."""
+        facility_zone("UTC")
         document = render_entry(make_entry())
         assert not document.startswith("---")
         assert "jdoe" in document
-        assert "2024-05-17 13:45:09 UTC" in document
+        assert "2024-05-17T13:45:09+00:00" in document
         assert "Example eLog" in document
         assert "Beam lost at 13:45." in document
+
+    def test_body_states_the_time_in_the_facility_zone(self, facility_zone):
+        """The body carries the facility-local time with its offset."""
+        facility_zone("Europe/Berlin")
+        document = render_entry(make_entry())
+        assert "Logged by jdoe on 2024-05-17T15:45:09+02:00." in document
 
     def test_scalar_metadata_rendered_sorted(self):
         """Facility metadata is searchable and order-independent."""

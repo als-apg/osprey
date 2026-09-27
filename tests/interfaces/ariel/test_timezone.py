@@ -15,6 +15,7 @@ import pytest
 
 from osprey.interfaces.ariel.api.routes import _entry_to_response
 from osprey.mcp_server.ariel.server import serialize_entry
+from osprey.services.ariel_search.enhancement.qmd_export.writer import render_entry
 
 TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST → stable offset
 
@@ -51,6 +52,15 @@ def test_web_and_mcp_render_same_facility_local_timestamp():
     # Midnight UTC → 09:00 Tokyo with an explicit +09:00 offset, identical on both.
     assert web.timestamp == "2026-06-01T09:00:00+09:00"
     assert web.timestamp == mcp["timestamp"]
+
+
+@pytest.mark.usefixtures("facility_tokyo")
+def test_qmd_body_states_the_web_timestamp():
+    """The qmd mirror body carries the exact string the web API returns."""
+    web = _entry_to_response(_entry())
+
+    assert web.timestamp == "2026-06-01T09:00:00+09:00"
+    assert web.timestamp in render_entry(_entry())
 
 
 @pytest.mark.usefixtures("facility_tokyo")
