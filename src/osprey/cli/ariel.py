@@ -413,10 +413,20 @@ def ingest_command(
         output.report("")
         if result.dry_run:
             output.report(f"Dry run complete: {result.count} entries would be ingested")
+            if result.unreadable_count:
+                output.warn(
+                    f"Skipped {result.unreadable_count} entries that could not be read",
+                    "The ingest log names each one.",
+                )
             if result.enhancer_names:
                 output.note(f"Enhancement modules would run: {result.enhancer_names}")
         else:
             output.report(f"Ingestion complete: {result.count} entries stored")
+            if result.unreadable_count:
+                output.warn(
+                    f"Skipped {result.unreadable_count} entries that could not be read",
+                    "The ingest log names each one.",
+                )
             if result.enhancer_names:
                 output.note(f"Enhancement complete: {result.enhanced_count} enhancements applied")
     except DatabaseQueryError as e:

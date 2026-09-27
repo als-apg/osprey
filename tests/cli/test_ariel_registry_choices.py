@@ -38,7 +38,9 @@ def registered_ingest(monkeypatch) -> list[dict[str, Any]]:
 
     async def _fake_ingest(config_dict, _source, adapter, _since, _limit, _dry_run, progress=None):  # noqa: ARG001 - the progress keyword the ariel verb passes
         calls.append({"config": config_dict, "adapter": adapter})
-        return ops.IngestResult(count=0, enhanced_count=0, failed_count=0, dry_run=True)
+        return ops.IngestResult(
+            count=0, enhanced_count=0, failed_count=0, unreadable_count=0, dry_run=True
+        )
 
     async def _no_resync(_config_dict, progress=None):  # noqa: ARG001 - the progress keyword the ariel verb passes
         return None
@@ -106,6 +108,7 @@ class TestIngestHonoursTheConfiguredAdapter:
 
         class _Adapter:
             source_system_name = "als_logbook"
+            unreadable_entries = 0
 
             async def fetch_entries(self, since=None, limit=None):  # noqa: ARG002 - the ingestion adapter signature this stands in for
                 return

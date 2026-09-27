@@ -415,6 +415,32 @@ class TestRunIngestStoring:
 
         assert adapter.fetch_calls == [{"since": since, "limit": 7}]
 
+    async def test_unreadable_entries_reach_the_result_and_the_run(
+        self, monkeypatch, mock_repository
+    ):
+        _patch_adapter(monkeypatch, _Adapter(_entries(2), unreadable=3))
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+
+        result = await ops.run_ingest(
+            dict(_DB),
+            source=_SOURCE,
+            adapter="generic_json",
+            since=None,
+            limit=None,
+            dry_run=False,
+        )
+
+        assert result.count == 2
+        assert result.failed_count == 0
+        assert result.unreadable_count == 3
+        mock_repository.complete_ingestion_run.assert_awaited_once_with(
+            mock_repository.start_ingestion_run.return_value,
+            entries_added=2,
+            entries_updated=0,
+            entries_failed=3,
+        )
+
     async def test_a_naive_since_is_read_in_the_facility_zone(self, monkeypatch, mock_repository):
         monkeypatch.setattr(
             "osprey.utils.config.get_facility_timezone", lambda: ZoneInfo("Europe/Berlin")

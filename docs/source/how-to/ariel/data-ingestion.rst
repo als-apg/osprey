@@ -49,7 +49,7 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
      - ``generic_json``
      - Reads entries from a JSON file. ``id``, ``title``, ``text``, ``author``, ``timestamp`` and ``attachments`` map onto the common schema; every other top-level field is kept as entry metadata, and an explicit ``metadata`` object merges last and wins. Useful for demos, testing, and facilities without a custom API.
 
-**Entry times.** A time with a UTC offset, a ``Z`` or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (``system.timezone``). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.
+**Entry times.** A time with a UTC offset, a ``Z`` or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (``system.timezone``). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time; it counts as failed in the run's totals (``osprey ariel watch``, ``osprey ariel sync``), and ``osprey ariel ingest`` reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.
 
 **Using a custom adapter:**
 
