@@ -678,14 +678,17 @@ deployment that is not yet wired to its facility, or whose machine is down.
 Flipping it back is three settings, not one, because the archive goes with the
 machine. The ``va_archiver:`` block records *this* deployment's history from
 the stand-in, and the build refuses to serve that store as the facility's past
-— so the recorded store is dropped and the archiver pointed at the facility's
-own appliance in the same step:
+— so the recorded store is dropped and the archiver pointed at the one that
+records the facility's machine, in the same step:
 
 .. code-block:: bash
 
-   osprey set connector=epics
-   osprey set config.archiver.type=epics_archiver
+   osprey set connector=epics                      # your control system
+   osprey set config.archiver.type=epics_archiver  # the archiver that records it
    osprey set va_archiver=null
+
+``epics`` stands for your control system; see :doc:`use-connectors` for the
+others and their archivers.
 
 ``osprey init`` does not offer the stand-in, and the build refuses
 ``control_system.type: live_standin`` on a profile that asks for no
