@@ -40,18 +40,17 @@
     `live`. The build never DERIVES a stand-in second lane (it pairs a stand-in
     baseline with the VA, and a stand-in baseline keeps the historical `bluesky`
     key), so that key only ever arrives from a project that declared the lane
-    itself. Rendering it anyway is what keeps this list the same set as the lane
-    registry every other holder reads — a key the template did not know would be
-    a lane `osprey up` provisions tokens and certificates for and compose then
-    renders no containers for.
+    itself. The keys come from the lane registry through the render context's
+    `bluesky_second_lane_keys`, so this list is the registry's set by
+    construction — a key the template did not know would be a lane `osprey up`
+    provisions tokens and certificates for and compose then renders no
+    containers for.
 
     The list is read off `deployed_services` rather than off `services` so a
     block left in config.yml but not deployed cannot conjure a stack; that is
     the same membership rule every other service here is gated on. -#}
 {%- set lane_keys = ['bluesky'] -%}
-{%- if 'bluesky_va' in deployed_services %}{% set _ = lane_keys.append('bluesky_va') %}{% endif -%}
-{%- if 'bluesky_live' in deployed_services %}{% set _ = lane_keys.append('bluesky_live') %}{% endif -%}
-{%- if 'bluesky_standin' in deployed_services %}{% set _ = lane_keys.append('bluesky_standin') %}{% endif -%}
+{%- for second_lane_key in bluesky_second_lane_keys if second_lane_key in deployed_services %}{% set _ = lane_keys.append(second_lane_key) %}{% endfor -%}
 # The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
 # behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
 # `osprey up` builds its image locally on first run; subsequent runs

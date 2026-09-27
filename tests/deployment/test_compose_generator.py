@@ -32,7 +32,7 @@ import yaml
 from ruamel.yaml import YAML
 
 import osprey.channel_roster as channel_roster
-from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
+from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS, lane_env_prefix
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
@@ -1546,7 +1546,8 @@ def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
 
 
-def test_worker_plan_queue_link_covers_a_second_lane() -> None:
+@pytest.mark.parametrize("key", list(SECOND_LANE_KEYS.values()))
+def test_worker_plan_queue_link_covers_a_second_lane(key: str) -> None:
     """Each deployed lane is addressed under its own env prefix.
 
     Two lanes are two bridges, and a worker handed only lane one would queue
@@ -1554,13 +1555,16 @@ def test_worker_plan_queue_link_covers_a_second_lane() -> None:
     """
     rendered = _render_worker_template(
         env_present=True,
-        deployed_services=["bluesky", "bluesky_va"],
-        services_extra={"bluesky": {"port": 10080}, "bluesky_va": {"port": 10081}},
+        deployed_services=["bluesky", key],
+        services_extra={"bluesky": {"port": 10080}, key: {"port": 10081}},
     )
     environment = _worker_service(rendered)["environment"]
 
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
-    assert environment["BLUESKY_VA_BRIDGE_URL"] == "http://bluesky-va-bridge:10081"
+    assert (
+        environment[f"{lane_env_prefix(key)}_BRIDGE_URL"]
+        == f"http://{key.replace('_', '-')}-bridge:10081"
+    )
 
 
 def test_worker_plan_queue_link_is_absent_on_the_host_namespace() -> None:
