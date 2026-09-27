@@ -9,6 +9,7 @@ SDK and tests never assert a timing-dependent terminal status.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -461,6 +462,40 @@ def test_dashboard_runs_session_id_is_none_when_unrecorded(client, monkeypatch):
     assert legacy["session_id"] is None
 
 
+def test_dashboard_runs_carries_the_owner(client, monkeypatch):
+    """The feed projects the owner, so the dashboard can say who fired the run."""
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "seeded-run",
+        {
+            "status": "completed",
+            "created_at": 1785744790.0,
+            "owner": "alice",
+            "text_output": "done",
+            "tool_calls": [],
+        },
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    assert resp.status_code == 200
+    seeded = next(r for r in resp.json() if r["run_id"] == "seeded-run")
+    assert seeded["owner"] == "alice"
+
+
+def test_dashboard_runs_owner_is_none_when_unattributed(client, monkeypatch):
+    """An owner-less run projects None rather than omitting the key."""
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "legacy-run",
+        {"status": "completed", "created_at": 1785744790.0, "tool_calls": []},
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    legacy = next(r for r in resp.json() if r["run_id"] == "legacy-run")
+    assert "owner" in legacy
+    assert legacy["owner"] is None
+
+
 # ---------------------------------------------------------------------------
 # Startup lifecycle: provider-env injection, no artifact regeneration
 # ---------------------------------------------------------------------------
@@ -844,6 +879,91 @@ def test_dispatch_request_owner_is_additive() -> None:
     would turn every fire from an older dispatcher into a 422.
     """
     request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
+
+    assert request.owner is None
+
+
+def _capture_persisted(monkeypatch) -> dict[str, dict[str, Any]]:
+    """Replace ``_persist_run`` with a stub that keeps the last dict written per run."""
+    persisted: dict[str, dict[str, Any]] = {}
+
+    def _capturing_persist_run(run_id: str, run: dict[str, Any]) -> None:
+        persisted[run_id] = dict(run)
+
+    monkeypatch.setattr(dispatch_api, "_persist_run", _capturing_persist_run)
+    return persisted
+
+
+def test_run_record_names_the_owner_from_the_body(client, monkeypatch):
+    """The finished run record, in memory and on disk, names who fired it.
+
+    The persisted dict is what ``load_run_record`` serves once the run has aged
+    out of memory, so it must carry the owner as well.
+    """
+    persisted = _capture_persisted(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"], "owner": "alice"},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    record = _wait_for_terminal(client, run_id)
+
+    assert record["owner"] == "alice"
+    assert persisted[run_id]["owner"] == "alice"
+
+
+def test_owner_less_run_record_has_no_owner_key(client, monkeypatch):
+    """A run nobody is attributed to is stored without an owner key."""
+    persisted = _capture_persisted(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    record = _wait_for_terminal(client, run_id)
+
+    assert "owner" not in record
+    assert "owner" not in persisted[run_id]
+
+
+def test_pending_record_names_the_owner(client, monkeypatch):
+    """The record of a run still in flight already names who fired it."""
+    release = asyncio.Event()
+
+    async def _blocking_run_dispatch(**kwargs):
+        await release.wait()
+        queue = kwargs.get("event_queue")
+        if queue is not None:
+            await queue.put({"type": "done"})
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _blocking_run_dispatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"], "owner": "alice"},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    try:
+        assert dispatch_api._runs[run_id]["status"] == "pending"
+        assert dispatch_api._runs[run_id]["owner"] == "alice"
+    finally:
+        client.portal.call(release.set)
+    _wait_for_terminal(client, run_id)
+
+
+@pytest.mark.parametrize("bad", ["${OSPREY_TERMINAL_USER}", "a/b", "x" * 65, ""])
+def test_dispatch_request_refuses_a_malformed_owner_to_none(bad: str) -> None:
+    """The worker routes the body's owner through the shared guard; a refusal names nobody."""
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[], owner=bad)
 
     assert request.owner is None
 

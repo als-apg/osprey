@@ -68,6 +68,28 @@ async def test_record_event_updates_last_fired_and_history():
 
 
 @pytest.mark.asyncio
+async def test_record_event_keeps_the_owner_it_is_given():
+    """A fire a person asked for is recorded under their name."""
+    reg = TriggerRegistry()
+    await reg.register(_make_trigger("t"))
+    await reg.record_event("t", {}, "dispatched", owner="alice")
+
+    (entry,) = await reg.get_history("t")
+    assert entry["owner"] == "alice"
+
+
+@pytest.mark.asyncio
+async def test_record_event_without_an_owner_leaves_the_key_out():
+    """An owner-less fire keeps the three-key entry: an absent key means unattributed."""
+    reg = TriggerRegistry()
+    await reg.register(_make_trigger("t"))
+    await reg.record_event("t", {}, "dispatched")
+
+    (entry,) = await reg.get_history("t")
+    assert set(entry) == {"timestamp", "event_data", "result"}
+
+
+@pytest.mark.asyncio
 async def test_get_history_respects_limit():
     """get_history(limit=N) returns at most N most recent entries."""
     reg = TriggerRegistry()

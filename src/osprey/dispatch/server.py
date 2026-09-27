@@ -187,7 +187,7 @@ async def _dispatch_with_policy(
             owner=owner,
             prior_answer_runs=prior_answer_runs,
         )
-        await registry.record_event(trigger.name, payload, "dispatched")
+        await registry.record_event(trigger.name, payload, "dispatched", owner=owner)
         return result
 
     except WorkerRequestError as exc:
@@ -207,7 +207,9 @@ async def _dispatch_with_policy(
             logger.warning(
                 "Worker rejected dispatch for trigger '%s': %s", trigger.name, code or "4xx"
             )
-            await registry.record_event(trigger.name, payload, f"rejected: {code or '4xx'}")
+            await registry.record_event(
+                trigger.name, payload, f"rejected: {code or '4xx'}", owner=owner
+            )
             return {"status": "error", "error_code": code, "error": str(exc)}
 
         error_str = str(exc)
@@ -216,7 +218,7 @@ async def _dispatch_with_policy(
         max_retries = on_error.get("max_retries", 0)
         backoff_sec = float(on_error.get("backoff_sec", 0.0))
 
-        await registry.record_event(trigger.name, payload, f"error: {error_str}")
+        await registry.record_event(trigger.name, payload, f"error: {error_str}", owner=owner)
 
         if policy == "alert":
             logger.error(
@@ -288,6 +290,16 @@ def _report_token_unset(gate: str) -> None:
         return
     _token_unset_reported.add(gate)
     logger.warning("EVENT_DISPATCHER_TOKEN is not configured; rejecting every %s request", gate)
+
+
+def _request_owner(request: Request) -> str | None:
+    """Return the owner the request's ``X-Osprey-Owner`` header names, or ``None``.
+
+    The header is read by its canonical spelling; Starlette's header mapping is
+    case-insensitive. A value the guard refuses degrades to owner-less through
+    ``owner_from_header`` rather than failing the request.
+    """
+    return owner_from_header(request.headers.get(OWNER_HEADER))
 
 
 def _check_auth(request: Request) -> JSONResponse | None:
@@ -583,7 +595,7 @@ def create_server() -> FastMCP:
         asked for carries their name.
         """
         if registry._status.get(trigger.name) == "disabled":
-            await registry.record_event(trigger.name, payload, "ignored: disabled")
+            await registry.record_event(trigger.name, payload, "ignored: disabled", owner=owner)
             return None
 
         async def fn() -> dict | None:
@@ -861,7 +873,7 @@ def create_server() -> FastMCP:
         # by its canonical spelling. A value that names nobody costs the run its
         # owner — and with it the narrowing its writes would be checked against
         # — but never the re-fire itself; see ``owner_from_header``.
-        owner = owner_from_header(request.headers.get(OWNER_HEADER))
+        owner = _request_owner(request)
 
         async def fn() -> dict | None:
             return await _dispatch_with_policy(

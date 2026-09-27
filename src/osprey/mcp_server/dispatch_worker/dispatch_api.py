@@ -62,6 +62,7 @@ from osprey.mcp_server.dispatch_worker.prior_answers import (
     keep_run_ids,
 )
 from osprey.utils.bearer import credential_bytes
+from osprey.utils.owner_header import owner_from_header
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -498,7 +499,13 @@ class DispatchRequest(BaseModel):
     Worker and dispatcher are separately deployed images, so the field must be
     declared here to survive at all — an undeclared key is dropped silently, and
     the run would be judged against nobody's narrowing while the fire was
-    attributed to a person.
+    attributed to a person. The worker applies the same allowlist the
+    dispatcher applied, because the value is written into the run record and
+    served to a browser. A refused value becomes ``None`` and the run goes ahead
+    owner-less; it is never a 422, since a malformed owner costs the
+    attribution and never the work. A dispatcher always sends a value that
+    already passed the guard, so the check binds only a caller posting
+    ``/dispatch`` directly.
 
     ``prior_answer_runs`` is additive and defaults to ``None``: the run ids of
     earlier answers the bridge replayed shortened, and the only runs
@@ -515,6 +522,11 @@ class DispatchRequest(BaseModel):
     input_files: list[InputFile] | None = None
     owner: str | None = None
     prior_answer_runs: list[str] | None = None
+
+    @field_validator("owner", mode="before")
+    @classmethod
+    def _guard_owner(cls, value: Any) -> str | None:
+        return owner_from_header(value)
 
     @field_validator("prior_answer_runs", mode="before")
     @classmethod
@@ -663,6 +675,17 @@ def _build_stamped_error(
     return result
 
 
+def _attributed(record: dict[str, Any], owner: str | None) -> dict[str, Any]:
+    """Name the run's owner on *record* and return it.
+
+    A run record carries ``owner`` only when a person was named; an absent key
+    means the fire was unattributed.
+    """
+    if owner is not None:
+        record["owner"] = owner
+    return record
+
+
 async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
     queue = asyncio.Queue()
     _queues[run_id] = queue
@@ -707,6 +730,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # Caller-supplied inputs ingested for this run, kept separate from the
         # agent's produced ``artifacts`` (both read the same created-by store tag).
         result["input_artifacts"] = describe_run_input_artifacts(run_id)
+        _attributed(result, request.owner)
         _runs[run_id] = result
         _persist_run(run_id, result)
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
@@ -718,6 +742,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             failure_class.FAILURE_INFRASTRUCTURE,
             extra={"duration_sec": DISPATCH_TIMEOUT_SEC},
         )
+        _attributed(err_result, request.owner)
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
         await queue.put({"type": "error", "message": f"Timed out after {DISPATCH_TIMEOUT_SEC}s"})
@@ -747,6 +772,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             failure_class.FAILURE_RUN,
             extra={"cancelled": True},
         )
+        _attributed(err_result, request.owner)
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
         try:
@@ -764,6 +790,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # structurally an infrastructure fault (hence the literal class rather
         # than routing through classify_exception).
         err_result = _build_stamped_error(run_id, str(exc), failure_class.FAILURE_INFRASTRUCTURE)
+        _attributed(err_result, request.owner)
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
         await queue.put({"type": "error", "message": str(exc)})
@@ -817,11 +844,14 @@ async def dispatch(request: DispatchRequest) -> DispatchResponse:
             _queues.pop(key, None)
 
     run_id = str(uuid.uuid4())
-    _runs[run_id] = {
-        "status": "pending",
-        "created_at": time.time(),
-        "prompt": request.prompt,
-    }
+    _runs[run_id] = _attributed(
+        {
+            "status": "pending",
+            "created_at": time.time(),
+            "prompt": request.prompt,
+        },
+        request.owner,
+    )
     # Use create_task (not BackgroundTasks) so we retain a handle for cancellation.
     _tasks[run_id] = asyncio.create_task(_run_dispatch_task(run_id, request))
     return DispatchResponse(status="accepted", run_id=run_id)
@@ -1062,6 +1092,9 @@ async def dashboard_runs() -> list[dict[str, Any]]:
                 # own telemetry; None for runs that predate the forcing or that
                 # never reached the SDK.
                 "session_id": run.get("session_id"),
+                # The person the fire was attributed to, or None for an
+                # owner-less fire (the key is always present, like session_id).
+                "owner": run.get("owner"),
                 "has_stream": run_id in _queues,
             }
         )

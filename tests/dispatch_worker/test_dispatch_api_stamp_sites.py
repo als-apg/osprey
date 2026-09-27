@@ -54,8 +54,16 @@ def _clean_state():
     run_stats._run_stats.clear()
 
 
-def _req() -> DispatchRequest:
-    return DispatchRequest(prompt="hello", allowed_tools=[])
+def _req(owner: str | None = None) -> DispatchRequest:
+    return DispatchRequest(prompt="hello", allowed_tools=[], owner=owner)
+
+
+def _pending(created_at: float, owner: str | None) -> dict:
+    """A pending record as ``dispatch()`` writes it, naming the owner only when there is one."""
+    record: dict = {"status": "pending", "created_at": created_at}
+    if owner is not None:
+        record["owner"] = owner
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -64,41 +72,41 @@ def _req() -> DispatchRequest:
 # ---------------------------------------------------------------------------
 
 
-async def _drive_timeout(monkeypatch, run_id: str) -> None:
+async def _drive_timeout(monkeypatch, run_id: str, owner: str | None = None) -> None:
     monkeypatch.setattr(dispatch_api, "DISPATCH_TIMEOUT_SEC", 0.05)
 
     async def _slow(**_kwargs):
         await asyncio.sleep(5)
 
     monkeypatch.setattr(sdk_runner, "run_dispatch", _slow)
-    await dispatch_api._run_dispatch_task(run_id, _req())
+    await dispatch_api._run_dispatch_task(run_id, _req(owner))
 
 
-async def _drive_generic(monkeypatch, run_id: str) -> None:
+async def _drive_generic(monkeypatch, run_id: str, owner: str | None = None) -> None:
     async def _boom(**_kwargs):
         raise ValueError("orchestration blew up")
 
     monkeypatch.setattr(sdk_runner, "run_dispatch", _boom)
-    await dispatch_api._run_dispatch_task(run_id, _req())
+    await dispatch_api._run_dispatch_task(run_id, _req(owner))
 
 
-async def _drive_cancel(monkeypatch, run_id: str) -> None:
+async def _drive_cancel(monkeypatch, run_id: str, owner: str | None = None) -> None:
     async def _slow(**_kwargs):
         await asyncio.sleep(5)
 
     monkeypatch.setattr(sdk_runner, "run_dispatch", _slow)
-    dispatch_api._runs[run_id] = {"status": "pending", "created_at": time.time()}
-    task = asyncio.create_task(dispatch_api._run_dispatch_task(run_id, _req()))
+    dispatch_api._runs[run_id] = _pending(time.time(), owner)
+    task = asyncio.create_task(dispatch_api._run_dispatch_task(run_id, _req(owner)))
     await asyncio.sleep(0.05)  # let the coroutine enter run_dispatch
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
 
 
-async def _drive_sweep(_monkeypatch, run_id: str) -> None:
+async def _drive_sweep(_monkeypatch, run_id: str, owner: str | None = None) -> None:
     # A stale *pending* run, created long enough ago to exceed the sweep cutoff.
     stale_age = dispatch_api.DISPATCH_TIMEOUT_SEC + 100
-    dispatch_api._runs[run_id] = {"status": "pending", "created_at": time.time() - stale_age}
+    dispatch_api._runs[run_id] = _pending(time.time() - stale_age, owner)
     dispatch_api._sweep_stale_runs()
 
 
@@ -132,6 +140,30 @@ async def test_site_stamps_expected_class_exactly_once(
     assert counter_calls == [expected_class]
     # Every terminal record is persisted.
     assert persist_calls.count(run_id) == 1
+
+
+@pytest.mark.parametrize("site", sorted(_DRIVERS))
+@pytest.mark.usefixtures("counter_calls", "persist_calls")
+async def test_every_terminal_site_keeps_the_owner(site, monkeypatch):
+    """Each terminal record of an attributed run still names who fired it."""
+    driver, _expected_class = _DRIVERS[site]
+    run_id = f"owner-{site}"
+
+    await driver(monkeypatch, run_id, owner="alice")
+
+    assert dispatch_api._runs[run_id]["owner"] == "alice"
+
+
+@pytest.mark.parametrize("site", sorted(_DRIVERS))
+@pytest.mark.usefixtures("counter_calls", "persist_calls")
+async def test_every_terminal_site_of_an_owner_less_run_has_no_owner_key(site, monkeypatch):
+    """Each terminal record of an owner-less run is stored without an owner key."""
+    driver, _expected_class = _DRIVERS[site]
+    run_id = f"owner-less-{site}"
+
+    await driver(monkeypatch, run_id, owner=None)
+
+    assert "owner" not in dispatch_api._runs[run_id]
 
 
 # ---------------------------------------------------------------------------
