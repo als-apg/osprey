@@ -470,6 +470,70 @@ def test_mode_5_all_presets_parity_miss_goes_red():
     assert "web.theme" in details(guard)
 
 
+def mark_same_value(key: str) -> Mutation:
+    def mark(manifest: dict[str, Any]) -> None:
+        manifest["keys"][key]["same-value"] = True
+
+    return mark
+
+
+def set_stated(guard: Any, preset: str, key: str, value: Any) -> None:
+    node = guard.stated_presets()[preset]
+    *parents, leaf = key.split(".")
+    for part in parents:
+        node = node[part]
+    node[leaf] = value
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("system.timezone", "America/New_York"), ("approval.enabled", 1)],
+    ids=["a-different-zone", "an-int-for-a-bool"],
+)
+def test_a_same_value_key_stated_differently_goes_red(key: str, value: Any):
+    clean = make_guard(mark_same_value(key))
+    clean.check_parity()
+    assert clean.result.ok, details(clean)
+
+    guard = make_guard(mark_same_value(key))
+    set_stated(guard, "hello-world", key, value)
+    guard.check_parity()
+    assert "parity" in modes(guard)
+    text = details(guard)
+    assert key in text
+    assert "hello-world" in text
+    assert repr(value) in text
+    assert "absent" not in text
+
+
+def test_a_same_value_mark_on_a_divergent_key_goes_red():
+    # hooks.debug is false in hello-world and true in the other three, on purpose.
+    guard = make_guard(mark_same_value("hooks.debug"))
+    guard.check_parity()
+    assert "parity" in modes(guard)
+    text = details(guard)
+    assert "hooks.debug" in text
+    assert "False in ['hello-world']" in text
+    assert "channel-finder-standalone" in text
+
+
+@pytest.mark.parametrize("key", ["web.theme", "services.openobserve.port"])
+def test_a_same_value_mark_no_two_presets_state_goes_red(key: str):
+    # web.theme is live only in control-assistant; services.openobserve.port
+    # reaches the union only through the layout fill, which no preset writes.
+    guard = make_guard(mark_same_value(key))
+    guard.check_parity()
+    assert "parity" in modes(guard)
+    assert "compares nothing" in details(guard)
+
+
+def test_a_same_value_mark_on_a_block_goes_red():
+    guard = make_guard(mark_same_value("artifact_server"))
+    guard.check_parity()
+    assert "parity" in modes(guard)
+    assert "mark its leaves" in details(guard)
+
+
 CONTROL_ASSISTANT = "src/osprey/profiles/presets/control-assistant.yml"
 ARIEL_STANDALONE = "src/osprey/profiles/presets/ariel-standalone.yml"
 HELLO_WORLD = "src/osprey/profiles/presets/hello-world.yml"
