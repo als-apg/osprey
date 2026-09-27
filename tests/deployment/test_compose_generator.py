@@ -32,6 +32,7 @@ import yaml
 from ruamel.yaml import YAML
 
 import osprey.channel_roster as channel_roster
+from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
@@ -1513,6 +1514,19 @@ def test_worker_archiver_link_stays_gated_on_a_deployed_store(network: str | Non
         env_present=True, dispatch_worker={} if network is None else {"network": network}
     )
     assert "OSPREY_ARCHIVER_MONGODB_HOST" not in rendered
+
+
+def test_render_context_carries_the_registrys_second_lane_keys() -> None:
+    """Every template reads its second plan lanes from the lane registry.
+
+    A template that iterates its own list renders a lane short the moment the
+    registry grows, so the render context hands them the registry's keys.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _inject_project_metadata({"project_name": "p", "project_root": "/r/p"})
+
+    assert config["bluesky_second_lane_keys"] == list(SECOND_LANE_KEYS.values())
 
 
 def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None:
