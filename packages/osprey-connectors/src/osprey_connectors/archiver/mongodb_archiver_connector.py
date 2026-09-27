@@ -101,7 +101,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
     Example:
         >>> config = {
-        >>>     'host': 'mongodb05.nersc.gov',
+        >>>     'host': 'mongodb.example.org',
         >>>     'port': 27017,  # osprey:not-a-port — an external facility store
         >>>                     # on MongoDB's own protocol port. A store this
         >>>                     # deployment publishes is on its `mongo` layout

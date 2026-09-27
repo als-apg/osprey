@@ -245,7 +245,7 @@ class ConnectorFactory:
             >>> config = {
             >>>     'type': 'epics_archiver',
             >>>     'settings': {
-            >>>         'url': 'https://archiver.als.lbl.gov:8443',
+            >>>         'url': 'https://archiver.example.org:8443',
             >>>         'timeout': 60
             >>>     }
             >>> }
