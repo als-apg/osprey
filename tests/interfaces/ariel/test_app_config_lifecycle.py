@@ -401,9 +401,6 @@ class TestConfigSearchPrecedence:
         assert REMEDY_NO_CONFIG_FILE.startswith("set CONFIG_FILE")
 
 
-_PANEL_ON_ERROR = "Could not read web.config_panel.enabled; leaving the Config panel enabled"
-
-
 @pytest.mark.parametrize(
     ("web_section", "variable", "expected"),
     [
@@ -419,8 +416,8 @@ def test_the_config_panel_gate_matches_the_web_terminal(
     tmp_path: Path, monkeypatch, web_section, variable, expected
 ):
     """The panel and the terminal answer the gate out of one file with one reader."""
-    from osprey.interfaces.ariel.app import _resolve_config_panel_enabled
-    from osprey.interfaces.web_terminal.app import resolve_config_flag
+    from osprey.interfaces.ariel.app import _resolve_privilege_gates
+    from osprey.interfaces.web_terminal.app import resolve_privilege_gates
 
     if variable is None:
         monkeypatch.delenv("OSPREY_TEST_CONFIG_PANEL", raising=False)
@@ -429,10 +426,8 @@ def test_the_config_panel_gate_matches_the_web_terminal(
     extra = {"web": web_section} if web_section is not None else None
     config_file = _write_config(tmp_path, {"database": {"uri": DSN}}, extra)
 
-    ariel = _resolve_config_panel_enabled(config_file)
-    terminal = resolve_config_flag(
-        "web.config_panel.enabled", True, _PANEL_ON_ERROR, config_path=config_file
-    )
+    ariel = _resolve_privilege_gates(config_file).config_panel_enabled
+    terminal = resolve_privilege_gates(config_file).config_panel_enabled
 
     assert ariel is expected
     assert ariel == terminal
@@ -455,6 +450,51 @@ def test_a_variable_reference_closes_the_panel_through_the_lifespan(
 
 
 def test_the_gate_is_the_shipped_default_when_no_config_was_resolved():
-    from osprey.interfaces.ariel.app import _resolve_config_panel_enabled
+    from osprey.interfaces.ariel.app import _resolve_privilege_gates
 
-    assert _resolve_config_panel_enabled(None) is True
+    assert _resolve_privilege_gates(None).config_panel_enabled is True
+
+
+_UNREADABLE_CONFIGS = {
+    "broken-yaml": "ariel: [unclosed\n  database: {\n",
+    "not-a-mapping": "- ariel\n- web\n",
+}
+
+
+@pytest.mark.parametrize("breakage", sorted(_UNREADABLE_CONFIGS))
+def test_an_unreadable_config_closes_the_panel_through_the_lifespan(
+    tmp_path: Path, service_double, caplog, breakage
+):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(_UNREADABLE_CONFIGS[breakage])
+
+    app = _start(config_file, AsyncMock(return_value=service_double), caplog)
+
+    assert app.state.config_panel_enabled is False
+    assert app.state.config_unreadable_path == config_file
+    assert str(config_file) in app.state.config_errors[0]
+
+
+def test_an_unreadable_config_refuses_the_settings_editor(tmp_path: Path, service_double, caplog):
+    from osprey.interfaces.ariel import create_app
+
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(_UNREADABLE_CONFIGS["broken-yaml"])
+    before = config_file.read_bytes()
+
+    caplog.set_level(logging.INFO, logger="ariel")
+    with patch(
+        "osprey.services.ariel_search.create_ariel_service",
+        AsyncMock(return_value=service_double),
+    ):
+        app = create_app(config_file)
+        with TestClient(app) as client:
+            responses = [
+                client.get("/api/config"),
+                client.put("/api/config", json={"content": "ariel: {}\n"}),
+            ]
+
+    for response in responses:
+        assert response.status_code == 403
+        assert str(config_file) in response.json()["detail"]
+    assert config_file.read_bytes() == before
