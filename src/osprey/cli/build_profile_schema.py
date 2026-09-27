@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.deployment.host_binding import HostBinding, host_binding_of
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
 
@@ -287,9 +288,9 @@ class ServiceDef:
 
     :attr:`config` is a free-form pass-through: whatever a profile declares
     under ``services.<name>.config`` is written to the rendered ``config.yml``
-    and is visible to the service's compose template. Two keys in it are
+    and is visible to the service's compose template. Five keys in it are
     understood by the build itself, each validated by
-    :meth:`BuildProfile.validate` and read through its own accessor:
+    :meth:`BuildProfile.validate` and read through an accessor:
 
     - ``network:`` — the service's attachment, one of
       :data:`VALID_NETWORK_MODES` and defaulting to
@@ -299,6 +300,11 @@ class ServiceDef:
     - ``http:`` — whether the service answers HTTP on the port it publishes, so
       the deploy summary shows its address as a link; defaults to
       :data:`DEFAULT_SPEAKS_HTTP`, read through :meth:`speaks_http`.
+    - ``listens:`` — false when the service opens no listening socket;
+      defaults to true.
+    - ``bind_env:`` — the environment variable its compose template renders
+      the bind address into; defaults to none. With ``listens:``, read through
+      :meth:`host_binding`, and consulted only under ``network: host``.
     """
 
     template: str  # Path to template dir (relative to profile dir)
@@ -365,6 +371,15 @@ class ServiceDef:
         declared = self.config.get("http", DEFAULT_SPEAKS_HTTP)
         return declared if isinstance(declared, bool) else DEFAULT_SPEAKS_HTTP
 
+    def host_binding(self) -> HostBinding:
+        """Return what the service declares it binds on the host network.
+
+        Returns:
+            The declaration read by :func:`host_binding_of`, which applies the
+            defaults and reads a malformed value as undeclared.
+        """
+        return host_binding_of(self.config)
+
 
 DEFAULT_SPEAKS_HTTP = False
 """Whether a declared service is fronted by HTTP when it says nothing.
@@ -393,6 +408,43 @@ def http_errors(value: Any, key: str) -> list[str]:
     return [
         f"{key} must be true or false — whether this service answers HTTP on the "
         f"port it publishes (got {value!r})"
+    ]
+
+
+def listens_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``listens:`` declaration (empty when valid).
+
+    Args:
+        value: The declared value, exactly as it came out of the YAML.
+        key: Dotted path of the declaration, used verbatim in the message.
+
+    Returns:
+        Human-readable error messages; empty when *value* is a boolean.
+    """
+    if isinstance(value, bool):
+        return []
+    return [
+        f"{key} must be true or false — false says this service opens no listening "
+        f"socket (got {value!r})"
+    ]
+
+
+def bind_env_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``bind_env:`` declaration (empty when valid).
+
+    Args:
+        value: The declared value, exactly as it came out of the YAML.
+        key: Dotted path of the declaration, used verbatim in the message.
+
+    Returns:
+        Human-readable error messages; empty when *value* is a variable name
+        matching :data:`_ENV_VAR_RE`.
+    """
+    if isinstance(value, str) and _ENV_VAR_RE.match(value):
+        return []
+    return [
+        f"{key} must name the environment variable its compose template renders the "
+        f"bind address into (got {value!r})"
     ]
 
 

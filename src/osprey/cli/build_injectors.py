@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
+from osprey.deployment.host_binding import BIND_ENV_KEY, LISTENS_KEY
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
@@ -223,11 +224,12 @@ def _copy_shared_service_partials(dest_services_root: Path) -> int:
 
 #: The keys on a `services.<name>` block that belong to the AUTHOR rather than
 #: to the injector that writes the block. No injector derives them: `env` is a
-#: name list, `network` is the attachment the service's template renders, and
-#: `http` is what the deploy summary prints. Everything else an injector puts
-#: there it derives from its own profile block (a port, a trigger, a path), so
+#: name list, `network` is the attachment the service's template renders,
+#: `http` is what the deploy summary prints, and `listens` / `bind_env` say what
+#: the service binds on the host network. Everything else an injector puts there
+#: it derives from its own profile block (a port, a trigger, a path), so
 #: replacing the block wholesale is right for those and wrong for these.
-_AUTHORED_SERVICE_KEYS = ("env", "network", "http")
+_AUTHORED_SERVICE_KEYS = ("env", "network", "http", LISTENS_KEY, BIND_ENV_KEY)
 
 #: Service key of the second virtual accelerator a deployment stands up as its
 #: ``live`` target. Derived from the dotted path every READER of the stand-in
