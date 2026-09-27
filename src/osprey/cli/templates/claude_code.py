@@ -22,6 +22,7 @@ from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
 from osprey.errors import BuildProfileError
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.services.build_artifacts.ownership import framework_template_hash
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader
@@ -2258,8 +2259,9 @@ def check_user_owned_drift(
 ) -> list[str]:
     """Check if framework templates changed since user claimed ownership.
 
-    Compares the current rendered framework hash against the hash stored
-    in the manifest at claim time.
+    Compares the framework's current hash of each claimed artifact (a rendered
+    file or a service directory) against the hash stored in the manifest at
+    claim time.
 
     Args:
         template_root: Path to osprey's bundled templates directory
@@ -2284,7 +2286,6 @@ def check_user_owned_drift(
         return []
 
     registry = BuildArtifactCatalog.default()
-    claude_code_dir = template_root / "claude_code"
     drift: list[str] = []
 
     for canonical_name, meta in user_owned_meta.items():
@@ -2298,9 +2299,7 @@ def check_user_owned_drift(
 
         # Computed exactly as the claim-time hash was — same function — so a
         # difference here is the framework template changing and nothing else.
-        current_hash = manifest_mod.framework_template_hash(
-            claude_code_dir, artifact.template_path, jinja_env, ctx
-        )
+        current_hash = framework_template_hash(template_root, artifact, jinja_env, ctx)
 
         if current_hash and current_hash != stored_hash:
             drift.append(canonical_name)
