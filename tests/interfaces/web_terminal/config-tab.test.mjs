@@ -46,7 +46,9 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   applyConfigTabGate,
+  applyConfigUnreadableNotice,
   CONFIG_TAB_ID,
+  CONFIG_UNREADABLE_NOTICE_ID,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/config-tab.js';
 
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
@@ -62,8 +64,9 @@ const jsonOk = (body) => ({ ok: true, status: 200, statusText: 'OK', json: async
  * answering it with an empty body would hide that as effectively as the
  * environment's old synthetic 503 did.
  * @param {boolean} configPanelEnabled
+ * @param {string|null} [unreadablePath] - `config_unreadable_path` in the payload.
  */
-function stubPanelsFetch(configPanelEnabled) {
+function stubPanelsFetch(configPanelEnabled, unreadablePath = null) {
   vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
     if (url === '/api/panels') {
       return jsonOk({
@@ -74,6 +77,7 @@ function stubPanelsFetch(configPanelEnabled) {
         active: null,
         labels: {},
         config_panel_enabled: configPanelEnabled,
+        config_unreadable_path: unreadablePath,
       });
     }
     if (url === '/api/bar-items') {
@@ -104,11 +108,13 @@ function stubPanelsFetch(configPanelEnabled) {
 function renderDrawer() {
   document.body.innerHTML = `
     <osprey-drawer id="settings-drawer">
-      <div class="drawer-tabs">
-        <button class="drawer-tab active" data-tab="tab-behavior">Behavior</button>
-        <button class="drawer-tab" data-tab="tab-safety">Safety</button>
-        <button class="drawer-tab" data-tab="tab-memory">Memory</button>
-        <button class="drawer-tab" data-tab="tab-config">Config</button>
+      <div class="drawer-header">
+        <div class="drawer-tabs">
+          <button class="drawer-tab active" data-tab="tab-behavior">Behavior</button>
+          <button class="drawer-tab" data-tab="tab-safety">Safety</button>
+          <button class="drawer-tab" data-tab="tab-memory">Memory</button>
+          <button class="drawer-tab" data-tab="tab-config">Config</button>
+        </div>
       </div>
       <div class="drawer-tab-panel active" id="tab-behavior">
         <div id="behavior-gallery-section"></div>
@@ -220,6 +226,50 @@ describe('applyConfigTabGate', () => {
   });
 });
 
+describe('applyConfigUnreadableNotice', () => {
+  beforeEach(renderDrawer);
+
+  const PATH = '/app/project/config.yml';
+
+  /** @returns {HTMLElement|null} */
+  const notice = () => document.getElementById(CONFIG_UNREADABLE_NOTICE_ID);
+
+  test('the notice names the path and sits after the drawer header', () => {
+    expect(applyConfigUnreadableNotice({ config_unreadable_path: PATH })).toBe(true);
+
+    const el = notice();
+    expect(el?.textContent).toBe(
+      `Config editing is off: ${PATH} could not be read. Fix the file and restart the web terminal.`,
+    );
+    expect(el?.getAttribute('role')).toBe('status');
+    expect(el?.previousElementSibling?.classList.contains('drawer-header')).toBe(true);
+  });
+
+  test('applying twice keeps one notice', () => {
+    applyConfigUnreadableNotice({ config_unreadable_path: PATH });
+    applyConfigUnreadableNotice({ config_unreadable_path: PATH });
+
+    expect(document.querySelectorAll('.drawer-notice')).toHaveLength(1);
+  });
+
+  test('null, a missing key and an empty path add nothing', () => {
+    expect(applyConfigUnreadableNotice(null)).toBe(false);
+    expect(applyConfigUnreadableNotice({ config_panel_enabled: false })).toBe(false);
+    expect(applyConfigUnreadableNotice({ config_unreadable_path: '' })).toBe(false);
+
+    expect(notice()).toBeNull();
+  });
+
+  test('a path carrying markup renders as text', () => {
+    applyConfigUnreadableNotice({ config_unreadable_path: '/srv/<b>x</b>/config.yml' });
+
+    const el = notice();
+    expect(el?.textContent).toContain('/srv/<b>x</b>/config.yml');
+    expect(el?.querySelector('b')).toBeNull();
+    expect(el?.children).toHaveLength(0);
+  });
+});
+
 describe('boot wiring: initPanelManager applies the gate', () => {
   // dock-workspace.js fronts the vendored dockview shell; stubbed at the module
   // boundary the way panel-manager.test.mjs stubs it, so this suite exercises
@@ -259,9 +309,12 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     vi.resetModules();
   });
 
-  /** @param {boolean} configPanelEnabled */
-  async function boot(configPanelEnabled) {
-    stubPanelsFetch(configPanelEnabled);
+  /**
+   * @param {boolean} configPanelEnabled
+   * @param {string|null} [unreadablePath]
+   */
+  async function boot(configPanelEnabled, unreadablePath = null) {
+    stubPanelsFetch(configPanelEnabled, unreadablePath);
     vi.resetModules();
     mockDock();
     const { initPanelManager } = await import(
@@ -282,6 +335,16 @@ describe('boot wiring: initPanelManager applies the gate', () => {
 
     expect(tabButtonPresent()).toBe(true);
     expect(tabPanelPresent()).toBe(true);
+  });
+
+  test('an unreadable config shows the notice and still removes the tab', async () => {
+    await boot(false, '/app/project/config.yml');
+
+    expect(tabButtonPresent()).toBe(false);
+    expect(tabPanelPresent()).toBe(false);
+    expect(document.getElementById(CONFIG_UNREADABLE_NOTICE_ID)?.textContent).toContain(
+      '/app/project/config.yml',
+    );
   });
 });
 

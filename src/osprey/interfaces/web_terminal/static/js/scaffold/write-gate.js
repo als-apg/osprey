@@ -47,6 +47,10 @@ export const WRITES_DISABLED_REASON =
 /** Resolved posture. Enabled until a payload says otherwise. */
 let writesEnabled = true;
 
+/** The config file the server could not read, which closed writes, or null. */
+/** @type {string|null} */
+let unreadablePath = null;
+
 /**
  * Record the deployment's gallery-write posture from a `/api/panels` payload.
  *
@@ -54,8 +58,24 @@ let writesEnabled = true;
  * @returns {boolean} the posture in force after this call.
  */
 export function applyScaffoldWriteGate(panelsPayload) {
-  if (panelsPayload) writesEnabled = panelsPayload.scaffold_write_enabled !== false;
+  if (panelsPayload) {
+    writesEnabled = panelsPayload.scaffold_write_enabled !== false;
+    const p = panelsPayload.config_unreadable_path;
+    unreadablePath = typeof p === 'string' && p ? p : null;
+  }
   return writesEnabled;
+}
+
+/**
+ * Why the gallery may not write: the unreadable config file when one closed
+ * writes, else the deployment's posture.
+ *
+ * @returns {string}
+ */
+export function writesDisabledReason() {
+  return unreadablePath
+    ? `Editing is off: ${unreadablePath} could not be read.`
+    : WRITES_DISABLED_REASON;
 }
 
 /**
