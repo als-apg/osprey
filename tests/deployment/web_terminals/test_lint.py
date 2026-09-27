@@ -3367,8 +3367,8 @@ def test_lint_rotated_password_reports_nothing(tmp_path: Path) -> None:
     assert findings == []
 
 
-def test_lint_seeded_shared_card_names_decommission(tmp_path: Path) -> None:
-    """A shared card's password cannot be changed, so its remedy is decommission."""
+def test_lint_seeded_shared_card_names_the_hash_retirement(tmp_path: Path) -> None:
+    """A shared card's password cannot be changed, so its remedy retires the stored hash."""
     # Arrange
     config = _seeded_config(tmp_path, fqdn="ops.example.org")
     config["modules"]["web_terminals"]["users"] = [
@@ -3388,8 +3388,11 @@ def test_lint_seeded_shared_card_names_decommission(tmp_path: Path) -> None:
     # Assert
     assert len(findings) == 1
     message = findings[0].message
-    assert "osprey users passwd alice" in message
-    assert "osprey users decommission ops" in message
+    assert (
+        "Run `osprey users passwd alice` and delete `OSPREY_AUTH_PW_HASH_OPS` from "
+        "`.env.auth`, then run `osprey up`"
+    ) in message
+    assert "decommission" not in message
     assert "demo-pw-ops" not in message
 
 
