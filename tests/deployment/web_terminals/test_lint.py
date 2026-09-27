@@ -2717,6 +2717,9 @@ def test_lint_clean_password_auth_config_reports_no_auth_findings() -> None:
 
 _UNEVALUABLE_CODE = "web_terminals.auth_credential_unevaluable"
 
+_BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
 
 def _unevaluable(findings: list[Finding]) -> list[Finding]:
     return [f for f in findings if f.code == _UNEVALUABLE_CODE]
@@ -2729,7 +2732,7 @@ def _write_env_auth(root: Path, value: str) -> None:
 def test_lint_unevaluable_stored_hash_is_a_warning(tmp_path: Path) -> None:
     """A stored hash the login service cannot read is named, never quoted."""
     # Arrange
-    _write_env_auth(tmp_path, "scrypt.16384.8.1.c2FsdA")
+    _write_env_auth(tmp_path, _BROKEN_HASH)
     config = _auth_config({"method": "password"})
 
     # Act
@@ -2775,7 +2778,7 @@ def test_lint_undecodable_env_auth_reports_nothing(tmp_path: Path) -> None:
 
 
 def test_lint_stored_hash_is_not_judged_under_oidc(tmp_path: Path) -> None:
-    _write_env_auth(tmp_path, "scrypt.16384.8.1.c2FsdA")
+    _write_env_auth(tmp_path, _BROKEN_HASH)
     config = _auth_config(_oidc())
 
     assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
@@ -2783,7 +2786,7 @@ def test_lint_stored_hash_is_not_judged_under_oidc(tmp_path: Path) -> None:
 
 def test_lint_stored_hash_is_not_judged_at_profile_altitude(tmp_path: Path) -> None:
     """A profile has no deployment repo, so there is no `.env.auth` to read."""
-    _write_env_auth(tmp_path, "scrypt.16384.8.1.c2FsdA")
+    _write_env_auth(tmp_path, _BROKEN_HASH)
     config = _auth_config({"method": "password"})
 
     findings = lint_web_terminals(config, rendered_project=False, project_root=tmp_path)

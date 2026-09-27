@@ -1037,7 +1037,7 @@ def test_seeded_password_users_counts_a_shared_card_only_by_its_stored_hash(
 def test_seeded_password_users_skips_an_unevaluable_stored_hash(tmp_path: Path) -> None:
     """A hash nothing can verify refuses every password, the default included."""
     write_seeded_repo(tmp_path, "alice", "alice")
-    _store_hash(tmp_path, "alice", "not-a-hash")
+    _store_hash(tmp_path, "alice", BROKEN_HASH)
 
     assert seeded_password_users(tmp_path, ["alice"]) == ()
 

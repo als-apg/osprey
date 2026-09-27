@@ -2132,7 +2132,7 @@ def _user_groups(
 
 
 def _tls_enabled(web_terminals: dict[str, Any]) -> bool:
-    """``modules.web_terminals.tls.enabled``, parsed. The one reader of that key."""
+    """``modules.web_terminals.tls.enabled``, parsed."""
     return bool(as_dict(web_terminals.get("tls")).get("enabled", False))
 
 
