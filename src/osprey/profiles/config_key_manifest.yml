@@ -1883,6 +1883,17 @@ keys:
       shipped default (the image trust store) is the right answer for a
       deployment that has none.
     default: null
+  ariel.entry_url_template:
+    rendered: false
+    evidence: 'get_config_value\("ariel\.entry_url_template"'
+    note: >-
+      The logbook's own URL for one entry, with a single `{entry_id}`
+      placeholder filled with the URL-encoded id. Commented in the two presets
+      that ship an `ariel:` block, because the URL is facility content. Read
+      per entry on egress by `build_entry_url`, not by ARIELConfig.from_dict;
+      unset, or a template that does not format, emits no `entry_url` (the
+      second is logged once) and the read itself never fails.
+    default: null
   ariel.default_search_mode: {evidence: 'default_search_mode', default: derived, default_note: the implicit mode for whichever search modules are enabled}
   # The facility vocabulary: shorthand the operators type, mapped to the words
   # the logbook prose actually uses. Read ONCE at config parse — the file is
