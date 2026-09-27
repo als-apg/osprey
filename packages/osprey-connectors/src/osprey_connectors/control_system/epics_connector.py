@@ -278,7 +278,7 @@ class EPICSConnector(ControlSystemConnector):
         >>>     'timeout': 5.0,
         >>>     'gateways': {
         >>>         'read_only': {
-        >>>             'address': 'cagw-alsdmz.als.lbl.gov',
+        >>>             'address': 'gw.example.org',
         >>>             'port': 5064
         >>>         }
         >>>     }
