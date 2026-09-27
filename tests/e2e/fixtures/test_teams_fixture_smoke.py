@@ -3,7 +3,7 @@
 These tests assert nothing about the bridge's behaviour — they assert that the
 fixtures its e2e lane stands on actually work: each fake binds a free loopback
 port or an in-process queue, answers the calls the adapter makes, and records
-what it was sent. The three fakes are proved **independently**, so a failure in
+what it was sent. The four fakes are proved **independently**, so a failure in
 the lane points at the bridge rather than at the scaffolding under it.
 
 **Nothing here may skip.** No container runtime, no credential, no network and
@@ -29,6 +29,7 @@ import pytest
 from osprey.bridges.teams.client import ACTIVITY_URL_TEMPLATE, TokenSource, token_url
 from osprey.bridges.teams.config import TeamsBridgeConfig
 from osprey.bridges.teams.events import parse_event
+from osprey.bridges.teams.graph import GraphError, GraphFiles
 from osprey.bridges.teams.receiver import QueueReceiver, decode_body
 
 from .teams_fakes import (
@@ -39,6 +40,7 @@ from .teams_fakes import (
     TENANT_ID,
     TOKEN_EXPIRES_IN,
     FakeConnectorServer,
+    FakeGraphServer,
     FakeQueueReceiver,
     FakeTokenServer,
     channel_activity,
@@ -62,6 +64,12 @@ def token() -> Iterator[FakeTokenServer]:
 @pytest.fixture
 def connector() -> Iterator[FakeConnectorServer]:
     with FakeConnectorServer() as server:
+        yield server
+
+
+@pytest.fixture
+def graph() -> Iterator[FakeGraphServer]:
+    with FakeGraphServer() as server:
         yield server
 
 
@@ -294,6 +302,19 @@ class TestFakeConnectorServer:
         assert connector.posted_text == ["after"]
         assert [a.number for a in connector.attempts] == [1]
 
+    def test_a_seeded_member_carries_its_directory_id(self, connector: FakeConnectorServer) -> None:
+        channel = "19:room@thread.tacv2"
+        url = f"{connector.base_url}/v3/conversations/{channel}/pagedmembers"
+        connector.add_member(channel, "29:111", "Alice", aad_object_id="oid-1", tenant_id="t-1")
+        connector.add_member(channel, "29:222", "Carol")
+
+        members = httpx.get(url, timeout=TIMEOUT).json()["members"]
+
+        assert members == [
+            {"id": "29:111", "name": "Alice", "aadObjectId": "oid-1", "tenantId": "t-1"},
+            {"id": "29:222", "name": "Carol"},
+        ]
+
     def test_paged_members_serves_seeded_members(self, connector: FakeConnectorServer) -> None:
         channel = "19:room@thread.tacv2"
         url = f"{connector.base_url}/v3/conversations/{channel}/pagedmembers"
@@ -314,6 +335,67 @@ class TestFakeConnectorServer:
 
         connector.reset()
         assert httpx.get(url, timeout=TIMEOUT).json() == {"members": []}
+
+
+# ---------------------------------------------------------------------------
+# The fake Microsoft Graph file library
+# ---------------------------------------------------------------------------
+
+
+class StubGraphTokens:
+    def token(self) -> str:
+        return "graph-bearer"
+
+
+class TestFakeGraphServer:
+    """Driven through the product's own :class:`GraphFiles` over the ``graph_http``
+    seam, which is the fixture's contract with the module it stands in for."""
+
+    @staticmethod
+    def files(graph: FakeGraphServer, cfg: TeamsBridgeConfig) -> GraphFiles:
+        library = TeamsBridgeConfig(
+            app_id=cfg.app_id, tenant_id=cfg.tenant_id, files_drive_id="b!drive"
+        )
+        return GraphFiles(library, StubGraphTokens(), graph.http_client())  # type: ignore[arg-type]
+
+    def test_the_graph_fake_records_an_upload_and_answers_a_drive_item(
+        self, graph: FakeGraphServer, cfg: TeamsBridgeConfig
+    ) -> None:
+        uploaded = self.files(graph, cfg).upload(
+            ("osprey files", "R1"), "table.csv", b"a,b\n", "text/csv"
+        )
+
+        (upload,) = graph.uploads
+        assert upload.drive == "b!drive"
+        assert upload.path == "osprey files/R1/table.csv"
+        assert upload.data == b"a,b\n"
+        assert upload.content_type == "text/csv"
+        assert upload.auth == "Bearer graph-bearer"
+        assert graph.attempted_urls[0].startswith("https://graph.microsoft.com/v1.0/drives/")
+        assert uploaded.folder_id == graph.folder_id("osprey files/R1")
+        assert uploaded.web_url == "https://files.example.org/osprey files/R1/table.csv"
+
+    def test_the_graph_fake_records_an_invite(
+        self, graph: FakeGraphServer, cfg: TeamsBridgeConfig
+    ) -> None:
+        self.files(graph, cfg).share("folder-1", ["oid-a", "oid-b"])
+
+        (invite,) = graph.invites
+        assert invite.item_id == "folder-1"
+        assert invite.body["recipients"] == [{"objectId": "oid-a"}, {"objectId": "oid-b"}]
+        assert invite.body["roles"] == ["read"]
+
+    def test_the_graph_fake_can_answer_a_partial_invite(
+        self, graph: FakeGraphServer, cfg: TeamsBridgeConfig
+    ) -> None:
+        files = self.files(graph, cfg)
+        graph.fail_invite()
+
+        with pytest.raises(GraphError, match="notAllowed"):
+            files.share("folder-1", ["oid-a"])
+        files.share("folder-1", ["oid-a"])  # the refusal was for one invite only
+
+        assert len(graph.invites) == 2
 
 
 # ---------------------------------------------------------------------------
