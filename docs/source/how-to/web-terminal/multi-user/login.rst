@@ -165,7 +165,8 @@ Under ``password`` or ``oidc`` a small authentication service joins the stack
 and nginx asks it about every request under ``/u/<name>/`` before proxying
 anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
 set it — see :ref:`reference-ports`),
-``auth.session_lifetime`` in whole seconds (default ``43200``), and
+``auth.session_lifetime`` in whole seconds (default ``43200``),
+``auth.throttle`` (see :ref:`multi-user-login-throttle`), and
 ``auth.image``, required with ``image_source: registry`` — a published build of
 OSPREY's login service; :ref:`multi-user-login-service-contract` says what it
 answers.
@@ -709,8 +710,44 @@ To change one later, ``osprey users passwd alice`` prompts, rewrites that hash
 and ends alice's sessions — her own card's, and every
 :ref:`shared-card <multi-user-shared-card>` session she opened, since those
 are held open by this same credential. Sessions held open by other people's
-passwords stay up. Password login is rate-limited per user but never locks
-anyone out — a control-room operator must not be shut out of the terminals.
+passwords stay up.
+
+.. _multi-user-login-throttle:
+
+Failed logins are slowed, never locked out
+------------------------------------------
+
+After a wrong password, that username waits ``initial_delay_s`` before its
+next attempt is checked at all. Each further failure multiplies the wait by
+``multiplier``, up to ``max_delay_s``, and a correct password clears it. There
+is no lockout at any count: the wait always lifts within ``max_delay_s``. A
+username that stays quiet for ``forget_after_s`` after its wait lifts starts
+over.
+
+The wait is kept per username, and on a
+:ref:`shared card <multi-user-shared-card>` per opener. It lives in the
+authentication service's memory, so a restart clears it. It applies to
+password login only; under ``oidc`` the identity provider applies its own
+policy.
+
+The four keys and their defaults:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       auth:
+         method: password
+         throttle:
+           initial_delay_s: 1
+           multiplier: 2
+           max_delay_s: 30
+           forget_after_s: 300
+
+``osprey build`` enforces these rules: ``initial_delay_s`` greater than zero,
+``multiplier`` at least 1, ``max_delay_s`` at least ``initial_delay_s``, and
+``forget_after_s`` not negative. It refuses any other value, and any key
+outside these four.
 
 .. _multi-user-shared-card-removal:
 
