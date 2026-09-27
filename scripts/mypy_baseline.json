@@ -1,5 +1,5 @@
 {
-  "total": 368,
+  "total": 367,
   "errors": [
     {
       "path": "packages/osprey-connectors/src/osprey_connectors/archiver/doocs_archiver_connector.py",
@@ -1613,12 +1613,6 @@
       "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
       "code": "arg-type",
       "message": "Argument 1 to \"sorted\" has incompatible type \"dict_items[tuple[str, ...], str]\"; expected \"Iterable[tuple[tuple[str], str]]\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/migration/engine.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"dict[str, Any] | None\"",
       "count": 1
     },
     {
