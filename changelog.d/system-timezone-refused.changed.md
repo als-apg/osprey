@@ -1,0 +1,1 @@
+`osprey build` and `osprey validate` refuse a `system.timezone` that is not a zone name in the IANA time zone database, spelled exactly, case included, and suggest the closest one. Such a value used to build, reach the agent's rules and every container's `TZ`, and run as UTC. A value that references an environment variable is not judged at build.
