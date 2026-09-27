@@ -996,8 +996,9 @@ class NextcloudTalkOps:
         served ``Content-Type``, which is not known until the bytes are in hand.
         The stem arrives already settled from
         :func:`~osprey.bridges.core.unique_stems`, which can decide it before any
-        fetch precisely because it does NOT depend on the served type — so an artifact served as something other than it announced
-        still keeps the worker's own stem.
+        fetch precisely because it does NOT depend on the served type — so an
+        artifact served as something other than it announced still keeps the
+        worker's own stem.
 
         Args:
             room: Destination room token.
