@@ -9,11 +9,17 @@ share ownership logic without a layering violation.
 from __future__ import annotations
 
 import json
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from jinja2 import Environment
 
 
 def get_user_owned(config: dict) -> list[str]:
@@ -66,6 +72,67 @@ def sha256_directory(directory: Path) -> str:
     return digest.hexdigest()
 
 
+def framework_template_hash(
+    templates_dir: Path,
+    artifact: BuildArtifact,
+    jinja_env: Environment,
+    context: Mapping[str, Any],
+) -> str | None:
+    """``sha256:`` digest of the framework's own version of one artifact.
+
+    Recorded when an artifact is claimed and recomputed on every regen, so the
+    two must be computed identically or every regen would report drift that is
+    not there. That is the whole reason this lives in one function: the
+    callers are in different modules and would otherwise be free to differ on
+    the template location, the render context, the encoding, or the
+    ``sha256:`` prefix.
+
+    A ``.j2`` template is rendered first — the digest is of what the framework
+    would *write*, not of the template that writes it, so a context change is
+    drift and a comment change in the template is not. A directory artifact is
+    copied verbatim and rendered later by ``osprey up``, so its hash is the
+    tree digest of the packaged directory, with no render and no context.
+
+    Args:
+        templates_dir: The bundled templates directory; the artifact's
+            ``template_root`` and ``template_path`` are resolved below it.
+        artifact: The catalog artifact to hash.
+        jinja_env: Jinja environment the render goes through.
+        context: Template context for the render.
+
+    Returns:
+        ``sha256:<hex>``, or ``None`` when the template is missing or will not
+        render. Callers treat ``None`` as "no comparison possible" rather than
+        as drift: a template that cannot render is a framework problem, and
+        reporting it as the operator's artifact having drifted would misdirect.
+    """
+    from osprey.build.manifest import sha256_file
+
+    source = templates_dir / artifact.template_root / artifact.template_path
+    try:
+        if artifact.is_directory:
+            return f"sha256:{sha256_directory(source)}" if source.is_dir() else None
+        if not source.is_file():
+            return None
+        if source.suffix != ".j2":
+            return f"sha256:{sha256_file(source)}"
+        template = jinja_env.get_template(f"{artifact.template_root}/{artifact.template_path}")
+        rendered = template.render(**context)
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", suffix=source.stem, delete=False
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                tmp.write(rendered)
+            return f"sha256:{sha256_file(tmp_path)}"
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+    except Exception:
+        return None
+
+
 def update_manifest_add_user_owned(
     project_dir: Path,
     manager,
@@ -73,7 +140,7 @@ def update_manifest_add_user_owned(
     name: str,
 ) -> None:
     """Add a user_owned entry to .osprey-manifest.json."""
-    from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
+    from osprey.build.manifest import MANIFEST_FILENAME
 
     manifest_path = project_dir / MANIFEST_FILENAME
     if not manifest_path.exists():
@@ -87,41 +154,12 @@ def update_manifest_add_user_owned(
     if "user_owned" not in manifest:
         manifest["user_owned"] = {}
 
-    # Compute framework hash
-    registry = BuildArtifactCatalog.default()
-    artifact = registry.get(name)
-    framework_hash = None
-    if artifact and artifact.is_directory:
-        # Directory artifacts are copied verbatim (no render pass), so the
-        # framework hash is a content hash of the packaged template tree.
-        template_dir = manager.template_root / artifact.template_root / artifact.template_path
-        if template_dir.is_dir():
-            try:
-                framework_hash = f"sha256:{sha256_directory(template_dir)}"
-            except Exception:
-                pass
-    elif artifact:
-        template_root_dir = manager.template_root / artifact.template_root
-        template_file = template_root_dir / artifact.template_path
-        if template_file.exists():
-            try:
-                if template_file.suffix == ".j2":
-                    import tempfile
-
-                    template_rel = f"{artifact.template_root}/{artifact.template_path}"
-                    template = manager.jinja_env.get_template(template_rel)
-                    rendered = template.render(**ctx)
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".tmp", delete=False, encoding="utf-8"
-                    ) as tmp:
-                        tmp.write(rendered)
-                        tmp_path = Path(tmp.name)
-                    framework_hash = f"sha256:{sha256_file(tmp_path)}"
-                    tmp_path.unlink(missing_ok=True)
-                else:
-                    framework_hash = f"sha256:{sha256_file(template_file)}"
-            except Exception:
-                pass
+    artifact = BuildArtifactCatalog.default().get(name)
+    framework_hash = (
+        framework_template_hash(manager.template_root, artifact, manager.jinja_env, ctx)
+        if artifact
+        else None
+    )
 
     entry: dict[str, Any] = {
         "claimed_at": datetime.now(UTC).isoformat(),
