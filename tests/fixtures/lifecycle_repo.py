@@ -2691,7 +2691,7 @@ data/
 ├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
 ├── channel_limits.json                   # per-channel write limits
 ├── facility_ontology.json                # device vocabulary (facility.ontology)
-├── machine_state_channels.json           # channels in the machine-state view
+├── machine_state_channels.json           # address list reconciled against the VA manifest
 ├── facility_knowledge/                   # markdown knowledge bundle
 └── simulation/                           # mock-connector scenarios
 ```
@@ -2849,7 +2849,7 @@ CHANNEL_LIMITS_JSON = """\
 
 MACHINE_STATE_CHANNELS_JSON = """\
 {
-  "_comment": "Channels shown in the machine-state view. One canonical list regardless of channel-finder mode.",
+  "_comment": "Machine-state addresses, reconciled against the VA manifest at build time; only the keys are read. One canonical list regardless of channel-finder mode.",
   "_version": "2.0",
 
   "SR:DIAG:DCCT:01:CURRENT:RB": { "label": "Beam current (DCCT)", "group": "beam" },
