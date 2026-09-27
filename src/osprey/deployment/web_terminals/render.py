@@ -1626,8 +1626,27 @@ def _landing_theme_blocks(root: dict[str, Any]) -> list[dict[str, Any]]:
 #: character-for-character against the ``Origin`` header a browser sends, and a
 #: browser never puts any of those in one. Only ``http`` and ``https`` are
 #: accepted: those are the two schemes this perimeter can serve, and a typo like
-#: ``htps://`` would otherwise render an origin nothing can ever match.
-_EXTERNAL_ORIGIN_RE = re.compile(r"https?://[A-Za-z0-9._~%-]+(?::\d+)?\Z")
+#: ``htps://`` would otherwise render an origin nothing can ever match. The host
+#: is also written into nginx's ``server_name``, where a leading ``~`` would make
+#: it a pattern, so its alphabet is a DNS name's or an IPv4 address's and nothing
+#: else.
+_EXTERNAL_ORIGIN_RE = re.compile(
+    r"(?P<scheme>https?)://"
+    r"(?P<host>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
+    r"(?::(?P<port>\d+))?"
+)
+
+
+def origin_host(origin: str) -> str:
+    """The host of ``origin``, without scheme or port.
+
+    Raises:
+        ValueError: If ``origin`` is not ``scheme://host[:port]``.
+    """
+    match = _EXTERNAL_ORIGIN_RE.fullmatch(origin)
+    if match is None:
+        raise ValueError(f"{origin!r} is not an origin")
+    return match.group("host")
 
 
 def _configured_external_origin(root: dict[str, Any]) -> str:
@@ -1662,14 +1681,10 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
         return ""
     if not _EXTERNAL_ORIGIN_RE.fullmatch(origin):
         raise ValueError(
-            f"modules.web_terminals.external_origin {origin!r} is not an origin. It must "
-            "be scheme://host[:port] with nothing after the host — no path, no trailing "
-            "slash, no query (e.g. 'https://terminals.example.org', "
-            "'http://terminals.example.org:8443'). Each terminal compares it against the "
-            "browser's Origin header as a whole string, so anything else renders a "
-            "deployment whose pages load and whose every write is refused. A deployment "
-            "is served from the root of its own hostname or host:port, never under a "
-            f"path. See {PERIMETER_LIMITS_URL}"
+            f"modules.web_terminals.external_origin {origin!r} is not an origin. Set it "
+            "to scheme://host[:port], where host is a DNS name or IPv4 address and "
+            "nothing follows the host or port (e.g. 'https://terminals.example.org', "
+            f"'http://terminals.example.org:8443'). See {PERIMETER_LIMITS_URL}"
         )
     return origin
 
@@ -1738,7 +1753,8 @@ def _external_origin(
         ValueError: If ``modules.web_terminals.external_origin`` is set to
             something that is not an origin (see
             :func:`_configured_external_origin`), or if it is unset and
-            ``deploy.fqdn`` is missing or blank.
+            ``deploy.fqdn`` is missing or blank, or names something other than
+            a host name or IPv4 address.
     """
     configured = _configured_external_origin(root)
     if configured:
@@ -1754,10 +1770,18 @@ def _external_origin(
             "modules.web_terminals.external_origin to that address"
         )
     if not tls_enabled:
-        return f"http://{host}:{nginx_port}"
-    if tls_port == _HTTPS_DEFAULT_PORT:
-        return f"https://{host}"
-    return f"https://{host}:{tls_port}"
+        origin = f"http://{host}:{nginx_port}"
+    elif tls_port == _HTTPS_DEFAULT_PORT:
+        origin = f"https://{host}"
+    else:
+        origin = f"https://{host}:{tls_port}"
+    if not _EXTERNAL_ORIGIN_RE.fullmatch(origin):
+        raise ValueError(
+            f"deploy.fqdn {host!r} is not a host. Set it to a DNS host name or IPv4 "
+            "address, or set modules.web_terminals.external_origin to the address "
+            f"browsers open. See {PERIMETER_LIMITS_URL}"
+        )
+    return origin
 
 
 def deployment_external_origin(config: Any) -> str:

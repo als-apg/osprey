@@ -106,7 +106,9 @@ section.
      - The deployment is served from ``/`` of the address a browser uses and
        cannot sit under a path such as ``https://www.example.org/osprey/``.
        ``modules.web_terminals.external_origin`` is refused if it carries a
-       path.
+       path. Every terminal compares the browser's ``Origin`` header against
+       ``external_origin`` as a whole string, so it is written as a bare
+       origin.
      - Give the deployment its own DNS name at the front proxy
        (``https://osprey.example.org``) or its own port on an existing name
        (``https://www.example.org:8443``).

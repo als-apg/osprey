@@ -2586,6 +2586,19 @@ def test_lint_external_origin_with_a_trailing_slash_is_an_error() -> None:
     assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
 
 
+def test_lint_external_origin_nginx_would_read_as_a_pattern_is_an_error() -> None:
+    """The origin's host is nginx's server name, where a leading `~` is a pattern."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["external_origin"] = "https://~terminals.example.org"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
+
+
 def test_lint_non_string_external_origin_is_an_error() -> None:
     """A non-string cannot be an origin — fail closed, as render does."""
     # Arrange
