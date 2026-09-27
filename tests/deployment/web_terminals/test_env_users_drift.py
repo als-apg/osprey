@@ -25,7 +25,8 @@ from osprey.deployment.web_terminals import env_production
 from osprey.utils.dotenv import ENV_USERS_BANNER, parse_dotenv_file
 
 _CC_CONFIG = {
-    "facility": {"timezone": "UTC"},
+    "facility": {},
+    "system": {"timezone": "UTC"},
     "claude_code": {"provider": "cborg"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -150,7 +151,8 @@ def test_keyless_provider_drift_is_not_a_secret_drift(tmp_path):
     """OLLAMA_API_KEY differing cannot produce an authentication failure, so
     an authored file is not refused over it."""
     config = {
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "api": {"providers": {"ollama": {"base_url": "http://localhost:11434"}}},
         "claude_code": {"provider": "ollama"},
         "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},

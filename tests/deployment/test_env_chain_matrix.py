@@ -258,7 +258,8 @@ class TestPresenceMatrix:
 #: names — carries them into the file it writes.
 ENV_USERS_CONFIG = {
     "project_name": "chain-matrix",
-    "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
+    "facility": {"name": "Demo Light Source", "prefix": "dls"},
+    "system": {"timezone": "UTC"},
     "llm": {"provider": "cborg", "api_key_env_var": CONFLICT},
     "modules": {
         "web_terminals": {"enabled": True, "image_source": "local"},

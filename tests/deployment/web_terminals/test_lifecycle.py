@@ -64,7 +64,8 @@ def _config(
         web_terminals["image_source"] = image_source
     return {
         "project_name": project_name,
-        "facility": {"name": "Demo Light Source", "prefix": facility_prefix, "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": facility_prefix},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {"web_terminals": web_terminals},

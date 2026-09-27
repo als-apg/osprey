@@ -442,7 +442,8 @@ def _single_user_facility_config() -> dict:
     the shape ``tests/deployment/web_terminals/test_render.py``'s ``_config()``
     builds -- every field ``render_web_terminals()`` reads, nothing more."""
     return {
-        "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "modules": {

@@ -308,7 +308,7 @@ def _profile_edits() -> dict[str, Any]:
             "container_runtime": RUNTIME,
             "facility.name": "E2E Notebook Panel Fixture",
             "facility.prefix": PREFIX,
-            "facility.timezone": "UTC",
+            "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             PORT_BASE_CONFIG_KEY: PORT_BASE,
             "control_system.type": "virtual_accelerator",

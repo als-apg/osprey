@@ -30,6 +30,8 @@ container_runtime: docker
 facility:
   name: E2E Deploy Lifecycle Fixture
   prefix: e2e
+
+system:
   timezone: UTC
 
 # Points at the throwaway local registry the test starts on this fixed port

@@ -215,7 +215,8 @@ def test_env_production_created_with_restrictive_mode_atomically(monkeypatch, tm
 def test_env_production_module_disabled_omits_its_vars(tmp_path):
     _write_dotenv(tmp_path / ".env", _INCLUDED_ENV)
     config = {
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "llm": {"api_key_env_var": "CBORG_API_KEY"},
         "modules": {
             "web_terminals": {"image_source": "local"},
@@ -320,7 +321,8 @@ def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
     }
     first = next(iter(personas))
     return {
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -1195,7 +1197,8 @@ def _catalog_config(project_path, persona="operator", deployed_services=("openob
     """
     return {
         "deployed_services": list(deployed_services),
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "modules": {
             "web_terminals": {
                 "enabled": True,

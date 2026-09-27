@@ -514,7 +514,8 @@ def _env_project_root(tmp_path: Path) -> Path:
 def _env_deploy_config(users: list[dict[str, Any]]) -> dict[str, Any]:
     """A local-mode deploy config over the two-persona catalog."""
     return {
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
         "modules": {
             "web_terminals": {

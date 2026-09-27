@@ -506,7 +506,8 @@ def _config(nginx_port: int, *, oidc_issuer: str | None = None) -> dict[str, Any
             for index, user in enumerate(_USERS)
         ]
     return {
-        "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "127.0.0.1"},
         "modules": {
