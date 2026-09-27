@@ -254,7 +254,7 @@ def _create_sandbox_wrapper(
     workspace_root: Path,
     project_root: Path,
     *,
-    secret_roots: tuple[Path, ...] = (),
+    secret_roots: tuple[Path, ...],
 ) -> str:
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
@@ -273,6 +273,12 @@ def _create_sandbox_wrapper(
 
     All visualization output goes through ``save_artifact()`` calls in
     user code. There is no auto-capture of matplotlib figures.
+
+    ``secret_roots`` has no default, for the same reason ``project_root``
+    has none: an empty tuple leaves every ``.env`` file readable, so a
+    caller resolves the roots
+    (:func:`~osprey.mcp_server.python_executor.executor.resolve_secret_roots`)
+    or passes ``()`` on purpose, and one that forgets gets a ``TypeError``.
     """
     exec_folder_str = str(execution_folder)
 
