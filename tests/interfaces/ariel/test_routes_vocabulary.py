@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import FastAPI
@@ -105,7 +106,8 @@ def test_capabilities_configuration_invalid_payload_is_service_independent():
         ariel_service=None,
     )
 
-    response = TestClient(app).get("/api/capabilities")
+    with patch.object(routes, "get_facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
+        response = TestClient(app).get("/api/capabilities")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -117,6 +119,7 @@ def test_capabilities_configuration_invalid_payload_is_service_independent():
         "shared_parameters": [],
         "vocabulary": {"enabled": False, "concepts": 0, "expand_by_default": False},
         "config_panel_enabled": True,
+        "facility_timezone": "Asia/Tokyo",
     }
     assert "ariel.vocabulary.path" in response.json()["remedy"]
 
@@ -162,6 +165,21 @@ def test_capabilities_configuration_warning_keeps_the_normal_payload():
     }
 
 
+def test_capabilities_configuration_warning_names_the_facility_zone():
+    """The warning payload spreads the normal one, so it names the zone too."""
+    app = _make_app(
+        config_status="configuration_warning",
+        config_errors=["search_modules.semantic.model is required"],
+        config_remedy="fix the named key in config.yml and restart",
+        ariel_service=_make_service(),
+    )
+
+    with patch.object(routes, "get_facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
+        payload = TestClient(app).get("/api/capabilities").json()
+
+    assert payload["facility_timezone"] == "Asia/Tokyo"
+
+
 def test_capabilities_without_config_state_returns_the_normal_payload():
     """The pre-existing route-test app (service only) behaves exactly as before."""
     app = _make_app(ariel_service=_make_service())
@@ -176,6 +194,7 @@ def test_capabilities_without_config_state_returns_the_normal_payload():
         "shared_parameters",
         "vocabulary",
         "config_panel_enabled",
+        "facility_timezone",
     }
     assert "status" not in payload
 
