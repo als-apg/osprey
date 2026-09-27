@@ -37,7 +37,7 @@ import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
-import { applyConfigTabGate } from './config-tab.js';
+import { applyConfigTabGate, applyConfigUnreadableNotice } from './config-tab.js';
 import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
 import { applyTourConfig } from './tour.js';
 import { setFacts } from './first-contact.js';
@@ -393,8 +393,10 @@ export async function initPanelManager(panelId) {
   // — it is static drawer markup — but the flag rides the payload this module
   // already reads, and applying it here keeps the page to ONE /api/panels
   // round trip. config-tab.js owns the rule; a failed fetch (null) leaves the
-  // tab alone, matching every other server-config read above.
+  // tab alone, matching every other server-config read above. When an
+  // unreadable config file closed the panel, a drawer notice names that file.
   applyConfigTabGate(panelConfig);
+  applyConfigUnreadableNotice(panelConfig);
 
   // Record whether this deployment's Scaffold gallery may write
   // (web.scaffold_gallery.write_enabled). The gallery renders its controls
