@@ -21,8 +21,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # NOT a runtime import. ``fastmcp.settings`` snapshots the environment when
     # fastmcp is first imported, and every ``python -m
@@ -107,19 +105,34 @@ def _config_path() -> Path:
 
 
 def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
-    """Load ``config.yml`` from the framework's config path.
+    """Load the deployment's ``config.yml`` through the shared ``ConfigBuilder``.
 
-    Returns an empty dict when the file is missing.
+    ``${VAR}`` and ``${VAR:-default}`` resolve exactly as they do for every
+    other config reader, and the server shares the builder
+    :func:`~osprey.mcp_server.startup.prime_config_builder` already loaded.
+    Returns ``{}``, with a warning naming the path, when the file is missing or
+    cannot be loaded.
     """
     config_path = _config_path()
-    raw: dict[str, Any] = {}
-    if config_path.exists():
-        with open(config_path) as f:
-            raw = yaml.safe_load(f) or {}
-        logger.info("config loaded from %s", config_path)
-    else:
+    if not config_path.exists():
         logger.warning("Config file not found: %s", config_path)
+        return {}
 
+    try:
+        from osprey.utils.config import get_config_builder
+
+        raw: dict[str, Any] = get_config_builder(
+            config_path=str(config_path), set_as_default=True
+        ).raw_config
+    except Exception as exc:
+        logger.warning(
+            "Config file %s could not be loaded, channel finder starts unconfigured: %s",
+            config_path,
+            exc,
+        )
+        return {}
+
+    logger.info("config loaded from %s", config_path)
     return raw
 
 
