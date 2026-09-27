@@ -10,16 +10,21 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import time
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import Any
 
-__all__ = ["DAY_NAMES", "ClockSchedule", "parse_clock_schedule"]
+__all__ = ["DAY_NAMES", "ClockSchedule", "next_fire", "parse_clock_schedule", "previous_fire"]
 
 # Index equals ``date.weekday()``.
 DAY_NAMES: tuple[str, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 _TIME_PATTERN = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 _CLOCK_KEYS = frozenset({"at", "days"})
+
+# Eight days either side of the local date of the reference instant hold every
+# weekday on both sides, so a non-empty ``days`` always yields a slot before
+# and a slot after.
+_SEARCH_DAYS = range(-8, 9)
 
 
 @dataclass(frozen=True)
@@ -129,3 +134,46 @@ def parse_clock_schedule(
         days = frozenset(indices)
 
     return ClockSchedule(times=tuple(sorted(times)), days=days)
+
+
+def _wall_time_exists(wall: datetime, zone: tzinfo) -> bool:
+    aware = wall.replace(tzinfo=zone, fold=0)
+    return aware.astimezone(UTC).astimezone(zone).replace(tzinfo=None) == wall
+
+
+def _slot_instant(day: date, at: time, zone: tzinfo) -> datetime:
+    """The UTC instant of time ``at`` on local date ``day`` in ``zone``.
+
+    A repeated wall time resolves to its first occurrence (``fold=0``). A wall
+    time a daylight-saving jump skips resolves to the first whole minute after
+    it that exists.
+    """
+    wall = datetime.combine(day, at)
+    while not _wall_time_exists(wall, zone):
+        wall += timedelta(minutes=1)
+    return wall.replace(tzinfo=zone, fold=0).astimezone(UTC)
+
+
+def _slots_around(schedule: ClockSchedule, instant: datetime, zone: tzinfo) -> list[datetime]:
+    local_date = instant.astimezone(zone).date()
+    slots: list[datetime] = []
+    for offset in _SEARCH_DAYS:
+        day = local_date + timedelta(days=offset)
+        if schedule.days is not None and day.weekday() not in schedule.days:
+            continue
+        slots.extend(_slot_instant(day, at, zone) for at in schedule.times)
+    return slots
+
+
+def next_fire(schedule: ClockSchedule, after: datetime, zone: tzinfo) -> datetime:
+    """The earliest slot strictly after the aware instant ``after``, in UTC.
+
+    Two times that one daylight-saving gap maps to the same instant yield one
+    slot, because the result is strictly later than ``after``.
+    """
+    return min(slot for slot in _slots_around(schedule, after, zone) if slot > after)
+
+
+def previous_fire(schedule: ClockSchedule, before: datetime, zone: tzinfo) -> datetime:
+    """The latest slot at or before the aware instant ``before``, in UTC."""
+    return max(slot for slot in _slots_around(schedule, before, zone) if slot <= before)
