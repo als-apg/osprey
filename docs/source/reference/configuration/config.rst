@@ -8,13 +8,14 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Six parts of that file are gathered here — the facility this deployment
+Eight parts of that file are gathered here — the facility this deployment
 belongs to (``facility:``), the diagnostic suite (``health:``), the browser
 UI's documentation and feedback settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
-(``python_executor:``), and the deployment keys that decide which container
-image each service runs and how ``${VAR}`` placeholders in the compose files
-are filled in. Settings that only ever arrive from the environment are in
+(``python_executor:``), the full tool-call record (``audit.tool_call:``), the
+links from an answer to a logbook entry (``ariel.entry_url_template``), and the
+deployment keys that decide which container image each service runs and how
+``${VAR}`` placeholders in the compose files are filled in. Settings that only ever arrive from the environment are in
 :doc:`environment-variables`. A closing note records the **protected set** —
 the files and keys no agent-side writer may touch.
 
@@ -826,6 +827,33 @@ Both keys are read once per MCP server process, so a change lands after
 and those artifacts hold values: treat them with the access you give the
 control system's own data. The fields are listed in
 :ref:`audit-trail-tool-call`.
+
+.. _config-ariel-entry-url:
+
+``ariel.entry_url_template`` — links from an answer to the logbook entry
+------------------------------------------------------------------------
+
+``ariel.entry_url_template`` is your logbook's own address for one entry, with
+a single ``{entry_id}`` placeholder. It is unset by default; the presets that
+ship an ``ariel:`` block carry it as a commented line.
+
+.. code-block:: yaml
+
+   config:
+     ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
+
+When the key is set, every entry the ARIEL tools return carries an
+``entry_url``: the search and browse results, ``entry_get``,
+``entries_by_ids``, the rows of ``sql_query`` that select ``entry_id``, and the
+result of ``entry_publish``. The id is URL-encoded before it is filled in. The
+agent is told to link that URL as given and never to build one, so with the key
+unset it shows plain entry IDs. An entry written by ``entry_create`` and not yet
+published gets no URL, because the logbook has no page for it.
+
+A template that does not format (a misspelled placeholder, an unbalanced brace)
+is logged once as a warning and emits no URL; it never fails the read. The
+ARIEL server reads the key from the loaded configuration, so a change lands
+after ``osprey build`` and a restart of the stack.
 
 .. _config-deployment:
 
