@@ -84,6 +84,56 @@ everything about how a facility-owned container is declared, built, and reached
 is in :ref:`deploy-a-facility-own-service`.
 
 
+.. _perimeter-limits:
+
+What the perimeter needs
+========================
+
+The web tier (nginx, the landing page and one terminal per user) makes four
+demands on the network in front of it: its own hostname or host:port, one
+origin, the host network, and at most 100 users. They hold for every
+deployment, and the refusals and warnings that enforce them link to this
+section.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 44 34
+
+   * - Limit
+     - What it means
+     - If your site cannot meet it
+   * - Its own hostname or host:port
+     - The deployment is served from ``/`` of the address a browser uses and
+       cannot sit under a path such as ``https://www.example.org/osprey/``.
+       ``modules.web_terminals.external_origin`` is refused if it carries a
+       path.
+     - Give the deployment its own DNS name at the front proxy
+       (``https://osprey.example.org``) or its own port on an existing name
+       (``https://www.example.org:8443``).
+   * - One origin
+     - Every terminal accepts a state-changing request only from the one
+       origin the deployment was built for: ``external_origin``, or the one
+       derived from ``deploy.fqdn``. A browser on any other address loads the
+       pages, and every write it makes is refused.
+     - Publish one name and give every user that address.
+       :ref:`multi-user-https` covers the setting and a TLS terminator in
+       front.
+   * - The host network
+     - nginx and every per-user terminal run with ``network_mode: host``, so
+       the container runtime must be able to put containers on the host's own
+       network.
+     - A Linux host running Docker or Podman does this directly. Docker
+       Desktop on macOS does it only with *Enable host networking* turned on
+       (Settings → Resources → Network).
+   * - At most 100 users
+     - Each per-user port family holds 100 ports, one for each user index 0 to
+       99 (:ref:`reference-ports-panels`). A roster with an index past 99 is
+       refused, and setting a family's ``<family>_base_port`` does not raise
+       the limit.
+     - Run a second deployment for the next group of users, on its own
+       ``deployment.port_base`` (:ref:`reference-ports`).
+
+
 Step 1 — Create the facility repository
 =======================================
 
