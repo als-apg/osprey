@@ -340,8 +340,9 @@ Values are printable ASCII with no leading or trailing space. A value that
 cannot travel refuses the request rather than leaving its header off.
 
 ``/auth/`` is the public login surface: the login page ``/auth/login``,
-``/auth/oidc/login``, the provider callback ``/auth/oidc/callback`` and
-``/auth/logout``. nginx proxies the whole prefix without a gate, because it is
+``/auth/oidc/login``, the provider callback ``/auth/oidc/callback``,
+``/auth/logout``, the card-less entry ``/auth/enter`` and its single sign-on
+start ``/auth/oidc/enter``. nginx proxies the whole prefix without a gate, because it is
 where a session comes from.
 
 ``/health`` answers 200 with ``status``, ``service``, ``method`` and
@@ -591,6 +592,27 @@ built with the first site whose sign-in releases a groups claim to OSPREY.
 Groups are defined in the site's identity provider, not in OSPREY, and some
 providers release none. Until then the lint refuses it
 (``web_terminals.invalid_user_access``).
+
+
+.. _multi-user-own-terminal-entry:
+
+Log in without choosing a card
+==============================
+
+Under ``password`` or ``oidc``, ``https://<host>/auth/enter`` signs a person
+in without picking a card on the landing page. With ``password`` they type
+their roster username and their password. With ``oidc`` the address sends them
+to ``/auth/oidc/enter``, which starts the sign-in at your provider.
+
+Afterwards they land on their own terminal. When more than one card admits
+them, their own plus any card shared with them, they see a list instead, and
+every terminal on it is already unlocked. Nothing is unlocked that the card
+itself would not have unlocked for the same password or the same provider
+login.
+
+A person no card admits sees "No terminal for this account", and the login
+service records ``no_card``. Under ``token`` and ``none`` there is no login
+service, so the address does not exist.
 
 
 .. _multi-user-https:

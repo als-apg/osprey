@@ -1388,6 +1388,41 @@ def test_a_password_login_reaches_that_users_own_terminal(deployment: dict[str, 
     )
 
 
+@pytest.mark.usefixtures("deployment")
+def test_a_sign_in_without_a_card_reaches_that_users_own_terminal() -> None:
+    """The card-less entry through nginx: the form, then a redirect to the one card.
+
+    This roster shares no card, so a verified credential opens exactly the
+    person's own terminal, and the answer is a redirect there rather than a
+    list.
+    """
+    status, _, page = _request("/auth/enter", headers=_navigation())
+    assert status == 200, f"sign-in page not served (got {status})\n{page[:300]}"
+    assert 'name="username"' in page
+
+    client, jar = _browser()
+    body = urllib.parse.urlencode(
+        {"username": REAL_USER, "password": _PASSWORDS[REAL_USER]}
+    ).encode()
+    status, headers, page = _request(
+        "/auth/enter",
+        method="POST",
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": f"http://127.0.0.1:{HOST_PORTS['nginx']}",
+            **_navigation(),
+        },
+        opener=client,
+    )
+    assert status == LOGIN_ACCEPTED, (
+        f"sign-in for {REAL_USER!r} was not accepted (got {status})\n{page[:300]}\n{_logs(AUTH_C)}"
+    )
+    location = {name.lower(): value for name, value in headers.items()}.get("location")
+    assert location == f"/u/{REAL_USER}/"
+    assert SESSION_COOKIE_NAME in {cookie.name for cookie in jar}
+
+
 def test_the_upstream_receives_exactly_one_of_each_identity_header(
     deployment: dict[str, Any],
 ) -> None:

@@ -275,6 +275,13 @@ whose user's stored hash cannot be evaluated files ``credential_unevaluable``
 instead: the browser sees the ordinary refusal, and the fix is
 ``osprey users passwd <user>``.
 
+A login at ``/auth/enter``, which names no card
+(:ref:`multi-user-own-terminal-entry`), files ``no_card`` when it proved who
+arrived but no card admits them; the fix is the roster or a card's
+``access:``, never the password or the provider. A card-less single sign-on
+refused before any card is known files under the subject ``(sign-in)``, never
+under the asserted identity.
+
 .. _audit-trail-tool-call:
 
 The full tool-call record
