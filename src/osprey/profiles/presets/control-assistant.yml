@@ -224,9 +224,9 @@ config:
   # saying those gateways really are this facility's — and it still refuses
   # while this deployment records its own archive from the stand-in, because
   # that store's history is the stand-in's (see `va_archiver:` above).
-  # `osprey set connector=epics` makes your facility's machine the session
-  # baseline, in place of the simulator — together with
-  # `osprey set config.archiver.type=epics_archiver` and
+  # `osprey set connector=<type>` ("epics", "doocs" or "tango") makes your
+  # facility's machine the session baseline in place of the simulator, with
+  # `osprey set config.archiver.type=<the archiver that records it>` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: virtual_accelerator
   # Master write switch, the FIRST guard in the write-safety chain: while
