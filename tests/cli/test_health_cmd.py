@@ -161,6 +161,15 @@ def _find(results: list[dict], name: str) -> dict | None:
     return next((r for r in results if r.get("name") == name), None)
 
 
+def test_the_suite_runs_against_the_loaded_project_config(cli_runner, valid_project):
+    suite = AsyncMock(return_value=_report(_result("a", Status.OK)))
+    with patch("osprey.cli.health_cmd._run_suite", suite):
+        result = cli_runner.invoke(health, ["--project", str(valid_project)])
+    assert result.exit_code == 0, result.output
+    config = suite.call_args.kwargs["config"]
+    assert config["project_name"] == "test_project"
+
+
 # --------------------------------------------------------------------------- #
 # Exit-code mapping (0 / 1 / 2 / 3 / 130)
 # --------------------------------------------------------------------------- #

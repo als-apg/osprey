@@ -1,12 +1,12 @@
 """The ``container`` health probe — deployed-container state and healthcheck.
 
-Checks a single deployed container by name. It builds the runtime's ``ps``
-command via :mod:`osprey.deployment.runtime_helper` — passing ``ctx.config`` so
-the ``container_runtime`` the project configured is the one queried, rather than
-whatever auto-detection finds first — runs it off the event loop
-with :func:`asyncio.create_subprocess_exec`, and maps the matched container's
-state — and its healthcheck status, when the runtime reports one — to a
-:class:`~osprey.health.models.CheckResult`:
+Checks one deployed service's containers. It builds the runtime's ``ps``
+command via :mod:`osprey.deployment.runtime_helper` — passing the probe's config
+so the ``container_runtime`` the project configured is the one queried, rather
+than whatever auto-detection finds first — runs it off the event loop
+with :func:`asyncio.create_subprocess_exec`, and maps the matched containers'
+state — and their healthcheck status, when the runtime reports one — to a
+:class:`~osprey.health.models.CheckResult`. For a single matched container:
 
 - ``running`` (and not unhealthy) → ``ok``;
 - ``running`` but the runtime reports it ``unhealthy`` → ``warning``;
@@ -14,13 +14,26 @@ state — and its healthcheck status, when the runtime reports one — to a
 - no matching container → ``warning`` "not deployed";
 - no container runtime installed or running (:class:`RuntimeError` or
   :class:`FileNotFoundError`) → a single ``skip`` row "no container runtime
-  available".
+  available";
+- no config on the context and none loadable from the global config → a
+  ``skip`` row "config unavailable", since without the project name this
+  deployment's containers cannot be told from another's.
 
-Container matching uses a fuzzy short-name rule: the target's last dotted
-segment, lower-cased, is matched
-against each container's ``Names`` with underscore/hyphen variants, so
-``services.archiver_recorder`` matches a container named
-``project-archiver-recorder-1``.
+Which containers are graded is decided by
+:func:`osprey.deployment.container_ownership.deployment_containers`: a container
+labelled for this project is ours, one labelled for another OSPREY or compose
+project never is, and an unlabelled one is ours when a name matches the target
+by whole name segments. The target's last dotted segment is matched against
+each container's names after the ``<project>-`` prefix and against its compose
+service label, so ``services.archiver_recorder`` matches
+``project-archiver-recorder-1`` and ``postgresql`` matches the
+``project-ariel-postgres`` container compose runs for that service.
+
+Every matched container is graded, since one service can run several (numbered
+workers, per-lane stacks). With more than one, any container not ``running``
+→ ``warning`` naming each such container; all running but some ``unhealthy`` →
+``warning`` naming them; otherwise ``ok``. ``details`` lists every matched
+container with its state.
 
 Spec keys:
     container: The container/service name to look up (required; alias ``service``).
@@ -37,8 +50,11 @@ import time
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.container_ownership import container_names, deployment_containers
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.health.models import CheckResult, Status
+from osprey.utils.config import get_full_configuration
 
 if TYPE_CHECKING:
     from osprey.health.probes import ProbeContext
@@ -53,12 +69,13 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     Args:
         spec: Parsed check parameters (see the module docstring for keys).
         ctx: Shared per-run handles. Only ``ctx.config`` is read — it selects the
-            container runtime to query; the control-system connector is never
-            needed here.
+            container runtime to query and names the project whose containers
+            are graded; the control-system connector is never needed here.
 
     Returns:
         A :class:`CheckResult` per the state/healthcheck mapping documented at
-        the module level; a ``skip`` row when no container runtime is available.
+        the module level; a ``skip`` row when no container runtime or no config
+        is available.
     """
     category = str(spec.get("category", _DEFAULT_CATEGORY))
     target = spec.get("container") or spec.get("service")
@@ -75,9 +92,10 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     timeout_s = float(spec.get("timeout_s", _DEFAULT_TIMEOUT_S))
 
     start = time.perf_counter()
+    config = _probe_config(ctx)
 
     try:
-        ps_cmd = get_ps_command(ctx.config, all_containers=True)
+        ps_cmd = get_ps_command(config, all_containers=True)
     except (RuntimeError, FileNotFoundError) as exc:
         return CheckResult(
             name=name,
@@ -85,6 +103,15 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             status=Status.SKIP,
             message="no container runtime available",
             details=str(exc),
+        )
+
+    if config is None:
+        return CheckResult(
+            name=name,
+            category=category,
+            status=Status.SKIP,
+            message="config unavailable",
+            details="cannot tell this deployment's containers from another's",
         )
 
     try:
@@ -118,7 +145,9 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             latency_ms=latency_ms,
         )
 
-    matching = _match_containers(_parse_ps_json(stdout), short)
+    matching = deployment_containers(
+        _parse_ps_json(stdout), project_name=resolve_project_name(config), services=(short,)
+    ).for_service(short)
     if not matching:
         return CheckResult(
             name=name,
@@ -128,6 +157,9 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             value="not found",
             latency_ms=latency_ms,
         )
+
+    if len(matching) > 1:
+        return _grade_several(matching, target, name, category, latency_ms)
 
     container = matching[0]
     state = str(container.get("State", "unknown"))
@@ -159,6 +191,90 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
         status=Status.WARNING,
         message=f"{target}: {state}",
         value=state,
+        latency_ms=latency_ms,
+    )
+
+
+def _probe_config(ctx: ProbeContext) -> Mapping[str, Any] | None:
+    """The config this probe reads, or ``None`` when none is available.
+
+    ``ctx.config`` is authoritative when present; otherwise the global
+    configuration is loaded, and any failure to load it yields ``None``.
+    """
+    if ctx.config is not None:
+        return ctx.config
+    try:
+        return get_full_configuration()
+    except Exception:  # config unavailability degrades to a skip row
+        return None
+
+
+def _grade_several(
+    matching: list[Mapping[str, Any]],
+    target: object,
+    name: str,
+    category: str,
+    latency_ms: float,
+) -> CheckResult:
+    """Grade a service that runs more than one container; the worst state wins.
+
+    Args:
+        matching: The service's containers, in reporting order.
+        target: The service name as the spec gave it, for the message.
+        name: Result-row name.
+        category: Result category.
+        latency_ms: Duration of the ``ps`` query.
+
+    Returns:
+        ``warning`` naming each container that is not running, else ``warning``
+        naming each unhealthy one, else ``ok``; ``details`` lists every container.
+    """
+    rows = [
+        (
+            (container_names(c) or ["unknown"])[0],
+            str(c.get("State", "unknown")),
+            _extract_health(c),
+        )
+        for c in matching
+    ]
+    count = len(rows)
+    details = "; ".join(
+        f"{row_name}: {state}" + (f" ({health})" if health else "")
+        for row_name, state, health in rows
+    )
+    stopped = [(row_name, state) for row_name, state, _ in rows if state != "running"]
+    if stopped:
+        listed = ", ".join(f"{row_name}: {state}" for row_name, state in stopped)
+        return CheckResult(
+            name=name,
+            category=category,
+            status=Status.WARNING,
+            message=f"{target}: {len(stopped)} of {count} containers not running ({listed})",
+            value=stopped[0][1],
+            details=details,
+            latency_ms=latency_ms,
+        )
+    unhealthy = [row_name for row_name, _, health in rows if health == "unhealthy"]
+    if unhealthy:
+        return CheckResult(
+            name=name,
+            category=category,
+            status=Status.WARNING,
+            message=(
+                f"{target}: {len(unhealthy)} of {count} containers running but unhealthy "
+                f"({', '.join(unhealthy)})"
+            ),
+            value="running",
+            details=details,
+            latency_ms=latency_ms,
+        )
+    return CheckResult(
+        name=name,
+        category=category,
+        status=Status.OK,
+        message=f"{target}: {count} containers running",
+        value="running",
+        details=details,
         latency_ms=latency_ms,
     )
 
@@ -224,26 +340,7 @@ def _parse_ps_json(stdout: str) -> list[dict[str, Any]]:
     return containers
 
 
-def _match_containers(containers: list[dict[str, Any]], short: str) -> list[dict[str, Any]]:
-    """Return containers whose ``Names`` fuzzily match ``short``.
-
-    Matches the short name and its underscore/hyphen variants against each
-    container's ``Names`` field (a list or a string), lower-cased.
-    """
-    variants = {short, short.replace("_", "-"), short.replace("-", "_")}
-    matching: list[dict[str, Any]] = []
-    for container in containers:
-        names = container.get("Names", [])
-        if isinstance(names, list):
-            names_str = " ".join(str(n) for n in names).lower()
-        else:
-            names_str = str(names).lower()
-        if any(variant in names_str for variant in variants):
-            matching.append(container)
-    return matching
-
-
-def _extract_health(container: dict[str, Any]) -> str:
+def _extract_health(container: Mapping[str, Any]) -> str:
     """Return the container's healthcheck status, or ``""`` if none is reported.
 
     Prefers an explicit ``Health`` field, falling back to parsing the human

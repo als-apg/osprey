@@ -31,7 +31,7 @@ import asyncio
 import logging
 import os
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -186,8 +186,13 @@ async def _run_suite(
     categories: tuple[str, ...] | None,
     suite_timeout_s: float,
     on_demand_timeout_s: float | None,
+    config: Mapping[str, Any] | None,
 ) -> CheckReport:
-    """Run the merged suite under a :class:`HealthRuntime` async context."""
+    """Run the merged suite under a :class:`HealthRuntime` async context.
+
+    *config* is the loaded project config, handed to every probe so none falls
+    back to a global config read from the working directory.
+    """
     from osprey.health.runner import run_health_suite
     from osprey.health.runtime import HealthRuntime
 
@@ -199,6 +204,7 @@ async def _run_suite(
             categories=categories,
             suite_timeout_s=suite_timeout_s,
             on_demand_timeout_s=on_demand_timeout_s,
+            config=config,
         )
 
 
@@ -350,6 +356,7 @@ def health(
                             categories=selected,
                             suite_timeout_s=suite_timeout_s,
                             on_demand_timeout_s=on_demand_timeout_s,
+                            config=expanded,
                         )
                     )
 
