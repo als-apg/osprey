@@ -102,6 +102,37 @@ deployment, which is why none of them is a config key.
 managed or a hand-run ``docker build``. What they configure is the build — a
 container that is already running reads nothing from them.
 
+The Phoebus server's overrides
+==============================
+
+The ``phoebus`` MCP server reads these three from its own environment each
+time a tool runs, and each one outranks a config key. They reach the server
+from the environment of the process that starts the agent;
+:doc:`/how-to/deploy-project/env-chain` covers how a deployment's ``.env``
+gets there.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``PHOEBUS_BRIDGE_URL``
+     - The agent bridge's full base URL, outranking ``phoebus.host`` /
+       ``phoebus.port``. The build renders it into the server's entry as a
+       ``${PHOEBUS_BRIDGE_URL:-…}`` reference whose fallback is the configured
+       host and port, so a value in the environment of the process that
+       starts the agent wins and an unset one leaves the keys in charge. A
+       second instance declared with ``extends`` sets its own value in its
+       ``env:``.
+   * - ``PHOEBUS_REQUIRE_HANDLE``
+     - ``1``/``true``/``yes``/``on`` or ``0``/``false``/``no``/``off``,
+       outranking ``phoebus.require_handle`` either way. Any other value falls
+       through to the key.
+   * - ``PHOEBUS_ARCHIVER_URL``
+     - The archiver bound into generated Data Browser plots, outranking
+       ``phoebus.archiver_url``.
+
 Names the framework stamps
 ==========================
 
