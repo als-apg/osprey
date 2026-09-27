@@ -329,7 +329,7 @@ independently of the control system:
          archiver:
            type: doocs_archiver
            settings:
-             avg_window: 20    # optional moving average, in samples
+             avg_window: 20    # optional centered moving average, in seconds
 
    .. tab-item:: MongoDB
       :sync: mongodb
