@@ -29,9 +29,10 @@ runtime surprise in a downstream lifecycle/e2e test.
 
 `golden/tls_custom_port/` is the ONE variant this module keeps: the same
 facility with TLS terminated on a non-default port. It exists because the
-listener port is the one value that reaches three separate places in the
-rendered nginx.conf at once — both `listen ... ssl` lines and the cleartext
-server's `301` target — and a default-port baseline pins none of them (at 443
+listener port is the one value that reaches several places in the rendered
+nginx.conf at once — both `listen ... ssl` lines, both `listen ... ssl
+default_server` lines and the cleartext server's `301` target — and a
+default-port baseline pins none of them (at 443
 the redirect deliberately names no port at all, so the redirect's port arm is
 invisible to the default golden). Only `nginx.conf` is committed for the
 variant: `tls.port` changes nothing in the landing output, and the two places
@@ -208,14 +209,16 @@ def test_render_matches_golden_tls_custom_port_nginx_conf_byte_for_byte() -> Non
 
 
 def test_golden_tls_custom_port_binds_and_redirects_to_the_custom_port() -> None:
-    """The committed variant itself must still carry the three places the custom
-    port lands — both `listen ... ssl` lines and the cleartext server's 301
-    target. Guards against a truncated or stale variant passing the byte-equality
+    """The committed variant itself must still carry every place the custom port
+    lands — both `listen ... ssl` lines, both `listen ... ssl default_server`
+    lines and the cleartext server's 301 target. Guards against a truncated or stale variant passing the byte-equality
     check above by matching an equally wrong render."""
     conf = _read_golden(_TLS_CUSTOM_PORT_GOLDEN)
 
     assert f"listen {_TLS_CUSTOM_PORT} ssl;" in conf
     assert f"listen [::]:{_TLS_CUSTOM_PORT} ssl;" in conf
+    assert f"listen {_TLS_CUSTOM_PORT} ssl default_server;" in conf
+    assert f"listen [::]:{_TLS_CUSTOM_PORT} ssl default_server;" in conf
     assert f"return 301 https://$host:{_TLS_CUSTOM_PORT}$request_uri;" in conf
 
 

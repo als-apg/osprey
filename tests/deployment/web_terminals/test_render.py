@@ -3081,16 +3081,75 @@ def _server_blocks(nginx_conf: str) -> list[str]:
     return blocks
 
 
-def test_tls_redirect_off_renders_exactly_one_server_block() -> None:
-    """Without TLS there is nothing to redirect to: one server, on the plain
-    port, serving everything — unchanged from before TLS was renderable."""
+def test_tls_off_renders_the_content_server_and_a_redirect_for_every_other_name() -> None:
+    """Without TLS the plain port carries two servers: the content server on the
+    origin's host, and a default server sending every other name to the origin."""
     # Act
     nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
-    assert len(_server_blocks(nginx_conf)) == 1
+    blocks = _server_blocks(nginx_conf)
+    assert len(blocks) == 2
+    content, catch_all = blocks
+    assert f"listen {_NGINX_PORT};" in content
+    assert "server_name dls-deploy.dls.example.org;" in content
+    assert f"listen {_NGINX_PORT} default_server;" in catch_all
+    assert f"listen [::]:{_NGINX_PORT} default_server;" in catch_all
+    assert "server_name _;" in catch_all
+    assert "access_log /dev/stdout osprey_sanitized;" in catch_all
+    assert f"return 301 http://dls-deploy.dls.example.org:{_NGINX_PORT}$request_uri;" in catch_all
+    for absent in ("location", "root ", "proxy_pass", "auth_request", "http2"):
+        assert absent not in catch_all
     assert "return 301 https://" not in nginx_conf
-    assert f"listen {_NGINX_PORT};" in nginx_conf
+
+
+def test_roster_less_render_keeps_one_server_for_every_name() -> None:
+    """A render with no origin has no name to prefer: one server answers all."""
+    # Act
+    nginx_conf = _render_nginx(_config([]))
+
+    # Assert
+    blocks = _server_blocks(nginx_conf)
+    assert len(blocks) == 1
+    assert "server_name _;" in blocks[0]
+    assert "default_server" not in nginx_conf
+
+
+def test_the_content_server_serves_only_the_origin_host() -> None:
+    """The content server claims the origin's host and no other name."""
+    # Act
+    content, catch_all = _server_blocks(_render_nginx(_config(["alice"])))
+
+    # Assert
+    assert "server_name dls-deploy.dls.example.org;" in content
+    server_names = re.findall(r"server_name ([^;]+);", _directives(content + catch_all))
+    assert server_names == ["dls-deploy.dls.example.org", "_"]
+
+
+def test_a_configured_external_origin_is_the_served_name_and_the_redirect_target() -> None:
+    """A configured origin decides both the served name and the redirect target."""
+    # Arrange
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
+
+    # Act
+    content, catch_all = _server_blocks(_render_nginx(config))
+
+    # Assert
+    assert "server_name terminals.example.org;" in content
+    assert f"listen {_NGINX_PORT} default_server;" in catch_all
+    assert "return 301 https://terminals.example.org$request_uri;" in catch_all
+
+
+def test_the_origin_port_never_reaches_server_name() -> None:
+    """`server_name` matches the host alone; the listener decides the port."""
+    # Act
+    nginx_conf = _render_nginx(_tls_config(port=_ALT_TLS_PORT))
+
+    # Assert
+    assert "server_name dls-deploy.dls.example.org;" in nginx_conf
+    for name in re.findall(r"server_name ([^;]+);", _directives(nginx_conf)):
+        assert f":{_ALT_TLS_PORT}" not in name
 
 
 def test_tls_redirect_splits_into_a_redirect_server_and_a_content_server() -> None:
@@ -3104,15 +3163,20 @@ def test_tls_redirect_splits_into_a_redirect_server_and_a_content_server() -> No
     blocks = _server_blocks(_render_nginx(_tls_config()))
 
     # Assert
-    assert len(blocks) == 2
-    redirect, content = blocks
+    assert len(blocks) == 3
+    redirect, content, catch_all = blocks
     assert f"listen {_NGINX_PORT};" in redirect
     assert f"listen [::]:{_NGINX_PORT};" in redirect
     assert "listen 443 ssl;" in content
     assert "listen [::]:443 ssl;" in content
+    assert "listen 443 ssl default_server;" in catch_all
+    assert "listen [::]:443 ssl default_server;" in catch_all
+    assert "ssl_certificate /etc/nginx/certs/dls.crt;" in catch_all
+    assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in catch_all
     # Neither listener answers on the other's port.
     assert "443" not in redirect
-    assert f"listen {_NGINX_PORT};" not in content
+    assert f"listen {_NGINX_PORT}" not in content
+    assert f"listen {_NGINX_PORT}" not in catch_all
 
 
 def test_tls_redirect_server_serves_nothing_but_the_redirect() -> None:
@@ -3159,7 +3223,7 @@ def test_tls_content_server_listens_on_a_configured_non_default_port() -> None:
     privileged) or answers on a port nothing else in the deployment knows about.
     """
     # Act
-    redirect, content = _server_blocks(_render_nginx(_tls_config(port=_ALT_TLS_PORT)))
+    redirect, content, _catch_all = _server_blocks(_render_nginx(_tls_config(port=_ALT_TLS_PORT)))
 
     # Assert — the content server is entirely on the configured port
     assert f"listen {_ALT_TLS_PORT} ssl;" in content
@@ -3235,7 +3299,7 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
     }
 
     # Act
-    redirect, content = _server_blocks(_render_nginx(config))
+    redirect, content, catch_all = _server_blocks(_render_nginx(config))
 
     # Assert
     assert "location /auth/" not in redirect
@@ -3250,6 +3314,8 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
     assert _directives(redirect).count("auth_request ") == 0
     assert content.count("location = /_osprey_auth/") == len(users)
     assert redirect.count("location") == 0
+    assert _directives(catch_all).count("auth_request ") == 0
+    assert "location" not in catch_all
 
 
 def test_nginx_landing_location_is_exact_match_only() -> None:

@@ -49,6 +49,15 @@
       on a port nothing listens on. Passed in rather than restated here so the
       redirect and render.py's `external_origin` decide "is a port needed"
       against the same constant.
+    external_origin: str, required ("" when the render derives none)
+      The one origin every per-user terminal accepts actions from (render.py's
+      _external_origin). Derived whenever the roster has a user or a sidecar is
+      active; a roster-less, sidecar-less render has none.
+    origin_host: str, required ("" alongside an empty external_origin)
+      The host of external_origin, without scheme or port. When set, the
+      content server's `server_name` is origin_host, and a `default_server` on
+      the same listener returns `301 <external_origin>$request_uri` for every
+      other name. When empty, one `server_name _` server answers every name.
     tls_cert, tls_key: str | None
       Absolute paths inside the nginx container. Only read when tls_enabled
       is true; render.py already refuses to render (ValueError) if
@@ -225,7 +234,9 @@
     server. The redirect
     names that port too whenever it is not 443. render.py refuses to render at
     all if either path is missing, so this template never has to guard against
-    an incoherent pair.
+    an incoherent pair. A render with an external origin adds a third server:
+    the `default_server` on the content listener that redirects every name
+    other than the origin's host to the origin.
   - without `sidecar_active` ("token", the default, and "none") the login
     wall emits nothing. When a sidecar method is set,
     every proxied `/u/<user>/` location gets an `auth_request` naming that
@@ -411,7 +422,7 @@ server {
     listen {{ nginx_port }};
     listen [::]:{{ nginx_port }};
 {% endif %}
-    server_name _;
+    server_name {{ origin_host or "_" }};
 
     # Server level, which is what makes it REPLACE the base image's http-level
     # `access_log ... main;` rather than run alongside it (see the log_format
@@ -837,3 +848,34 @@ server {
     }
 {% endif %}
 }
+{%- if origin_host %}
+
+# The terminals accept actions only from the one origin, so a page served under
+# another name would load and then refuse every write. This server sends every
+# name the content server does not claim to the origin instead, path and query
+# intact. `server_name` matches the host alone, so the origin's host on any port
+# still reaches the content server.
+{%- if tls_enabled %}
+#
+# The certificate is repeated because nginx needs one to complete a handshake
+# for a name the content server does not claim. A client that sent no SNI, or a
+# different one, sees this certificate and then the redirect.
+{%- endif %}
+server {
+{%- if tls_enabled %}
+    listen {{ tls_port }} ssl default_server;
+    listen [::]:{{ tls_port }} ssl default_server;
+    ssl_certificate {{ tls_cert }};
+    ssl_certificate_key {{ tls_key }};
+{%- else %}
+    listen {{ nginx_port }} default_server;
+    listen [::]:{{ nginx_port }} default_server;
+{%- endif %}
+    server_name _;
+
+    # The sanitized format applies here too.
+    access_log /dev/stdout osprey_sanitized;
+
+    return 301 {{ external_origin }}$request_uri;
+}
+{%- endif %}
