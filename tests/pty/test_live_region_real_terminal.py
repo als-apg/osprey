@@ -687,6 +687,43 @@ def test_the_harness_kills_a_child_it_gave_up_on(tmp_path: Path, pty_env: dict[s
         os.read(process._master, 1)
 
 
+def test_the_startable_repo_dials_no_service_this_host_runs(startable_repo: Path) -> None:
+    """The deploy under test addresses only the ports its own copy was given.
+
+    ``osprey up`` publishes a service on the port its compose file names, and
+    then dials that service on the port its rendered config names (the telemetry
+    store's ingest provisioning does). Both have to be the copy's own free port:
+    a config still naming the rendered default would send the deploy at whatever
+    this host happens to run there, and a scenario's output would then depend on
+    another deployment's store rather than on the CLI.
+    """
+    from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
+    from osprey.deployment.host_ports import parse_host_port_bindings
+    from osprey.deployment.openobserve_provision import store_base_url, store_deployed
+    from osprey.utils.config import load_project_config
+
+    config = load_project_config(str(as_built_config_path(startable_repo)), wrap_errors=True)
+    compose_files = [
+        str(path) if os.path.isabs(str(path)) else str(startable_repo / str(path))
+        for path in as_built_compose_files(config, startable_repo)
+    ]
+    published = {
+        binding.service: binding.host_port for binding in parse_host_port_bindings(compose_files)
+    }
+    configured = {
+        name: settings["port"]
+        for name, settings in (config.get("services") or {}).items()
+        if isinstance(settings, dict) and "port" in settings and name in published
+    }
+    assert configured, (
+        f"no published service carries a configured port in {as_built_config_path(startable_repo)}, "
+        f"so this check compares nothing"
+    )
+    assert configured == {name: published[name] for name in configured}
+    assert store_deployed(config)
+    assert store_base_url(config).endswith(f":{published['openobserve']}")
+
+
 # ---------------------------------------------------------------------------
 # scenario 1 — the default view
 # ---------------------------------------------------------------------------
