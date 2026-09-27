@@ -14,6 +14,7 @@ from zoneinfo import available_timezones
 
 __all__ = [
     "DEFAULT_FACILITY_ZONE",
+    "SET_FACILITY_ZONE",
     "closest_zone_name",
     "is_zone_name",
     "resolve_facility_name",
@@ -21,6 +22,12 @@ __all__ = [
 
 #: The zone every reader falls back to and every preset pins.
 DEFAULT_FACILITY_ZONE = "UTC"
+
+#: The one remedy sentence the build reminder and the health row both print.
+SET_FACILITY_ZONE = (
+    "Set system.timezone under `config:` in profile.yml to your facility's zone, "
+    "for example America/New_York."
+)
 
 
 def resolve_facility_name(config: dict[str, Any], default: str) -> str:

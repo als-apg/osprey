@@ -228,6 +228,14 @@ and this list is what ``osprey up`` reads.
 (``demo-nginx``, ``demo-web-alice``), so keep it short and distinct from the
 project name.
 
+``system.timezone`` is the zone operator times are read in and every timestamp
+is shown in. Spell it exactly as the IANA time zone database does, case
+included (``America/Los_Angeles``, not ``america/los_angeles``), or
+``osprey build`` refuses it. A build left on the preset's ``UTC`` prints a
+one-line reminder, and ``osprey health`` reports UTC as information. A value
+that names an environment variable (``${FACILITY_TZ}``) is checked by
+``osprey health``, not by the build.
+
 While you are in the ``modules.web_terminals:`` block, note the ``auth:``
 stanza the preset ships: the terminals ask for a login, with demo passwords
 that ``osprey init`` seeded into this repository's ``.env``

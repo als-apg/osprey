@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.build_profile_timezone import system_timezone_errors
+from osprey.cli.build_profile_timezone import system_timezone_errors, system_timezone_reminders
 from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
 
@@ -63,6 +63,30 @@ def test_an_empty_or_null_value_is_refused(value):
     errors = system_timezone_errors({"system.timezone": value})
     assert len(errors) == 1
     assert "system.timezone" in errors[0]
+
+
+def test_utc_reminds_once():
+    assert len(system_timezone_reminders({"system.timezone": "UTC"})) == 1
+
+
+def test_an_absent_key_reminds_once():
+    assert len(system_timezone_reminders({})) == 1
+
+
+def test_a_real_zone_draws_no_reminder():
+    assert system_timezone_reminders({"system.timezone": "Europe/Berlin"}) == []
+
+
+def test_an_environment_reference_draws_no_reminder(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("FACILITY_TZ", raising=False)
+    assert system_timezone_reminders({"system.timezone": "${FACILITY_TZ}"}) == []
+
+
+def test_the_reminder_names_the_key_and_profile():
+    (reminder,) = system_timezone_reminders({"system.timezone": "UTC"})
+    assert "system.timezone" in reminder
+    assert "config:" in reminder
+    assert "profile.yml" in reminder
 
 
 # --------------------------------------------------------------------------- #
@@ -124,3 +148,23 @@ def test_an_unresolved_reference_builds(repo: Path, monkeypatch: pytest.MonkeyPa
     _set_zone(repo, "${FACILITY_TZ}")
     result = _build(repo)
     assert result.exit_code == 0, result.output
+
+
+def test_build_on_utc_reminds_exactly_once(repo: Path):
+    result = _build(repo)
+    assert result.exit_code == 0, result.output
+    assert result.output.count("system.timezone is UTC") == 1
+
+
+def test_build_on_a_real_zone_does_not_remind(repo: Path):
+    _set_zone(repo, "America/Los_Angeles")
+    result = _build(repo)
+    assert result.exit_code == 0, result.output
+    assert result.output.count("system.timezone is UTC") == 0
+
+
+def test_validate_on_utc_reminds_exactly_once(repo: Path):
+    result = _validate(repo)
+    assert result.exit_code == 0, result.output
+    assert "Profile is valid" in result.output
+    assert result.output.count("system.timezone is UTC") == 1
