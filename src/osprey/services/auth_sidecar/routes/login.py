@@ -126,7 +126,7 @@ from ..app import (
     get_settings,
 )
 from ..exceptions import InvalidSessionError
-from ..passwords import generation_tag, verify_password
+from ..passwords import PasswordCheck, check_password, generation_tag
 from ..return_to import safe_return_to
 from ..revocation import RevocationStore
 from ..sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
@@ -868,7 +868,7 @@ async def login_submit(
     target = safe_return_to(_only(_form_values(form, FIELD_NEXT)), shown)
     # A missing, repeated or non-string password is simply not a password: it
     # takes the ordinary refusal path rather than a distinguishable one, and
-    # `verify_password` answers False for an empty string without deriving a key.
+    # `check_password` answers a mismatch for an empty string without deriving a key.
     password = _only(_form_values(form, FIELD_PASSWORD)) or ""
 
     # On a shared card the credential under test is the OPENER's, so the
@@ -926,16 +926,30 @@ async def login_submit(
     # check, so no key is derived for any of them — see the module docstring for
     # why that work is not worth equalising — and all four leave through the
     # identical refusal below: the same status, the same page, the same headers
-    # and the same call into the throttle.
-    if stored is None or not verify_password(password, stored):
+    # and the same call into the throttle. A stored hash that cannot be evaluated
+    # leaves through the same refusal and the same throttle charge; only the log
+    # line and the ledger reason differ.
+    outcome = None if stored is None else check_password(password, stored)
+    if stored is None or outcome is not PasswordCheck.MATCH:
         throttle.record_failure(throttle_key)
+        unevaluable = outcome is PasswordCheck.UNEVALUABLE
+        reason = audit.REASON_CREDENTIAL_UNEVALUABLE if unevaluable else audit.REASON_BAD_CREDENTIAL
         if card_shared:
-            logger.warning(
-                "shared-card login for %r refused: the credential submitted for opener %r "
-                "did not verify",
-                shown,
-                shown_opener,
-            )
+            if unevaluable:
+                logger.error(
+                    "shared-card login for %r refused: the stored credential for opener %r "
+                    "cannot be evaluated; replace it with `osprey users passwd %s`",
+                    shown,
+                    shown_opener,
+                    shown_opener,
+                )
+            else:
+                logger.warning(
+                    "shared-card login for %r refused: the credential submitted for opener %r "
+                    "did not verify",
+                    shown,
+                    shown_opener,
+                )
             # The same refusal as the own-card one — one status, one page, one
             # message — with the username field re-rendered and the bounded
             # opener riding in `detail`. Only a non-empty opener is recorded:
@@ -943,7 +957,7 @@ async def login_submit(
             # envelope field, so that refusal carries no detail at all.
             audit.record_login_refusal(
                 user=shown,
-                reason=audit.REASON_BAD_CREDENTIAL,
+                reason=reason,
                 detail=f"opener={shown_opener}" if shown_opener else None,
             )
             return _page(
@@ -955,12 +969,22 @@ async def login_submit(
                 shared=True,
                 opener=shown_opener,
             )
-        logger.warning("login refused for %r: the submitted credential did not verify", shown)
+        if unevaluable:
+            logger.error(
+                "login refused for %r: the stored credential cannot be evaluated; "
+                "replace it with `osprey users passwd %s`",
+                shown,
+                shown,
+            )
+        else:
+            logger.warning("login refused for %r: the submitted credential did not verify", shown)
         # `shown` for the same reason the log line and the throttle use it: the
-        # ledger is not the caller's to size either. One category for all three
-        # ways this branch is reached — see `audit.REASON_BAD_CREDENTIAL`; the
-        # record must not say which of them it was any more than the page does.
-        audit.record_login_refusal(user=shown, reason=audit.REASON_BAD_CREDENTIAL)
+        # ledger is not the caller's to size either. One category for every way
+        # a guess can miss — see `audit.REASON_BAD_CREDENTIAL` — which the record
+        # must not tell apart any more than the page does. The one exception is a
+        # provisioned credential the service cannot read: a configuration fault
+        # with its own category and the same page.
+        audit.record_login_refusal(user=shown, reason=reason)
         return _page(
             request,
             user=shown,

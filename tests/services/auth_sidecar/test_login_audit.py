@@ -480,6 +480,59 @@ class TestASharedCardInTheLedger:
         assert "detail" not in record
 
 
+BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
+BROKEN_ALICE_ENV = {**PASSWORD_ENV, "OSPREY_AUTH_PW_HASH_ALICE": BROKEN_HASH}
+
+
+class TestAnUnevaluableCredential:
+    """A provisioned credential the service cannot read is a configuration fault,
+    recorded under its own category and never quoted."""
+
+    def test_it_is_recorded_under_its_own_category(self, zone: Path) -> None:
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            assert _login(client, user="alice", password=ALICE_PASSWORD).status_code == 401
+        records = _records(zone)
+        assert len(records) == 1
+        assert records[0]["decision"] == "refused"
+        assert records[0]["reason"] == audit.REASON_CREDENTIAL_UNEVALUABLE
+        assert records[0]["subject"] == "alice"
+
+    def test_the_stored_value_never_reaches_the_ledger(self, zone: Path) -> None:
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            _login(client, user="alice", password=ALICE_PASSWORD)
+        text = _ledger(zone).read_text("utf-8")
+        assert "c2FsdA" not in text
+        assert "scrypt.16384" not in text
+
+    def test_a_well_formed_neighbour_keeps_the_ordinary_category(self, zone: Path) -> None:
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            assert _login(client, user="bob", password="wrong").status_code == 401
+            assert _login(client, user="carol", password="wrong").status_code == 401
+        assert [record["reason"] for record in _records(zone)] == [
+            audit.REASON_BAD_CREDENTIAL,
+            audit.REASON_BAD_CREDENTIAL,
+        ]
+
+    @pytest.mark.usefixtures("zone")
+    def test_the_log_names_the_fix(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.ERROR, logger="osprey.services.auth_sidecar.routes.login")
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            _login(client, user="alice", password=ALICE_PASSWORD)
+        assert "osprey users passwd alice" in caplog.text
+        assert "c2FsdA" not in caplog.text
+
+    def test_a_shared_card_names_its_opener(self, zone: Path) -> None:
+        env = {**SHARED_ENV, "OSPREY_AUTH_PW_HASH_ALICE": BROKEN_HASH}
+        with TestClient(create_app(env), base_url="https://testserver") as client:
+            assert _shared_login(client, "alice").status_code == 401
+        record = _records(zone)[0]
+        assert record["reason"] == audit.REASON_CREDENTIAL_UNEVALUABLE
+        assert record["subject"] == "bob"
+        assert record["detail"] == "opener=alice"
+
+
 class TestARefusedOidcLogin:
     """Every category the OIDC path refuses under reaches the same ledger."""
 

@@ -59,10 +59,13 @@ PASSWORD_ENV = {
     "OSPREY_AUTH_METHOD": "password",
     "OSPREY_AUTH_SESSION_SECRET": SESSION_SECRET,
     "OSPREY_AUTH_USERS": "alice,bob",
-    "OSPREY_AUTH_PW_HASH_ALICE": "scrypt$16384$8$1$c2FsdA$aGFzaA",
+    "OSPREY_AUTH_PW_HASH_ALICE": "scrypt.16384.8.1.c2FsdA.aGFzaA",  # gitleaks:allow
     "OSPREY_AUTH_EXTERNAL_ORIGIN": "https://terminals.example.org",
     "OSPREY_AUTH_TLS_ENABLED": "true",
 }
+
+BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
 
 OIDC_ENV = {
     "OSPREY_AUTH_METHOD": "oidc",
@@ -253,6 +256,34 @@ class TestFailClosed:
         with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
             create_app(env)
         assert "empty roster" in caplog.text
+
+    def test_an_unevaluable_stored_hash_is_named_at_startup(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_PW_HASH_ALICE=BROKEN_HASH)
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            app = create_app(env)
+        assert "alice" in caplog.text
+        assert "OSPREY_AUTH_PW_HASH_ALICE" in caplog.text
+        assert "c2FsdA" not in caplog.text
+        # A warning, not a refusal: every other roster user is still served.
+        with TestClient(app) as client:
+            assert client.get(HEALTH_PATH).json()["configured"] is True
+
+    def test_a_well_formed_roster_names_no_unevaluable_hash(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            create_app(PASSWORD_ENV)
+        assert "cannot be evaluated" not in caplog.text
+
+    def test_an_oidc_deployment_does_not_judge_stale_hashes(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        env = dict(OIDC_ENV, OSPREY_AUTH_PW_HASH_ALICE=BROKEN_HASH)
+        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
+            create_app(env)
+        assert "cannot be evaluated" not in caplog.text
 
 
 class TestRosterCollisions:

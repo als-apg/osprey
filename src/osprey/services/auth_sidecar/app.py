@@ -72,7 +72,8 @@ from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suf
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 
 from .identity_headers import same_domain, same_identity
-from .methods import METHOD_OIDC, SUPPORTED_METHODS
+from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
+from .passwords import stored_hash_problem
 from .revocation import RevocationStore
 from .sessions import SessionCodec
 from .throttle import AttemptThrottle
@@ -1142,6 +1143,22 @@ def _log_configuration(settings: AuthSettings, env: Mapping[str, str] | None) ->
             "can be authenticated, so every terminal stays locked",
             ENV_USERS,
         )
+    if settings.method == METHOD_PASSWORD:
+        # A warning, never a requirement: every other roster user is still served.
+        problems = [
+            (user, problem)
+            for user, stored in settings.password_hashes.items()
+            if (problem := stored_hash_problem(stored)) is not None
+        ]
+        if problems:
+            logger.warning(
+                "stored password hash cannot be evaluated for %s: no password will log them "
+                "in until it is replaced with `osprey users passwd <user>`",
+                "; ".join(
+                    f"{user} ({ENV_PW_HASH_PREFIX}{env_var_suffix(user)}: {problem})"
+                    for user, problem in problems
+                ),
+            )
 
     source: Mapping[str, str] = os.environ if env is None else env
     if _is_unrecognized_flag(source.get(ENV_TLS_ENABLED)):
