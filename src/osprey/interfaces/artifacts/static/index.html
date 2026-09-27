@@ -48,6 +48,10 @@
        along here instead. -->
   <meta name="osprey-vendor-plotly" content="{{ vendor_url('Plotly.js', '/static/js/vendor/plotly-3.3.1.min.js') }}">
 
+  <!-- The directory the store writes artifacts to, as the agent should open it.
+       Read by types.js's artifactPath, which cannot see the server's config. -->
+  <meta name="osprey-artifact-dir" content="{{ artifact_dir }}">
+
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/static/css/gallery.css">
 
