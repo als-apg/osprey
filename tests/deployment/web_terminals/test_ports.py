@@ -11,6 +11,7 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
     default_base_ports,
 )
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import INDEX_MAX, LAYOUT, SLOTS_BY_NAME, default_port
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
@@ -100,8 +101,8 @@ def test_allocate_ports_accepts_the_last_index_of_the_band() -> None:
 
 def test_allocate_ports_index_past_the_band_is_refused() -> None:
     """A roster larger than a family band would take the next family's ports. The
-    refusal names the band and the `<family>_base_port` escape rather than
-    silently handing out a port that belongs to another panel."""
+    refusal names the deployment's user ceiling and links the perimeter limits,
+    and offers no base-port escape, because moving a band does not widen it."""
     # Arrange
     base_ports = dict(_BASE_PORTS)
 
@@ -109,9 +110,11 @@ def test_allocate_ports_index_past_the_band_is_refused() -> None:
     with pytest.raises(ValueError) as excinfo:
         allocate_ports(base_ports, index=INDEX_MAX + 1)
     message = str(excinfo.value)
-    assert str(INDEX_MAX) in message
-    assert "artifact" in message
-    assert "modules.web_terminals.artifact_base_port" in message
+    assert str(INDEX_MAX + 1) in message
+    assert f"{INDEX_MAX + 1} users" in message
+    assert "deployment.port_base" in message
+    assert PERIMETER_LIMITS_URL in message
+    assert "modules.web_terminals.artifact_base_port" not in message
 
 
 def test_allocate_ports_negative_index_is_refused() -> None:
