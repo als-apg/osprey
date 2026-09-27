@@ -1805,6 +1805,7 @@ function renderRunDetail() {
     if (dur) bits.push((run.status === 'error' ? 'Failed after ' : run.status === 'pending' ? 'Running for ' : 'Finished in ') + dur);
     if (run.num_turns != null) bits.push(plural(run.num_turns, 'turn'));
     if (run.tool_count) bits.push(plural(run.tool_count, 'tool'));
+    if (run.owner) bits.push('fired by ' + run.owner);
     bits.push(formatAge(run.age_sec));
     host.appendChild(el('div', { className: 'detail-summary expert-only', textContent: bits.filter(Boolean).join(' · ') }));
   }
