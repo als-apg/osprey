@@ -216,6 +216,26 @@ and may not do at runtime --- notably the proxy's header stripping, which
 rules out backends that authenticate their own callers --- is on
 :doc:`/how-to/web-terminal/panels`.
 
+.. _extending-login-service:
+
+Login service
+-------------
+
+The login service is a closed seam, not a plugin point. It serves exactly the
+methods in ``osprey.services.auth_sidecar.methods.SUPPORTED_METHODS``, and a
+facility registers no other. A site meets it at two places. One is an OIDC
+issuer: a sign-in that is not OIDC is brokered to one. The other is the answer
+nginx asks of it, ``GET /verify`` with the four headers named in
+``osprey.services.auth_sidecar.identity_headers``, which every terminal decodes
+through ``osprey.interfaces.common_middleware.forwarded_identity``. A new login
+method is a framework change: it joins ``SUPPORTED_METHODS`` and the render
+postures in ``osprey.deployment.web_terminals.render.SUPPORTED_AUTH_METHODS``
+together, with an audit category of its own. Pinning tests:
+``tests/services/auth_sidecar/test_methods_parity.py`` for the method set,
+``tests/services/auth_sidecar/test_verify.py`` for the answer, and
+``tests/deployment/web_terminals/test_nginx_auth_surface.py`` for nginx's
+side. Deployer view: :doc:`/how-to/web-terminal/multi-user/login`.
+
 .. _extending-lume-model:
 
 LUME model
