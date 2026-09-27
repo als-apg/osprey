@@ -12,6 +12,7 @@ from __future__ import annotations
 import posixpath
 import re
 import shutil
+from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -29,6 +30,7 @@ from osprey.deployment.compose_generator import (
     repo_relative_mount_source,
     resolve_repo_root,
 )
+from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
@@ -1702,6 +1704,38 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
     return origin
 
 
+@dataclass(frozen=True)
+class DeploymentOrigin:
+    """The origin browsers reach this deployment on, with its scheme and host read off.
+
+    Every question about who can reach the deployment is asked of this origin,
+    never of ``deploy.fqdn`` alone: a configured ``external_origin`` names the
+    address browsers actually use, and the fqdn is only its fallback. The parts
+    come from the same derivation that builds :attr:`origin`, so no caller parses
+    the URL again.
+
+    Loopback-ness is judged by spelling only, with no DNS lookup: an IP literal
+    counts when it is a loopback address and a name counts only when it is
+    ``localhost``. A name that resolves to loopback today is still a name
+    someone else controls.
+
+    Attributes:
+        origin: The origin string every absolute URL this deployment emits is
+            built from (:func:`_external_origin`).
+        scheme: ``"http"`` or ``"https"``.
+        host: The origin's host as :func:`origin_host` reads it, lower-cased.
+    """
+
+    origin: str
+    scheme: str
+    host: str
+
+    @property
+    def is_loopback(self) -> bool:
+        """Whether only this machine is named by the origin's host."""
+        return is_loopback_bind(self.host)
+
+
 def _external_origin(
     root: dict[str, Any],
     nginx_port: int,
@@ -1709,6 +1743,17 @@ def _external_origin(
     tls_enabled: bool,
     tls_port: int,
 ) -> str:
+    """The origin string of :func:`_origin_parts`."""
+    return _origin_parts(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port).origin
+
+
+def _origin_parts(
+    root: dict[str, Any],
+    nginx_port: int,
+    *,
+    tls_enabled: bool,
+    tls_port: int,
+) -> DeploymentOrigin:
     """Build the one origin every absolute URL this deployment emits is derived from.
 
     Four consumers depend on it. Three need an absolute URL that a browser will
@@ -1774,7 +1819,11 @@ def _external_origin(
     """
     configured = _configured_external_origin(root)
     if configured:
-        return configured
+        return DeploymentOrigin(
+            origin=configured,
+            scheme=configured.partition("://")[0],
+            host=origin_host(configured).lower(),
+        )
     deploy = as_dict(root.get("deploy"))
     host = str(deploy.get("fqdn") or "").strip()
     if not host:
@@ -1797,23 +1846,19 @@ def _external_origin(
             "address, or set modules.web_terminals.external_origin to the address "
             f"browsers open. See {PERIMETER_LIMITS_URL}"
         )
-    return origin
+    return DeploymentOrigin(
+        origin=origin, scheme="https" if tls_enabled else "http", host=origin_host(origin).lower()
+    )
 
 
-def deployment_external_origin(config: Any) -> str:
-    """The origin a browser reaches this deployment's web terminals on.
-
-    :func:`_external_origin` as a question a caller holding nothing but the
-    rendered config can ask. Everything an operator is handed to open — the
-    landing link, the auth sidecar's OIDC ``redirect_uri``, and the per-user
-    login URL :func:`terminal_login_url` builds — comes from this one
-    derivation, so a link printed by one verb cannot land on a different origin
-    than the one the containers check a mutating request's ``Origin`` against.
+def deployment_origin(config: Any) -> DeploymentOrigin:
+    """The origin a browser reaches this deployment's web terminals on, in parts.
 
     Args:
         config: The rendered deployment config (``build/config.yml`` as loaded).
 
     Returns:
+        The :class:`DeploymentOrigin` whose ``origin`` is
         ``modules.web_terminals.external_origin`` verbatim when it is set;
         otherwise ``https://<fqdn>`` with TLS on (``https://<fqdn>:<tls_port>``
         when ``tls.port`` is not the default 443) and
@@ -1830,12 +1875,34 @@ def deployment_external_origin(config: Any) -> str:
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
     nginx_port = resolve_nginx_port(root)
     auth_tls_ctx = _auth_tls_context(web_terminals)
-    return _external_origin(
+    return _origin_parts(
         root,
         nginx_port,
         tls_enabled=bool(auth_tls_ctx["tls_enabled"]),
         tls_port=int(auth_tls_ctx["tls_port"]),
     )
+
+
+def deployment_external_origin(config: Any) -> str:
+    """The origin a browser reaches this deployment's web terminals on.
+
+    :func:`_external_origin` as a question a caller holding nothing but the
+    rendered config can ask. Everything an operator is handed to open — the
+    landing link, the auth sidecar's OIDC ``redirect_uri``, and the per-user
+    login URL :func:`terminal_login_url` builds — comes from this one
+    derivation, so a link printed by one verb cannot land on a different origin
+    than the one the containers check a mutating request's ``Origin`` against.
+
+    Args:
+        config: The rendered deployment config (``build/config.yml`` as loaded).
+
+    Returns:
+        The ``origin`` of :func:`deployment_origin`.
+
+    Raises:
+        ValueError: As :func:`deployment_origin`.
+    """
+    return deployment_origin(config).origin
 
 
 def terminal_login_url(config: Any, username: str, secret: str) -> str:
