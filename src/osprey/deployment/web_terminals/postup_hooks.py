@@ -211,15 +211,30 @@ def reload_nginx_config(web_cmd: list[str], run_env: dict[str, str]) -> None:
         )
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface a 3xx as an ``HTTPError`` instead of following it."""
+
+    def redirect_request(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+#: The opener the reachability probe dials with: it never follows a redirect.
+_PROBE_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _host_port_answers(url: str, attempts: int, delay: float) -> bool:
     """Poll ``url`` from this host; ``True`` as soon as anything answers.
 
     Any HTTP status counts — a 502 from nginx still proves the host can reach
-    the listening socket, which is the only thing being tested here.
+    the listening socket, which is the only thing being tested here. A redirect
+    is an answer too and is never followed: the loopback address is not the
+    deployment's origin whenever ``deploy.fqdn`` names another host, and with
+    TLS on the plain port always redirects, so following would dial a name or
+    port this host may not reach.
     """
     for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(url, timeout=3):
+            with _PROBE_OPENER.open(url, timeout=3):
                 return True
         except urllib.error.HTTPError:
             return True  # any HTTP response at all proves host-side reachability
