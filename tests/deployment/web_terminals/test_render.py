@@ -29,6 +29,7 @@ from osprey.deployment.web_terminals.render import (
     _terminal_secret_artifacts,
     clear_nginx_templates_dir,
     deployment_external_origin,
+    origin_host,
     render_web_terminals,
     terminal_secret_env_var,
 )
@@ -5893,6 +5894,8 @@ def test_the_missing_fqdn_refusal_names_the_override_as_the_other_way_out() -> N
         "https://user:pw@terminals.example.org",  # credentials
         "https://terminals.example.org:notaport",
         _NGINX_PORT,  # a bare port number
+        "https://~terminals.example.org",  # nginx reads a leading ~ as a pattern
+        "https://terminals%2eexample.org",  # an escape is not a host name
     ],
 )
 def test_render_refuses_an_external_origin_that_is_not_an_origin(value: object) -> None:
@@ -5912,9 +5915,8 @@ def test_render_refuses_an_external_origin_that_is_not_an_origin(value: object) 
         render_web_terminals(config)
 
 
-def test_an_external_origin_with_a_path_names_the_own_hostname_limit() -> None:
-    """A deployment under a path is a documented limit, so the refusal names it
-    and links where it is stated."""
+def test_an_external_origin_with_a_path_links_the_perimeter_limits() -> None:
+    """A deployment under a path is a documented limit, so the refusal links where it is stated."""
     # Arrange
     config = _config(["alice"])
     config["modules"]["web_terminals"]["external_origin"] = (
@@ -5927,8 +5929,37 @@ def test_an_external_origin_with_a_path_names_the_own_hostname_limit() -> None:
 
     # Assert
     message = str(excinfo.value)
-    assert "own hostname or host:port" in message
+    assert "nothing follows the host or port" in message
     assert PERIMETER_LIMITS_URL in message
+
+
+@pytest.mark.parametrize(
+    "fqdn",
+    [
+        "demo host",  # whitespace
+        "dls.example.org; return 200",  # nginx syntax
+        "::1",  # an IPv6 literal
+        "dls-deploy.dls.example.org:8080",  # a port
+    ],
+)
+def test_render_refuses_a_deploy_fqdn_that_is_not_a_host(fqdn: str) -> None:
+    """The derived origin's host is written into nginx's configuration, so a
+    deploy.fqdn that is not a host name or IPv4 address is refused at render."""
+    # Arrange
+    config = _config(["alice"])
+    config["deploy"]["fqdn"] = fqdn
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="deploy.fqdn"):
+        render_web_terminals(config)
+
+
+def test_origin_host_is_the_host_without_scheme_or_port() -> None:
+    """The one reader of an origin's host."""
+    # Act / Assert
+    assert origin_host("https://terminals.example.org") == "terminals.example.org"
+    assert origin_host("http://127.0.0.1:10000") == "127.0.0.1"
+    assert origin_host("https://t.example.org:8443") == "t.example.org"
 
 
 def test_a_blank_external_origin_falls_back_to_the_derivation() -> None:
