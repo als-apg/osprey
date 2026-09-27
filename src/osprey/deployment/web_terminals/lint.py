@@ -65,6 +65,7 @@ from osprey.deployment.web_terminals.render import (
     AUTH_SIDECAR_AUDIT_IDENTITY,
     SUPPORTED_AUTH_METHODS,
     TLS_LISTEN_PORT,
+    _auth_throttle_problems,
     _auth_tls_context,
     _authorization_context,
     _blank_scope_index,
@@ -251,6 +252,7 @@ def lint_web_terminals(
     findings.extend(_check_external_origin(web_terminals))
     findings.extend(_check_auth_method(web_terminals))
     findings.extend(_check_auth_session_lifetime(web_terminals))
+    findings.extend(_check_auth_throttle(web_terminals))
     findings.extend(_check_listener_ports(root, web_terminals))
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
@@ -2878,6 +2880,21 @@ def _check_auth_method(web_terminals: dict[str, Any]) -> list[Finding]:
                 f"authentication method; expected one of {', '.join(SUPPORTED_AUTH_METHODS)}"
             ),
         )
+    ]
+
+
+def _check_auth_throttle(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``modules.web_terminals.auth.throttle`` must build the login throttle.
+
+    One error per problem :func:`_auth_throttle_problems` names: a non-mapping
+    block, a key outside the four, or a value the throttle's own predicate
+    refuses. render refuses the same config, so this rule is the early report
+    at scaffold time rather than the only gate. A non-mapping ``auth`` stanza is
+    :func:`_check_auth_method`'s finding and is passed over here.
+    """
+    return [
+        Finding(severity="error", code="web_terminals.invalid_auth_throttle", message=problem)
+        for problem in _auth_throttle_problems(web_terminals)
     ]
 
 

@@ -2676,6 +2676,34 @@ keys:
       Seconds a browser stays signed in. The literal below is
       interfaces.web_auth.DEFAULT_SESSION_LIFETIME, twelve hours.
     default: 43200
+  modules.web_terminals.auth.throttle.initial_delay_s:
+    rendered: false
+    evidence: '"initial_delay_s": "initial_delay"'
+    note: >-
+      Seconds a username waits after its first wrong password before the next
+      attempt is checked; no preset ships the key live.
+    default: 1.0
+  modules.web_terminals.auth.throttle.multiplier:
+    rendered: false
+    evidence: '"multiplier": "multiplier"'
+    note: >-
+      Factor each further failed password login multiplies the wait by; no
+      preset ships the key live.
+    default: 2.0
+  modules.web_terminals.auth.throttle.max_delay_s:
+    rendered: false
+    evidence: '"max_delay_s": "max_delay"'
+    note: >-
+      Ceiling on the wait after a failed password login, in seconds; the wait
+      always lifts within it, so nobody is locked out.
+    default: 30.0
+  modules.web_terminals.auth.throttle.forget_after_s:
+    rendered: false
+    evidence: '"forget_after_s": "forget_after"'
+    note: >-
+      Seconds of quiet after a wait lifts before a username's escalation
+      starts over; 0 gives a fixed delay.
+    default: 300.0
   modules.web_terminals.auth.allow_insecure_http:
     evidence: 'bool\(auth\.get\("allow_insecure_http", False\)\)'
     default: false
