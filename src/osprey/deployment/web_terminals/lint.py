@@ -40,6 +40,7 @@ from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     effective_persona,
     entry_is_shared,
+    env_var_suffix,
     env_var_suffix_collisions,
     normalize_users,
     persona_privileges,
@@ -76,6 +77,8 @@ from osprey.deployment.web_terminals.render import (
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
+from osprey.services.auth_sidecar.passwords import stored_hash_problem
+from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
@@ -93,12 +96,13 @@ from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 # scopes never reach the sidecar.
 
 # The credential env-var stem a roster username is keyed into
-# (`OSPREY_AUTH_PW_HASH_<SUFFIX>`), quoted only inside this module's collision
-# message. It is deliberately NOT imported from `auth_credentials`, which owns
-# the constant: this module is pure static validation of a config file, and
-# importing the credential provisioner to quote one string in a message would
-# pull the whole deploy-time secret-minting path in behind it.
+# (`OSPREY_AUTH_PW_HASH_<SUFFIX>`) and the deployment-repo file those entries
+# live in, both quoted here rather than imported. Neither is imported from
+# `auth_credentials`, which owns them: this module is pure static validation,
+# and importing the credential provisioner to quote two strings would pull the
+# whole deploy-time secret-minting path in behind it.
 _PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
+_AUTH_ENV_FILENAME = ".env.auth"
 
 
 @dataclass(frozen=True)
@@ -239,6 +243,8 @@ def lint_web_terminals(
         # Reads the deployment's `.env` and `.env.auth`, so it rides the same
         # gate: at profile altitude neither file exists yet.
         findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
+        # Reads the deployment repo's `.env.auth`, so it rides the same gate.
+        findings.extend(_check_auth_stored_hashes(web_terminals, users, project_root=project_root))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
@@ -3325,6 +3331,62 @@ def _check_auth_credential_collisions(
         )
         for suffix, colliding in env_var_suffix_collisions(names).items()
     ]
+
+
+def _check_auth_stored_hashes(
+    web_terminals: dict[str, Any], users: list[Any], *, project_root: Path | None
+) -> list[Finding]:
+    """Password mode: every stored hash in ``.env.auth`` must be one the login service can evaluate.
+
+    A truncated paste or another tool's hash format leaves a user whom no
+    password will log in, and the login page cannot say so. The shape test is
+    :func:`~osprey.services.auth_sidecar.passwords.stored_hash_problem`, the same
+    parse the sidecar runs, so this finding predicts the sidecar without deriving
+    a key. The message names the user and the variable, never the value.
+
+    WARN, not ERROR: the deployment still serves every other user, so this is
+    work the operator has to do rather than a config to reject (see
+    :class:`Finding`). Rendered-project only: the file lives in the deployment
+    repo, which a profile does not have. Shared entries are included, because
+    the sidecar loads a hash for every roster name. A blank entry is skipped,
+    since ``osprey up`` provisions it; a missing or unreadable file is the deploy
+    path's to report, and a lint that crashed on it would hide every other
+    finding.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "password":
+        return []
+    env_auth = (project_root or Path(".")) / _AUTH_ENV_FILENAME
+    if not env_auth.is_file():
+        return []
+    try:
+        parsed = parse_dotenv_file(env_auth)
+    except (OSError, UnicodeDecodeError):
+        return []
+    findings: list[Finding] = []
+    for name in (_user_name(user) for user in users):
+        if name is None:
+            continue
+        suffix = env_var_suffix(name)
+        value = parsed.get(f"{_PW_HASH_VAR_PREFIX}{suffix}", "").strip()
+        if not value:
+            continue
+        problem = stored_hash_problem(value)
+        if problem is None:
+            continue
+        findings.append(
+            Finding(
+                severity="warn",
+                code="web_terminals.auth_credential_unevaluable",
+                message=(
+                    f"{_AUTH_ENV_FILENAME} holds a {_PW_HASH_VAR_PREFIX}{suffix} entry for "
+                    f"{name!r} that the login service cannot evaluate ({problem}), so no "
+                    f"password will log {name!r} in. Run `osprey users passwd {name}` to "
+                    "replace it"
+                ),
+            )
+        )
+    return findings
 
 
 def _is_shared_entry(user: Any) -> bool:

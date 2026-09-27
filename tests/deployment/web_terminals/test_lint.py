@@ -2671,6 +2671,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.auth_oidc_unresolvable_origin",
         "web_terminals.auth_oidc_subject_unsafe",
         "web_terminals.auth_credential_collision",
+        "web_terminals.auth_credential_unevaluable",
         "web_terminals.invalid_session_lifetime",
     }
 )
@@ -2712,6 +2713,91 @@ def test_lint_clean_password_auth_config_reports_no_auth_findings() -> None:
     # Assert
     assert _auth_findings(findings) == []
     assert _errors(findings) == []
+
+
+_UNEVALUABLE_CODE = "web_terminals.auth_credential_unevaluable"
+
+_OIDC_STANZA = {
+    "method": "oidc",
+    "oidc": {
+        "issuer": "https://idp.example.org/realms/osprey",
+        "client_id_env": "FACILITY_OIDC_CLIENT_ID",
+        "client_secret_env": "FACILITY_OIDC_CLIENT_SECRET",
+    },
+}
+
+
+def _unevaluable(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.code == _UNEVALUABLE_CODE]
+
+
+def _write_env_auth(root: Path, value: str) -> None:
+    (root / ".env.auth").write_text(f"OSPREY_AUTH_PW_HASH_ALICE={value}\n")
+
+
+def test_lint_unevaluable_stored_hash_is_a_warning(tmp_path: Path) -> None:
+    """A stored hash the login service cannot read is named, never quoted."""
+    # Arrange
+    _write_env_auth(tmp_path, "scrypt.16384.8.1.c2FsdA")
+    config = _auth_config({"method": "password"})
+
+    # Act
+    findings = _unevaluable(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.severity == "warn"
+    assert "'alice'" in finding.message
+    assert "OSPREY_AUTH_PW_HASH_ALICE" in finding.message
+    assert "osprey users passwd" in finding.message
+    assert "c2FsdA" not in finding.message
+
+
+def test_lint_minted_stored_hash_reports_nothing(tmp_path: Path) -> None:
+    _write_env_auth(tmp_path, hash_password("x", n=2**4, r=1, p=1))
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_blank_stored_hash_reports_nothing(tmp_path: Path) -> None:
+    """A blank entry is one `osprey up` provisions, not one it cannot read."""
+    _write_env_auth(tmp_path, "")
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_missing_env_auth_reports_nothing(tmp_path: Path) -> None:
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_undecodable_env_auth_reports_nothing(tmp_path: Path) -> None:
+    """An unreadable file is the deploy path's to report; the lint keeps going."""
+    (tmp_path / ".env.auth").write_bytes(b"\xff\xfe")
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_stored_hash_is_not_judged_under_oidc(tmp_path: Path) -> None:
+    _write_env_auth(tmp_path, "scrypt.16384.8.1.c2FsdA")
+    config = _auth_config(copy.deepcopy(_OIDC_STANZA))
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_stored_hash_is_not_judged_at_profile_altitude(tmp_path: Path) -> None:
+    """A profile has no deployment repo, so there is no `.env.auth` to read."""
+    _write_env_auth(tmp_path, "scrypt.16384.8.1.c2FsdA")
+    config = _auth_config({"method": "password"})
+
+    findings = lint_web_terminals(config, rendered_project=False, project_root=tmp_path)
+
+    assert _unevaluable(findings) == []
 
 
 def test_lint_absent_auth_stanza_reports_no_auth_findings() -> None:
