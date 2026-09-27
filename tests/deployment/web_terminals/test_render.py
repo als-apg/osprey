@@ -33,6 +33,7 @@ from osprey.deployment.web_terminals.render import (
     terminal_secret_env_var,
 )
 from osprey.docs_links import PERIMETER_LIMITS_URL
+from osprey.interfaces import common_middleware
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
 from osprey.registry.web import framework_web_port_default
 
@@ -2959,6 +2960,38 @@ def test_negotiated_401_return_to_allowlist_rejects_injection_and_keeps_deep_lin
         "/u/alice/x y",  # raw space splits the header value
     ):
         assert not allowlist.match(path), f"{path!r} must not be reflected"
+
+
+def test_every_nginx_mount_and_landing_card_renders_from_the_mount_root(monkeypatch) -> None:
+    """Every per-user location, the allowlist and the landing card follow the one root.
+
+    The patched root carries a regex metacharacter on purpose: the allowlist
+    embeds the root inside a PCRE, so it must arrive escaped there and literal
+    in the locations.
+    """
+    # Arrange
+    monkeypatch.setattr(common_middleware, "URL_MOUNT_ROOT", "/m.v")
+
+    # Act
+    out = render_web_terminals(_auth_config(["alice"]))
+    nginx = _directives(out["nginx/nginx.conf"])
+
+    # Assert — the locations and the bookmark redirect
+    assert "location /m.v/alice/ {" in nginx
+    assert "location = /m.v/alice {" in nginx
+    assert "return 301 /m.v/alice/;" in nginx
+    assert "/u/" not in nginx
+
+    # Assert — the return-to allowlist, escaped
+    pattern = re.search(r'\n    "~(\S+)" \$uri;', out["nginx/nginx.conf"])
+    assert pattern is not None, "no allowlist entry in the $osprey_auth_next map"
+    assert pattern.group(1).startswith(r"^/m\.v/[A-Za-z0-9._-]+/")
+    allowlist = re.compile(pattern.group(1).replace(r"\z", r"\Z"))
+    assert allowlist.match("/m.v/alice/files/x")
+    assert not allowlist.match("/mXv/alice/x")
+
+    # Assert — the landing card
+    assert 'href="/m.v/alice/"' in out["nginx/landing.html"]
 
 
 def test_negotiated_401_every_redirect_is_relative_to_the_clients_own_origin() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from osprey.deployment.web_terminals.render import _user_card, terminal_login_url
 from osprey.interfaces import common_middleware
 from osprey.interfaces.common_middleware import (
     TERMINAL_USER_ENV,
@@ -20,3 +21,12 @@ def test_the_container_prefix_derives_from_the_root(monkeypatch):
     monkeypatch.setattr(common_middleware, "URL_MOUNT_ROOT", "/m")
     monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
     assert compute_url_prefix() == "/m/alice"
+
+
+def test_the_login_url_and_the_landing_card_derive_from_the_mount_root(monkeypatch):
+    monkeypatch.setattr(common_middleware, "URL_MOUNT_ROOT", "/m")
+    config = {"modules": {"web_terminals": {"external_origin": "https://ops.example.org"}}}
+    assert (
+        terminal_login_url(config, "alice", "s/t") == "https://ops.example.org/m/alice/?token=s%2Ft"
+    )
+    assert _user_card({"name": "alice", "persona": None}, frozenset())["url"] == "/m/alice/"
