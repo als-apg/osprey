@@ -33,6 +33,7 @@ from pathlib import Path
 
 import pytest
 import yaml as pyyaml
+from jinja2 import Environment, nodes
 
 import osprey
 from osprey.bluesky_bridge_connection import LANE_KEYS, LANE_ONE, SECOND_LANE_KEYS
@@ -860,6 +861,38 @@ def test_the_lane_service_keys_are_spelled_in_exactly_one_module() -> None:
     assert offenders == [], (
         "Lane service keys belong to osprey.bluesky_bridge_connection. Import "
         "SECOND_LANE_KEYS or LANE_KEYS instead of respelling them:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_no_template_spells_a_lane_service_key() -> None:
+    """No Jinja template writes a second-lane key as a string constant.
+
+    A template that respells a lane key renders a lane short the moment the
+    registry grows: ``osprey up`` provisions the new lane, and the compose file
+    hands no container its address. Templates read the keys from the render
+    context's ``bluesky_second_lane_keys`` instead.
+
+    Only Jinja constants count. Parsing drops ``{# #}`` comments and YAML ``#``
+    lines are template data, so prose that names a lane stays allowed, the same
+    rule the module test above applies to docstrings. No template is exempt:
+    the ``.py`` rule's exemption covers the standalone hook scripts, and no
+    template is one.
+    """
+    package_root = Path(osprey.__file__).parent
+    lane_keys = set(SECOND_LANE_KEYS.values())
+    env = Environment()
+
+    offenders: list[str] = []
+    for path in sorted(package_root.rglob("*.j2")):
+        relative = path.relative_to(package_root)
+        tree = env.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.find_all(nodes.Const):
+            if node.value in lane_keys:
+                offenders.append(f"{relative}:{node.lineno} spells {node.value!r}")
+
+    assert offenders == [], (
+        "Templates read lane service keys from the render context's "
+        "bluesky_second_lane_keys instead of respelling them:\n  " + "\n  ".join(offenders)
     )
 
 
