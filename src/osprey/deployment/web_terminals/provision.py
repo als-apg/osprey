@@ -252,7 +252,7 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
     return None
 
 
-#: The lint codes an `osprey up` is REFUSED over — the open-door pair, read off
+#: The lint codes an `osprey up` is REFUSED over — the open-door codes, read off
 #: the rendered project the start is about to run.
 #:
 #: Deliberately not "every lint error". The other lint errors already gate the
@@ -261,17 +261,21 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
 #: port would refuse a stack whose ports the operator has since resolved by
 #: hand in the rendered file — the authoring verbs own the config's shape.
 #: `up` owns one question the authoring verbs cannot answer for it: is a door
-#: about to be opened. These two codes are that question.
+#: about to be opened. These codes are that question.
 #:
 #: * ``shared_card_privileged`` — a card every roster login may open whose
 #:   persona can edit this deployment. The exposure itself.
 #: * ``persona_privileges_unknown`` — a persona whose document is unreadable
 #:   where the answer would decide something. "Cannot tell" is not "harmless"
 #:   on the one path where the answer is about to become a running container.
+#: * ``auth_seeded_password`` — a login that still accepts a password the
+#:   profile publishes, on an origin browsers reach from somewhere other than
+#:   this machine.
 _UP_BLOCKING_LINT_CODES = frozenset(
     {
         "web_terminals.shared_card_privileged",
         "web_terminals.persona_privileges_unknown",
+        "web_terminals.auth_seeded_password",
     }
 )
 
@@ -526,10 +530,10 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
     raises (writing nothing) on a roster it cannot key — a charset violation,
     or two usernames colliding onto one credential variable — and that raise IS
     the deploy abort. ``osprey up``'s own lint gate
-    (:func:`web_terminal_preflight_problems`) is scoped to the two open-door
-    privilege codes and says nothing about credential collisions, so swallowing
-    this would silently deploy a stack where one operator's password opens
-    another's terminal.
+    (:func:`web_terminal_preflight_problems`) is scoped to the open-door codes
+    of ``_UP_BLOCKING_LINT_CODES`` and says nothing about credential collisions,
+    so swallowing this would silently deploy a stack where one operator's
+    password opens another's terminal.
 
     The method is read through
     :func:`~osprey.deployment.web_terminals.render._auth_tls_context` rather
@@ -1609,9 +1613,9 @@ def deploy_up_web_terminals(
         # that must surface HERE -- before compose ever runs -- not as an
         # opaque unbuilt-tag failure at `compose up` (see docstring's MODE
         # BRANCH section). `osprey up`'s lint gate
-        # (`web_terminal_preflight_problems`) blocks only on the two open-door
-        # privilege codes, so this strict resolve is still the only preflight
-        # standing between a broken persona catalog and that opaque failure.
+        # (`web_terminal_preflight_problems`) blocks only on the open-door codes
+        # of `_UP_BLOCKING_LINT_CODES`, so this strict resolve is still the only
+        # preflight standing between a broken persona catalog and that opaque failure.
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)

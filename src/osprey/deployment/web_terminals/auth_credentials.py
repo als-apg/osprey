@@ -31,10 +31,11 @@ user's own terminal) must both read it, and ``.env.auth`` exists precisely to be
 mounted by neither.
 
 Username validity is enforced *here* as a hard raise rather than left to lint:
-``osprey up`` never runs lint, and two usernames that normalize onto one
-env-var suffix (``alice-b`` and ``alice_b``) would silently share a single hash
-— one operator's password opening the other's terminal, the exact isolation
-failure this feature exists to prevent.
+the deploy path runs lint but refuses only on the open-door codes, so a charset
+violation or an env-var collision would pass it, and two usernames that
+normalize onto one env-var suffix (``alice-b`` and ``alice_b``) would silently
+share a single hash — one operator's password opening the other's terminal, the
+exact isolation failure this feature exists to prevent.
 """
 
 from __future__ import annotations

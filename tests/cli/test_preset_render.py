@@ -46,6 +46,7 @@ Covers six angles:
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -58,6 +59,7 @@ from osprey.cli.build_profile import BuildProfile, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, is_setup_patch_capable
 from osprey.deployment.web_terminals.auth_credentials import seeded_logins
+from osprey.deployment.web_terminals.lint import lint_web_terminals
 
 CONTROL_SYSTEM_TYPE_KEY = "control_system.type"
 DENY_KEY = "claude_code.permissions.deny"
@@ -66,6 +68,7 @@ CONFIG_PANEL_KEY = "web.config_panel.enabled"
 SCAFFOLD_WRITE_KEY = "web.scaffold_gallery.write_enabled"
 UI_MODE_KEY = "web.ui_mode"
 WEB_TERMINALS_KEY = "modules.web_terminals"
+SEEDED_PASSWORD_CODE = "web_terminals.auth_seeded_password"
 
 ADMIN_PRESET = "control-assistant-admin"
 
@@ -264,6 +267,31 @@ class TestControlAssistantSeededLogins:
         logins = seeded_logins(rendered_preset_repo, ["alice", "bob", "carol"])
         assert ("carol", "carol") in logins
         assert logins == [("alice", "alice"), ("bob", "bob"), ("carol", "carol")]
+
+    def test_the_shipped_demo_starts_on_loopback(self, rendered_preset_repo: Path) -> None:
+        """On this machine the demo logins are the demo, and nothing refuses them."""
+        config = yaml.safe_load((rendered_preset_repo / "build" / "config.yml").read_text())
+
+        findings = lint_web_terminals(config, project_root=rendered_preset_repo)
+
+        assert [f for f in findings if f.code == SEEDED_PASSWORD_CODE] == []
+
+    def test_the_shipped_demo_is_refused_off_loopback(self, rendered_preset_repo: Path) -> None:
+        """Pointed at a real host, every demo login with a published password is
+        named, and the shared cards, which publish none, are not."""
+        config = yaml.safe_load((rendered_preset_repo / "build" / "config.yml").read_text())
+        config = copy.deepcopy(config)
+        config["deploy"]["fqdn"] = "ops.example.org"
+
+        findings = lint_web_terminals(config, project_root=rendered_preset_repo)
+
+        seeded = [f for f in findings if f.code == SEEDED_PASSWORD_CODE]
+        assert [f.severity for f in seeded] == ["error"]
+        message = seeded[0].message
+        for name in ("'alice'", "'bob'", "'carol'"):
+            assert name in message
+        for card in ("logbook", "knowledge"):
+            assert card not in message
 
 
 class TestControlAssistantAdminPreset:
