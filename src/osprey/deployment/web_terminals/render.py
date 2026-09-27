@@ -1463,6 +1463,10 @@ def render_web_terminals(
         "services": services,
         "bind_host": _LOOPBACK_BIND_HOST,
         "external_origin": external_origin,
+        # The name the content server claims; every other name is redirected to
+        # `external_origin`. Empty when there is no origin, and then one server
+        # answers every name.
+        "origin_host": origin_host(external_origin) if external_origin else "",
         # The pattern form is escaped because the return-to allowlist map embeds
         # the root inside a PCRE; the locations take it literally.
         "url_mount_root": URL_MOUNT_ROOT,
@@ -1698,14 +1702,17 @@ def _external_origin(
 ) -> str:
     """Build the one origin every absolute URL this deployment emits is derived from.
 
-    Three consumers need an absolute URL that a browser will actually resolve:
-    the landing link baked into each container (:func:`_landing_url`), the auth
-    sidecar's OIDC ``redirect_uri``, and the ``OSPREY_TERMINAL_EXTERNAL_ORIGIN``
-    each per-user app checks a mutating request's ``Origin`` against. All three
-    must agree exactly — an IdP rejects a ``redirect_uri`` that isn't
-    character-for-character the registered one, a landing link on a different
-    origin would drop the session cookie, and an ``Origin`` that does not match
-    is refused — so they come from here rather than being assembled three times.
+    Four consumers depend on it. Three need an absolute URL that a browser will
+    actually resolve: the landing link baked into each container
+    (:func:`_landing_url`), the auth sidecar's OIDC ``redirect_uri``, and the
+    ``OSPREY_TERMINAL_EXTERNAL_ORIGIN`` each per-user app checks a mutating
+    request's ``Origin`` against. The fourth is nginx: it serves content only on
+    this origin's host and redirects every other name to it. All four must agree
+    exactly — an IdP rejects a ``redirect_uri`` that isn't character-for-character
+    the registered one, a landing link on a different origin would drop the
+    session cookie, an ``Origin`` that does not match is refused, and a page nginx
+    served under another name would load and then have every write refused — so
+    they come from here rather than being assembled four times.
 
     ``modules.web_terminals.external_origin`` WINS when set, and is returned
     verbatim. It exists because the derivation below describes only the topology
@@ -1869,10 +1876,10 @@ def _landing_url(
     """The absolute origin baked into every service's ``OSPREY_TERMINAL_LANDING_URL``.
 
     Per-user containers only get this value once, at container start (env vars, not
-    request time) — unlike nginx.conf.j2's per-request ``$host`` redirect target,
-    resolving it can't be deferred to the browser. It is the deployment's external
-    origin verbatim (:func:`_external_origin`), which is what keeps a "back to
-    landing" link and an OIDC ``redirect_uri`` on the same origin by construction.
+    request time), so resolving it can't be deferred to the browser. It is the
+    deployment's external origin verbatim (:func:`_external_origin`), the one value
+    the perimeter serves on, which is what keeps a "back to landing" link and an
+    OIDC ``redirect_uri`` on the same origin by construction.
     """
     return _external_origin(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
 

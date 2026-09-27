@@ -116,9 +116,11 @@ def _directives(conf: str) -> str:
 def _server_blocks(conf: str) -> list[str]:
     """The top-level `server { … }` bodies, in render order.
 
-    Under TLS there are TWO: the redirect-only plain-port server first, then the
-    443 content server. Split on the closing brace in column 0, which only a
-    top-level block has.
+    Under TLS there are THREE: the redirect-only plain-port server first, then
+    the 443 content server, then the redirect for every other name on the TLS
+    listener. Without TLS there are TWO: the content server, then the redirect
+    for every other name on the plain port. Split on the closing brace in
+    column 0, which only a top-level block has.
     """
     blocks = re.findall(r"^server \{\n(.*?)^\}$", conf, flags=re.DOTALL | re.MULTILINE)
     assert blocks, "no top-level server block in the rendered fragment"
@@ -234,11 +236,23 @@ def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> Non
     # places a crafted URL could otherwise smuggle a different username in.
     # Scoped to the auth surface: `$request_uri` does appear at http level, as
     # the SOURCE of the access log's path map — where it is trimmed at the first
-    # `?` and written to a log, never used to authorize anything.
+    # `?` and written to a log, never used to authorize anything. It also
+    # appears in every redirect-only server block, which makes no authorization
+    # decision and hands no path to one.
     auth_surface = directives
     log_map_start = auth_surface.index("map $request_uri $osprey_log_path {")
     log_map_end = auth_surface.index("}", log_map_start) + 1
     auth_surface = auth_surface[:log_map_start] + auth_surface[log_map_end:]
+    auth_surface = re.sub(
+        r"^server \{\n(.*?)^\}$",
+        lambda block: (
+            ""
+            if "location" not in block.group(1) and "return 301 " in block.group(1)
+            else block.group(0)
+        ),
+        auth_surface,
+        flags=re.DOTALL | re.MULTILINE,
+    )
     assert "$request_uri" not in auth_surface
     assert "X-Original-URI" not in directives
     # `/verify` is reachable only through the internal targets: it is not a
@@ -400,9 +414,13 @@ def test_seam_tls_enabled_with_both_cert_and_key_emits_ssl_listen_and_paths() ->
     # Act
     blocks = _server_blocks(_render_nginx(config))
 
-    # Assert — two servers: the plain port redirects, 443 serves
-    assert len(blocks) == 2
-    redirect, content = blocks
+    # Assert — three servers: the plain port redirects, 443 serves, and 443
+    # redirects every other name
+    assert len(blocks) == 3
+    redirect, content, catch_all = blocks
+    assert "location" not in catch_all
+    assert "auth_request" not in catch_all
+    assert "http2" not in catch_all
     assert "return 301 https://$host$request_uri;" in redirect
     assert "location" not in redirect
     assert "listen 443 ssl;" in content
@@ -429,7 +447,7 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     users = config["modules"]["web_terminals"]["users"]
 
     # Act
-    redirect, content = _server_blocks(_render_nginx(config))
+    redirect, content, catch_all = _server_blocks(_render_nginx(config))
 
     # Assert — both listeners follow the configured port, and 443 is gone
     assert f"listen {_ALT_TLS_PORT} ssl;" in content
@@ -443,6 +461,9 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
 
     # Assert — the split itself is unchanged: cleartext redirects, TLS serves
     assert "location" not in redirect
+    assert "location" not in catch_all
+    assert "auth_request" not in catch_all
+    assert "http2" not in catch_all
     assert _directives(content).count("auth_request ") == len(users)
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
     assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
@@ -460,12 +481,15 @@ def test_seam_tls_content_server_speaks_http2_and_cleartext_servers_do_not() -> 
     config["modules"]["web_terminals"]["tls"] = copy.deepcopy(_TLS_STANZA)
 
     # Act
-    redirect, content = _server_blocks(_render_nginx(config))
+    redirect, content, catch_all = _server_blocks(_render_nginx(config))
     plain = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
     assert "http2 on;" in content
     assert "http2" not in redirect
+    assert "http2" not in catch_all
+    assert "location" not in catch_all
+    assert "auth_request" not in catch_all
     assert "http2" not in plain
 
 
@@ -565,9 +589,12 @@ def test_seam_auth_surface_exists_only_on_the_tls_content_server() -> None:
     users = config["modules"]["web_terminals"]["users"]
 
     # Act
-    redirect, content = _server_blocks(_render_nginx(config))
+    redirect, content, catch_all = _server_blocks(_render_nginx(config))
 
-    # Assert — the cleartext listener carries nothing but the 301
+    # Assert — the redirect servers carry nothing but the 301
+    assert "location" not in catch_all
+    assert "auth_request" not in catch_all
+    assert "http2" not in catch_all
     assert redirect.count("location") == 0
     assert "_osprey_auth" not in redirect
     assert _directives(redirect).count("auth_request ") == 0

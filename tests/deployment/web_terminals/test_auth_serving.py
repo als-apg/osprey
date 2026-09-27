@@ -1089,6 +1089,48 @@ def test_bookmark_redirect_is_relative_and_drops_no_port(stack: Stack) -> None:
     assert response.headers["location"] == "/u/alice/"
 
 
+def test_another_name_for_this_host_is_sent_to_the_origin(stack: Stack) -> None:
+    """A browser on another name for this host is redirected to the origin.
+
+    The terminals accept actions only from the one origin, so a page served
+    under ``localhost`` would load and then refuse every write. The redirect
+    keeps the path and the query.
+    """
+    # Arrange
+    other_name = {"Host": f"localhost:{stack.port}"}
+
+    # Act
+    with stack.client() as client:
+        deep = client.get("/u/alice/?x=1", headers=other_name)
+        root = client.get("/", headers=other_name)
+
+    # Assert
+    assert deep.status_code == 301
+    assert deep.headers["location"] == f"{stack.origin}/u/alice/?x=1"
+    assert root.status_code == 301
+    assert root.headers["location"] == f"{stack.origin}/"
+
+
+def test_a_signed_in_browser_on_another_name_reaches_no_upstream(stack: Stack) -> None:
+    """A session does not carry a request past the redirect: a write sent under
+    another name is answered by nginx and never reaches the terminal."""
+    # Arrange
+    with stack.client() as client:
+        _login(stack, client, "alice")
+
+        # Act
+        response = client.post(
+            "/u/alice/api/chat",
+            content=b'{"content": "hello"}',
+            headers={"Content-Type": "application/json", "Host": f"localhost:{stack.port}"},
+        )
+
+    # Assert
+    assert response.status_code == 301
+    assert response.headers["location"] == f"{stack.origin}/u/alice/api/chat"
+    assert '"method"' not in response.text
+
+
 # ---------------------------------------------------------------------------
 # 4. What a denied request looks like
 # ---------------------------------------------------------------------------
