@@ -23,11 +23,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from starlette.testclient import TestClient
 
 from osprey.dispatch import server
+from osprey.dispatch.sources.cron import CronSource
 from osprey.dispatch.sources.webhook import WebhookSource
 from osprey.utils.owner_header import OWNER_HEADER
 from tests.conftest import dispatcher_route_registry
@@ -236,6 +239,55 @@ def test_dashboard_state_shape(app):
     # No worker is reachable, so fetch_worker_runs fails and is caught -> [].
     assert body["runs"] == []
     assert any(t["name"] == "deploy" for t in body["triggers"])
+
+
+def test_dashboard_state_carries_a_clock_triggers_next_fire(tmp_path, monkeypatch):
+    """A clock trigger's next fire is its next slot, in UTC, read in the facility zone."""
+    berlin = ZoneInfo("Europe/Berlin")
+    path = tmp_path / "triggers.yml"
+    path.write_text(
+        "dispatcher:\n"
+        "  dispatch_target: http://localhost:9999\n"
+        "triggers:\n"
+        "  - name: morning\n"
+        "    source: cron\n"
+        "    source_config:\n"
+        '      at: ["07:45"]\n'
+        "    action:\n"
+        "      prompt: summarise the night\n"
+        "      allowed_tools: []\n"
+    )
+    monkeypatch.setenv("TRIGGERS_YML", str(path))
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret")
+    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: berlin)
+
+    def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
+        return [_FakeEntryPoint("cron", CronSource)]
+
+    monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
+    app = server.create_server().http_app()
+
+    before = datetime.now(tz=UTC)
+    with TestClient(app) as client:
+        resp = client.get("/dashboard/state", headers={"Authorization": "Bearer secret"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["facility_timezone"] == "Europe/Berlin"
+    (trigger,) = body["triggers"]
+    next_fire = datetime.fromisoformat(trigger["next_fire"])
+    assert next_fire.utcoffset() == timedelta(0)
+    assert next_fire > before
+    assert next_fire - before <= timedelta(days=1, hours=1)
+    local = next_fire.astimezone(berlin)
+    assert (local.hour, local.minute) == (7, 45)
+
+
+def test_an_interval_or_webhook_trigger_has_no_next_fire(app):
+    with TestClient(app) as client:
+        resp = client.get("/dashboard/state", headers={"Authorization": "Bearer secret"})
+    (trigger,) = resp.json()["triggers"]
+    assert trigger["name"] == "deploy"
+    assert trigger["next_fire"] is None
 
 
 # ---------------------------------------------------------------------------
