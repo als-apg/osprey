@@ -81,6 +81,7 @@ from osprey.deployment.graphdb_service import (
     resolve_graphdb_connection,
     resolve_graphdb_service_config,
 )
+from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.qmd_service import QMD_SERVICE_NAME, resolve_qmd_service_config
@@ -807,6 +808,26 @@ def _second_lane_contract(lane: str) -> ReachContract:
     )
 
 
+def _outbound_only_contracts() -> dict[str, ReachContract]:
+    """The contracts of OSPREY's services that open no listening socket.
+
+    Derived from the bundled declaration
+    (:data:`~osprey.deployment.host_binding.BUNDLED_HOST_BINDINGS`): a service
+    that opens no socket is dialed by nothing, so its contract is
+    ``no_client_reach`` for the reason the declaration gives. The converse does
+    not hold — a service dialed by nothing may still listen (the recorder, the
+    worker) — so those contracts stay written out below.
+
+    Returns:
+        One contract per ``listens: false`` entry, in table order.
+    """
+    return {
+        name: ReachContract(service=name, no_client_reach=True, note=entry.why)
+        for name, entry in BUNDLED_HOST_BINDINGS.items()
+        if entry.binding.listens is False
+    }
+
+
 REACH_CONTRACTS: dict[str, ReachContract] = {
     QMD_SERVICE_NAME: ReachContract(
         service=QMD_SERVICE_NAME,
@@ -1106,31 +1127,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         no_client_reach=True,
         note="the worker dials the persona's project, never the reverse",
     ),
-    "nextcloud_bridge": ReachContract(
-        service="nextcloud_bridge",
-        no_client_reach=True,
-        note="a chat poller that dials the dispatcher; nothing in a container dials it",
-    ),
-    "gchat_bridge": ReachContract(
-        service="gchat_bridge",
-        no_client_reach=True,
-        note="a chat bridge that dials the dispatcher; nothing in a container dials it",
-    ),
-    "teams_bridge": ReachContract(
-        service="teams_bridge",
-        no_client_reach=True,
-        note="a chat bridge that dials the dispatcher; nothing in a container dials it",
-    ),
-    "ariel_sync": ReachContract(
-        service="ariel_sync",
-        no_client_reach=True,
-        note="a logbook poller that dials the store and the facility logbook; nothing in a container dials it",
-    ),
-    "archive": ReachContract(
-        service="archive",
-        no_client_reach=True,
-        note="copies the deployment's volumes into var/archive; nothing in a container dials it",
-    ),
+    **_outbound_only_contracts(),
 }
 
 
