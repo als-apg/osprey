@@ -221,12 +221,13 @@ def _copy_shared_service_partials(dest_services_root: Path) -> int:
     return len(partials)
 
 
-#: The one key on a `services.<name>` block that belongs to the AUTHOR rather
-#: than to the injector that writes the block. Everything else an injector puts
+#: The keys on a `services.<name>` block that belong to the AUTHOR rather than
+#: to the injector that writes the block. No injector derives them: `env` is a
+#: name list, `network` is the attachment the service's template renders, and
+#: `http` is what the deploy summary prints. Everything else an injector puts
 #: there it derives from its own profile block (a port, a trigger, a path), so
-#: replacing the block wholesale is right; `env:` is the exception, because it
-#: is written by hand and by nothing else.
-_AUTHORED_SERVICE_KEYS = ("env",)
+#: replacing the block wholesale is right for those and wrong for these.
+_AUTHORED_SERVICE_KEYS = ("env", "network", "http")
 
 #: Service key of the second virtual accelerator a deployment stands up as its
 #: ``live`` target. Derived from the dotted path every READER of the stand-in
@@ -259,25 +260,25 @@ def _carry_authored_keys(services: Any, name: str, block: dict[str, Any]) -> dic
     assignment: whatever stood at that key is gone. That is deliberate for the
     keys the injector derives (the block is regenerated from the profile on
     every build, and a stale port left behind would be worse than none), but the
-    env-passthrough axis is not derived from anything — ``services.<name>.env``
-    is a list of host variable NAMES the author wrote, in one of two spellings,
-    and both of them land in this same block *before* the injectors run:
+    author's per-service axes (:data:`_AUTHORED_SERVICE_KEYS`) are not derived
+    from anything — the author wrote them, in one of two spellings, and both of
+    them land in this same block *before* the injectors run:
 
-    * nested — ``services.<name>.config.env``, written by
+    * nested — ``services.<name>.config.<key>``, written by
       :func:`_inject_profile_services`;
-    * dotted — ``config: {"services.<name>.env": [...]}``, merged by
+    * dotted — ``config: {"services.<name>.<key>": ...}``, merged by
       ``build_cmd._apply_config_overrides``.
 
-    So without this the seven services that have a dedicated injector accept the
+    So without this the services that have a dedicated injector accept the
     declaration at validation, write it to ``config.yml``, and then silently drop
-    it a few steps later — the author sees no error and no passthrough, which is
-    the failure the dispatch-pair rejection exists to prevent, one layer wider.
-    The macro that renders the axis (``templates/services/_env_axis.j2``) reads
-    exactly this key, so carrying it forward is all that is needed for the seven
-    to behave like the services with no injector at all.
+    it a few steps later — the author sees no error and no effect, which is the
+    failure the dispatch-pair rejection exists to prevent, one layer wider. The
+    templates and readers consult exactly these keys on the block, so carrying
+    them forward is all that is needed for those services to behave like the
+    services with no injector at all.
 
     Copied by reference and only when present, so a service that declares
-    nothing renders byte-for-byte what it rendered before: no empty ``env: []``
+    nothing renders byte-for-byte what it rendered before: no authored key
     appears in any config.yml that did not already carry one.
 
     A key the new block already carries is left alone, which is what keeps this
