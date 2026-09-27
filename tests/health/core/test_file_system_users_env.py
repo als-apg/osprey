@@ -60,7 +60,7 @@ def test_generated_file_behind_on_a_non_secret_is_a_warning(tmp_path: Path) -> N
 
     _dotenv(tmp_path / ".env", {"CBORG_API_KEY": "k"})
     ensure_env_production(_CONFIG, tmp_path)
-    moved = {**_CONFIG, "facility": {"timezone": "Europe/Berlin"}}
+    moved = {**_CONFIG, "system": {"timezone": "Europe/Berlin"}}
     row = _run(moved, tmp_path)["users_env"]
     assert row.status is Status.WARNING
     assert "osprey up" in row.message

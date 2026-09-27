@@ -825,8 +825,8 @@ def _build_env_production_subset(
       fallback address is the wrong one on any deploy that set this. The ROOT
       account name (``ZO_ROOT_USER_EMAIL``) is not copied: nothing a terminal
       runs authenticates as root.
-    - ``TZ`` — always, from ``facility.timezone`` (default ``"UTC"``, matching
-      the schema's own documented default), likewise a literal config value.
+    - ``TZ`` — always, from ``system.timezone`` (default ``"UTC"``), the zone
+      every deployed service runs in; likewise a literal config value.
 
     The telemetry SECRET is deliberately not here beside the account name, and
     that holds for either identity. ``ZO_ROOT_USER_PASSWORD`` is the store's
@@ -955,8 +955,8 @@ def _build_env_production_subset(
     # admin password never does (see the security spec above).
     _copy_named_env_var(_TELEMETRY_USER_ENV_VAR, dotenv, subset)
 
-    facility = config.get("facility") or {}
-    subset["TZ"] = str(facility.get("timezone") or "UTC")
+    system = config.get("system") or {}
+    subset["TZ"] = str(system.get("timezone") or "UTC")
 
     return subset
 

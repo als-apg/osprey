@@ -28,7 +28,8 @@ def _write_dotenv(path, values: dict) -> None:
 # secret's config-declared name present too -- this is the fixture the
 # security spec (the exclusion list) gets unit-tested against.
 _FULL_CONFIG = {
-    "facility": {"name": "Test Facility", "prefix": "test", "timezone": "America/Los_Angeles"},
+    "facility": {"name": "Test Facility", "prefix": "test"},
+    "system": {"timezone": "America/Los_Angeles"},
     "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
     "ci": {"provider": "gitlab", "token_env_var": "TEST_CI_TOKEN"},
     "registry": {
@@ -228,6 +229,32 @@ def test_env_production_module_disabled_omits_its_vars(tmp_path):
     generated = env_production.parse_dotenv_file(result)
 
     assert generated == {"CBORG_API_KEY": "llm-secret", "TZ": "UTC"}
+
+
+@pytest.mark.parametrize(
+    ("system", "expected"),
+    [({"timezone": "Asia/Tokyo"}, "Asia/Tokyo"), (None, "UTC")],
+    ids=["declared", "absent"],
+)
+def test_env_production_tz_follows_system_timezone(tmp_path, system, expected):
+    """``.env.users`` carries ``TZ`` from ``system.timezone``, the key every other
+    service's compose reads, and UTC when it is absent. A ``timezone`` under
+    ``facility`` is not a key and moves nothing."""
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "llm-secret"})
+    config: dict = {
+        "facility": {"timezone": "America/Los_Angeles"},
+        "llm": {"api_key_env_var": "CBORG_API_KEY"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+    if system is not None:
+        config["system"] = system
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    assert env_production.parse_dotenv_file(result) == {
+        "CBORG_API_KEY": "llm-secret",
+        "TZ": expected,
+    }
 
 
 def test_env_production_missing_var_in_env_is_skipped_not_fabricated(tmp_path):
