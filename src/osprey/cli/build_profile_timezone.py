@@ -16,7 +16,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.utils.facility import closest_zone_name, is_zone_name
+from osprey.utils.facility import (
+    DEFAULT_FACILITY_ZONE,
+    SET_FACILITY_ZONE,
+    closest_zone_name,
+    is_zone_name,
+)
 
 TIMEZONE_KEY = "system.timezone"
 
@@ -52,3 +57,29 @@ def system_timezone_errors(config: Mapping[str, Any]) -> list[str]:
         message += " Zone names are spelled as in the IANA time zone database, case included."
         errors.append(message)
     return errors
+
+
+def system_timezone_reminders(config: Mapping[str, Any]) -> list[str]:
+    """At most one reminder, when ``system.timezone`` is still UTC.
+
+    Unset counts as UTC, since every reader then falls back to it. A value
+    that references the environment is left to ``osprey health``, and a value
+    that names no zone is already refused by :func:`system_timezone_errors`.
+
+    Args:
+        config: The profile's merged ``config:`` block.
+
+    Returns:
+        list[str]: One reminder, or none.
+    """
+    if not isinstance(config, Mapping):
+        return []
+
+    from .build_profile_reach import spelled_values
+
+    values = [value for _, value in spelled_values(config, TIMEZONE_KEY)]
+    if not values or any(value == DEFAULT_FACILITY_ZONE for value in values):
+        return [
+            f"system.timezone is UTC, so operator times are read and shown in UTC. {SET_FACILITY_ZONE}"
+        ]
+    return []

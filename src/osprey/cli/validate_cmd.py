@@ -91,7 +91,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     )
     from .build_profile_drift import MARKER_REACH, preset_drift_report
     from .build_profile_panels import bar_items_selection_warnings
-    from .build_profile_timezone import system_timezone_errors
+    from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
     variant = VariantSelection(name=None, path=None)
@@ -154,6 +154,8 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         # The same line `osprey build` prints for a `web.bar_items` entry the
         # served default drops because its panel is not selected.
         *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
+        # The same UTC reminder `osprey build` prints.
+        *system_timezone_reminders(build_profile.config),
     ):
         note(f"⚠ {warning}")
 

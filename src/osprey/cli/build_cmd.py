@@ -3346,7 +3346,7 @@ def _build_repo(
         deploy_aware_config_warnings,
         limits_block_errors,
     )
-    from .build_profile_timezone import system_timezone_errors
+    from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
@@ -3429,6 +3429,9 @@ def _build_repo(
         web_warnings = [
             *web_warnings,
             *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
+            # Advisory: UTC is a legal, reproducible choice, and `config.yml`
+            # carries it whether chosen or defaulted, so the build reminds.
+            *system_timezone_reminders(build_profile.config),
         ]
         # The catalog is what `provider:` may name: the build renders its
         # entries into `api.providers`, so a name absent from it reaches a
