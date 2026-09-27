@@ -71,6 +71,12 @@
                                         #   container_project_dir — the path this persona's own
                                         #   exporter writes. Pairs with the file-level
                                         #   `ariel_mirror_source`.
+          "phoebus_require_handle": bool,
+                                        # true when this user's project runs a Phoebus MCP
+                                        #   server and does not set
+                                        #   `phoebus.require_handle: false`; emits
+                                        #   PHOEBUS_REQUIRE_HANDLE=1. Resolved by render.py
+                                        #   from the persona set or the deploy config.
           "audit_identity": str,        # WHO this container's audit records are written as —
                                         #   the roster user name (OSPREY_AUDIT_IDENTITY).
           "container_audit_dir": str,   # where those records are written inside the container
@@ -1041,6 +1047,17 @@ services:
          publishes is a literal, not a secret. #}
       - OSPREY_WEB_PERIMETER=open
       - OSPREY_WEB_PERIMETER_DENY_PORTS={{ perimeter_deny_ports }}
+{%- endif %}
+{%- if svc.phoebus_require_handle %}
+      {#- Every terminal on this host reaches the one Phoebus product through
+         the same loopback bridge, so the implicit "active" display is whichever
+         display another user focused last. The Phoebus MCP server this
+         container launches inherits this variable and refuses "active", so its
+         tools address a handle or a named display. Omitted when the project
+         sets `phoebus.require_handle: false`, because the variable would win
+         over that key. A plain `environment:` literal, not an `.env.users`
+         entry: it is not a secret. #}
+      - PHOEBUS_REQUIRE_HANDLE=1
 {%- endif %}
       {#- Where the telemetry store is from inside this container. The agent's
          launch derives its OTLP endpoint from `claude_code.telemetry` with the
