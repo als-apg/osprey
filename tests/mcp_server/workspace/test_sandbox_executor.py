@@ -10,6 +10,7 @@ import pytest
 
 from osprey.mcp_server.workspace.execution.sandbox_executor import (
     SandboxExecutionResult,
+    _create_sandbox_wrapper,
     create_sandbox_execution_folder,
     execute_sandbox_code,
     validate_sandbox_code,
@@ -417,6 +418,15 @@ class TestExecuteSandboxCode:
 
 
 # ---------------------------------------------------------------------------
+# Wrapper contract
+# ---------------------------------------------------------------------------
+def test_wrapper_requires_secret_roots(tmp_path: Path) -> None:
+    """The wrapper has no default for the roots whose env files it refuses."""
+    with pytest.raises(TypeError, match="secret_roots"):
+        _create_sandbox_wrapper("x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Sandbox tests
 # ---------------------------------------------------------------------------
 class TestSandboxedOpen:
@@ -474,6 +484,44 @@ except PermissionError:
 
         assert result.success
         assert "BLOCKED" in result.stdout
+
+    async def test_env_file_at_project_root_refused(
+        self, execution_folder, workspace_root, tmp_path
+    ):
+        """The production path resolves the secret roots from the project root,
+        so the env file there is refused by both read routes."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".env").write_text("API_KEY=never-leaked\n")
+
+        code = f"""\
+for label, read in (
+    ("BUILTINS", lambda p: open(p).read()),
+    ("PATHLIB", lambda p: Path(p).read_text()),
+):
+    try:
+        print(label, "LEAKED", read(r"{project / ".env"}"))
+    except PermissionError as exc:
+        print(label, "DENIED", exc)
+"""
+
+        with (
+            patch(
+                "osprey.utils.workspace.resolve_workspace_root",
+                return_value=workspace_root,
+            ),
+            patch(
+                "osprey.utils.workspace.resolve_project_root",
+                return_value=project,
+            ),
+        ):
+            result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
+
+        assert result.success
+        assert "never-leaked" not in result.stdout
+        assert "LEAKED" not in result.stdout
+        for label in ("BUILTINS", "PATHLIB"):
+            assert f"{label} DENIED Sandbox: read denied" in result.stdout
 
 
 # ---------------------------------------------------------------------------

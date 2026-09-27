@@ -34,6 +34,7 @@ def test_visualization_sandbox_injects_the_shared_source(tmp_path: Path):
         execution_folder=tmp_path / "exec",
         workspace_root=tmp_path / "ws",
         project_root=tmp_path,
+        secret_roots=(),
     )
 
     assert SAVE_ARTIFACT_SOURCE in script
