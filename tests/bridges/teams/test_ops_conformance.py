@@ -74,7 +74,7 @@ from tests.bridges.test_ports import PROTOCOL_MEMBERS
 # Every attribute a constructed instance is allowed to hold. Anything else appearing here
 # is per-dispatch state on an instance several threads share — the failure this set exists
 # to make loud, since the corruption it causes is intermittent and load-dependent.
-COLLABORATORS = {"_cfg", "_client", "_http", "_fetch_artifact"}
+COLLABORATORS = {"_cfg", "_client", "_http", "_fetch_artifact", "_files"}
 ROSTER = {"_roster"}
 
 
@@ -260,8 +260,9 @@ def test_the_instance_holds_its_collaborators_and_the_roster_only() -> None:
     load-dependent. Asserted structurally, since a race cannot be asserted directly.
 
     The held objects are themselves safe to share: ``TeamsBridgeConfig`` is frozen, the
-    connector client serializes its own HTTP leg, ``httpx.Client`` is safe to share, and
-    the fetcher is a pure function of its arguments.
+    connector client and the Graph file client each serialize their own HTTP leg,
+    ``httpx.Client`` is safe to share, and the fetcher is a pure function of its
+    arguments.
     """
     ops, _ = make_ops()
     assert set(vars(ops)) == COLLABORATORS | ROSTER
