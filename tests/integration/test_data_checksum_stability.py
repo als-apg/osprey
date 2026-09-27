@@ -28,7 +28,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manifest import calculate_file_checksums
-from osprey.interfaces.channel_finder.app import FEEDBACK_DIR
+from osprey.interfaces.channel_finder.app import feedback_dir
 from osprey.utils.config import (
     ConfigBuilder,
     find_runtime_write_paths_under_data,
@@ -138,7 +138,9 @@ class TestRuntimeWriters:
             )
             or {}
         ).get("feedback") or {}
-        store_path = feedback.get("store_path", f"{FEEDBACK_DIR}/hierarchical_feedback.json")
+        store_path = feedback.get(
+            "store_path", f"{feedback_dir(project_config)}/hierarchical_feedback.json"
+        )
         # Under the agent-data root, wherever the config puts it. Asserted
         # against the configured root rather than a literal, because the point
         # is the ZONE: a feedback store outside it sits in the tracked source
@@ -156,7 +158,7 @@ class TestRuntimeWriters:
             selections={"system": "MAG"},
             channel_count=42,
         )
-        pending = built_project / FEEDBACK_DIR / "pending_reviews.json"
+        pending = built_project / feedback_dir(project_config) / "pending_reviews.json"
         pending.parent.mkdir(parents=True, exist_ok=True)
         PendingReviewStore(pending).capture(
             {

@@ -17,10 +17,11 @@ from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey.utils.workspace import agent_data_base_dir
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Callable, Mapping
+    from typing import Any
 
     from osprey.channel_roster import RosterResult
     from osprey.services.channel_finder.graph_index.reader import (
@@ -32,16 +33,24 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-#: Repo-relative home of the feedback stores, used when the config names no
-#: ``store_path``. Both stores are written while the agent runs, so they belong
-#: in the durable STATE zone: ``data/`` is build-owned and checksummed into the
-#: manifest, and ``build/`` is wiped and re-rendered by every build.
-#:
-#: Derived from :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR`
-#: rather than spelled out, so this fallback cannot drift away from the root the
-#: rest of the framework resolves. It is only a fallback: a config that sets
-#: ``store_path`` wins, and the shipped templates set it.
-FEEDBACK_DIR = f"{DEFAULT_AGENT_DATA_BASE_DIR}/feedback"
+
+def feedback_dir(config: Mapping[str, Any] | None) -> str:
+    """Repo-relative home of both feedback stores under the configured agent-data root.
+
+    Used when the config names no ``store_path``. Both stores are written while
+    the agent runs, so they belong in the durable STATE zone: ``data/`` is
+    build-owned and checksummed into the manifest, and ``build/`` is wiped and
+    re-rendered by every build. The capture hook resolves the same
+    ``agent_data.base_dir`` key, so the pending-review file it writes is the one
+    this app reads.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The feedback directory, relative to the repo unless ``base_dir`` is absolute.
+    """
+    return f"{agent_data_base_dir(config)}/feedback"
 
 
 def _init_hierarchical_registry():
@@ -401,7 +410,7 @@ def _create_lifespan(project_cwd: str | None = None):
                 from osprey.services.channel_finder.feedback.store import FeedbackStore
 
                 store_path = feedback_config.get(
-                    "store_path", f"{FEEDBACK_DIR}/hierarchical_feedback.json"
+                    "store_path", f"{feedback_dir(config)}/hierarchical_feedback.json"
                 )
                 # Anchored on the deployment REPO root, not on this process's
                 # working directory. `project_cwd` defaults to `Path.cwd()`,
@@ -422,7 +431,7 @@ def _create_lifespan(project_cwd: str | None = None):
             )
 
             # Same anchor as the feedback store above, for the same reason.
-            pr_path = Path(resolve_cf_state_path(f"{FEEDBACK_DIR}/pending_reviews.json"))
+            pr_path = Path(resolve_cf_state_path(f"{feedback_dir(config)}/pending_reviews.json"))
             app.state.pending_review_store = PendingReviewStore(str(pr_path))
             logger.info("Initialized pending review store at %s", pr_path)
         except Exception:
