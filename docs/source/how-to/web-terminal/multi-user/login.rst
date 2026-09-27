@@ -222,12 +222,17 @@ the provider's groups choose:
 
 A roster entry carries ``role:`` or ``persona:``, never both. The rules:
 
-- Every value of the claim is matched, in any order. Exactly one distinct role
-  must result: none → refused (``unmapped_role_claim``), more than one →
-  refused (``ambiguous_role_claim``).
-- The role the token grants must be the role the roster named for the card
-  that was clicked; otherwise the login is refused (``role_mismatch``). Fix
-  whichever of roster or provider has drifted.
+- Every value of the claim is matched, in any order. No mapped role → refused
+  (``unmapped_role_claim``).
+- On a card whose entry names a ``role:``, the login carries that role, and it
+  must be one of the roles the token maps to; otherwise it is refused
+  (``role_mismatch``). A person in several mapped groups opens the card built
+  for any one of them, and the login record lists the mapped roles in
+  ``detail`` (``mapped_roles=…``). Fix whichever of roster or provider has
+  drifted.
+- On a card whose entry names a ``persona:`` instead, the token's role is
+  carried, so it must map to exactly one role; several → refused
+  (``ambiguous_role_claim``).
 - A role is resolved at login and travels inside the session — together with
   its origin, the roster entry or the provider's claim — so a change at the
   provider or in the roster reaches the *next* login. To withdraw a role now,
