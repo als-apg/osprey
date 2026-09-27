@@ -3187,31 +3187,61 @@ def test_tls_redirect_server_serves_nothing_but_the_redirect() -> None:
     redirect = _server_blocks(_render_nginx(_tls_config()))[0]
 
     # Assert
-    assert "return 301 https://$host$request_uri;" in redirect
+    assert "return 301 https://dls-deploy.dls.example.org$request_uri;" in redirect
     assert "location" not in redirect
     assert "root " not in redirect
     assert "proxy_pass" not in redirect
     assert "auth_request" not in redirect
 
 
-def test_tls_redirect_target_is_the_requested_host_not_the_render_time_origin() -> None:
-    """The 301 goes to `$host` — the name the client actually used.
+def test_tls_redirect_target_is_the_origin_not_the_requested_host() -> None:
+    """The 301 goes to the one origin the terminals accept actions from.
 
-    A deployment answers to more names than config knows (aliases, internal DNS
-    names, a bare IP); rewriting the host at render time would bounce those
-    clients to a name they may not resolve. `external_origin` is for values
-    that must be fixed at render time, like an IdP-registered redirect_uri.
+    A `$host` target would send a browser on another name to that same name,
+    whose pages load and whose every write is refused.
     """
+    # Act
+    redirect = _server_blocks(_render_nginx(_tls_config()))[0]
+
+    # Assert
+    assert "return 301 https://dls-deploy.dls.example.org$request_uri;" in redirect
+    assert "$host" not in _directives(redirect)
+
+
+def test_tls_redirect_follows_a_configured_external_origin() -> None:
+    """A configured origin is the plain listener's redirect target."""
     # Arrange
     config = _tls_config()
-    fqdn = config["deploy"]["fqdn"]
+    config["modules"]["web_terminals"]["external_origin"] = "https://terminals.example.org"
 
     # Act
     redirect = _server_blocks(_render_nginx(config))[0]
 
     # Assert
-    assert "https://$host$request_uri" in redirect
-    assert fqdn not in redirect
+    assert "return 301 https://terminals.example.org$request_uri;" in redirect
+
+
+def test_roster_less_tls_render_keeps_the_requested_host_redirect() -> None:
+    """A render with no origin has nowhere fixed to send a browser, so the plain
+    listener keeps the requested host."""
+    # Act
+    blocks = _server_blocks(_render_nginx(_tls_config([])))
+
+    # Assert
+    assert len(blocks) == 2
+    assert "return 301 https://$host$request_uri;" in blocks[0]
+
+
+def test_render_refuses_a_cleartext_external_origin_under_tls() -> None:
+    """With TLS on, the plain listener redirects every browser to the origin, so
+    an http origin would either loop back to the redirect or leave TLS unused."""
+    # Arrange
+    config = _tls_config(["alice"])
+    config["modules"]["web_terminals"]["external_origin"] = "http://terminals.example.org:10000"
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="tls.enabled"):
+        render_web_terminals(config)
 
 
 def test_tls_content_server_listens_on_a_configured_non_default_port() -> None:
@@ -3238,19 +3268,16 @@ def test_tls_content_server_listens_on_a_configured_non_default_port() -> None:
 def test_tls_redirect_names_a_non_default_port_in_its_bounce_target() -> None:
     """The 301 has to carry the port as well as the scheme.
 
-    `$host` is the name the client asked for and never the port it should be
-    sent to, so a bare `https://$host` bounces every cleartext client to 443 —
-    where a deployment serving on its own `tls.port` has nothing listening, and
-    the front door becomes a redirect into a connection refusal.
+    A target without the port bounces every cleartext client to 443 — where a
+    deployment serving on its own `tls.port` has nothing listening, and the
+    front door becomes a redirect into a connection refusal.
     """
     # Act
     redirect = _server_blocks(_render_nginx(_tls_config(port=_ALT_TLS_PORT)))[0]
 
     # Assert
-    assert f"return 301 https://$host:{_ALT_TLS_PORT}$request_uri;" in redirect
-    assert "return 301 https://$host$request_uri;" not in redirect
-    # Still the requested host, not the render-time fqdn: only the port is fixed here.
-    assert "dls-deploy.dls.example.org" not in redirect
+    assert f"return 301 https://dls-deploy.dls.example.org:{_ALT_TLS_PORT}$request_uri;" in redirect
+    assert "return 301 https://dls-deploy.dls.example.org$request_uri;" not in redirect
 
 
 def test_tls_port_left_at_the_default_keeps_the_port_out_of_the_redirect() -> None:
@@ -3265,7 +3292,9 @@ def test_tls_port_left_at_the_default_keeps_the_port_out_of_the_redirect() -> No
 
     # Assert
     assert explicit == _render_nginx(_tls_config())
-    assert "return 301 https://$host$request_uri;" in _server_blocks(explicit)[0]
+    assert (
+        "return 301 https://dls-deploy.dls.example.org$request_uri;" in _server_blocks(explicit)[0]
+    )
 
 
 def test_tls_redirect_content_server_holds_the_cert_and_every_user_route() -> None:

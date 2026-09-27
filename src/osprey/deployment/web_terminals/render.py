@@ -1660,8 +1660,9 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
     origin then applies (:func:`_external_origin`).
 
     Raises:
-        ValueError: If the value is not a string, or is not
-            ``scheme://host[:port]`` and nothing else. Refused HERE rather than
+        ValueError: If the value is not a string, is not
+            ``scheme://host[:port]`` and nothing else, or is an ``http`` origin
+            while ``tls.enabled`` is true. Refused HERE rather than
             trusted, because nothing downstream would report it: the value is
             baked into every container as ``OSPREY_TERMINAL_EXTERNAL_ORIGIN``
             and compared against the browser's ``Origin`` as a whole string, so
@@ -1683,12 +1684,20 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
     origin = value.strip()
     if not origin:
         return ""
-    if not _EXTERNAL_ORIGIN_RE.fullmatch(origin):
+    match = _EXTERNAL_ORIGIN_RE.fullmatch(origin)
+    if not match:
         raise ValueError(
             f"modules.web_terminals.external_origin {origin!r} is not an origin. Set it "
             "to scheme://host[:port], where host is a DNS name or IPv4 address and "
             "nothing follows the host or port (e.g. 'https://terminals.example.org', "
             f"'http://terminals.example.org:8443'). See {PERIMETER_LIMITS_URL}"
+        )
+    if match.group("scheme") == "http" and _tls_enabled(web_terminals):
+        raise ValueError(
+            f"modules.web_terminals.external_origin {origin!r} is http while "
+            "modules.web_terminals.tls.enabled is true. Set it to an https origin: nginx's "
+            "plain port redirects every browser to this origin, so a cleartext one either "
+            "returns them to the redirect itself or leaves TLS unused"
         )
     return origin
 
@@ -2055,6 +2064,11 @@ def _user_groups(
     return groups
 
 
+def _tls_enabled(web_terminals: dict[str, Any]) -> bool:
+    """``modules.web_terminals.tls.enabled``, parsed. The one reader of that key."""
+    return bool(as_dict(web_terminals.get("tls")).get("enabled", False))
+
+
 def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None) -> dict[str, Any]:
     """Read the ``web_terminals.auth``/``web_terminals.tls`` stanzas into the context
     keys the nginx seam and the auth sidecar's compose service consume.
@@ -2198,7 +2212,7 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         # sidecar derives the parameter's contents itself from the claims it
         # reads, so nothing here spells claims JSON.
         "auth_oidc_claims_in_id_token": bool(oidc.get("claims_in_id_token", False)),
-        "tls_enabled": bool(tls.get("enabled", False)),
+        "tls_enabled": _tls_enabled(web_terminals),
         "tls_port": _port_int(tls.get("port"), TLS_LISTEN_PORT),
         # Carried alongside so the template's "is this the port a browser
         # assumes for https://" test reads the same constant `_external_origin`

@@ -219,7 +219,7 @@ def test_golden_tls_custom_port_binds_and_redirects_to_the_custom_port() -> None
     assert f"listen [::]:{_TLS_CUSTOM_PORT} ssl;" in conf
     assert f"listen {_TLS_CUSTOM_PORT} ssl default_server;" in conf
     assert f"listen [::]:{_TLS_CUSTOM_PORT} ssl default_server;" in conf
-    assert f"return 301 https://$host:{_TLS_CUSTOM_PORT}$request_uri;" in conf
+    assert f"return 301 https://dls-deploy.dls.example.org:{_TLS_CUSTOM_PORT}$request_uri;" in conf
 
 
 def _persona_config() -> dict:

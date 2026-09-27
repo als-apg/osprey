@@ -10,14 +10,15 @@ uses) against each render shape the auth/TLS seams can produce:
   False): no wall and no injection, each terminal reached through its own
   `?token=` exchange — the pre-auth plain-http posture.
 - the fully enabled render (`tls.enabled: true` with a real self-signed cert/key
-  pair generated fresh per test run, plus `auth.method: password`): two server
-  blocks, the plain port's `return 301 https://…`, `listen 443 ssl` +
+  pair generated fresh per test run, plus `auth.method: password`): three
+  server blocks, the plain port's `return 301` to the external origin, the
+  TLS catch-all redirecting every other name there, `listen 443 ssl` +
   `ssl_certificate*`, the two `map`s, a per-user `auth_request` and `internal`
   verify target, the shared named 401 handler, and the public `/auth/` prefix.
 - that same enabled render moved off 443 by `tls.port` — the rootless shape,
   where both `listen ... ssl` lines bind an unprivileged port and the cleartext
-  server's 301 has to name that port in its `Location` or the bounce lands
-  where nothing is serving.
+  server's 301 goes to the external origin, which has to name that port or the
+  bounce lands where nothing is serving.
 - the cleartext-auth render (`auth.method: password` with
   `allow_insecure_http`, the shape a facility behind its own TLS terminator
   deploys): the same auth surface inside a *single* server block.
@@ -378,7 +379,7 @@ def test_enabled_tls_and_auth_render_passes_nginx_t() -> None:
         assert "listen 443 ssl;" in nginx_conf
         assert f"ssl_certificate /etc/nginx/certs/{cert_path.name};" in nginx_conf
         assert f"ssl_certificate_key /etc/nginx/certs/{key_path.name};" in nginx_conf
-        assert "return 301 https://$host$request_uri;" in nginx_conf
+        assert "return 301 https://dls-deploy.dls.example.org$request_uri;" in nginx_conf
 
         (conf_dir / "default.conf").write_text(nginx_conf)
         _write_secret_templates(artifacts, templates_dir)
@@ -449,8 +450,11 @@ def test_tls_render_on_an_unprivileged_port_passes_nginx_t() -> None:
         assert f"listen {_UNPRIVILEGED_TLS_PORT} ssl;" in nginx_conf
         assert f"listen [::]:{_UNPRIVILEGED_TLS_PORT} ssl;" in nginx_conf
         assert f"listen {TLS_LISTEN_PORT} ssl;" not in nginx_conf
-        assert f"return 301 https://$host:{_UNPRIVILEGED_TLS_PORT}$request_uri;" in nginx_conf
-        assert "return 301 https://$host$request_uri;" not in nginx_conf
+        assert (
+            f"return 301 https://dls-deploy.dls.example.org:{_UNPRIVILEGED_TLS_PORT}$request_uri;"
+            in nginx_conf
+        )
+        assert "return 301 https://dls-deploy.dls.example.org$request_uri;" not in nginx_conf
 
         (conf_dir / "default.conf").write_text(nginx_conf)
         _write_secret_templates(artifacts, templates_dir)
@@ -517,8 +521,9 @@ def test_every_other_name_is_redirected_by_real_nginx() -> None:
         plain_port = default_port("nginx")
         plain_url = f"http://127.0.0.1:{plain_port}{_REDIRECT_PROBE_PATH}"
         tls_url = f"https://127.0.0.1:{_UNPRIVILEGED_TLS_PORT}{_REDIRECT_PROBE_PATH}"
+        # (config, content-listener URL, origin, plain URL that only redirects)
         shapes = [
-            (_config(), plain_url, f"http://{origin_host}:{plain_port}"),
+            (_config(), plain_url, f"http://{origin_host}:{plain_port}", None),
             (
                 _config(
                     tls={
@@ -530,13 +535,16 @@ def test_every_other_name_is_redirected_by_real_nginx() -> None:
                 ),
                 tls_url,
                 f"https://{origin_host}:{_UNPRIVILEGED_TLS_PORT}",
+                plain_url,
             ),
         ]
-        for config, url, origin in shapes:
+        for config, url, origin, redirect_only_url in shapes:
             nginx_conf = render_web_terminals(config)["nginx/nginx.conf"]
             assert f"server_name {origin_host};" in nginx_conf
             (conf_dir / "default.conf").write_text(nginx_conf)
             requests = [(origin_host, url), *((name, url) for name in _OTHER_NAMES)]
+            if redirect_only_url is not None:
+                requests += [(name, redirect_only_url) for name in (origin_host, *_OTHER_NAMES)]
 
             # Act
             result = _run_nginx_t(
@@ -553,6 +561,13 @@ def test_every_other_name_is_redirected_by_real_nginx() -> None:
             assert answers[(origin_host, url)].split(" ")[0] == "502", answers
             for name in _OTHER_NAMES:
                 assert answers[(name, url)] == f"301 {origin}{_REDIRECT_PROBE_PATH}", answers
+            # Under TLS the plain port sends every name, the origin's included,
+            # straight to the origin.
+            if redirect_only_url is not None:
+                for name in (origin_host, *_OTHER_NAMES):
+                    assert answers[(name, redirect_only_url)] == (
+                        f"301 {origin}{_REDIRECT_PROBE_PATH}"
+                    ), answers
 
 
 def test_cleartext_auth_render_passes_nginx_t() -> None:
