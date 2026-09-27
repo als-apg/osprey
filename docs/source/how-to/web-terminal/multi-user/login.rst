@@ -476,7 +476,7 @@ connection. Two shapes:
 
 **This nginx terminates TLS.** Set ``tls.enabled: true`` with a certificate
 and key; nginx serves HTTPS on 443 — or on ``tls.port`` when you set one — and
-redirects the plain port to it. ``host_cert_dir`` is the only key that names a
+redirects the plain port to the deployment's origin. ``host_cert_dir`` is the only key that names a
 path on the deploy host — it is bind-mounted, read-only, where ``cert`` and
 ``key`` (paths inside the container) sit, so both must be in that one directory
 and the path must be absolute. Leave ``host_cert_dir`` out to mount the
@@ -509,6 +509,13 @@ port stays out of the origin and the callback is
 request unless the browser says it came from that address, and nothing else
 in the configuration can work out what the thing in front answers on. Write
 it as a bare origin — scheme, host, port if non-default, no path.
+
+The deployment answers on that one origin, and every other name is redirected
+there. A front proxy must forward the browser's own ``Host`` (for nginx in
+front: ``proxy_set_header Host $host;``). A proxy that sends its upstream's name
+gets every request redirected back to itself. A tunnel opened on ``localhost``
+is redirected to the origin too; it could not act before either, because the
+terminals accept actions only from the origin.
 ``allow_insecure_http`` is not a way to postpone certificates on a reachable
 host; with nothing terminating TLS, anyone watching the traffic can become
 that user.

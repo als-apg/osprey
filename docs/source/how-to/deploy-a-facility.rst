@@ -115,8 +115,9 @@ section.
    * - One origin
      - Every terminal accepts a state-changing request only from the one
        origin the deployment was built for: ``external_origin``, or the one
-       derived from ``deploy.fqdn``. A browser on any other address loads the
-       pages, and every write it makes is refused.
+       derived from ``deploy.fqdn``. nginx answers only on that origin's host,
+       and a request under any other name is redirected (``301``) to the same
+       path there.
      - Publish one name and give every user that address.
        :ref:`multi-user-https` covers the setting and a TLS terminator in
        front.
