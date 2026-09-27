@@ -25,10 +25,12 @@ from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
     TERMINAL_SECRET_HEADER,
     TLS_LISTEN_PORT,
+    DeploymentOrigin,
     _auth_tls_context,
     _terminal_secret_artifacts,
     clear_nginx_templates_dir,
     deployment_external_origin,
+    deployment_origin,
     origin_host,
     render_web_terminals,
     terminal_secret_env_var,
@@ -932,6 +934,104 @@ def test_external_origin_with_a_non_default_tls_port_spells_that_port_out() -> N
     assert contexts["nginx.conf.j2"]["external_origin"] == origin
     assert contexts["docker-compose.web.yml.j2"]["external_origin"] == origin
     assert deployment_external_origin(_tls_config(port=_ALT_TLS_PORT)) == origin
+
+
+def _with_external_origin(config: dict, origin: str) -> dict:
+    """``config`` with ``modules.web_terminals.external_origin`` set to ``origin``."""
+    config = copy.deepcopy(config)
+    config["modules"]["web_terminals"]["external_origin"] = origin
+    return config
+
+
+def _with_fqdn(fqdn: str) -> dict:
+    """The multi-user config with ``deploy.fqdn`` set to ``fqdn``."""
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["deploy"]["fqdn"] = fqdn
+    return config
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_MULTI_USER_CONFIG, id="plain-http"),
+        pytest.param(_tls_config(), id="tls-443"),
+        pytest.param(_tls_config(port=_ALT_TLS_PORT), id="tls-alt-port"),
+        pytest.param(
+            _with_external_origin(_MULTI_USER_CONFIG, "https://terminals.example.org"),
+            id="configured",
+        ),
+    ],
+)
+def test_deployment_origin_carries_the_string_deployment_external_origin_returns(
+    config: dict,
+) -> None:
+    """The parts come from the one derivation, so their origin is that string exactly."""
+    # Act
+    origin = deployment_origin(config)
+
+    # Assert
+    assert origin.origin == deployment_external_origin(config)
+
+
+def test_deployment_origin_reads_scheme_and_host_off_a_configured_external_origin() -> None:
+    """A configured origin is split once; the string itself stays verbatim."""
+    # Arrange
+    config = _with_external_origin(_MULTI_USER_CONFIG, "https://Terminals.Example.org:8443")
+
+    # Act
+    origin = deployment_origin(config)
+
+    # Assert
+    assert origin == DeploymentOrigin(
+        origin="https://Terminals.Example.org:8443",
+        scheme="https",
+        host="terminals.example.org",
+    )
+
+
+def test_deployment_origin_derives_the_host_from_fqdn_when_no_origin_is_configured() -> None:
+    """Without ``external_origin``, the host is ``deploy.fqdn`` and TLS off means http."""
+    # Arrange
+    config = _with_fqdn("ops.example.org")
+
+    # Act
+    origin = deployment_origin(config)
+
+    # Assert
+    assert origin.scheme == "http"
+    assert origin.host == "ops.example.org"
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("127.0.0.1", True),
+        ("127.0.1.1", True),
+        ("localhost", True),
+        ("LOCALHOST", True),
+        ("0.0.0.0", False),
+        ("ops.example.org", False),
+        ("10.0.0.5", False),
+    ],
+)
+def test_deployment_origin_is_loopback(host: str, expected: bool) -> None:
+    """Loopback by spelling: loopback IP literals and ``localhost``, never a wildcard."""
+    # Act / Assert — the fqdn path
+    assert deployment_origin(_with_fqdn(host)).is_loopback is expected
+
+    # Act / Assert — a configured origin
+    configured = _with_external_origin(_with_fqdn("ops.example.org"), f"http://{host}:8080")
+    assert deployment_origin(configured).is_loopback is expected
+
+
+def test_deployment_origin_raises_on_a_blank_fqdn_with_no_configured_origin() -> None:
+    """No origin can be assembled without a host, and the parts say so the same way."""
+    # Arrange
+    config = _with_fqdn("   ")
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="deploy.fqdn is required"):
+        deployment_origin(config)
 
 
 def test_landing_url_baked_into_containers_carries_a_non_default_tls_port() -> None:
