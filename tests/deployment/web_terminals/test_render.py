@@ -4642,6 +4642,81 @@ def test_render_without_ariel_personas_emits_no_password_line() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phoebus server -> per-user PHOEBUS_REQUIRE_HANDLE stamp
+#
+# Every per-user container runs on host networking, so every terminal reaches
+# the one Phoebus product through the same loopback bridge, and the implicit
+# "active" display is whichever display another user focused last. A terminal
+# whose project runs a Phoebus server therefore refuses "active" and addresses
+# a handle or a named display. Not a credential: a switch the Phoebus MCP server
+# reads from the environment it inherits.
+# ---------------------------------------------------------------------------
+
+_PHOEBUS_HANDLE_LINE = "PHOEBUS_REQUIRE_HANDLE=1"
+
+
+def test_phoebus_persona_gets_the_require_handle_stamp() -> None:
+    """A user whose persona runs Phoebus refuses the implicit "active" display."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), phoebus_handle_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    assert _PHOEBUS_HANDLE_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_persona_without_phoebus_gets_no_require_handle_stamp() -> None:
+    """A persona that runs no Phoebus server carries no Phoebus switch."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), phoebus_handle_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any(line.startswith("PHOEBUS_REQUIRE_HANDLE") for line in bob_env)
+
+
+def test_personaless_roster_with_phoebus_is_stamped_from_the_deploy_config() -> None:
+    """A persona-less roster is answered from the deploy config, and an explicit
+    `phoebus.require_handle: false` there withholds the stamp for every user."""
+    # Arrange
+    config = _config(["alice", "bob"])
+    config["claude_code"] = {"servers": {"phoebus": {"enabled": True}}}
+    opted_out = copy.deepcopy(config)
+    opted_out["phoebus"] = {"require_handle": False}
+
+    # Act
+    stamped = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+    unstamped = yaml.safe_load(render_web_terminals(opted_out)["docker-compose.web.yml"])
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        assert _PHOEBUS_HANDLE_LINE in stamped["services"][service]["environment"]
+        env = unstamped["services"][service]["environment"]
+        assert not any(line.startswith("PHOEBUS_REQUIRE_HANDLE") for line in env)
+
+
+def test_render_without_phoebus_handle_personas_emits_no_stamp() -> None:
+    """The no-project-root render path passes no persona set and so emits no
+    stamp for persona entries, exactly as it does for every disk-derived grant."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        env = compose["services"][service]["environment"]
+        assert not any(line.startswith("PHOEBUS_REQUIRE_HANDLE") for line in env)
+
+
+# ---------------------------------------------------------------------------
 # Write entitlement -> per-user Bluesky launch token
 #
 # `BLUESKY_LAUNCH_TOKEN` is what lets the `bluesky` MCP server arm a queue start

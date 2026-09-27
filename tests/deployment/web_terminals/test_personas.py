@@ -20,6 +20,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_graphdb_password,
     config_needs_launch_token,
     config_needs_launch_token_for,
+    config_needs_phoebus_handles,
     effective_persona,
     entry_is_shared,
     env_var_suffix,
@@ -32,7 +33,9 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_dispatcher_token,
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
+    personas_needing_phoebus_handles,
     personas_not_denying_bash,
+    phoebus_server_runs,
     resolve_access_principals,
     resolve_authorization_roles,
     resolve_personas,
@@ -2137,6 +2140,92 @@ def test_personas_needing_ariel_password_skips_unrendered_persona_projects(tmp_p
 
     # Act / Assert
     assert personas_needing_ariel_password(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# Phoebus server -> per-user PHOEBUS_REQUIRE_HANDLE stamp
+#
+# Every terminal of a multi-user stack reaches the one Phoebus product, so a
+# project that runs any Phoebus server addresses displays by handle unless it
+# says `phoebus.require_handle: false`.
+# ---------------------------------------------------------------------------
+
+
+def _phoebus_servers(servers: Any) -> dict:
+    return {"claude_code": {"servers": servers}}
+
+
+def test_phoebus_server_runs_reads_the_override_tri_state() -> None:
+    """`claude_code.servers.phoebus.enabled` is an override over the registry default."""
+    # Assert
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {"enabled": True}})) is True
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {"enabled": False}})) is False
+    assert phoebus_server_runs({}) is FRAMEWORK_SERVERS["phoebus"].default_enabled
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {}})) is (
+        FRAMEWORK_SERVERS["phoebus"].default_enabled
+    )
+
+
+def test_phoebus_server_runs_counts_an_extends_clone() -> None:
+    """A declared `extends: phoebus` clone runs unless it says `enabled: false`."""
+    # Assert
+    assert phoebus_server_runs(_phoebus_servers({"phoebus2": {"extends": "phoebus"}})) is True
+    assert (
+        phoebus_server_runs(
+            _phoebus_servers({"phoebus2": {"extends": "phoebus", "enabled": False}})
+        )
+        is False
+    )
+    assert (
+        phoebus_server_runs(
+            _phoebus_servers({"phoebus": {"enabled": False}, "phoebus2": {"extends": "phoebus"}})
+        )
+        is True
+    )
+
+
+def test_config_needs_phoebus_handles_honours_an_explicit_false() -> None:
+    """Only an explicit `phoebus.require_handle: false` withholds the stamp."""
+    # Arrange
+    enabled = _phoebus_servers({"phoebus": {"enabled": True}})
+
+    # Assert
+    assert config_needs_phoebus_handles(enabled) is True
+    assert config_needs_phoebus_handles({**enabled, "phoebus": {"require_handle": True}}) is True
+    assert config_needs_phoebus_handles({**enabled, "phoebus": {"require_handle": False}}) is False
+    assert config_needs_phoebus_handles(_phoebus_servers({"phoebus": {"enabled": False}})) is False
+
+
+def test_personas_needing_phoebus_handles_selects_only_the_phoebus_persona(tmp_path) -> None:
+    """The stamp set is exactly the personas whose rendered project runs Phoebus."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path, "rw", _phoebus_servers({"phoebus": {"enabled": True}})
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path, "ro", {"web": {"panels": {"okf": {"enabled": True}}}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_phoebus_handles(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite"}
 
 
 # ---------------------------------------------------------------------------

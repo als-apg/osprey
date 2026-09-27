@@ -43,6 +43,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_facility_bundle,
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
+    personas_needing_phoebus_handles,
     personas_not_denying_bash,
     referenced_persona_project_dirs,
     rendered_persona_configs,
@@ -1061,6 +1062,8 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # inside the container by the entrypoint, off the mounted directory.
         "ariel_mirror_personas": personas_needing_ariel_mirror(config, root),
         "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
+        # A pure read of each persona's rendered config, like the grants above.
+        "phoebus_handle_personas": personas_needing_phoebus_handles(config, root),
         # The roster's operator secrets, read back off the deploy .env (see
         # _terminal_secrets for the None case and why it is not an open door).
         # Without this the render emits no per-user snippet at all, while

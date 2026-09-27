@@ -373,6 +373,54 @@ def bluesky_server_enabled(config: Any) -> bool:
     return FRAMEWORK_SERVERS["bluesky"].default_enabled
 
 
+def phoebus_server_runs(config: Any) -> bool:
+    """True if ``config`` starts a Phoebus MCP server.
+
+    The one answer to "does this project start a Phoebus MCP server", read
+    exactly the way :func:`osprey.registry.mcp.resolve_servers` reads
+    ``claude_code.servers``. The ``phoebus`` entry's ``enabled`` is an
+    override: a literal ``False`` switches the framework server off, a literal
+    ``True`` switches it on, and absence leaves the registry's own default,
+    taken from the registry rather than restated here for the reason
+    :func:`bluesky_server_enabled` gives.
+
+    Any other entry with ``extends: phoebus`` counts too, unless it says
+    ``enabled: false``: a declared clone is enabled, and every clone addresses a
+    bridge that all terminals share, the same as the framework server does. A
+    framework server name never counts as a clone, because the registry ignores
+    ``extends`` on one. A malformed entry is not a Phoebus server.
+    """
+    servers = as_dict(as_dict(as_dict(config).get("claude_code")).get("servers"))
+    for name, spec in servers.items():
+        if name in FRAMEWORK_SERVERS:
+            continue
+        entry = as_dict(spec)
+        if entry.get("extends") == "phoebus" and entry.get("enabled") is not False:
+            return True
+    value = as_dict(servers.get("phoebus")).get("enabled")
+    if value is False:
+        return False
+    if value is True:
+        return True
+    return FRAMEWORK_SERVERS["phoebus"].default_enabled
+
+
+def config_needs_phoebus_handles(config: Any) -> bool:
+    """True if ``config`` starts a Phoebus server and does not set ``phoebus.require_handle: false``.
+
+    The entitlement for the ``PHOEBUS_REQUIRE_HANDLE`` stamp on a multi-user
+    terminal. An explicit ``false`` is honoured by emitting nothing: the server
+    reads the same ``false`` from its own config, and a stamped ``1`` would
+    override it, because the environment variable wins in the Phoebus tools'
+    resolution. An explicit ``true`` is stamped anyway, which is harmless and
+    keeps the predicate to one rule.
+    """
+    return (
+        phoebus_server_runs(config)
+        and as_dict(as_dict(config).get("phoebus")).get("require_handle") is not False
+    )
+
+
 #: Each second lane's control target, inverted from the keys that name them. A
 #: lane is named for the target it serves, never for its index, so the key
 #: itself answers what a block that never wrote ``target:`` leaves open.
@@ -941,6 +989,18 @@ def personas_needing_ariel_mirror(config: Any, project_root: Any) -> set[str]:
         deployment's mirror bind-mounted (see :func:`config_needs_ariel_mirror`).
     """
     return _personas_whose_config(config, project_root, config_needs_ariel_mirror)
+
+
+def personas_needing_phoebus_handles(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project must address Phoebus displays by handle.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names whose container gets
+        ``PHOEBUS_REQUIRE_HANDLE=1`` (see :func:`config_needs_phoebus_handles`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_phoebus_handles)
 
 
 def personas_needing_launch_token_by_lane(config: Any, project_root: Any) -> dict[str, set[str]]:

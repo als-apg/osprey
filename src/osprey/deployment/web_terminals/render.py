@@ -47,6 +47,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_facility_bundle,
     config_needs_graphdb_password,
     config_needs_launch_token_for,
+    config_needs_phoebus_handles,
     effective_image_source,
     entry_is_shared,
     env_var_suffix,
@@ -747,6 +748,7 @@ def render_web_terminals(
     ariel_mirror_personas: set[str] | None = None,
     ariel_mirror_gid: int | None = None,
     archiver_password_personas: dict[str, str] | None = None,
+    phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -883,6 +885,13 @@ def render_web_terminals(
             fails with "Environment variable '…' is not set" while the same
             project works on the single-user host path, which reads the whole
             deploy ``.env``. ``None`` emits no line.
+        phoebus_handle_personas: Persona names whose project runs a Phoebus
+            MCP server and does not set ``phoebus.require_handle: false`` (see
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_phoebus_handles`).
+            Every terminal of this stack reaches the same Phoebus product over
+            host networking, so the implicit ``"active"`` display resolves
+            another user's focus. Resolved from disk and passed in for the
+            same reason as ``dispatcher_personas``. ``None`` emits no line.
         terminal_secrets: ``{username: operator secret}`` as provisioned into
             the deploy ``.env``, resolved from disk and passed in for the same
             reason ``auth_env_digest`` is. Supplying it adds one
@@ -1216,6 +1225,17 @@ def render_web_terminals(
                         else config_needs_ariel_mirror(root)
                     )
                     else None
+                ),
+                # Whether this user's container carries PHOEBUS_REQUIRE_HANDLE=1,
+                # which makes the Phoebus MCP server refuse the implicit
+                # "active" display. Persona-less entries are answered from this
+                # same config with no disk read, exactly as the grants above.
+                # Not a credential: a switch the Phoebus MCP server reads from
+                # the environment it inherits.
+                "phoebus_require_handle": (
+                    entry["persona"] in (phoebus_handle_personas or set())
+                    if entry.get("persona")
+                    else config_needs_phoebus_handles(root)
                 ),
             }
         )
