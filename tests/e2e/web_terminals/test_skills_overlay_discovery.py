@@ -71,7 +71,7 @@ import pytest
 
 from tests.e2e.sdk_helpers import is_claude_code_available
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 # Mirror the flag the web terminal appends unconditionally
 # (osprey.utils.claude_launcher._SETTING_SOURCES_ARGS).

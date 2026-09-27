@@ -71,7 +71,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
 from osprey.port_layout import default_port
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _ALICE = "alice"
 _PREFIX = f"/u/{_ALICE}"

@@ -52,7 +52,7 @@ import pytest
 from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _READY_TIMEOUT = 15.0
 _OFFHOST_CONNECT_TIMEOUT = 2.0
