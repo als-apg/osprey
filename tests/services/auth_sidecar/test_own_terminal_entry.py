@@ -408,3 +408,9 @@ def test_oidc_deployments_are_handed_to_the_oidc_entry() -> None:
 
     assert response.status_code == 302
     assert response.headers["location"] == entry.OIDC_ENTRY_PATH
+
+
+def test_the_oidc_entry_path_is_the_one_the_oidc_routes_serve() -> None:
+    from osprey.services.auth_sidecar.routes import oidc
+
+    assert entry.OIDC_ENTRY_PATH == oidc.ENTRY_PATH
