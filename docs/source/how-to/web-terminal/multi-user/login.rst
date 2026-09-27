@@ -235,8 +235,9 @@ A roster entry carries ``role:`` or ``persona:``, never both. The rules:
   (``ambiguous_role_claim``).
 - A role is resolved at login and travels inside the session — together with
   its origin, the roster entry or the provider's claim — so a change at the
-  provider or in the roster reaches the *next* login. To withdraw a role now,
-  end the session: ``osprey users decommission <name>``.
+  provider or in the roster reaches the *next* login. Short of the next login,
+  the one way to end a role now is to end the person's access:
+  ``osprey users remove <name>``.
 
 Every login and refusal is recorded in ``var/audit/sidecar/auth_sidecar.jsonl``
 on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
@@ -393,15 +394,16 @@ field on its login form:
 the person types their *own* roster name beside the password, and it is that
 name's stored password that is checked — and that name the rate limit counts
 against. A card that never had a password of its own has no credential to
-offer here; one flipped from ``own`` still does, until you decommission it —
+offer here; one flipped from ``own`` still does, until its hash is retired —
 see :ref:`Removing someone <multi-user-shared-card-removal>` below.
 
 A session opened by someone the roster names carries who opened it — the
 *opener* — and re-checks that person against the roster on every request.
-Rotating the opener's password or decommissioning them ends every shared
-session they opened at the next request, and under ``oidc`` so does editing
-or removing their ``oidc_subject:`` — that per-person revocation is how a
-shared card is taken away from one user without touching the rest.
+Rotating the opener's password or removing them with ``osprey users remove``
+ends every shared session they opened at the next request, and under ``oidc``
+so does editing or removing their ``oidc_subject:`` — that per-person
+revocation is how a shared card is taken away from one user without touching
+the rest.
 
 A session admitted by a ``user:`` or ``domain:`` principal has no roster
 entry behind it. It carries the identity the provider asserted, and every
@@ -557,8 +559,8 @@ demo logins are one example) is refused by ``osprey up`` once browsers reach
 the deployment anywhere but this machine: ``external_origin``, or
 ``deploy.fqdn`` when that is unset, names a host other than ``127.0.0.1`` or
 ``localhost``. Run ``osprey users passwd <user>`` for each login it
-names, or ``osprey users decommission <card>`` for a shared card. HTTPS does
-not lift the refusal.
+names; for a shared card, delete its ``OSPREY_AUTH_PW_HASH_<CARD>`` line from
+``.env.auth`` and run ``osprey up``. HTTPS does not lift the refusal.
 
 To change one later, ``osprey users passwd alice`` prompts, rewrites that hash
 and ends alice's sessions — her own card's, and every
@@ -576,25 +578,29 @@ A credential can outlive an account, so:
 
 - **Use** ``osprey users remove alice``, not a hand-edit of the roster —
   removing the entry alone leaves her hash in ``.env.auth``, and adding the
-  name back months later revives her password. ``decommission`` (or
-  ``prune``, for names already edited out) retires the credential and, under
-  OIDC, ends the session.
+  name back months later revives her password. ``remove`` (or ``prune``, for
+  names already edited out) retires the credential and ends the person's
+  login-page session.
 - **A shared card is revoked per person, through their own credential.**
   ``osprey users passwd alice`` ends every shared-card session alice opened
   along with her own (see above); under ``oidc``, editing or removing her
   ``oidc_subject:`` ends her shared-card sessions at the next request — her
   *own* card's session is different, lapsing at expiry or logout as it always
-  has, unless ``osprey users decommission alice`` ends it now.
+  has, unless ``osprey users remove alice`` ends it now.
 
 - **Sharing a card does not retire the card's own password** — the hash stays
   in ``.env.auth`` and still works: anyone who knows it can open the shared
-  card by typing the card's own name into the username field. Run
-  ``osprey users decommission <card>`` when you share a card that used to
-  have its own password; returning the card to ``own`` revives an unretired
-  hash. ``osprey users passwd <card>`` is refused while the card is shared —
+  card by typing the card's own name into the username field. When you share
+  a card that used to have its own password, delete its
+  ``OSPREY_AUTH_PW_HASH_<CARD>`` line from ``.env.auth`` and run
+  ``osprey up``; returning the card to ``own`` later mints it a fresh
+  password. A hash left in place is revived by that return. ``<CARD>`` is the
+  name uppercased with ``-`` turned into ``_``.
+  ``osprey users passwd <card>`` is refused while the card is shared —
   there is no password of its own to change.
-- **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives
-  decommission** and would be hashed straight back in for the next alice.
+- **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives**
+  ``osprey users remove`` and would be hashed straight back in for the next
+  alice.
   Delete the line by hand when the person leaves.
 - **Logging out ends a terminal session** on the server: the cookie it was
   carrying is refused from that moment on. The login page's cookie is refused
@@ -606,7 +612,7 @@ A credential can outlive an account, so:
 - **Terminal sessions are kept on disk** — behind ``auth.method: token`` and
   ``osprey web``, not behind the login page here — so there they outlive a
   restart of the web terminals and a change of the operator secret. A
-  password change or a decommission ends the login-page session, not those.
+  password change or a removal ends the login-page session, not those.
 - **A shortened** ``auth.session_lifetime`` **reaches sessions already
   running** at the next restart of the web terminals, when their deadlines
   are clamped to the new value.
