@@ -113,6 +113,49 @@ def _content_max_length(telemetry_cfg: dict) -> str | None:
     return str(value)
 
 
+#: Each signal ``claude_code.telemetry.signals`` may name -> the variable that
+#: selects its exporter. Ordered as the refusal message lists them.
+_SIGNAL_EXPORTERS: dict[str, str] = {
+    "metrics": "OTEL_METRICS_EXPORTER",
+    "logs": "OTEL_LOGS_EXPORTER",
+    "traces": "OTEL_TRACES_EXPORTER",
+}
+
+
+def _exported_signals(telemetry_cfg: dict) -> frozenset[str]:
+    """The signals the agent exports, from ``claude_code.telemetry.signals``.
+
+    Absent (or ``None``) means every signal. Otherwise the value is a non-empty
+    list drawn from ``metrics``, ``logs`` and ``traces``; a repeated member
+    counts once. An empty list is refused rather than read as "export nothing",
+    because ``enabled: false`` already says that and says it for the whole
+    block.
+
+    Raises:
+        TelemetryConfigError: When the value is not a list, is empty, or names
+            anything other than the three signals.
+    """
+    raw = telemetry_cfg.get("signals")
+    if raw is None:
+        return frozenset(_SIGNAL_EXPORTERS)
+    allowed = ", ".join(_SIGNAL_EXPORTERS)
+    if not isinstance(raw, list):
+        raise TelemetryConfigError(
+            f"claude_code.telemetry.signals must be a list drawn from {allowed}, got {raw!r}"
+        )
+    if not raw:
+        raise TelemetryConfigError(
+            "claude_code.telemetry.signals is empty; set claude_code.telemetry.enabled: "
+            "false to export nothing"
+        )
+    unknown = sorted({str(member) for member in raw} - set(_SIGNAL_EXPORTERS))
+    if unknown:
+        raise TelemetryConfigError(
+            f"claude_code.telemetry.signals names {', '.join(unknown)}; the signals are {allowed}"
+        )
+    return frozenset(raw)
+
+
 class TelemetryConfigError(ValueError):
     """A ``claude_code.telemetry`` block is enabled but misconfigured.
 
@@ -598,7 +641,9 @@ def _build_telemetry_env(
         TelemetryConfigError: On an unresolvable endpoint, ``protocol: grpc``
             against an auto-derived (HTTP-only) OpenObserve endpoint, or a
             leaked ``${VAR}`` in the endpoint, or a ``content_max_length``
-            that is not a positive integer.
+            that is not a positive integer, or a ``signals`` value that is
+            empty, not a list, or names anything but ``metrics``, ``logs`` and
+            ``traces``.
         ObservabilityCredentialError: On an ``openobserve`` backend whose
             credentials are missing, blank, or an unresolved ``${VAR}``.
     """
@@ -607,12 +652,18 @@ def _build_telemetry_env(
 
     # The exporter appends ``/v1/<signal>`` to the base endpoint, so one
     # endpoint serves logs, metrics and traces.
+    signals = _exported_signals(telemetry_cfg)
     env: dict[str, str] = {
         "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-        "OTEL_METRICS_EXPORTER": "otlp",
-        "OTEL_LOGS_EXPORTER": "otlp",
-        "OTEL_TRACES_EXPORTER": "otlp",
+        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1" if "traces" in signals else "0",
+        # A signal left out is written as ``none``, never omitted: an omitted
+        # exporter keeps whatever the launching shell or the project's ``.env``
+        # holds, because the block is overlaid key by key. The tracing switch is
+        # written either way for the same reason.
+        **{
+            exporter: "otlp" if signal in signals else "none"
+            for signal, exporter in _SIGNAL_EXPORTERS.items()
+        },
         "OTEL_EXPORTER_OTLP_PROTOCOL": str(telemetry_cfg.get("protocol", "http/protobuf")),
         "OTEL_EXPORTER_OTLP_ENDPOINT": _resolve_telemetry_endpoint(
             telemetry_cfg,

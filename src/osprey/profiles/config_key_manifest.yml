@@ -1747,8 +1747,9 @@ keys:
     covered-by: claude_code.telemetry
     default: required
     default_note: >-
-      true or false. true emits the agent's OTLP logs and metrics to the
-      backend named below; false emits none and the rest of the block is inert.
+      true or false. true exports the agent's OTLP metrics, logs and traces
+      (the ones claude_code.telemetry.signals names) to the backend named
+      below; false exports none and the rest of the block is inert.
   claude_code.telemetry.backend:
     evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
     default: null
@@ -1757,6 +1758,16 @@ keys:
   claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve, default: default}
+  claude_code.telemetry.signals:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("signals"\)'
+    note: >-
+      Which of metrics, logs and traces the agent exports. A signal left out
+      is exported as `none`, so no inherited setting turns it back on. Empty
+      or an unknown name is refused at build; `enabled: false` exports
+      nothing. Documented as a commented example in the control-assistant
+      preset.
+    default: [metrics, logs, traces]
   # Every preset that ships the bundled store opens its gate block "Content gates, all on",
   # so the capture posture is one claim about one store.
   claude_code.telemetry.log_user_prompts: {same-value: true, evidence: 'log_user_prompts', default: true}

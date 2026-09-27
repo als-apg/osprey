@@ -746,6 +746,9 @@ config:
   # http/protobuf | grpc. grpc needs an explicit `claude_code.telemetry.endpoint`
   # and is refused against the auto-derived openobserve endpoint (HTTP only).
   claude_code.telemetry.protocol: http/protobuf
+  # Signals to export, all three unless listed. Drop traces for a collector
+  # that takes no traces; built-in tool output rides traces and goes with them.
+  # claude_code.telemetry.signals: [metrics, logs]
   # No endpoint key: with backend openobserve it is derived per network
   # context (the host's OpenObserve slot, or the store's own listen port
   # inside the deploy network), so the in-container dispatch worker does not

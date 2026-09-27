@@ -1034,3 +1034,138 @@ class TestTelemetryPortIsATelemetryInput:
 
         with pytest.raises(TelemetryConfigError, match="services.openobserve.port"):
             load_provider_spec(tmp_path, include_telemetry=True)
+
+
+# ── claude_code.telemetry.signals ─────────────────────────────────
+
+_EXPORTERS = {
+    "metrics": "OTEL_METRICS_EXPORTER",
+    "logs": "OTEL_LOGS_EXPORTER",
+    "traces": "OTEL_TRACES_EXPORTER",
+}
+_SIGNAL_KEYS = {*_EXPORTERS.values(), "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"}
+
+
+def _signals_cfg(signals) -> dict:
+    """An enabled openobserve block with inline credentials and ``signals``."""
+    return {
+        "enabled": True,
+        "backend": "openobserve",
+        "openobserve": {"user": "u", "password": "p"},
+        "signals": signals,
+    }
+
+
+def _signals_env(signals) -> dict[str, str]:
+    return _build_telemetry_env(_signals_cfg(signals), in_container=False)
+
+
+def test_absent_signals_export_all_three():
+    """Unset, ``None`` and the full list give the same block: every signal on."""
+    absent = _build_telemetry_env(
+        {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u", "password": "p"}},
+        in_container=False,
+    )
+    assert _signals_env(None) == absent
+    assert _signals_env(["metrics", "logs", "traces"]) == absent
+    for exporter in _EXPORTERS.values():
+        assert absent[exporter] == "otlp"
+    assert absent["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+
+
+@pytest.mark.parametrize(
+    "signals",
+    [["metrics", "logs"], ["traces"], ["logs"], ["metrics", "traces"]],
+)
+def test_a_signal_left_out_is_exported_as_none(signals):
+    """Each exporter is ``otlp`` when listed and ``none`` otherwise, never missing."""
+    env = _signals_env(signals)
+    for signal, exporter in _EXPORTERS.items():
+        assert env[exporter] == ("otlp" if signal in signals else "none"), exporter
+    expected_switch = "1" if "traces" in signals else "0"
+    assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == expected_switch
+
+
+def test_signals_change_nothing_but_the_exporters():
+    """Endpoint, headers, protocol and content gates do not follow ``signals``."""
+    default = _signals_env(None)
+    narrowed = _signals_env(["metrics"])
+    assert set(narrowed) == set(default)
+    for key in set(default) - _SIGNAL_KEYS:
+        assert narrowed[key] == default[key], key
+
+
+def test_a_repeated_signal_counts_once():
+    assert _signals_env(["logs", "logs"]) == _signals_env(["logs"])
+
+
+@pytest.mark.parametrize(
+    ("signals", "named"),
+    [
+        (["metrics", "spans"], "spans"),
+        (["Traces"], "Traces"),
+        ("metrics", "must be a list"),
+        ({"metrics": True}, "must be a list"),
+    ],
+)
+def test_signals_outside_the_three_are_refused(signals, named):
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.signals") as exc:
+        _signals_env(signals)
+    assert named in str(exc.value)
+
+
+def test_empty_signals_are_refused_toward_enabled_false():
+    with pytest.raises(TelemetryConfigError, match="enabled: false"):
+        _signals_env([])
+
+
+def test_signals_are_inert_while_telemetry_is_off():
+    """A disabled block is not validated, as with every other key in it."""
+    assert _build_telemetry_env({"enabled": False, "signals": []}) == {}
+
+
+def test_build_refuses_empty_signals(tmp_path, monkeypatch):
+    """The build's own spec load stops on an empty list."""
+    import yaml
+
+    from osprey.build.claude_code_resolver import load_provider_spec
+
+    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump(
+            {"claude_code": {"provider": "anthropic", "telemetry": {**_OO_CFG, "signals": []}}}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.signals is empty"):
+        load_provider_spec(
+            tmp_path, defer_unresolved_telemetry_creds=True, defer_unresolved_base_url=True
+        )
+
+
+def _resolve_with_signals(monkeypatch, signals) -> ClaudeCodeModelSpec:
+    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+    spec = ClaudeCodeModelResolver.resolve(
+        {"provider": "anthropic", "telemetry": _signals_cfg(signals)}
+    )
+    assert spec is not None
+    return spec
+
+
+def test_a_left_out_signal_overrides_a_shell_export(monkeypatch):
+    """A stale shell export of a left-out signal is overwritten at launch."""
+    spec = _resolve_with_signals(monkeypatch, ["metrics", "logs"])
+    environ = {"OTEL_TRACES_EXPORTER": "otlp", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1"}
+    resolver.inject_provider_env(environ, spec)
+    assert environ["OTEL_TRACES_EXPORTER"] == "none"
+    assert environ["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "0"
+    assert spec.detect_env_conflicts({"OTEL_TRACES_EXPORTER": "otlp"}) == {}
+
+
+def test_a_left_out_signal_overrides_the_project_env_file(tmp_path, monkeypatch):
+    """A ``.env`` line for a left-out signal is overwritten at launch."""
+    spec = _resolve_with_signals(monkeypatch, ["metrics", "logs"])
+    (tmp_path / ".env").write_text("OTEL_TRACES_EXPORTER=otlp\n", encoding="utf-8")
+    environ: dict[str, str] = {}
+    resolver.inject_provider_env(environ, spec, project_dir=tmp_path)
+    assert environ["OTEL_TRACES_EXPORTER"] == "none"
