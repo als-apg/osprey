@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.bluesky_bridge_connection import LANE_KEYS
+from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.channel_roster import RosterAbsenceReason, RosterResult, registered_channels
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
@@ -1520,7 +1520,9 @@ def _inject_project_metadata(config):
     the tag ``osprey up`` builds from the project ``Dockerfile`` — unless the
     profile pinned an explicit ``services.dispatch_worker.image``. The
     event-dispatcher's own image is left to its template (it builds its tag via
-    a compose ``build:`` block; the worker deliberately has none).
+    a compose ``build:`` block; the worker deliberately has none). It also injects
+    the lane registry's second-lane keys (``bluesky_second_lane_keys``), so every
+    template iterates the registered plan lanes rather than its own list.
 
     :param config: Configuration dictionary
     :type config: dict
@@ -1808,6 +1810,12 @@ def _inject_project_metadata(config):
     # so a project that sets ``deployment.port_base`` gets a compose file whose
     # published ports actually match it.
     config_with_labels["osprey_ports"] = layout_ports(resolve_port_base(config))
+
+    # Every target-named plan lane a deployment can render, in render order,
+    # taken from the lane registry so a template spells no lane key. Injected
+    # unconditionally, like every derived key here; each template gates each key
+    # on ``deployed_services``.
+    config_with_labels["bluesky_second_lane_keys"] = list(SECOND_LANE_KEYS.values())
 
     # What each OSPREY-built service falls back to when nothing named its image,
     # with the registry and tag axes already applied
