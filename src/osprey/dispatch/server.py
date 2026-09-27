@@ -28,6 +28,7 @@ from fastmcp.server.auth import AccessToken, TokenVerifier
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
+from osprey.dispatch.clock_schedule import next_fire
 from osprey.dispatch.dashboard import render_dashboard_html
 from osprey.dispatch.mcp_tools import register_tools
 from osprey.dispatch.pool import DispatchPool, QueueFullError
@@ -743,8 +744,9 @@ def create_server() -> FastMCP:
     async def dashboard_state(request: Request) -> JSONResponse:
         """Unified aggregation endpoint.
 
-        Returns {pool, triggers, runs, timeline, server_time_iso} in one shot so
-        the dashboard can render a consistent snapshot with a single poll.
+        Returns {pool, triggers, runs, timeline, server_time_iso, facility_timezone}
+        in one shot so the dashboard can render a consistent snapshot with a
+        single poll.
 
         Query params:
             timeline_hours (float, default 24): how far back to include timeline events.
@@ -758,10 +760,20 @@ def create_server() -> FastMCP:
             timeline_hours = 24.0
         since_seconds = max(0.0, timeline_hours) * 3600.0
 
-        # Triggers (enrich with config detail)
+        from osprey.utils.config import get_facility_timezone
+
+        zone = get_facility_timezone()
+
+        # Triggers (enrich with config detail). A clock schedule carries no
+        # state and a missed slot is never made up, so the next slot after now
+        # is exactly the one the source is waiting for.
         triggers = await registry.list_triggers()
+        now = datetime.now(tz=UTC)
         for t in triggers:
             cfg = registry._triggers.get(t["name"])
+            t["next_fire"] = None
+            if cfg and cfg.schedule is not None:
+                t["next_fire"] = next_fire(cfg.schedule, now, zone).isoformat()
             if cfg:
                 t["on_error"] = cfg.on_error.get("action", "drop")
                 t["allowed_tools"] = cfg.action.get("allowed_tools", [])
@@ -832,6 +844,7 @@ def create_server() -> FastMCP:
                 "timeline": timeline,
                 "worker_error": worker_error,
                 "server_time_iso": datetime.now(tz=UTC).isoformat(),
+                "facility_timezone": zone.key,
             }
         )
 

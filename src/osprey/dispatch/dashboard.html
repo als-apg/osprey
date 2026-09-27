@@ -835,7 +835,7 @@ a.btn {
    State
    ============================================================ */
 
-let state = { pool: { running: 0, queued: 0, max: 0 }, triggers: [], runs: [], timeline: {}, server_time_iso: null };
+let state = { pool: { running: 0, queued: 0, max: 0 }, triggers: [], runs: [], timeline: {}, server_time_iso: null, facility_timezone: null };
 let filters = { lane: '', status: '', search: '', timelineHours: 24 };
 
 /* The whole routing model: which of the four screens is showing, and what it
@@ -969,6 +969,28 @@ function formatInterval(sec) {
   if (sec < 60) return 'every ' + Math.round(sec) + 's';
   if (sec < 3600) return 'every ' + Math.round(sec / 60) + ' min';
   return 'every ' + Math.round(sec / 3600) + ' hr';
+}
+/* The design-system facility-time module is an ES module and this is a classic
+   inline script, so it arrives through a dynamic import(). Until it settles a
+   next fire renders as '' and its label is left out; the settle re-renders. */
+let facilityTime = null;
+import('/design-system/js/facility-time.js')
+  .then((mod) => {
+    facilityTime = mod;
+    if (document.readyState !== 'loading') render();
+  })
+  .catch((e) => { console.warn('Facility time formatter unavailable:', e); });
+/** A clock trigger's next fire, shown in the facility zone its schedule is written in. */
+function formatNextFire(iso) {
+  if (!facilityTime) return '';
+  return facilityTime.formatFacilityTime(iso, {
+    weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short',
+  });
+}
+/** Stamp the zone the state names on <html>, where the facility-time module reads it. */
+function stampFacilityTimezone(zone) {
+  if (zone) document.documentElement.setAttribute('data-facility-timezone', zone);
+  else document.documentElement.removeAttribute('data-facility-timezone');
 }
 function parseIsoTs(ts) {
   if (!ts) return null;
@@ -1111,6 +1133,7 @@ async function fetchState() {
   try {
     const data = await apiGet(`/dashboard/state?timeline_hours=${filters.timelineHours}`);
     state = data;
+    stampFacilityTimezone(state.facility_timezone);
     if (authBlocked) { authBlocked = false; setPollInterval(POLL_OK_MS); }
     lastWorkerError = data.worker_error || null;
     render();
@@ -1500,6 +1523,10 @@ function describeSource(t) {
     const pv = cfg.pv ? String(cfg.pv).replace(new RegExp('^' + stripPrefix, 'i'), '') : '';
     return `${pv} ${sym}${cfg.threshold ?? '?'}`;
   }
+  if (t.source === 'cron' && Array.isArray(cfg.at)) {
+    const days = Array.isArray(cfg.days) ? cfg.days.join(' ') : 'daily';
+    return cfg.at.join(', ') + ' · ' + days;
+  }
   if (t.source === 'cron') return formatInterval(cfg.interval_sec);
   return t.source || '';
 }
@@ -1545,12 +1572,12 @@ function renderTriggerList() {
     main.appendChild(nameRow);
 
     const lastFired = t.last_fired ? parseIsoTs(t.last_fired) : null;
-    main.appendChild(el('div', {
-      className: 'trigger-sub',
-      textContent: disabled
-        ? 'Disabled'
-        : lastFired ? 'Fired ' + formatAge((Date.now() - lastFired) / 1000) : 'Never fired',
-    }));
+    let sub = disabled
+      ? 'Disabled'
+      : lastFired ? 'Fired ' + formatAge((Date.now() - lastFired) / 1000) : 'Never fired';
+    const nextFire = disabled ? '' : formatNextFire(t.next_fire);
+    if (nextFire) sub += ' · next ' + nextFire;
+    main.appendChild(el('div', { className: 'trigger-sub', textContent: sub }));
     row.appendChild(main);
 
     row.appendChild(el('button', {
@@ -1589,6 +1616,8 @@ function renderTriggerDetail() {
     grid.appendChild(el('div', { className: 'field-value' + (mono ? ' mono' : ''), textContent: value }));
   };
   field('Source', describeSource(t) || t.source || '—', true);
+  const nextFire = disabled ? '' : formatNextFire(t.next_fire);
+  if (nextFire) field('Next fire', nextFire);
 
   grid.appendChild(el('div', { className: 'field-label', textContent: 'Status' }));
   const statusCell = el('div', { className: 'field-value' }, [
