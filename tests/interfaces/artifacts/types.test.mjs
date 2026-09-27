@@ -19,6 +19,7 @@
 import { test, expect, vi, describe, afterEach } from 'vitest';
 
 import {
+  artifactPath,
   getTypeRegistry,
   initTypeRegistry,
   typeBadge,
@@ -433,6 +434,47 @@ describe('isNewThisSession', () => {
 
   test('the shipped example is never new, even though it is written at gallery start', () => {
     expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z', origin: 'demo' }, '2026-07-03T12:00:00Z')).toBe(false);
+  });
+});
+
+/**
+ * Stamp the gallery page's artifact-directory meta for the duration of `fn`.
+ * @param {string} content
+ * @param {() => void} fn
+ */
+function withArtifactDirMeta(content, fn) {
+  const meta = document.createElement('meta');
+  meta.setAttribute('name', 'osprey-artifact-dir');
+  meta.setAttribute('content', content);
+  document.head.appendChild(meta);
+  try {
+    fn();
+  } finally {
+    meta.remove(); // this file's document is shared across tests
+  }
+}
+
+describe('artifactPath', () => {
+  test("without the meta, the default layout's directory", () => {
+    expect(artifactPath({ filename: 'beam.png' })).toBe('var/agent_data/artifacts/beam.png');
+  });
+
+  test('a repo-relative stamp is used verbatim', () => {
+    withArtifactDirMeta('state/agent/artifacts', () => {
+      expect(artifactPath({ filename: 'beam.png' })).toBe('state/agent/artifacts/beam.png');
+    });
+  });
+
+  test('an absolute stamp is used verbatim', () => {
+    withArtifactDirMeta('/data/osprey/artifacts', () => {
+      expect(artifactPath({ filename: 'beam.png' })).toBe('/data/osprey/artifacts/beam.png');
+    });
+  });
+
+  test('an empty stamp falls back to the default', () => {
+    withArtifactDirMeta('', () => {
+      expect(artifactPath({ filename: 'beam.png' })).toBe('var/agent_data/artifacts/beam.png');
+    });
   });
 });
 

@@ -295,19 +295,29 @@ describe('renderPreview: delete flow', () => {
 });
 
 describe('renderPreview: copy path', () => {
-  test('copies the agent-data path and toggles a "copied" class', async () => {
+  test('copies the store\'s artifact path and toggles a "copied" class', async () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'osprey-artifact-dir');
+    meta.setAttribute('content', 'state/agent/artifacts');
+    document.head.appendChild(meta);
     vi.useFakeTimers();
-    setSelectedArtifact(makeArtifact());
-    createPreviewRenderer(makeCallbacks()).renderPreview();
+    try {
+      setSelectedArtifact(makeArtifact());
+      createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    const btn = byId('preview-copy-path');
-    btn.click();
-    await vi.waitFor(() => expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('var/agent_data/artifacts/beam_profile.png'));
+      expect(qs(document, '.preview-path-text').textContent).toBe('state/agent/artifacts/beam_profile.png');
 
-    expect(btn.classList.contains('copied')).toBe(true);
-    vi.advanceTimersByTime(1500);
-    expect(btn.classList.contains('copied')).toBe(false);
-    vi.useRealTimers();
+      const btn = byId('preview-copy-path');
+      btn.click();
+      await vi.waitFor(() => expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('state/agent/artifacts/beam_profile.png'));
+
+      expect(btn.classList.contains('copied')).toBe(true);
+      vi.advanceTimersByTime(1500);
+      expect(btn.classList.contains('copied')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      meta.remove(); // this file's document is shared across tests
+    }
   });
 });
 

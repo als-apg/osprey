@@ -308,20 +308,33 @@ export function withTheme(url, theme) {
 }
 
 /**
- * Where a deployment keeps its artifacts on disk, relative to the repo root:
- * the artifacts subtree of the default agent-data root (`agent_data.base_dir`).
+ * The shipped default layout's artifact directory, used only when the page
+ * carries no `osprey-artifact-dir` meta.
  */
-const ARTIFACTS_DIR = "var/agent_data/artifacts";
+const DEFAULT_ARTIFACTS_DIR = "var/agent_data/artifacts";
 
 /**
- * Repo-relative path of an artifact's file — the spelling handed to the agent
+ * The directory the server stamped into index.html as the
+ * `osprey-artifact-dir` meta: where the store writes artifacts, repo-relative
+ * or absolute. Read per call so this module stays stateless.
+ * @returns {string}
+ */
+function artifactsDir() {
+  return (
+    document.querySelector('meta[name="osprey-artifact-dir"]')?.getAttribute("content") ||
+    DEFAULT_ARTIFACTS_DIR
+  );
+}
+
+/**
+ * The store's path of an artifact's file — the spelling handed to the agent
  * (drag-to-terminal), shown in the preview header, and copied to the clipboard.
  * One definition so those three never drift apart.
  * @param {{filename: string}} a
  * @returns {string}
  */
 export function artifactPath(a) {
-  return `${ARTIFACTS_DIR}/${a.filename}`;
+  return `${artifactsDir()}/${a.filename}`;
 }
 
 /**

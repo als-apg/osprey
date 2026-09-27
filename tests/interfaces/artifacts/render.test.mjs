@@ -264,16 +264,24 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const item = qs(document, '.tree-item[data-id="1"]');
     expect(item.draggable).toBe(true);
 
-    const dataTransfer = { setData: vi.fn(), effectAllowed: '' };
-    const dragEvent = /** @type {Event & { dataTransfer: typeof dataTransfer }} */ (new Event('dragstart', { bubbles: true }));
-    dragEvent.dataTransfer = dataTransfer;
-    item.dispatchEvent(dragEvent);
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'osprey-artifact-dir');
+    meta.setAttribute('content', 'state/agent/artifacts');
+    document.head.appendChild(meta);
+    try {
+      const dataTransfer = { setData: vi.fn(), effectAllowed: '' };
+      const dragEvent = /** @type {Event & { dataTransfer: typeof dataTransfer }} */ (new Event('dragstart', { bubbles: true }));
+      dragEvent.dataTransfer = dataTransfer;
+      item.dispatchEvent(dragEvent);
 
-    expect(dataTransfer.setData).toHaveBeenCalledWith(
-      'text/plain',
-      'Please have a look at var/agent_data/artifacts/beam_profile.png'
-    );
-    expect(dataTransfer.effectAllowed).toBe('copy');
+      expect(dataTransfer.setData).toHaveBeenCalledWith(
+        'text/plain',
+        'Please have a look at state/agent/artifacts/beam_profile.png'
+      );
+      expect(dataTransfer.effectAllowed).toBe('copy');
+    } finally {
+      meta.remove(); // this file's document is shared across tests
+    }
   });
 
   test('clicking a tree-section header collapses/expands its section without triggering item selection', () => {
