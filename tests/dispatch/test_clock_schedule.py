@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from osprey.dispatch.clock_schedule import parse_clock_schedule
+from osprey.dispatch.clock_schedule import next_fire, parse_clock_schedule, previous_fire
 
 
 def test_times_and_days_parse_into_a_schedule():
@@ -55,3 +56,42 @@ def test_an_unreadable_schedule_is_refused(source_config, fragment):
     message = str(excinfo.value)
     assert "morning-report" in message
     assert fragment in message
+
+
+# ---------------------------------------------------------------------------
+# Slot instants
+# ---------------------------------------------------------------------------
+
+_LA = ZoneInfo("America/Los_Angeles")
+
+
+def test_next_fire_is_strictly_after_the_given_instant():
+    schedule = parse_clock_schedule("t", {"at": ["07:45", "17:00"]})
+    assert schedule is not None
+    on_slot = datetime(2026, 9, 28, 7, 45, tzinfo=_LA)
+
+    assert next_fire(schedule, on_slot, _LA) == datetime(2026, 9, 28, 17, 0, tzinfo=_LA)
+
+
+def test_two_times_inside_one_gap_fire_once():
+    schedule = parse_clock_schedule("t", {"at": ["02:15", "02:45", "03:00"]})
+    assert schedule is not None
+    day_before = datetime(2027, 3, 13, 12, 0, tzinfo=_LA)
+
+    first = next_fire(schedule, day_before, _LA)
+    assert first == datetime(2027, 3, 14, 10, 0, tzinfo=UTC)
+    assert first.tzinfo is UTC
+    assert next_fire(schedule, first, _LA) == datetime(2027, 3, 15, 9, 15, tzinfo=UTC)
+
+
+def test_previous_fire_is_the_last_slot_at_or_before_an_instant():
+    schedule = parse_clock_schedule("t", {"at": ["07:45"], "days": ["mon", "fri"]})
+    assert schedule is not None
+    wednesday = datetime(2026, 9, 30, 12, 0, tzinfo=_LA)
+    monday_slot = datetime(2026, 9, 28, 7, 45, tzinfo=_LA)
+
+    assert previous_fire(schedule, wednesday, _LA) == monday_slot
+    assert previous_fire(schedule, monday_slot, _LA) == monday_slot
+    assert previous_fire(schedule, monday_slot - timedelta(seconds=1), _LA) == datetime(
+        2026, 9, 25, 7, 45, tzinfo=_LA
+    )
