@@ -102,6 +102,32 @@ deployment, which is why none of them is a config key.
 managed or a hand-run ``docker build``. What they configure is the build — a
 container that is already running reads nothing from them.
 
+Virtual accelerator source
+==========================
+
+Three variables in the deployment's ``.env`` decide what the virtual
+accelerator container runs and serves.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``VA_ENTRYPOINT_MODULE``
+     - The Python module the container runs. Operator-set. Empty or unset runs
+       ``osprey.services.virtual_accelerator.entrypoint``. It must be
+       importable inside the image; see :ref:`va-serving-your-own-model`.
+   * - ``VA_CHANNELS_FILE``
+     - The generated channel manifest's file name, which ``osprey build``
+       writes. Required by the container, which refuses to boot without it.
+   * - ``VA_LATTICE``
+     - The served tree's lattice file name, or ``none``, which
+       ``osprey build`` writes.
+
+How the build writes the last two --- append-only, with a value already on
+file winning --- is in :doc:`/how-to/deploy-project/env-chain`.
+
 The Phoebus server's overrides
 ==============================
 

@@ -115,6 +115,12 @@ against its data mount), and ``VA_LATTICE``, which states the lattice that
 manifest is backed by rather than letting the entrypoint default it away —
 under a "Derived by build" heading.
 
+A third variable, ``VA_ENTRYPOINT_MODULE``, reaches the same container through
+the same passthrough and is the operator's to set: it names the Python module
+the virtual accelerator runs, and empty or unset runs OSPREY's own. The build
+never writes it, so nothing is reported about it
+(:ref:`va-serving-your-own-model`).
+
 Both writers are append-only, and a value already on file always wins. A value
 that disagrees with what a writer would have put there is *reported*, by name
 and never by value, for you to resolve by hand. That is what makes the stack
