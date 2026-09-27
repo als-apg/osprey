@@ -561,6 +561,9 @@ config:
   # `ariel.ingestion.ca_bundle` when it is not in the image trust store, and
   # keep `ariel.ingestion.verify_ssl: false` for a certificate that cannot be
   # verified at all.
+  # Links from the agent's answers to each entry's page in your logbook: one
+  # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
+  # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
