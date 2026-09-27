@@ -871,10 +871,9 @@ def create_server() -> FastMCP:
         if not isinstance(payload, dict):
             return JSONResponse({"detail": "payload must be an object"}, status_code=400)
 
-        # Starlette's header mapping is case-insensitive, so the header is read
-        # by its canonical spelling. A value that names nobody costs the run its
-        # owner — and with it the narrowing its writes would be checked against
-        # — but never the re-fire itself; see ``owner_from_header``.
+        # A value that names nobody costs the run its owner — and with it the
+        # narrowing its writes would be checked against — but never the re-fire
+        # itself; see ``owner_from_header``.
         owner = _request_owner(request)
 
         async def fn() -> dict | None:
@@ -898,8 +897,10 @@ def create_server() -> FastMCP:
         """Proxy a cancel request to the worker.
 
         Bearer-auth against the dispatcher's own token; the dispatcher holds
-        the worker token itself so the browser never sees it. The request's
-        ``X-Osprey-Owner`` names who asked, and that name is logged, never checked.
+        the worker token itself so the browser never sees it.
+
+        The request's ``X-Osprey-Owner`` names who asked, and that name is
+        logged, never checked.
         """
         unauth = _check_auth(request)
         if unauth is not None:

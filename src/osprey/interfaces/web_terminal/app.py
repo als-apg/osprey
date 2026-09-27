@@ -2075,10 +2075,7 @@ def _create_lifespan(
         # Resolved once here and read back as
         # ``getattr(app.state, "config_panel_enabled", True)``, so an app built
         # without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. The gate answers out of the
-        # file this terminal resolved; with none resolved, the lifespan-less
-        # default; with one that cannot be read, closed, because an unreadable
-        # config is not permission to author what the agent obeys.
+        # deployment that never mentioned the key.
 
         # ── Scaffold gallery writes (server-side tier gate) ──
         # `web.scaffold_gallery.write_enabled: false` closes the gallery's whole
@@ -2093,11 +2090,13 @@ def _create_lifespan(
         # Resolved once here and read back as
         # ``getattr(app.state, "scaffold_write_enabled", True)``, so an app
         # built without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. The gate answers out of the
-        # file this terminal resolved; with none resolved, the lifespan-less
-        # default; with one that cannot be read, closed, because an unreadable
-        # config is not permission to author what the agent obeys. Both gates
-        # come from one read, so they cannot disagree about the file.
+        # deployment that never mentioned the key.
+        #
+        # Both gates answer out of the file this terminal resolved: with none
+        # resolved, the lifespan-less default; with one that cannot be read,
+        # closed, because an unreadable config is not permission to author what
+        # the agent obeys. They come from one read, so they cannot disagree
+        # about the file.
         gates = resolve_privilege_gates(resolved_config_path)
         app.state.config_panel_enabled = gates.config_panel_enabled
         app.state.scaffold_write_enabled = gates.scaffold_write_enabled
