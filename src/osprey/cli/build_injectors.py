@@ -596,7 +596,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     """
     from ruamel.yaml import YAML
 
-    from osprey.cli.build_profile import _triggers_dir
+    from osprey.cli.build_profile_presets import resolve_triggers_path
     from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE
 
     # The default is spelled twice on purpose (here and on ``DispatchConfig``):
@@ -607,12 +607,10 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     on_host_network = network == "host"
 
     # 1. Resolve + copy triggers file (profile-relative path or bundled triggers name).
-    if (profile_dir / dispatch.triggers).is_file():
-        triggers_src = profile_dir / dispatch.triggers
-    elif (_triggers_dir() / dispatch.triggers).is_file():
-        triggers_src = _triggers_dir() / dispatch.triggers
-    else:
+    source = resolve_triggers_path(profile_dir, dispatch.triggers)
+    if source is None:
         raise BuildProfileError(f"dispatch.triggers not found: {dispatch.triggers!r}")
+    triggers_src = source.path
     triggers_dest = project_path / "triggers.yml"
     shutil.copy2(triggers_src, triggers_dest)
 

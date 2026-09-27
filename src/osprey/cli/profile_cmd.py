@@ -531,11 +531,12 @@ def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
     ``None`` for a profile that declares no dispatch block — there is nothing to
     materialize and nothing to repoint.
 
-    Resolution mirrors the build's exactly
-    (:func:`~osprey.cli.build_injectors._inject_dispatch`): profile-relative
-    first, then the bundled triggers directory. ``resolve_build_profile`` has
-    already rejected a value that resolves to neither, so a miss here is a
-    packaging problem rather than something the caller could have got wrong.
+    Resolution is the build's own
+    (:func:`~osprey.cli.build_profile_presets.resolve_triggers_path`):
+    profile-relative first, then the bundled triggers directory.
+    ``resolve_build_profile`` has already rejected a value that resolves to
+    neither, so a miss here is a packaging problem rather than something the
+    caller could have got wrong.
 
     Raises:
         BuildProfileError: If neither candidate exists.
@@ -543,14 +544,11 @@ def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
     if resolved.dispatch is None:
         return None
 
-    from .build_profile_presets import _triggers_dir
+    from .build_profile_presets import resolve_triggers_path
 
-    for candidate in (
-        preset_dir / resolved.dispatch.triggers,
-        _triggers_dir() / resolved.dispatch.triggers,
-    ):
-        if candidate.is_file():
-            return candidate
+    source = resolve_triggers_path(preset_dir, resolved.dispatch.triggers)
+    if source is not None:
+        return source.path
     raise BuildProfileError(
         f"dispatch.triggers not found: {resolved.dispatch.triggers!r} — looked in "
         f"{preset_dir} and the bundled triggers directory."

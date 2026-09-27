@@ -44,7 +44,7 @@ from .build_profile_archiver import (
     va_mock_archiver_errors,
 )
 from .build_profile_deploy import DeployConfig
-from .build_profile_presets import _triggers_dir, is_bundled_preset_dir
+from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
 from .build_profile_schema import (
     _ENV_VAR_RE,
     SECOND_LANE_PORT_STRIDE,
@@ -557,21 +557,12 @@ class BuildProfile:
                 f"{key} block."
             )
         elif trigger and self.dispatch.triggers:
-            # Check the trigger against the SOURCE triggers file, resolved the
-            # same way the dispatch block resolves it (profile-relative first,
-            # then bundled). A bridge pointed at an undeclared trigger builds
-            # and deploys cleanly and then 404s on every message.
-            triggers_file = next(
-                (
-                    candidate
-                    for candidate in (
-                        profile_dir / self.dispatch.triggers,
-                        _triggers_dir() / self.dispatch.triggers,
-                    )
-                    if candidate.is_file()
-                ),
-                None,
-            )
+            # Check the trigger against the SOURCE triggers file, resolved by
+            # resolve_triggers_path as the dispatch block resolves it. A bridge
+            # pointed at an undeclared trigger builds and deploys cleanly and
+            # then 404s on every message.
+            source = resolve_triggers_path(profile_dir, self.dispatch.triggers)
+            triggers_file = source.path if source is not None else None
             # An unresolvable path is already reported by the dispatch block.
             if triggers_file is not None:
                 # Deferred import: keeps osprey.dispatch out of this module's
@@ -1729,10 +1720,7 @@ class BuildProfile:
                 errors.append(
                     "dispatch.triggers is required (bundled name or profile-relative path)"
                 )
-            elif (
-                not (profile_dir / d.triggers).is_file()
-                and not (_triggers_dir() / d.triggers).is_file()
-            ):
+            elif resolve_triggers_path(profile_dir, d.triggers) is None:
                 errors.append(
                     f"dispatch.triggers file not found: {d.triggers!r} "
                     f"(looked in profile dir {profile_dir} and bundled triggers)"
