@@ -110,6 +110,45 @@ and injector modules in ``src/osprey/cli/`` so a profile can switch the new
 service on. Pinning test: ``tests/bridges/test_ports.py``. Deployers start
 from :doc:`/how-to/agent-interfaces/chat-bridges/index`.
 
+.. _extending-trigger-source:
+
+Trigger source
+--------------
+
+A trigger source is what wakes the event dispatcher, as a webhook call, a
+fixed interval or an EPICS channel crossing does; a message queue or a file
+drop would each be a new one. Write a class matching
+``osprey.dispatch.sources.base.TriggerSource``: a ``source_type`` class
+attribute, ``register_routes``, which runs before the dispatcher's app is built
+and does something only for a source that serves HTTP routes, and ``start`` and
+``stop``, which run with the event loop going. ``start`` receives the triggers
+that name this source and a fire callback. The source reads each trigger's own
+``source_config`` and awaits the callback with the trigger and a payload
+mapping for every event it detects. The callback returns the queued run's id,
+returns ``None`` when the trigger is disabled, and raises
+``osprey.dispatch.pool.QueueFullError`` when the queue is full; what happens
+then is the source's decision, and every shipped source logs the event and
+drops it. A fire from a source is attributed to nobody.
+
+This seam is the exception to the registry-module paragraph that opens this
+page: sources are not registered in a registry module. They are found through a Python package
+entry point, in the group OSPREY declares its own three under ---
+``[project.entry-points."osprey.trigger_sources"]`` in ``pyproject.toml`` ---
+and the entry point's name is the ``source:`` value a trigger writes.
+``osprey.dispatch.source_registry.SourceRegistry`` loads the group when the
+dispatcher starts, and the dispatcher does not start when an entry point's
+class lacks the three methods, or when one name is claimed by two different
+classes. The package has to be installed wherever the dispatcher runs: a
+dispatcher started with ``python -m osprey.dispatch`` finds it in that
+environment, while the image OSPREY builds for the containerized dispatcher
+installs OSPREY alone, so a container deployment names an image that carries
+the package through ``services.event_dispatcher.image``
+(:ref:`deployment-image-overrides`). Copy
+``src/osprey/dispatch/sources/cron.py`` for a source with no routes, or
+``src/osprey/dispatch/sources/webhook.py`` for one that serves them. Pinning
+test: ``tests/dispatch/test_source_registry.py``; deployer view:
+:ref:`event-dispatch-trigger-sources`.
+
 .. _extending-ariel:
 
 ARIEL
