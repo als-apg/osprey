@@ -397,7 +397,8 @@ Stop the stack again with ``osprey down``; check on it with
    ``http://127.0.0.1:10000`` is reachable as-is. On **macOS**, a container's
    "host" is Docker Desktop's Linux VM — enable *host networking* in Docker
    Desktop (Settings → Resources → Network) so the stack's ports reach your
-   browser.
+   browser. Host networking is one of the limits listed in
+   :ref:`perimeter-limits`.
 
    If another OSPREY deployment already occupies these ports on this host, give
    this one its own block rather than moving services one by one — for example
