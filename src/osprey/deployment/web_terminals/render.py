@@ -1456,11 +1456,17 @@ def render_web_terminals(
         **auth_tls_ctx,
     }
 
+    from osprey.interfaces.common_middleware import URL_MOUNT_ROOT
+
     nginx_ctx = {
         "nginx_port": nginx_port,
         "services": services,
         "bind_host": _LOOPBACK_BIND_HOST,
         "external_origin": external_origin,
+        # The pattern form is escaped because the return-to allowlist map embeds
+        # the root inside a PCRE; the locations take it literally.
+        "url_mount_root": URL_MOUNT_ROOT,
+        "url_mount_root_pattern": re.escape(URL_MOUNT_ROOT),
         **auth_tls_ctx,
     }
     landing_cfg = as_dict(web_terminals.get("landing"))
@@ -1823,8 +1829,10 @@ def terminal_login_url(config: Any, username: str, secret: str) -> str:
     Raises:
         ValueError: Whatever :func:`deployment_external_origin` raises.
     """
+    from osprey.interfaces.common_middleware import url_mount_prefix
+
     origin = deployment_external_origin(config)
-    return f"{origin}/u/{username}/?token={quote(secret, safe='')}"
+    return f"{origin}{url_mount_prefix(username)}/?token={quote(secret, safe='')}"
 
 
 def _landing_url(
@@ -1881,10 +1889,12 @@ def _user_card(resolved_user: dict[str, Any], token_login_names: frozenset[str])
         ``"sublabel"`` (the persona name) when ``persona`` is a non-empty string
         that differs from the user's own name.
     """
+    from osprey.interfaces.common_middleware import url_mount_prefix
+
     name = resolved_user["name"]
     card: dict[str, Any] = {
         "label": name,
-        "url": f"/u/{name}/",
+        "url": f"{url_mount_prefix(name)}/",
         "token_login": name in token_login_names,
     }
     persona = resolved_user.get("persona")

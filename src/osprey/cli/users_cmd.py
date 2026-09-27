@@ -822,7 +822,10 @@ def login_url(user: str, repo: Path | None) -> None:
                     "send them the login page, not a token URL",
                 )
             else:
-                terminal_url = f"{origin}/u/{user}/" if origin else f"this deployment's /u/{user}/"
+                from osprey.interfaces.common_middleware import url_mount_prefix
+
+                terminal = f"{url_mount_prefix(user)}/"
+                terminal_url = f"{origin}{terminal}" if origin else f"this deployment's {terminal}"
                 fail(
                     f"{user} is reached directly, so no token URL applies",
                     f"This deployment is open (auth.method: none): nginx vouches for "

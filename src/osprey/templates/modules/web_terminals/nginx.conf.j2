@@ -355,7 +355,7 @@ map $http_upgrade$http_accept $osprey_auth_wants_login_page {
 # path ending in `%0a` would otherwise still be emitted, newline and all.
 map $uri $osprey_auth_next {
     default "";
-    "~^/u/[A-Za-z0-9._-]+/[A-Za-z0-9._~/-]*\z" $uri;
+    "~^{{ url_mount_root_pattern }}/[A-Za-z0-9._-]+/[A-Za-z0-9._~/-]*\z" $uri;
 }
 {% endif -%}
 {% if tls_enabled %}
@@ -455,7 +455,7 @@ server {
     # `web` family, bound to loopback only). Trailing slashes on both the
     # location and proxy_pass target strip /u/{{ svc.user }} before the
     # request reaches the upstream.
-    location /u/{{ svc.user }}/ {
+    location {{ url_mount_root }}/{{ svc.user }}/ {
 {% if sidecar_active %}
         # Authentication is on (web_terminals.auth.method is "{{ auth_method }}"):
         # every request that reaches this location — page load, panel API call,
@@ -713,8 +713,8 @@ server {
     }
 
     # Stable bookmark for {{ svc.user }} without a trailing slash.
-    location = /u/{{ svc.user }} {
-        return 301 /u/{{ svc.user }}/;
+    location = {{ url_mount_root }}/{{ svc.user }} {
+        return 301 {{ url_mount_root }}/{{ svc.user }}/;
     }
 {% if sidecar_active %}
 
