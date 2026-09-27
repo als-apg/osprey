@@ -221,15 +221,59 @@ rules out backends that authenticate their own callers --- is on
 LUME model
 ----------
 
-The virtual accelerator serves whatever physics you hand it, as long as that
-physics is a ``lume.model.LUMEModel``. The floor is
+The virtual accelerator serves one ``lume.model.LUMEModel``, chosen by the
+module the container runs. The shipped
+``osprey.services.virtual_accelerator.entrypoint`` builds
+``osprey.services.virtual_accelerator.model.pyat.PyATRingModel`` over the
+served tree's lattice, or the floor,
 ``osprey.services.virtual_accelerator.serving.model_stub.NullModel``, which
-serves a channel list and no physics at all; at the other end,
-``src/osprey/services/virtual_accelerator/serving/write_path.py:182`` shows a
-shipped model wrapped so that setpoint writes carry a calibration and push
-recomputed readings back onto their channels. The seam is guarded in both
-directions: ``tests/va/test_facility_seam.py`` pins that a facility without a
-lattice boots with no accelerator-physics imports on the path at all, and
-``tests/va/test_pyat_ring_model.py`` covers the shipped ring model. Deployers
-configure the result in
-:doc:`/how-to/control-systems/use-virtual-accelerator`.
+serves a channel list and no physics. A different pyAT deck needs no code (see
+"Bringing your own model" on :doc:`/architecture/virtual-accelerator`). A
+different backend is a replacement entrypoint module named in
+``VA_ENTRYPOINT_MODULE``. For a shipped model wrapped so that setpoint writes
+carry a calibration and push recomputed readings back onto their channels, see
+``osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel``.
+
+A replacement entrypoint honours the same contract as the shipped one, which
+is its reference implementation:
+
+- **Runnable and importable.** The container runs it as
+  ``python -u -m <module>``, so it is importable in the image and has a
+  ``__main__`` guard, or is a package with a ``__main__.py``. Its image is one
+  the facility builds on top of OSPREY's, because the stock image installs
+  OSPREY and nothing else.
+- **The same inputs.** The data directory is ``VA_DATA_DIR``, default
+  ``/data/simulation``. The channel manifest ``VA_CHANNELS_FILE`` is required
+  and resolved against that directory, and the manifest is the served
+  namespace. ``VA_LATTICE`` and ``VA_STATE_DIR`` are set too. Channel Access is
+  served on ``EPICS_CAS_SERVER_PORT``, which the image's command exports from
+  ``EPICS_CA_SERVER_PORT``, and pvAccess on ``EPICS_PVAS_SERVER_PORT``. The
+  deployment's health check is a TCP connect to the Channel Access port and
+  nothing more.
+- **Clamp writes to the drive bands.** The shipped entrypoint reads
+  ``channel_limits.json`` from the data directory and hands the bands to the
+  runner, which clamps every written value into its band before anything else
+  happens to it (the clamp is
+  ``osprey.services.virtual_accelerator.serving.write_path.clamp_into``). A
+  replacement that builds its own server without them serves setpoints with no
+  band on the IOC side. The connector's own ``limits_checking`` is separate and
+  unchanged.
+- **Announce readiness.** Once every boot value is on the wire, print one line
+  starting with ``osprey.services.virtual_accelerator.entrypoint.READY_MARKER``
+  (``virtual accelerator IOC serving PVs``), followed by ``: <N> channels``.
+  The image boot check and the container test fixtures wait on that line and
+  read the count out of it.
+- **Leave on SIGTERM.** The image's command ``exec``\ s Python, so the module
+  is the container's first process and receives ``docker stop``'s SIGTERM
+  itself. A first process with no handler for it ignores it and is killed when
+  the stop timeout runs out. The shipped entrypoint installs handlers for
+  SIGINT and SIGTERM once its servers are up, and they leave through the
+  runner's own exit.
+- **One module for every instance.** With a live stand-in, both containers
+  run the same image and the same ``VA_ENTRYPOINT_MODULE``.
+
+The seam is guarded in both directions: ``tests/va/test_facility_seam.py``
+pins that a facility without a lattice boots with no accelerator-physics
+imports on the path at all, and ``tests/va/test_pyat_ring_model.py`` covers
+the shipped ring model. How to deploy a replacement is in
+:ref:`va-serving-your-own-model`.

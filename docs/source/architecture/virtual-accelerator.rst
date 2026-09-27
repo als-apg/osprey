@@ -81,8 +81,9 @@ surface belongs to the ``virtual_accelerator`` instance.
 Physics is optional
 ===================
 
-``VA_LATTICE=none`` boots the same service with no lattice: pyAT is never
-imported and the served model is the empty ``NullModel``. The Channel Access
+``VA_LATTICE`` names the lattice file the container serves; ``osprey build``
+writes it, and the value ``none`` boots the same service with no lattice: pyAT
+is never imported and the served model is the empty ``NullModel``. The Channel Access
 namespace is *identical* to a lattice-backed boot; the only difference is that
 a pyat-coupled setpoint simply latches its written value. That is what makes
 the service usable for a facility that has a channel list but no model behind
@@ -134,13 +135,28 @@ which variables exist, and how a boot failure should read.
 Bringing your own model
 =======================
 
-Because that one boundary is the only way to the ring, replacing the physics
-replaces one object: a different backend — a surrogate, Cheetah, Bmad, or
-another facility's pyAT ring — is injected through ``model=`` without the
-serving layer changing. Model variables are keyed by their full channel
-address and resolved before the backend sees them, so a backend parses no
-channel names. The seam, its floor (``NullModel``) and its ceiling are written
-up under :ref:`extending-lume-model`.
+The runner is built around one ``LUMEModel``, and the entrypoint is what
+chooses it. The shipped ``entrypoint.py`` builds ``PyATRingModel`` when
+``VA_LATTICE`` names a lattice and ``NullModel`` when it is ``none``, and hands
+that to the runner. Nothing in a profile, ``config.yml`` or ``.env`` passes it
+another.
+
+**A pyAT ring is data.** Any facility's pyAT deck is served by the shipped
+model. The served tree stages it as ``data/simulation/lattice.json`` beside the
+``va_bindings.json`` that ties channels to it, and ``osprey build`` writes that
+file's name into ``VA_LATTICE``. How a tree comes to carry one is in
+:doc:`/how-to/control-systems/use-virtual-accelerator`.
+
+**Any other backend is a different entrypoint.** A surrogate, Cheetah or Bmad
+is a different ``LUMEModel``, so it arrives as a replacement entrypoint module.
+The image runs
+``python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}``,
+and the module must be importable inside an image the facility builds.
+
+Either way the serving layer does not change. Model variables are keyed by
+their full channel address and resolved before the backend sees them, so a
+backend parses no channel names. The contract a replacement entrypoint honours
+is under :ref:`extending-lume-model`.
 
 Served and model-only variables
 -------------------------------

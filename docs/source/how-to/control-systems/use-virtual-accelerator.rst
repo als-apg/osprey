@@ -61,10 +61,11 @@ The Virtual Accelerator is a **local physics simulator**, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
 exactly as it does the mock or a real machine; only the backend changes.
 
-The physics itself is pluggable: the container serves whatever LUME model it is
-given — the shipped one is a pyAT ring model over the facility-agnostic
-``lume-pyat`` package — and serving your own facility's model is the LUME seam in
-:doc:`/contributing/extending-osprey`.
+The physics behind the ring channels is one of two things: the shipped pyAT
+ring model, built on the facility-agnostic ``lume-pyat`` package, over the
+lattice your data tree stages, which ``osprey build`` names in ``VA_LATTICE``;
+or none, with ``VA_LATTICE=none``. A backend other than pyAT is a replacement
+entrypoint, covered in :ref:`va-serving-your-own-model`.
 
 What channels it serves
 =======================
@@ -297,6 +298,49 @@ quietly changing what the machine looks like. Leave either empty and the
 default applies. A variable exported in the deployment's own ``.env`` outranks
 the rendered default, so a single run can be made noisier or quieter without
 editing the configuration.
+
+.. _va-serving-your-own-model:
+
+Serving your facility's own model
+=================================
+
+A pyAT lattice
+--------------
+
+Stage the deck as ``data/simulation/lattice.json`` with the
+``va_bindings.json`` that ties your channels to it. ``osprey mml emit`` writes
+both from an export that carries a virtual accelerator (see
+:doc:`/how-to/use-channel-finder`). Then ``osprey build`` writes the file's
+name into ``VA_LATTICE`` in the project ``.env``. A tree without bindings gets
+``VA_LATTICE=none``. No code and no image are involved.
+
+Another backend
+---------------
+
+1. Write the entrypoint module to the contract in :ref:`extending-lume-model`.
+2. Build an image that carries OSPREY's virtual-accelerator install and your
+   module. The usual shape is a Dockerfile ``FROM`` the image OSPREY builds
+   for the project, adding your package.
+3. Name it as the service's image with ``services.virtual_accelerator.image``,
+   or ``OSPREY_VA_IMAGE`` for one shell (:ref:`deployment-image-overrides`).
+4. Set ``VA_ENTRYPOINT_MODULE=<your.module>`` in the project ``.env``. Empty
+   or unset runs the shipped entrypoint. ``osprey build`` never writes it.
+
+.. warning::
+
+   Every deploy that builds images --- an attached ``osprey up`` or
+   ``osprey restart``, and any ``--dev`` deploy --- builds this service from
+   OSPREY's recipe and tags the result with the name you gave, replacing your
+   image. Deploy with prebuilt images (:ref:`deployment-prebuilt-images`), or
+   with ``osprey up -d`` without ``--dev``, which builds only images that are
+   missing.
+
+   .. code-block:: bash
+
+      # project .env
+      VA_ENTRYPOINT_MODULE=my_facility.va_entrypoint
+
+      osprey up -d
 
 Running from a source checkout
 ==============================
