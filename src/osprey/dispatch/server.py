@@ -642,11 +642,13 @@ def create_server() -> FastMCP:
     #     NOT accept a ``?token=`` query that would leak the bearer into access
     #     logs); polled state still renders.
     # WRITE endpoints (/retry, /dashboard/cancel, /dashboard/clear-history and
-    # /trigger/.../status) are gated the same way. The /dashboard HTML SHELL itself
-    # stays ungated on purpose: it carries no agent data, and the standalone token
-    # handoff requires the page to load so its JS can read the fragment. Secret-like
-    # source_config keys are still redacted in /dashboard/state. Production
-    # deployments should still network-isolate the port.
+    # /trigger/.../status) are gated the same way. The write routes log the owner
+    # header they were given; that header is attribution, not authorization.
+    # The /dashboard HTML SHELL itself stays ungated on purpose: it carries no
+    # agent data, and the standalone token handoff requires the page to load so
+    # its JS can read the fragment. Secret-like source_config keys are still
+    # redacted in /dashboard/state. Production deployments should still
+    # network-isolate the port.
     # -----------------------------------------------------------------------
 
     @mcp.custom_route("/dashboard", methods=["GET"])
@@ -896,11 +898,13 @@ def create_server() -> FastMCP:
         """Proxy a cancel request to the worker.
 
         Bearer-auth against the dispatcher's own token; the dispatcher holds
-        the worker token itself so the browser never sees it.
+        the worker token itself so the browser never sees it. The request's
+        ``X-Osprey-Owner`` names who asked, and that name is logged, never checked.
         """
         unauth = _check_auth(request)
         if unauth is not None:
             return unauth
+        owner = _request_owner(request)
         run_id = request.path_params["run_id"]
         try:
             result = await cancel_worker_run(dispatch_target, dispatch_token, run_id)
@@ -908,6 +912,12 @@ def create_server() -> FastMCP:
             return JSONResponse({"detail": "worker auth failed"}, status_code=502)
         except WorkerRequestError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=502)
+        logger.info(
+            "Cancel of run %r asked by %s: %s",
+            run_id,
+            owner or "no owner",
+            "cancelled" if result.get("cancelled") else result.get("reason", "not cancelled"),
+        )
         return JSONResponse(result)
 
     @mcp.custom_route("/dashboard/clear-history", methods=["POST"])
@@ -921,10 +931,14 @@ def create_server() -> FastMCP:
 
         Body is optional: ``{"older_than_days": N}`` keeps runs younger than N
         days, and anything else (absent, empty, ``0``) clears every finished run.
+
+        The request's ``X-Osprey-Owner`` names who asked, and that name is
+        logged, never checked.
         """
         unauth = _check_auth(request)
         if unauth is not None:
             return unauth
+        owner = _request_owner(request)
 
         try:
             body = await request.json()
@@ -947,6 +961,12 @@ def create_server() -> FastMCP:
             return JSONResponse({"detail": "worker auth failed"}, status_code=502)
         except WorkerRequestError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=502)
+        logger.info(
+            "Run history cleared by %s: %s run(s), older_than_days=%d",
+            owner or "no owner",
+            result.get("cleared"),
+            older_than_days,
+        )
         return JSONResponse(result)
 
     @mcp.custom_route("/trigger/{trigger_name}/status", methods=["PUT"])
@@ -954,10 +974,14 @@ def create_server() -> FastMCP:
         """Enable or disable a trigger at runtime.
 
         Body: {"status": "active" | "disabled"}
+
+        The request's ``X-Osprey-Owner`` names who asked, and that name is
+        logged, never checked.
         """
         unauth = _check_auth(request)
         if unauth is not None:
             return unauth
+        owner = _request_owner(request)
 
         trigger_name = request.path_params["trigger_name"]
         if trigger_name not in registry._triggers:
@@ -979,6 +1003,7 @@ def create_server() -> FastMCP:
         except (KeyError, ValueError) as exc:
             return JSONResponse({"detail": str(exc)}, status_code=400)
 
+        logger.info("Trigger '%s' set %s by %s", trigger_name, new_status, owner or "no owner")
         return JSONResponse({"name": trigger_name, "status": new_status})
 
     # Register MCP tools. NOTE: do NOT register /webhook here — WebhookSource
