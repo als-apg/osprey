@@ -23,6 +23,7 @@ import pytest
 from osprey.bridges.teams.client import (
     CONNECTOR_TIMEOUT_SEC,
     EXPIRY_MARGIN_SEC,
+    Audience,
     ConnectorClient,
     ConnectorError,
     MessageSizeTooBig,
@@ -112,10 +113,11 @@ def make_source(
     *,
     cfg: TeamsBridgeConfig | None = None,
     clock: FakeClock | None = None,
+    audience: Audience = Audience.CONNECTOR,
 ) -> TokenSource:
     """A :class:`TokenSource` wired to ``endpoint`` over a mock transport."""
     http = httpx.Client(transport=httpx.MockTransport(endpoint))
-    return TokenSource(cfg or make_config(), http, clock=clock or FakeClock())
+    return TokenSource(cfg or make_config(), http, clock=clock or FakeClock(), audience=audience)
 
 
 # --- the exchange ----------------------------------------------------------
@@ -155,6 +157,78 @@ def test_a_gcchigh_token_is_fetched_from_the_us_host_with_the_us_scope():
 
     assert str(endpoint.requests[0].url).startswith("https://login.microsoftonline.us/")
     assert endpoint.form()["scope"] == "https://api.botframework.us/.default"
+
+
+@pytest.mark.parametrize(
+    ("cloud", "login_host", "graph_scope"),
+    [
+        ("commercial", "login.microsoftonline.com", "https://graph.microsoft.com/.default"),
+        ("gcchigh", "login.microsoftonline.us", "https://graph.microsoft.us/.default"),
+    ],
+)
+def test_a_graph_token_is_fetched_with_the_graph_scope(cloud, login_host, graph_scope):
+    endpoint = TokenEndpoint()
+    source = make_source(endpoint, cfg=make_config(cloud), audience=Audience.GRAPH)
+
+    assert source.token() == "token-1"
+
+    assert str(endpoint.requests[0].url) == f"https://{login_host}/{TENANT}/oauth2/v2.0/token"
+    assert endpoint.form() == {
+        "grant_type": "client_credentials",
+        "client_id": APP_ID,
+        "client_secret": APP_SECRET,
+        "scope": graph_scope,
+    }
+
+
+def test_the_two_audiences_cache_apart():
+    # One clock, one login endpoint, two sources: each audience is fetched once and
+    # cached on its own, so a Graph grant the tenant refused never costs the bot the
+    # Connector token its replies travel on.
+    clock = FakeClock()
+    refuse_graph = {"on": False}
+    requests: list[httpx.Request] = []
+
+    def endpoint(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        scope = parse_qs(request.content.decode())["scope"][0]
+        if refuse_graph["on"] and "graph" in scope:
+            return httpx.Response(403, json={"error": "unauthorized_client"})
+        return httpx.Response(
+            200, json={"access_token": f"{scope}-{len(requests)}", "expires_in": EXPIRES_IN}
+        )
+
+    http = httpx.Client(transport=httpx.MockTransport(endpoint))
+    connector = TokenSource(make_config(), http, clock=clock)
+    graph = TokenSource(make_config(), http, clock=clock, audience=Audience.GRAPH)
+
+    connector_token = connector.token()
+    graph_token = graph.token()
+    assert connector.token() == connector_token
+    assert graph.token() == graph_token
+    scopes = [parse_qs(request.content.decode())["scope"][0] for request in requests]
+    assert scopes == [
+        "https://api.botframework.com/.default",
+        "https://graph.microsoft.com/.default",
+    ]
+
+    clock.advance(EXPIRES_IN)
+    refuse_graph["on"] = True
+    with pytest.raises(TokenError):
+        graph.token()
+    assert connector.token().startswith("https://api.botframework.com/.default")
+
+
+@pytest.mark.parametrize(
+    ("audience", "suffix"), [(Audience.GRAPH, "graph"), (Audience.CONNECTOR, "connector")]
+)
+def test_a_token_error_names_its_audience(audience, suffix):
+    endpoint = TokenEndpoint(status=401, body={"error": "invalid_client"})
+    source = make_source(endpoint, audience=audience)
+
+    with pytest.raises(TokenError) as excinfo:
+        source.token()
+    assert str(excinfo.value).endswith(f" (audience: {suffix})")
 
 
 # --- caching ---------------------------------------------------------------
