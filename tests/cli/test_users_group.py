@@ -31,6 +31,7 @@ from click.testing import CliRunner
 
 from osprey.cli.users_cmd import users
 from osprey.deployment.compose_generator import resolve_user_volume_names
+from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
 
 #: Every verb the group ships, mapped to the exact set of option spellings it
@@ -414,6 +415,22 @@ class TestEngineWiring:
         _args, kwargs = mocks["prune_users"].call_args
         assert kwargs == {"dry_run": False, "archive": False, "purge": False, "assume_yes": False}
 
+    @pytest.mark.usefixtures("repo_root")
+    def test_prune_purges_orphan_secrets_then_exits_non_zero_when_a_volume_is_kept(
+        self, cli_runner, monkeypatch
+    ):
+        purge_secrets = MagicMock()
+        monkeypatch.setattr("osprey.cli.users_cmd._purge_orphan_terminal_secrets", purge_secrets)
+        patcher, mocks = _fake_web_terminals()
+        with patcher:
+            mocks["prune_users"].side_effect = RemovalIncompleteError(
+                [("volume 'demo_eve-agent-data'", "volume is in use")]
+            )
+            result = cli_runner.invoke(users, ["prune", "--purge", "-y"])
+
+        purge_secrets.assert_called_once()
+        assert result.exit_code != 0
+
     def test_seed_without_a_user_seeds_the_whole_roster(self, cli_runner, repo_root):
         patcher, mocks = _fake_web_terminals()
         with patcher:
@@ -607,6 +624,22 @@ class TestProfileRosterWrite:
             result = cli_runner.invoke(users, ["remove", "alice"])
 
         assert result.exit_code == 0
+        assert [entry["name"] for entry in self._profile_roster(repo_root)] == ["bob"]
+
+    def test_remove_finishes_the_profile_edit_then_exits_non_zero_when_a_volume_is_kept(
+        self, cli_runner, tmp_path, monkeypatch
+    ):
+        repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
+        monkeypatch.chdir(repo_root)
+
+        patcher, mocks = _fake_web_terminals()
+        with patcher:
+            mocks["decommission_user"].side_effect = RemovalIncompleteError(
+                [("volume 'demo_alice-agent-data'", "volume is in use")]
+            )
+            result = cli_runner.invoke(users, ["remove", "alice", "--purge", "-y"])
+
+        assert result.exit_code != 0
         assert [entry["name"] for entry in self._profile_roster(repo_root)] == ["bob"]
 
     def test_the_user_stays_gone_when_the_profile_is_re_rendered(
