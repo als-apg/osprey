@@ -58,7 +58,8 @@ check. What this module deliberately does not assert, and why:
 * ``check_api_providers`` registry mocking — owned by ``core/providers`` + the
   provider-canary tests.
 * ``_check_timezone`` UTC/configured/env-var unit calls — owned by
-  ``core/configuration`` tests (the timezone row); the CLI does not special-case it.
+  ``core/configuration`` tests (the timezone row); its exit-code half is pinned
+  here by ``TestTimezoneExitCode``.
 * ``check_claude_cli_version`` pinned-match/mismatch/npx-missing/unpinned subprocess
   mocking — owned by ``core/claude_cli`` tests; here we pin only the CLI-visible
   unpinned-skip and ``--full`` gating contracts.
@@ -415,6 +416,47 @@ class TestContainerRuntime:
         row = _find(payload["results"], "container_runtime")
         assert row is not None and row["status"] == "skip"
         assert "no container runtime available" in row["message"]
+
+
+# --------------------------------------------------------------------------- #
+# The timezone row's contribution to the exit code
+# --------------------------------------------------------------------------- #
+
+
+_TIMEZONE_CONFIG = (
+    _VALID_CONFIG
+    + """\
+api:
+  providers:
+    mock: {{}}
+system:
+  timezone: {zone}
+"""
+)
+
+
+class TestTimezoneExitCode:
+    """UTC is information; a zone no reader can open is an error."""
+
+    def _run(self, cli_runner, tmp_path, zone):
+        project = tmp_path / "proj"
+        _write_config(project, _TIMEZONE_CONFIG.format(zone=zone))
+        with _no_container_runtime():
+            return cli_runner.invoke(
+                health, ["--project", str(project), "--json", "--category", "configuration"]
+            )
+
+    def test_a_utc_deployment_exits_0(self, cli_runner, tmp_path):
+        result = self._run(cli_runner, tmp_path, "UTC")
+        assert result.exit_code == 0, result.output
+        row = _find(json.loads(result.stdout)["results"], "timezone")
+        assert row is not None and row["status"] == "ok"
+
+    def test_a_misspelt_zone_exits_2(self, cli_runner, tmp_path):
+        result = self._run(cli_runner, tmp_path, "Amerika/Los_Angeles")
+        assert result.exit_code == 2, result.output
+        row = _find(json.loads(result.stdout)["results"], "timezone")
+        assert row is not None and row["status"] == "error"
 
 
 # --------------------------------------------------------------------------- #
