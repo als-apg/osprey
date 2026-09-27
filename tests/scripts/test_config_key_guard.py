@@ -534,6 +534,32 @@ def test_a_same_value_mark_on_a_block_goes_red():
     assert "mark its leaves" in details(guard)
 
 
+def test_the_parity_table_names_exactly_the_value_marked_keys():
+    """The human table and the manifest marks are one set of keys.
+
+    The table's value column stays prose for the reader; only keys are compared,
+    so no value is checked in two places.
+    """
+    doc = (REPO_ROOT / "scripts" / "config_key_parity.md").read_text()
+    start = doc.index("## All-presets")
+    end = doc.index("\n## ", start)
+    rows = re.findall(r"^\| `([^`]+)` \| ([^|]+?) \|", doc[start:end], re.M)
+    assert rows
+    keys = MANIFEST["keys"]
+    for key, _value in rows:
+        assert keys[key].get("all-templates"), f"{key} is in the table without all-templates"
+    everywhere = {key for key, value in rows if value.endswith("everywhere")}
+    marked = {
+        k
+        for k, s in keys.items()
+        if isinstance(s, dict) and s.get("all-templates") and s.get("same-value")
+    }
+    assert everywhere == marked
+    for key, value in rows:
+        if value == "diverges":
+            assert not keys[key].get("same-value"), f"{key} diverges but carries same-value"
+
+
 CONTROL_ASSISTANT = "src/osprey/profiles/presets/control-assistant.yml"
 ARIEL_STANDALONE = "src/osprey/profiles/presets/ariel-standalone.yml"
 HELLO_WORLD = "src/osprey/profiles/presets/hello-world.yml"
