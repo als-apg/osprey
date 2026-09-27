@@ -112,6 +112,8 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
 
+from osprey.interfaces.common_middleware import url_mount_prefix
+
 from .. import audit
 from ..app import (
     ACCESS_ROSTER,
@@ -643,7 +645,7 @@ async def login_page(
             # not carry. Measured on the value that actually goes out, and the
             # answer is the same as for any unusable return-to: the user's own
             # terminal.
-            destination = _oidc_destination(username, f"/u/{username}/")
+            destination = _oidc_destination(username, f"{url_mount_prefix(username)}/")
         return RedirectResponse(destination, status_code=302, headers=_NO_STORE_HEADERS)
 
     if settings.method != "password":
