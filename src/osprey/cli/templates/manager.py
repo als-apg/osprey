@@ -783,7 +783,7 @@ class TemplateManager:
         preset_name: str | None = None,
         profile_path: str | None = None,
     ) -> dict[str, Any]:
-        """Generate a project manifest for migration support.
+        """Generate ``.osprey-manifest.json`` for a freshly built project.
 
         Args:
             project_dir: Root directory of the created project.
