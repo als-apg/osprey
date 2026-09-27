@@ -7,6 +7,9 @@ advisory ``verify.sh`` smoke check.
 
 from __future__ import annotations
 
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
 import pytest
 
 from osprey.deployment.web_terminals import postup_hooks
@@ -205,7 +208,7 @@ def test_web_stack_reachable_no_warning(monkeypatch, caplog):
         def __exit__(self, *args):
             return False
 
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", lambda url, timeout: _Resp())
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", lambda url, timeout: _Resp())
 
     with caplog.at_level("WARNING"):
         postup_hooks.warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
@@ -217,7 +220,7 @@ def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplo
     def _refuse(_url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         raise OSError("connection refused")
 
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _refuse)
     monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
     # None is "the setting could not be read", which is what keeps the bounce and
     # the hedged wording. Stubbed rather than left alone so these tests do not
@@ -236,7 +239,7 @@ def test_a_disabled_forwarder_names_the_host_network_limit(monkeypatch, caplog):
     def _refuse(_url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         raise OSError("connection refused")
 
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _refuse)
     monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
     monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: False)
 
@@ -251,7 +254,7 @@ def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, 
     def _refuse(_url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         raise OSError("connection refused")
 
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _refuse)
     monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: False)
 
     with caplog.at_level("WARNING"):
@@ -299,7 +302,7 @@ def _refusing_urlopen(succeed_after: int, calls: list[int]):
 def test_docker_desktop_unreachable_self_heals_via_restart(monkeypatch, caplog):
     """A stale forwarder registration is repaired by a restart, with no warning."""
     probes: list[int] = []
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(2, probes))
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _refusing_urlopen(2, probes))
     monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
     # None is "the setting could not be read", which is what keeps the bounce and
     # the hedged wording. Stubbed rather than left alone so these tests do not
@@ -333,7 +336,7 @@ def test_docker_desktop_unreachable_self_heals_via_restart(monkeypatch, caplog):
 def test_docker_desktop_warns_only_after_restart_fails_to_help(monkeypatch, caplog):
     """When the bounce does not help, the setting really is the likely cause."""
     probes: list[int] = []
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, probes))
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _refusing_urlopen(999, probes))
     monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
     # None is "the setting could not be read", which is what keeps the bounce and
     # the hedged wording. Stubbed rather than left alone so these tests do not
@@ -362,7 +365,7 @@ def test_docker_desktop_warns_only_after_restart_fails_to_help(monkeypatch, capl
 
 def test_self_heal_never_fires_on_linux(monkeypatch, caplog):
     """Linux host networking is real -- an unreachable port means something else."""
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, []))
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _refusing_urlopen(999, []))
     monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: False)
 
     ran: list[list[str]] = []
@@ -386,7 +389,7 @@ def test_self_heal_never_fires_on_linux(monkeypatch, caplog):
 
 def test_self_heal_skipped_when_caller_supplies_no_compose_cmd(monkeypatch, caplog):
     """Lifecycle callers that never had a web_cmd keep the old warn-only behaviour."""
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, []))
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _refusing_urlopen(999, []))
     monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
     # None is "the setting could not be read", which is what keeps the bounce and
     # the hedged wording. Stubbed rather than left alone so these tests do not
@@ -414,7 +417,7 @@ def test_web_stack_http_error_counts_as_reachable(monkeypatch, caplog):
     def _http_error(url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         raise postup_hooks.urllib.error.HTTPError(url, 502, "Bad Gateway", None, None)
 
-    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _http_error)
+    monkeypatch.setattr(postup_hooks._PROBE_OPENER, "open", _http_error)
 
     with caplog.at_level("WARNING"):
         postup_hooks.warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
@@ -521,3 +524,48 @@ def test_reload_nginx_config_failure_is_advisory(monkeypatch):
     )
 
     postup_hooks.reload_nginx_config(["docker", "compose"], {})  # must not raise
+
+
+def test_a_redirect_counts_as_an_answer_and_is_never_followed() -> None:
+    """A 301 proves the host reaches nginx; following it would dial the origin's
+    name or TLS port, which this host may not reach."""
+    hits: list[str] = []
+
+    class _Target(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            hits.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    target = ThreadingHTTPServer(("127.0.0.1", 0), _Target)
+    target_url = f"http://127.0.0.1:{target.server_address[1]}/"
+
+    class _Redirect(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(301)
+            self.send_header("Location", target_url)
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    redirect = ThreadingHTTPServer(("127.0.0.1", 0), _Redirect)
+    servers = [target, redirect]
+    for server in servers:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        # Act
+        answered = postup_hooks._host_port_answers(
+            f"http://127.0.0.1:{redirect.server_address[1]}/", attempts=1, delay=0
+        )
+
+        # Assert
+        assert answered is True
+        assert hits == []
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
