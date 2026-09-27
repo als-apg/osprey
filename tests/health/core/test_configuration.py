@@ -269,15 +269,39 @@ class TestEnvironmentVariables:
 
 
 class TestTimezone:
-    def test_default_utc_is_warning(self):
+    def test_default_utc_is_information(self):
         results = _by_name(_run(_loaded_state({})))
-        assert results["timezone"].status == Status.WARNING
+        assert results["timezone"].status == Status.OK
         assert "UTC" in results["timezone"].message
+        assert "system.timezone" in results["timezone"].details
 
-    def test_explicit_utc_is_warning(self):
+    def test_explicit_utc_is_information(self):
         config = {"system": {"timezone": "UTC"}}
         results = _by_name(_run(_loaded_state(config)))
-        assert results["timezone"].status == Status.WARNING
+        assert results["timezone"].status == Status.OK
+        assert "system.timezone" in results["timezone"].details
+
+    def test_a_misspelt_zone_is_an_error(self):
+        config = {"system": {"timezone": "Amerika/Los_Angeles"}}
+        results = _by_name(_run(_loaded_state(config)))
+        assert results["timezone"].status == Status.ERROR
+        assert "America/Los_Angeles" in results["timezone"].message
+
+    def test_a_wrongly_cased_zone_is_an_error(self):
+        config = {"system": {"timezone": "america/los_angeles"}}
+        results = _by_name(_run(_loaded_state(config)))
+        assert results["timezone"].status == Status.ERROR
+
+    def test_an_unset_variable_is_an_error(self, monkeypatch):
+        monkeypatch.delenv("HEALTH_UNSET_TZ", raising=False)
+        config = {"system": {"timezone": "${HEALTH_UNSET_TZ}"}}
+        results = _by_name(_run(_loaded_state(config)))
+        assert results["timezone"].status == Status.ERROR
+
+    def test_a_null_system_block_is_information(self):
+        results = _by_name(_run(_loaded_state({"system": None})))
+        assert results["timezone"].status == Status.OK
+        assert "UTC" in results["timezone"].message
 
     def test_configured_timezone_is_ok(self):
         config = {"system": {"timezone": "Europe/Berlin"}}

@@ -1,0 +1,1 @@
+`osprey health` reports `system.timezone: UTC` as information, so a deployment on the shipped default no longer exits 1. A zone name no reader can open, or one naming an unset variable, is now an error. Such a value used to show as OK.
