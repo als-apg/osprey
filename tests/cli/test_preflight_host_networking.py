@@ -19,6 +19,7 @@ import pytest
 
 from osprey.cli import deploy_cmd
 from osprey.deployment import docker_desktop
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import default_port
 
 #: A config with web terminals rendered, which is what a deployment that owns a
@@ -63,6 +64,7 @@ class TestWhenItSpeaks:
         summary, detail, remedy = warned[0]
         assert "web terminals" in summary
         assert str(default_port("nginx")) in detail
+        assert PERIMETER_LIMITS_URL in detail
         assert "Enable host networking" in remedy
 
     @pytest.mark.usefixtures("on_desktop")

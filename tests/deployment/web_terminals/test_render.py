@@ -32,6 +32,7 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
     terminal_secret_env_var,
 )
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
 from osprey.registry.web import framework_web_port_default
 
@@ -5876,6 +5877,25 @@ def test_render_refuses_an_external_origin_that_is_not_an_origin(value: object) 
     # Act / Assert
     with pytest.raises(ValueError, match="external_origin"):
         render_web_terminals(config)
+
+
+def test_an_external_origin_with_a_path_names_the_own_hostname_limit() -> None:
+    """A deployment under a path is a documented limit, so the refusal names it
+    and links where it is stated."""
+    # Arrange
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["external_origin"] = (
+        "https://terminals.example.org/terminals"
+    )
+
+    # Act
+    with pytest.raises(ValueError) as excinfo:
+        render_web_terminals(config)
+
+    # Assert
+    message = str(excinfo.value)
+    assert "own hostname or host:port" in message
+    assert PERIMETER_LIMITS_URL in message
 
 
 def test_a_blank_external_origin_falls_back_to_the_derivation() -> None:

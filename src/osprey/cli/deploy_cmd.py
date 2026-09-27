@@ -450,6 +450,7 @@ def _warn_if_host_networking_is_off(config: dict) -> None:
     :param config: The as-built deploy config, already loaded by the caller.
     """
     from osprey.deployment.docker_desktop import (
+        HOST_NETWORK_LIMIT,
         HOST_NETWORKING_REMEDY,
         host_networking_enabled,
         on_docker_desktop,
@@ -488,7 +489,8 @@ def _warn_if_host_networking_is_off(config: dict) -> None:
         "machine. The containers will start and report themselves healthy either way, "
         "and http://127.0.0.1:"
         f"{nginx_port}/ will not load in a browser. Everything else in this deployment "
-        "publishes its ports normally and is unaffected.",
+        "publishes its ports normally and is unaffected."
+        f" {HOST_NETWORK_LIMIT}",
         f"{HOST_NETWORKING_REMEDY}, and run this again",
     )
 
