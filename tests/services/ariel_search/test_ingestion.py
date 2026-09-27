@@ -227,7 +227,9 @@ class TestALSLogbookAdapter:
         config = self._make_config("/fake/path.jsonl")
         adapter = ALSLogbookAdapter(config)
 
-        entry = adapter._convert_entry({"subject": "no id here", "author": "nobody"})
+        entry = adapter._convert_entry(
+            {"subject": "no id here", "author": "nobody", "timestamp": "1704067200"}
+        )
 
         assert entry["entry_id"] == ""
         assert entry["author"] == "nobody"
