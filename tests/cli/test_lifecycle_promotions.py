@@ -1849,7 +1849,8 @@ def _stored_value(env_auth_path: Path, var: str) -> str:
 
 #: A local-mode web-terminal deployment, the only mode ``.env.users`` generates in.
 _LOCAL_WEB_CONFIG = {
-    "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+    "facility": {"name": "Demo", "prefix": "dls"},
+    "system": {"timezone": "UTC"},
     "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -1925,7 +1926,8 @@ def _seed_config(users: list[str]) -> dict:
     """A roster the seed loop can resolve personas for."""
     return {
         "project_name": "demo",
-        "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "modules": {"web_terminals": {"enabled": True, "users": users}},
     }
 

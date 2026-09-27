@@ -53,7 +53,8 @@ VERB_OPTIONS = {
 def _config(users_list, *, project_name="demo-project", facility_prefix="dls"):
     return {
         "project_name": project_name,
-        "facility": {"name": "Demo Light Source", "prefix": facility_prefix, "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": facility_prefix},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {
@@ -73,6 +74,7 @@ USERS_ENV_CONFIG = textwrap.dedent(
     facility:
       name: Demo Light Source
       prefix: dls
+    system:
       timezone: UTC
     llm:
       provider: cborg

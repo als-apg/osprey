@@ -87,6 +87,7 @@ _WEB_STACK_CONFIG = _RENDERED_CONFIG + (
     "facility:\n"
     "  name: Demo Light Source\n"
     "  prefix: dls\n"
+    "system:\n"
     "  timezone: UTC\n"
     "registry:\n"
     "  url: registry.example.org\n"
@@ -1078,7 +1079,8 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
 def _web_config(users: list[str]) -> dict:
     return {
         "project_name": "demo-project",
-        "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {

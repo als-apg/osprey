@@ -18,7 +18,8 @@ from osprey.health.core.file_system import file_system
 from osprey.health.models import CheckResult, Status
 
 _CONFIG = {
-    "facility": {"timezone": "UTC"},
+    "facility": {},
+    "system": {"timezone": "UTC"},
     "claude_code": {"provider": "cborg"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -95,7 +96,8 @@ _GATEWAY_TABLE_ENTRY = {
     "models": ["h", "s", "o"],
 }
 _GATEWAY_CONFIG = {
-    "facility": {"timezone": "UTC"},
+    "facility": {},
+    "system": {"timezone": "UTC"},
     "claude_code": {"provider": _GATEWAY},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }

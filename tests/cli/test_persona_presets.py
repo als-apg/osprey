@@ -1524,7 +1524,8 @@ class TestWebTerminalContextShipped:
         seeding.seed_user_containers(
             {
                 "project_name": "ctx-seed-hello",
-                "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+                "facility": {"name": "Demo", "prefix": "dls"},
+                "system": {"timezone": "UTC"},
                 "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
             }
         )

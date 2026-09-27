@@ -120,8 +120,8 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         "facility": {
             "name": "Demo Light Source",
             "prefix": "dls",
-            "timezone": "America/Los_Angeles",
         },
+        "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "modules": {"web_terminals": web_terminals},
