@@ -8,16 +8,18 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Eight parts of that file are gathered here — the facility this deployment
+Nine parts of that file are gathered here — the facility this deployment
 belongs to (``facility:``), the diagnostic suite (``health:``), the browser
 UI's documentation and feedback settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), the full tool-call record (``audit.tool_call:``), the
-links from an answer to a logbook entry (``ariel.entry_url_template``), and the
+links from an answer to a logbook entry (``ariel.entry_url_template``), the
+signals the agent exports (``claude_code.telemetry.signals``), and the
 deployment keys that decide which container image each service runs and how
-``${VAR}`` placeholders in the compose files are filled in. Settings that only ever arrive from the environment are in
-:doc:`environment-variables`. A closing note records the **protected set** —
-the files and keys no agent-side writer may touch.
+``${VAR}`` placeholders in the compose files are filled in. Settings that only
+ever arrive from the environment are in :doc:`environment-variables`. A closing
+note records the **protected set** — the files and keys no agent-side writer
+may touch.
 
 .. _config-facility:
 
@@ -854,6 +856,31 @@ A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
 ARIEL server reads the key from the loaded configuration, so a change lands
 after ``osprey build`` and a restart of the stack.
+
+.. _config-telemetry-signals:
+
+``claude_code.telemetry.signals`` — which signals the agent exports
+-------------------------------------------------------------------
+
+``claude_code.telemetry.signals`` lists the OpenTelemetry signals the agent
+exports while ``claude_code.telemetry.enabled`` is ``true``: any of
+``metrics``, ``logs`` and ``traces``. Unset, it exports all three.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.telemetry.signals: [metrics, logs]
+
+A signal left out is exported as ``none``, so an exporter variable in the
+shell or the project's ``.env`` cannot turn it back on. An empty list or any
+other name stops ``osprey build`` with a message naming the key; to export
+nothing, set ``claude_code.telemetry.enabled: false``. Built-in tool output
+(``claude_code.telemetry.log_tool_content``) is recorded as trace span events,
+so a list without ``traces`` leaves it out of the store; the tool-call record
+(``audit.tool_call.enabled``) is unaffected. Every launch reads the key: the
+web terminals, the dispatch worker, ``osprey chat`` and SDK agent runs. The
+rest of the block is covered in
+:doc:`/how-to/health-and-monitoring/monitor-agent`.
 
 .. _config-deployment:
 

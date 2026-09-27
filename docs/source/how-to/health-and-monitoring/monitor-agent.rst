@@ -45,8 +45,9 @@ it:
 .. note::
 
    Traces are exported to the same endpoint as logs and metrics. The exporter
-   appends ``/v1/traces`` to it, which is OpenObserve's traces route. A Phase 1
-   collector must accept traces.
+   appends ``/v1/traces`` to it, which is OpenObserve's traces route. For a
+   Phase 1 collector that takes no traces, leave them out with ``signals`` (see
+   :ref:`monitor-agent-signals`).
 
 Phase 1 — Emit to any OTLP endpoint
 ===================================
@@ -86,6 +87,9 @@ Keys:
      - OTLP transport. Defaults to ``http/protobuf``. ``grpc`` requires an
        explicit ``endpoint``: it is refused against the auto-derived
        ``openobserve`` endpoint, which is HTTP-only.
+   * - ``signals``
+     - Which of ``metrics``, ``logs`` and ``traces`` to export. Defaults to all
+       three; see :ref:`monitor-agent-signals`.
    * - ``headers``
      - Extra OTLP headers (for example, routing or auth headers your backend
        requires).
@@ -102,6 +106,30 @@ from it — then run the agent as usual:
    OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com
 
 That is all Phase 1 requires — the agent begins emitting on its next run.
+
+.. _monitor-agent-signals:
+
+Export without traces
+---------------------
+
+A collector that takes no traces refuses every trace the agent sends. List
+the signals it does take:
+
+.. code-block:: yaml
+
+   claude_code:
+     telemetry:
+       enabled: true
+       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+       signals: [metrics, logs]
+
+Each signal left out is exported as ``none`` rather than left unset, so an
+``OTEL_TRACES_EXPORTER`` in your shell or in the project's ``.env`` cannot
+turn it back on. An empty list or any other name stops ``osprey build``; to
+export nothing, set ``enabled: false``. Built-in tool output
+(``log_tool_content``, under `Content capture`_) is recorded as trace span
+events, so a list without ``traces`` leaves it out of the store. The osprey
+tool-call record is written either way.
 
 Phase 2 — The local OpenObserve add-on
 ======================================
@@ -344,6 +372,9 @@ to suppress that category from emitted telemetry:
        log_tool_details: true          # tool names + arguments
        log_tool_content: true          # built-in tool output (Read, Bash; Edit and Write with log_tool_details)
        log_raw_api_bodies: true        # raw provider request/response bodies
+
+``log_tool_content`` is recorded on the traces signal: with ``traces`` left out
+of ``signals`` it records nothing.
 
 ``content_max_length`` sets how many UTF-16 code units one content value may
 carry before Claude Code truncates it; Claude Code's own limit, 61440, applies
