@@ -566,6 +566,32 @@ arms it. Once the deployment is running, a card whose
 nobody, its owner included, and the service logs a warning naming the
 variable until the deployment is rendered again from a corrected profile.
 
+.. _multi-user-roster-contract:
+
+Who the roster names
+====================
+
+The roster is the list of people and shared cards, written in the profile.
+Adding a person, removing one or changing their tier is a roster edit followed
+by ``osprey up`` (the day-to-day table on :ref:`how-to-multi-user`).
+``osprey users remove`` is the removal that also retires the credential.
+Nothing reads the roster from a directory at run time.
+
+Under ``oidc`` the provider proves who someone is. The roster decides whether
+that person has a terminal, and which tier. A person the provider knows but
+whom no roster entry or principal covers is refused.
+
+A provider's groups can already pick the tier of a person the roster names
+(:ref:`multi-user-role-from-sso`). They add nobody to the roster and admit
+nobody to a card. ``user:`` and ``domain:`` principals are how people without
+an entry of their own reach a shared card.
+
+``group:`` is reserved for a principal naming a provider group. It will be
+built with the first site whose sign-in releases a groups claim to OSPREY.
+Groups are defined in the site's identity provider, not in OSPREY, and some
+providers release none. Until then the lint refuses it
+(``web_terminals.invalid_user_access``).
+
 
 .. _multi-user-https:
 
@@ -671,6 +697,14 @@ Removing someone, and turning it off
 
 A credential can outlive an account, so:
 
+- **An OSPREY login is its own session.** Under ``oidc`` the provider's proof
+  is checked once, at sign-in. The session that follows lasts until logout or
+  ``auth.session_lifetime``, whatever happens at the provider afterwards.
+  Signing out at the provider does not end it, and neither does disabling the
+  account there. ``osprey users remove <name>`` ends it now, and for a shared
+  card so does editing that person's ``oidc_subject:``. The reverse also
+  holds: logging out of OSPREY does not sign the browser out of the provider,
+  so on a shared machine sign out there too.
 - **Use** ``osprey users remove alice``, not a hand-edit of the roster —
   removing the entry alone leaves her hash in ``.env.auth``, and adding the
   name back months later revives her password. ``remove`` (or ``prune``, for
