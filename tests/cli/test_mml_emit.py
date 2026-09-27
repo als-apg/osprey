@@ -638,7 +638,7 @@ SYNTHETIC_BANDED = "QK:QF:1:CUR:SP"
 
 #: Where the lane's artifacts land, relative to the repo root. The deck and the
 #: bindings sit under ``simulation/``, which is what the build copies into the
-#: served tree; the machine-state view and the write bands are read from
+#: served tree; the machine-state list and the write bands are read from
 #: ``data/`` itself.
 VA_ARTIFACTS = (
     "data/simulation/lattice.json",
@@ -1591,7 +1591,7 @@ class TestEachDocumentThroughItsOwnReader:
         # address the served machine can be written on has a value to start at.
         assert set(setpoints(_bindings(two_zero_repo))) <= set(channels)
 
-    def test_the_machine_state_view_loads_through_the_manifest_reader(
+    def test_the_machine_state_list_loads_through_the_manifest_reader(
         self, two_zero_repo: Path
     ) -> None:
         assert _emit().exit_code == 0
@@ -1600,7 +1600,7 @@ class TestEachDocumentThroughItsOwnReader:
         candidates = load_machine_state_candidate_addresses(paths)
         document = json.loads(paths.machine_state_channels.read_text(encoding="utf-8"))
         assert candidates == [key for key in document if not key.startswith("_")]
-        assert candidates, "the export has monitor-only families and the view names none"
+        assert candidates, "the export has monitor-only families and the list names none"
         assert all(
             document[address]["label"] and document[address]["group"] for address in candidates
         )
@@ -1631,21 +1631,21 @@ class TestEachDocumentThroughItsOwnReader:
         document = _json(two_zero_repo, "data/channel_limits.json")
         assert [key for key in document if key.startswith("_")] == []
 
-    def test_the_state_view_can_name_a_monitor_the_starting_state_holds_no_value_for(
+    def test_the_state_list_can_name_a_monitor_the_starting_state_holds_no_value_for(
         self, va_repo: Path
     ) -> None:
         # Pinned as it stands rather than asserted as a rule: the machine-state
-        # view lists the export's monitor-only families, while the starting
+        # list names the export's monitor-only families, while the starting
         # state seeds the channels the export carries a nominal for, and SEPTUM
-        # is refused beside its facts -- it reaches the view without a value.
+        # is refused beside its facts -- it reaches the list without a value.
         # The build-time manifest reconciles the two and publishes the split
         # under ``_metadata.machine_state_reconciliation`` (manifest/build.py),
         # which is where an address outside the served set is meant to show up.
         assert _emit().exit_code == 0
 
-        view = _json(va_repo, "data/machine_state_channels.json")
+        listed = _json(va_repo, "data/machine_state_channels.json")
         channels = load_machine_json_channels(va_repo / "data" / "simulation" / "machine.json")
-        named = [key for key in view if not key.startswith("_")]
+        named = [key for key in listed if not key.startswith("_")]
         assert "QK:SEPTUM:1:CUR:RB" in named
         assert "QK:SEPTUM:1:CUR:RB" not in channels
 
