@@ -73,6 +73,11 @@ _MANIFEST_PATH = "src/osprey/profiles/config_key_manifest.yml"
 #: ``ariel`` joins for the same reason: the reference page documents
 #: ``ariel.entry_url_template``, and the profile page already names three
 #: ``ariel.*`` keys that the sweep could not see without it.
+#:
+#: ``phoebus`` belongs here because the reference page documents the Phoebus
+#: bridge's keys, and a section name missing from this tuple turns its keys into
+#: prose the sweep never looks at. The anchored dot keeps ``phoebus_drive`` and
+#: the other underscore spellings out.
 _SECTIONS = (
     "facility",
     "deployment",
@@ -92,6 +97,7 @@ _SECTIONS = (
     "agent_data",
     "file_paths",
     "ariel",
+    "phoebus",
 )
 
 #: An RST inline literal: ``like this``. Content may not span lines or contain
@@ -213,6 +219,25 @@ def test_the_manifest_declares_keys() -> None:
         "no declared key matches the documented-key shape this sweep looks for — "
         "the section list or the manifest's key spelling has drifted"
     )
+
+
+def test_the_phoebus_rows_are_swept() -> None:
+    """The ``phoebus`` section entry is only worth something if its rows reach the check.
+
+    A sweep that silently stopped recognising the reference page's Phoebus rows
+    would look identical to one that passes, so the rows are pinned as found.
+    """
+    expected = {
+        "phoebus.host",
+        "phoebus.port",
+        "phoebus.panels",
+        "phoebus.require_handle",
+        "phoebus.archiver_url",
+        "phoebus.plot_dir",
+        "phoebus.snapshot_dir",
+    }
+    swept = {key for _, _, key in _documented_keys()}
+    assert expected <= swept, f"phoebus rows the sweep does not see: {sorted(expected - swept)}"
 
 
 def _write_page(root: Path, name: str, body: str) -> None:
