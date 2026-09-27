@@ -36,9 +36,18 @@ development, a simulator for rehearsal, the real hardware for production.
       Rehearse a piece of work on the simulator, then run the same work on the
       live machine without rebuilding the project or restarting anything.
 
+   .. grid-item-card:: Connect the Agent to Phoebus Displays
+      :link: phoebus-bridge
+      :link-type: doc
+      :shadow: md
+
+      Let the agent open, read and drive live Phoebus displays through the
+      agent bridge.
+
 .. toctree::
    :hidden:
 
    use-connectors
    use-virtual-accelerator
    switch-control-target
+   phoebus-bridge
