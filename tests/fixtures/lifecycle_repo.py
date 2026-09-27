@@ -1201,7 +1201,7 @@ config:
     # Browsers reach the landing page's nginx directly here, so the address
     # they open is deploy.fqdn plus that port — and that is the address every
     # terminal checks an action against. Put something in front of this nginx
-    # (a load balancer terminating TLS, a reverse proxy, a DNS alias) and add
+    # (a load balancer terminating TLS, a reverse proxy) and add
     # `external_origin: https://<what browsers open>` here, or every action
     # inside a terminal is refused while every page still loads.
     # To override one port rather than move the block, name it here:

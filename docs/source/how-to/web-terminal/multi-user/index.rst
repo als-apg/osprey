@@ -242,9 +242,13 @@ The config block
          on. Leave it out and that address is derived from ``deploy.fqdn`` and
          ``nginx_port``, which is right whenever a browser talks to this nginx
          directly. Set it when something else stands in front — a facility load
-         balancer terminating TLS, a reverse proxy, a DNS alias — because the
-         terminals check it before allowing any action, and nothing here can guess
-         what that front door answers on. See :ref:`multi-user-https`.
+         balancer terminating TLS, a reverse proxy — because the terminals check
+         it before allowing any action, and nothing here can guess what that
+         front door answers on. nginx answers only on that address. A request
+         under any other name, whether another DNS name, the bare IP or
+         ``localhost``, is redirected to the same path there, so put the name
+         browsers should open in ``deploy.fqdn`` or ``external_origin``. See
+         :ref:`multi-user-https`.
 
          A persona may also name a landing-page section with ``landing_group``.
          Its users are lifted out of the roster's default section into one of
@@ -394,11 +398,12 @@ Stop the stack again with ``osprey down``; check on it with
 .. note::
 
    The web stack runs with host networking. On Linux,
-   ``http://127.0.0.1:10000`` is reachable as-is. On **macOS**, a container's
-   "host" is Docker Desktop's Linux VM — enable *host networking* in Docker
-   Desktop (Settings → Resources → Network) so the stack's ports reach your
-   browser. Host networking is one of the limits listed in
-   :ref:`perimeter-limits`.
+   ``http://127.0.0.1:10000`` is reachable as-is. That address is the
+   preset's ``deploy.fqdn``, and ``http://localhost:10000`` redirects to it.
+   On **macOS**, a container's "host" is Docker Desktop's Linux VM — enable
+   *host networking* in Docker Desktop (Settings → Resources → Network) so the
+   stack's ports reach your browser. Host networking is one of the limits
+   listed in :ref:`perimeter-limits`.
 
    If another OSPREY deployment already occupies these ports on this host, give
    this one its own block rather than moving services one by one — for example
