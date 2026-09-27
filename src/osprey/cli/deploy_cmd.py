@@ -921,7 +921,9 @@ def status_verb(repo: Path | None, show_agents: bool) -> None:
     checkout of the same deployment on this host is reported as a second
     checkout instead of being folded in. One limit, stated where it matters: a
     container created before this labelling existed carries no label and can
-    only be matched by project name. Status says which rows those are.
+    only be matched by project name. Status says which rows those are. A
+    container with no project label at all is listed only when its name matches
+    a deployed service.
 
     Examples:
 

@@ -160,3 +160,18 @@ def test_for_service_reads_the_compose_service_label() -> None:
     owned = deployment_containers(HOST_ROWS, project_name=PROJECT, services=("postgresql",))
     assert _names(owned.for_service("postgresql")) == {"mine-ariel-postgres"}
     assert _names(owned.for_service("archive")) == {"mine-archive"}
+
+
+def test_status_partition_claims_exactly_what_the_rule_claims() -> None:
+    from osprey.deployment import status_display
+
+    services = ["openobserve", "postgresql", "archive"]
+    mine, unlabelled, foreign, by_name, others = status_display._partition_by_checkout(
+        HOST_ROWS, "nobody-000000", PROJECT, services
+    )
+    listed = _names([*mine, *unlabelled, *foreign, *by_name])
+    owned = deployment_containers(
+        HOST_ROWS, project_name=PROJECT, services=services, identity="nobody-000000"
+    )
+    assert listed == _names(c.row for c in owned.ours)
+    assert _names(others) == _names(owned.other_projects)

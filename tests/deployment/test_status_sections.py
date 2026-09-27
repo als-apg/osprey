@@ -334,6 +334,52 @@ def test_a_container_that_is_not_ospreys_appears_nowhere(lifecycle_repo, runtime
     assert "some-postgres" not in text
 
 
+def test_a_container_with_only_the_compose_project_label_is_this_deployments(
+    lifecycle_repo, runtime
+):
+    render_build(lifecycle_repo)
+    row = container("als-exemplar-event-dispatcher", project=None)
+    row["Labels"] = {"com.docker.compose.project": PROJECT}
+    runtime["containers"] = [row]
+
+    text = report(lifecycle_repo)
+
+    assert "als-exemplar-event-dispatcher" in text
+    assert "Nothing is running for this deployment" not in text
+    assert f"carry no {REPO_ID_LABEL} label" in text
+
+
+def test_an_unlabelled_container_is_claimed_by_a_deployed_service_name(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    runtime["containers"] = [container("als-exemplar-event-dispatcher", project=None)]
+
+    text = report(lifecycle_repo)
+
+    assert "als-exemplar-event-dispatcher" in text
+    assert "matched by container name only" in text
+    assert "Nothing is running for this deployment" not in text
+
+
+def test_a_container_of_another_compose_project_appears_nowhere(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    row = container("stack-event-dispatcher", project=None)
+    row["Labels"] = {"com.docker.compose.project": "stack"}
+    runtime["containers"] = [row]
+
+    text = report(lifecycle_repo)
+
+    assert "stack-event-dispatcher" not in text
+
+
+def test_a_repo_with_no_build_claims_nothing_by_name(lifecycle_repo, runtime):
+    runtime["containers"] = [container("event-dispatcher", project=None)]
+
+    text = report(lifecycle_repo)
+
+    assert "event-dispatcher" not in text
+    assert "Nothing is running for this deployment" in text
+
+
 def test_a_failed_runtime_query_is_not_reported_as_an_empty_deployment(lifecycle_repo, runtime):
     """The one wrong answer that looks right: a stopped daemon rendering as "nothing deployed"."""
     render_build(lifecycle_repo)
