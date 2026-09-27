@@ -18,7 +18,9 @@ is one uvicorn app under ``/app``: there is no ``osprey.yml`` to anchor on, and
 :func:`osprey.audit.writer.audit_dir`'s resolver would either raise here or
 point at a directory the container does not bind. An unset or blank variable
 degrades to the log line below — a sidecar rendered before the audit mount
-existed still says what it decided, it simply cannot store it.
+existed still says what it decided, it simply cannot store it. The same
+directory holds the login service's revoked-session file (see
+:mod:`~osprey.services.auth_sidecar.revocation`).
 
 **The record is the user's, the directory is the service's.** The sidecar is
 the ``actor`` (it decided, under its own container identity) and the roster user
@@ -60,6 +62,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from osprey.audit import writer
@@ -101,6 +104,7 @@ __all__ = [
     "REASON_UNVERIFIED_EMAIL",
     "SIDECAR_POSTURE",
     "SURFACE",
+    "audit_directory",
     "ledger_path",
     "record_login_refusal",
     "record_login_success",
@@ -377,6 +381,36 @@ one — but pinned by a test, which is the layer that can fail loudly without
 costing a decision."""
 
 
+def audit_directory(env: Mapping[str, str] | None = None) -> Path | None:
+    """The directory :data:`AUDIT_DIR_ENV` names, or ``None``.
+
+    Read from *env*, or from :data:`os.environ` when *env* is ``None``, per
+    call. ``None`` means the variable is missing or blank, or names a relative
+    path.
+
+    **A relative value is refused like a blank one.** Resolved against the
+    process's working directory it would name ``/app/<something>`` inside the
+    image — a path the host binds nothing at — and the records would accumulate
+    in the container's writable layer and vanish with it, while this function
+    kept returning a path that says they were durably stored. The documented
+    degrade (the log line in :func:`write_envelope`) is the honest answer to a
+    value this service cannot write anything durable under.
+    """
+    source = os.environ if env is None else env
+    raw = source.get(AUDIT_DIR_ENV)
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    directory = Path(raw.strip())
+    if not directory.is_absolute():
+        logger.warning(
+            "%s is not an absolute path; this service stores nothing under it until it names "
+            "the directory compose binds for it",
+            AUDIT_DIR_ENV,
+        )
+        return None
+    return directory
+
+
 def ledger_path() -> Path | None:
     """The file this service's records are appended to, or ``None``.
 
@@ -390,14 +424,6 @@ def ledger_path() -> Path | None:
     environment, and a value captured at import would be whatever the first
     importer happened to see.
 
-    **A relative value is refused like a blank one.** Resolved against the
-    process's working directory it would name ``/app/<something>`` inside the
-    image — a path the host binds nothing at — and the records would accumulate
-    in the container's writable layer and vanish with it, while this function
-    kept returning a path that says they were durably stored. The documented
-    degrade (the log line in :func:`write_envelope`) is the honest answer to a
-    value this service cannot write anything durable under.
-
     **The stem is the surface literal, not a routed name.**
     :func:`osprey.audit.writer.ledger_name` consults
     :func:`~osprey.audit.writer.writer_context` first, so an
@@ -408,16 +434,8 @@ def ledger_path() -> Path | None:
     :data:`~osprey.audit.writer.LEDGER_SUFFIX` is still the writer's, because
     that one *is* shared vocabulary.
     """
-    raw = os.environ.get(AUDIT_DIR_ENV)
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    directory = Path(raw.strip())
-    if not directory.is_absolute():
-        logger.warning(
-            "%s is not an absolute path; this service files no records until it names the "
-            "directory compose binds for it",
-            AUDIT_DIR_ENV,
-        )
+    directory = audit_directory()
+    if directory is None:
         return None
     return directory / f"{SURFACE}{writer.LEDGER_SUFFIX}"
 

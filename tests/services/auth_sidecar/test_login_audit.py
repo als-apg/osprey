@@ -814,6 +814,29 @@ class TestThePathTheVariableNames:
         monkeypatch.chdir(tmp_path)
         assert audit.ledger_path() is None
 
+    def test_audit_directory_reads_the_mapping_it_is_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit mapping is the whole source: the process environment is
+        read only when no mapping is given."""
+        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(tmp_path / "process"))
+        given = tmp_path / "given"
+        assert audit.audit_directory({audit.AUDIT_DIR_ENV: f"  {given}  "}) == given
+        assert audit.audit_directory({}) is None
+        assert audit.audit_directory({audit.AUDIT_DIR_ENV: "   "}) is None
+        assert audit.audit_directory() == tmp_path / "process"
+
+    def test_audit_directory_refuses_a_relative_value(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger=audit.logger.name):
+            assert audit.audit_directory({audit.AUDIT_DIR_ENV: "relative/audit"}) is None
+        assert [
+            record.getMessage()
+            for record in caplog.records
+            if audit.AUDIT_DIR_ENV in record.getMessage()
+        ]
+
     def test_the_writer_marker_cannot_rename_this_ledger(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
