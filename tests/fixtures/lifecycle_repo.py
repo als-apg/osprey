@@ -1510,7 +1510,8 @@ panel_presets: {}
 # The Azure credentials and destinations are runtime env, not profile keys:
 # declare TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID,
 # TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE under
-# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud).
+# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud, and
+# TEAMS_FILES_DRIVE_ID / TEAMS_FILES_FOLDER to share files).
 #
 # teams_bridge:
 #   trigger: teams-question
