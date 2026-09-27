@@ -269,6 +269,12 @@ card on the next one.
 domain, and the value of the hosted-domain claim are never written to the
 trail.
 
+A password login refused because a guess missed files ``bad_credential``, the
+same for a wrong password, an unprovisioned user and an unknown name. A login
+whose user's stored hash cannot be evaluated files ``credential_unevaluable``
+instead: the browser sees the ordinary refusal, and the fix is
+``osprey users passwd <user>``.
+
 .. _audit-trail-tool-call:
 
 The full tool-call record

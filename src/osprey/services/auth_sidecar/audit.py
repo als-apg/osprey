@@ -81,6 +81,7 @@ __all__ = [
     "REASON_AMBIGUOUS_IDENTITY",
     "REASON_AMBIGUOUS_ROLE_CLAIM",
     "REASON_BAD_CREDENTIAL",
+    "REASON_CREDENTIAL_UNEVALUABLE",
     "REASON_HOSTED_DOMAIN_MISMATCH",
     "REASON_IDENTITY_MISMATCH",
     "REASON_METHOD_MISMATCH",
@@ -151,8 +152,20 @@ REASON_BAD_CREDENTIAL = "bad_credential"
 **One category on purpose.** A wrong password, a roster user with no provisioned
 credential, and a name that was never on the roster all arrive here — the same
 anti-lookup discipline the login page keeps, extended to the ledger, so a reader
-of the file cannot use it to enumerate accounts either. What varies between
-those cases is nothing the record could say without saying who exists.
+of the file cannot use it to enumerate accounts either. A provisioned credential
+the service cannot read is not one of these cases and files
+:data:`REASON_CREDENTIAL_UNEVALUABLE`. What varies between those cases is nothing
+the record could say without saying who exists.
+"""
+
+REASON_CREDENTIAL_UNEVALUABLE = "credential_unevaluable"
+"""A password attempt reached a stored credential the service cannot evaluate.
+
+A malformed or unusable ``OSPREY_AUTH_PW_HASH_<USER>`` entry: a configuration
+fault, not a guess, so no password could have unlocked the user. Its own
+category even though it tells a reader that the name holds a provisioned
+credential: only an operator's own ``.env.auth`` can produce it, and the
+sidecar's startup log already names that user.
 """
 
 REASON_UNMAPPED_USER = "unmapped_user"
@@ -326,6 +339,7 @@ LOGIN_REASONS: frozenset[str] = frozenset(
         REASON_AMBIGUOUS_IDENTITY,
         REASON_AMBIGUOUS_ROLE_CLAIM,
         REASON_BAD_CREDENTIAL,
+        REASON_CREDENTIAL_UNEVALUABLE,
         REASON_HOSTED_DOMAIN_MISMATCH,
         REASON_IDENTITY_MISMATCH,
         REASON_METHOD_MISMATCH,
