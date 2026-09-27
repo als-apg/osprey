@@ -6,11 +6,11 @@ drops lines that reference deleted artifact IDs (by cross-checking
 content to stdout. It is defensive — never blocks a prompt — so all error paths
 fail open with exit code 0.
 
-The root is seeded from :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR`
-rather than spelled out, because that is what the hook itself resolves: a test
-seeding a literal would silently stop putting the files where the hook looks,
-and a hook that finds no focus file strips nothing and still exits 0 — the
-failure would read as a pass.
+The root comes from the config's ``agent_data.base_dir``. Tests with no config
+seed the framework default, :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR`,
+rather than a spelled-out literal: a test seeding a literal would silently stop
+putting the files where the hook looks, and a hook that finds no focus file
+strips nothing and still exits 0 — the failure would read as a pass.
 
 The hook has a contract no other hook in the payload shares: stdin is
 ignored entirely, and stdout is *raw text* that Claude Code injects into
@@ -42,8 +42,8 @@ def _run(hook_runner_raw, monkeypatch, project_dir, stdin=None):
     )
 
 
-def _seed(project_dir, focus, entries):
-    agent_data = project_dir / DEFAULT_AGENT_DATA_BASE_DIR
+def _seed(project_dir, focus, entries, root=None):
+    agent_data = root if root is not None else project_dir / DEFAULT_AGENT_DATA_BASE_DIR
     (agent_data / "artifacts").mkdir(parents=True, exist_ok=True)
     (agent_data / "focus_state.txt").write_text(focus)
     if entries is not None:
@@ -66,6 +66,53 @@ def test_focus_validator_drops_stale_ids(hook_runner_raw, monkeypatch, tmp_path)
     assert "id=valid789" in stdout
     assert "id=stale456" not in stdout
     assert stdout.startswith("[Gallery Focus]")
+
+
+_RELOCATED_CONFIG = "agent_data:\n  base_dir: relocated/agent_data\n"
+
+_LIVE_AND_STALE = (
+    '[Gallery Focus]\n  artifact: "Live Plot" (id=live1)\n  pinned:   "Deleted Plot" (id=stale1)\n'
+)
+
+
+def test_focus_validator_reads_a_relocated_agent_data_root(hook_runner_raw, monkeypatch, tmp_path):
+    """The validator reads focus and index under the configured ``agent_data.base_dir``.
+
+    The stale id is stripped there and the live line is kept.
+    """
+    (tmp_path / "config.yml").write_text(_RELOCATED_CONFIG)
+    _seed(
+        tmp_path, _LIVE_AND_STALE, entries=[{"id": "live1"}], root=tmp_path / "relocated/agent_data"
+    )
+
+    rc, stdout, _ = _run(hook_runner_raw, monkeypatch, tmp_path)
+    assert rc == 0
+    assert "id=live1" in stdout
+    assert "id=stale1" not in stdout
+
+
+def test_focus_validator_ignores_the_default_root_when_relocated(
+    hook_runner_raw, monkeypatch, tmp_path
+):
+    """Under a relocated root, focus state at the default root is not read."""
+    (tmp_path / "config.yml").write_text(_RELOCATED_CONFIG)
+    _seed(tmp_path, _LIVE_AND_STALE, entries=[{"id": "live1"}])
+
+    rc, stdout, _ = _run(hook_runner_raw, monkeypatch, tmp_path)
+    assert rc == 0
+    assert stdout == ""
+
+
+def test_focus_validator_reads_an_absolute_agent_data_root(hook_runner_raw, monkeypatch, tmp_path):
+    """An absolute ``agent_data.base_dir`` is read as is."""
+    root = tmp_path / "abs_root"
+    (tmp_path / "config.yml").write_text(f"agent_data:\n  base_dir: {root}\n")
+    _seed(tmp_path, _LIVE_AND_STALE, entries=[{"id": "live1"}], root=root)
+
+    rc, stdout, _ = _run(hook_runner_raw, monkeypatch, tmp_path)
+    assert rc == 0
+    assert "id=live1" in stdout
+    assert "id=stale1" not in stdout
 
 
 def test_focus_validator_drops_all_returns_empty(hook_runner_raw, monkeypatch, tmp_path):
