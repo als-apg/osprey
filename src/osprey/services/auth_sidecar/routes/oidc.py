@@ -56,10 +56,10 @@ is in that set; only a card naming no role requires the set to hold exactly one,
 and refuses several under its own audited category. An empty intersection is
 "this deployment maps nothing to what you are in". Picking a member by order is
 never done: it would make the granted privilege depend on the order the
-provider happened to list groups in. A claim that never arrived — Entra's group overage
-strips ``groups`` from the ID token and leaves a pointer to Microsoft Graph
-behind — is the missing-claim refusal, not a fallback: the userinfo endpoint
-this module refuses to call could not have answered it either.
+provider happened to list groups in. A claim that never arrived — Entra's group
+overage strips ``groups`` from the ID token and leaves a pointer to Microsoft
+Graph behind — is the missing-claim refusal, not a fallback: the userinfo
+endpoint this module refuses to call could not have answered it either.
 
 **Nothing about a failure reaches the browser but its category.** Tokens,
 client secrets, and the claim values examined while validating a login never
@@ -1485,11 +1485,12 @@ async def oidc_callback(request: Request) -> Response:
         # consulted to admit it, so nothing else records who is behind this
         # session, and verify re-runs the rule against it on every subrequest.
         admitted_identity=admitted_identity,
-        # The matrix's answer, not this route's: the card's role where the
-        # token maps to it (or the claim's one role on an entry naming none)
-        # where this deployment binds claims, and the roster's own where it
-        # binds none. Empty means "no privileges" — the deny-safe value, which verify
-        # turns into an omitted role header rather than a default privilege.
+        # The matrix's answer, not this route's. Where this deployment binds
+        # claims it is the card's role when the token maps to it, or the
+        # claim's one role on an entry naming none; where it binds none, the
+        # roster's own. Empty means "no privileges" — the deny-safe value, which
+        # verify turns into an omitted role header rather than a default
+        # privilege.
         # Every other outcome refused the login above, so `with_user` can only
         # be reached with a role it can carry. The source comes from the same
         # grant, naming which of those two authorities the role is: the claim

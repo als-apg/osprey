@@ -409,7 +409,8 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     page with no scoped value simply has no stored preference, and resolution
     falls through to the server attribute and then to ``'auto'``. With the
     attribute absent (single-user serving, where nothing is stamped) both rungs
-    read the bare key exactly as before, legacy bare token included. The stored VALUE shape is untouched by any of this.
+    read the bare key exactly as before, legacy bare token included. The stored
+    VALUE shape is untouched by any of this.
 
     The emitted ``storageKey()`` inlines ``storage-scope.js``'s
     ``scopedStorageKey()`` rather than importing it — this script imports

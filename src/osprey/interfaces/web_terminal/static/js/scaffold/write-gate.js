@@ -47,8 +47,10 @@ export const WRITES_DISABLED_REASON =
 /** Resolved posture. Enabled until a payload says otherwise. */
 let writesEnabled = true;
 
-/** The config file the server could not read, which closed writes, or null. */
-/** @type {string|null} */
+/**
+ * The config file the server could not read, which closed writes, or null.
+ * @type {string|null}
+ */
 let unreadablePath = null;
 
 /**
