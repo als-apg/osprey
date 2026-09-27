@@ -299,13 +299,13 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         ariel_config = None
         config_errors = [str(e)]
 
-    # A test-double config is not a list — only a real list counts as
-    # vocabulary errors, so the classification cannot misfire on one.
     if gates.unreadable_config is not None:
         config_errors.insert(
             0, f"{gates.unreadable_config} could not be read, so the Config panel is closed"
         )
 
+    # A test-double config is not a list — only a real list counts as
+    # vocabulary errors, so the classification cannot misfire on one.
     raw_vocabulary_errors = getattr(ariel_config, "vocabulary_errors", None)
     vocabulary_errors = raw_vocabulary_errors if isinstance(raw_vocabulary_errors, list) else []
 

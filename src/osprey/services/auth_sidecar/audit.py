@@ -293,10 +293,10 @@ roster's would grant a privilege the login never proved.
 Distinct from :data:`REASON_UNMAPPED_ROLE_CLAIM` (the claim maps to nothing at
 all) and from :data:`REASON_AMBIGUOUS_ROLE_CLAIM` (it maps to several on a card
 naming none): here none of the roles the claim maps to is the card's, and the
-disagreement is with the deployment rather than inside the token. A run of these is a roster and an IdP that have
-drifted apart — someone moved between groups without their roster entry
-following — which is the one refusal in this set an operator fixes in *both*
-places.
+disagreement is with the deployment rather than inside the token. A run of these
+is a roster and an IdP that have drifted apart — someone moved between groups
+without their roster entry following — which is the one refusal in this set an
+operator fixes in *both* places.
 """
 
 REASON_UNSAFE_ROLE = "unsafe_role"

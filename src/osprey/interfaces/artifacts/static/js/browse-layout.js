@@ -9,8 +9,8 @@
  * - Orientation: side-by-side (browser left, artifact right — the default)
  *   or stacked (browser band on top). Stamped as `data-browse-orient` on
  *   <html> so CSS keys every delta off one attribute, persisted per person
- *   (storage-scope.js), flipped by the header toggle button. This axis is the gallery's own
- *   feature — no other panel has it.
+ *   (storage-scope.js), flipped by the header toggle button. This axis is the
+ *   gallery's own feature — no other panel has it.
  * - Splitter: the divider itself is the design system's shared splitter
  *   (/design-system/js/splitter.js, `.osprey-splitter` in base.css), the same
  *   drag/clamp/persist/keyboard behaviour the OKF and PLAN panels get. It is

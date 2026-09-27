@@ -2446,9 +2446,9 @@ keys:
       always had — and pinned false by the multi-user persona presets that are
       not the admin tier. The default is spelled in the evidence because it is
       the posture for a key the file does not mention; a config file that
-      exists but cannot be read closes the gate instead. The `\s*` between the call's parts is
-      load-bearing for the same reason `web.docs_url` carries it: the formatter
-      wraps this call across lines on length alone.
+      exists but cannot be read closes the gate instead. The `\s*` between the
+      call's parts is load-bearing for the same reason `web.docs_url` carries
+      it: the formatter wraps this call across lines on length alone.
     default: true
   web.feedback:
     evidence: 'get_config_value\("web\.feedback\.'

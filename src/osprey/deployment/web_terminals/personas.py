@@ -406,7 +406,7 @@ def phoebus_server_runs(config: Any) -> bool:
 
 
 def config_needs_phoebus_handles(config: Any) -> bool:
-    """True if ``config`` starts a Phoebus server and does not set ``phoebus.require_handle: false``.
+    """True if ``config`` starts a Phoebus server without ``phoebus.require_handle: false``.
 
     The entitlement for the ``PHOEBUS_REQUIRE_HANDLE`` stamp on a multi-user
     terminal. An explicit ``false`` is honoured by emitting nothing: the server
