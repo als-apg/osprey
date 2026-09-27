@@ -967,6 +967,14 @@ class TestPhoebusBridgeFallback:
         p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2", ctx)
         assert p2["env"]["PHOEBUS_BRIDGE_URL"] == ("${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}")
 
+    def test_server_env_leaves_require_handle_to_the_deployment(self):
+        """Neither the framework server nor a clone materializes PHOEBUS_REQUIRE_HANDLE:
+        an entry would win outright over phoebus.require_handle on every launch."""
+        phoebus = _resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus")
+        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+        assert "PHOEBUS_REQUIRE_HANDLE" not in phoebus["env"]
+        assert "PHOEBUS_REQUIRE_HANDLE" not in p2["env"]
+
 
 # ---------------------------------------------------------------------------
 # Agent resolution tests

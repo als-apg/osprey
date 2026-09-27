@@ -134,8 +134,13 @@ that focus is shared, so two terminals working at once can resolve
 With this key set, ``"active"`` is refused. Callers pass the handle
 ``phoebus_open_panel`` returned (``"handle:d-3"``) or an explicit display name
 from ``phoebus_list_displays``. ``PHOEBUS_REQUIRE_HANDLE`` (``1``/``true``/``yes``/``on``
-or ``0``/``false``/``no``/``off``) outranks the key either way. The default is
-off.
+or ``0``/``false``/``no``/``off``) outranks the key either way.
+
+A multi-user web-terminal deployment stamps ``PHOEBUS_REQUIRE_HANDLE=1`` on
+every terminal whose project runs a Phoebus server. Elsewhere the switch is off
+by default and is turned on with ``phoebus.require_handle: true`` or
+``PHOEBUS_REQUIRE_HANDLE=1``. ``phoebus.require_handle: false`` keeps
+``"active"`` in a multi-user deployment too.
 
 Data Browser plots and snapshots
 ================================

@@ -600,6 +600,17 @@ async def test_require_handle_config_key_rejects_implicit_active(tmp_path, monke
         await _fn("phoebus_perceive")()
 
 
+async def test_require_handle_config_false_keeps_implicit_active(tmp_path, monkeypatch):
+    """phoebus.require_handle: false in config.yml keeps the implicit 'active' fallback."""
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.dump({"phoebus": {"require_handle": False}}))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    body = {"display": {"name": "demo"}, "widgets": []}
+    with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
+        result = await _fn("phoebus_perceive")()
+    assert extract_response_dict(result)["status"] == "success"
+
+
 async def test_require_handle_perceive_with_handle_succeeds(monkeypatch):
     """Flag on + explicit handle:<id> resolves normally (no rejection)."""
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")

@@ -154,7 +154,12 @@ gets there.
    * - ``PHOEBUS_REQUIRE_HANDLE``
      - ``1``/``true``/``yes``/``on`` or ``0``/``false``/``no``/``off``,
        outranking ``phoebus.require_handle`` either way. Any other value falls
-       through to the key.
+       through to the key. A multi-user web-terminal deployment stamps ``1`` on
+       every terminal whose project runs a Phoebus server. Elsewhere it is
+       unset, so the switch is off by default and is turned on with
+       ``phoebus.require_handle: true`` or this variable set to ``1``.
+       ``phoebus.require_handle: false`` keeps ``"active"`` in a multi-user
+       deployment too.
    * - ``PHOEBUS_ARCHIVER_URL``
      - The archiver bound into generated Data Browser plots, outranking
        ``phoebus.archiver_url``.
