@@ -573,7 +573,8 @@ async def run_ingest(
             configured adapter in place — the same rule ``run_watch`` follows,
             so a project that names its adapter in config.yml does not have to
             repeat it on every ingest.
-        since: Only ingest entries after this date.
+        since: Only ingest entries after this date; a value without an offset
+            is facility-local.
         limit: Maximum entries to ingest.
         dry_run: Parse entries without storing them.
         progress: Optional callback for human-readable progress lines.
@@ -584,6 +585,7 @@ async def run_ingest(
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
+    from osprey.utils.config import localize_facility
 
     if "ingestion" not in config_dict:
         config_dict["ingestion"] = {}
@@ -592,6 +594,7 @@ async def run_ingest(
         config_dict["ingestion"]["adapter"] = adapter
 
     config = _ariel_config(config_dict)
+    since = localize_facility(since)
     adapter_instance = get_adapter(config)
 
     if progress:

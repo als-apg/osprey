@@ -6,13 +6,14 @@ This module defines the abstract base class for ARIEL ingestion adapters.
 import ssl
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import aiohttp
 
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.http import build_ssl_context
+from osprey.utils.config import localize_facility
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -210,6 +211,49 @@ class FacilityAdapter(ABC):
             Total count of entries, or None if not available
         """
         return None
+
+
+def parse_entry_time(value: object) -> datetime:
+    """Read a logbook entry's time as the instant it names.
+
+    A time that carries a UTC offset, a ``Z`` or a Unix epoch (number or
+    numeric string) keeps its instant. A time without an offset is the
+    facility-local wall clock of the people who wrote it, read through
+    :func:`~osprey.utils.config.localize_facility` like every other
+    facility-local time. A wall time that does not exist (spring forward) is
+    read with the offset in force before the change, and one that happens twice
+    (fall back) as its first occurrence (zoneinfo's ``fold=0``). The result is
+    always aware UTC. Anything else raises, because a guessed time is worse
+    than a skipped entry.
+
+    Args:
+        value: The time as the source wrote it.
+
+    Returns:
+        The instant, as an aware UTC datetime.
+
+    Raises:
+        ValueError: If the value is missing, empty or not a readable time.
+    """
+    message = f"Cannot parse timestamp: {value!r}"
+    # ``bool`` is an ``int``; a flag is never a time.
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(message)
+    if isinstance(value, str) and not value.strip():
+        raise ValueError(message)
+    try:
+        if not isinstance(value, str):
+            return datetime.fromtimestamp(value, tz=UTC)
+        text = value.strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return datetime.fromtimestamp(float(text), tz=UTC)
+        return localize_facility(parsed).astimezone(UTC)
+    except (ValueError, OverflowError, OSError) as err:
+        raise ValueError(message) from err
 
 
 # Backwards-compatible alias
