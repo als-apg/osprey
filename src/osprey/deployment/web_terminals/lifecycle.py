@@ -92,8 +92,8 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.errors import CapturedProcessError, RemovalIncompleteError
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
+    removal_refusal,
     runtime_env,
-    runtime_reports_absent,
     verify_runtime_is_running,
 )
 from osprey.deployment.web_terminals.artifacts import (
@@ -713,12 +713,12 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
 
     left: list[tuple[str, str]] = []
     for volume in volumes:
-        reason = _refusal(remove_volume(runtime, volume, env=env))
+        reason = removal_refusal(remove_volume(runtime, volume, env=env))
         if reason:
             left.append((f"volume {volume!r}", reason))
 
     for image in images_to_remove:
-        reason = _refusal(remove_image(runtime, image, env=env))
+        reason = removal_refusal(remove_image(runtime, image, env=env))
         if reason:
             left.append((f"image {image!r}", reason))
 
@@ -1414,8 +1414,9 @@ def remove_volume(
 
     Returns:
         The completed subprocess, for callers that want to inspect the outcome.
-        The caller must pass it to :func:`_refusal`, because the runtime refuses
-        to remove a volume any container references.
+        The caller must pass it to
+        :func:`~osprey.deployment.runtime_helper.removal_refusal`, because the
+        runtime refuses to remove a volume any container references.
     """
     return subprocess.run([runtime, "volume", "rm", name], capture_output=True, text=True, env=env)
 
@@ -1441,26 +1442,11 @@ def remove_image(
 
     Returns:
         The completed subprocess, for callers that want to inspect the outcome.
-        The caller must pass it to :func:`_refusal`, because the runtime refuses
-        to remove an image a container still uses.
+        The caller must pass it to
+        :func:`~osprey.deployment.runtime_helper.removal_refusal`, because the
+        runtime refuses to remove an image a container still uses.
     """
     return subprocess.run([runtime, "image", "rm", tag], capture_output=True, text=True, env=env)
-
-
-def _refusal(result: subprocess.CompletedProcess) -> str | None:
-    """Why the runtime refused an exact-named removal, or ``None`` if nothing is left.
-
-    Exit 0 and a failure whose stderr says the resource was not there both mean
-    the resource is gone. Anything else returns the runtime's stderr, or
-    ``exit N`` when it printed nothing, for the caller to collect.
-    """
-    if result.returncode == 0:
-        return None
-    stderr = (result.stderr or "").strip()
-    if runtime_reports_absent(stderr):
-        logger.debug("Already gone: %s", " ".join(map(str, result.args)))
-        return None
-    return stderr or f"exit {result.returncode}"
 
 
 def _report_kept(summary: str, left: Sequence[tuple[str, str]], remedy: str) -> None:
@@ -1601,12 +1587,12 @@ def _apply_volume_policy(
                 why = (exc.stderr or "").strip() or f"exit {exc.returncode}"
                 kept.append((subject, f"not archived, so not removed: {why}"))
                 continue
-            reason = _refusal(remove_volume(runtime, volume, env=env))
+            reason = removal_refusal(remove_volume(runtime, volume, env=env))
             if reason:
                 kept.append((subject, f"archived to {tarball}, but not removed: {reason}"))
     else:  # purge
         for volume in volumes:
-            reason = _refusal(remove_volume(runtime, volume, env=env))
+            reason = removal_refusal(remove_volume(runtime, volume, env=env))
             if reason:
                 kept.append((f"volume {volume!r}", reason))
 

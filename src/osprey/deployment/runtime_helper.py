@@ -774,10 +774,28 @@ def runtime_reports_absent(stderr: str) -> bool:
     Matched on the runtime's own wording because neither docker nor podman
     distinguishes "already gone" from "would not go" by exit code. Kept
     deliberately narrow: anything else is surfaced to the operator. Every
-    exact-named removal in :mod:`osprey.deployment` classifies its failures here.
+    exact-named removal in :mod:`osprey.deployment` classifies its failures
+    through :func:`removal_refusal`, which asks this.
     """
     lowered = stderr.lower()
     return "no such" in lowered or "not found" in lowered
+
+
+def removal_refusal(result: subprocess.CompletedProcess) -> str | None:
+    """Why the runtime refused an exact-named removal, or ``None`` if nothing is left.
+
+    Exit 0 and a failure whose stderr says the resource was not there
+    (:func:`runtime_reports_absent`) both mean the resource is gone. Anything
+    else returns the runtime's stderr, or ``exit N`` when it printed nothing,
+    for the caller to collect.
+    """
+    if result.returncode == 0:
+        return None
+    stderr = (result.stderr or "").strip()
+    if runtime_reports_absent(stderr):
+        logger.debug("Already gone: %s", " ".join(map(str, result.args)))
+        return None
+    return stderr or f"exit {result.returncode}"
 
 
 def _inspect_image_id(cmd: list[str], env: dict[str, str] | None) -> str | None:
