@@ -585,6 +585,83 @@ def seeded_logins_report(project_root: str | Path, usernames: Iterable[str]) -> 
     return SeededLoginsReport(printable=tuple(printable), stale=tuple(stale))
 
 
+def seeded_password_users(
+    project_root: str | Path,
+    usernames: Iterable[str],
+    *,
+    shared: frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    """The roster logins that would accept the password ``profile.yml`` publishes.
+
+    :func:`seeded_logins_report` decides what may be printed, so it requires the
+    ``.env`` value to still be the profile default. This function decides what
+    the login wall accepts, which is a stricter question: a stored hash outlives
+    its ``.env`` line (:func:`ensure_auth_credentials` rule 1), and a hash of
+    the published value keeps accepting it after that line is gone.
+
+    Per user whose ``OSPREY_AUTH_PW_<USER>`` ``profile.yml`` publishes under
+    ``env.defaults``:
+
+    * A stored ``OSPREY_AUTH_PW_HASH_<USER>`` in ``.env.auth`` decides alone:
+      the login is seeded when that hash verifies the published value. A hash
+      that cannot be evaluated verifies nothing, and such a login refuses every
+      password.
+    * With no stored hash, the login is seeded when it is not in ``shared`` and
+      the project ``.env`` value equals the published one, which is exactly
+      what the next :func:`ensure_auth_credentials` would hash. A shared card is
+      never handed to that function, so only a stored hash can seed it.
+
+    An absent or unparseable ``profile.yml`` publishes nothing, and the result
+    is empty. An unreadable ``.env.auth`` is read as holding no hashes, which
+    leans toward naming a login rather than clearing it. No password is ever
+    returned or logged.
+
+    :param project_root: The deployment repo holding ``profile.yml``, ``.env``
+        and ``.env.auth``.
+    :param usernames: Roster usernames, in the order they should be reported.
+    :param shared: The usernames that are shared cards.
+    :return: The seeded usernames, in ``usernames`` order.
+    """
+    root = Path(project_root)
+    try:
+        declared = _profile_env_defaults(root)
+    except Exception as exc:  # an unreadable profile publishes nothing
+        logger.debug(f"Seeded-password check skipped: {exc}")
+        return ()
+    if not declared:
+        return ()
+
+    try:
+        env_auth_path = root / AUTH_ENV_FILENAME
+        stored = parse_dotenv_file(env_auth_path) if env_auth_path.is_file() else {}
+    except Exception as exc:  # read as holding no hashes
+        logger.debug(f"Seeded-password hashes unreadable: {exc}")
+        stored = {}
+    try:
+        env_path = root / ENV_LOCAL_FILENAME
+        project_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    except Exception as exc:
+        logger.debug(f"Seeded-password .env unreadable: {exc}")
+        project_env = {}
+
+    seeded: list[str] = []
+    for name in usernames:
+        if name in seeded:
+            continue
+        suffix = env_var_suffix(name)
+        variable = f"{PW_PLAINTEXT_VAR_PREFIX}{suffix}"
+        published = str(declared.get(variable, "")).strip()
+        if not published:
+            continue
+        stored_hash = stored.get(f"{PW_HASH_VAR_PREFIX}{suffix}", "").strip()
+        if stored_hash:
+            if verify_password(published, stored_hash):
+                seeded.append(name)
+        elif name not in shared and project_env.get(variable, "").strip() == published:
+            seeded.append(name)
+    return tuple(seeded)
+
+
 def _profile_env_defaults(root: Path) -> dict[str, Any]:
     """``env.defaults`` as ``profile.yml`` declares it, or an empty mapping.
 

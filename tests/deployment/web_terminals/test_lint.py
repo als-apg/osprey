@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 import yaml
@@ -23,6 +24,7 @@ from osprey.port_layout import (
     SLOTS_BY_NAME,
     default_port,
 )
+from osprey.services.auth_sidecar.passwords import hash_password
 
 # A second, non-default base whose block the explicit per-family overrides
 # below sit in — proves the lint reads a config override rather than assuming
@@ -2661,6 +2663,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.unknown_auth_method",
         "web_terminals.auth_requires_tls",
         "web_terminals.auth_insecure_http",
+        "web_terminals.auth_seeded_password",
         "web_terminals.auth_oidc_missing_issuer",
         "web_terminals.auth_oidc_invalid_client_env",
         "web_terminals.auth_oidc_invalid_scopes",
@@ -3179,6 +3182,171 @@ def test_lint_auth_insecure_http_still_warns_when_the_origin_cannot_be_derived()
 
     # Assert
     assert any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+
+
+_SEEDED_CODE = "web_terminals.auth_seeded_password"
+
+
+def _seeded_config(tmp_path: Path, *, fqdn: str | None, **auth: object) -> dict:
+    """Password auth whose repo publishes alice's password and still sets it in `.env`."""
+    (tmp_path / "profile.yml").write_text(
+        "name: demo\nenv:\n  defaults:\n    OSPREY_AUTH_PW_ALICE: demo-pw-alice\n"
+    )
+    (tmp_path / ".env").write_text("OSPREY_AUTH_PW_ALICE=demo-pw-alice\n")
+    return _auth_config({"method": "password", **auth}, fqdn=fqdn)
+
+
+def _seeded(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.code == _SEEDED_CODE]
+
+
+def test_lint_seeded_password_on_a_networked_origin_is_an_error(tmp_path: Path) -> None:
+    """A published password on a host browsers reach from elsewhere is an open login."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert [f.severity for f in findings] == ["error"]
+    message = findings[0].message
+    assert "'alice'" in message
+    assert "osprey users passwd alice" in message
+    assert "https://ops.example.org" in message
+    assert "demo-pw-alice" not in message
+
+
+def test_lint_seeded_password_is_an_error_over_tls_too(tmp_path: Path) -> None:
+    """TLS stops sniffing; it does not make a published password secret."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    assert config["modules"]["web_terminals"]["tls"]["enabled"] is True
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+
+
+@pytest.mark.parametrize("fqdn", ["127.0.0.1", "localhost"])
+def test_lint_seeded_password_on_a_loopback_origin_reports_nothing(
+    tmp_path: Path, fqdn: str
+) -> None:
+    """The demo on this machine keeps its demo logins."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn=fqdn)
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_seeded_password_behind_a_real_external_origin_is_an_error(tmp_path: Path) -> None:
+    """Browsers log in at `external_origin`, whatever `deploy.fqdn` says."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="127.0.0.1")
+    config["modules"]["web_terminals"]["external_origin"] = "https://ops.example.org"
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    assert "https://ops.example.org" in findings[0].message
+
+
+def test_lint_seeded_password_when_the_origin_cannot_be_derived_is_an_error(
+    tmp_path: Path,
+) -> None:
+    """An origin nobody can name is not read as loopback."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn=None)
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    assert "cannot be derived" in findings[0].message
+
+
+def test_lint_rotated_password_reports_nothing(tmp_path: Path) -> None:
+    """A stored hash of a chosen password refuses the published one."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    (tmp_path / ".env.auth").write_text(f"OSPREY_AUTH_PW_HASH_ALICE={hash_password('chosen')}\n")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_seeded_shared_card_names_decommission(tmp_path: Path) -> None:
+    """A shared card's password cannot be changed, so its remedy is decommission."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "ops", "index": 1, "access": "any"},
+    ]
+    (tmp_path / "profile.yml").write_text(
+        "name: demo\nenv:\n  defaults:\n"
+        "    OSPREY_AUTH_PW_ALICE: demo-pw-alice\n"
+        "    OSPREY_AUTH_PW_OPS: demo-pw-ops\n"
+    )
+    (tmp_path / ".env.auth").write_text(f"OSPREY_AUTH_PW_HASH_OPS={hash_password('demo-pw-ops')}\n")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    message = findings[0].message
+    assert "osprey users passwd alice" in message
+    assert "osprey users decommission ops" in message
+    assert "demo-pw-ops" not in message
+
+
+@pytest.mark.parametrize("method", ["token", "none", "oidc"])
+def test_lint_seeded_password_is_only_checked_under_password_auth(
+    tmp_path: Path, method: str
+) -> None:
+    """Only password auth has an OSPREY-held password to accept."""
+    # Arrange
+    _seeded_config(tmp_path, fqdn="ops.example.org")
+    auth = _oidc() if method == "oidc" else {"method": method}
+    config = _auth_config(auth, fqdn="ops.example.org")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_seeded_password_is_not_checked_at_profile_altitude(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A profile has no `.env` or `.env.auth` of a deployment to read yet."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    monkeypatch.chdir(tmp_path)
+    dotted = {
+        "deploy.fqdn": config["deploy"]["fqdn"],
+        "modules.web_terminals": config["modules"]["web_terminals"],
+    }
+
+    # Act
+    findings = _seeded(lint_profile_config(dotted))
+
+    # Assert
+    assert findings == []
 
 
 def test_lint_auth_with_tls_reports_no_transport_finding() -> None:
