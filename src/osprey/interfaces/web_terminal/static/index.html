@@ -8,7 +8,7 @@
     localStorage. It is THE source of truth for the storage namespace — JS
     storage sites read this attribute and never parse the URL. Its absence
     means single-user: keys stay unscoped, exactly as they were. Never emit
-    it empty. See resolve_storage_scope() in app.py. -#}
+    it empty. See resolve_storage_scope() in common_middleware.py. -#}
 {#- data-header-bar / data-status-bar are present ONLY as "hidden", when the
     effective bar layout hides that bar. They are stamped here, with the other
     pre-paint layout facts, because each changes .shell-body's height: a page

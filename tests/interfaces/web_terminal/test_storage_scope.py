@@ -31,7 +31,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app, resolve_storage_scope
+from osprey.interfaces.common_middleware import resolve_storage_scope
+from osprey.interfaces.web_terminal.app import create_app
 
 #: The attribute under test.
 ATTR = "data-osprey-storage-scope"

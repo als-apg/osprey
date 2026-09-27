@@ -5,7 +5,7 @@
     page's module closure reaches the PTY-session, dock-layout and
     rail-position keys, and those readers take the namespace from here rather
     than parsing the URL. Absent means single-user: keys stay unscoped. Never
-    emit it empty. See resolve_storage_scope() in app.py. -#}
+    emit it empty. See resolve_storage_scope() in common_middleware.py. -#}
 {#- data-panel-labels is the registry's roster of built-in panel labels, read
     at module load by panel-catalog.js. activity-strip.js reaches panel-manager
     for the labels it words panel actions with, so this page needs the same
