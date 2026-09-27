@@ -72,6 +72,7 @@ from osprey.profiles.web_panels import (
     panel_spec_enabled,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
+from osprey.utils.config import get_facility_timezone
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -2731,6 +2732,9 @@ def create_app(
                 # the attribute entirely in that case — see
                 # resolve_storage_scope().
                 "storage_scope": resolve_storage_scope(terminal_user),
+                # The zone system.timezone names, resolved by the call the
+                # operator chat's system prompt uses, so page and agent read one clock.
+                "facility_timezone": get_facility_timezone().key,
                 "landing_url": landing_url,
                 "auth_role": auth_role or "",
                 "auth_role_source_label": auth_role_source_label,
@@ -2774,6 +2778,7 @@ def create_app(
                 "storage_scope": resolve_storage_scope(
                     getattr(request.app.state, "terminal_user", "")
                 ),
+                "facility_timezone": get_facility_timezone().key,
                 # activity-strip.js reaches panel-manager.js for the labels it
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.
