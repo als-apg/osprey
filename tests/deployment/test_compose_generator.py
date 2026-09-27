@@ -6026,6 +6026,8 @@ def test_teams_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
         "GITLAB_ISSUES_TOKEN",
         "TEAMS_CLOUD",
         "APP_VERSION_DISPLAY",
+        "TEAMS_FILES_DRIVE_ID",
+        "TEAMS_FILES_FOLDER",
     ):
         assert environment[var] == f"${{{var}:-}}", (
             f"{var} must pass through with an empty default so the config dataclass "

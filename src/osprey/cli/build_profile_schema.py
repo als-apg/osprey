@@ -975,9 +975,10 @@ class TeamsBridgeProfileConfig:
 
     The Azure credentials and destinations are deliberately *not* profile
     fields: ``TEAMS_APP_ID``, ``TEAMS_APP_SECRET``, ``TEAMS_TENANT_ID``,
-    ``TEAMS_SERVICEBUS_CONNECTION_STRING``, ``TEAMS_SERVICEBUS_QUEUE`` and the
-    optional ``TEAMS_CLOUD`` are user-supplied runtime env (declared via
-    ``env.required``), never baked into a build. Validated by
+    ``TEAMS_SERVICEBUS_CONNECTION_STRING``, ``TEAMS_SERVICEBUS_QUEUE``, the
+    optional ``TEAMS_CLOUD`` and the optional file-sharing pair
+    ``TEAMS_FILES_DRIVE_ID``/``TEAMS_FILES_FOLDER`` are user-supplied runtime env
+    (declared via ``env.required``), never baked into a build. Validated by
     :meth:`BuildProfile.validate`.
     """
 
