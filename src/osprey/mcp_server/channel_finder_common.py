@@ -17,7 +17,6 @@ package.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -95,14 +94,24 @@ def build_cf_server(
     return mcp
 
 
+def _config_path() -> Path:
+    """Return the channel-finder servers' view of the framework's config path.
+
+    It is :func:`~osprey.utils.workspace.resolve_config_path`, asked directly.
+    Loading, data anchoring and state anchoring all answer from it, so they
+    cannot disagree with each other or with the graph pipeline.
+    """
+    from osprey.utils.workspace import resolve_config_path
+
+    return resolve_config_path()
+
+
 def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
-    """Load ``config.yml`` from the ``OSPREY_CONFIG`` env var or cwd.
+    """Load ``config.yml`` from the framework's config path.
 
     Returns an empty dict when the file is missing.
     """
-    config_path = Path(
-        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-    )
+    config_path = _config_path()
     raw: dict[str, Any] = {}
     if config_path.exists():
         with open(config_path) as f:
@@ -112,10 +121,6 @@ def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
         logger.warning("Config file not found: %s", config_path)
 
     return raw
-
-
-def _config_path() -> Path:
-    return Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml"))))
 
 
 def resolve_cf_path(path_str: str) -> str:
