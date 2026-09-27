@@ -26,15 +26,17 @@ Restated from the writer's docstring, in stdlib terms::
   ``<agent_data_root>/control_target/<acting_identity()>``;
 * ``agent_data_root`` resolves by ONE rule, the same one the writer and the
   connector-side reader use: the ``OSPREY_AGENT_DATA_ROOT`` stamp when it names
-  a non-blank path, else ``<repo_root>/var/agent_data``;
+  a non-blank path, else ``<repo_root>/<agent_data.base_dir>``;
 * ``repo_root`` comes from :func:`osprey_hook_log.get_repo_root` — the repo, not
   the render: ``build/`` is disposable and ``data/`` is checksummed;
-* the DERIVED base dir is the framework default ``var/agent_data``. A project
-  that overrides ``agent_data.base_dir`` and does not stamp the root moves the
-  directory somewhere this reader does not look; the reader then reports the
-  baseline fallback, which is the documented fail-closed outcome rather than a
-  wrong target — and :func:`posture_unknown` turns that same silence into a
-  refusal for every process the stamp did not reach;
+* the DERIVED base dir is ``agent_data.base_dir`` read from the config the hooks
+  load, so a relocated root is followed. The derivation can still diverge from
+  the framework's where the hook's raw YAML read and the framework's
+  ``${VAR}``-resolving loader disagree, or where the two anchors differ; the
+  reader then reports the baseline fallback, which is the documented
+  fail-closed outcome rather than a wrong target — and :func:`posture_unknown`
+  turns that same silence into a refusal for every process the stamp did not
+  reach;
 * ``acting_identity()`` restates the ladder :mod:`osprey_connectors.identity`
   owns, for the reason every constant here is restated. A hook that resolved a
   different identity from the writer would read a narrowing somebody else
@@ -197,16 +199,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_repo_root
-
-# The framework DEFAULT agent-data root, imported rather than spelled out here so
-# the two cannot drift apart. The fallback covers the ordinary case — a hook
-# running with osprey off the path — where the literal from the path contract is
-# the right answer, not a guess.
-try:
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _AGENT_DATA_BASE_DIR
-except Exception:  # pragma: no cover - hooks must never crash the agent
-    _AGENT_DATA_BASE_DIR = "var/agent_data"
+from osprey_hook_log import agent_data_root_at, get_repo_root, load_osprey_config
 
 #: Fixed subdirectory of the agent-data root, holding one directory per
 #: identity. Mirrors ``STATE_DIR_NAME`` on the writer; part of the greppable
@@ -481,14 +474,16 @@ def agent_data_root(hook_input=None):
     """The agent-data root the record and the reports share.
 
     Rule 1 of the path contract: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp when
-    it names a non-blank path, else ``<repo_root>/var/agent_data``. ``None``
-    when neither answers — a session whose repo root cannot be resolved has no
-    record, which is a different thing from having an empty one.
+    it names a non-blank path, else ``<repo_root>/<agent_data.base_dir>`` read
+    from the config the hooks load. ``None`` when neither answers — a session
+    whose repo root cannot be resolved has no record, which is a different thing
+    from having an empty one.
 
-    The stamp comes first because it is the only answer that is right when a
-    project moved ``agent_data.base_dir``: the derivation below is the framework
-    DEFAULT, and a reader that preferred it would look in a directory nobody
-    writes while a live narrowing sat somewhere else.
+    The stamp comes first because it is the root the writer was handed. The
+    derivation below follows a relocated ``agent_data.base_dir``, but it can
+    still diverge from the framework's where the hook's raw YAML read and the
+    framework's ``${VAR}``-resolving loader disagree, or where the anchors
+    differ.
     """
     try:
         stamped = (os.environ.get(AGENT_DATA_ROOT_ENV_VAR) or "").strip()
@@ -497,7 +492,7 @@ def agent_data_root(hook_input=None):
         repo_root = get_repo_root(hook_input)
         if not repo_root:
             return None
-        return os.path.join(repo_root, _AGENT_DATA_BASE_DIR)
+        return agent_data_root_at(repo_root, load_osprey_config(hook_input))
     except Exception:  # pragma: no cover - defensive; get_repo_root is total
         return None
 
@@ -1152,9 +1147,8 @@ def posture_unknown(hook_input=None):
 
     Both at once, and nothing less:
 
-    * :data:`AGENT_DATA_ROOT_ENV_VAR` is NOT stamped — the directory below was
-      derived from the framework default rather than handed over, and a project
-      that moved ``agent_data.base_dir`` moved it out from under this reader;
+    * :data:`AGENT_DATA_ROOT_ENV_VAR` is NOT stamped — the root was derived from
+      config rather than handed over;
     * there is no readable record in that directory — the evidence that the
       derivation found the right directory after all is missing.
 
