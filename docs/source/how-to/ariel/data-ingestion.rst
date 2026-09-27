@@ -91,6 +91,18 @@ Write it only as a deliberate choice. Nothing about the connection is authentica
 
 The same settings cover the sidecar-metadata fetch described below, so one ingest never reaches the logbook host two different ways.
 
+Links Back to the Logbook
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The agent cites entries by ID. Give it your logbook's address for one entry and it cites them as links instead:
+
+.. code-block:: yaml
+
+   ariel:
+     entry_url_template: "https://logbook.example.org/entry/{entry_id}"
+
+``{entry_id}`` is replaced with the entry's URL-encoded id, and the ARIEL tools return the result as ``entry_url`` beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries created through ARIEL and not yet published to the logbook get no link. The key, the tools that carry the URL and what a malformed template does are in :ref:`config-ariel-entry-url`.
+
 Sidecar Metadata
 ~~~~~~~~~~~~~~~~
 
