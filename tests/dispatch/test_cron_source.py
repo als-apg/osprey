@@ -80,6 +80,39 @@ async def test_loop_fires_at_interval_then_stops(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_the_first_fire_waits_one_full_interval(monkeypatch):
+    """An interval trigger waits one whole interval before its first fire.
+
+    This is the behaviour the event-dispatch how-to documents: nothing fires at
+    start, so ``interval_sec: 86400`` means once a day counted from start. The
+    wait is recorded, not slept, and only the order of the first two events is
+    asserted, so another coroutine's ``sleep`` in the same loop cannot skew it.
+    """
+    source = CronSource()
+    order: list[tuple[str, object]] = []
+    fired = asyncio.Event()
+
+    async def callback(trig: TriggerConfig, payload: dict) -> str | None:  # noqa: ARG001 - fire-callback signature; the order is what is asserted
+        order.append(("fire", trig.name))
+        fired.set()
+        return "d-1"
+
+    real_sleep = asyncio.sleep
+
+    async def recorded_wait(seconds):
+        order.append(("wait", seconds))
+        await real_sleep(0)
+
+    monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", recorded_wait)
+
+    await source.start([_make_trigger("daily", interval_sec=86400)], callback)
+    await asyncio.wait_for(fired.wait(), timeout=5)
+    await source.stop()
+
+    assert order[:2] == [("wait", 86400.0), ("fire", "daily")]
+
+
+@pytest.mark.asyncio
 async def test_invalid_interval_spawns_no_task():
     callback = _RecordingCallback()
     source = CronSource()

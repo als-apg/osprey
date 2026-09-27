@@ -4,7 +4,8 @@
 Event Dispatch
 ==============
 
-How to turn external events (webhooks, cron ticks) into headless OSPREY agent runs.
+How to turn external events (a webhook call, a fixed interval, an EPICS channel
+crossing a threshold) into headless OSPREY agent runs.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -14,6 +15,7 @@ How to turn external events (webhooks, cron ticks) into headless OSPREY agent ru
    - How to bring the pipeline up and fire your first trigger
    - How to fire a trigger from a web-terminal session, and who the job runs as
    - How to author your own triggers in ``triggers.yml``
+   - Which trigger sources ship, and what each one's ``source_config`` takes
    - How the two bearer tokens guard inbound and internal traffic
 
    **Prerequisites:** A project built from the ``control-assistant`` preset
@@ -27,8 +29,8 @@ Event dispatch lets an external event start an agent run with no human at a
 keyboard. It is built from two services:
 
 - **Event dispatcher** (``python -m osprey.dispatch``, port ``10010``) — accepts
-  authenticated webhook ``POST``\s (and cron ticks), matches them to a trigger,
-  applies the trigger's tool allowlist and error policy, and forwards the run to
+  authenticated webhook ``POST``\s, interval ticks and EPICS channel crossings,
+  matches each to a trigger, applies the trigger's tool allowlist and error policy, and forwards the run to
   a worker. It also serves the monitoring **dashboard**.
 - **Dispatch worker** (``python -m osprey.mcp_server.dispatch_worker``, port
   ``10011``) — runs the headless agent session and streams progress back.
@@ -241,10 +243,10 @@ terminal. The name comes from the session the call left, never from a tool
 argument or a header the agent can set, so there is no way to fire on someone
 else's behalf.
 
-A job that cron or an inbound webhook started carries no name, and neither does
-one whose account name the dispatcher cannot read — a name that is not a plain
-account spelling is refused, and the only trace is a warning in the dispatcher's
-own log. No chip narrows a job with no name: it runs with whatever writes the
+A job that a trigger source started — an interval tick, a channel crossing or
+an inbound webhook — carries no name, and neither does one whose account name
+the dispatcher cannot read — a name that is not a plain account spelling is
+refused, and the only trace is a warning in the dispatcher's own log. No chip narrows a job with no name: it runs with whatever writes the
 deployment gives it.
 
 Where the tools work
@@ -305,7 +307,7 @@ Authoring Triggers
 
       triggers:
         - name: hello-dispatch
-          source: webhook                # or "cron"
+          source: webhook                # webhook, cron or epics_ca
           action:
             prompt: >-
               Reply with a single sentence confirming the pipeline works.
@@ -345,6 +347,114 @@ Authoring Triggers
    run that the agent itself ends in error, so firing a trigger against a healthy
    stack never exercises it; the behaviour is covered by
    ``tests/dispatch/test_server_routes.py``.
+
+.. _event-dispatch-trigger-sources:
+
+Trigger sources
+---------------
+
+A trigger's ``source:`` names what fires it, and its optional
+``source_config:`` mapping carries that source's own settings. Three sources
+ship. A ``source:`` that no installed source registers is logged when the
+dispatcher starts, and its triggers are skipped while the rest of the file
+loads.
+
+.. code-block:: yaml
+
+   triggers:
+     - name: hourly-summary
+       source: cron
+       source_config:
+         interval_sec: 3600
+       action:
+         prompt: >-
+           Summarise what changed in the last hour.
+         allowed_tools: []
+     - name: vacuum-alarm
+       source: epics_ca
+       source_config:
+         pv: demo:vacuum:pressure
+         threshold: 3.0
+         edge: rising
+         cool_down_sec: 300
+       action:
+         prompt: >-
+           The pressure crossed its threshold; describe the event.
+         allowed_tools: []
+
+``source: webhook``
+   Fires on an authenticated ``POST /webhook/<name>`` carrying the
+   ``EVENT_DISPATCHER_TOKEN`` bearer, and takes no ``source_config``. The JSON
+   body is folded into the prompt as untrusted payload. A body that is not a
+   JSON object counts as empty, and one declared larger than 32 MB is refused
+   with HTTP 413. The answer is 202 with the ``dispatch_id``, 401 for a wrong
+   or missing bearer, 404 for an unknown trigger, 409 for a disabled one, 429
+   when the queue is full, and 503 while the token is unset.
+   :ref:`Fire a Trigger <event-dispatch-fire>` walks through one call.
+
+``source: cron``
+   Fires on a fixed interval.
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 20 20 60
+
+      * - Key
+        - Default
+        - Meaning
+      * - ``interval_sec``
+        - none (required)
+        - Seconds between fires, a number greater than zero.
+
+   An ``interval_sec`` trigger first fires one full interval after the
+   dispatcher starts, then an interval after each fire is handed to the queue.
+   Nothing aligns to the wall clock, and a restart starts the count again, so
+   ``interval_sec: 86400`` means once a day counted from start, not at a set
+   hour. A trigger whose value is missing, not a number, a boolean, or not
+   greater than zero is not armed: the dispatcher logs a warning naming it, and
+   the file still loads with every other trigger running. A tick on a disabled
+   trigger is recorded in its history as ``ignored: disabled``. A tick that
+   meets a full queue is dropped with a warning and not retried; the next one
+   comes an interval later. The payload carries ``source``, ``trigger`` and
+   ``timestamp``.
+
+``source: epics_ca``
+   Monitors one EPICS Channel Access PV and fires when its value crosses a
+   threshold.
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 20 20 60
+
+      * - Key
+        - Default
+        - Meaning
+      * - ``pv``
+        - none (required)
+        - The PV to monitor.
+      * - ``threshold``
+        - ``0.0``
+        - The value a crossing is measured against, a number.
+      * - ``edge``
+        - ``rising``
+        - ``rising``, ``falling`` or ``both``.
+      * - ``cool_down_sec``
+        - ``60.0``
+        - The fewest seconds between two fires of this trigger, a number.
+
+   - The first value after connecting is recorded and never fires.
+   - ``rising`` means the previous value was below the threshold and the new
+     one is at or above it; ``falling`` is the mirror; ``both`` is either.
+   - The cool-down counts from the last fire, so the first fire is never held
+     back.
+   - A value that is not a number is ignored with a warning.
+   - A trigger with no ``pv``, or with an ``edge`` outside the three, is not
+     armed; the dispatcher logs a warning naming it, and its siblings still arm.
+   - The payload carries ``source``, ``pv``, ``value``, ``previous_value``,
+     ``threshold``, ``edge`` and ``timestamp``.
+
+   *Reaching the Machine* below covers the variables that point the
+   dispatcher at a Channel Access gateway.
 
 Reaching the Machine
 ====================
