@@ -36,6 +36,7 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
+from osprey.utils.facility import resolve_facility_name
 from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
@@ -696,7 +697,8 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     dispatcher_config: dict[str, Any] = {
         "path": "./services/event_dispatcher",
         "port": dispatch.dispatcher_port,
-        "facility_name": dispatch.facility_name,
+        # The override wins; otherwise the dispatcher shows the name every other surface shows.
+        "facility_name": dispatch.facility_name or resolve_facility_name(config, ""),
         "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the

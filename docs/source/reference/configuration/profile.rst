@@ -785,7 +785,9 @@ the deployment into the event dispatcher and its workers.
      - What it does
    * - ``triggers``
      - *(required)*
-     - Bundled trigger-file name, or a path relative to the profile.
+     - Bundled trigger-file name, or a path relative to the profile. A file
+       beside the profile wins over a bundled one of the same name; editing it
+       marks the build out of date, and a bundled file never does.
    * - ``worker_count``
      - ``1``
      - How many dispatch workers the build deploys.
@@ -827,7 +829,8 @@ the deployment into the event dispatcher and its workers.
        names none gets this.
    * - ``facility_name``
      - ``""``
-     - Display name the dashboard shows.
+     - Display name the dispatcher dashboard shows. Unset shows the
+       deployment's ``facility.name``.
    * - ``channel_strip_prefix``
      - ``""``
      - Leading prefix trimmed off a channel address before the dashboard shows
