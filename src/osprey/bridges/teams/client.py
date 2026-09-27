@@ -524,9 +524,14 @@ class ConnectorClient:
             )
 
     def list_members(
-        self, service_url: str, conversation_id: str, *, limit: int
+        self, service_url: str, conversation_id: str, *, limit: int | None
     ) -> tuple[list[dict[str, Any]], bool]:
         """Read up to ``limit`` members of ``conversation_id``, page by page.
+
+        Two callers want two listings. The room roster passes a limit: it names the
+        people in a question's payload and a bounded list is enough. A file share
+        passes ``None``: it reads the whole conversation at the largest page size,
+        because a capped list would silently leave people out of the share.
 
         Each page asks ``pageSize`` clamped to the documented bounds and, from the
         second page on, the ``continuationToken`` the previous page returned. A
@@ -540,11 +545,12 @@ class ConnectorClient:
             service_url: The ``serviceUrl`` the inbound activity carried.
             conversation_id: The conversation to list, exactly as it will be
                 addressed.
-            limit: The most members to return.
+            limit: The most members to return, or ``None`` to read to the last page.
 
         Returns:
             ``(members, more)``: at most ``limit`` ``ChannelAccount`` objects, and
-            whether the listing stopped on ``limit`` with more left to read.
+            whether the listing stopped on ``limit`` with more left to read — always
+            ``False`` without a limit.
 
         Raises:
             ConnectorError: On a transport failure, a non-2xx answer or a body
@@ -552,7 +558,11 @@ class ConnectorClient:
             TokenError: If no bearer could be obtained.
         """
         url = members_url(service_url, conversation_id)
-        page_size = max(MEMBERS_PAGE_MIN, min(limit, MEMBERS_PAGE_MAX))
+        page_size = (
+            MEMBERS_PAGE_MAX
+            if limit is None
+            else max(MEMBERS_PAGE_MIN, min(limit, MEMBERS_PAGE_MAX))
+        )
         members: list[dict[str, Any]] = []
         token: str | None = None
         seen_tokens: set[str] = set()
@@ -589,7 +599,7 @@ class ConnectorClient:
                 members.extend(item for item in items if isinstance(item, dict))
             token = next_token if isinstance(next_token, str) and next_token else None
 
-            if len(members) >= limit:
+            if limit is not None and len(members) >= limit:
                 return members[:limit], len(members) > limit or token is not None
             if token is None or token in seen_tokens:
                 return members, False

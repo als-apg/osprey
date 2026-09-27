@@ -751,6 +751,41 @@ def test_list_members_raises_connector_error_on_a_transport_failure():
         members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=200)
 
 
+def test_list_members_without_a_limit_reads_every_page():
+    pages = [
+        {"members": [person(n) for n in range(start, start + 3)], "continuationToken": f"c{i}"}
+        for i, start in enumerate((1, 4, 7))
+    ]
+    pages[-1].pop("continuationToken")
+    endpoint = MembersEndpoint(*pages)
+
+    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=None)
+
+    assert [m["id"] for m in members] == [f"29:{n}" for n in range(1, 10)]
+    assert more is False
+    assert len(endpoint.requests) == 3
+
+
+def test_list_members_without_a_limit_asks_the_largest_page():
+    endpoint = MembersEndpoint({"members": []})
+    members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=None)
+    assert endpoint.params(0)["pageSize"] == "500"
+
+
+def test_list_members_without_a_limit_still_stops_on_a_repeated_token():
+    endpoint = MembersEndpoint(
+        {"members": [person(1)], "continuationToken": "loop"},
+        {"members": [person(2)], "continuationToken": "loop"},
+        {"members": [person(3)], "continuationToken": "loop"},
+    )
+
+    members, more = members_client(endpoint).list_members(SERVICE_URL, CHANNEL, limit=None)
+
+    assert [m["id"] for m in members] == ["29:1", "29:2"]
+    assert more is False
+    assert len(endpoint.requests) == 2
+
+
 def test_members_url_keeps_the_conversation_id_as_sent():
     assert members_url(SERVICE_URL, CHANNEL_CONVERSATION) == (
         f"https://smba.trafficmanager.net/amer/v3/conversations/{CHANNEL_CONVERSATION}/pagedmembers"
