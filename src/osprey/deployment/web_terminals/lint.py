@@ -3069,7 +3069,8 @@ def _check_seeded_passwords(
     (:func:`~osprey.deployment.web_terminals.auth_credentials.seeded_password_users`),
     so a stored hash of the published value counts after its ``.env`` line is
     gone. A shared card's password cannot be changed while it is shared, so its
-    remedy is decommissioning the card.
+    remedy is deleting the card's stored hash from ``.env.auth`` and running
+    ``osprey up``, which mints no password for a shared card.
 
     Imported at call time, for the reason :func:`_check_open_mode_egress` gives.
 
@@ -3105,10 +3106,15 @@ def _check_seeded_passwords(
             return []
         where = f"browsers reach this deployment at {origin.origin}"
     names = ", ".join(repr(name) for name in seeded)
-    remedies = "; ".join(
-        f"`osprey users decommission {name}`" if name in shared else f"`osprey users passwd {name}`"
-        for name in seeded
-    )
+    steps: list[str] = []
+    own = [name for name in seeded if name not in shared]
+    cards = [name for name in seeded if name in shared]
+    if own:
+        steps.append("run " + ", ".join(f"`osprey users passwd {name}`" for name in own))
+    if cards:
+        hashes = ", ".join(f"`{_PW_HASH_VAR_PREFIX}{env_var_suffix(name)}`" for name in cards)
+        steps.append(f"delete {hashes} from `{_AUTH_ENV_FILENAME}`, then run `osprey up`")
+    remedy = " and ".join(steps)
     return [
         Finding(
             severity="error",
@@ -3116,7 +3122,7 @@ def _check_seeded_passwords(
             message=(
                 f"{where}, and these logins still accept the password profile.yml "
                 "publishes under env.defaults, so anyone who can read that file can sign "
-                f"in: {names}. Run {remedies}"
+                f"in: {names}. {remedy[0].upper()}{remedy[1:]}"
             ),
         )
     ]
