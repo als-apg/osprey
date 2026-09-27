@@ -266,11 +266,7 @@ omission.
    It is absent from every `approval.tools` block, so it falls to
    `default_policy: always` — fail-closed and correctly described by the
    shipped comment. No change needed; recorded so it is not mistaken for drift.
-4. **`facility.timezone` is read but shipped by no preset**
-   (`deployment/web_terminals/env_production.py`,
-   `deployment/web_terminals/render.py`), distinct from `system.timezone`.
-   Hidden-key stanza candidate.
-5. **`facility.prefix` has a stated convention and no validator — by design.**
+4. **`facility.prefix` has a stated convention and no validator — by design.**
    The 2-6-character lowercase-alnum-plus-hyphens rule this entry was opened
    against came from a schema document that no longer exists (it went with the
    `facility-config.yml` surface). The convention survives in prose only, and

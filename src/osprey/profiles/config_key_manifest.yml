@@ -3315,9 +3315,3 @@ notes:
       Deliberately holds every retired key so the loader's tolerance stays
       tested. If the guard is ever pointed at tests/, this file MUST be
       allowlisted or every `deleted` entry will fire on it.
-  facility_timezone_unshipped:
-    detail: >-
-      facility.timezone is READ (deployment/web_terminals/env_production.py,
-      deployment/web_terminals/render.py) but shipped by no preset, and is
-      distinct from system.timezone. A hidden-key stanza candidate for phase 6,
-      not a guard rule.
