@@ -29,7 +29,7 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchResponse,
     StatusResponse,
 )
-from osprey.utils.config import to_facility_iso
+from osprey.utils.config import get_facility_timezone, to_facility_iso
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -253,7 +253,9 @@ async def get_capabilities(request: Request) -> dict:
     configuration keys added; if that service is missing the database really
     is down and ``_require_service`` raises 503 as it does everywhere else.
     An app whose state carries no configuration fields at all behaves exactly
-    as it did before this endpoint learned about them.
+    as it did before this endpoint learned about them. The payload names the
+    zone every entry timestamp in this API is rendered in, so the page can read
+    those times in it.
     """
     from osprey.interfaces.ariel.app import CONFIG_STATUS_INVALID, CONFIG_STATUS_WARNING
     from osprey.services.ariel_search.capabilities import get_capabilities as _get_caps
@@ -267,12 +269,23 @@ async def get_capabilities(request: Request) -> dict:
     # Settings entry out of the display menu. The server refusal is the real
     # gate; this is its other half, never the only half.
     panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+    # Never raises: an invalid configuration answers UTC, which is also the
+    # zone to_facility_iso renders in then.
+    facility_timezone = get_facility_timezone().key
 
     if status == CONFIG_STATUS_INVALID or (errors and status is None and service is None):
-        return {**_invalid_capabilities(errors, remedy), "config_panel_enabled": panel_enabled}
+        return {
+            **_invalid_capabilities(errors, remedy),
+            "config_panel_enabled": panel_enabled,
+            "facility_timezone": facility_timezone,
+        }
 
     service = _require_service(request)
-    payload = {**_get_caps(service.config), "config_panel_enabled": panel_enabled}
+    payload = {
+        **_get_caps(service.config),
+        "config_panel_enabled": panel_enabled,
+        "facility_timezone": facility_timezone,
+    }
     if errors:
         payload = {
             **payload,
