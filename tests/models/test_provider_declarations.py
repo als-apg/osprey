@@ -15,7 +15,11 @@ import yaml
 
 from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS, provider_auth_secret_env
 from osprey.infrastructure.proxy.lifecycle import _ANTHROPIC_NATIVE_PROVIDERS
-from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
+from osprey.models.provider_registry import (
+    _BUILTIN_PROVIDERS,
+    ProviderRegistry,
+    get_provider_registry,
+)
 from osprey.models.providers.base import BaseProvider
 from osprey.profiles.providers import VALID_API_PROTOCOLS, packaged_catalog_path
 
@@ -95,11 +99,12 @@ class TestEveryAdapterDeclares:
 
 
 class TestTablesAgreeWithTheDeclarations:
-    def test_the_key_table_names_each_adapters_variable(self):
-        adapters = _adapters()
-        assert set(PROVIDER_API_KEYS) == set(adapters)
-        for name, cls in adapters.items():
-            assert PROVIDER_API_KEYS[name] == cls.api_key_env_var, name
+    def test_every_builtin_entry_states_its_adapters_declarations(self):
+        for name, entry in _BUILTIN_PROVIDERS.items():
+            cls = ProviderRegistry().get_provider(name)
+            assert cls is not None, name
+            assert entry.key_env_var == cls.api_key_env_var, name
+            assert entry.api_protocol == cls.api_protocol, name
 
     def test_the_native_set_is_the_adapters_that_speak_anthropic(self):
         speaks_anthropic = {
@@ -109,11 +114,6 @@ class TestTablesAgreeWithTheDeclarations:
 
     def test_the_launch_table_holds_exactly_the_native_providers(self):
         assert set(CLAUDE_CODE_PROVIDERS) == set(_ANTHROPIC_NATIVE_PROVIDERS)
-
-    @pytest.mark.parametrize("name", sorted(CLAUDE_CODE_PROVIDERS))
-    def test_the_launch_table_reads_the_secret_from_the_adapters_variable(self, name):
-        adapter = _adapters()[name]
-        assert CLAUDE_CODE_PROVIDERS[name]["auth_secret_env"] == adapter.api_key_env_var
 
     def test_the_derived_secret_variable_is_the_adapters_for_every_keyed_provider(self):
         for name, cls in _adapters().items():
