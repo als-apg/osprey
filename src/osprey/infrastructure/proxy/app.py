@@ -201,7 +201,15 @@ def create_proxy_app(
 
         if is_stream:
             return StreamingResponse(
-                _stream_proxy(upstream_client, url, headers, translated.body, model),
+                _stream_proxy(
+                    upstream_client,
+                    url,
+                    headers,
+                    translated.body,
+                    model,
+                    images_sent=translated.images_sent,
+                    provider=provider,
+                ),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
@@ -210,7 +218,9 @@ def create_proxy_app(
                 resp = await upstream_client.post(url, json=translated.body, headers=headers)
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                return _translate_error(exc.response)
+                return _translate_error(
+                    exc.response, images_sent=translated.images_sent, provider=provider
+                )
             except httpx.RequestError as exc:
                 return JSONResponse(
                     {"type": "error", "error": {"type": "api_error", "message": str(exc)}},
@@ -229,6 +239,9 @@ async def _stream_proxy(
     headers: dict,
     openai_body: dict,
     model: str,
+    *,
+    images_sent: int,
+    provider: str | None,
 ):
     """Forward streaming request and translate OpenAI SSE to Anthropic SSE.
 
@@ -249,13 +262,12 @@ async def _stream_proxy(
                     error_body += chunk
                 yield format_sse(
                     "error",
-                    {
-                        "type": "error",
-                        "error": {
-                            "type": "api_error",
-                            "message": error_body.decode(errors="replace"),
-                        },
-                    },
+                    _anthropic_error(
+                        resp.status_code,
+                        _upstream_message(error_body.decode(errors="replace")),
+                        images_sent=images_sent,
+                        provider=provider,
+                    ),
                 )
                 return
 
@@ -356,23 +368,64 @@ async def _stream_proxy(
         )
 
 
-def _translate_error(response: httpx.Response) -> JSONResponse:
-    """Translate an upstream HTTP error to Anthropic error format."""
+#: The Anthropic API's own error type for each upstream status; any other
+#: status is an ``api_error``.
+_ERROR_TYPES = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    403: "permission_error",
+    404: "not_found_error",
+    413: "request_too_large",
+    422: "invalid_request_error",
+    429: "rate_limit_error",
+}
+
+#: The statuses with which an upstream refuses a request it cannot take, so a
+#: refusal of a request carrying images names the images.
+_IMAGE_REFUSAL_STATUSES = frozenset({400, 413, 415, 422})
+
+
+def _upstream_message(text: str) -> str:
+    """The ``error.message`` of an upstream JSON error body, else the body text."""
     try:
-        body = response.json()
-        message = body.get("error", {}).get("message", response.text)
-    except Exception:
-        message = response.text
+        body = json.loads(text)
+    except ValueError:
+        return text
+    error = body.get("error") if isinstance(body, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    return message if isinstance(message, str) else text
 
-    error_type = "api_error"
-    if response.status_code == 401:
-        error_type = "authentication_error"
-    elif response.status_code == 429:
-        error_type = "rate_limit_error"
-    elif response.status_code == 404:
-        error_type = "not_found_error"
 
+def _anthropic_error(status: int, message: str, *, images_sent: int, provider: str | None) -> dict:
+    """An upstream error as an Anthropic error body.
+
+    A refusal of a request that carried images names the images and the
+    catalog key that stops sending them; it never claims they were the cause.
+    """
+    error_type = _ERROR_TYPES.get(status, "api_error")
+    if images_sent and status in _IMAGE_REFUSAL_STATUSES:
+        error_type = "request_too_large" if status == 413 else "invalid_request_error"
+        who = f"Provider '{provider}'" if provider else "The upstream"
+        where = f"`{provider}`" if provider else "its entry"
+        plural = "s" if images_sent != 1 else ""
+        message = (
+            f"{who} refused a request carrying {images_sent} image{plural}: {message} "
+            f"If the model it serves takes no image input, set `supports_images: false` "
+            f"under {where} in providers.yml."
+        )
+    return {"type": "error", "error": {"type": error_type, "message": message}}
+
+
+def _translate_error(
+    response: httpx.Response, *, images_sent: int, provider: str | None
+) -> JSONResponse:
+    """Translate an upstream HTTP error to Anthropic error format."""
     return JSONResponse(
-        {"type": "error", "error": {"type": error_type, "message": message}},
+        _anthropic_error(
+            response.status_code,
+            _upstream_message(response.text),
+            images_sent=images_sent,
+            provider=provider,
+        ),
         status_code=response.status_code,
     )
