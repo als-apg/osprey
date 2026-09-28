@@ -633,7 +633,7 @@ def test_an_unset_va_gateway_port_is_derived_from_the_pools_config_file(isolated
     }
     pool = ConnectorHostPool(section, config_file=config_file)
 
-    derivation = pool._derive(("va", None), section)
+    derivation, _, _ = pool._derive(("va", None), section)
 
     assert derivation.selected_endpoint().port == 5100
 
@@ -903,16 +903,9 @@ def _with(**changes):
         ),
         pytest.param(
             None,
-            _with(target="va"),
-            "verify",
-            "reports target 'va' where 'live' was asked for",
-            id="target-mismatch",
-        ),
-        pytest.param(
-            None,
             _with(connector_type="epics"),
             "verify",
-            f"reports connector_type 'epics' where {SLOW!r} was asked for",
+            f"reports connector_type 'epics' where {SLOW!r} was derived",
             id="connector-type-mismatch",
         ),
         pytest.param(

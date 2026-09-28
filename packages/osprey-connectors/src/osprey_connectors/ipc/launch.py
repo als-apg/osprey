@@ -91,14 +91,14 @@ async def terminate_host(process: Any, grace_s: float) -> None:
     """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises."""
     if process.returncode is not None:
         return
-    with contextlib.suppress(ProcessLookupError, OSError):
+    with contextlib.suppress(OSError):
         process.terminate()
     try:
         await asyncio.wait_for(process.wait(), grace_s)
         return
     except TimeoutError:
         pass
-    with contextlib.suppress(ProcessLookupError, OSError):
+    with contextlib.suppress(OSError):
         process.kill()
     with contextlib.suppress(Exception):
         await asyncio.wait_for(process.wait(), grace_s)

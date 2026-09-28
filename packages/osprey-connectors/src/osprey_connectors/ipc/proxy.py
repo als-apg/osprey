@@ -323,7 +323,7 @@ class ConnectorHostProxy:
                 # asyncio.wait, not wait_for(shield(...)): it leaves the future
                 # alone on timeout, where a cancelled shield would log the
                 # failure the reader later sets on it as an unhandled error.
-                await asyncio.wait({future}, timeout=max(ack_timeout, 0.0))
+                await asyncio.wait({future}, timeout=ack_timeout)
             self._pending.pop(request_id, None)
 
         await self._shutdown(f"the {CHILD} was disconnected before this request completed")
@@ -488,8 +488,7 @@ class ConnectorHostProxy:
             # the real class with its fields, or a ConnectionError standing in
             # for a class this build does not know.
             exception = frame.exception
-            with contextlib.suppress(AttributeError, TypeError):
-                setattr(exception, _FROM_CHILD, True)
+            setattr(exception, _FROM_CHILD, True)
             future.set_exception(exception)
         else:
             future.set_result(frame.value)

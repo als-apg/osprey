@@ -17,6 +17,10 @@ derivation: not "nothing looked wrong" but "the child configured exactly this
 host, this port, this mode, for exactly the role the derivation selected". A
 mismatch names the field, the expected value and the value received.
 
+**Collision with the live machine** (:func:`live_collision`) is the one
+eligibility question both supervisors ask from derivation alone: an endpoint a
+target that is never the real machine selects must not be one ``live`` derives.
+
 Nothing here imports a control-system client library.
 """
 
@@ -27,21 +31,31 @@ from dataclasses import dataclass
 from typing import Any
 
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.types import VIRTUAL_ACCELERATOR, resolve_target, target_writes_enabled
+from osprey_connectors.types import (
+    MOCK,
+    STANDIN_TYPES,
+    TARGET_LIVE,
+    VIRTUAL_ACCELERATOR,
+    resolve_target,
+    target_writes_enabled,
+)
 
 __all__ = [
     "DEFAULT_CA_PORT",
     "DEFAULT_PVA_PORT",
     "MODE_ADDR_LIST",
     "MODE_NAME_SERVER",
+    "NEVER_LIVE_TYPES",
     "ROLE_PVA",
     "ROLE_READ_ONLY",
     "ROLE_WRITE_ACCESS",
     "Endpoint",
+    "LiveCollision",
     "TargetDerivation",
     "Verification",
     "connector_block",
     "derive_endpoints",
+    "live_collision",
     "same_endpoint",
     "verify_child_report",
     "verify_host_report",
@@ -100,14 +114,6 @@ class TargetDerivation:
     def selected_endpoint(self) -> Endpoint | None:
         """The row the child will configure, or ``None`` when config has none."""
         return self.endpoints.get(self.selected_role)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "target": self.target,
-            "connector_type": self.connector_type,
-            "endpoints": {role: row.as_dict() for role, row in self.endpoints.items()},
-            "selected_role": self.selected_role,
-        }
 
 
 @dataclass(frozen=True)
@@ -305,7 +311,7 @@ def derive_endpoints(
 
 
 # ---------------------------------------------------------------------------
-# (c) VERIFICATION
+# Verification
 # ---------------------------------------------------------------------------
 
 
@@ -345,6 +351,61 @@ def same_endpoint(first: Endpoint, second: Endpoint) -> bool:
     are not caught here.
     """
     return _host_key(first.host) == _host_key(second.host) and _ports_equal(first.port, second.port)
+
+
+#: Types that are never the facility's own machine, so an endpoint one of them
+#: selects must never be an endpoint ``live`` derives.
+NEVER_LIVE_TYPES = frozenset({MOCK, VIRTUAL_ACCELERATOR, *STANDIN_TYPES})
+
+
+@dataclass(frozen=True)
+class LiveCollision:
+    """A live gateway that a never-live target's selected endpoint lands on.
+
+    ``selected`` and ``live`` name the same endpoint, each as its own block
+    spells it; ``role`` and ``connector_type`` locate ``live`` in the config.
+    """
+
+    selected: Endpoint
+    live: Endpoint
+    role: str
+    connector_type: str
+
+
+def live_collision(
+    config: Any, derivation: TargetDerivation, *, config_path: str | None = None
+) -> LiveCollision | None:
+    """The live gateway *derivation*'s selected endpoint lands on, or ``None``.
+
+    Only a target whose type is in :data:`NEVER_LIVE_TYPES` is asked: its reads
+    and writes must not reach an endpoint ``live`` derives from the same config,
+    read-only or write-access alike, or they reach the real machine under a soft
+    label. Addresses are compared as written (:func:`same_endpoint`), never
+    resolved, so this is the negative half only — whatever the target is, it is
+    not the machine. A deployment with no live machine has nothing to collide
+    with.
+
+    Args:
+        config: The rendered config mapping *derivation* was derived from.
+        derivation: The target being judged, from :func:`derive_endpoints`.
+        config_path: See :func:`derive_endpoints`; pass the one *derivation* used.
+    """
+    selected = derivation.selected_endpoint()
+    if selected is None or derivation.connector_type not in NEVER_LIVE_TYPES:
+        return None
+    try:
+        live = derive_endpoints(
+            config, TARGET_LIVE, writes_enabled=False, readonly_run=True, config_path=config_path
+        )
+    except ValueError:
+        return None
+    for role in (ROLE_READ_ONLY, ROLE_WRITE_ACCESS):
+        row = live.endpoints.get(role)
+        if row is not None and same_endpoint(selected, row):
+            return LiveCollision(
+                selected=selected, live=row, role=role, connector_type=live.connector_type
+            )
+    return None
 
 
 def verify_child_report(derivation: TargetDerivation, report: Mapping[str, Any]) -> Verification:

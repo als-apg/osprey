@@ -185,21 +185,13 @@ from osprey_connectors.ipc.proxy import (
     raised_by_child,
 )
 from osprey_connectors.ipc.verification import (
-    ROLE_READ_ONLY,
-    ROLE_WRITE_ACCESS,
     TargetDerivation,
+    connector_block,
     derive_endpoints,
-    same_endpoint,
+    live_collision,
     verify_host_report,
 )
-from osprey_connectors.types import (
-    CHANNEL_ACCESS_TYPES,
-    MOCK,
-    STANDIN_TYPES,
-    TARGET_LIVE,
-    VIRTUAL_ACCELERATOR,
-    resolve_target,
-)
+from osprey_connectors.types import CHANNEL_ACCESS_TYPES
 
 __all__ = [
     "READONLY",
@@ -252,10 +244,6 @@ CAUSE_WRITE_TIMEOUT = "write_timeout"
 #: to :meth:`ConnectorHostPool._invoke`. ``write_channel_checked`` is composed
 #: in the proxy from ``write_channel``, so its deadline is that write's.
 _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_channel_checked"})
-
-#: Types that are never the facility's own machine, so an endpoint one of them
-#: selects must never be an endpoint ``live`` derives.
-_NEVER_LIVE_TYPES = (MOCK, VIRTUAL_ACCELERATOR, *STANDIN_TYPES)
 
 _Key = tuple[str, str | None]
 
@@ -682,11 +670,12 @@ class ConnectorHostPool:
         target, mode = key
         readonly = mode == READONLY
         section = resolve_env_vars(copy.deepcopy(self._section))
-        connector_type = resolve_target(section, target)
+        # Derived once, so the config refusal and the post-connect verification
+        # judge the same posture snapshot.
+        derivation, readonly_run, writes = self._derive(key, section)
+        connector_type = derivation.connector_type
 
-        connectors = section.get("connector")
-        block = connectors.get(connector_type) if isinstance(connectors, dict) else None
-        unresolved = _unresolved(block)
+        unresolved = _unresolved(connector_block({"control_system": section}, connector_type))
         if unresolved:
             raise ConnectorHostStartError(
                 f"Refusing to start a connector-host child for {_label(key)}: "
@@ -698,7 +687,7 @@ class ConnectorHostPool:
                 pid=None,
                 stage=STAGE_CONFIG,
             )
-        refusal = self._config_refusal(key, section, connector_type)
+        refusal = self._config_refusal(key, section, derivation)
         if refusal is not None:
             raise ConnectorHostStartError(
                 f"Refusing to start a connector-host child for {_label(key)}: {refusal}",
@@ -768,7 +757,7 @@ class ConnectorHostPool:
                     "not the post-connect report.",
                 )
             child.report = report
-            self._verify(key, section, connector_type, report, failure)
+            self._verify(derivation, readonly_run, writes, report, failure)
         except BaseException:
             await self._discard(
                 child, f"The connector-host child for {_label(key)} failed to start.", CAUSE_EXITED
@@ -786,27 +775,27 @@ class ConnectorHostPool:
         )
         return child
 
-    def _posture(self, key: _Key, section: dict[str, Any]) -> tuple[bool, bool]:
-        """``(readonly_run, writes)`` for *key*: what its child will select on."""
+    def _derive(self, key: _Key, section: dict[str, Any]) -> tuple[TargetDerivation, bool, bool]:
+        """The derivation for *key*, and the ``(readonly_run, writes)`` it was taken under.
+
+        That posture is what the child will select its gateway on.
+        """
         target, mode = key
         readonly_run = mode == READONLY or is_readonly_run()
         writes = False if readonly_run else posture_store.effective_writes(section, target)
-        return readonly_run, writes
-
-    def _derive(self, key: _Key, section: dict[str, Any]) -> TargetDerivation:
-        readonly_run, writes = self._posture(key, section)
-        return derive_endpoints(
+        derivation = derive_endpoints(
             {"control_system": section},
-            key[0],
+            target,
             writes_enabled=writes,
             readonly_run=readonly_run,
             # The child fills an unset VA gateway port from config_file, so the
             # derivation must read the same file or the ports disagree.
             config_path=self._config_file,
         )
+        return derivation, readonly_run, writes
 
     def _config_refusal(
-        self, key: _Key, section: dict[str, Any], connector_type: str
+        self, key: _Key, section: dict[str, Any], derivation: TargetDerivation
     ) -> str | None:
         """Why *key* must not be spawned at all, from config alone, or ``None``.
 
@@ -836,7 +825,7 @@ class ConnectorHostPool:
         applies to them.
         """
         target, _ = key
-        derivation = self._derive(key, section)
+        connector_type = derivation.connector_type
         selected = derivation.selected_endpoint()
         block_key = f"control_system.connector.{connector_type}"
 
@@ -851,50 +840,39 @@ class ConnectorHostPool:
                 f"would serve it. Configure '{block_key}.gateways.{derivation.selected_role}'."
             )
 
-        if selected is None or connector_type not in _NEVER_LIVE_TYPES:
+        collision = live_collision(
+            {"control_system": section}, derivation, config_path=self._config_file
+        )
+        if collision is None:
             return None
-        try:
-            live = derive_endpoints(
-                {"control_system": section},
-                TARGET_LIVE,
-                writes_enabled=False,
-                readonly_run=True,
-                config_path=self._config_file,
-            )
-        except ValueError:
-            # No live machine on this deployment, so no endpoint to collide with.
-            return None
-        for role in (ROLE_READ_ONLY, ROLE_WRITE_ACCESS):
-            row = live.endpoints.get(role)
-            if row is not None and same_endpoint(selected, row):
-                return (
-                    f"'{block_key}.gateways.{derivation.selected_role}' selects "
-                    f"{selected.host}:{selected.port}, which is the {role!r} gateway the "
-                    f"live machine derives ('control_system.connector.{live.connector_type}'"
-                    f".gateways.{role} at {row.host}:{row.port}). Target {target!r} is "
-                    f"{connector_type!r}, never the real machine, so its reads and writes "
-                    "must not reach that endpoint. Point its gateways at its own server — "
-                    "check any port variable it takes, such as EPICS_TESTING_PORT."
-                )
-        return None
+        chosen, row = collision.selected, collision.live
+        return (
+            f"'{block_key}.gateways.{derivation.selected_role}' selects "
+            f"{chosen.host}:{chosen.port}, which is the {collision.role!r} gateway the "
+            f"live machine derives ('control_system.connector.{collision.connector_type}'"
+            f".gateways.{collision.role} at {row.host}:{row.port}). Target {target!r} is "
+            f"{connector_type!r}, never the real machine, so its reads and writes "
+            "must not reach that endpoint. Point its gateways at its own server — "
+            "check any port variable it takes, such as EPICS_TESTING_PORT."
+        )
 
     def _verify(
         self,
-        key: _Key,
-        section: dict[str, Any],
-        connector_type: str,
+        derivation: TargetDerivation,
+        readonly_run: bool,
+        writes: bool,
         report: dict[str, Any],
         failure: Any,
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
-        target, mode = key
-        for field, expected in (("target", target), ("connector_type", connector_type)):
-            if report.get(field) != expected:
-                raise failure(
-                    STAGE_VERIFY,
-                    f"reports {field} {report.get(field)!r} where {expected!r} was asked for.",
-                )
-        readonly_run, writes = self._posture(key, section)
+        # The child echoes the target it was sent, so only the type it resolved
+        # that target to can differ — a child from another build of the package.
+        if report.get("connector_type") != derivation.connector_type:
+            raise failure(
+                STAGE_VERIFY,
+                f"reports connector_type {report.get('connector_type')!r} where "
+                f"{derivation.connector_type!r} was derived.",
+            )
 
         # Posture first, for every connector type: the endpoint check below
         # only sees posture through the gateway role, which a connector with no
@@ -917,7 +895,7 @@ class ConnectorHostPool:
                     "section; the two must agree.",
                 )
 
-        verification = verify_host_report(self._derive(key, section), report)
+        verification = verify_host_report(derivation, report)
         if not verification.ok:
             raise failure(
                 STAGE_VERIFY,
