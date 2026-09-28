@@ -616,6 +616,29 @@ service records ``no_card``. Under ``token`` and ``none`` there is no login
 service, so the address does not exist.
 
 
+.. _multi-user-hide-names:
+
+Keep names off the landing page
+===============================
+
+.. code-block:: yaml
+
+   landing:
+     groups:
+       - type: users
+         names: hidden
+
+The users section then shows one "Log in to your terminal" button and no names.
+The button opens the sign-in described in :ref:`multi-user-own-terminal-entry`.
+Service trays and link sections render as before.
+
+``names: shown`` is the default. ``names: hidden`` needs ``auth.method:
+password`` or ``oidc``. Under any other method ``osprey build`` refuses it as
+``web_terminals.landing_names_hidden_without_sign_in``. Under ``token`` each
+person opens their terminal with ``osprey users login-url <name>`` and returns
+through their card. Under ``none`` the card is the only way in.
+
+
 .. _multi-user-https:
 
 Serve it over HTTPS
