@@ -2075,6 +2075,14 @@ def _inject_project_metadata(config):
     # the network but declares no origin a browser can resolve.
     config_with_labels["osprey_telemetry_host"] = _telemetry_link_host(config)
 
+    # The organization the dashboard's link opens is the one the agent exports
+    # to and the provisioner creates the ingest account in, so it comes from the
+    # same resolver. Injected unconditionally: the template emits it only under
+    # the telemetry gate.
+    from osprey.deployment.openobserve_provision import store_org
+
+    config_with_labels["osprey_telemetry_org"] = store_org(config)
+
     return config_with_labels
 
 
