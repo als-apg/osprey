@@ -18,18 +18,22 @@ import yaml
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.deployment import compose_generator, reset, status_display
 from osprey.deployment.compose_generator import (
+    COMPOSE_ENV_FILENAME,
     CONFIG_DIGEST_LABEL,
     LABELS_OVERRIDE_FILENAME,
     PROJECT_LABEL,
     PROJECT_ROOT_LABEL,
     REPO_ID_LABEL,
     _inject_project_metadata,
+    compose_base_cmd,
     generated_label_entries,
+    labels_override_path,
     prepare_compose_files,
     project_label_values,
     repo_identity,
 )
-from osprey.deployment.runtime_helper import CONFIG_DIGEST_VAR
+from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
+from osprey.deployment.runtime_helper import CONFIG_DIGEST_VAR, ComposeProvider
 
 
 def test_status_reads_the_project_label_the_render_writes() -> None:
@@ -177,3 +181,107 @@ def test_a_container_labelled_only_by_the_override_is_this_checkouts(
     )
 
     assert partition[0] == [record]
+
+
+# ---------------------------------------------------------------------------
+# Every invocation passes it
+# ---------------------------------------------------------------------------
+
+
+def _f_entries(argv: list[str]) -> list[str]:
+    return [argv[i + 1] for i, flag in enumerate(argv) if flag == "-f"]
+
+
+def test_the_docker_argv_passes_the_override_after_the_rendered_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = _render(tmp_path, monkeypatch)
+    (tmp_path / COMPOSE_ENV_FILENAME).write_text("A=1\n", encoding="utf-8")
+
+    argv = compose_base_cmd(["docker", "compose"], files, tmp_path)
+
+    override = str(labels_override_path(tmp_path))
+    assert argv[-6:] == [
+        "-f",
+        files[-1],
+        "-f",
+        override,
+        "--env-file",
+        str(tmp_path / COMPOSE_ENV_FILENAME),
+    ]
+    assert files[-1].endswith("site-probe/docker-compose.yml")
+    assert _f_entries(argv) == [*files, override]
+
+
+def test_a_subset_invocation_gets_an_override_naming_only_its_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = _render(tmp_path, monkeypatch)
+    probe_file = next(f for f in files if f.endswith("site-probe/docker-compose.yml"))
+
+    argv = compose_base_cmd(["docker", "compose"], [probe_file], tmp_path, env_file_args=[])
+
+    entries = _f_entries(argv)
+    assert entries[0] == probe_file
+    subset = Path(entries[1])
+    assert subset.parent == tmp_path / "build"
+    assert subset != labels_override_path(tmp_path)
+    document = yaml.safe_load(subset.read_text(encoding="utf-8"))
+    assert list(document["services"]) == ["site-probe"]
+    assert document["services"]["site-probe"] == {"labels": _expected_labels(tmp_path)}
+
+
+def test_an_invocation_defining_none_of_the_services_gets_no_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _render(tmp_path, monkeypatch)
+    web = tmp_path / "build" / "docker-compose.web.yml"
+    web.write_text("services:\n  nginx:\n    image: nginx\n", encoding="utf-8")
+
+    argv = compose_base_cmd(["docker", "compose"], [str(web)], tmp_path, env_file_args=[])
+
+    assert _f_entries(argv) == [str(web)]
+
+
+def test_a_build_without_an_override_leaves_the_argv_as_it_was(tmp_path: Path) -> None:
+    (tmp_path / COMPOSE_ENV_FILENAME).write_text("A=1\n", encoding="utf-8")
+
+    cmd = compose_base_cmd(
+        ["docker", "compose"],
+        ["build/services/docker-compose.yml", "build/services/bluesky/docker-compose.yml"],
+        tmp_path,
+    )
+
+    assert cmd == [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(tmp_path),
+        "-f",
+        str(tmp_path / "build" / "services" / "docker-compose.yml"),
+        "-f",
+        str(tmp_path / "build" / "services" / "bluesky" / "docker-compose.yml"),
+        "--env-file",
+        str(tmp_path / COMPOSE_ENV_FILENAME),
+    ]
+
+
+def test_the_podman_document_carries_the_labels_on_every_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = _render(tmp_path, monkeypatch)
+
+    argv = compose_base_cmd(
+        ["podman", "compose"],
+        files,
+        tmp_path,
+        env_file_args=[],
+        provider=ComposeProvider.PODMAN_COMPOSE,
+    )
+
+    assert _f_entries(argv) == [str(tmp_path / MERGED_COMPOSE_FILENAME)]
+    services = yaml.safe_load((tmp_path / MERGED_COMPOSE_FILENAME).read_text())["services"]
+    for name in ("openobserve", "site-probe"):
+        for key, value in _expected_labels(tmp_path).items():
+            assert services[name]["labels"][key] == value
+    assert services["site-probe"]["labels"]["site.owner"] == "ops"

@@ -207,7 +207,13 @@ Docker Compose v2 is handed the rendered files where they sit:
 
    docker compose --project-directory <repo>
        -f <repo>/build/services/<service>/docker-compose.yml   (one -f per rendered file)
+       -f <repo>/build/osprey-labels.override.yml
        --env-file <repo>/.env.shared --env-file <repo>/.env
+
+The render writes ``build/osprey-labels.override.yml`` with the project,
+checkout, project-path and config-digest labels for every service it rendered.
+It comes last, so its values win. A service template therefore does not have to
+spell those labels.
 
 podman-compose is handed one document and one env file:
 
@@ -218,8 +224,8 @@ podman-compose is handed one document and one env file:
        --env-file <repo>/build/.env.merged
    # plus COMPOSE_PROJECT_DIR=<repo> in the command's environment
 
-``.osprey-compose.yml`` is every rendered compose file merged into a single
-document at the repository root, and ``build/.env.merged`` is the env chain
+``.osprey-compose.yml`` is every rendered compose file and the labels override
+merged into a single document at the repository root, and ``build/.env.merged`` is the env chain
 merged the same way (see :ref:`deployment-env-chain`). Both are machine
 artifacts: rewritten from scratch by every command that needs them, kept out of
 version control and out of every container build context, and removed by
