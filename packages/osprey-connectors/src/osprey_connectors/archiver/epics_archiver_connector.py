@@ -102,7 +102,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._retrieval_path = "/" + retrieval_path.strip("/")
         self._opener = urllib_opener(settings)
         if settings.login is not None:
-            self._login_key = "token_env" if settings.login.kind == "token" else "password_env"
+            self._login_key = settings.login.env_key
             (self._login_env,) = settings.login.env_names
         self._connected = True
 

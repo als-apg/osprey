@@ -173,7 +173,8 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
 #: depends on. The unbraced ``$NAME`` spelling is deliberately NOT matched:
 #: nothing this module reads is written that way, and treating it as a
 #: reference would make any value containing a bare ``$`` look like one.
-_ENV_REFERENCE_RE = re.compile(r"\A\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}\Z")
+_ENV_REFERENCE_PATTERN = r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}"
+_ENV_REFERENCE_RE = re.compile(rf"\A{_ENV_REFERENCE_PATTERN}\Z")
 
 #: Every ``${NAME}`` / ``${NAME:-default}`` occurrence inside a string, in the
 #: :data:`_ENV_REFERENCE_RE` dialect but unanchored. The telemetry walk reads
@@ -181,7 +182,7 @@ _ENV_REFERENCE_RE = re.compile(r"\A\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}\
 #: ${OTLP_TOKEN}`` depends on ``OTLP_TOKEN`` exactly as a whole-value reference
 #: does, because the config loader expands a reference anywhere in a string
 #: (:func:`osprey_connectors.config.resolve_env_vars`).
-_ENV_REFERENCES_IN_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+_ENV_REFERENCES_IN_RE = re.compile(_ENV_REFERENCE_PATTERN)
 
 #: Where a project's telemetry block lives in its own ``config.yml``.
 _TELEMETRY_BLOCK_PATH = ("claude_code", "telemetry")
