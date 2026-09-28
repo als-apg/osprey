@@ -400,19 +400,8 @@ compose template per service directory, rendered by the build.
        # two OSPREY projects can run this service on one host.
        container_name: {{ osprey_labels.project_name }}-facility-mcp
        labels:
-         osprey.project.name: "{{ osprey_labels.project_name }}"
-         # Which deployment repo this container belongs to. A facility service
-         # carries it for the same reason every packaged one does: the preflight
-         # reads it to tell "a port of ours, already up" from "somebody else's
-         # process on our port", and an unlabelled container can only be guessed
-         # at from the compose project name.
-         com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-         osprey.project.root: "{{ osprey_labels.project_root }}"
-         # Content hashes of the env chain and the rendered config this service
-         # reads. They are what makes an edit to either file restart this
-         # container; see the deploy-project compose-templates page.
+         # Env-chain hash: a .env edit restarts this; the build adds project and config labels.
          osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
-         osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
        restart: unless-stopped
        ports:
          - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(10900) }}:10900/tcp"
@@ -433,9 +422,15 @@ compose template per service directory, rendered by the build.
 
    volumes:
      facility_mcp_data:
+       labels:
+         com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 
    networks:
      osprey-network:
+
+The named volume carries the checkout label itself because the build's labels
+override reaches services, not volumes, and ``osprey reset`` removes only the
+volumes that carry it.
 
 The image reference follows the framework convention — environment variable,
 then config key, then a local tag. A laptop deploy builds the image from the
