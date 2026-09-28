@@ -325,10 +325,10 @@ def test_the_connector_gets_every_key_it_requires() -> None:
             "port",
             "name",
             "collection",
-            "auth",
-            "username",
-            "password_env",
-            "timeout",
+            "auth.source",
+            "auth.username",
+            "auth.password_env",
+            "timeout_s",
         )
     } <= set(overrides)
 
@@ -369,7 +369,7 @@ def test_the_derived_keys_carry_the_blocks_values() -> None:
     assert overrides[f"{CONNECTION_CONFIG_PREFIX}.port"] == 27100
     assert overrides[f"{CONNECTION_CONFIG_PREFIX}.name"] == "facility"
     assert overrides[f"{CONNECTION_CONFIG_PREFIX}.collection"] == "history"
-    assert overrides[f"{CONNECTION_CONFIG_PREFIX}.timeout"] == 9
+    assert overrides[f"{CONNECTION_CONFIG_PREFIX}.timeout_s"] == 9
 
 
 def test_a_self_deployed_store_is_reached_on_loopback() -> None:
@@ -389,7 +389,7 @@ def test_an_attached_project_is_reached_where_it_says() -> None:
 def test_the_password_is_named_never_written() -> None:
     overrides = va_archiver_config_overrides(VAArchiverConfig())
 
-    assert overrides[f"{CONNECTION_CONFIG_PREFIX}.password_env"] == "MONGO_ROOT_PASSWORD"
+    assert overrides[f"{CONNECTION_CONFIG_PREFIX}.auth.password_env"] == "MONGO_ROOT_PASSWORD"
 
 
 def test_the_archiver_type_is_not_derived() -> None:

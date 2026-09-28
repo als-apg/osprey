@@ -84,6 +84,25 @@ def test_an_unknown_auth_key_is_refused_by_name(key):
         assert "never written in config" in str(exc.value)
 
 
+def test_a_block_may_name_its_own_extra_auth_keys():
+    settings = _read(
+        {"auth": {"source": "admin", "username": "u", "password_env": "P"}},
+        extra_auth_keys=frozenset({"source"}),
+    )
+    assert settings.login is not None
+    assert (settings.login.username, settings.login.password_env) == ("u", "P")
+
+
+def test_an_extra_auth_key_is_refused_where_the_block_does_not_name_it():
+    with pytest.raises(ValueError, match=r"`archiver\.settings\.auth\.source` is not a login key"):
+        _read({"auth": {"source": "admin", "username": "u", "password_env": "P"}})
+
+
+def test_an_extra_auth_key_is_not_a_login():
+    with pytest.raises(ValueError, match="names no login"):
+        _read({"auth": {"source": "admin"}}, extra_auth_keys=frozenset({"source"}))
+
+
 @pytest.mark.parametrize("value", ["s3cr3t value", "${X}", "1ABC", ""])
 def test_a_variable_name_that_is_not_one_is_refused_without_echoing_it(value):
     with pytest.raises(ValueError, match="must name an environment variable") as exc:

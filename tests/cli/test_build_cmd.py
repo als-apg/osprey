@@ -3131,12 +3131,15 @@ class TestVAArchiverConfigDerivation:
         assert mongo["name"] and mongo["collection"]
         # The store mints its root user, and a root user's credentials live in
         # `admin` — authenticating against the data database would fail.
-        assert mongo["auth"] == "admin"
-        assert mongo["username"] == "osprey"
-        assert mongo["password_env"] == "MONGO_ROOT_PASSWORD"
+        assert mongo["auth"] == {
+            "source": "admin",
+            "username": "osprey",
+            "password_env": "MONGO_ROOT_PASSWORD",
+        }
         # Short by design: the common failure is a project built but never
         # deployed, and a fast explanatory error beats a minute of silence.
-        assert mongo["timeout"] == 5
+        assert mongo["timeout_s"] == 5
+        assert "timeout" not in mongo
 
     def test_the_password_is_never_written_into_the_project(self, tmp_path: Path) -> None:
         """It reaches the store, the recorder and the agent as one minted .env

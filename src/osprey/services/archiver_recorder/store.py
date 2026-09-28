@@ -96,9 +96,9 @@ class ArchiveWriter:
                     port=settings.port,
                     username=settings.username,
                     password=self._password,
-                    auth_source=settings.auth_database,
+                    auth_source=settings.auth_source,
                     ca_bundle=None,
-                    timeout_s=settings.timeout_sec,
+                    timeout_s=settings.timeout_s,
                 )
             )
             client.admin.command("ping")

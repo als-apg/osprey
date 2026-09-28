@@ -7,6 +7,7 @@ Documents are expected to have a 'date' field and channel addresses as fields.
 
 import asyncio
 import os
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -18,9 +19,13 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("mongodb_archiver_connector")
+
+#: The block's key, named in every message the connection reader raises.
+_WHERE = "archiver.settings"
 
 # Appended to every connect()-time failure. On an OSPREY-deployed stack the store
 # is a container the project brings up itself, and "built but never deployed" is
@@ -155,9 +160,12 @@ class MongoDBArchiverConnector(ArchiverConnector):
         >>>                     # slot instead, written by the build.
         >>>     'name': 'my-archiver-database',
         >>>     'collection': 'my-archiver-collection',
-        >>>     'auth': 'database-auth',
-        >>>     'username': 'my-username',
-        >>>     'password_env': 'MONGODB_READONLY_PASSWORD'
+        >>>     'auth': {
+        >>>         'source': 'database-auth',
+        >>>         'username': 'my-username',
+        >>>         'password_env': 'MONGODB_READONLY_PASSWORD',
+        >>>     },
+        >>>     'timeout_s': 60,
         >>> }
         >>> connector = MongoDBArchiverConnector()
         >>> await connector.connect(config)
@@ -192,17 +200,19 @@ class MongoDBArchiverConnector(ArchiverConnector):
                   ``port`` resolution below for why there is none)
                 - name: Database name (required)
                 - collection: Collection name (required)
-                - auth: Authentication database (required)
-                - username: MongoDB username (required)
-                - password_env: Environment variable name for password (required)
-                - timeout: Default timeout in seconds (default: 60)
+                - auth.source: Authentication database, the one the user
+                  is defined in (required)
+                - auth.username: MongoDB username (required)
+                - auth.password_env: Environment variable name for password
+                  (required)
+                - timeout_s: Default timeout in seconds (default: 60)
 
         Raises:
             ImportError: If pymongo is not installed
             ValueError: If required config *keys* are missing — an authoring
                 error in config.yml, not a runtime condition
             ConnectionError: If the store cannot be reached or authenticated
-                against, including when ``password_env`` names a variable that
+                against, including when ``auth.password_env`` names a variable that
                 is not set. These are the states a not-yet-deployed project is
                 in, so they carry the deploy hint and reach the agent as a
                 ``connection_error`` rather than an internal error.
@@ -258,20 +268,33 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 "'osprey build'), or set OSPREY_ARCHIVER_MONGODB_PORT for a "
                 "container reaching the store on the compose network"
             )
-        self._timeout = config.get("timeout", 60)
 
-        # Validate required authentication config
-        username = config.get("username")
-        if not username:
-            raise ValueError("username is required for MongoDB archiver")
+        # The login is required on this path. A bearer-token block skips these
+        # checks and is refused by name by the reader below.
+        auth = config.get("auth")
+        auth_block = auth if isinstance(auth, Mapping) else {}
+        if "token_env" not in auth_block:
+            for leaf in ("username", "password_env"):
+                if not auth_block.get(leaf):
+                    raise ValueError(f"auth.{leaf} is required for MongoDB archiver")
+            if not auth_block.get("source"):
+                raise ValueError(
+                    "auth.source (authentication database) is required for MongoDB archiver"
+                )
 
-        password_env = config.get("password_env")
-        if not password_env:
-            raise ValueError("password_env is required for MongoDB archiver")
-
-        auth_db = config.get("auth")
-        if not auth_db:
-            raise ValueError("auth (authentication database) is required for MongoDB archiver")
+        settings = read_connection_settings(
+            config,
+            where=_WHERE,
+            logins=frozenset({"password"}),
+            unsupported_because=(
+                "the MongoDB archiver takes a username and auth.password_env, not a bearer token"
+            ),
+            extra_auth_keys=frozenset({"source"}),
+        )
+        self._timeout = settings.timeout_or(60)
+        username = str(auth_block["username"])
+        password_env = str(auth_block["password_env"])
+        auth_db = str(auth_block["source"])
 
         # Get password from environment variable. An unset variable is a
         # deployment state, not a config error: `osprey up` mints the password

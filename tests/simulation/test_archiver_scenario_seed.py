@@ -203,10 +203,12 @@ def _write_project(root: Path, store: dict | None, *, password: str | None) -> P
                 "port": store["port"],
                 "name": store["database"],
                 "collection": store["collection"],
-                "auth": "admin",
-                "username": store["username"],
-                "password_env": "MONGO_ROOT_PASSWORD",
-                "timeout": 10,
+                "auth": {
+                    "source": "admin",
+                    "username": store["username"],
+                    "password_env": "MONGO_ROOT_PASSWORD",
+                },
+                "timeout_s": 10,
             },
         }
     (root / "config.yml").write_text(yaml.safe_dump(config))

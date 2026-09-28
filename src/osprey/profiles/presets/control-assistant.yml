@@ -446,10 +446,10 @@ config:
   # archiver.settings.port: 27017
   # archiver.settings.name: your-archive-database
   # archiver.settings.collection: your-archive-collection
-  # archiver.settings.auth: your-auth-database
-  # archiver.settings.username: your-readonly-user
-  # archiver.settings.password_env: OSPREY_ARCHIVER_PASSWORD
-  # archiver.settings.timeout: 60
+  # archiver.settings.auth.source: your-auth-database
+  # archiver.settings.auth.username: your-readonly-user
+  # archiver.settings.auth.password_env: OSPREY_ARCHIVER_PASSWORD
+  # archiver.settings.timeout_s: 60
   # DOOCS local history: like the DOOCS connector it takes no coordinates and
   # reaches the ENS the environment names. Both knobs are optional — a centered
   # moving average over this many seconds, and the read budget.

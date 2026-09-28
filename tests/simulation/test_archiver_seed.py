@@ -142,10 +142,12 @@ def read_back(mongo_store, monkeypatch):
                 "port": mongo_store["port"],
                 "name": mongo_store["database"],
                 "collection": mongo_store["collection"],
-                "auth": mongo_store["auth_db"],
-                "username": mongo_store["username"],
-                "password_env": password_env,
-                "timeout": 10,
+                "auth": {
+                    "source": mongo_store["auth_db"],
+                    "username": mongo_store["username"],
+                    "password_env": password_env,
+                },
+                "timeout_s": 10,
             }
         )
         try:

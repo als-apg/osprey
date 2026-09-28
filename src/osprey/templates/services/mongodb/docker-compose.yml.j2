@@ -73,7 +73,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: {{ (services.mongodb | default({})).username | default('osprey', true) }}
       # Sourced from the project .env: `osprey up` mints a strong
       # MONGO_ROOT_PASSWORD when unset, and the agent-side connector block
-      # (`archiver.mongodb_archiver.password_env: MONGO_ROOT_PASSWORD`), the
+      # (`archiver.mongodb_archiver.auth.password_env: MONGO_ROOT_PASSWORD`), the
       # seeder and the recorder all read that SAME variable, so container and
       # readers authenticate with one value. Mirrors postgres's
       # ARIEL_DB_PASSWORD convention, including the absence of a `password:`

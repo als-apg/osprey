@@ -404,10 +404,19 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         return None
 
     from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.connection import read_connection_settings
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    password_env = str(store.get("password_env") or "MONGO_ROOT_PASSWORD")
+    connection = read_connection_settings(
+        store,
+        where=f"archiver.{ARCHIVER_CONFIG_PREFIX}",
+        logins=frozenset({"password"}),
+        unsupported_because="the archive store takes a username and auth.password_env",
+        extra_auth_keys=frozenset({"source"}),
+    )
+    auth = store.get("auth") or {}
+    password_env = str(auth.get("password_env") or "MONGO_ROOT_PASSWORD")
 
     return {
         "host": store["host"],
@@ -418,11 +427,11 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         "port": int(store.get("port", default_port("mongo", base=resolve_port_base(config)))),
         "database": str(store.get("name") or "osprey_archiver"),
         "collection": str(store.get("collection") or "pv_history"),
-        "auth_database": str(store.get("auth") or "admin"),
-        "username": str(store.get("username") or "osprey"),
+        "auth_source": str(auth.get("source") or "admin"),
+        "username": str(auth.get("username") or "osprey"),
         "password": env.get(password_env),
         "password_env": password_env,
-        "timeout_s": int(store.get("timeout", 5)),
+        "timeout_s": connection.timeout_or(5),
     }
 
 
@@ -491,7 +500,7 @@ def archiver_collection(store: dict):
             port=store["port"],
             username=store["username"],
             password=store["password"],
-            auth_source=store["auth_database"],
+            auth_source=store["auth_source"],
             ca_bundle=None,
             timeout_s=store["timeout_s"],
         )

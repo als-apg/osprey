@@ -1,5 +1,6 @@
 """Tests for MongoDB Archiver connector."""
 
+import copy
 import sys
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -46,7 +47,7 @@ class TestConnectDisconnectLifecycle:
         """Test that default timeout of 60s is used when not specified."""
         # Remove timeout from config to test default
         config_without_timeout = mongodb_config.copy()
-        del config_without_timeout["timeout"]
+        del config_without_timeout["timeout_s"]
 
         connector = MongoDBArchiverConnector()
         await connector.connect(config_without_timeout)
@@ -59,7 +60,7 @@ class TestConnectDisconnectLifecycle:
     async def test_connect_custom_timeout(self, mongodb_config):
         """Test that custom timeout is used when specified."""
         config_with_timeout = mongodb_config.copy()
-        config_with_timeout["timeout"] = 120
+        config_with_timeout["timeout_s"] = 120
 
         connector = MongoDBArchiverConnector()
         await connector.connect(config_with_timeout)
@@ -102,36 +103,38 @@ class TestConnectDisconnectLifecycle:
             await connector.connect(config)
 
     @pytest.mark.asyncio
-    async def test_connect_missing_username_raises_value_error(self, mongodb_config):
-        """Test that connect raises ValueError when username is missing."""
-        config = mongodb_config.copy()
-        del config["username"]
+    async def test_connect_missing_auth_username_raises_value_error(self, mongodb_config):
+        """Test that connect raises ValueError when auth.username is missing."""
+        config = copy.deepcopy(mongodb_config)
+        del config["auth"]["username"]
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ValueError, match="username is required"):
+        with pytest.raises(ValueError, match=r"auth\.username is required"):
             await connector.connect(config)
 
     @pytest.mark.asyncio
-    async def test_connect_missing_password_env_raises_value_error(self, mongodb_config):
-        """Test that connect raises ValueError when password_env is missing."""
-        config = mongodb_config.copy()
-        del config["password_env"]
+    async def test_connect_missing_auth_password_env_raises_value_error(self, mongodb_config):
+        """Test that connect raises ValueError when auth.password_env is missing."""
+        config = copy.deepcopy(mongodb_config)
+        del config["auth"]["password_env"]
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ValueError, match="password_env is required"):
+        with pytest.raises(ValueError, match=r"auth\.password_env is required"):
             await connector.connect(config)
 
     @pytest.mark.asyncio
-    async def test_connect_missing_auth_db_raises_value_error(self, mongodb_config):
-        """Test that connect raises ValueError when auth database is missing."""
-        config = mongodb_config.copy()
-        del config["auth"]
+    async def test_connect_missing_auth_source_raises_value_error(self, mongodb_config):
+        """Test that connect raises ValueError when auth.source is missing."""
+        config = copy.deepcopy(mongodb_config)
+        del config["auth"]["source"]
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ValueError, match="auth.*authentication database.*required"):
+        with pytest.raises(
+            ValueError, match=r"auth\.source \(authentication database\) is required"
+        ):
             await connector.connect(config)
 
     @pytest.mark.asyncio
@@ -145,7 +148,7 @@ class TestConnectDisconnectLifecycle:
         rather than as an opaque internal error.
         """
         config = mongodb_config.copy()
-        config["password_env"] = "NONEXISTENT_ENV_VAR"
+        config["auth"] = {**config["auth"], "password_env": "NONEXISTENT_ENV_VAR"}
 
         connector = MongoDBArchiverConnector()
 
@@ -916,9 +919,11 @@ class TestErrorHandlingWithoutDocker:
             "port": default_port("mongo"),
             "name": "testdb",
             "collection": "testcoll",
-            "auth": "admin",
-            "username": "user",
-            "password_env": "MONGODB_MOCK_PASSWORD",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
         }
 
         with patch("pymongo.MongoClient") as mock_client_cls:
@@ -927,6 +932,24 @@ class TestErrorHandlingWithoutDocker:
                 await connector.connect(config)
 
         assert isinstance(exc_info.value.__cause__, type(raised))
+
+    @pytest.mark.asyncio
+    async def test_a_bearer_token_is_refused_by_name(self, monkeypatch):
+        """The store authenticates a user and a password; a token has nowhere to go."""
+        monkeypatch.setenv("MONGODB_MOCK_TOKEN", "secret")
+
+        with pytest.raises(ValueError, match="not a bearer token") as exc_info:
+            await MongoDBArchiverConnector().connect(
+                {
+                    "host": "mongodb.example.invalid",
+                    "port": default_port("mongo"),
+                    "name": "testdb",
+                    "collection": "testcoll",
+                    "auth": {"source": "admin", "token_env": "MONGODB_MOCK_TOKEN"},
+                }
+            )
+
+        assert "archiver.settings.auth" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_a_missing_port_is_refused_rather_than_guessed(self, monkeypatch):
@@ -947,9 +970,11 @@ class TestErrorHandlingWithoutDocker:
                     "host": "mongodb.example.invalid",
                     "name": "testdb",
                     "collection": "testcoll",
-                    "auth": "admin",
-                    "username": "user",
-                    "password_env": "MONGODB_MOCK_PASSWORD",
+                    "auth": {
+                        "source": "admin",
+                        "username": "user",
+                        "password_env": "MONGODB_MOCK_PASSWORD",
+                    },
                 }
             )
 
@@ -966,9 +991,11 @@ class TestErrorHandlingWithoutDocker:
                 {
                     "name": "testdb",
                     "collection": "testcoll",
-                    "auth": "admin",
-                    "username": "user",
-                    "password_env": "MONGODB_MOCK_PASSWORD",
+                    "auth": {
+                        "source": "admin",
+                        "username": "user",
+                        "password_env": "MONGODB_MOCK_PASSWORD",
+                    },
                 }
             )
 
@@ -1185,9 +1212,11 @@ class TestInNetworkAddressOverride:
             "port": 27017,
             "name": "testdb",
             "collection": "testcoll",
-            "auth": "admin",
-            "username": "user",
-            "password_env": "MONGODB_MOCK_PASSWORD",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
         }
         config.update(overrides)
         return config

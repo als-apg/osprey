@@ -4757,7 +4757,7 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 # Archiver connector -> per-user store password
 #
 # `osprey up` mints the archiver store's password into the deploy `.env` under
-# the name the connector block reads (`archiver.<type>.password_env`, which the
+# the name the connector block reads (`archiver.<type>.auth.password_env`, which the
 # control-assistant preset spells MONGO_ROOT_PASSWORD). The agent inside a web
 # terminal authenticates with exactly that variable, and `.env.users` excludes
 # service tokens by design -- so a container that is not handed it per-user
@@ -4837,7 +4837,7 @@ def test_persona_less_roster_entry_is_answered_from_the_deploy_config() -> None:
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     config["archiver"] = {
         "type": "mongodb_archiver",
-        "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+        "mongodb_archiver": {"host": "localhost", "auth": {"password_env": "MONGO_ROOT_PASSWORD"}},
     }
 
     # Act

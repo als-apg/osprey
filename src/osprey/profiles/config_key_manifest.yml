@@ -1570,10 +1570,17 @@ keys:
   archiver.mongodb_archiver.port: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "deliberately none: osprey-connectors cannot compute the mongo layout slot, so a missing key is an authoring error rather than a number to guess"}
   archiver.mongodb_archiver.name: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
   archiver.mongodb_archiver.collection: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.auth: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.username: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.password_env: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.timeout: {rendered: false, covered-by: archiver.mongodb_archiver, default: 60}
+  archiver.mongodb_archiver.auth:
+    rendered: false
+    covered-by: archiver.mongodb_archiver
+    note: >-
+      the login the store checks — the database the user is defined in, the
+      user, and the environment variable that holds its password
+    default: {}
+  archiver.mongodb_archiver.auth.source: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.auth.username: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.auth.password_env: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.timeout_s: {rendered: false, covered-by: archiver.mongodb_archiver, default: 60}
 
   # ── Execution ───────────────────────────────────────────────────────
   execution: {all-templates: true, evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None', default: null}
@@ -2989,6 +2996,10 @@ deleted:
   # The embedding index is HNSW, which takes no list count, so there is no
   # number left for a deployment to author.
 - ariel.enhancement_modules.text_embedding.index_lists
+  # The MongoDB archiver's login moved under `auth:` and its wait became `timeout_s`.
+- archiver.mongodb_archiver.username
+- archiver.mongodb_archiver.password_env
+- archiver.mongodb_archiver.timeout
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
