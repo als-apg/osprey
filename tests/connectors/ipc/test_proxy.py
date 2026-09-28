@@ -12,7 +12,9 @@ that a call "didn't raise".
 """
 
 import asyncio
+import gc
 import inspect
+import logging
 import os
 import socket
 import subprocess
@@ -30,9 +32,18 @@ from osprey_connectors.control_system.base import (
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ChannelWriteFailedError,
+)
 from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.proxy import CHILD, ConnectorHostProxy
+from osprey_connectors.ipc.proxy import (
+    CHILD,
+    ChildUnresponsiveError,
+    ConnectorHostProxy,
+    raised_by_child,
+)
 
 TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
 
@@ -112,6 +123,15 @@ def _echo_handler(values):
         child.send_result(frame.request_id, queue.pop(0))
 
     return handler
+
+
+async def _until(predicate, timeout=5.0):
+    """Wait until ``predicate()`` holds, e.g. until the child has seen a request."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError(f"condition not met within {timeout}s")
+        await asyncio.sleep(0.005)
 
 
 @pytest.fixture
@@ -304,17 +324,11 @@ async def test_limits_violation_re_raises_with_its_bounds_intact(teardown):
     with pytest.raises(ChannelLimitsViolationError) as caught:
         await proxy.write_channel("SR:BEND:1:SP", 12.0)
 
+    # Every spec field surviving the codec is pinned in test_frames.py and
+    # test_exception_frames.py; here the point is the typed re-raise.
     exc = caught.value
     assert exc.channel_address == "SR:BEND:1:SP"
-    assert exc.attempted_value == 12.0
-    assert exc.violation_type == "max"
-    assert exc.violation_reason == "above configured maximum"
-    assert (exc.min_value, exc.max_value, exc.max_step, exc.current_value) == (
-        0.0,
-        10.0,
-        1.0,
-        9.5,
-    )
+    assert exc.max_value == 10.0
 
 
 async def test_write_blocked_re_raises_with_its_reason(teardown):
@@ -359,19 +373,6 @@ async def test_one_error_does_not_disturb_a_concurrent_request(teardown):
 # ---------------------------------------------------------------- child death
 
 
-async def test_child_death_mid_request_surfaces_as_connection_error(teardown):
-    async def handler(child, _frame):
-        await child.die()
-
-    proxy, child = await _proxy_with_child(handler)
-    teardown.append((proxy, child))
-
-    with pytest.raises(ConnectionError) as caught:
-        await proxy.read_channel("SR:BEND:1:CUR")
-
-    assert CHILD in str(caught.value)
-
-
 async def test_every_outstanding_request_fails_when_the_child_dies(teardown):
     held: list[frames.RequestFrame] = []
 
@@ -399,9 +400,12 @@ async def test_calls_after_the_child_dies_raise_connection_error(teardown):
     proxy, child = await _proxy_with_child(handler)
     teardown.append((proxy, child))
 
-    with pytest.raises(ConnectionError):
+    # The call in flight when the child dies fails, naming the child ...
+    with pytest.raises(ConnectionError) as caught:
         await proxy.read_channel("SR:FIRST")
+    assert CHILD in str(caught.value)
 
+    # ... and so does every call made afterwards.
     with pytest.raises(ConnectionError) as caught:
         await proxy.read_channel("SR:SECOND")
     assert CHILD in str(caught.value)
@@ -448,7 +452,7 @@ async def test_a_transport_that_says_why_it_stopped_is_quoted_verbatim(teardown)
     teardown.append((proxy, child))
 
     pending = asyncio.create_task(proxy.read_channel("SR:BEND:1:CUR"))
-    await asyncio.sleep(0.05)
+    await _until(lambda: len(child.requests) == 1)
     reader.reason = reason
     await child.die()
 
@@ -482,12 +486,28 @@ async def test_per_request_timeout_raises_timeout_error_and_leaves_the_proxy_usa
     proxy, child = await _proxy_with_child(handler, timeout_grace_s=0.0)
     teardown.append((proxy, child))
 
-    with pytest.raises(TimeoutError) as caught:
+    # The proxy's own deadline is a distinct TimeoutError subclass, and it
+    # does not mark the child dead.
+    with pytest.raises(ChildUnresponsiveError) as caught:
         await proxy.read_channel("SR:SLOW", timeout=0.05)
     assert "read_channel" in str(caught.value)
+    assert proxy.dead_reason is None
 
     answer_now = True
     assert (await proxy.read_channel("SR:FAST", timeout=5.0)).value == 3.5
+
+
+async def test_a_call_without_a_timeout_is_bounded_by_the_local_deadline(teardown):
+    async def handler(_child, _frame):
+        return None
+
+    proxy, child = await _proxy_with_child(handler, deadline_s=0.05)
+    teardown.append((proxy, child))
+
+    with pytest.raises(ChildUnresponsiveError, match="validate_channel"):
+        await proxy.validate_channel("SR:SLOW")
+    # The deadline is local: the child was never told about it.
+    assert child.requests[0].kwargs == {"channel_address": "SR:SLOW"}
 
 
 async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
@@ -499,7 +519,152 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
 
     with pytest.raises(TimeoutError) as caught:
         await proxy.read_channel("SR:GONE", timeout=5.0)
+    # Exactly the child's TimeoutError, not re-wrapped: ChildUnresponsiveError
+    # is a TimeoutError too, so the raises() above cannot tell them apart.
+    assert type(caught.value) is TimeoutError
+    assert raised_by_child(caught.value)
     assert "SR:GONE did not respond" in str(caught.value)
+
+
+# -------------------------------------------------- validate / checked writes
+
+
+async def test_validate_channel_crosses_the_wire(teardown):
+    proxy, child = await _proxy_with_child(_echo_handler([True]))
+    teardown.append((proxy, child))
+
+    assert await proxy.validate_channel("SR:DCCT") is True
+    assert child.requests[0].method == "validate_channel"
+
+
+async def test_write_channel_checked_returns_a_confirmed_write(teardown):
+    confirmed = ChannelWriteResult(
+        channel_address="SR:SP", value_written=1.0, outcome=WriteOutcome.CONFIRMED
+    )
+    proxy, child = await _proxy_with_child(_echo_handler([confirmed]))
+    teardown.append((proxy, child))
+
+    result = await proxy.write_channel_checked("SR:SP", 1.0, confirm=True, timeout=2.0)
+
+    assert result.outcome is WriteOutcome.CONFIRMED
+    # It is a plain write_channel on the wire; the inspection is local.
+    assert child.requests[0].method == "write_channel"
+    assert child.requests[0].kwargs["confirm"] is True
+
+
+async def test_write_channel_checked_raises_typed_on_a_mismatch(teardown):
+    mismatch = ChannelWriteResult(
+        channel_address="SR:SP",
+        value_written=1.0,
+        outcome=WriteOutcome.MISMATCH,
+        observed_value=0.5,
+    )
+    proxy, child = await _proxy_with_child(_echo_handler([mismatch]))
+    teardown.append((proxy, child))
+
+    with pytest.raises(ChannelWriteFailedError):
+        await proxy.write_channel_checked("SR:SP", 1.0, confirm=True)
+
+
+async def test_write_channel_checked_turns_a_refusal_into_blocked(teardown):
+    refused = ChannelWriteResult(
+        channel_address="SR:SP",
+        value_written=1.0,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason="WRITES_DISABLED",
+        error_message="writes are disabled",
+    )
+    proxy, child = await _proxy_with_child(_echo_handler([refused]))
+    teardown.append((proxy, child))
+
+    with pytest.raises(ChannelWriteBlockedError) as caught:
+        await proxy.write_channel_checked("SR:SP", 1.0)
+    assert caught.value.reason == "WRITES_DISABLED"
+
+
+async def test_write_channel_checked_normalizes_a_limits_violation(teardown):
+    async def handler(child, frame):
+        child.send_error(
+            frame.request_id,
+            ChannelLimitsViolationError(
+                channel_address="SR:SP",
+                value=9.0,
+                violation_type="MAX_EXCEEDED",
+                violation_reason="above max",
+                min_value=0.0,
+                max_value=5.0,
+            ),
+        )
+
+    proxy, child = await _proxy_with_child(handler)
+    teardown.append((proxy, child))
+
+    with pytest.raises(ChannelWriteBlockedError) as caught:
+        await proxy.write_channel_checked("SR:SP", 9.0)
+    assert caught.value.reason == "LIMITS"
+
+
+async def test_an_error_the_child_sent_is_marked_as_the_childs(teardown):
+    async def handler(child, frame):
+        child.send_error(frame.request_id, ConnectionError("SR:GONE is unreachable"))
+
+    proxy, child = await _proxy_with_child(handler)
+    teardown.append((proxy, child))
+
+    with pytest.raises(ConnectionError) as caught:
+        await proxy.read_channel("SR:GONE", timeout=2.0)
+    assert raised_by_child(caught.value)
+    assert proxy.dead_reason is None
+
+
+async def test_an_abandoned_request_failing_later_is_not_logged_as_unhandled(teardown, caplog):
+    """A request nobody waits for any more can still be failed — by a dying
+    pipe, say — and asyncio must not log that failure as an unhandled error."""
+    caplog.set_level(logging.ERROR, logger="asyncio")
+    proxy, child = await _proxy_with_child(_echo_handler([]))
+    teardown.append((proxy, child))
+
+    abandoned = proxy._register("abandoned-request")
+    proxy._pending.pop("abandoned-request")
+    abandoned.set_exception(ConnectionError("the child went away"))
+    del abandoned
+    await asyncio.sleep(0)
+    gc.collect()
+
+    assert [r.getMessage() for r in caplog.records if r.name == "asyncio"] == []
+
+
+async def test_a_dead_pipe_sets_dead_reason_and_is_not_the_childs_error(teardown):
+    proxy, child = await _proxy_with_child(_echo_handler([]))
+    teardown.append((proxy, child))
+    assert proxy.dead_reason is None
+
+    await child.die()
+    with pytest.raises(ConnectionError) as caught:
+        await proxy.read_channel("SR:DCCT", timeout=2.0)
+    assert not raised_by_child(caught.value)
+    assert proxy.dead_reason and CHILD in proxy.dead_reason
+
+
+async def test_a_reset_pipe_is_attributed_to_the_child():
+    """Linux reports a socketpair peer that closed mid-stream as ECONNRESET,
+    whose message names no one; the proxy must still say whose stream it was."""
+
+    class _Resetting:
+        async def read(self, _n):
+            raise ConnectionResetError(104, "Connection reset by peer")
+
+    parent_sock, child_sock = socket.socketpair()
+    _, parent_writer = await asyncio.open_connection(sock=parent_sock)
+    proxy = ConnectorHostProxy(_Resetting(), parent_writer)
+    try:
+        with pytest.raises(ConnectionError) as caught:
+            await proxy.read_channel("SR:DCCT", timeout=2.0)
+    finally:
+        await proxy.disconnect(ack_timeout=0.05)
+        child_sock.close()
+    assert not raised_by_child(caught.value)
+    assert CHILD in str(caught.value) and "Connection reset by peer" in str(caught.value)
 
 
 # ------------------------------------------------------- drain / refuse (3.1)
@@ -515,11 +680,11 @@ async def test_drain_returns_true_once_everything_completes(teardown):
     teardown.append((proxy, child))
 
     calls = [asyncio.ensure_future(proxy.read_channel(f"SR:{index}")) for index in range(2)]
-    await asyncio.sleep(0.05)
+    await _until(lambda: len(held) == 2)
     proxy.refuse_new_requests("switching to the live target")
 
     drain = asyncio.ensure_future(proxy.drain(2.0))
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0)
     for frame in held:
         child.send_result(frame.request_id, _channel_value(0))
 
@@ -535,7 +700,7 @@ async def test_drain_returns_false_when_a_request_outlives_the_deadline(teardown
     teardown.append((proxy, child))
 
     call = asyncio.ensure_future(proxy.read_channel("SR:STUCK"))
-    await asyncio.sleep(0.05)
+    await _until(lambda: len(child.requests) == 1)
 
     assert await proxy.drain(0.1) is False
     call.cancel()
@@ -570,7 +735,7 @@ async def test_outstanding_requests_survive_a_refusal(teardown):
     teardown.append((proxy, child))
 
     call = asyncio.ensure_future(proxy.read_channel("SR:INFLIGHT"))
-    await asyncio.sleep(0.05)
+    await _until(lambda: len(held) == 1)
     proxy.refuse_new_requests("draining")
 
     child.send_result(held[0].request_id, _channel_value(42))
@@ -628,7 +793,7 @@ async def test_disconnect_fails_outstanding_requests(teardown):
     teardown.append((proxy, child))
 
     call = asyncio.ensure_future(proxy.read_channel("SR:INFLIGHT"))
-    await asyncio.sleep(0.05)
+    await _until(lambda: len(child.requests) == 1)
     await proxy.disconnect(ack_timeout=0.05)
 
     with pytest.raises(ConnectionError):
@@ -645,6 +810,8 @@ def test_the_proxy_mirrors_the_connector_call_surface():
         "write_channel",
         "read_multiple_channels",
         "write_multiple_channels",
+        "write_channel_checked",
+        "validate_channel",
     ):
         proxy_params = inspect.signature(getattr(ConnectorHostProxy, name)).parameters
         base_params = inspect.signature(getattr(ControlSystemConnector, name)).parameters
@@ -670,19 +837,32 @@ def test_the_proxy_does_not_subscribe():
 
 
 def test_the_import_closure_never_reaches_a_control_system_client():
-    """The whole point of the child: no libca in the parent's address space."""
-    env = dict(os.environ)
+    """The whole point of the child: no libca in the parent's address space.
+
+    The pool is the probe because it imports every other supervisor-side
+    module (proxy, launch, verification). Nor any EPICS environment: a parent
+    that set one would be configuring a client it is not supposed to hold, and
+    would hand it to anything it spawns.
+    """
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("EPICS_", "PYEPICS_"))
+    }
     env["PYTHONPATH"] = os.pathsep.join(
         [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
     )
     probe = (
-        "import osprey_connectors.ipc.proxy, sys; "
-        "sys.exit(1 if any(m in sys.modules for m in ('epics', 'pyepics', 'p4p')) else 0)"
+        "import osprey_connectors.ipc.pool, os, sys; "
+        "loaded = [m for m in ('epics', 'pyepics', 'p4p') if m in sys.modules]; "
+        "env = [k for k in os.environ if k.startswith(('EPICS_', 'PYEPICS_'))]; "
+        "print(loaded, env); "
+        "sys.exit(1 if loaded or env else 0)"
     )
     completed = subprocess.run(
         [sys.executable, "-c", probe], env=env, capture_output=True, text=True, timeout=120
     )
     assert completed.returncode == 0, (
-        f"importing the proxy pulled a control-system client into the parent: "
+        f"importing the pool pulled a control-system client into the parent: "
         f"{completed.stdout}{completed.stderr}"
     )

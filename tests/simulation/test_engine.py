@@ -240,9 +240,11 @@ class TestNoise:
         assert mean == pytest.approx(100.0, rel=0.1)
 
     def test_string_channel_never_noisy(self, machine_dict, make_machine_file):
+        """String channels pass through the live-read pipeline verbatim, even
+        with a noise level declared on them."""
         machine_dict["channels"]["T:MODE"]["noise"] = 0.5
         engine = SimulationEngine.from_file(make_machine_file(machine_dict))
-        assert engine.read("T:MODE").value == "CW"
+        assert {engine.read("T:MODE").value for _ in range(10)} == {"CW"}
 
 
 class TestLiveReadSignalModel:
@@ -308,11 +310,6 @@ class TestLiveReadSignalModel:
         values = np.array([engine.read("T:BOTH").value for _ in range(400)])
         assert values.mean() == pytest.approx(10.0, abs=0.3)
         assert values.std() == pytest.approx(np.sqrt(2.0), rel=0.2)
-
-    def test_string_channels_untouched(self, machine_file):
-        """String channels pass through the live-read pipeline verbatim."""
-        engine = SimulationEngine.from_file(machine_file)
-        assert {engine.read("T:MODE").value for _ in range(10)} == {"CW"}
 
     def test_override_shifts_live_read_not_history(self, machine_dict, make_machine_file):
         """Pin the pre-existing `_effective()` seam — deliberately not fixed here.

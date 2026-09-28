@@ -127,8 +127,10 @@ class TestResolveProcessing:
         assert resolve_processing(mode, precision_ms).precision_ms == precision_ms
 
     def test_unknown_mode_lists_the_valid_set(self):
-        with pytest.raises(ValueError, match="Unknown processing mode"):
+        with pytest.raises(ValueError, match="Unknown processing mode") as exc:
             resolve_processing("p99", 1000)
+        for mode in PROCESSING_MODES:
+            assert mode in str(exc.value)
 
     def test_aggregate_without_bin_width_is_rejected(self):
         with pytest.raises(ValueError, match="requires precision_ms > 0"):
@@ -169,19 +171,18 @@ class TestLongFrame:
         assert frame["channel"].tolist() == ["A:PV"]
         assert len(frame) == 1
 
-    def test_empty_mapping_yields_the_typed_empty_frame(self):
-        frame = long_frame({})
-        assert list(frame.columns) == list(LONG_COLUMNS)
-        assert len(frame) == 0
-        assert frame["timestamp"].dtype == "datetime64[ns, UTC]"
-        assert is_string_dtype(frame["channel"])
-        assert frame["value"].dtype == np.float64
-
-    def test_all_channels_empty_yields_the_typed_empty_frame(self):
-        series = {
-            "A:PV": pd.Series(dtype=float, name="A:PV"),
-            "B:PV": pd.Series(dtype=float, name="B:PV"),
-        }
+    @pytest.mark.parametrize(
+        "series",
+        [
+            {},
+            {
+                "A:PV": pd.Series(dtype=float, name="A:PV"),
+                "B:PV": pd.Series(dtype=float, name="B:PV"),
+            },
+        ],
+        ids=["no_channels", "all_channels_empty"],
+    )
+    def test_no_samples_yields_the_typed_empty_frame(self, series):
         frame = long_frame(series)
         assert list(frame.columns) == list(LONG_COLUMNS)
         assert len(frame) == 0

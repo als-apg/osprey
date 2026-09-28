@@ -6,6 +6,7 @@ contract of the extracted ``parse_machine`` entry point and the ``ParsedMachine`
 container it returns.
 """
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from osprey.simulation.machine import (
     _validate_position_keys,
     parse_machine,
 )
+from tests.simulation.conftest import TEMPLATE_SIM
 
 _PATH = Path("machine.json")
 
@@ -178,7 +180,7 @@ class TestParseTexture:
         texture = _one(
             {"value": 0.0, "texture": {"kind": "wander", "amplitude": 1.0, "period_s": 60.0}}
         ).texture
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             texture.amplitude = 2.0
 
     def test_rejects_non_mapping(self):
@@ -284,7 +286,7 @@ class TestSimChannelDefaults:
 
     def test_still_frozen(self):
         channel = SimChannel("PV:A", 1.0, None, (), "A", 0.0, "d")
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             channel.noise_abs = 1.0
 
 
@@ -336,9 +338,6 @@ class TestDeadConfigParseGuard:
         assert "noise_abs" in caplog.text
         assert "texture" in caplog.text
         assert "machine.json" in caplog.text
-
-    def test_never_raises(self):
-        parse_machine(_channels({"PV:A": dict(self.DEAD)}), _PATH)  # no raise
 
     @pytest.mark.parametrize(
         "spec",
@@ -475,15 +474,12 @@ class TestParsePhysicsFault:
         )
 
     def test_corrector_gain_parses(self):
+        # The machine has no "HCM01" channel, and that is fine: device ids are
+        # lattice ids, not EPICS channel names -- unlike `overrides`, they must
+        # never be validated against `channels`.
         machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": 1.15}}}})
         physics = parse_machine(machine, _PATH).scenarios["fault"].physics
         assert physics.corrector_gain == {"HCM01": 1.15}
-
-    def test_physics_device_ids_are_not_checked_against_channels(self):
-        # Device ids are lattice ids ("HCM01"), not EPICS channel names -- unlike
-        # `overrides`, they must never be validated against `channels`.
-        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": 1.1}}}})
-        parse_machine(machine, _PATH)  # no raise
 
     def test_non_mapping_physics_rejected(self):
         machine = _machine(scenarios={"fault": {"physics": []}})
@@ -530,13 +526,8 @@ class TestParsePhysicsFault:
             parse_machine(machine, _PATH)
 
 
-_TEMPLATE_SIM = (
-    Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
-
-
 class TestSeededDiscoveryScenarioBundles:
-    """The shipped bpm-polarity bundle parses under the physics schema.
+    """The shipped bundles parse under the physics schema.
 
     Loads the real ``control_assistant`` machine.json + scenarios/ tree (not the
     inline fixture) so a malformed bundle is caught here, not only downstream in
@@ -545,7 +536,7 @@ class TestSeededDiscoveryScenarioBundles:
 
     @staticmethod
     def _load() -> ParsedMachine:
-        machine_path = _TEMPLATE_SIM / "machine.json"
+        machine_path = TEMPLATE_SIM / "machine.json"
         machine = json.loads(machine_path.read_text())
         return parse_machine(machine, machine_path)
 
@@ -560,6 +551,27 @@ class TestSeededDiscoveryScenarioBundles:
         assert scenario.overrides == {}
         assert scenario.archiver == {}
         assert [e.entry_id for e in scenario.logbook] == ["DEMO-031"]
+
+    @pytest.mark.parametrize(
+        ("name", "bpm_errors", "corrector_gain"),
+        [
+            ("bpm-polarity", {"BPM17": BpmErrorSpec(polarity=-1)}, {}),
+            # Two faults on disjoint devices: a BPM 17 polarity flip plus a
+            # bounded HCM01 gain deficit.
+            ("orm-dual-fault", {"BPM17": BpmErrorSpec(polarity=-1)}, {"HCM01": 0.5}),
+            # A bundle with no ``physics`` block still parses, with ``None``.
+            ("rf-thermal", None, None),
+        ],
+        ids=["bpm-polarity", "orm-dual-fault", "rf-thermal-no-physics"],
+    )
+    def test_physics_block_parses(self, name, bpm_errors, corrector_gain):
+        physics = self._load().scenarios[name].physics
+        if bpm_errors is None:
+            assert physics is None
+            return
+        assert physics is not None
+        assert physics.bpm_errors == bpm_errors
+        assert physics.corrector_gain == corrector_gain
 
 
 class TestValidateAtTime:
@@ -577,3 +589,273 @@ class TestValidateAtTime:
     def test_timezone_offset_rejected(self):
         with pytest.raises(ValueError, match="must not carry a"):
             _validate_at_time(_PREFIX, "08:30:00+02:00")
+
+
+def _scenario(spec):
+    """A machine whose one scenario, ``s``, is *spec*."""
+    return _machine(scenarios={"s": spec})
+
+
+def _bpm(errors):
+    return _scenario({"physics": {"bpm_errors": errors}})
+
+
+def _event(event):
+    return _scenario({"archiver": [{"channel": "PV:A", "events": [event]}]})
+
+
+class TestParseMachineRejectsMalformedSpecs:
+    """Every malformed shape the in-memory parser refuses, with the reason it gives."""
+
+    @pytest.mark.parametrize(
+        ("machine", "message"),
+        [
+            pytest.param(
+                _channels({"PV:A": 5.0}),
+                "Channel 'PV:A': entry must be a mapping, got float",
+                id="channel-not-a-mapping",
+            ),
+            pytest.param(
+                _channels({"PV:A": {"value": [1, 2]}}),
+                "Channel 'PV:A': 'value' must be a number or string",
+                id="channel-value-a-list",
+            ),
+            pytest.param(
+                _channels({"PV:A": {"value": True}}),
+                "Channel 'PV:A': 'value' must be a number or string",
+                id="channel-value-a-bool",
+            ),
+            pytest.param(
+                _channels({"PV:A": {"expr": 3}}),
+                "Channel 'PV:A': 'expr' must be a string",
+                id="channel-expr-not-a-string",
+            ),
+            pytest.param(
+                _machine(scenarios=["fault"]),
+                "'scenarios' must be a mapping of scenario name to definition",
+                id="scenarios-not-a-mapping",
+            ),
+            pytest.param(
+                _scenario("a fault"),
+                "Scenario 's': definition must be a mapping",
+                id="scenario-not-a-mapping",
+            ),
+            pytest.param(
+                _scenario({"overrides": {"PV:A": None}}),
+                "Scenario 's': override for 'PV:A' must be a number or string",
+                id="override-none",
+            ),
+            pytest.param(
+                _scenario({"overrides": {"PV:A": False}}),
+                "Scenario 's': override for 'PV:A' must be a number or string",
+                id="override-bool",
+            ),
+            pytest.param(
+                _scenario({"archiver": ["PV:A"]}),
+                "Scenario 's': archiver entries must be mappings",
+                id="archiver-entry-not-a-mapping",
+            ),
+            pytest.param(
+                _scenario({"physics": {"bpm_errors": ["BPM01"]}}),
+                "Scenario 's' physics: 'bpm_errors' must be a mapping of device id to an error spec",
+                id="bpm-errors-not-a-mapping",
+            ),
+            pytest.param(
+                _bpm({"": {"polarity": -1}}),
+                "Scenario 's' physics: 'bpm_errors' keys must be non-empty device id strings",
+                id="bpm-errors-empty-device-id",
+            ),
+            pytest.param(
+                _bpm({"BPM01": {"offset": "1e-4"}}),
+                "Scenario 's' physics bpm_errors['BPM01']: 'offset' must be a number, got '1e-4'",
+                id="bpm-error-offset-a-string",
+            ),
+            pytest.param(
+                _bpm({"BPM01": {"gain": True}}),
+                "Scenario 's' physics bpm_errors['BPM01']: 'gain' must be a number, got True",
+                id="bpm-error-gain-a-bool",
+            ),
+            pytest.param(
+                _event("step at 0.5"),
+                "Scenario 's', channel 'PV:A': event must be a mapping",
+                id="event-not-a-mapping",
+            ),
+            pytest.param(
+                _event({"shape": "step"}),
+                "Scenario 's', channel 'PV:A': 'step' event missing keys ['to']",
+                id="event-missing-keys",
+            ),
+        ],
+    )
+    def test_rejects_with_the_specific_reason(self, machine, message):
+        with pytest.raises(ValueError) as caught:
+            parse_machine(machine, _PATH)
+
+        assert message in str(caught.value)
+
+    def test_a_channel_listed_after_the_one_it_references_parses(self):
+        """The reference walk reaches PV:A through PV:B first, then skips it."""
+        machine = _channels({"PV:B": {"expr": "ch('PV:A') + 1"}, "PV:A": {"value": 1.0}})
+
+        channels = parse_machine(machine, _PATH).channels
+
+        assert channels["PV:B"].refs == ("PV:A",)
+        assert channels["PV:A"].value == 1.0
+
+
+_LOG_ENTRY = {
+    "entry_id": "E-1",
+    "when": {"days_ago": 1, "time": "08:30:00"},
+    "author": "operator",
+    "title": "Beam lost",
+    "text": "RF trip at 08:29.",
+}
+
+
+def _entry(**changes):
+    entry = {**_LOG_ENTRY, **changes}
+    return {key: value for key, value in entry.items() if value is not _DROP}
+
+
+_DROP = object()
+
+
+def _write_bundle(root: Path, *, scenario=None, logbook=None) -> Path:
+    """A machine file beside a ``scenarios/fault`` bundle; returns the machine path.
+
+    ``scenario``/``logbook`` are written verbatim when a ``str`` (to plant bad
+    JSON), as JSON otherwise; a ``scenario`` of ``None`` leaves scenario.json out.
+    """
+    bundle = root / "scenarios" / "fault"
+    bundle.mkdir(parents=True)
+    for name, content in (("scenario.json", scenario), ("logbook.json", logbook)):
+        if content is not None:
+            text = content if isinstance(content, str) else json.dumps(content)
+            (bundle / name).write_text(text)
+    machine_path = root / "machine.json"
+    machine_path.write_text(json.dumps(_machine(scenarios={})))
+    return machine_path
+
+
+def _load_bundle(machine_path: Path) -> ParsedMachine:
+    return parse_machine(json.loads(machine_path.read_text()), machine_path)
+
+
+class TestScenarioBundleValidation:
+    """``scenarios/<name>/`` bundles: the files themselves, then each logbook entry."""
+
+    def test_a_valid_bundle_carries_its_logbook(self, tmp_path):
+        machine_path = _write_bundle(
+            tmp_path, scenario={"description": "rf trip"}, logbook=[_entry(tags=["rf"])]
+        )
+
+        scenario = _load_bundle(machine_path).scenarios["fault"]
+
+        assert scenario.description == "rf trip"
+        [entry] = scenario.logbook
+        assert (entry.entry_id, entry.author, entry.tags) == ("E-1", "operator", ("rf",))
+        assert (entry.when.days_ago, entry.when.time.isoformat()) == (1, "08:30:00")
+
+    @pytest.mark.parametrize(
+        ("scenario", "logbook", "message"),
+        [
+            pytest.param(
+                None,
+                None,
+                "Scenario bundle 'fault' is missing scenario.json",
+                id="no-scenario-json",
+            ),
+            pytest.param(
+                "{not json",
+                None,
+                "Scenario bundle 'fault': invalid scenario.json",
+                id="scenario-bad-json",
+            ),
+            pytest.param(
+                {}, "[{", "Scenario bundle 'fault': invalid logbook.json", id="logbook-bad-json"
+            ),
+            pytest.param(
+                {},
+                {"entries": []},
+                "Scenario bundle 'fault': logbook.json must be a JSON array",
+                id="logbook-not-an-array",
+            ),
+        ],
+    )
+    def test_a_malformed_bundle_file_is_refused(self, tmp_path, scenario, logbook, message):
+        machine_path = _write_bundle(tmp_path, scenario=scenario, logbook=logbook)
+
+        with pytest.raises(ValueError) as caught:
+            _load_bundle(machine_path)
+
+        assert message in str(caught.value)
+
+    @pytest.mark.parametrize(
+        ("entry", "message"),
+        [
+            pytest.param("E-1", "logbook: each entry must be a mapping", id="entry-not-a-mapping"),
+            pytest.param(
+                _entry(entry_id=""),
+                "logbook: 'entry_id' must be a non-empty string, got ''",
+                id="entry-id-empty",
+            ),
+            pytest.param(
+                _entry(entry_id=_DROP),
+                "logbook: 'entry_id' must be a non-empty string, got None",
+                id="entry-id-missing",
+            ),
+            pytest.param(
+                _entry(when="yesterday"),
+                "entry 'E-1': 'when' must be a mapping with 'days_ago' and 'time'",
+                id="when-not-a-mapping",
+            ),
+            pytest.param(
+                _entry(when={"days_ago": -1, "time": "08:30:00"}),
+                "entry 'E-1': 'days_ago' must be a non-negative integer, got -1",
+                id="days-ago-negative",
+            ),
+            pytest.param(
+                _entry(when={"days_ago": True, "time": "08:30:00"}),
+                "entry 'E-1': 'days_ago' must be a non-negative integer, got True",
+                id="days-ago-bool",
+            ),
+            pytest.param(
+                _entry(author=7),
+                "entry 'E-1': 'author' must be a string, got 7",
+                id="author-not-a-string",
+            ),
+            pytest.param(
+                _entry(text=_DROP),
+                "entry 'E-1': 'text' must be a string, got None",
+                id="text-missing",
+            ),
+            pytest.param(
+                _entry(tags="rf"),
+                "entry 'E-1': 'tags' must be a list of strings, got 'rf'",
+                id="tags-a-string",
+            ),
+            pytest.param(
+                _entry(categories=["ops", 3]),
+                "entry 'E-1': 'categories' must be a list of strings, got ['ops', 3]",
+                id="categories-mixed",
+            ),
+            pytest.param(
+                _entry(loto_tag=42),
+                "entry 'E-1': 'loto_tag' must be a string or null, got 42",
+                id="loto-tag-a-number",
+            ),
+            pytest.param(
+                _entry(extra=["k", "v"]),
+                "entry 'E-1': 'extra' must be a mapping, got ['k', 'v']",
+                id="extra-not-a-mapping",
+            ),
+        ],
+    )
+    def test_a_malformed_logbook_entry_is_refused(self, tmp_path, entry, message):
+        machine_path = _write_bundle(tmp_path, scenario={}, logbook=[entry])
+
+        with pytest.raises(ValueError) as caught:
+            _load_bundle(machine_path)
+
+        assert "Scenario 'fault' logbook" in str(caught.value)
+        assert message in str(caught.value)

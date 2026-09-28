@@ -43,6 +43,7 @@ from osprey.simulation.archiver_seed import (
     synthesize_documents,
     write_manifest,
 )
+from tests.simulation.conftest import StubCollection
 
 # A fixed anchor, so a failure is reproducible tomorrow.
 T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
@@ -70,26 +71,6 @@ def _subtract_offset(address: str, values):
     if address != PERTURBED:
         return values
     return [float(value) - OFFSET for value in values]
-
-
-class _StubCollection:
-    """The calls :func:`seed_base` and :func:`compare_fingerprint` make, and no more."""
-
-    def __init__(self) -> None:
-        self.documents: list[dict[str, Any]] = []
-        self.manifest: dict[str, Any] | None = None
-
-    def create_index(self, *args: Any, **kwargs: Any) -> None:
-        return None
-
-    def insert_many(self, documents: list[dict[str, Any]], **kwargs: Any) -> None:
-        self.documents.extend(documents)
-
-    def replace_one(self, _filter: Any, document: dict[str, Any], **kwargs: Any) -> None:
-        self.manifest = document
-
-    def find_one(self, _filter: Any, **kwargs: Any) -> dict[str, Any] | None:
-        return self.manifest
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +147,8 @@ def test_seed_transform_returning_the_wrong_length_is_refused() -> None:
 def test_seed_base_applies_the_seed_transform_to_every_chunk() -> None:
     """Including across a chunk boundary: synthesis runs per chunk, so a hook
     threaded into only the first would leave most of the window unperturbed."""
-    collection = _StubCollection()
-    plain = _StubCollection()
+    collection = StubCollection()
+    plain = StubCollection()
 
     seed_base(
         collection,  # type: ignore[arg-type]
@@ -191,7 +172,7 @@ def test_seed_base_applies_the_seed_transform_to_every_chunk() -> None:
 def test_seed_base_records_the_seed_transform_in_the_manifest() -> None:
     """The manifest is what the next deploy compares against, so the description
     has to survive the write rather than only the call."""
-    collection = _StubCollection()
+    collection = StubCollection()
 
     seed_base(
         collection,  # type: ignore[arg-type]
@@ -268,7 +249,7 @@ def test_a_manifest_predating_the_seed_transform_field_still_matches() -> None:
     """An untransformed store seeded by an older OSPREY has no ``value_transform``
     in its manifest. Absent means no transform, which is what it was — reseeding
     it would throw away a correct multi-minute seed for a knob nobody moved."""
-    collection = _StubCollection()
+    collection = StubCollection()
     legacy = _fingerprint()
     del legacy["value_transform"]
     write_manifest(collection, legacy, seeded_at=T0)  # type: ignore[arg-type]
@@ -281,7 +262,7 @@ def test_a_manifest_predating_the_seed_transform_field_still_matches() -> None:
 def test_a_manifest_predating_the_seed_transform_field_mismatches_a_transformed_seed() -> None:
     """The other half of the same rule: a stand-in added to an existing deployment
     does have to rebuild the base, and the diff says which knob moved."""
-    collection = _StubCollection()
+    collection = StubCollection()
     legacy = _fingerprint()
     del legacy["value_transform"]
     write_manifest(collection, legacy, seeded_at=T0)  # type: ignore[arg-type]

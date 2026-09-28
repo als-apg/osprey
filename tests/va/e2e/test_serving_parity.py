@@ -54,7 +54,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -280,12 +279,6 @@ WIRE_TYPES = {"ai": "time_double", "bi": "time_enum"}
 PARITY_SAMPLE = 8
 
 
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
 def _docker(*args: str, timeout: float = 120.0) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
 
@@ -365,46 +358,49 @@ def _serving(prefix: str, *, seeded: bool):
     construction, and that number also names the container; see the module
     docstring for both.
     """
-    port = _free_port()
-    name = f"{prefix}-{port}"
-    # Stale-cleanup only. The port is this run's alone, so this can name
-    # nothing a concurrent run is using -- which is the point of the suffix.
-    _docker("rm", "-f", name, timeout=60)
 
-    arguments = [
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        *e2e_conftest.demo_data_run_args(),
-        # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own.
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-    ]
-    if seeded:
-        arguments += ["-e", f"VA_BPM_ERRORS={VA_BPM_ERRORS}"]
-    started = _docker(*arguments, IMAGE)
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
+    def container(port: int) -> tuple[str, list[str]]:
+        name = f"{prefix}-{port}"
+        arguments = [
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            *e2e_conftest.demo_data_run_args(),
+            # The namespace, named: the IOC refuses to boot without one rather
+            # than picking the framework's demo channels on its own.
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+        ]
+        if seeded:
+            arguments += ["-e", f"VA_BPM_ERRORS={VA_BPM_ERRORS}"]
+        return name, [*arguments, IMAGE]
+
+    port, name = e2e_conftest.run_on_free_port(container)
 
     accelerator = LiveVA(port=port)
     try:
         deadline = time.monotonic() + BOOT_TIMEOUT_S
+        # Kept so a boot that never answers says what the client last saw,
+        # rather than only what the server logged.
+        last_attempt = "no read completed"
         while time.monotonic() < deadline:
             try:
                 if accelerator.value(REFERENCE_RB) is not None:
                     break
-            except Exception:  # not up yet is the expected case
-                pass
+                last_attempt = f"{REFERENCE_RB} read back as None"
+            except Exception as exc:  # not up yet is the expected case
+                last_attempt = f"{type(exc).__name__}: {exc}"
             time.sleep(1.0)
         else:
             logs = _docker("logs", "--tail", "40", name, timeout=60)
             raise RuntimeError(
                 f"{name} never served {REFERENCE_RB} within {BOOT_TIMEOUT_S}s.\n"
+                f"The client's last attempt: {last_attempt}\n"
+                f"{e2e_conftest.boot_report(name, port)}\n"
                 f"{logs.stdout}\n{logs.stderr}"
             )
 

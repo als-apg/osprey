@@ -67,7 +67,6 @@ from osprey.mcp_server.control_system.server_context import (
     ControlSystemContext,
     MCPServerConfig,
 )
-from osprey.mcp_server.control_system.target_eligibility import derive_endpoints
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
@@ -78,6 +77,7 @@ from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc.verification import derive_endpoints
 from tests.fixtures.control_context import context_for
 from tests.integration._mock_pair_connectors import (
     BATCH_CHANNELS,

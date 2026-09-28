@@ -30,11 +30,7 @@ from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
 from osprey.simulation.apply import apply_scenarios, resolve_simulation_file
-
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
+from tests.simulation.conftest import TEMPLATE_SIM, stage_sim_project
 
 MOCK_TYPE_KEY = "control_system.connector.mock.simulation_file"
 
@@ -71,12 +67,7 @@ def _stage_project(tmp_path: Path, control_system: dict) -> Path:
     deployment-repo counterpart, for the callers that discover a repo instead of
     being told one.
     """
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
-    config = {"control_system": control_system}
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
+    return stage_sim_project(tmp_path, control_system=control_system)
 
 
 def _stage_repo(tmp_path: Path, control_system: dict, *, with_model: bool = True) -> Path:

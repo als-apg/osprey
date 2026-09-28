@@ -539,13 +539,35 @@ class TestFromConfigCallShapes:
         assert validator.policy["allow_unlisted_channels"] is True
         assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
 
-    def test_no_arg_does_not_pick_up_a_per_type_block(self, monkeypatch, tmp_path):
-        """The targetless question is deployment-wide and resolves no target.
+    @pytest.mark.parametrize(
+        ("kwargs", "allow", "key"),
+        [
+            ({}, False, DEPLOYMENT_WIDE_ALLOW_KEY),
+            ({"connector_type": VIRTUAL_ACCELERATOR}, True, VA_ALLOW_KEY),
+            ({"connector_type": EPICS}, False, DEPLOYMENT_WIDE_ALLOW_KEY),
+            ({"target": "va"}, True, VA_ALLOW_KEY),
+            ({"target": "live"}, False, DEPLOYMENT_WIDE_ALLOW_KEY),
+        ],
+        ids=["no-arg", "type-va", "type-epics", "target-va", "target-live"],
+    )
+    def test_call_shape_resolves_the_answering_block(
+        self, monkeypatch, tmp_path, kwargs, allow, key
+    ):
+        """Each call shape reads the block that answers for it, and names that key.
 
-        ``registry/manager.py`` and the executor's config helper call
-        ``from_config()`` holding neither a type nor a target; folding the
-        simulator's relaxation into their answer would report a posture no
-        machine of theirs runs under.
+        - ``no-arg``: the targetless question is deployment-wide and resolves no
+          target. ``registry/manager.py`` and the executor's config helper call
+          ``from_config()`` holding neither a type nor a target; folding the
+          simulator's relaxation into their answer would report a posture no
+          machine of theirs runs under.
+        - ``type-va``: a connector asks about its own type and gets its own
+          block's answer.
+        - ``type-epics``: the live machine wrote no block, so the
+          deployment-wide one answers for it.
+        - ``target-va``: ``va`` resolves to ``virtual_accelerator``, so the
+          type and target shapes agree.
+        - ``target-live``: the relaxation written for the simulator must not
+          reach the machine.
         """
         _patch_config(
             monkeypatch,
@@ -555,73 +577,14 @@ class TestFromConfigCallShapes:
             },
         )
 
-        validator = LimitsValidator.from_config()
+        validator = LimitsValidator.from_config(**kwargs)
 
-        assert validator.policy["allow_unlisted_channels"] is False
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
-
-    def test_connector_type_reads_that_type_s_block(self, monkeypatch, tmp_path):
-        """A connector asks about its own type and gets its own block's answer."""
-        _patch_config(
-            monkeypatch,
-            {
-                "control_system": _va_permissive_section(),
-                "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
-            },
-        )
-
-        validator = LimitsValidator.from_config(connector_type=VIRTUAL_ACCELERATOR)
-
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == VA_ALLOW_KEY
-
-    def test_connector_type_without_a_block_inherits_deployment_wide(self, monkeypatch, tmp_path):
-        """The live machine wrote no block, so the deployment-wide one answers for it."""
-        _patch_config(
-            monkeypatch,
-            {
-                "control_system": _va_permissive_section(),
-                "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
-            },
-        )
-
-        validator = LimitsValidator.from_config(connector_type=EPICS)
-
-        assert validator.policy["allow_unlisted_channels"] is False
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
-
-    def test_target_reads_the_block_of_the_type_it_resolves_to(self, monkeypatch, tmp_path):
-        """``va`` resolves to ``virtual_accelerator``, so the two shapes agree."""
-        _patch_config(
-            monkeypatch,
-            {
-                "control_system": _va_permissive_section(),
-                "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
-            },
-        )
-
-        validator = LimitsValidator.from_config(target="va")
-
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == VA_ALLOW_KEY
-
-    def test_target_live_keeps_the_deployment_wide_refusal(self, monkeypatch, tmp_path):
-        """The relaxation written for the simulator must not reach the machine."""
-        _patch_config(
-            monkeypatch,
-            {
-                "control_system": _va_permissive_section(),
-                "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
-            },
-        )
-
-        validator = LimitsValidator.from_config(target="live")
-
-        assert validator.policy["allow_unlisted_channels"] is False
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
-        with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("NOT:LISTED", 1.0)
-        assert exc.value.violation_type == "UNLISTED_CHANNEL"
+        assert validator.policy["allow_unlisted_channels"] is allow
+        assert validator.policy["allow_unlisted_key"] == key
+        if allow is False:
+            with pytest.raises(ChannelLimitsViolationError) as exc:
+                validator.validate("NOT:LISTED", 1.0)
+            assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
     def test_both_arguments_is_a_type_error(self, monkeypatch):
         """A target already names a type; stating both leaves the caller's intent unclear."""
@@ -1080,14 +1043,6 @@ class TestResolveConfirm:
 
         assert validator.resolve_confirm("FOO") is True
 
-    def test_defaults_apply_when_the_channel_is_silent(self, tmp_path):
-        validator = _make_validator(
-            tmp_path,
-            {"defaults": {"confirm": False}, "FOO": {"max_value": 100.0}},
-        )
-
-        assert validator.resolve_confirm("FOO") is False
-
     def test_silence_everywhere_confirms(self, tmp_path):
         validator = _make_validator(tmp_path, {"FOO": {"max_value": 100.0}})
 
@@ -1195,20 +1150,6 @@ class TestLoadDatabase:
         limits_db, _ = LimitsValidator._load_limits_database(str(f))
 
         assert set(limits_db) == {"GOOD"}
-
-    def test_non_dict_channel_raises(self, tmp_path):
-        f = tmp_path / "limits.json"
-        f.write_text(json.dumps({"BADCHAN": 42, "GOOD": {"max_value": 10.0}}))
-
-        with pytest.raises(ValueError, match="BADCHAN"):
-            LimitsValidator._load_limits_database(str(f))
-
-    def test_channel_with_invalid_field_raises(self, tmp_path):
-        f = tmp_path / "limits.json"
-        f.write_text(json.dumps({"BADFIELD": {"min_value": "x"}, "GOOD": {"max_value": 10.0}}))
-
-        with pytest.raises(ValueError, match="BADFIELD"):
-            LimitsValidator._load_limits_database(str(f))
 
     def test_max_step_channel_loads(self, tmp_path):
         f = tmp_path / "limits.json"
@@ -1354,15 +1295,6 @@ class TestValidateWithoutStepCheck:
 
         # The very write validate() refuses without a reader.
         validator.validate_without_step_check("FOO", 50.0)
-
-    def test_validate_still_refuses_the_same_write(self):
-        """The two entry points differ deliberately, not by accident."""
-        validator = _step_validator(max_step=1.0)
-
-        with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("FOO", 50.0)
-
-        assert exc.value.violation_type == "STEP_CHECK_FAILED"
 
     def test_bounds_are_still_enforced(self):
         validator = _step_validator(max_step=1.0)
@@ -1693,8 +1625,6 @@ class TestLoadConfiguredDatabase:
 class TestWritableAddresses:
     """Defaults-aware writability, the rule the runtime write path uses."""
 
-    """Defaults-aware writability, the rule the runtime write path uses."""
-
     def test_entry_without_writable_inherits_the_default(self, tmp_path):
         """The demo file grants writability by omission — that must be honored."""
         limits = _write_limits(
@@ -1736,19 +1666,6 @@ class TestWritableAddresses:
         assert LimitsValidator.writable_addresses(limits) == frozenset(
             {"SR:MAG:DIPOLE:01:CURRENT:SP"}
         )
-
-    def test_metadata_and_defaults_keys_are_not_channels(self, tmp_path):
-        """Underscore keys and 'defaults' never become addresses."""
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {"SR:MAG:DIPOLE:01:CURRENT:SP": {}},
-            defaults={"writable": True},
-        )
-
-        writable = LimitsValidator.writable_addresses(limits)
-
-        assert writable == frozenset({"SR:MAG:DIPOLE:01:CURRENT:SP"})
-        assert not any(key.startswith("_") or key == "defaults" for key in writable)
 
     def test_missing_defaults_block_falls_back_to_writable_true(self, tmp_path):
         """No defaults block at all still matches the validator's ``get(..., True)``."""

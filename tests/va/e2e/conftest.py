@@ -54,7 +54,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -461,6 +461,87 @@ def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
 
 def _docker_rm(name: str) -> None:
     subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=30)
+
+
+#: How many ports a boot tries before giving up on publishing one.
+PUBLISH_ATTEMPTS = 5
+
+
+def run_on_free_port(
+    container_for: Callable[[int], tuple[str, list[str]]],
+) -> tuple[int, str]:
+    """``docker run`` a container published on a free port, retrying a lost race.
+
+    A reserved port is free only until the probe socket closes, and anything on
+    the host can take it before ``docker run`` binds it. Docker then refuses
+    the publish with "address already in use", and the answer is another port
+    rather than a failed boot.
+
+    Args:
+        container_for: Given a port, the container's name and the arguments
+            after ``docker``.
+
+    Returns:
+        The port the container is published on, and its name.
+    """
+    for _ in range(PUBLISH_ATTEMPTS):
+        port = _reserve_free_port()
+        name, arguments = container_for(port)
+        # Stale-cleanup only, of a container an earlier run left under this name.
+        _docker_rm(name)
+        started = subprocess.run(
+            ["docker", *arguments], capture_output=True, text=True, timeout=120
+        )
+        if started.returncode == 0:
+            return port, name
+        # A refused publish still leaves the created container behind.
+        _docker_rm(name)
+        if "address already in use" not in started.stderr:
+            raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
+    raise RuntimeError(f"no free port could be published in {PUBLISH_ATTEMPTS} attempts")
+
+
+def _listening_ports(proc_net: str, *, tcp: bool) -> list[int]:
+    """Local ports in a ``/proc/net/{tcp,tcp6,udp,udp6}`` dump; TCP in LISTEN only."""
+    ports: set[int] = set()
+    for line in proc_net.splitlines():
+        fields = line.split()
+        if len(fields) < 4 or ":" not in fields[1] or fields[0] == "sl":
+            continue
+        if tcp and fields[3] != "0A":
+            continue
+        ports.add(int(fields[1].rsplit(":", 1)[1], 16))
+    return sorted(ports)
+
+
+def boot_report(container: str, host_port: int) -> str:
+    """What the host and the container say about a port a client could not reach.
+
+    For a boot that logged it was serving yet never answered: which ports the
+    container publishes, which its server listens on inside, whether a plain
+    TCP connect to the published port lands, and who holds that port on the
+    host.
+    """
+
+    def run(*command: str) -> str:
+        try:
+            done = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return f"<{type(exc).__name__}: {exc}>"
+        return (done.stdout + done.stderr).strip() or "<nothing>"
+
+    lines = [f"docker port: {run('docker', 'port', container)}"]
+    for family, tcp in (("tcp", True), ("tcp6", True), ("udp", False), ("udp6", False)):
+        dump = run("docker", "exec", container, "cat", f"/proc/net/{family}")
+        lines.append(f"container {family} ports: {_listening_ports(dump, tcp=tcp)}")
+    try:
+        with socket.create_connection(("127.0.0.1", host_port), timeout=5):
+            lines.append(f"host TCP connect to 127.0.0.1:{host_port}: accepted")
+    except OSError as exc:
+        lines.append(f"host TCP connect to 127.0.0.1:{host_port}: {exc!r}")
+    if shutil.which("ss"):
+        lines.append(f"host holders of {host_port}: {run('ss', '-Htanp', f'sport = :{host_port}')}")
+    return "\n".join(lines)
 
 
 def _readiness_pv_served() -> bool:

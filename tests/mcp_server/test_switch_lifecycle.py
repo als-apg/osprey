@@ -43,12 +43,16 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
-    Endpoint,
-    TargetDerivation,
 )
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.ipc.launch import host_env
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc.verification import (
+    Endpoint,
+    TargetDerivation,
+    verify_host_report,
+)
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import state_dir_under
 from tests.fixtures.control_context import context_for
@@ -1547,7 +1551,7 @@ class TestVerificationRule:
         )
 
     def test_a_gatewayless_target_passes_when_the_child_configured_nothing(self):
-        verification = connector_host_manager._verify(self._derivation(), self.NOTHING_CONFIGURED)
+        verification = verify_host_report(self._derivation(), self.NOTHING_CONFIGURED)
 
         assert verification.ok is True
         assert "derives no gateway" in verification.detail
@@ -1563,7 +1567,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = connector_host_manager._verify(self._derivation(), report)
+        verification = verify_host_report(self._derivation(), report)
 
         assert verification.ok is False
         assert verification.field == "_epics_configured"
@@ -1586,7 +1590,7 @@ class TestVerificationRule:
             selected_role="read_only",
         )
 
-        verification = connector_host_manager._verify(derivation, self.NOTHING_CONFIGURED)
+        verification = verify_host_report(derivation, self.NOTHING_CONFIGURED)
 
         assert verification.ok is False
         assert verification.field == "_epics_configured"
@@ -1608,7 +1612,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = connector_host_manager._verify(derivation, report)
+        verification = verify_host_report(derivation, report)
 
         assert verification.ok is False
         assert verification.field == "endpoints"
@@ -1625,7 +1629,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = connector_host_manager._verify(derivation, report)
+        verification = verify_host_report(derivation, report)
 
         assert verification.ok is False
         assert verification.field == "host"
@@ -1680,14 +1684,12 @@ class TestConfigDerivedFacts:
             == DEFAULT_DRAIN_TIMEOUT_S
         )
 
-    async def test_the_child_environment_drops_every_epics_variable(
-        self, make_manager, monkeypatch
-    ):
+    async def test_the_child_environment_drops_every_epics_variable(self, monkeypatch):
         monkeypatch.setenv("EPICS_CA_ADDR_LIST", "ambient.example.org")
         monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", "ambient.example.org:5075")
         monkeypatch.setenv("PYEPICS_LIBCA", "/opt/libca.dylib")
 
-        env = make_manager().child_env()
+        env = host_env()
 
         assert "EPICS_CA_ADDR_LIST" not in env
         assert "EPICS_PVA_NAME_SERVERS" not in env

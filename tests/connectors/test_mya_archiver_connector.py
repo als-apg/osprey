@@ -104,16 +104,6 @@ def test_signature_matches_the_archiver_contract():
     assert list(impl.parameters) == list(base.parameters)
 
 
-def test_registered_as_a_builtin_archiver():
-    """`archiver.type: mya_archiver` must resolve without a dotted path."""
-    from osprey_connectors import types
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
-
-    register_builtin_connectors()
-    assert ConnectorFactory._archiver_connectors[types.MYA_ARCHIVER] is MYAArchiverConnector
-    assert types.MYA_ARCHIVER in types.CLI_ARCHIVER_TYPES
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["get_data", "get_metadata", "check_availability"])
 async def test_every_read_refuses_when_not_connected(method):

@@ -108,8 +108,11 @@ def project(tmp_path, monkeypatch):
 
 
 async def _series(connector: MockArchiverConnector) -> list[float]:
+    """The channel's samples, never empty: an ``all(...)`` over nothing would pass."""
     df = await connector.get_data(channels=["T:Q1:CUR:SP"], start_date=START, end_date=END)
-    return df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
+    values = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
+    assert values, "no samples: the simulation file did not feed the engine"
+    return values
 
 
 def _warnings(caplog) -> list[str]:
@@ -143,7 +146,12 @@ class TestAnchor:
 class TestDerivedFromControlSystem:
     @pytest.mark.asyncio
     async def test_unset_archiver_key_uses_the_control_system_file(self, project, caplog):
-        """The whole point: no archiver-side key, and history still comes from the model."""
+        """The whole point: no archiver-side key, and history still comes from the model.
+
+        The config's path is relative and the process never chdirs into the
+        project, so the engine only loads if the path is anchored at
+        ``project_root``.
+        """
         project(
             control_system={
                 "type": "mock",
@@ -151,6 +159,7 @@ class TestDerivedFromControlSystem:
             },
             archiver={"type": "mock_archiver"},
         )
+        assert Path.cwd() != project.root, "precondition: a relative path must need anchoring"
 
         connector = MockArchiverConnector()
         with caplog.at_level(logging.WARNING, logger=ARCHIVER_LOGGER):
@@ -159,29 +168,6 @@ class TestDerivedFromControlSystem:
         assert connector._sim_engine is not None, "no engine — the fallback did not fire"
         assert all(v == CONTROL_SYSTEM_VALUE for v in await _series(connector))
         assert not _warnings(caplog), "deriving the path is the normal case, not a warning"
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_relative_path_is_anchored_at_project_root(self, project):
-        """The config's path is relative and the cwd is elsewhere — anchoring is the test."""
-        write_config = project
-        write_config(
-            control_system={
-                "type": "mock",
-                "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
-            },
-            archiver={"type": "mock_archiver"},
-        )
-        expected = write_config.root / "data" / "simulation" / "machine.json"
-        assert Path.cwd() != write_config.root
-
-        connector = MockArchiverConnector()
-        await connector.connect({})
-
-        assert connector._sim_engine is not None
-        assert all(v == CONTROL_SYSTEM_VALUE for v in await _series(connector))
-        assert expected.exists()
 
         await connector.disconnect()
 
@@ -225,29 +211,11 @@ class TestDerivedFromControlSystem:
 
 class TestExplicitArchiverValueWins:
     @pytest.mark.asyncio
-    async def test_explicit_value_overrides_the_control_system_file(self, project, caplog):
-        project(
-            control_system={
-                "type": "mock",
-                "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
-            },
-            archiver={
-                "type": "mock_archiver",
-                "mock_archiver": {"simulation_file": "data/simulation/other-machine.json"},
-            },
-        )
-
-        connector = MockArchiverConnector()
-        with caplog.at_level(logging.WARNING, logger=ARCHIVER_LOGGER):
-            await connector.connect({"simulation_file": "data/simulation/other-machine.json"})
-
-        assert all(v == ARCHIVER_ONLY_VALUE for v in await _series(connector))
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_divergence_is_logged(self, project, caplog):
-        """Two different models is legal but load-bearing — it must not be silent."""
+    async def test_explicit_value_overrides_the_control_system_file_and_says_so(
+        self, project, caplog
+    ):
+        """The archiver-side file wins, and running two different models is legal
+        but load-bearing, so the divergence must not be silent."""
         write_config = project
         write_config(
             control_system={
@@ -263,6 +231,8 @@ class TestExplicitArchiverValueWins:
         connector = MockArchiverConnector()
         with caplog.at_level(logging.WARNING, logger=ARCHIVER_LOGGER):
             await connector.connect({"simulation_file": "data/simulation/other-machine.json"})
+
+        assert all(v == ARCHIVER_ONLY_VALUE for v in await _series(connector))
 
         warnings = _warnings(caplog)
         assert len(warnings) == 1, f"expected one divergence warning, got {warnings}"

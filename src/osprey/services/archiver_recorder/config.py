@@ -45,6 +45,7 @@ from typing import Any
 import yaml
 
 from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
+from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live_standin
 
 # The recorded endpoint is derived, never re-read: `derive_endpoints` is the same
 # resolver the roster's label and the target switch use, so this service and the
@@ -52,10 +53,7 @@ from osprey.connectors.archiver.mongodb_archiver_connector import address_overri
 # `standin` target lands. Imported at module scope because it costs nothing this
 # service does not already pay — it pulls in `osprey_connectors` and the standard
 # library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
-from osprey.mcp_server.control_system.target_eligibility import (
-    derive_endpoints,
-    endpoint_is_live_standin,
-)
+from osprey_connectors.ipc.verification import derive_endpoints
 
 # Whose past the store holds, decided in one place for the recorder's compose
 # entry, this enablement gate and the deploy-time archive seed alike. A guard
@@ -359,7 +357,7 @@ def _recorded_target_is_standin(config: dict[str, Any]) -> bool:
     reads the ``standin`` target — its own ``control_system.connector.live_standin``
     block — never the facility's authored ``epics`` block, which always means
     the real machine. The endpoint is derived by
-    :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
+    :func:`~osprey_connectors.ipc.verification.derive_endpoints`
     and judged by
     :func:`~osprey.mcp_server.control_system.target_eligibility.endpoint_is_live_standin`,
     the same step the roster's label is minted through, so a recorder cannot

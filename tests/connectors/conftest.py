@@ -107,7 +107,16 @@ def mongodb_config(mongodb_container, monkeypatch):
     Tests that need seeded data should also depend on ``mongodb_test_data``;
     this fixture is intentionally not coupled to the data fixture so that
     error-path tests (missing config keys, etc.) don't pay seeding cost.
+    The in-network address overrides are cleared: they beat the config, so a
+    shell that sets them would send these tests to another store.
     """
+    from osprey.connectors.archiver.mongodb_archiver_connector import (
+        HOST_OVERRIDE_ENV,
+        PORT_OVERRIDE_ENV,
+    )
+
+    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
     password_env = "MONGODB_TEST_PASSWORD"
     monkeypatch.setenv(password_env, mongodb_container["password"])
 

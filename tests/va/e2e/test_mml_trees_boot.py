@@ -67,7 +67,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -358,13 +357,6 @@ def _declared_kinds(mapping: Path) -> frozenset[str]:
 # ===================================================================
 
 
-def _free_port() -> int:
-    """A host port that was free at reservation time."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
 def _docker(*arguments: str, timeout: float = 120.0) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", *arguments], capture_output=True, text=True, timeout=timeout)
 
@@ -433,32 +425,31 @@ def _serving(tree: BuiltTree):
     Naming them here instead would test this file's idea of the harvest rather
     than the harvest.
     """
-    port = _free_port()
-    # The port alone does not make the name unique: it is released when the
-    # probe socket closes and only bound again by `docker run`, so two runs can
-    # reserve the same number. The suffix is what keeps the force-remove below
-    # from reaching a concurrent run's container.
-    name = f"{CONTAINER_PREFIX}-{port}-{uuid.uuid4().hex[:8]}"
-    _docker("rm", "-f", name)
 
-    started = _docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-e",
-        f"VA_CHANNELS_FILE={tree.env['VA_CHANNELS_FILE']}",
-        "-e",
-        f"VA_LATTICE={tree.env['VA_LATTICE']}",
-        *e2e_conftest.data_root_run_args(tree.served_dir),
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
-        IMAGE,
-    )
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
+    def container(port: int) -> tuple[str, list[str]]:
+        # The port alone does not make the name unique: it is released when the
+        # probe socket closes and only bound again by `docker run`, so two runs
+        # can reserve the same number. The suffix is what keeps the
+        # force-remove from reaching a concurrent run's container.
+        name = f"{CONTAINER_PREFIX}-{port}-{uuid.uuid4().hex[:8]}"
+        return name, [
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"EPICS_CA_SERVER_PORT={port}",
+            "-e",
+            f"VA_CHANNELS_FILE={tree.env['VA_CHANNELS_FILE']}",
+            "-e",
+            f"VA_LATTICE={tree.env['VA_LATTICE']}",
+            *e2e_conftest.data_root_run_args(tree.served_dir),
+            "-p",
+            f"127.0.0.1:{port}:{port}/tcp",
+            IMAGE,
+        ]
+
+    port, name = e2e_conftest.run_on_free_port(container)
 
     served = ServedTree(tree=tree, port=port)
     try:
@@ -478,17 +469,22 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
     """
     probe = served.tree.document.bindings[0].setpoint_address
     deadline = time.monotonic() + BOOT_TIMEOUT_S
+    # Kept so a boot that never answers says what the client last saw.
+    last_attempt = "no read completed"
     while time.monotonic() < deadline:
         try:
             if served.read(probe)[probe] is not None:
                 return
-        except Exception:  # "not up yet" is the expected case here
-            pass
+            last_attempt = f"{probe} read back as None"
+        except Exception as exc:  # "not up yet" is the expected case here
+            last_attempt = f"{type(exc).__name__}: {exc}"
         time.sleep(2.0)
 
     logs = _docker("logs", "--tail", "60", container)
     raise AssertionError(
-        f"{served.tree.name}: the container never served {probe} within {BOOT_TIMEOUT_S}s. "
+        f"{served.tree.name}: the container never served {probe} within {BOOT_TIMEOUT_S}s.\n"
+        f"The client's last attempt: {last_attempt}\n"
+        f"{e2e_conftest.boot_report(container, served.port)}\n"
         f"Container logs:\n{logs.stdout}\n{logs.stderr}"
     )
 

@@ -28,35 +28,14 @@ def test_classify_channel(channel, kind, base_value, units, noise_scale):
     assert result.base_value == base_value
     assert result.units == units
     assert result.noise_scale == noise_scale
+    # ``noise_scale`` exists only for kinds whose base can legitimately be 0: a
+    # single global absolute floor would be wrong-scale across bases spanning
+    # 1e-9 Torr to 5000 V, so the floor is only ever set where the relative
+    # sigma is dead.
+    assert (result.noise_scale > 0.0) == (result.base_value == 0.0)
 
 
 def test_beam_current_takes_priority_over_generic_current():
     """A PV matching both 'beam' and 'current' classifies as beam_current."""
     assert classify_channel("BEAM:CURRENT:MONITOR").name == "beam_current"
     assert classify_channel("CORRECTOR:CURRENT").name == "current"
-
-
-def test_position_is_the_only_kind_carrying_an_absolute_noise_floor():
-    """``noise_scale`` exists only for kinds whose base can legitimately be 0.
-
-    A single global absolute floor would be wrong-scale across bases spanning
-    1e-9 Torr to 5000 V, so every kind with a non-zero base keeps ``0.0`` and
-    its fallback sigma stays purely relative.
-    """
-    probes = {
-        "SR:BEAM:CURRENT": 0.0,
-        "PS:CURRENT": 0.0,
-        "RF:VOLTAGE": 0.0,
-        "RF:POWER": 0.0,
-        "VAC:PRESSURE": 0.0,
-        "CRYO:TEMP": 0.0,
-        "SR:LIFETIME": 0.0,
-        "SR:ENERGY": 0.0,
-        "SOME:RANDOM:PV": 0.0,
-        "BPM:POSITION:X": 0.005,
-    }
-    for channel, expected in probes.items():
-        kind = classify_channel(channel)
-        assert kind.noise_scale == expected, channel
-        # The floor is only ever needed where the relative sigma is dead.
-        assert (kind.noise_scale > 0.0) == (kind.base_value == 0.0), channel

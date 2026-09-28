@@ -20,7 +20,8 @@ answers each against something other than the seeder's own opinion:
   *forgetting* to exclude it is a mistake nothing else would catch.
 
 Container-backed tests skip cleanly without Docker. The grid, synthesis and
-fingerprint tests need no container and carry the contract on their own.
+fingerprint tests (the comparison ones against a stub store) need no container
+and carry the contract on their own.
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ from osprey.simulation.procedural import baseline_value, generate_series
 from osprey.simulation.series import epoch_seconds_array
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+from tests.simulation.conftest import StubCollection
 
 # A fixed anchor: every expectation below is a function of it, and a failure
 # should be reproducible tomorrow.
@@ -407,7 +409,15 @@ class TestFingerprint:
 
 
 class TestFingerprintComparison:
-    """Match, mismatch, absent — and the trap in between."""
+    """Match, mismatch, absent — and the trap in between.
+
+    Only the manifest's two calls reach the store here, so a stub stands in for
+    it and the contract runs without Docker.
+    """
+
+    @pytest.fixture
+    def collection(self):
+        return StubCollection()
 
     def test_an_unseeded_store_reports_absent(self, collection):
         assert compare_fingerprint(collection, self._current()).state is SeedState.ABSENT
@@ -424,12 +434,17 @@ class TestFingerprintComparison:
         """The trap: the seed instant moves on every deploy. Counting it would
         make every deploy rebuild the store, and the mistake would look like
         working code — a reseed is not an error, just hours of wasted CI."""
+        later = T0 + timedelta(days=1)
         write_manifest(collection, self._current(), seeded_at=T0)
+        first = collection.find_one({"_id": MANIFEST_ID})["fingerprint"]
 
+        write_manifest(collection, self._current(), seeded_at=later)
         comparison = compare_fingerprint(collection, self._current())
 
+        assert collection.find_one({"_id": MANIFEST_ID})["fingerprint"] == first
         assert comparison.state is SeedState.MATCH
-        assert comparison.seeded_at is not None
+        # The instant is recorded and reported, just never compared.
+        assert comparison.seeded_at == later
 
     def test_a_changed_knob_reports_what_moved(self, collection):
         write_manifest(collection, self._current(), seeded_at=T0)

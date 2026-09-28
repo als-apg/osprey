@@ -8,9 +8,10 @@ eager p4p client context, the PVA gateway environment, and — the property that
 protects every existing deployment — that an absent or empty glob list leaves
 the connector exactly as pure-CA as it was before.
 
-Convention (matching ``test_epics_connector.py``): inject a fake driver module
-instead of importing the real one, snapshot the EPICS_* env vars so the
-connector's direct ``os.environ`` writes are restored, and assert on the
+Convention (matching ``test_epics_connector.py``): inject fake driver modules
+(pyepics and p4p) instead of importing the real ones, start from an environment
+with no EPICS_* variable set (the suite-wide ``restore_environ`` fixture undoes
+the connector's direct ``os.environ`` writes), and assert on the
 concrete payload — the env value, the context constructor argument, the
 ImportError text — never merely that a call "didn't raise". p4p is not
 installed on every dev machine, so the fake is what makes these tests run
@@ -19,57 +20,23 @@ everywhere.
 
 import os
 import sys
-import types
-from unittest.mock import MagicMock
 
 import pytest
 
 from osprey.connectors.control_system.epics_connector import EPICSConnector
+from tests.connectors._epics_fakes import (
+    EPICS_PVA_VARS,
+    clean_epics_env,  # noqa: F401 - fixture, used by name
+    fake_pyepics,  # noqa: F401 - fixture, used by name
+    install_fake_p4p,
+    patch_writes_enabled,
+)
 
-PVA_VARS = [
-    "EPICS_PVA_ADDR_LIST",
-    "EPICS_PVA_NAME_SERVERS",
-    "EPICS_PVA_AUTO_ADDR_LIST",
-]
+PVA_VARS = EPICS_PVA_VARS
 
-CA_VARS = [
-    "EPICS_CA_ADDR_LIST",
-    "EPICS_CA_SERVER_PORT",
-    "EPICS_CA_NAME_SERVERS",
-    "EPICS_CA_AUTO_ADDR_LIST",
-]
-
-
-@pytest.fixture
-def clean_epics_env(monkeypatch):
-    """Snapshot EPICS_* env vars so connect()'s direct os.environ writes are restored."""
-    for var in CA_VARS + PVA_VARS:
-        monkeypatch.delenv(var, raising=False)
-    yield
-
-
-def _patch_writes_enabled(monkeypatch, enabled: bool):
-    def fake_get_config_value(key, default=None):
-        if key == "control_system.writes_enabled":
-            return enabled
-        return default
-
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
-
-
-def _install_fake_p4p(monkeypatch):
-    """Put a fake ``p4p`` package in sys.modules; return (module, Context class)."""
-    context_cls = MagicMock(name="Context")
-    thread_mod = types.ModuleType("p4p.client.thread")
-    thread_mod.Context = context_cls
-    client_mod = types.ModuleType("p4p.client")
-    client_mod.thread = thread_mod
-    p4p_mod = types.ModuleType("p4p")
-    p4p_mod.client = client_mod
-    monkeypatch.setitem(sys.modules, "p4p", p4p_mod)
-    monkeypatch.setitem(sys.modules, "p4p.client", client_mod)
-    monkeypatch.setitem(sys.modules, "p4p.client.thread", thread_mod)
-    return p4p_mod, context_cls
+# connect() runs against a stand-in pyepics: the real one would load libca and
+# keep the shutdown-hook change for every later test in the worker.
+pytestmark = pytest.mark.usefixtures("fake_pyepics")
 
 
 def _routing_connector(*globs: str) -> EPICSConnector:
@@ -145,8 +112,8 @@ class TestConnectPvaContext:
         lazy-init race between the concurrent asyncio.to_thread reads that
         read_multiple_channels gathers.
         """
-        _patch_writes_enabled(monkeypatch, False)
-        p4p_mod, context_cls = _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        p4p_mod, context_cls = install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect({"pva_channels": ["SR:CAM*:IMAGE", "BL*:DET:*"]})
@@ -161,8 +128,8 @@ class TestConnectPvaContext:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_single_glob_string_is_accepted(self, monkeypatch):
         """A scalar YAML value is normalized to a one-element glob list."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect({"pva_channels": "SR:CAM1:IMAGE"})
@@ -174,8 +141,8 @@ class TestConnectPvaContext:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_blank_entries_are_dropped(self, monkeypatch):
         """Whitespace-only list entries never become a routing pattern."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect({"pva_channels": ["  SR:CAM1:IMAGE  ", "", "   "]})
@@ -186,7 +153,7 @@ class TestConnectPvaContext:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_missing_p4p_raises_with_install_hint(self, monkeypatch):
         """PVA channels configured but p4p absent: fail fast, naming the remedy."""
-        _patch_writes_enabled(monkeypatch, False)
+        patch_writes_enabled(monkeypatch, False)
         monkeypatch.setitem(sys.modules, "p4p", None)
         monkeypatch.setitem(sys.modules, "p4p.client", None)
         monkeypatch.setitem(sys.modules, "p4p.client.thread", None)
@@ -215,7 +182,7 @@ class TestNoPvaConfigured:
         sys.modules['p4p'] is nulled, so *any* import attempt would raise —
         connecting successfully is the proof that none was made.
         """
-        _patch_writes_enabled(monkeypatch, False)
+        patch_writes_enabled(monkeypatch, False)
         monkeypatch.setitem(sys.modules, "p4p", None)
 
         connector = EPICSConnector()
@@ -230,7 +197,7 @@ class TestNoPvaConfigured:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_empty_pva_channels_list_is_the_same_no_op(self, monkeypatch):
-        _patch_writes_enabled(monkeypatch, False)
+        patch_writes_enabled(monkeypatch, False)
         monkeypatch.setitem(sys.modules, "p4p", None)
 
         connector = EPICSConnector()
@@ -247,7 +214,7 @@ class TestNoPvaConfigured:
         The glob list is the single switch: with it empty, the connector is
         byte-for-byte the pure-CA connector it was before this feature.
         """
-        _patch_writes_enabled(monkeypatch, False)
+        patch_writes_enabled(monkeypatch, False)
         monkeypatch.setitem(sys.modules, "p4p", None)
 
         connector = EPICSConnector()
@@ -265,8 +232,8 @@ class TestNoPvaConfigured:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_channel_access_gateway_still_configured_alongside_pva(self, monkeypatch):
         """PVA routing is additive: the CA gateway env is set exactly as before."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
@@ -293,8 +260,8 @@ class TestPvaGatewayEnv:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_addr_list_branch_carries_the_port(self, monkeypatch):
         """PVA has no client-side server-port var — the port rides in the entry."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
@@ -316,8 +283,8 @@ class TestPvaGatewayEnv:
         wrong port and every read time out, so an unset port appends nothing
         and p4p's own default applies.
         """
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
@@ -333,8 +300,8 @@ class TestPvaGatewayEnv:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_addr_list_accepts_a_space_separated_host_list(self, monkeypatch):
         """A many-server facility lists its hosts in ``address``; passed verbatim."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
@@ -350,8 +317,8 @@ class TestPvaGatewayEnv:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_explicit_port_is_appended_to_every_listed_host(self, monkeypatch):
         """``port`` names the search port of each host, not a suffix on the string."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
@@ -367,8 +334,8 @@ class TestPvaGatewayEnv:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_name_server_branch_still_defaults_to_5075(self, monkeypatch):
         """Name servers are TCP endpoints, where 5075 is the right default."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
@@ -384,8 +351,8 @@ class TestPvaGatewayEnv:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_name_server_branch_sets_and_clears_env(self, monkeypatch):
         """use_name_server routes via EPICS_PVA_NAME_SERVERS and clears ADDR_LIST."""
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
         monkeypatch.setenv("EPICS_PVA_ADDR_LIST", "stale.example.com:5075")
 
         connector = EPICSConnector()
@@ -411,8 +378,8 @@ class TestPvaGatewayEnv:
         Without this, p4p broadcast-discovers the local subnet from a
         deployment that was deliberately pinned to a gateway.
         """
-        _patch_writes_enabled(monkeypatch, False)
-        _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect(
@@ -432,8 +399,8 @@ class TestPvaGatewayEnv:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_no_gateway_block_leaves_env_alone_but_still_builds_context(self, monkeypatch):
         """PVA channels without a gateway: default p4p discovery, context still eager."""
-        _patch_writes_enabled(monkeypatch, False)
-        _, context_cls = _install_fake_p4p(monkeypatch)
+        patch_writes_enabled(monkeypatch, False)
+        _, context_cls = install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
         await connector.connect({"pva_channels": ["SR:CAM1:IMAGE"]})

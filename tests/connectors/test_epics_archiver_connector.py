@@ -64,40 +64,29 @@ class TestConnectDisconnectLifecycle:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_default_timeout(self):
-        """Test that default timeout of 60s is used when not specified."""
+    @pytest.mark.parametrize(
+        ("config_timeout", "expected"), [(None, 60), (120, 120)], ids=["default", "configured"]
+    )
+    async def test_connect_timeout(self, config_timeout, expected):
+        """The timeout is 60 s unless the config names one."""
+        config = {"url": "https://archiver.example.com"}
+        if config_timeout is not None:
+            config["timeout"] = config_timeout
         connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
+        await connector.connect(config)
 
-        assert connector._timeout == 60
+        assert connector._timeout == expected
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_custom_timeout(self):
-        """Test that custom timeout is used when specified."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com", "timeout": 120})
-
-        assert connector._timeout == 120
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_connect_missing_url_raises_value_error(self):
-        """Test that connect raises ValueError when URL is missing."""
+    @pytest.mark.parametrize("config", [{}, {"url": ""}], ids=["missing", "empty"])
+    async def test_connect_without_url_raises_value_error(self, config):
+        """connect() raises ValueError when the URL is missing or an empty string."""
         connector = EPICSArchiverConnector()
 
         with pytest.raises(ValueError, match="archiver URL is required"):
-            await connector.connect({})
-
-    @pytest.mark.asyncio
-    async def test_connect_empty_url_raises_value_error(self):
-        """Test that connect raises ValueError when URL is empty string."""
-        connector = EPICSArchiverConnector()
-
-        with pytest.raises(ValueError, match="archiver URL is required"):
-            await connector.connect({"url": ""})
+            await connector.connect(config)
 
     @pytest.mark.asyncio
     async def test_disconnect_clears_state(self):
@@ -124,32 +113,9 @@ class TestGetDataMethod:
     """Tests for get_data method."""
 
     @pytest.mark.asyncio
-    async def test_get_data_returns_dataframe(self):
-        """Test that get_data returns the canonical long-format DataFrame."""
-        points = [(1704067200, 0, 499.8), (1704067201, 0, 499.7)]
-        response = _make_urlopen_response(_archiver_payload("BEAM:CURRENT", points))
-
-        with patch("urllib.request.urlopen", return_value=response):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            df = await connector.get_data(
-                channels=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1, 0, 0, 0),
-                end_date=datetime(2024, 1, 1, 1, 0, 0),
-            )
-
-            assert isinstance(df, pd.DataFrame)
-            assert list(df.columns) == ["timestamp", "channel", "value"]
-            assert df["timestamp"].dtype == "datetime64[ns, UTC]"
-            assert df["value"].dtype == "float64"
-            assert set(df["channel"]) == {"BEAM:CURRENT"}
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
     async def test_get_data_single_pv_correct_values(self):
-        """Test that single-PV fetch returns correct values, in timestamp order."""
+        """A single-PV fetch returns the canonical long-format DataFrame with the
+        correct values, in timestamp order."""
         points = [(1704067200, 0, 1.0), (1704067201, 0, 2.0), (1704067202, 0, 3.0)]
         response = _make_urlopen_response(_archiver_payload("PV:X", points))
 
@@ -163,6 +129,10 @@ class TestGetDataMethod:
                 end_date=datetime(2024, 1, 1, 1),
             )
 
+            assert isinstance(df, pd.DataFrame)
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+            assert df["value"].dtype == "float64"
             assert (df["channel"] == "PV:X").all()
             assert list(df["value"]) == [1.0, 2.0, 3.0]
 
@@ -222,9 +192,14 @@ class TestGetDataMethod:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_get_data_empty_response_returns_empty_dataframe(self):
-        """Test that empty archiver response [] returns empty DataFrame."""
-        response = _make_urlopen_response([])
+    @pytest.mark.parametrize(
+        "payload",
+        [[], [{"meta": {"name": "BEAM:CURRENT"}, "data": []}]],
+        ids=["no_series", "series_without_data"],
+    )
+    async def test_get_data_empty_payload_returns_typed_empty_frame(self, payload):
+        """An archiver answer of ``[]`` or ``[{meta, data: []}]`` gives the typed empty frame."""
+        response = _make_urlopen_response(payload)
 
         with patch("urllib.request.urlopen", return_value=response):
             connector = EPICSArchiverConnector()
@@ -239,27 +214,8 @@ class TestGetDataMethod:
             assert isinstance(df, pd.DataFrame)
             assert len(df) == 0
             assert list(df.columns) == ["timestamp", "channel", "value"]
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_data_empty_data_list_returns_empty_dataframe(self):
-        """Test that [{meta:..., data:[]}] archiver response returns empty DataFrame."""
-        response = _make_urlopen_response([{"meta": {"name": "BEAM:CURRENT"}, "data": []}])
-
-        with patch("urllib.request.urlopen", return_value=response):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            df = await connector.get_data(
-                channels=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
-            )
-
-            assert isinstance(df, pd.DataFrame)
-            assert len(df) == 0
-            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+            assert df["value"].dtype == "float64"
 
             await connector.disconnect()
 
@@ -277,31 +233,24 @@ class TestGetDataMethod:
             )
 
     @pytest.mark.asyncio
-    async def test_get_data_invalid_start_date_raises_type_error(self):
-        """Test that get_data raises TypeError when start_date is not a datetime."""
+    @pytest.mark.parametrize(
+        "bound,start,end",
+        [
+            ("start_date", "2024-01-01", datetime(2024, 1, 2)),
+            ("end_date", datetime(2024, 1, 1), "2024-01-02"),
+        ],
+        ids=["start", "end"],
+    )
+    async def test_non_datetime_bound_is_rejected(self, bound, start, end):
+        """get_data raises TypeError naming whichever bound is not a datetime."""
         connector = EPICSArchiverConnector()
         await connector.connect({"url": "https://archiver.example.com"})
 
-        with pytest.raises(TypeError, match="start_date must be a datetime object"):
+        with pytest.raises(TypeError, match=f"{bound} must be a datetime object"):
             await connector.get_data(
                 channels=["BEAM:CURRENT"],
-                start_date="2024-01-01",
-                end_date=datetime(2024, 1, 2),
-            )
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_data_invalid_end_date_raises_type_error(self):
-        """Test that get_data raises TypeError when end_date is not a datetime."""
-        connector = EPICSArchiverConnector()
-        await connector.connect({"url": "https://archiver.example.com"})
-
-        with pytest.raises(TypeError, match="end_date must be a datetime object"):
-            await connector.get_data(
-                channels=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1),
-                end_date="2024-01-02",
+                start_date=start,
+                end_date=end,
             )
 
         await connector.disconnect()
@@ -475,7 +424,7 @@ class TestGetDataErrorHandling:
             await connector.connect({"url": "https://archiver.example.com", "timeout": 60})
 
             # timeout=0 should trigger immediate timeout, not fall back to self._timeout=60
-            with pytest.raises((TimeoutError, Exception)):
+            with pytest.raises(TimeoutError, match="after 0s"):
                 await connector.get_data(
                     channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
@@ -558,24 +507,19 @@ class TestConnectSideEffects:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_connect_does_not_pollute_stdout(self):
-        """Nothing may print to stdout during connect() — MCP stdio safety."""
-        import io
-        import sys
+    async def test_connect_does_not_pollute_stdout(self, capfd):
+        """Nothing may print to stdout during connect() — MCP stdio safety.
 
+        ``capfd`` captures file descriptor 1, so a write from a C extension or a
+        subprocess is caught as well as one through ``sys.stdout``.
+        """
         connector = EPICSArchiverConnector()
+        capfd.readouterr()
 
-        captured = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = captured
-        try:
-            await connector.connect({"url": "http://archiver.example.com:17668"})
-        finally:
-            sys.stdout = old_stdout
+        await connector.connect({"url": "http://archiver.example.com:17668"})
 
-        assert captured.getvalue() == "", (
-            f"stdout was polluted during connect(): {captured.getvalue()!r}"
-        )
+        out = capfd.readouterr().out
+        assert out == "", f"stdout was polluted during connect(): {out!r}"
         assert connector._connected is True
         await connector.disconnect()
 

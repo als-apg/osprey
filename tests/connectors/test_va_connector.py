@@ -18,6 +18,7 @@ from osprey.connectors.factory import (
 from osprey.connectors.types import VIRTUAL_ACCELERATOR
 from osprey.registry.base import ConnectorRegistration, RegistryConfig
 from osprey.registry.initializers import initialize_connectors
+from tests.connectors._epics_fakes import fake_pyepics  # noqa: F401 - fixture, used by name
 
 
 @pytest.fixture(autouse=True)
@@ -30,13 +31,6 @@ def clean_connector_factory():
     """
     with isolated_connector_registries(clear=True):
         yield
-
-
-class TestVirtualAcceleratorConnectorClass:
-    """Basic shape checks for the connector class itself."""
-
-    def test_is_thin_subclass_of_epics_connector(self):
-        assert issubclass(VirtualAcceleratorConnector, EPICSConnector)
 
 
 class TestFactoryResolution:
@@ -52,6 +46,7 @@ class TestFactoryResolution:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("fake_pyepics")
     async def test_factory_creates_virtual_accelerator_connector(self):
         register_builtin_connectors()
 

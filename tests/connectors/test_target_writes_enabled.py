@@ -22,7 +22,7 @@ import pytest
 
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system import base as connector_base
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system.base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.types import (
     EPICS,
@@ -46,6 +46,7 @@ from osprey_connectors.types import (
     writes_enabled_remedy,
 )
 from tests._control_context_fixtures import write_control_context
+from tests.connectors._write_fakes import RecordingConnector, config_reader
 
 CUSTOM_TYPE = "mypackage.MoatConnector"
 
@@ -447,6 +448,35 @@ def test_a_va_baseline_with_no_live_block_still_answers_live_from_the_global_key
     # Act / Assert
     assert target_writes_enabled(section, TARGET_VA) is False
     assert target_writes_enabled(section, TARGET_LIVE) is True
+
+
+def test_arming_the_live_block_alone_leaves_the_standin_unarmed():
+    """The stand-in is a machine of its own: arming the live one does not arm it."""
+    # Arrange
+    section = _section(
+        EPICS,
+        writes_enabled=False,
+        connector={"epics": {"writes_enabled": True}, LIVE_STANDIN: {"port": 5074}},
+    )
+
+    # Act / Assert
+    assert type_writes_enabled(section, EPICS) is True
+    assert type_writes_enabled(section, LIVE_STANDIN) is False
+    assert target_writes_enabled(section, TARGET_LIVE) is True
+    assert target_writes_enabled(section, TARGET_STANDIN) is False
+
+
+def test_a_live_block_that_says_false_stays_off_while_the_global_key_arms_the_standin():
+    # Arrange
+    section = _section(
+        EPICS,
+        writes_enabled=True,
+        connector={"epics": {"writes_enabled": False}, LIVE_STANDIN: {"port": 5074}},
+    )
+
+    # Act / Assert
+    assert target_writes_enabled(section, TARGET_LIVE) is False
+    assert target_writes_enabled(section, TARGET_STANDIN) is True
 
 
 @pytest.mark.parametrize("global_value", [True, False], ids=["global-true", "global-false"])
@@ -876,59 +906,9 @@ ARMED_SECTION: dict[str, Any] = {
 }
 
 
-class _FakeConnector(connector_base.ControlSystemConnector):
-    """A connector that records the writes the monitor let through.
-
-    The abstract signature verbatim (``confirm`` included): a stand-in whose
-    signature has drifted from the base class is wrapped by the same guard but
-    exercises a call shape no real connector has.
-    """
-
-    def __init__(self) -> None:
-        self.writes: list[tuple[str, Any]] = []
-
-    async def connect(self, config: dict[str, Any]) -> None: ...
-    async def disconnect(self) -> None: ...
-
-    async def read_channel(self, channel_address: str, timeout: float | None = None):
-        raise NotImplementedError
-
-    async def read_multiple_channels(self, channel_addresses, timeout=None):
-        raise NotImplementedError
-
-    async def write_channel(
-        self,
-        channel_address: str,
-        value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-    ) -> ChannelWriteResult:
-        self.writes.append((channel_address, value))
-        return ChannelWriteResult(
-            channel_address=channel_address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED,
-        )
-
-    async def write_multiple_channels(self, operations, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return [await self.write_channel(addr, val) for addr, val in operations]
-
-    async def subscribe(self, channel_address, callback):
-        raise NotImplementedError
-
-    async def unsubscribe(self, channel_address):
-        raise NotImplementedError
-
-    async def get_metadata(self, channel_address):
-        raise NotImplementedError
-
-    async def validate_channel(self, channel_address) -> bool:  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return True
-
-
-def _built(connector_type: str | None, control_target: str | None) -> _FakeConnector:
+def _built(connector_type: str | None, control_target: str | None) -> RecordingConnector:
     """A connector stamped the way ``ConnectorFactory`` stamps one."""
-    connector = _FakeConnector()
+    connector = RecordingConnector()
     connector._connector_type = connector_type
     connector._control_target = control_target
     return connector
@@ -944,14 +924,7 @@ def deployment(monkeypatch):
     """
 
     def _install(section: dict[str, Any]) -> None:
-        def _get_config_value(key: str, default: Any = None) -> Any:
-            if key == "control_system":
-                return section
-            if key == WRITES_ENABLED_KEY:
-                return section.get("writes_enabled", default)
-            return default
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", _get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(section))
 
     return _install
 
@@ -1083,27 +1056,6 @@ class TestTheConnectorReferenceMonitor:
         assert connector.writes == []
 
     @pytest.mark.asyncio
-    async def test_the_narrowing_reaches_a_process_that_carries_no_session(self, deployment, store):
-        """The narrowing is the deployment's, so nothing has to be addressed.
-
-        A CLI run, a dispatch worker and a bare agent hold no session of their
-        own. Each of them writes to the same machine an operator took away, so
-        each of them reads the same record and is refused by it.
-        """
-        # Arrange
-        deployment(ARMED_SECTION)
-        store.narrow(standin=posture_store.POSTURE_SANDBOX, va=posture_store.POSTURE_SANDBOX)
-        connector = _built(EPICS, TARGET_STANDIN)
-
-        # Act
-        result = await connector.write_channel("S:CORR:1:SP", 0.5)
-
-        # Assert
-        assert result.outcome is WriteOutcome.REFUSED
-        assert "control-target chip in the header" in result.error_message
-        assert connector.writes == []
-
-    @pytest.mark.asyncio
     async def test_an_unstamped_target_takes_the_most_restrictive_entry(self, deployment, store):
         """A connector that cannot say which machine it writes to gets the floor.
 
@@ -1203,15 +1155,14 @@ class TestTheConnectorReferenceMonitor:
 
 
 class TestTheMonitorAndTheStoreRuleAgree:
-    """The connector restates the store clause; the two answers stay identical.
+    """The connector's write outcome and ``effective_writes`` stay identical.
 
     ``posture_store.effective_writes`` is the canonical spelling of
     ``ceiling ∧ not readonly ∧ store``, but the connector cannot call it for the
     ceiling: its deployment half is keyed on the connector TYPE, which is not
     the ceiling that function derives for a caller holding only a target. The
-    store clause is therefore restated in ``base._posture_store_verdict`` —
-    with ``base._posture_store_permits`` its bool spelling, as the store pairs
-    the same two — and this table is what keeps the restatement honest.
+    connector therefore ANDs the store clause into its own type-keyed ceiling,
+    and this table is what keeps that combination honest.
     """
 
     @pytest.mark.asyncio
@@ -1242,13 +1193,6 @@ class TestTheMonitorAndTheStoreRuleAgree:
 
         # Assert
         assert (result.outcome is WriteOutcome.CONFIRMED) is canonical
-        # And the restatement's two spellings answer the store's two: the
-        # verdict the monitor decides on, and the bool a caller that needs no
-        # reason asks for.
-        assert connector_base._posture_store_verdict(target).verdict is (
-            posture_store.store_verdict(target)
-        )
-        assert connector_base._posture_store_permits(target) is posture_store.store_permits(target)
 
 
 class TestTheFactoryBuiltConnector:
@@ -1274,7 +1218,7 @@ class TestTheFactoryBuiltConnector:
 
         # Act
         with isolated_connector_registries(clear=True):
-            ConnectorFactory.register_control_system(EPICS, _FakeConnector)
+            ConnectorFactory.register_control_system(EPICS, RecordingConnector)
             connector = await ConnectorFactory.create_control_system_connector(section)
         result = await connector.write_channel("SR:CORR:1:SP", 0.5)
 
@@ -1295,7 +1239,7 @@ class TestTheFactoryBuiltConnector:
 
         # Act
         with isolated_connector_registries(clear=True):
-            ConnectorFactory.register_control_system(EPICS, _FakeConnector)
+            ConnectorFactory.register_control_system(EPICS, RecordingConnector)
             connector = await ConnectorFactory.create_control_system_connector(
                 ARMED_SECTION, control_target=TARGET_STANDIN
             )
@@ -1525,34 +1469,6 @@ class TestTheMemoCarriesAVerdictNotABool:
         assert connector._last_store_reason is None
 
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("store")
-    async def test_an_unreadable_narrowing_memoises_the_sentence_for_it(
-        self, deployment, monkeypatch
-    ):
-        """A tree bound to no usable path is nobody's decision, and says so.
-
-        The refusal stays ``WRITES_DISABLED`` — the closed vocabulary is what
-        every caller of ``raise_for_write_result`` already handles — and the
-        remedy travels in the memo the refusal reads, not in a new field.
-        """
-        # Arrange
-        deployment(ARMED_SECTION)
-        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "control_target")
-        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
-        connector = _built(EPICS, TARGET_STANDIN)
-
-        # Act
-        result = await connector.write_channel("S:CORR:1:SP", 0.5)
-
-        # Assert
-        assert result.outcome is WriteOutcome.REFUSED
-        assert result.refusal_reason == "WRITES_DISABLED"
-        assert connector._last_store_verdict is (
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
-        )
-        assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in connector._last_store_reason
-
-    @pytest.mark.asyncio
     async def test_a_permitted_write_leaves_the_memo_permitted(self, deployment, store):
         """The memo is what the evaluation saw, including when it saw a grant."""
         # Arrange
@@ -1592,25 +1508,6 @@ class TestTheMemoCarriesAVerdictNotABool:
         # Assert
         assert "control-target chip in the header" in refusal.error_message
 
-    @pytest.mark.usefixtures("store")
-    def test_an_unavailable_verdict_refuses_under_the_one_word_the_vocabulary_has(self, deployment):
-        """A third answer does not become a third ``refusal_reason``."""
-        # Arrange
-        deployment(ARMED_SECTION)
-
-        # Act
-        refusal = connector_base._writes_disabled_result(
-            "S:CORR:1:SP",
-            0.5,
-            EPICS,
-            TARGET_STANDIN,
-            store_verdict=posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE,
-        )
-
-        # Assert
-        assert refusal.outcome is WriteOutcome.REFUSED
-        assert refusal.refusal_reason == "WRITES_DISABLED"
-
 
 class TestEveryStoreClauseEndsInItsVerdict:
     """The prose an operator reads and the verdict a consumer branches on agree.
@@ -1623,9 +1520,10 @@ class TestEveryStoreClauseEndsInItsVerdict:
     each other, so every store clause closes on the verdict that produced it.
 
     The launch fork is worded before the store clause is reached and keeps its
-    own two messages, which name the RUN rather than the store. What the rows
-    below pin for those is the pairing: the pin that could name a target is
-    somebody's narrowing, the pin that could name none is nobody's decision.
+    own two messages, which name the RUN rather than the store. Their pairing —
+    the pin that could name a target is somebody's narrowing, the pin that could
+    name none is nobody's decision — is pinned beside those messages in
+    :class:`TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip`.
     """
 
     @pytest.mark.asyncio
@@ -1653,7 +1551,11 @@ class TestEveryStoreClauseEndsInItsVerdict:
 
         This is the sentence no other process can compose — the reader that
         failed is the only code that knows which path it was — so a refusal
-        that dropped it would leave an operator a cause and no remedy.
+        that dropped it would leave an operator a cause and no remedy. A tree
+        bound to no usable path is nobody's decision, and says so: the refusal
+        stays ``WRITES_DISABLED`` — the closed vocabulary is what every caller
+        of ``raise_for_write_result`` already handles — and the remedy travels
+        in the memo the refusal reads, not in a new field.
         """
         # Arrange
         deployment(ARMED_SECTION)
@@ -1665,7 +1567,12 @@ class TestEveryStoreClauseEndsInItsVerdict:
         result = await connector.write_channel("S:CORR:1:SP", 0.5)
 
         # Assert
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
+        assert connector._last_store_verdict is (
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        )
+        assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in connector._last_store_reason
         assert connector._last_store_reason in result.error_message
         assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in result.error_message
         assert result.error_message.rstrip(".").endswith(
@@ -1698,46 +1605,6 @@ class TestEveryStoreClauseEndsInItsVerdict:
             posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
         )
         assert "Turn writes back on" not in refusal.error_message
-
-    @pytest.mark.asyncio
-    async def test_the_all_targets_pin_is_the_unavailable_arm_beside_the_named_pin(
-        self, deployment, store, monkeypatch
-    ):
-        """Read the two rows together: same fork, two stamps, two verdicts.
-
-        The launch fork words these and the store answers them, in different
-        code — so this is the one place where a wording and a verdict for the
-        same run have to be checked against each other.
-        """
-        # Arrange — nothing narrowed live; only the launch stamp differs.
-        deployment(ARMED_SECTION)
-        store.write({})
-        connector = _built(EPICS, TARGET_STANDIN)
-
-        # Act — the pin that could name a target
-        monkeypatch.setenv(
-            posture_store.LAUNCH_POSTURE_ENV_VAR,
-            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
-        )
-        named = await connector.write_channel("S:CORR:1:SP", 0.5)
-        named_verdict = connector._last_store_verdict
-
-        # Act — the pin that could name none
-        monkeypatch.setenv(
-            posture_store.LAUNCH_POSTURE_ENV_VAR,
-            posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX),
-        )
-        all_targets = await connector.write_channel("S:CORR:1:SP", 0.5)
-        all_targets_verdict = connector._last_store_verdict
-
-        # Assert — somebody's narrowing
-        assert named_verdict is posture_store.StoreVerdict.NARROWING
-        assert f"launched while writes were off for '{TARGET_STANDIN}'" in named.error_message
-
-        # Assert — nobody's decision
-        assert all_targets_verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
-        assert "most restrictive write state" in all_targets.error_message
-        assert "chip" not in all_targets.error_message
 
 
 class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
@@ -1775,6 +1642,8 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         # Assert — same outcome and reason as every other refusal here
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
+        # The pin that could name a target is somebody's narrowing...
+        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
         # ...and a story about the RUN, with a remedy that exists
         assert f"launched while writes were off for '{TARGET_STANDIN}'" in result.error_message
         assert "not to one already in flight" in result.error_message
@@ -1804,8 +1673,11 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         # Act
         result = await connector.write_channel("S:CORR:1:SP", 0.5)
 
-        # Assert
+        # Assert — the pin that could name none is nobody's decision
         assert result.outcome is WriteOutcome.REFUSED
+        assert connector._last_store_verdict is (
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        )
         assert "most restrictive write state" in result.error_message
         assert "neither its control target nor the recorded write state" in result.error_message
         assert "could be resolved" in result.error_message
@@ -2271,7 +2143,7 @@ class TestARefusedWriteNamesEveryReason:
         assert len(reads) == 1
 
 
-class _OverridingConnector(_FakeConnector):
+class _OverridingConnector(RecordingConnector):
     """A connector that answers the posture itself.
 
     Overriding ``_writes_enabled`` is an established seam — several connectors

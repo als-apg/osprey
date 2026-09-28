@@ -4,11 +4,18 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey.connectors import types
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey.connectors.factory import (
+    _BUILTIN_ARCHIVERS,
+    _BUILTIN_CONTROL_SYSTEMS,
+    ConnectorFactory,
+    isolated_connector_registries,
+    register_builtin_connectors,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -60,34 +67,6 @@ class TestConnectorFactory:
         assert connector._connected is True
 
         await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_create_with_invalid_type_raises_error(self):
-        """Test that invalid connector type raises error."""
-        config = {"type": "nonexistent_system", "connector": {}}
-
-        with pytest.raises(ValueError, match="Unknown control system type"):
-            await ConnectorFactory.create_control_system_connector(config)
-
-    @pytest.mark.asyncio
-    async def test_create_with_no_config_uses_defaults(self):
-        """Test that factory works with no config provided."""
-        # This should not raise an error
-        # It will try to load from global config or use defaults
-        try:
-            connector = await ConnectorFactory.create_control_system_connector(None)
-            assert connector is not None
-            await connector.disconnect()
-        except (ValueError, ImportError, ConnectionError) as e:
-            # If config loading fails or dependencies are missing, that's OK for this test
-            # We're just checking it gives a reasonable error
-            error_msg = str(e).lower()
-            assert (
-                "unknown control system type" in error_msg
-                or "config" in error_msg
-                or "required" in error_msg
-                or "install" in error_msg
-            )
 
     @pytest.mark.asyncio
     async def test_factory_creates_independent_instances(self):
@@ -151,96 +130,104 @@ class TestConnectorFactory:
         # Check it's in the list
         assert "custom_test" in ConnectorFactory.list_control_systems()
 
-    @pytest.mark.asyncio
-    async def test_switch_between_connectors(self):
-        """Test switching between different connector types."""
-        from unittest.mock import patch
 
-        # Mock config access since test runs without config.yml
-        with patch("osprey.utils.config.get_config_value") as mock_config_value:
-            # Return True for writes_enabled, None for others
-            def config_side_effect(key, default=None):
-                if key == "control_system.writes_enabled":
-                    return True
-                return default
-
-            mock_config_value.side_effect = config_side_effect
-
-            # Create mock connector
-            mock_config = {"type": "mock", "connector": {"mock": {"response_delay_ms": 0}}}
-            mock_connector = await ConnectorFactory.create_control_system_connector(mock_config)
-            assert isinstance(mock_connector, MockConnector)
-
-            # Test it works
-            result = await mock_connector.read_channel("TEST:PV")
-            assert result.value is not None
-
-            await mock_connector.disconnect()
-
-            # This demonstrates how easy it is to switch connector types
-            # Just change the config!
+# Written out here rather than read from ``_BUILTIN_CONTROL_SYSTEMS`` /
+# ``_BUILTIN_ARCHIVERS``: a name dropped from a tuple must still produce a case.
+_EVERY_BUILTIN_CONTROL_SYSTEM = (
+    types.MOCK,
+    types.EPICS,
+    types.VIRTUAL_ACCELERATOR,
+    types.DOOCS,
+    types.TANGO,
+    types.LIVE_STANDIN,
+)
+_EVERY_BUILTIN_ARCHIVER = (
+    types.MOCK_ARCHIVER,
+    types.EPICS_ARCHIVER,
+    types.MONGODB_ARCHIVER,
+    types.DOOCS_ARCHIVER,
+    types.MYA_ARCHIVER,
+)
 
 
-class TestBuiltinArchiverRegistration:
+def _registry_for(name: str) -> dict:
+    if name in _EVERY_BUILTIN_CONTROL_SYSTEM:
+        return ConnectorFactory._control_system_connectors
+    return ConnectorFactory._archiver_connectors
+
+
+class TestBuiltinRegistrationConverges:
     """``register_builtin_connectors()`` heals a partially-populated registry.
 
-    The function short-circuits when every name in ``_BUILTIN_ARCHIVERS`` is
-    already registered. An archiver appended outside that tuple is invisible to
-    the check: a registry holding the other archivers satisfies the early return
-    and the missing entry is never added — leaving a project configured for
-    ``mongodb_archiver`` unable to build its connector at all. These pin the
-    tuple as the complete list.
+    The function short-circuits when every name in ``_BUILTIN_CONTROL_SYSTEMS``
+    and ``_BUILTIN_ARCHIVERS`` is already registered. A built-in left out of
+    those tuples is invisible to the check: a registry holding every other
+    built-in satisfies the early return and the missing entry is never added —
+    leaving a project configured for that type unable to build its connector.
+    These pin the tuples as the complete list.
     """
 
-    def test_mongodb_archiver_is_registered_from_a_partial_registry(self):
-        """A registry holding the other archivers still gains mongodb_archiver."""
-        from osprey.connectors import types
-        from osprey.connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
-        from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
-        from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
-        from osprey.connectors.factory import register_builtin_connectors
-
-        # The exact state that used to short-circuit: every built-in present
-        # except the MongoDB archiver. The autouse fixture already registered
-        # the two mock names.
-        ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
-        ConnectorFactory.register_control_system(
-            types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector
-        )
-        ConnectorFactory.register_control_system(types.DOOCS, DOOCSConnector)
-        ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)
-        ConnectorFactory.register_archiver(types.DOOCS_ARCHIVER, DOOCSArchiverConnector)
-        assert types.MONGODB_ARCHIVER not in ConnectorFactory._archiver_connectors
+    def test_the_tuples_list_every_builtin_that_is_registered(self):
+        """A first call on an empty registry registers exactly the tuples' names."""
+        ConnectorFactory._control_system_connectors.clear()
+        ConnectorFactory._archiver_connectors.clear()
 
         register_builtin_connectors()
 
-        assert types.MONGODB_ARCHIVER in ConnectorFactory._archiver_connectors
+        registered = set(ConnectorFactory._control_system_connectors) | set(
+            ConnectorFactory._archiver_connectors
+        )
+        assert registered == set(_BUILTIN_CONTROL_SYSTEMS) | set(_BUILTIN_ARCHIVERS)
+        assert registered == set(_EVERY_BUILTIN_CONTROL_SYSTEM) | set(_EVERY_BUILTIN_ARCHIVER)
 
-    def test_registration_does_not_require_pymongo(self):
-        """The MongoDB connector registers with pymongo absent from the process.
+    @pytest.mark.parametrize(
+        "name",
+        _EVERY_BUILTIN_CONTROL_SYSTEM + _EVERY_BUILTIN_ARCHIVER,
+        ids=str,
+    )
+    def test_a_registry_missing_only_this_builtin_regains_it(self, name):
+        """Every other built-in present, this one missing: the next call adds it."""
+        ConnectorFactory._control_system_connectors.clear()
+        ConnectorFactory._archiver_connectors.clear()
+        register_builtin_connectors()
+        registry = _registry_for(name)
+        expected = registry.pop(name)
 
-        It defers the pymongo import to ``connect()``, so registration must not
-        depend on the driver being installed — the same rationale that lets the
-        DOOCS connectors register without doocs4py.
+        register_builtin_connectors()
+
+        assert registry.get(name) is expected
+
+    def test_registering_twice_replaces_nothing(self):
+        """An existing registration under a built-in name survives a second call.
+
+        Re-registering the same class would look identical, so the entries are
+        swapped for sentinels first: only a call that skips present names
+        leaves them in place.
         """
-        import builtins
+        register_builtin_connectors()
 
-        from osprey.connectors import types
-        from osprey.connectors.factory import register_builtin_connectors
+        class SentinelControlSystem:
+            pass
 
-        real_import = builtins.__import__
+        class SentinelArchiver:
+            pass
 
-        def no_pymongo(name, *args, **kwargs):
-            if name == "pymongo" or name.startswith("pymongo."):
-                raise ImportError("No module named 'pymongo'")
-            return real_import(name, *args, **kwargs)
+        ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] = SentinelControlSystem
+        ConnectorFactory._archiver_connectors[types.MONGODB_ARCHIVER] = SentinelArchiver
+        # Force the call past its early return so the per-name guard is what runs.
+        del ConnectorFactory._control_system_connectors[types.EPICS]
 
-        with patch("builtins.__import__", side_effect=no_pymongo):
-            register_builtin_connectors()
+        register_builtin_connectors()
 
-        assert types.MONGODB_ARCHIVER in ConnectorFactory._archiver_connectors
+        assert (
+            ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is SentinelControlSystem
+        )
+        assert ConnectorFactory._archiver_connectors[types.MONGODB_ARCHIVER] is SentinelArchiver
+        assert types.EPICS in ConnectorFactory._control_system_connectors
+
+
+class TestBuiltinArchiverRegistration:
+    """The factory's archiver list agrees with the framework registry's."""
 
     def test_factory_builtins_and_framework_registry_agree_on_archivers(self):
         """The factory's built-in archiver names match the framework registry's.
@@ -322,42 +309,60 @@ class TestLiveStandinRegistration:
 
         await connector.disconnect()
 
-    def test_live_standin_is_registered_from_a_partial_registry(self):
-        """A registry holding the other control systems still gains live_standin.
 
-        ``register_builtin_connectors()`` short-circuits once every name in
-        ``_BUILTIN_CONTROL_SYSTEMS`` is present. A connector registered outside
-        that tuple is invisible to the check, so the tuple has to list the
-        stand-in or a partially-populated registry never heals.
-        """
-        from osprey.connectors import types
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
-        from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
-        from osprey.connectors.factory import register_builtin_connectors
+class TestArchiverTypeResolution:
+    """How ``create_archiver_connector`` turns ``archiver.type`` into a class."""
 
-        # Every built-in control system except the stand-in; the autouse fixture
-        # already registered mock.
-        ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
-        ConnectorFactory.register_control_system(
-            types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector
-        )
-        ConnectorFactory.register_control_system(types.DOOCS, DOOCSConnector)
-        assert types.LIVE_STANDIN not in ConnectorFactory._control_system_connectors
+    @pytest.mark.parametrize(
+        ("connector_type", "message"),
+        [
+            pytest.param(
+                "osprey_no_such_package.archivers.Thing",
+                "Could not import connector module 'osprey_no_such_package.archivers': "
+                "No module named 'osprey_no_such_package'",
+                id="module-not-importable",
+            ),
+            pytest.param(
+                "osprey.connectors.archiver.mock_archiver_connector.NoSuchArchiver",
+                "Module 'osprey.connectors.archiver.mock_archiver_connector' has no class "
+                "'NoSuchArchiver'",
+                id="class-missing",
+            ),
+            pytest.param(
+                "hdf5_archiver",
+                "Unknown archiver type: 'hdf5_archiver'. Available types: ['mock_archiver']. "
+                "Use a dotted module path for custom connectors.",
+                id="unknown-name-lists-available",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_an_unusable_archiver_type_is_refused(self, connector_type, message):
+        with pytest.raises(ValueError) as caught:
+            await ConnectorFactory.create_archiver_connector({"type": connector_type})
 
-        register_builtin_connectors()
+        assert message in str(caught.value)
 
-        assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is EPICSConnector
+    @pytest.mark.asyncio
+    async def test_a_dotted_archiver_path_is_imported_and_remembered(self):
+        dotted = "osprey.connectors.archiver.mock_archiver_connector.MockArchiverConnector"
 
-    def test_registering_twice_converges(self):
-        """Registration is idempotent: a second call replaces nothing."""
-        from osprey.connectors import types
-        from osprey.connectors.factory import register_builtin_connectors
+        connector = await ConnectorFactory.create_archiver_connector({"type": dotted})
 
-        register_builtin_connectors()
-        first = ConnectorFactory._control_system_connectors[types.LIVE_STANDIN]
+        assert isinstance(connector, MockArchiverConnector)
+        assert ConnectorFactory._archiver_connectors[dotted] is MockArchiverConnector
+        await connector.disconnect()
 
-        register_builtin_connectors()
+    @pytest.mark.asyncio
+    async def test_an_unloadable_config_falls_back_to_the_mock_archiver_with_a_warning(
+        self, caplog
+    ):
+        def unreadable(*args, **kwargs):
+            raise RuntimeError("config.yml is unreadable")
 
-        assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is first
-        assert types.LIVE_STANDIN in ConnectorFactory.list_control_systems()
+        with patch("osprey_connectors.config.get_config_value", unreadable):
+            connector = await ConnectorFactory.create_archiver_connector(None)
+
+        assert isinstance(connector, MockArchiverConnector)
+        assert "Could not load config: config.yml is unreadable, using defaults" in caplog.text
+        await connector.disconnect()

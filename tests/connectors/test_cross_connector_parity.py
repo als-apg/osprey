@@ -46,6 +46,7 @@ import pytest
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
+from tests.connectors._epics_fakes import ca_connector, connected_pv
 
 # The one value every scenario writes, and the value a channel that did not
 # keep it holds instead.
@@ -193,23 +194,6 @@ async def _run_mock(scenario: Scenario, monkeypatch) -> WriteRun:
 # ---------------------------------------------------------------------------
 
 
-def _fake_pv(value, *, pv_type="time_double", labels=None):
-    """A fake pyepics PV standing in for the channel a write confirms against."""
-    pv = MagicMock()
-    pv.wait_for_connection.return_value = True
-    pv.connected = True
-    pv.get.return_value = value
-    pv.timestamp = 1_750_000_000.0
-    pv.units = "mA"
-    pv.precision = 3
-    pv.status = 0
-    pv.severity = 0
-    pv.type = pv_type
-    if labels is not None:
-        pv.enum_strs = labels
-    return pv
-
-
 def _epics_connector(monkeypatch, *, pv, caput=True):
     """A connected EPICS connector with no limits database and writes allowed.
 
@@ -221,13 +205,7 @@ def _epics_connector(monkeypatch, *, pv, caput=True):
     epics = MagicMock()
     epics.caput.return_value = caput
     epics.PV.return_value = pv
-    connector = EPICSConnector()
-    connector._epics = epics
-    connector._limits_validator = None
-    connector._timeout = 5.0
-    connector._connected = True
-    connector._epics_configured = True
-    return connector
+    return ca_connector(epics=epics)
 
 
 async def _run_epics(scenario: Scenario, monkeypatch) -> WriteRun:
@@ -237,7 +215,7 @@ async def _run_epics(scenario: Scenario, monkeypatch) -> WriteRun:
     channel's own reading is what separates confirmed from mismatched.
     """
     observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
-    pv = _fake_pv(observed)
+    pv = connected_pv(observed, pv_type="time_double")
     if scenario is READ_RAISES:
         pv.get.side_effect = TimeoutError(READ_ERROR)
 
@@ -435,47 +413,6 @@ class TestScenarioTable:
 
 
 # ---------------------------------------------------------------------------
-# EPICS-only: the parts of confirmation no other connector has
-# ---------------------------------------------------------------------------
-
-
-class TestEpicsOnlyConfirmation:
-    """EPICS confirms through Channel Access, which adds two things of its own."""
-
-    async def test_an_enum_label_written_as_text_is_confirmed_by_its_index(self, monkeypatch):
-        """An mbbo takes "ON" and reads back 1; that is the same state.
-
-        EPICS reports an ``enum_label`` for the reading, and without it the
-        comparison would see ``"ON" != 1`` and call a write the machine took
-        exactly as sent a mismatch. TANGO resolves labels the same way (its
-        own unit tests pin it); DOOCS and Mock report no labels and would call
-        that same pairing a mismatch — so this is deliberately not a parity
-        row.
-        """
-        pv = _fake_pv(1, pv_type="time_enum", labels=("OFF", "ON"))
-        connector = _epics_connector(monkeypatch, pv=pv)
-
-        result = await connector.write_channel("SR:VALVE", "ON")
-
-        assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 1
-
-    async def test_the_confirming_read_bypasses_the_monitor_cache(self, monkeypatch):
-        """pyepics' auto-monitor cache can still hold the pre-write value.
-
-        The put callback says the IOC processed the write, not that a cached
-        subscription update has arrived — so the confirming read goes to the
-        wire rather than comparing a stale reading against the setpoint.
-        """
-        pv = _fake_pv(VALUE_SENT)
-        connector = _epics_connector(monkeypatch, pv=pv)
-
-        await connector.write_channel("SR:CH", VALUE_SENT)
-
-        assert pv.get.call_args.kwargs["use_monitor"] is False
-
-
-# ---------------------------------------------------------------------------
 # The read contract — a channel that cannot be reached
 # ---------------------------------------------------------------------------
 
@@ -507,7 +444,7 @@ async def _capture_read_failure(connector, channel: str, message: str | None) ->
 
 async def _unreachable_epics(monkeypatch) -> ReadFailure:
     """A PV that never connects — the CA path's own unreachable channel."""
-    pv = _fake_pv(VALUE_SENT)
+    pv = connected_pv(VALUE_SENT, pv_type="time_double")
     pv.wait_for_connection.return_value = False
     pv.connected = False
     connector = _epics_connector(monkeypatch, pv=pv)

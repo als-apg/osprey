@@ -921,6 +921,8 @@ class TestKnobChange:
         so both halves are checked, not just the comparison.
         """
         world.seed(T0)
+        # Also the "unchanged config does not reseed" contract: a redeploy that
+        # changed nothing must match, not rebuild a month of history.
         assert compare_fingerprint(world.collection, world.fingerprint()).state is SeedState.MATCH
         shallow_start = oldest_sample(world.collection)
 
@@ -939,13 +941,6 @@ class TestKnobChange:
         deep_start = oldest_sample(world.collection)
         assert deep_start < shallow_start
         assert (shallow_start - deep_start) > timedelta(days=2) - timedelta(minutes=1)
-
-    def test_an_unchanged_config_does_not_provoke_a_reseed(self, world):
-        """The other side of the same knob: a redeploy that changed nothing must
-        not rebuild a month of history to arrive back where it started."""
-        world.seed(T0)
-
-        assert compare_fingerprint(world.collection, world.fingerprint()).state is SeedState.MATCH
 
 
 # ---------------------------------------------------------------------------
@@ -1067,6 +1062,7 @@ class TestScenarioSwitchHonesty:
         stamps = [stamp.to_pydatetime() for stamp in series.index]
         clean = world.base_values([CAVITY_TEMP], stamps)[CAVITY_TEMP]
 
+        assert len(series) > 0, "old window lost its samples"
         np.testing.assert_array_equal(
             series.to_numpy(dtype=float),
             np.asarray(clean, dtype=float),

@@ -18,7 +18,10 @@ is judged against the target's control system and the config's own archiver.
 
 All three are asked of both machines a deployment stands up for itself — the
 virtual accelerator and the live stand-in — because neither has a past anybody
-recorded. The last section is the stand-in half of each.
+recorded: a stand-in is a soft IOC this deployment stood up for itself, so its
+past is as invented as the simulator's. Every pairing rule below is therefore
+parametrized over both machines (``machine``/``target`` ids ``va`` and
+``standin``).
 """
 
 from __future__ import annotations
@@ -37,6 +40,11 @@ from osprey.connectors.types import MOCK_ARCHIVER
 
 VA = "virtual_accelerator"
 STANDIN = "live_standin"
+
+#: The two invented-history machines, as a baseline control-system type.
+each_machine = pytest.mark.parametrize("machine", [VA, STANDIN], ids=["va", "standin"])
+#: The same two machines, as the control target a session asks to switch to.
+each_target = pytest.mark.parametrize("target", ["va", "standin"], ids=["va", "standin"])
 
 
 def _flat(control_system: str | None = None, archiver: Any = ...) -> dict[str, Any]:
@@ -64,23 +72,28 @@ def _nested(control_system: str | None = None, archiver: Any = ...) -> dict[str,
 # ---------------------------------------------------------------------------
 
 
+@each_machine
 @pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
-def test_a_profile_pairing_a_va_with_the_mock_is_caught_in_either_spelling(spell: Any) -> None:
-    assert pairing_in_profile(spell(VA, MOCK_ARCHIVER)).is_invented_history
+def test_a_profile_pairing_the_machine_with_the_mock_is_caught_in_either_spelling(
+    spell: Any, machine: str
+) -> None:
+    assert pairing_in_profile(spell(machine, MOCK_ARCHIVER)).is_invented_history
 
 
+@each_machine
 @pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
-def test_a_profile_that_names_no_archiver_has_named_the_mock(spell: Any) -> None:
+def test_a_profile_that_names_no_archiver_has_named_the_mock(spell: Any, machine: str) -> None:
     """The emitter writes no archiver.type, and the factory then falls back."""
-    verdict = pairing_in_profile(spell(VA))
+    verdict = pairing_in_profile(spell(machine))
 
     assert verdict.is_invented_history
     assert "unset" in verdict.archiver_phrase
 
 
+@each_machine
 @pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
-def test_a_profile_with_a_store_is_honest_in_either_spelling(spell: Any) -> None:
-    assert not pairing_in_profile(spell(VA, "mongodb_archiver")).is_invented_history
+def test_a_profile_with_a_store_is_honest_in_either_spelling(spell: Any, machine: str) -> None:
+    assert not pairing_in_profile(spell(machine, "mongodb_archiver")).is_invented_history
 
 
 def test_a_profile_that_spells_the_archiver_twice_and_differently_fails_closed() -> None:
@@ -110,24 +123,28 @@ def test_a_blank_archiver_type_in_a_profile_is_the_mock() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_rendered_va_with_the_nested_mock_is_caught() -> None:
-    assert pairing_in_rendered_config(_nested(VA, MOCK_ARCHIVER)).is_invented_history
+@each_machine
+def test_a_rendered_machine_with_the_nested_mock_is_caught(machine: str) -> None:
+    assert pairing_in_rendered_config(_nested(machine, MOCK_ARCHIVER)).is_invented_history
 
 
-def test_a_rendered_va_with_no_archiver_section_is_caught() -> None:
-    assert pairing_in_rendered_config(_nested(VA)).is_invented_history
+@each_machine
+def test_a_rendered_machine_with_no_archiver_section_is_caught(machine: str) -> None:
+    assert pairing_in_rendered_config(_nested(machine)).is_invented_history
 
 
-def test_a_rendered_va_with_a_nested_store_is_honest() -> None:
-    assert not pairing_in_rendered_config(_nested(VA, "mongodb_archiver")).is_invented_history
+@each_machine
+def test_a_rendered_machine_with_a_nested_store_is_honest(machine: str) -> None:
+    assert not pairing_in_rendered_config(_nested(machine, "mongodb_archiver")).is_invented_history
 
 
-def test_a_flat_archiver_line_cannot_excuse_a_nested_mock() -> None:
+@each_machine
+def test_a_flat_archiver_line_cannot_excuse_a_nested_mock(machine: str) -> None:
     """BYPASS REGRESSION. ConfigBuilder and MCPServerConfig walk nested sections
     only, so the flat line configures nothing while the nested mock is what the
     factory builds. Reading the flat key as the archiver would wave through a
-    running VA+mock stack."""
-    config = _nested(VA, MOCK_ARCHIVER) | {"archiver.type": "mongodb_archiver"}
+    running VA+mock (or stand-in+mock) stack."""
+    config = _nested(machine, MOCK_ARCHIVER) | {"archiver.type": "mongodb_archiver"}
 
     assert pairing_in_rendered_config(config).is_invented_history
 
@@ -208,29 +225,33 @@ def test_the_shared_explanation_says_what_is_wrong() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_va_target_beside_the_mock_archiver_is_refused() -> None:
+@each_target
+def test_a_simulated_target_beside_the_mock_archiver_is_refused(target: str) -> None:
     """Nothing has been switched yet — the config still says 'epics' — so the
-    pairing to judge is the one asking for the simulator would produce."""
-    verdict = pairing_for_target(_nested("epics", MOCK_ARCHIVER), "va")
+    pairing to judge is the one asking for the simulator or stand-in would
+    produce."""
+    verdict = pairing_for_target(_nested("epics", MOCK_ARCHIVER), target)
 
     assert verdict.is_invented_history
     assert verdict.archiver_phrase == repr(MOCK_ARCHIVER)
 
 
-def test_a_va_target_with_no_archiver_section_is_refused() -> None:
+@each_target
+def test_a_simulated_target_with_no_archiver_section_is_refused(target: str) -> None:
     """Unset counts as mock here for the reason it does everywhere: the factory
     falls back, so a deployment that named no store still has the synthesizing
     one waiting for the session that switches."""
-    verdict = pairing_for_target(_nested("epics"), "va")
+    verdict = pairing_for_target(_nested("epics"), target)
 
     assert verdict.is_invented_history
     assert "unset" in verdict.archiver_phrase
 
 
-def test_a_va_target_beside_a_store_is_allowed() -> None:
+@each_target
+def test_a_simulated_target_beside_a_store_is_allowed(target: str) -> None:
     config = _nested("epics", "mongodb_archiver")
 
-    assert not pairing_for_target(config, "va").is_invented_history
+    assert not pairing_for_target(config, target).is_invented_history
 
 
 def test_a_live_target_beside_the_mock_archiver_is_allowed() -> None:
@@ -242,21 +263,28 @@ def test_a_live_target_beside_the_mock_archiver_is_allowed() -> None:
     assert not pairing_for_target(config, "live").is_invented_history
 
 
-def test_a_live_target_off_a_simulated_baseline_is_allowed_beside_the_mock_archiver() -> None:
-    """The deployment this predicate exists for: built for the simulator, and
-    switching to the one real machine its connector table names."""
-    config = _nested(VA, MOCK_ARCHIVER)
+@pytest.mark.parametrize("baseline", [VA, STANDIN], ids=["va", "standin"])
+def test_a_live_target_off_a_simulated_baseline_is_allowed_beside_the_mock_archiver(
+    baseline: str,
+) -> None:
+    """The deployment this predicate exists for: built for the simulator (or the
+    stand-in), and switching to the one real machine its connector table names.
+    The widening to the stand-in must not reach 'live': a session on the real
+    machine reading a synthesized history is the different complaint this
+    module has never made."""
+    config = _nested(baseline, MOCK_ARCHIVER)
     config["control_system"]["connector"] = {"epics": {"address": "gw"}}
 
     assert not pairing_for_target(config, "live").is_invented_history
 
 
-def test_a_va_target_reads_the_archiver_nested_only() -> None:
+@each_target
+def test_a_simulated_target_reads_the_archiver_nested_only(target: str) -> None:
     """BYPASS REGRESSION, inherited from the rendered reading this shares: the
     flat line configures nothing, so it cannot excuse the nested mock."""
     config = _nested("epics", MOCK_ARCHIVER) | {"archiver.type": "mongodb_archiver"}
 
-    assert pairing_for_target(config, "va").is_invented_history
+    assert pairing_for_target(config, target).is_invented_history
 
 
 def test_a_va_target_on_a_config_that_names_no_archiver_at_all_is_refused() -> None:
@@ -281,88 +309,3 @@ def test_a_live_target_with_no_derivable_machine_propagates_the_refusal() -> Non
     missing rather than a verdict about it."""
     with pytest.raises(ValueError, match="has no control system"):
         pairing_for_target(_nested(VA, "mongodb_archiver"), "live")
-
-
-# ---------------------------------------------------------------------------
-# The live stand-in — the same rule's other machine
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
-def test_a_profile_pairing_the_standin_with_the_mock_is_caught(spell: Any) -> None:
-    """A stand-in's past is as invented as the simulator's: it is a soft IOC this
-    deployment stood up for itself, so there is no history of it to have kept."""
-    assert pairing_in_profile(spell(STANDIN, MOCK_ARCHIVER)).is_invented_history
-
-
-@pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
-def test_a_standin_profile_that_names_no_archiver_has_named_the_mock(spell: Any) -> None:
-    """The fallback is the common way in here too."""
-    verdict = pairing_in_profile(spell(STANDIN))
-
-    assert verdict.is_invented_history
-    assert "unset" in verdict.archiver_phrase
-
-
-@pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
-def test_a_standin_profile_with_a_store_is_honest(spell: Any) -> None:
-    assert not pairing_in_profile(spell(STANDIN, "mongodb_archiver")).is_invented_history
-
-
-def test_a_rendered_standin_with_the_nested_mock_is_caught() -> None:
-    assert pairing_in_rendered_config(_nested(STANDIN, MOCK_ARCHIVER)).is_invented_history
-
-
-def test_a_rendered_standin_with_no_archiver_section_is_caught() -> None:
-    assert pairing_in_rendered_config(_nested(STANDIN)).is_invented_history
-
-
-def test_a_rendered_standin_with_a_nested_store_is_honest() -> None:
-    assert not pairing_in_rendered_config(_nested(STANDIN, "mongodb_archiver")).is_invented_history
-
-
-def test_a_flat_archiver_line_cannot_excuse_a_nested_mock_beside_the_standin() -> None:
-    """BYPASS REGRESSION, inherited whole: the rendered reading is nested-only
-    whichever invented-history machine is being judged."""
-    config = _nested(STANDIN, MOCK_ARCHIVER) | {"archiver.type": "mongodb_archiver"}
-
-    assert pairing_in_rendered_config(config).is_invented_history
-
-
-def test_a_standin_target_beside_the_mock_archiver_is_refused() -> None:
-    """Nothing has been switched yet — the config still says 'epics' — so the
-    pairing to judge is the one asking for the stand-in would produce."""
-    verdict = pairing_for_target(_nested("epics", MOCK_ARCHIVER), "standin")
-
-    assert verdict.is_invented_history
-    assert verdict.archiver_phrase == repr(MOCK_ARCHIVER)
-
-
-def test_a_standin_target_with_no_archiver_section_is_refused() -> None:
-    verdict = pairing_for_target(_nested("epics"), "standin")
-
-    assert verdict.is_invented_history
-    assert "unset" in verdict.archiver_phrase
-
-
-def test_a_standin_target_beside_a_store_is_allowed() -> None:
-    config = _nested("epics", "mongodb_archiver")
-
-    assert not pairing_for_target(config, "standin").is_invented_history
-
-
-def test_a_standin_target_reads_the_archiver_nested_only() -> None:
-    """BYPASS REGRESSION: the flat line configures nothing on this target either."""
-    config = _nested("epics", MOCK_ARCHIVER) | {"archiver.type": "mongodb_archiver"}
-
-    assert pairing_for_target(config, "standin").is_invented_history
-
-
-def test_a_live_target_is_still_allowed_beside_the_mock_on_a_standin_deployment() -> None:
-    """The widening must not reach 'live'. A deployment running the stand-in
-    still has one real machine, and a session on it reading a synthesized history
-    is the different complaint this module has never made."""
-    config = _nested(STANDIN, MOCK_ARCHIVER)
-    config["control_system"]["connector"] = {"epics": {"address": "gw"}}
-
-    assert not pairing_for_target(config, "live").is_invented_history

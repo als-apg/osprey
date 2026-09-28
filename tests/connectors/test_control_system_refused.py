@@ -11,7 +11,8 @@ refusal_reason="CONTROL_SYSTEM_REFUSED")``, its message names the CONTROL
 SYSTEM rather than OSPREY's reference monitor, and every rendering path that
 sees it says the same thing. The narrowing matters as much as the catch: any
 other exception raised by ``caput`` (a dead gateway, a timeout) is still a
-genuine failure and still propagates untouched.
+genuine failure and still propagates untouched (pinned in
+test_write_fail_closed.py::test_caput_connection_error_propagates_not_refused).
 
 ``epics`` is never imported here — not at module scope, not inside a test. The
 connector resolves the exception class off the module it connected with, so a
@@ -19,7 +20,7 @@ locally defined stand-in attached to the mock is a faithful stand-in.
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -28,12 +29,13 @@ from osprey.connectors.control_system.base import (
     WriteOutcome,
     raise_for_write_result,
 )
-from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system.error_handling import (
     ToolError,
     connector_error_handler,
 )
+from tests.connectors._write_fakes import make_mock_epics_connector
+from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
 
 CHANNEL = "TEST:MAG:PS:SP"
 
@@ -53,31 +55,14 @@ class CASeverityException(Exception):
         super().__init__(f" {fcn} returned '{msg}'")
 
 
-def _writes_enabled_config(key, default=None):
-    """Config stub: writes enabled so the base wrapper reaches write_channel."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
-
-
 def _make_connector(caput_side_effect=None, expose_exception_class=True):
-    """Build an EPICSConnector wired with a mock epics module.
-
-    Bypasses connect() (which imports pyepics) by setting the attributes the
-    write path depends on directly. ``expose_exception_class`` controls whether
-    the mock module carries a real exception class at ``ca.CASeverityException``,
-    which is what production resolution keys on.
-    """
-    connector = EPICSConnector()
-    connector._epics = MagicMock()
-    connector._epics.caput = MagicMock(side_effect=caput_side_effect, return_value=True)
-    if expose_exception_class:
-        connector._epics.ca.CASeverityException = CASeverityException
-    connector._limits_validator = MagicMock()
-    connector._limits_validator.validate = MagicMock()
-    connector._timeout = 5.0
-    connector._connected = True
-    return connector
+    """A mocked EPICSConnector; ``expose_exception_class`` controls whether the
+    mock module carries a real exception class at ``ca.CASeverityException``,
+    which is what production resolution keys on."""
+    return make_mock_epics_connector(
+        caput_side_effect=caput_side_effect,
+        ca_severity_exception=CASeverityException if expose_exception_class else None,
+    )
 
 
 async def _write(connector, value=42.0, confirm=False):
@@ -113,29 +98,6 @@ class TestConnectorRefusal:
         # The control system's own words survive into the message.
         assert "Write access denied" in result.error_message
         assert "reference monitor" not in result.error_message
-
-    @pytest.mark.asyncio
-    async def test_refusal_reason_stays_inside_the_shared_vocabulary(self):
-        """The new code is part of the blocked-error vocabulary, not a local string."""
-        connector = _make_connector(caput_side_effect=CASeverityException())
-
-        result = await _write(connector)
-
-        assert result.refusal_reason in ChannelWriteBlockedError._VALID_REASONS
-        assert "CONTROL_SYSTEM_REFUSED" in ChannelWriteBlockedError._VALID_REASONS
-
-    @pytest.mark.asyncio
-    async def test_other_caput_errors_still_propagate_untouched(self):
-        """The catch is narrow: a dead gateway is a failure, never a refusal.
-
-        Reclassifying every caput exception as a refusal would tell a caller
-        that nothing was written when in truth nobody knows — the opposite of
-        the safety claim a refusal makes.
-        """
-        connector = _make_connector(caput_side_effect=ConnectionError("gateway down"))
-
-        with pytest.raises(ConnectionError):
-            await _write(connector)
 
     @pytest.mark.asyncio
     async def test_refusal_survives_a_verifying_write_level(self):

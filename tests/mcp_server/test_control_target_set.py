@@ -227,9 +227,16 @@ def config_with_gateways(**kwargs):
     about.
     """
     raw = raw_config(**kwargs)
-    for block in raw["control_system"]["connector"].values():
-        block["gateways"] = {"read_only": {"address": "127.0.0.1", "port": 5064}}
+    for connector_type, block in raw["control_system"]["connector"].items():
+        # The simulator on a port of its own: a va block on the live gateway's
+        # endpoint is refused as reaching the live machine.
+        port = VA_GATEWAY_PORT if connector_type == "virtual_accelerator" else 5064
+        block["gateways"] = {"read_only": {"address": "127.0.0.1", "port": port}}
     return raw
+
+
+#: The virtual accelerator's gateway port in :func:`config_with_gateways`.
+VA_GATEWAY_PORT = 5084
 
 
 #: The port this deployment's stand-in soft IOC serves. Deliberately not 5064:

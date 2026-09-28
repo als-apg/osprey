@@ -7,7 +7,7 @@ including YAML loading, environment variable resolution, and nested access.
 import pytest
 import yaml
 
-from osprey.utils.config import ConfigBuilder, get_config_value
+from osprey.utils.config import ConfigBuilder
 
 
 class TestConfigBuilder:
@@ -172,12 +172,10 @@ control_system:
 """
         )
 
-        builder = ConfigBuilder(str(config_file))
+        configurable = ConfigBuilder(str(config_file)).configurable
 
-        assert builder.configurable is not None
-        assert isinstance(builder.configurable, dict)
-        assert "model_configs" in builder.configurable
-        assert "project_root" in builder.configurable
+        assert configurable["project_root"] == "/test/project"
+        assert configurable["model_configs"]["orchestrator"]["provider"] == "openai"
 
     def test_model_configs_loaded(self, tmp_path):
         """Test that model configurations are loaded correctly."""
@@ -284,33 +282,53 @@ api:
         assert unexpanded2["api"]["key"] == "${SECRET}"
 
 
-class TestConfigGlobalAccess:
-    """Test global configuration access functions."""
+class TestRequiredConfig:
+    """``_require_config``: a missing key is an error unless a default is given."""
 
-    def test_get_config_value_with_path(self, tmp_path, monkeypatch):
-        """Test get_config_value function with dot-separated path."""
+    @pytest.fixture
+    def builder(self, tmp_path):
         config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-project_root: /test/project
-control_system:
-  limits:
-    max_channels: 100
-"""
-        )
+        config_file.write_text("present: 7\nexplicit_null: null\n")
+        return ConfigBuilder(str(config_file))
 
-        # Set up global config
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
+    @pytest.mark.parametrize("path", ["absent.key", "explicit_null"])
+    def test_a_missing_required_key_raises_naming_it(self, builder, path):
+        with pytest.raises(ValueError, match=f"Missing required configuration: '{path}'"):
+            builder._require_config(path)
 
-        # Reset global config
-        from osprey.utils import config as config_module
+    def test_a_missing_key_with_a_default_uses_it_and_warns(self, builder, caplog):
+        import logging
 
-        config_module._default_config = None
-        config_module._default_configurable = None
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            value = builder._require_config("absent.key", default=42)
 
-        # Test access
-        value = get_config_value("control_system.limits.max_channels", 0)
-        assert value == 100  # Should retrieve the value from config
+        assert value == 42
+        assert "Using default value for 'absent.key' = 42." in caplog.text
+
+    def test_a_present_key_is_returned_without_a_warning(self, builder, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            assert builder._require_config("present", default=0) == 7
+        assert "Using default value" not in caplog.text
+
+
+class TestConfigFileShape:
+    @pytest.mark.parametrize("body", ["- a\n- b\n", "just a string\n", "42\n"])
+    def test_a_config_file_that_is_not_a_mapping_is_refused(self, tmp_path, body):
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(body)
+
+        with pytest.raises(
+            ValueError, match="Configuration file must contain a dictionary/mapping"
+        ):
+            ConfigBuilder(str(config_file))
+
+    def test_a_non_mapping_execution_section_is_passed_through_untouched(self, tmp_path):
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("execution: subprocess\n")
+
+        assert ConfigBuilder(str(config_file))._get_execution_config() == "subprocess"
 
 
 class TestGetFacilityTimezone:

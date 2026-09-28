@@ -10,33 +10,19 @@ relocation: where the state directory resolves, and that no writer touches
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
-import yaml
 
 from osprey.simulation.apply import apply_scenarios
 from osprey.simulation.engine import SimulationEngine, default_state_dir, resolve_state_dir
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
+from tests.simulation.conftest import stage_sim_project
 
 
 def _make_project(tmp_path: Path, **config_extra) -> Path:
     """A sim-backed project: build-owned ``data/simulation/`` plus config.yml."""
-    shutil.copytree(TEMPLATE_SIM, tmp_path / "data" / "simulation")
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
-        **config_extra,
-    }
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
+    return stage_sim_project(tmp_path, **config_extra)
 
 
 class TestResolveStateDir:

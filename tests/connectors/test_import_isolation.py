@@ -14,11 +14,26 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SRC = str(Path(__file__).resolve().parents[2] / "src")
 
 # Sentinels for the two dependency trees that must stay out of the lean chain:
 # the archiver's dataframe stack and the LLM/agent platform.
 FORBIDDEN = ("pandas", "litellm", "openai", "anthropic", "fastapi", "playwright")
+
+
+def _run_clean(code: str) -> None:
+    """Run ``code`` in a fresh interpreter; it must exit 0 and print CLEAN."""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=SRC),
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "CLEAN" in result.stdout
 
 
 def test_control_system_chain_imports_without_heavy_deps():
@@ -31,14 +46,7 @@ def test_control_system_chain_imports_without_heavy_deps():
         "assert not bad, f'lean connector chain eagerly imported: {bad}';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
 
 
 def test_limits_validator_reaches_for_no_control_system_client():
@@ -63,14 +71,7 @@ def test_limits_validator_reaches_for_no_control_system_client():
         "assert not bad, f'the limits validator imported a control-system client: {bad}';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
 
 
 def test_control_context_imports_no_osprey_module():
@@ -89,14 +90,7 @@ def test_control_context_imports_no_osprey_module():
         "assert cc.RECORD_FILENAME == 'control_context.json';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
-    )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
 
 
 def test_identity_imports_no_osprey_module():
@@ -117,11 +111,39 @@ def test_identity_imports_no_osprey_module():
         "assert not bad, f'the identity ladder eagerly imported: {bad}';"
         "print('CLEAN')"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        env=dict(os.environ, PYTHONPATH=SRC),
+    _run_clean(code)
+
+
+@pytest.mark.parametrize(
+    ("driver", "type_name", "registry", "connector_module"),
+    [
+        ("tango", "tango", "control_system", "control_system.tango_connector"),
+        ("doocs4py", "doocs", "control_system", "control_system.doocs_connector"),
+        ("doocs4py", "doocs_archiver", "archiver", "archiver.doocs_archiver_connector"),
+        ("pymongo", "mongodb_archiver", "archiver", "archiver.mongodb_archiver_connector"),
+    ],
+    ids=["tango", "doocs", "doocs_archiver", "mongodb_archiver"],
+)
+def test_builtin_registration_needs_no_driver(driver, type_name, registry, connector_module):
+    """A built-in registers on a machine where its driver cannot be imported.
+
+    Each connector imports its driver inside ``connect()``. If that import ever
+    moved to module scope, registering the built-ins would raise ImportError on
+    every machine without that control system and take the framework down with
+    it. This has to run in a fresh interpreter: in the test process the
+    connector module is already cached, so its module body -- where a
+    module-scope driver import would live -- never runs again.
+    """
+    module = f"osprey_connectors.{connector_module}"
+    code = (
+        "import sys;"
+        f"sys.modules[{driver!r}] = None;"
+        f"assert {module!r} not in sys.modules;"
+        "from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors;"
+        "register_builtin_connectors();"
+        f"assert {module!r} in sys.modules, 'the connector module was never imported';"
+        f"registered = ConnectorFactory._{registry}_connectors;"
+        f"assert {type_name!r} in registered, sorted(registered);"
+        "print('CLEAN')"
     )
-    assert result.returncode == 0, result.stderr
-    assert "CLEAN" in result.stdout
+    _run_clean(code)
