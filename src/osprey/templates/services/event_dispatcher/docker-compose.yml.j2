@@ -151,8 +151,12 @@ services:
       # which the dashboard reads as "hide the link" rather than offering one
       # that resolves to nothing. Render-time gate: toggling telemetry in
       # config.yml afterwards needs a redeploy to take effect here, same as
-      # every other value in this block.
+      # every other value in this block. The org rides the same gate, so the
+      # dashboard receives both halves of the link or neither; it is the
+      # organization `claude_code.telemetry.openobserve.org` names, resolved
+      # once for the exporter, the provisioner and this link.
       OSPREY_TELEMETRY_URL: "http://{{ osprey_telemetry_host }}:{{ services.openobserve.port | default(osprey_ports.openobserve, true) }}"
+      OSPREY_TELEMETRY_ORG: "{{ osprey_telemetry_org }}"
 {% endif %}
       TZ: {{ system.timezone }}
 {{- hostenv.passthrough(services.event_dispatcher) }}
