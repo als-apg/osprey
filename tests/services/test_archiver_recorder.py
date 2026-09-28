@@ -210,6 +210,18 @@ def test_a_missing_login_key_is_an_error_naming_it(tmp_path: Path, leaf: str) ->
         load_settings(path)
 
 
+def test_load_settings_refuses_a_url(tmp_path: Path) -> None:
+    """The recorder writes only to the store this deployment runs."""
+    path = _write_config(tmp_path / "config.yml")
+    config = yaml.safe_load(path.read_text())
+    del config["archiver"]["mongodb_archiver"]["host"]
+    config["archiver"]["mongodb_archiver"]["url"] = "mongodb://archive.example.org/"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match=r"archiver\.mongodb_archiver\.url"):
+        load_settings(path)
+
+
 @pytest.mark.parametrize(
     ("block", "key"),
     [("va_archiver", "recorder_cadence_sec"), ("archiver", "mongodb_archiver")],

@@ -1581,6 +1581,14 @@ keys:
   archiver.mongodb_archiver.auth.username: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
   archiver.mongodb_archiver.auth.password_env: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
   archiver.mongodb_archiver.timeout_s: {rendered: false, covered-by: archiver.mongodb_archiver, default: 60}
+  archiver.mongodb_archiver.url:
+    rendered: false
+    covered-by: archiver.mongodb_archiver
+    note: >-
+      a MongoDB connection string; it wins over host, port and the
+      OSPREY_ARCHIVER_MONGODB_* overrides, and the recorder and the archive
+      rewrite never write to the store it names
+    default: null
 
   # ── Execution ───────────────────────────────────────────────────────
   execution: {all-templates: true, evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None', default: null}

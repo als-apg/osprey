@@ -587,6 +587,8 @@ config:
   # archiver.type: mongodb_archiver
   # archiver.settings.host: your-mongo.example.com
   # archiver.settings.port: 27017
+  # Or name the store by a connection string instead of host and port:
+  # archiver.settings.url: mongodb+srv://your-cluster.example.com/?tls=true
   # archiver.settings.name: your-archive-database
   # archiver.settings.collection: your-archive-collection
   # archiver.settings.auth.source: your-auth-database

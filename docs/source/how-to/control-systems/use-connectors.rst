@@ -381,6 +381,30 @@ independently of the control system:
       the environment variable that holds it. ``auth.source`` is the database
       the user is defined in.
 
+      A store behind TLS, in a replica set or behind x509 is named by ``url``, a
+      MongoDB connection string, in place of ``host`` and ``port``:
+
+      .. code-block:: yaml
+
+         archiver:
+           type: mongodb_archiver
+           settings:
+             url: mongodb+srv://your-cluster.example.com/?tls=true
+             name: archiver_db
+             collection: pv_data
+             auth:                # optional with a url
+               source: admin
+               username: readonly
+               password_env: MONGODB_READONLY_PASSWORD
+
+      The url wins over ``host``, ``port`` and the ``OSPREY_ARCHIVER_MONGODB_*``
+      address overrides. It may not carry a user, a password or a key-file
+      password, nor an option the block has its own key for (``authSource``,
+      ``tlsCAFile``, ``serverSelectionTimeoutMS``), nor one that turns
+      certificate verification off (``tlsInsecure``,
+      ``tlsAllowInvalidCertificates``, ``tlsAllowInvalidHostnames``). The
+      recorder and the archive rewrite never write to a store named by url.
+
       Documents in the collection are expected to have a ``date`` field
       (``ISODate``) and one or more PV names as top-level fields:
       ``{date: ISODate(...), PV1: value1, PV2: value2, ...}``. A query matches

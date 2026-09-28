@@ -359,6 +359,24 @@ class TestStoreResolution:
         assert store is not None
         assert store["password"] is None
 
+    def test_a_store_named_by_url_is_never_written(self, tmp_path):
+        """A store named by url is one this deployment reads, never one it writes."""
+        root = _write_project(
+            tmp_path / "proj",
+            {
+                "host": "127.0.0.1",
+                "port": 27017,
+                "database": "db",
+                "collection": "c",
+                "username": "u",
+            },
+            password="the-project-password",
+        )
+        config = yaml.safe_load((root / "config.yml").read_text())
+        config["archiver"]["mongodb_archiver"]["url"] = "mongodb://archive.example.org/"
+
+        assert archiver_store_config(config, root) is None
+
     def test_archiver_collection_builds_its_client_from_the_shared_function(self, tmp_path):
         """A bundled store gets the same six-keyword client the agent's connector builds."""
         from unittest.mock import patch
