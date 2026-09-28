@@ -176,8 +176,22 @@ class ProviderRegistry:
         self._entries[name] = _ProviderEntry(module_path, class_name)
         self._providers.pop(name, None)  # evict cache so next get_provider re-imports
 
+    def exclude(self, name: str) -> None:
+        """Remove *name* from the registry.
+
+        ``get_provider(name)`` returns ``None`` afterwards and ``list_providers()``
+        no longer lists it. A later ``register_provider`` under the same name adds
+        it back.
+        """
+        self._entries.pop(name, None)
+        self._providers.pop(name, None)
+        logger.debug("Excluded provider: %s", name)
+
     def list_providers(self) -> list[str]:
-        """Return sorted list of all known provider names (built-in + custom)."""
+        """Return a sorted list of every provider name the registry resolves.
+
+        Built-in and registered, less excluded.
+        """
         return sorted(self._entries)
 
     def api_key_env_var(self, name: str) -> str | None:
@@ -218,23 +232,18 @@ class ProviderRegistry:
     def load_providers(
         self,
         configured_names: set[str] | None = None,
-        excluded_names: set[str] | None = None,
     ) -> dict[str, type[BaseProvider]]:
         """Bulk-load providers, returning ``{name: class}`` dict.
 
-        Used by ``RegistryManager._initialize_providers()`` to delegate the
-        import loop while respecting config-driven and exclusion filtering.
+        Used by ``initialize_providers()`` to delegate the import loop while
+        respecting config-driven filtering; an excluded provider has already left
+        the table.
 
         :param configured_names: If given, only load these providers.
-        :param excluded_names: If given, skip these providers.
         """
-        excluded = excluded_names or set()
         result: dict[str, type[BaseProvider]] = {}
 
         for name in list(self._entries):
-            if name in excluded:
-                logger.debug("  Skipping excluded provider: %s", name)
-                continue
             if configured_names is not None and name not in configured_names:
                 logger.debug("  Skipping unconfigured provider: %s", name)
                 continue

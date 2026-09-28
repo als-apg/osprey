@@ -115,14 +115,41 @@ class TestProviderRegistry:
         result = reg.load_providers(configured_names={"anthropic", "cborg"})
         assert set(result.keys()) == {"anthropic", "cborg"}
 
-    def test_load_providers_exclusion_filtered(self):
-        """load_providers with excluded_names skips those."""
+    def test_exclude_removes_the_entry_and_the_cached_class(self):
+        """An excluded name is gone from lookup, listing, the cache and the bulk load."""
         reg = ProviderRegistry()
-        result = reg.load_providers(excluded_names={"anthropic", "openai"})
-        assert "anthropic" not in result
-        assert "openai" not in result
-        # All others should be present (may fail if import fails on CI)
-        assert "cborg" in result
+        reg.get_provider("openai")
+        assert "openai" in reg._providers
+
+        reg.exclude("openai")
+
+        assert reg.get_provider("openai") is None
+        assert "openai" not in reg.list_providers()
+        assert "openai" not in reg._providers
+        assert "openai" not in reg.load_providers()
+        assert reg.get_provider("anthropic") is not None
+
+    def test_exclude_of_an_unknown_name_changes_nothing(self):
+        """Excluding a name the table does not carry is a no-op."""
+        reg = ProviderRegistry()
+        before = reg.list_providers()
+
+        reg.exclude("does_not_exist")
+
+        assert reg.list_providers() == before
+
+    def test_register_after_exclude_restores_the_name(self):
+        """A registration under an excluded name adds it back."""
+        reg = ProviderRegistry()
+        reg.exclude("anthropic")
+
+        reg.register_provider(
+            "anthropic", "osprey.models.providers.openai", "OpenAIProviderAdapter"
+        )
+
+        provider = reg.get_provider("anthropic")
+        assert provider is not None
+        assert provider.name == "openai"
 
     def test_load_providers_skips_failed_imports(self):
         """A configured provider whose module can't be imported is silently
