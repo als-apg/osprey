@@ -621,7 +621,14 @@ def build_agent_options(
                 spec.auth_env_var,
                 spec.provider,
             )
-        port = start_proxy(spec.upstream_base_url, auth_token, provider=spec.provider)
+        from osprey.models.spend_attribution import declared_header_names
+
+        port = start_proxy(
+            spec.upstream_base_url,
+            auth_token,
+            provider=spec.provider,
+            forward_headers=declared_header_names(env),
+        )
         env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
     return ClaudeAgentOptions(

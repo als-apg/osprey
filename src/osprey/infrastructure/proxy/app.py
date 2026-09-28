@@ -9,7 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import httpx
 from fastapi import FastAPI, Request
@@ -32,6 +32,26 @@ from osprey.infrastructure.proxy.translator import (
 
 logger = logging.getLogger("osprey.infrastructure.proxy")
 
+# Headers the proxy sets itself, consumes from the client, or that belong to one
+# hop, so a client's value never goes upstream.
+_PROXY_OWNED_HEADERS: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "x-api-key",
+        "content-type",
+        "content-length",
+        "host",
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+
 
 def create_proxy_app(
     upstream_base_url: str,
@@ -39,6 +59,7 @@ def create_proxy_app(
     *,
     max_tokens_param: str = "max_tokens",
     accepts_temperature: Callable[[str], bool] | None = None,
+    forward_headers: Iterable[str] = (),
 ) -> FastAPI:
     """Create the translation proxy FastAPI app.
 
@@ -48,7 +69,19 @@ def create_proxy_app(
         max_tokens_param: The upstream parameter that carries the output-token cap.
         accepts_temperature: Asked with each request's model whether the upstream
             takes a caller-chosen temperature for it; None sends every temperature.
+        forward_headers: The client headers to carry upstream, which are the names
+            the launch declared in ``ANTHROPIC_CUSTOM_HEADERS``. Matching ignores
+            case, and a header the proxy owns is refused.
     """
+    declared = frozenset(n.strip().lower() for n in forward_headers if n.strip())
+    refused = declared & _PROXY_OWNED_HEADERS
+    forwarded = declared - refused
+    if refused:
+        logger.warning(
+            "The translation proxy does not forward %s: it sets these headers itself",
+            ", ".join(sorted(refused)),
+        )
+
     # One pooled client for the app's lifetime. A fresh AsyncClient per request
     # opens and tears down an upstream TCP connection every call; at matrix
     # volume that exhausts the host's ephemeral port pool via tens of thousands
@@ -99,15 +132,14 @@ def create_proxy_app(
 
         # Build upstream URL and headers
         url = upstream_base_url.rstrip("/") + "/chat/completions"
+        # Exactly the headers the launch declared go upstream, so the upstream sees
+        # the same operator and attribution headers as on the Anthropic-native
+        # route. The proxy's own values are set last and always win.
         headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+            name: value for name, value in request.headers.items() if name.lower() in forwarded
         }
-        # Carry the gateway's attribution headers (x-litellm-end-user-id,
-        # x-litellm-tags — set via ANTHROPIC_CUSTOM_HEADERS) through to the
-        # upstream, so an OpenAI-protocol LiteLLM gateway books the spend to
-        # the acting identity exactly as the Anthropic-native path does.
-        headers.update(_attribution_headers(request.headers))
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["Content-Type"] = "application/json"
 
         if is_stream:
             return StreamingResponse(
@@ -264,18 +296,6 @@ async def _stream_proxy(
                 "error": {"type": "api_error", "message": str(exc)},
             },
         )
-
-
-_ATTRIBUTION_HEADER_PREFIX = "x-litellm-"
-
-
-def _attribution_headers(incoming) -> dict[str, str]:
-    """The ``x-litellm-*`` headers of an incoming request, to forward verbatim."""
-    return {
-        name: value
-        for name, value in incoming.items()
-        if name.lower().startswith(_ATTRIBUTION_HEADER_PREFIX)
-    }
 
 
 def _translate_error(response: httpx.Response) -> JSONResponse:

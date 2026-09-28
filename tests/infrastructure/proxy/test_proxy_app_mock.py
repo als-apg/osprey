@@ -10,6 +10,7 @@ Experiment branch: experiment/cborg-claude-code (issue #259).
 from __future__ import annotations
 
 import json
+import logging
 
 import httpx
 import pytest
@@ -206,32 +207,38 @@ def test_health_endpoint_reports_upstream():
     assert resp.json() == {"status": "ok", "upstream": "https://api.example.com/v1"}
 
 
-def test_proxy_forwards_litellm_attribution_headers(monkeypatch):
-    """The x-litellm-* headers Claude Code adds (ANTHROPIC_CUSTOM_HEADERS) reach
-    the upstream gateway; unrelated client headers do not."""
-    captured = _install_fake_upstream(
-        monkeypatch,
-        {
-            "choices": [
-                {"message": {"role": "assistant", "content": "PONG"}, "finish_reason": "stop"}
-            ],
-            "usage": {"prompt_tokens": 3, "completion_tokens": 1},
-        },
+_PONG = {
+    "choices": [{"message": {"role": "assistant", "content": "PONG"}, "finish_reason": "stop"}],
+    "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+}
+
+_PING = {
+    "model": "some-model",
+    "messages": [{"role": "user", "content": "ping"}],
+    "max_tokens": 16,
+}
+
+
+def test_proxy_forwards_exactly_the_declared_headers(monkeypatch):
+    """The headers the launch declared reach the upstream; no other client header does."""
+    captured = _install_fake_upstream(monkeypatch, _PONG)
+    app = create_proxy_app(
+        "https://gw.example/v1",
+        upstream_api_key="secret-key",
+        forward_headers={"x-litellm-end-user-id", "x-litellm-tags", "X-Corp-Trace"},
     )
-    app = create_proxy_app("https://gw.example/v1", upstream_api_key="secret-key")
     client = TestClient(app)
 
     resp = client.post(
         "/v1/messages",
-        json={
-            "model": "some-model",
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 16,
-        },
+        json=_PING,
         headers={
             "X-LiteLLM-End-User-Id": "alice",
             "x-litellm-tags": "osprey,surface:terminal",
-            "X-Corp-Trace": "abc123",
+            "x-corp-trace": "abc123",
+            "X-Other": "1",
+            "x-litellm-extra": "1",
+            "Authorization": "Bearer client-key",
         },
     )
     assert resp.status_code == 200
@@ -239,8 +246,65 @@ def test_proxy_forwards_litellm_attribution_headers(monkeypatch):
     sent = {k.lower(): v for k, v in captured["headers"].items()}
     assert sent["x-litellm-end-user-id"] == "alice"
     assert sent["x-litellm-tags"] == "osprey,surface:terminal"
-    assert "x-corp-trace" not in sent
+    assert sent["x-corp-trace"] == "abc123"
+    assert "x-other" not in sent
+    assert "x-litellm-extra" not in sent
     assert sent["authorization"] == "Bearer secret-key"
+
+
+def test_proxy_without_a_declaration_forwards_no_client_header(monkeypatch):
+    captured = _install_fake_upstream(monkeypatch, _PONG)
+    app = create_proxy_app("https://gw.example/v1", upstream_api_key="secret-key")
+    client = TestClient(app)
+
+    resp = client.post(
+        "/v1/messages",
+        json=_PING,
+        headers={"x-litellm-end-user-id": "alice", "X-Corp-Trace": "abc123"},
+    )
+    assert resp.status_code == 200
+
+    assert {k.lower() for k in captured["headers"]} == {"authorization", "content-type"}
+
+
+def test_a_declared_header_the_proxy_owns_is_refused_and_named(monkeypatch, caplog):
+    captured = _install_fake_upstream(monkeypatch, _PONG)
+    with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.proxy"):
+        app = create_proxy_app(
+            "https://gw.example/v1",
+            upstream_api_key="secret-key",
+            forward_headers={"Authorization", "host", "X-Corp-Trace"},
+        )
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "authorization" in warnings[0].getMessage()
+    assert "host" in warnings[0].getMessage()
+
+    client = TestClient(app)
+    resp = client.post(
+        "/v1/messages",
+        json=_PING,
+        headers={"Authorization": "Bearer client-key", "X-Corp-Trace": "abc123"},
+    )
+    assert resp.status_code == 200
+
+    sent = {k.lower(): v for k, v in captured["headers"].items()}
+    assert sent["authorization"] == "Bearer secret-key"
+    assert sent["x-corp-trace"] == "abc123"
+    assert "host" not in sent
+
+
+def test_client_key_fallback_is_unchanged(monkeypatch):
+    captured = _install_fake_upstream(monkeypatch, _PONG)
+    app = create_proxy_app("https://gw.example/v1", upstream_api_key=None)
+    client = TestClient(app)
+
+    resp = client.post("/v1/messages", json=_PING, headers={"x-api-key": "client-key"})
+    assert resp.status_code == 200
+
+    sent = {k.lower(): v for k, v in captured["headers"].items()}
+    assert sent["authorization"] == "Bearer client-key"
+    assert "x-api-key" not in sent
 
 
 def test_proxy_sends_the_upstream_its_declared_request_shape(monkeypatch):

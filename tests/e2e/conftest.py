@@ -276,6 +276,7 @@ def _e2e_translation_proxy():
         yield
         return
     from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
+    from osprey.models.spend_attribution import END_USER_HEADER, TAGS_HEADER
 
     # Upstream auth: the matrix launcher sets OSPREY_E2E_PROXY_KEY per cell — and
     # "" is an intentional value for keyless local servers (ds4/ollama), so honor
@@ -283,7 +284,11 @@ def _e2e_translation_proxy():
     # keyless server). Provider-agnostic: the launcher exposes whichever provider's
     # key the cell needs; the proxy var is never tied to one provider name.
     key = os.environ.get("OSPREY_E2E_PROXY_KEY", "")
-    port = start_proxy(upstream, key, provider=e2e_provider())
+    # One proxy serves every project's CLI; a project on a LiteLLM gateway declares
+    # exactly the two attribution headers.
+    port = start_proxy(
+        upstream, key, provider=e2e_provider(), forward_headers=(END_USER_HEADER, TAGS_HEADER)
+    )
     os.environ["OSPREY_E2E_PROXY_BASE_URL"] = f"http://127.0.0.1:{port}"
     try:
         yield

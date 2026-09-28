@@ -76,7 +76,7 @@ async def _read_pv(args):
 async def _drive_harness(upstream_base: str, upstream_key: str, model: str, provider: str):
     """Run the real claude CLI against `model` via the proxy; return (tool_calls, final_text)."""
     server = create_sdk_mcp_server(name="controls", version="1.0.0", tools=[_read_pv])
-    port = start_proxy(upstream_base, upstream_key, provider=provider)
+    port = start_proxy(upstream_base, upstream_key, provider=provider, forward_headers=())
     options = ClaudeAgentOptions(
         model=model,
         permission_mode="bypassPermissions",

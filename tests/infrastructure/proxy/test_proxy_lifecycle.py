@@ -138,14 +138,20 @@ class TestStartStop:
     def test_start_returns_port_and_populates_state(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        port = lifecycle.start_proxy("https://up.example/v1", upstream_api_key="k")
+        port = lifecycle.start_proxy(
+            "https://up.example/v1", upstream_api_key="k", forward_headers=()
+        )
 
         assert isinstance(port, int)
         assert lifecycle._state["port"] == port
         assert isinstance(lifecycle._state["server"], _FakeServer)
         assert lifecycle.get_proxy_url() == f"http://127.0.0.1:{port}"
         app_factory.assert_called_once_with(
-            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=None
+            "https://up.example/v1",
+            "k",
+            max_tokens_param="max_tokens",
+            accepts_temperature=None,
+            forward_headers=frozenset(),
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
@@ -155,32 +161,63 @@ class TestStartStop:
 
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        lifecycle.start_proxy("https://api.openai.com/v1", upstream_api_key="k", provider="openai")
+        lifecycle.start_proxy(
+            "https://api.openai.com/v1", upstream_api_key="k", provider="openai", forward_headers=()
+        )
 
         app_factory.assert_called_once_with(
             "https://api.openai.com/v1",
             "k",
             max_tokens_param="max_completion_tokens",
             accepts_temperature=OpenAIProviderAdapter.accepts_temperature,
+            forward_headers=frozenset(),
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_an_unregistered_provider_gets_the_default_request_shape(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        lifecycle.start_proxy("https://up.example/v1", upstream_api_key="k", provider="house-llm")
+        lifecycle.start_proxy(
+            "https://up.example/v1", upstream_api_key="k", provider="house-llm", forward_headers=()
+        )
 
         app_factory.assert_called_once_with(
-            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=None
+            "https://up.example/v1",
+            "k",
+            max_tokens_param="max_tokens",
+            accepts_temperature=None,
+            forward_headers=frozenset(),
         )
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_hands_the_app_the_declared_headers(self, monkeypatch):
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy(
+            "https://up.example/v1",
+            upstream_api_key="k",
+            forward_headers=["X-Corp-Trace", "x-litellm-tags"],
+        )
+
+        # Lower-casing is the app's job; the lifecycle passes the names as given.
+        assert app_factory.call_args.kwargs["forward_headers"] == frozenset(
+            {"X-Corp-Trace", "x-litellm-tags"}
+        )
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_proxy_requires_the_declared_headers(self, monkeypatch):
+        _install_fake_uvicorn(monkeypatch)
+
+        with pytest.raises(TypeError):
+            lifecycle.start_proxy("https://up.example/v1")  # type: ignore[call-arg]
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_is_idempotent(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        first = lifecycle.start_proxy("https://up.example/v1")
+        first = lifecycle.start_proxy("https://up.example/v1", forward_headers=())
         server = lifecycle._state["server"]
-        second = lifecycle.start_proxy("https://up.example/v1")
+        second = lifecycle.start_proxy("https://up.example/v1", forward_headers=())
 
         assert first == second
         # Repeated calls must not rebuild the app or swap the server out.
@@ -209,7 +246,7 @@ class TestStartStop:
         sleep = MagicMock()
         monkeypatch.setattr(lifecycle.time, "sleep", sleep)
 
-        port = lifecycle.start_proxy("https://up.example/v1")
+        port = lifecycle.start_proxy("https://up.example/v1", forward_headers=())
 
         assert lifecycle._state["port"] == port
         # It polled ``started`` and slept while the server was still coming up.
@@ -218,7 +255,7 @@ class TestStartStop:
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_stop_shuts_down_and_clears_state(self, monkeypatch):
         _install_fake_uvicorn(monkeypatch)
-        lifecycle.start_proxy("https://up.example/v1")
+        lifecycle.start_proxy("https://up.example/v1", forward_headers=())
         server = lifecycle._state["server"]
 
         lifecycle.stop_proxy()
