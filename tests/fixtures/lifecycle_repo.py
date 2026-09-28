@@ -564,10 +564,19 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.type: epics_archiver
   # archiver.settings.url: https://your-archiver.example.com:8443
-  # archiver.settings.timeout: 60
+  # archiver.settings.timeout_s: 60
   # Only when a reverse proxy in front of the appliance publishes its
   # `/retrieval` servlet under another prefix; the bare appliance needs no line.
   # archiver.settings.retrieval_path: /retrieval
+  # Only when a proxy in front of the appliance asks for a login: a bearer
+  # token, OR a user and password. Each names the environment variable that
+  # holds the secret; the secret itself never goes in this file.
+  # archiver.settings.auth.token_env: OSPREY_ARCHIVER_TOKEN
+  # archiver.settings.auth.username: your-archiver-user
+  # archiver.settings.auth.password_env: OSPREY_ARCHIVER_PASSWORD
+  # Only when the appliance's certificate is signed by a CA the image does
+  # not trust. An absolute path; it replaces the trust store for this host.
+  # archiver.settings.tls.ca_bundle: /etc/ssl/certs/your-site-ca.pem
   # MongoDB archiver pointed at a store this deployment does NOT run. The
   # coordinates above are derived from `va_archiver:`; spell them here instead
   # to read an archive someone else keeps, and drop the `va_archiver:` block so
@@ -586,17 +595,18 @@ config:
   # moving average over this many seconds, and the read budget.
   # archiver.type: doocs_archiver
   # archiver.settings.avg_window: 20
-  # archiver.settings.timeout: 60
+  # archiver.settings.timeout_s: 60
 
   # MYA, read over the myquery HTTP service: every key is optional, because the
   # client library carries its own server and protocol. A deployment inside the
   # facility's network needs only `archiver.type: mya_archiver`, plus
   # `jlab-archiver-client>=4.0.1` in its top-level `dependencies:`.
+  # Its client sends no login and no per-connection CA, so auth/tls are refused.
   # archiver.type: mya_archiver
   # archiver.settings.myquery_server: your-myquery.example.com
   # archiver.settings.protocol: https
   # archiver.settings.deployment: ops
-  # archiver.settings.timeout: 60
+  # archiver.settings.timeout_s: 60
   # The zone myquery reads query bounds in -- samples carry their own instant.
   # archiver.settings.timezone: America/New_York
 

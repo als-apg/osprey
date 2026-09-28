@@ -1475,10 +1475,30 @@ keys:
       `url`, which keeps the unauthored state honest.
     default: {}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false, default: 'no-fallback', default_note: "the connector raises ValueError('archiver URL is required for EPICS archiver')"}
-  archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
+  archiver.epics_archiver.timeout_s: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
   # The appliance mounts its retrieval servlet at /retrieval; a reverse proxy in
   # front of it may publish the servlet under another prefix.
   archiver.epics_archiver.retrieval_path: {covered-by: archiver.epics_archiver, rendered: false, default: '/retrieval'}
+  archiver.epics_archiver.auth:
+    rendered: false
+    covered-by: archiver.epics_archiver
+    note: >-
+      the login a proxy in front of the appliance asks for — a bearer token or
+      a user and password, each secret named by environment variable; unset
+      sends no login
+    default: null
+  archiver.epics_archiver.auth.token_env: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.auth.username: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.auth.password_env: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.tls: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.tls.ca_bundle:
+    rendered: false
+    covered-by: archiver.epics_archiver
+    note: >-
+      absolute path of the PEM CA the appliance's certificate is checked
+      against, replacing the default trust store for this endpoint; unset keeps
+      the image trust store `images.site_ca` extends
+    default: null
   archiver.doocs_archiver:
     rendered: false
     evidence: 'doocs_archiver'
@@ -1495,7 +1515,7 @@ keys:
       Centered moving average, in seconds, applied to the samples a read
       returns. Unset returns the raw samples.
     default: null
-  archiver.doocs_archiver.timeout: {rendered: false, covered-by: archiver.doocs_archiver, default: 60}
+  archiver.doocs_archiver.timeout_s: {rendered: false, covered-by: archiver.doocs_archiver, default: 60}
   archiver.mya_archiver:
     rendered: false
     evidence: 'mya_archiver'
@@ -1521,7 +1541,7 @@ keys:
       Which MYA deployment answers. `ops` is the production archive; a site may
       serve others alongside it.
     default: 'ops'
-  archiver.mya_archiver.timeout: {rendered: false, covered-by: archiver.mya_archiver, default: 60}
+  archiver.mya_archiver.timeout_s: {rendered: false, covered-by: archiver.mya_archiver, default: 60}
   archiver.mya_archiver.timezone:
     rendered: false
     covered-by: archiver.mya_archiver
