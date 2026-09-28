@@ -12,6 +12,7 @@
 
 import { fmtName } from '/design-system/js/check-name.js';
 import { worstStatus } from '/design-system/js/check-status.js';
+import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 
 import { withPrefix } from './api.js';
 import { registerBarPopover } from './bar-host.js';
@@ -245,14 +246,19 @@ function byCategory(checks) {
 }
 
 /**
- * The time of the last envelope, as the card's note says it.
+ * The time of the last envelope, as the card's note says it: on the facility
+ * clock, naming the zone when the viewer's clock reads differently.
  * @param {number} epochMs
  * @returns {string}
  */
 function clockOf(epochMs) {
-  const date = new Date(epochMs);
-  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return formatFacilityTime(epochMs, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+    ...(viewerSharesFacilityClock(epochMs) ? {} : { timeZoneName: 'short' }),
+  });
 }
 
 /**

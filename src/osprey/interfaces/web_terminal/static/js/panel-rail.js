@@ -70,6 +70,7 @@
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
+import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 
 // ---- Types ----
 
@@ -370,7 +371,8 @@ export function setEntryEnabled(railEl, panelId, enabled) {
  * than recomputed, so the restore is exact even if the caller retitled the
  * entry, and so a second event REPLACES the time instead of appending a second
  * suffix. Restoring is keyed on the stash, which makes a clear on an unbadged
- * entry a true no-op.
+ * entry a true no-op. The time is on the facility clock, and names its zone
+ * when the viewer's clock reads differently.
  * @param {HTMLElement} entry
  * @param {number | null} ts - server epoch seconds, or null to restore the base
  */
@@ -383,9 +385,11 @@ function applyTouchedTooltip(entry, ts) {
     }
     return;
   }
-  const touchedAt = new Date(ts * 1000).toLocaleTimeString([], {
+  const at = ts * 1000;
+  const touchedAt = formatFacilityTime(at, {
     hour: 'numeric',
     minute: '2-digit',
+    ...(viewerSharesFacilityClock(at) ? {} : { timeZoneName: 'short' }),
   });
   entry.setAttribute(TITLE_BASE_ATTR, base);
   entry.title = `${base}${TOUCHED_SEPARATOR}${touchedAt}`;
