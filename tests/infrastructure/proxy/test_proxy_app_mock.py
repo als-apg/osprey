@@ -414,3 +414,113 @@ def test_proxy_names_an_image_on_a_route_without_images(monkeypatch):
     assert captured["json"]["messages"][-1]["content"] == (
         "see\n[image not sent: this provider's route does not carry images]"
     )
+
+
+# ── What the route leaves out is named once per conversation ─────────
+
+_OK = {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
+
+_THINKING_REQUEST = {
+    "model": "m",
+    "messages": [{"role": "user", "content": "hi"}],
+    "max_tokens": 16,
+    "thinking": {"type": "enabled", "budget_tokens": 1024},
+}
+
+
+def _warnings(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "osprey.infrastructure.proxy" and r.levelno == logging.WARNING
+    ]
+
+
+def _post(client, body, conversation=None):
+    headers = {"X-Claude-Code-Session-Id": conversation} if conversation else {}
+    resp = client.post("/v1/messages", json=body, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+
+def test_a_dropped_image_is_named_once_per_conversation(monkeypatch, caplog):
+    _install_fake_upstream(monkeypatch, _OK)
+    client = TestClient(create_proxy_app("https://api.example.com/v1", provider="vllm"))
+
+    with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.proxy"):
+        _post(client, _IMAGE_REQUEST, "c-1")
+        _post(client, _IMAGE_REQUEST, "c-1")
+        assert len(_warnings(caplog)) == 1
+        (first,) = _warnings(caplog)
+        assert "image" in first
+        assert "c-1" in first
+        assert "vllm" in first
+        assert "supports_images: true" in first
+
+        _post(client, _IMAGE_REQUEST, "c-2")
+        assert len(_warnings(caplog)) == 2
+        assert "c-2" in _warnings(caplog)[1]
+
+
+def test_a_new_kind_later_in_the_conversation_is_named(monkeypatch, caplog):
+    _install_fake_upstream(monkeypatch, _OK)
+    client = TestClient(create_proxy_app("https://api.example.com/v1"))
+
+    with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.proxy"):
+        _post(client, _IMAGE_REQUEST, "c-1")
+        _post(client, _THINKING_REQUEST, "c-1")
+
+    first, second = _warnings(caplog)
+    assert "image" in first
+    assert ": thinking (" in second
+    assert "image" not in second
+
+
+def test_a_request_without_a_conversation_id_is_named_once_per_proxy(monkeypatch, caplog):
+    _install_fake_upstream(monkeypatch, _OK)
+    client = TestClient(create_proxy_app("https://api.example.com/v1"))
+
+    with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.proxy"):
+        _post(client, _IMAGE_REQUEST)
+        _post(client, _IMAGE_REQUEST)
+
+    (warning,) = _warnings(caplog)
+    assert "without an id" in warning
+
+
+def test_a_refused_temperature_is_named(monkeypatch, caplog):
+    _install_fake_upstream(monkeypatch, _OK)
+    client = TestClient(
+        create_proxy_app("https://api.example.com/v1", accepts_temperature=lambda _m: False)
+    )
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}], "temperature": 0.0}
+
+    with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.proxy"):
+        _post(client, body, "c-1")
+
+    (warning,) = _warnings(caplog)
+    assert "temperature" in warning
+    assert "supports_images" not in warning
+
+
+def test_nothing_is_named_when_nothing_is_dropped(monkeypatch, caplog):
+    _install_fake_upstream(monkeypatch, _OK)
+    client = TestClient(create_proxy_app("https://api.example.com/v1"))
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+
+    with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.proxy"):
+        _post(client, body, "c-1")
+
+    assert _warnings(caplog) == []
+
+
+def test_the_notice_memory_is_bounded(monkeypatch):
+    monkeypatch.setattr(app_module, "_MAX_CONVERSATIONS", 2)
+    notices = app_module._DropNotices()
+    kinds = frozenset({"image"})
+
+    assert notices.unnamed("a", kinds) == ["image"]
+    assert notices.unnamed("a", kinds) == []
+    notices.unnamed("b", kinds)
+    notices.unnamed("c", kinds)
+
+    assert notices.unnamed("a", kinds) == ["image"]
