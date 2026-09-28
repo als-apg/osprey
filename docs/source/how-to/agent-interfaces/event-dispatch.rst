@@ -224,7 +224,8 @@ A deployment that declares the EVENTS panel also hands the agent in each web
 terminal a small ``event_dispatcher`` MCP server, so a job can be started from
 the session an operator is already working in. Three of its tools read and
 answer straight away — ``list_triggers``, ``trigger_status`` and
-``trigger_history``. The fourth, ``manual_fire``, starts a job and asks first.
+``trigger_history``. The times they report are in the facility zone. The
+fourth, ``manual_fire``, starts a job and asks first.
 
 Ask for it in plain language — *"fire the save-report trigger"* — and an
 approval prompt appears. It names the trigger the fire would start, and the
@@ -495,6 +496,11 @@ loads.
 
    *Reaching the Machine* below covers the variables that point the
    dispatcher at a Channel Access gateway.
+
+The agent reads an event's ``timestamp`` in the facility zone that
+``system.timezone`` names, with its UTC offset, the same zone as its own clock.
+A webhook body reaches the agent as it was sent, times included. The dispatcher
+keeps its own history in UTC.
 
 Reaching the Machine
 ====================
