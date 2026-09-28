@@ -2596,16 +2596,18 @@ VERIFY_SH = """\
 # osprey-version: @OSPREY_VERSION@
 #
 # Emitted by `osprey scaffold ci` into the repo's scripts/ directory. `osprey
-# up` runs it automatically once the containers are up; you can also run it by
-# hand from anywhere in the repo:
+# up` runs it automatically, without --strict, once the containers are up; you
+# can also run it by hand from anywhere in the repo:
 #
 #   ./scripts/verify.sh                    # every group
 #   ./scripts/verify.sh containers         # one group
+#   ./scripts/verify.sh --strict           # exit 1 if anything is flagged
 #
-# ALWAYS exits 0. Verification is advisory: a failed probe tells an operator
-# where to look, and must never be the reason a deploy is reported as failed.
-# A container that is not running or not healthy, and a probe that gets no
-# answer, is flagged.
+# Exits 0 unless run with --strict. A container that is not running or not
+# healthy, and a probe that gets no answer, is flagged: it tells an operator
+# where to look, and is never by itself the reason a deploy is reported as
+# failed. --strict exits 1 when anything is flagged, for a job that should fail
+# on it. A group or option the script does not have exits 2.
 #
 # Needs curl, and python3 to read the container runtime's JSON.
 #
@@ -2615,11 +2617,25 @@ set -uo pipefail
 
 GREEN=$'\\033[32m'; RED=$'\\033[31m'; DIM=$'\\033[90m'; BOLD=$'\\033[1m'; RESET=$'\\033[0m'
 
-# Probe groups, selectable as arguments. Default is all of them. Not named
-# GROUPS: bash owns that name, and assigning to it silently does nothing.
-PROBE_GROUPS="${*:-containers services web dispatch}"
+# Arguments: group names select groups (default: all of them), and --strict
+# turns anything flagged into exit 1. The selection is not named GROUPS: bash
+# owns that name, and assigning to it silently does nothing.
+STRICT=0
+SELECTED=""
+for arg in "$@"; do
+  case "$arg" in
+    --strict) STRICT=1 ;;
+    containers|services|web|dispatch) SELECTED="${SELECTED:+$SELECTED }$arg" ;;
+    *)
+      printf '%s: no group or option %s (groups: %s; option: --strict)\\n' \\
+        "$0" "$arg" "containers services web dispatch" >&2
+      exit 2
+      ;;
+  esac
+done
+PROBE_GROUPS="${SELECTED:-containers services web dispatch}"
 
-# Everything flagged below, counted for the summary.
+# Everything flagged below, counted for the summary and for --strict.
 FLAGGED=0
 
 # An HTTP endpoint that answers. Used for anything speaking HTTP.
@@ -2799,6 +2815,9 @@ fi
 
 if [ "$FLAGGED" -eq 0 ]; then
   printf '\\n%sNothing flagged.%s\\n\\n' "$DIM" "$RESET"
+elif [ "$STRICT" -eq 1 ]; then
+  printf '\\n%s%s flagged. Exit 1: --strict.%s\\n\\n' "$RED" "$FLAGGED" "$RESET"
+  exit 1
 else
   printf '\\n%s%s flagged. Advisory: the deploy did not fail on it.%s\\n\\n' \\
     "$DIM" "$FLAGGED" "$RESET"

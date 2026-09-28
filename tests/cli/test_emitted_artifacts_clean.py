@@ -223,12 +223,37 @@ def test_the_emitted_pair_reproduces_the_exemplar_byte_for_byte(
 # ── The health check ─────────────────────────────────────────────────────────
 
 
-def test_health_check_always_exits_zero(rendered: dict[str, str]) -> None:
-    """Verification is advisory: a failed probe must never fail a deploy."""
+def _nonzero_exits(verify: str) -> list[tuple[str, str]]:
+    """Each ``exit [1-9]`` line, paired with the branch line that opens its block."""
+    lines = verify.splitlines()
+    exits = []
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*exit [1-9]", line):
+            indent = len(line) - len(line.lstrip())
+            opener = next(
+                earlier.strip()
+                for earlier in reversed(lines[:index])
+                if earlier.strip() and len(earlier) - len(earlier.lstrip()) < indent
+            )
+            exits.append((opener, line.strip()))
+    return exits
+
+
+def test_health_check_exits_non_zero_only_under_strict_or_a_bad_argument(
+    rendered: dict[str, str],
+) -> None:
+    """Verification is advisory: without ``--strict`` nothing flagged fails a deploy.
+
+    The only non-zero exits are ``--strict``'s, and the refusal of an argument
+    the script does not have, which is not a verification result.
+    """
     verify = rendered["scripts/verify.sh"]
     assert verify.rstrip().endswith("exit 0")
-    assert not re.search(r"^\s*exit [1-9]", verify, re.MULTILINE)
     assert not re.search(r"^set -e", verify, re.MULTILINE)
+    assert _nonzero_exits(verify) == [
+        ("*)", "exit 2"),
+        ('elif [ "$STRICT" -eq 1 ]; then', "exit 1"),
+    ]
 
 
 def test_probe_group_filter_is_not_named_groups(rendered: dict[str, str]) -> None:
@@ -239,7 +264,7 @@ def test_probe_group_filter_is_not_named_groups(rendered: dict[str, str]) -> Non
     health check that runs no probes reports perfect health.
     """
     verify = rendered["scripts/verify.sh"]
-    assert re.search(r'^PROBE_GROUPS="\$\{\*:-[a-z ]+\}"$', verify, re.MULTILINE)
+    assert re.search(r'^PROBE_GROUPS="\$\{SELECTED:-([a-z ]+)\}"$', verify, re.MULTILINE)
     assert not re.search(r"^\s*GROUPS=", verify, re.MULTILINE)
     assert not re.search(r"\$\{?GROUPS\b", verify)
 
@@ -324,7 +349,7 @@ def test_the_usage_example_names_a_group_the_script_has(rendered: dict[str, str]
     example = re.search(r"^#   \./scripts/verify\.sh (\S+)\s+# one group$", verify, re.MULTILINE)
     assert example, "the header must show a one-group example"
 
-    default = re.search(r'^PROBE_GROUPS="\$\{\*:-([a-z ]+)\}"$', verify, re.MULTILINE)
+    default = re.search(r'^PROBE_GROUPS="\$\{SELECTED:-([a-z ]+)\}"$', verify, re.MULTILINE)
     assert default and example.group(1) in default.group(1).split()
 
 
