@@ -14,7 +14,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from osprey.interfaces.common_middleware import (
@@ -27,6 +27,7 @@ from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
+    SIDECAR_PANELS,
     panel_id_refusal,
 )
 from osprey.registry.web import panel_url_state_attr
@@ -151,6 +152,29 @@ def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
 async def jupyter_server_config(request: Request):
     """Return the notebook sidecar URL for iframe embedding, and its start outcome."""
     return _sidecar_panel_config(request, "jupyter")
+
+
+@router.post("/api/panels/{panel_id}/start")
+async def start_sidecar_panel(panel_id: str, request: Request):
+    """Start a panel sidecar again, one attempt at a time.
+
+    The operator's retry for a sidecar that failed to start or stopped later.
+    A request while an attempt is in flight joins it; a request for a running
+    sidecar changes nothing. Answers the sidecar's config body: 200 once it
+    runs, 202 while it is starting or after it failed.
+    """
+    from osprey.interfaces.web_terminal.app import request_sidecar_start
+
+    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
+    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+    status = await request_sidecar_start(request.app, panel_id)
+    return JSONResponse(
+        _sidecar_panel_config(request, panel_id),
+        status_code=200 if status.state == "running" else 202,
+    )
 
 
 @router.get("/api/okf-server")

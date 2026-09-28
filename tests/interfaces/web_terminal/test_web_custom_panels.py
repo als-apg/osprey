@@ -52,7 +52,10 @@ class SidecarScript:
 
     The real class starts a server process; nothing in this module may. The
     default script fails preflight, so every client fixture here gets the
-    unavailable-panel path unless it asks for a ready one.
+    unavailable-panel path unless it asks for a ready one. The errors may be
+    changed between attempts, and ``hold`` (an event) keeps ``wait_ready``
+    blocked until it is set or the sidecar is stopped. ``events`` records every
+    spawn and stop in order.
     """
 
     def __init__(
@@ -72,6 +75,8 @@ class SidecarScript:
         self.spawned = 0
         self.waited: list[float] = []
         self.stopped = 0
+        self.hold: threading.Event | None = None
+        self.events: list[str] = []
 
 
 def _stub_sidecar_class(script):
@@ -80,6 +85,7 @@ def _stub_sidecar_class(script):
     class _StubSidecar:
         def __init__(self, shared_root, outer_prefix, pinned_mode):
             script.constructed.append((shared_root, outer_prefix, pinned_mode))
+            self._stopping = threading.Event()
 
         @property
         def stderr_tail(self):
@@ -107,14 +113,23 @@ def _stub_sidecar_class(script):
 
         def spawn(self):
             script.spawned += 1
+            script.events.append("spawn")
 
         def wait_ready(self, timeout):
             script.waited.append(timeout)
+            hold = script.hold
+            if hold is not None:
+                while not hold.wait(0.02) and not self._stopping.is_set():
+                    pass
+            if self._stopping.is_set():
+                raise RuntimeError("stub sidecar: stopped before it was ready")
             if script.wait_ready_error:
                 raise RuntimeError(script.wait_ready_error)
 
         def stop(self):
+            self._stopping.set()
             script.stopped += 1
+            script.events.append("stop")
 
     return _StubSidecar
 
@@ -1503,6 +1518,19 @@ class TestSidecarPanelAvailability:
         assert "no interpreter" in failure[0]
         assert "Traceback: boom" in failure[0]
 
+    def test_shutdown_removes_the_status_record(self, workspace_dir, ready_sidecar):
+        client_gen = _make_client(
+            workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=ready_sidecar
+        )
+        client = next(client_gen)
+        record = client.app.state.panel_status_dir / f"{SIDECAR_ID}.json"
+        assert record.is_file()
+
+        with pytest.raises(StopIteration):
+            next(client_gen)
+
+        assert not record.exists()
+
     def test_shutdown_stops_a_launched_sidecar(self, workspace_dir, ready_sidecar):
         client_gen = _make_client(
             workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=ready_sidecar
@@ -1603,3 +1631,155 @@ class TestSidecarExitsLater:
         assert resp.json()["available"] is True
         assert resp.json()["state"] == "running"
         assert SIDECAR_ID in state.panel_auth_headers
+
+
+def _start(client, panel_id=SIDECAR_ID):
+    return client.post(f"/api/panels/{panel_id}/start")
+
+
+def _settle(client, predicate, timeout=5.0):
+    """Poll the sidecar's config route until *predicate* holds; return the last body."""
+    deadline = time.monotonic() + timeout
+    while True:
+        body = client.get(f"/api/{SIDECAR_ID}-server").json()
+        if predicate(body) or time.monotonic() >= deadline:
+            return body
+        time.sleep(0.02)
+
+
+@pytest.fixture
+def failed_sidecar():
+    """A script whose first launch fails preflight; clear the error to let a retry succeed."""
+    return SidecarScript(preflight_error="first boom")
+
+
+@pytest.fixture
+def client_with_failed_sidecar(workspace_dir, failed_sidecar):
+    yield from _make_client(
+        workspace_dir,
+        enabled_panels={SIDECAR_ID} | set(UNIVERSAL_PANELS),
+        sidecar_script=failed_sidecar,
+    )
+
+
+class TestSidecarStartsAgain:
+    """A start request relaunches a failed sidecar, one attempt at a time."""
+
+    def test_a_start_request_relaunches_a_failed_sidecar(
+        self, client_with_failed_sidecar, failed_sidecar
+    ):
+        failed_sidecar.preflight_error = None
+
+        resp = _start(client_with_failed_sidecar)
+
+        assert resp.status_code == 202
+        assert resp.json()["state"] == "starting"
+        assert resp.json()["message"] == "JUPYTER is starting"
+        body = _settle(client_with_failed_sidecar, lambda b: b["state"] != "starting")
+        assert body["available"] is True
+        assert body["state"] == "running"
+        assert len(failed_sidecar.constructed) == 2
+
+    def test_a_second_request_while_one_runs_starts_nothing_more(
+        self, client_with_failed_sidecar, failed_sidecar
+    ):
+        failed_sidecar.preflight_error = None
+        failed_sidecar.hold = threading.Event()
+
+        first = _start(client_with_failed_sidecar)
+        second = _start(client_with_failed_sidecar)
+
+        assert first.status_code == 202
+        assert second.status_code == 202
+        assert second.json()["state"] == "starting"
+        failed_sidecar.hold.set()
+        body = _settle(client_with_failed_sidecar, lambda b: b["state"] == "running")
+        assert body["available"] is True
+        assert failed_sidecar.spawned == 1
+        assert len(failed_sidecar.constructed) == 2
+
+    def test_a_request_for_a_running_sidecar_changes_nothing(
+        self, client_with_sidecar, ready_sidecar
+    ):
+        resp = _start(client_with_sidecar)
+
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "running"
+        assert resp.json()["available"] is True
+        assert ready_sidecar.spawned == 1
+
+    def test_the_retry_waits_as_long_as_the_startup(self, workspace_dir):
+        script = SidecarScript(preflight_error=None, wait_ready_error="did not answer")
+        for client in _make_client(
+            workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=script
+        ):
+            script.wait_ready_error = None
+            assert _start(client).status_code == 202
+            _settle(client, lambda b: b["state"] == "running")
+
+        timeout = web_terminal_app.SIDECAR_READY_TIMEOUT
+        assert script.waited == [timeout, timeout]
+
+    def test_the_dead_sidecar_is_stopped_before_its_replacement_starts(
+        self, client_with_sidecar, ready_sidecar
+    ):
+        state = client_with_sidecar.app.state
+        ready_sidecar.exit_status = 1
+        threading.Thread(target=state.sidecars[SIDECAR_ID].on_exit).start()
+        _settle(client_with_sidecar, lambda b: b["state"] == "failed")
+
+        assert _start(client_with_sidecar).status_code == 202
+        body = _settle(client_with_sidecar, lambda b: b["state"] == "running")
+
+        assert body["available"] is True
+        assert ready_sidecar.events == ["spawn", "stop", "spawn"]
+
+    def test_a_retry_that_fails_again_records_the_new_reason(
+        self, client_with_failed_sidecar, failed_sidecar
+    ):
+        failed_sidecar.preflight_error = "second boom"
+
+        assert _start(client_with_failed_sidecar).status_code == 202
+        body = _settle(client_with_failed_sidecar, lambda b: b["state"] == "failed")
+
+        assert body["message"] == "JUPYTER failed to start: second boom"
+        state = client_with_failed_sidecar.app.state
+        record = json.loads((state.panel_status_dir / f"{SIDECAR_ID}.json").read_text())
+        assert record["reason"] == "second boom"
+        assert SIDECAR_ID not in state.sidecars
+
+    def test_a_start_request_for_a_companion_panel_is_404(self, client_all_panels):
+        resp = _start(client_all_panels, "ariel")
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "ariel is not a panel this terminal starts"
+
+    def test_a_start_request_for_an_unknown_panel_is_404(self, client_all_panels):
+        assert _start(client_all_panels, "no-such-panel").status_code == 404
+
+    def test_a_start_request_for_a_disabled_sidecar_is_404(self, client):
+        assert _start(client).status_code == 404
+
+    def test_shutdown_during_a_start_stops_the_starting_sidecar_and_clears_the_record(
+        self, workspace_dir, failed_sidecar
+    ):
+        client_gen = _make_client(
+            workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=failed_sidecar
+        )
+        client = next(client_gen)
+        record = client.app.state.panel_status_dir / f"{SIDECAR_ID}.json"
+        failed_sidecar.preflight_error = None
+        failed_sidecar.hold = threading.Event()
+        assert _start(client).status_code == 202
+        deadline = time.monotonic() + 5.0
+        while not failed_sidecar.waited and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert failed_sidecar.waited, "the retry never reached wait_ready"
+
+        with pytest.raises(StopIteration):
+            next(client_gen)
+
+        assert failed_sidecar.stopped >= 1
+        # The first attempt failed preflight and was stopped; the retry spawned.
+        assert failed_sidecar.events[:3] == ["stop", "spawn", "stop"]
+        assert not record.exists()
