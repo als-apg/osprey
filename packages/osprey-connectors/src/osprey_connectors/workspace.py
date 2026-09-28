@@ -474,15 +474,21 @@ def resolve_agent_data_root() -> Path:
     return resolved
 
 
-def resolve_shared_data_root() -> Path:
+def resolve_shared_data_root(config: Mapping[str, Any] | None = None) -> Path:
     """Resolve the agent data root WITHOUT session-path isolation.
 
     Use for stores whose data must be visible to long-lived daemons
     (gallery, ARIEL) that run outside any specific session.  Logical
     session isolation is handled at the index level via entry metadata
     (e.g. ``ArtifactEntry.session_id``).
+
+    Args:
+        config: An already-loaded config mapping; ``None`` loads the config.
+            One derivation serves both a store's writer and a reader that
+            already holds a config.
     """
-    config = load_osprey_config()
+    if config is None:
+        config = load_osprey_config()
     resolved = anchored_path(agent_data_base_dir(config), resolve_project_root(config)).resolve()
     logger.debug("Shared data root resolved to %s", resolved)
     return resolved
