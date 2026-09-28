@@ -237,6 +237,10 @@ Pick a control system
                tango_host: db.facility.edu:10000   # optional; default TANGO_HOST
                timeout: 5.0                        # seconds per device call
 
+      A read or write given no timeout of its own is bounded by ``timeout``
+      too, with the same answers as DOOCS: a read that runs out raises
+      ``TimeoutError``, and a write that runs out is reported ``unconfirmed``.
+
       Only **attributes** are exposed. TANGO *commands* (``command_inout``)
       carry arbitrary payloads the limits database cannot bound, so they have
       no seam in the connector contract -- the same reason the EPICS connector
