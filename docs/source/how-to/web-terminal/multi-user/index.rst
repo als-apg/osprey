@@ -535,6 +535,9 @@ login page asks for a roster name and that person's password, so nobody needs
 a credential for the card itself. Clicking any card opens that session at
 ``/u/<name>/``, proxied by nginx to its own container.
 
+A deployment that would rather not publish its roster can replace the name
+cards with one sign-in button; see :ref:`multi-user-hide-names`.
+
 What your operators read first
 ------------------------------
 
