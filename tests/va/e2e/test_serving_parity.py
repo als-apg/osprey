@@ -32,10 +32,11 @@ says so instead of reporting a difference it cannot attribute.
 reasons, both load-bearing. libca latches ``EPICS_CA_*`` when the C library
 initialises, and this directory's session container (``conftest.py``) publishes
 on a different port than the containers here do, so one process cannot be a
-client of both. And the connector wraps synchronous pyepics in a thread-pool
-executor whose CA context is per-thread, so a main-thread pyepics call in this
-process deadlocks any connector-based test sharing it. The worker below is
-dispatched before this module imports anything heavy and speaks JSON on stdout.
+client of both. And a pvapy client that has touched Channel Access from a
+joined worker thread (what the connector's callers do) hangs its process on
+exit on macOS, so a CA client never shares a process with this suite. The
+worker below is dispatched before this module imports anything heavy and speaks
+JSON on stdout.
 
 **Ports, and container names.** Each container binds an ephemeral port and
 publishes it unchanged: a Channel Access search reply carries the server's own
@@ -56,13 +57,14 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
 # The CA-client worker. Dispatched before this module imports pytest or any
-# osprey package, so the client process stays as close to a bare pyepics client
+# osprey package, so the client process stays as close to a bare pvapy client
 # as it can be -- see the module docstring for why it is a separate process.
 
 
@@ -80,66 +82,126 @@ def _worker(request: dict) -> dict:
         put-completion and collect the monitor events that follow. Callbacks
         are added *after* the initial read, so a connection's own first update
         is never mistaken for a response to the write.
+
+    The client is pvapy (``pvaccess``), osprey's own EPICS client, and every
+    call is made on this process's main thread or on pvapy's own callback
+    threads -- never on a thread that is joined, which hangs on exit on macOS.
     ``watch``
         Subscribe and collect events for a fixed window with no write at all --
         the only way to see a value the server publishes on its own schedule.
     """
-    import epics
+    import re
+
+    import pvaccess
 
     op = request["op"]
     timeout = request.get("timeout", 10.0)
 
-    def fresh(pv: Any) -> Any:
-        """Read ``pv`` off the wire, never out of pyepics' monitor cache.
+    def connect(address: str) -> Any:
+        channel = pvaccess.Channel(address, pvaccess.CA)
+        channel.setTimeout(timeout)
+        channel.get("field(value)")  # raises unless it connected
+        return channel
 
-        ``PV.get()`` defaults to ``use_monitor=True``, which returns the value
-        of the last monitor callback the client happened to have processed. On
-        a subscribed PV that is a *stale* value: a put can complete and the
-        following read still report the old one, because the monitor event has
-        not been dispatched yet. Worse than the flake, a "did not move"
-        assertion reads a cache that never moves and passes for free. Every
-        value this suite asserts on is therefore read explicitly.
+    def scalar(value: Any) -> Any:
+        """A CA enum arrives as ``{index, choices}``; its value is the index."""
+        if isinstance(value, dict) and "index" in value:
+            return value["index"]
+        return value
+
+    def fresh(channel: Any) -> Any:
+        """Read ``channel`` off the wire with a one-shot get, never a monitor cache.
+
+        A subscribed client's cached value can lag a completed put, and a "did
+        not move" assertion that reads a cache which never moves passes for
+        free. Every value this suite asserts on is therefore read explicitly.
         """
-        return pv.get(use_monitor=False)
+        return scalar(channel.get("field(value)")["value"])
 
-    def describe(pv: Any) -> dict:
-        control = pv.get_ctrlvars() or {}
+    def wire_type(structure: dict) -> str:
+        """The value's wire type as pvapy's CA provider presents it."""
+        value = structure["value"]
+        if isinstance(value, dict):
+            return "enum" if "index" in value else "structure"
+        if isinstance(value, list):
+            return f"{value[0].name.lower()}[]"
+        return value.name.lower()
+
+    def describe(channel: Any) -> dict:
+        # One read of everything but the timestamp -- pvapy's CA provider
+        # cannot deliver timeStamp together with display/control.
+        pv = channel.get("field(value,alarm,display,control)")
+        fields = pv.toDict()
+        value = fields["value"]
+        display = fields.get("display") or {}
+        control = fields.get("control") or {}
+        alarm = fields.get("alarm") or {}
+        match = re.search(r"\.(\d+)", str(display.get("format") or ""))
         return {
-            "value": fresh(pv),
-            "type": pv.type,
-            "count": pv.count,
-            "precision": control.get("precision"),
-            "enum_strs": list(control.get("enum_strs") or []) or None,
-            "lower_ctrl_limit": control.get("lower_ctrl_limit"),
-            "upper_ctrl_limit": control.get("upper_ctrl_limit"),
-            "severity": pv.severity,
-            "status": pv.status,
+            "value": scalar(value),
+            "type": wire_type(pv.getStructureDict()),
+            "count": len(value) if isinstance(value, list) else 1,
+            "precision": int(match.group(1)) if match else None,
+            "enum_strs": list(value["choices"]) if isinstance(value, dict) else None,
+            "lower_ctrl_limit": control.get("limitLow"),
+            "upper_ctrl_limit": control.get("limitHigh"),
+            "severity": alarm.get("severity"),
+            "status": alarm.get("status"),
         }
 
-    def connect(address: str, *, monitor: bool = False) -> Any:
-        pv = epics.PV(address, auto_monitor=monitor)
-        if not pv.wait_for_connection(timeout=timeout):
-            raise RuntimeError(f"never connected to {address}")
-        pv.get()
-        return pv
+    @contextmanager
+    def watching(addresses: list[str], record: Any) -> Any:
+        """Subscribe to every address; ``record(address, value)`` gets each event.
+
+        pvapy delivers each subscription's current value as its first event;
+        that one is swallowed, so a connection's own first update is never
+        mistaken for a response to anything done inside the block.
+        """
+        channels: dict[str, Any] = {}
+        primed: dict[str, threading.Event] = {}
+        try:
+            for address in addresses:
+                channel = connect(address)
+                channels[address] = channel
+                primed[address] = threading.Event()
+
+                def on_update(
+                    pv: Any, _address: str = address, _primed: threading.Event = primed[address]
+                ) -> None:
+                    if not _primed.is_set():
+                        _primed.set()
+                        return
+                    record(_address, scalar(pv["value"]))
+
+                channel.subscribe("parity", on_update)
+                channel.startMonitor("field(value)")
+            for address, event in primed.items():
+                if not event.wait(timeout):
+                    raise RuntimeError(f"monitor on {address} never delivered its first value")
+            yield channels
+        finally:
+            for channel in channels.values():
+                channel.stopMonitor()
+                channel.unsubscribe("parity")
 
     if op == "read":
-        pvs = [connect(address) for address in request["addresses"]]
-        try:
-            return {"channels": {pv.pvname: describe(pv) for pv in pvs}}
-        finally:
-            for pv in pvs:
-                pv.disconnect()
+        return {
+            "channels": {address: describe(connect(address)) for address in request["addresses"]}
+        }
 
     if op == "write_watch":
-        watched = {address: connect(address, monitor=True) for address in request["watch"]}
-        before = {address: fresh(pv) for address, pv in watched.items()}
-        events: dict[str, list] = {address: [] for address in watched}
-        for address, pv in watched.items():
-            pv.add_callback(lambda value=None, _sink=events[address], **_kw: _sink.append(value))
-        try:
+        events: dict[str, list] = {address: [] for address in request["watch"]}
+        with watching(request["watch"], lambda a, v: events[a].append(v)) as watched:
+            before = {address: fresh(channel) for address, channel in watched.items()}
             started = time.monotonic()
-            accepted = epics.caput(request["address"], request["value"], wait=True, timeout=timeout)
+            try:
+                # record[block=true]: returns once the server completed the put.
+                connect(request["address"]).put(
+                    float(request["value"]), "record[block=true]field(value)"
+                )
+                accepted = True
+            except pvaccess.PvaException:
+                accepted = False
             elapsed = time.monotonic() - started
             # Settle on the value actually written, which may be the clamped
             # one rather than the requested one.
@@ -152,36 +214,27 @@ def _worker(request: dict) -> dict:
                     break
                 time.sleep(0.02)
             return {
-                "accepted": bool(accepted),
+                "accepted": accepted,
                 "put_seconds": elapsed,
                 "before": before,
                 "events": events,
-                "after": {address: fresh(pv) for address, pv in watched.items()},
+                "after": {address: fresh(channel) for address, channel in watched.items()},
             }
-        finally:
-            # Explicit, and in a finally: a pyepics PV whose subscription is
-            # still live segfaults libca when the garbage collector finalises
-            # it at some arbitrary later point.
-            for pv in watched.values():
-                pv.disconnect()
 
     if op == "watch":
-        watched = {address: connect(address, monitor=True) for address in request["watch"]}
-        before = {address: fresh(pv) for address, pv in watched.items()}
-        events: dict[str, list] = {address: [] for address in watched}
-        started = time.monotonic()
-        for address, pv in watched.items():
-            pv.add_callback(
-                lambda value=None, _sink=events[address], _t0=started, **_kw: _sink.append(
-                    [time.monotonic() - _t0, value]
-                )
-            )
-        try:
+        events = {address: [] for address in request["watch"]}
+        window: list[float] = []
+
+        def timed(address: str, value: Any) -> None:
+            # Only events inside the window, stamped relative to its start.
+            if window:
+                events[address].append([time.monotonic() - window[0], value])
+
+        with watching(request["watch"], timed) as watched:
+            before = {address: fresh(channel) for address, channel in watched.items()}
+            window.append(time.monotonic())
             time.sleep(request["seconds"])
-            return {"before": before, "events": events}
-        finally:
-            for pv in watched.values():
-                pv.disconnect()
+        return {"before": before, "events": events}
 
     raise ValueError(f"unknown worker op {op!r}")
 
@@ -270,10 +323,11 @@ IDENTITY_BPM_ERROR: dict[str, float] = {
 #: value instead of only on the offset.
 REFERENCE_CURRENT = 1.5
 
-#: Manifest ``record_type`` -> the wire type pyepics reports for it. This is
-#: the parity table, and it is asserted to cover every type the manifest
-#: actually uses -- see ``TestRecordTypeParity``.
-WIRE_TYPES = {"ai": "time_double", "bi": "time_enum"}
+#: Manifest ``record_type`` -> the wire type pvapy's CA provider reports for
+#: its value (a DBR_DOUBLE is a ``double``, a DBR_ENUM an ``{index, choices}``
+#: ``enum``). This is the parity table, and it is asserted to cover every type
+#: the manifest actually uses -- see ``TestRecordTypeParity``.
+WIRE_TYPES = {"ai": "double", "bi": "enum"}
 
 #: How many channels the parity sweep samples per record type.
 PARITY_SAMPLE = 8

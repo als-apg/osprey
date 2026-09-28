@@ -98,6 +98,7 @@ from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+from tests.va import _ca_client as ca_client
 from tests.va.e2e import conftest as e2e_conftest
 
 pytestmark = [
@@ -317,23 +318,14 @@ def _served(port: int) -> bool:
     cannot be a client of both (the reason the directory conftest's own
     readiness probe is a subprocess).
 
-    It leaves through ``os._exit`` for that file's other reason: a bare
-    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
-    still on its exit hooks. That finalizer's recorded hang follows Channel
-    Access use on a worker thread -- what the connector's executor does --
-    rather than the one main-thread ``caget`` this child makes, which has
-    not been seen to hang. The forced exit is kept as a bound that costs
+    It leaves through ``os._exit`` rather than returning, so EPICS teardown at
+    interpreter exit can never hold the probe up. Its one read is on its main
+    thread, which pvapy exits cleanly from even on macOS (the known hang is a
+    joined *worker* thread that touched pvapy). The forced exit is kept as a bound that costs
     nothing: a probe that will not die is read here as a container that is
     not serving, and the word is written and flushed before the exit.
     """
-    code = (
-        "import sys, epics\n"
-        f"v = epics.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=1.0, "
-        "connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
-    )
+    code = ca_client.served_probe_source(e2e_conftest.READINESS_ADDRESS)
     env = {
         **os.environ,
         "EPICS_CA_NAME_SERVERS": f"localhost:{port}",

@@ -56,10 +56,10 @@ to the run, so a concurrent run of another module in this directory cannot
 collide with, or force-remove, this one's.
 
 Process-boundary note (the directory conftest's rule): every Channel Access
-operation here runs in a SUBPROCESS. pyepics' libca contexts are per-thread and
-a client that has used CA from a worker thread can wedge this process at
-interpreter exit, so the client lives and dies in a process of its own, exactly
-as the sibling lanes do.
+operation here runs in a SUBPROCESS. libca latches the ``EPICS_CA_*``
+environment at its first channel, and (on macOS) a pvapy client that has used
+CA from a worker thread wedges its process at interpreter exit, so the client
+lives and dies in a process of its own, exactly as the sibling lanes do.
 """
 
 from __future__ import annotations
@@ -90,24 +90,33 @@ def _worker(request: dict) -> dict:
         meaningful: the server ends the asynchronous write only once the model
         has taken the value and every readback it owes has been posted.
 
-    Values are read off the wire (``use_monitor=False``). A subscribed PV's
-    cached value can lag a completed put, and an assertion that reads a cache
-    which never moves passes for free.
+    Every value is a fresh ``get`` off the wire, never a monitor cache: a
+    subscribed PV's cached value can lag a completed put, and an assertion
+    that reads a cache which never moves passes for free. The client is pvapy
+    (``pvaccess``), osprey's own EPICS client, on this process's main thread.
     """
-    import epics
+    import pvaccess
 
     op = request["op"]
     timeout = float(request.get("timeout", 30.0))
 
     def connect(address: str) -> Any:
-        pv = epics.PV(address, connection_timeout=timeout)
-        if not pv.wait_for_connection(timeout=timeout):
-            raise RuntimeError(f"{address} never connected")
-        return pv
+        channel = pvaccess.Channel(address, pvaccess.CA)
+        channel.setTimeout(timeout)
+        return channel
+
+    def read(address: str) -> Any:
+        value = connect(address).get("field(value)")["value"]
+        # An enum arrives as {index, choices}; report the index, as a bare
+        # Channel Access read of the record's value would.
+        if isinstance(value, dict) and "index" in value:
+            return value["index"]
+        return value
 
     if op == "write_read":
         for address, value in request["writes"]:
-            connect(address).put(value, wait=True, timeout=timeout)
+            # record[block=true]: return only once the server completed the put.
+            connect(address).put(value, "record[block=true]field(value)")
     elif op != "read":
         raise RuntimeError(f"unknown worker op {op!r}")
 
@@ -115,14 +124,14 @@ def _worker(request: dict) -> dict:
     failed: dict[str, str] = {}
     for address in request["addresses"]:
         try:
-            values[address] = connect(address).get(use_monitor=False, timeout=timeout)
+            values[address] = read(address)
         except Exception as error:  # reported to the test, not raised here
             failed[address] = f"{type(error).__name__}: {error}"
     return {"values": values, "failed": failed}
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
-    # Before the heavy imports below, so the CA client process carries pyepics
+    # Before the heavy imports below, so the CA client process carries pvapy
     # and nothing else.
     print(json.dumps(_worker(json.loads(sys.argv[2])), default=str), flush=True)
     raise SystemExit(0)

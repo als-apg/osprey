@@ -4,9 +4,16 @@ The Virtual Accelerator answers questions about its physics model -- and
 takes the few writes the model surface allows -- over one PVAccess RPC
 channel, :data:`RPC_PV`. This module is everything the two ends agree on: the
 verbs, the request shape, the reply shape and the error strings a client may
-be shown. It imports p4p and nothing from the serving runtime or the model,
-so the server's handler and a client that has neither installed import one
-definition and cannot drift apart.
+be shown. It imports nothing from the serving runtime or the model, so the
+server's handler and a client that has neither installed import one definition
+and cannot drift apart.
+
+p4p is imported lazily, only where a p4p ``Value`` is built: the server's
+:data:`REPLY_TYPE` and :func:`ok_reply`/:func:`error_reply`, and
+:func:`build_request` for a p4p client. p4p ships with the
+``virtual-accelerator`` extra only, so a client without it -- osprey's own EPICS
+stack is pvapy -- builds the request's query with :func:`request_query`, wraps
+it in its own library's NTURI, and reads the reply with :func:`parse_reply`.
 
 **Request.** An NTURI on :data:`RPC_PV` whose query carries four fields:
 
@@ -36,10 +43,11 @@ import math
 import numbers
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from p4p import Value
-from p4p.nt import NTURI, NTScalar
+if TYPE_CHECKING:
+    from p4p import Value
+    from p4p.nt import NTURI, NTScalar
 
 RPC_PV = "model_rpc"
 """The PVAccess channel the model RPC is served on."""
@@ -60,8 +68,35 @@ ERR_TIMEOUT = f"the model did not answer within {RPC_TIMEOUT_S:g} s"
 """The reply to a call the run loop did not complete within :data:`RPC_TIMEOUT_S`."""
 
 QUERY_FIELDS = (("verb", "s"), ("names", "as"), ("values", "s"), ("token", "s"))
-REQUEST_TYPE = NTURI(list(QUERY_FIELDS))
-REPLY_TYPE = NTScalar("s")
+
+
+# The p4p types, built on first use (see the module docstring).
+_P4P_TYPES: dict[str, Any] = {}
+
+
+def _request_type() -> NTURI:
+    if "request" not in _P4P_TYPES:
+        from p4p.nt import NTURI
+
+        _P4P_TYPES["request"] = NTURI(list(QUERY_FIELDS))
+    return _P4P_TYPES["request"]
+
+
+def _reply_type() -> NTScalar:
+    if "reply" not in _P4P_TYPES:
+        from p4p.nt import NTScalar
+
+        _P4P_TYPES["reply"] = NTScalar("s")
+    return _P4P_TYPES["reply"]
+
+
+def __getattr__(name: str) -> Any:
+    """``REQUEST_TYPE`` and ``REPLY_TYPE``, built on first use so p4p stays optional."""
+    if name == "REQUEST_TYPE":
+        return _request_type()
+    if name == "REPLY_TYPE":
+        return _reply_type()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class ModelRpcError(Exception):
@@ -81,6 +116,28 @@ class RpcRequest:
     token: str = ""
 
 
+def request_query(
+    verb: str,
+    *,
+    names: Iterable[str] = (),
+    values: Mapping[str, float] | None = None,
+    token: str = "",
+) -> dict[str, Any]:
+    """The NTURI query for ``verb`` as a plain dict, checked against the contract.
+
+    Every field of :data:`QUERY_FIELDS`, ready for any PVA client library to
+    wrap in its own NTURI. Raises :class:`ModelRpcError` for anything
+    :func:`parse_request` would refuse, so a malformed call fails at the caller
+    rather than round-tripping.
+    """
+    checked_verb = _check_verb(verb)
+    checked_names = _check_names(names)
+    encoded = "" if values is None else json.dumps(_check_values(values), allow_nan=False)
+    if not isinstance(token, str):
+        raise ModelRpcError("the token must be a string")
+    return {"verb": checked_verb, "names": list(checked_names), "values": encoded, "token": token}
+
+
 def build_request(
     verb: str,
     *,
@@ -88,20 +145,9 @@ def build_request(
     values: Mapping[str, float] | None = None,
     token: str = "",
 ) -> Value:
-    """The NTURI request for ``verb``, checked against the contract before it is sent.
-
-    Raises :class:`ModelRpcError` for anything :func:`parse_request` would
-    refuse, so a malformed call fails at the caller rather than round-tripping.
-    """
-    checked_verb = _check_verb(verb)
-    checked_names = _check_names(names)
-    encoded = "" if values is None else json.dumps(_check_values(values), allow_nan=False)
-    if not isinstance(token, str):
-        raise ModelRpcError("the token must be a string")
-    return REQUEST_TYPE.wrap(
-        RPC_PV,
-        kws={"verb": checked_verb, "names": list(checked_names), "values": encoded, "token": token},
-    )
+    """The p4p NTURI request for ``verb``: :func:`request_query`, wrapped."""
+    query = request_query(verb, names=names, values=values, token=token)
+    return _request_type().wrap(RPC_PV, kws=query)
 
 
 def parse_request(request: Value) -> RpcRequest:
@@ -131,19 +177,19 @@ def ok_reply(result: Any) -> Value:
     Array-likes (anything with a ``tolist()``, such as numpy arrays and
     scalars) are sent as their list or number.
     """
-    return REPLY_TYPE.wrap(json.dumps({"ok": True, "result": result}, default=_tolist))
+    return _reply_type().wrap(json.dumps({"ok": True, "result": result}, default=_tolist))
 
 
 def error_reply(message: str) -> Value:
     """The reply refusing a call with ``message``."""
-    return REPLY_TYPE.wrap(json.dumps({"ok": False, "error": str(message)}))
+    return _reply_type().wrap(json.dumps({"ok": False, "error": str(message)}))
 
 
 def parse_reply(reply: Value | str) -> Any:
     """The result a reply carries; :class:`ModelRpcError` with the server's message on a refusal.
 
-    Accepts the NTScalar itself or the string a p4p client context unwraps it
-    to.
+    Accepts the NTScalar itself (p4p ``Value`` or pvapy ``PvObject``) or the
+    string a p4p client context unwraps it to.
     """
     text = reply if isinstance(reply, str) else reply.get("value")
     if not isinstance(text, str):
@@ -223,8 +269,6 @@ __all__ = [
     "ERR_NOT_READY",
     "ERR_TIMEOUT",
     "QUERY_FIELDS",
-    "REPLY_TYPE",
-    "REQUEST_TYPE",
     "RPC_PV",
     "RPC_TIMEOUT_S",
     "VERBS",
@@ -235,4 +279,7 @@ __all__ = [
     "ok_reply",
     "parse_reply",
     "parse_request",
+    "request_query",
 ]
+# REQUEST_TYPE and REPLY_TYPE are importable by name (see ``__getattr__``) but
+# kept out of ``__all__``: a star import would otherwise require p4p.

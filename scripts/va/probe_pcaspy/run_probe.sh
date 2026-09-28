@@ -3,7 +3,7 @@
 # the transport the virtual accelerator container actually uses?
 #
 # Builds a minimal pcaspy server image, runs it with TCP-only publish, and
-# drives it from the host with pyepics under CA name-server mode
+# drives it from the host with pvapy under CA name-server mode
 # (EPICS_CA_NAME_SERVERS=<host>:<port>, EPICS_CA_AUTO_ADDR_LIST=NO). Three
 # behaviours are scored independently, each with its own PASS/FAIL line:
 #

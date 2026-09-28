@@ -5,7 +5,7 @@
 #   scripts/va/live_ca/run_live_ca.sh [PYTEST_TARGET...]
 #
 # tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand a real
-# pcaspy Channel Access server up in-process and drive it with a real pyepics
+# pcaspy Channel Access server up in-process and drive it with a real pvapy
 # client, and tests/va/test_facility_seam.py boots the whole serving assembly
 # on both transports. pcaspy publishes manylinux x86_64 wheels only, so on a
 # developer's Mac all of that skips. This builds a linux/amd64 container that

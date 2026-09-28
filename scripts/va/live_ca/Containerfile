@@ -2,7 +2,7 @@
 #
 # tests/va/test_record_factory.py and tests/va/test_apply_fault.py assert the
 # serving write contract from the far side of a real CA wire: a real pcaspy
-# server, the real write path, and a real pyepics client, all in one process.
+# server, the real write path, and a real pvapy client, all in one process.
 # They need pcaspy, which publishes no loadable macOS arm64 wheel, so on a
 # developer's Mac they skip -- loudly, but they skip, and a skipped live suite
 # proves nothing. This image is where they are not allowed to skip.

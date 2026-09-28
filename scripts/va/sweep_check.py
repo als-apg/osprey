@@ -4,9 +4,12 @@
 Batched, single-shared-timeout bulk read of every address in the namespace-union
 manifest (``osprey.services.virtual_accelerator.manifest``) -- the same
 manifest baked into the ``osprey-va-full`` image. Never reads channels one at
-a time: every address gets its own ``epics.PV`` (auto-monitoring) up front so
-connections happen concurrently, then one shared deadline is used to wait for
-the whole set to connect before reading values back.
+a time: every address gets its own pvapy ``pvaccess.Channel`` and an
+asynchronous get issued up front, so connections and reads happen
+concurrently, under one shared deadline for the whole set.
+
+Call :func:`sweep` from a main thread (or a daemon thread that never exits):
+on macOS a joined thread that touched pvapy hangs at interpreter exit.
 
 Usable two ways:
 
@@ -22,14 +25,15 @@ Usable two ways:
   bulk-read logic.
 
 Never imports the CA *server* stack -- this process (like any of this
-suite's CA clients) must stay eligible to act as a pyepics Channel Access
-client (see the poisoning caveat documented in
+suite's CA clients) must stay eligible to act as a Channel Access client (see
+the poisoning caveat documented in
 ``scripts/va/probe_pcaspy/coexistence_check.py``).
 """
 
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -61,49 +65,54 @@ def sweep(
 
     Args:
         addresses: PV addresses to read.
-        timeout: Shared wall-clock budget (seconds) for every PV to connect.
-            Not a per-channel timeout -- one deadline for the whole batch.
-        value_timeout: Per-PV ``get()`` timeout once connected (fast; the PV
-            is already monitoring, so this only guards against a stuck get).
+        timeout: Shared wall-clock budget (seconds) for every PV to connect and
+            answer. Not a per-channel budget in practice: every get is issued
+            up front, so they all run against the one deadline together.
+        value_timeout: Extra grace (seconds) past ``timeout`` for a get whose
+            channel connected but whose value has not arrived yet.
     """
-    import epics
+    import pvaccess
 
     start = time.monotonic()
-    pvs = {addr: epics.PV(addr, auto_monitor=True) for addr in addresses}
+    answered: dict[str, bool] = {}
+    lock = threading.Lock()
 
-    try:
-        deadline = start + timeout
-        pending = set(pvs)
-        while pending and time.monotonic() < deadline:
-            pending = {addr for addr in pending if not pvs[addr].connected}
-            if pending:
-                time.sleep(0.05)
+    def settle(address: str, ok: bool):
+        def callback(*_: object) -> None:
+            with lock:
+                answered[address] = ok
 
-        missing_connect = sorted(addr for addr in pvs if not pvs[addr].connected)
+        return callback
 
-        missing_value = []
-        for addr, pv in pvs.items():
-            if addr in missing_connect:
-                continue
-            value = pv.get(timeout=value_timeout)
-            if value is None:
-                missing_value.append(addr)
-    finally:
-        # Deterministic teardown: a monitoring PV left to die by garbage
-        # collection clears its subscription from PV.__del__ at an arbitrary
-        # later moment, which segfaults libca when it lands mid-callback (an
-        # in-process caller runs more tests after this returns; the CLI path
-        # never noticed because process exit reclaimed everything).
-        for pv in pvs.values():
-            try:
-                pv.disconnect()
-            except Exception:
-                pass
+    channels = {}
+    for address in addresses:
+        channel = pvaccess.Channel(address, pvaccess.CA)
+        # Bounds both the connect and the get: an address that never connects
+        # errors out of its asyncGet once this elapses.
+        channel.setTimeout(timeout)
+        channel.asyncGet(settle(address, True), settle(address, False), "field(value)")
+        channels[address] = channel
+
+    deadline = start + timeout + value_timeout
+    while time.monotonic() < deadline:
+        with lock:
+            if len(answered) == len(channels):
+                break
+        time.sleep(0.05)
+
+    with lock:
+        got = {address for address, ok in answered.items() if ok}
+    missing_connect = sorted(
+        address for address, channel in channels.items() if not channel.isConnected()
+    )
+    missing_value = [
+        address for address in channels if address not in got and address not in missing_connect
+    ]
 
     elapsed = time.monotonic() - start
     return SweepResult(
         total=len(addresses),
-        connected=len(pvs) - len(missing_connect),
+        connected=len(channels) - len(missing_connect),
         missing_connect=missing_connect,
         missing_value=sorted(missing_value),
         elapsed_s=elapsed,

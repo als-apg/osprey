@@ -409,31 +409,93 @@ export EPICS_PVA_NAME_SERVERS="127.0.0.1:${PVA_PORT}"
 export EPICS_PVA_AUTO_ADDR_LIST="NO"
 export EPICS_PVA_ADDR_LIST=""
 
-# Every Channel Access assertion below runs through pyepics in the worktree
-# venv rather than through the host's caget/caput binaries. One client, not
+# Every Channel Access assertion below runs through pvapy (``pvaccess``, the
+# EPICS client osprey itself uses) in the worktree venv rather than through the
+# host's caget/caput binaries. One client, not
 # two: these steps compare floats and assert on absence, and a single
 # implementation is what keeps "did not move" and "does not exist" meaning the
 # same thing in each of them. The venv is already a hard requirement above --
 # OSPREY_VERSION is resolved through it -- so this adds no new dependency.
 #
-# EVERY read below passes use_monitor=False, and that is load-bearing rather
-# than stylistic. pyepics' caget defaults to returning the value its monitor
-# subscription last cached, which after a write is whatever arrived before the
-# write did: the first draft of this gate read a setpoint back as 0 having just
-# completed a put of 0.5, intermittently, because the monitor event had not been
-# processed yet. Two distinct ways that corrupts a gate -- an assertion that a
-# value MOVED fails at random, and, far worse, an assertion that a value did NOT
-# move (step 7) passes for free, since a stale cache never moves. use_monitor=False
-# forces a fresh one-shot read over the wire, which is what put-completion
-# actually guarantees something about.
+# EVERY read below is a fresh one-shot get over the wire, never a monitor
+# cache, and that is load-bearing rather than stylistic. The gate's previous
+# client (pyepics) defaulted to returning the value its monitor subscription
+# last cached, which after a write is whatever arrived before the write did: the
+# first draft of this gate read a setpoint back as 0 having just completed a put
+# of 0.5, intermittently, because the monitor event had not been processed yet.
+# Two distinct ways that corrupts a gate -- an assertion that a value MOVED
+# fails at random, and, far worse, an assertion that a value did NOT move (step
+# 7) passes for free, since a stale cache never moves. A one-shot read is what
+# put-completion actually guarantees something about.
+#
+# The helpers every host CA payload uses are HOST_CA_PRELUDE below, prepended
+# by host_ca_py: caget() is that one-shot read (None if the channel never
+# answers), and caput() is a put with completion -- record[block=true], the
+# pvapy spelling of a CA put-callback -- that returns 1 once the server has
+# completed the write and None otherwise, bounded by its timeout.
 if [[ ! -x "${VENV_PY}" ]]; then
-    echo "FATAL: no worktree venv python at ${VENV_PY}; the CA assertions need pyepics" >&2
+    echo "FATAL: no worktree venv python at ${VENV_PY}; the CA assertions need pvapy" >&2
     exit 1
 fi
-if ! "${VENV_PY}" -c "import epics" >/dev/null 2>&1; then
-    echo "FATAL: pyepics is not importable in ${VENV_PY}" >&2
+if ! "${VENV_PY}" -c "import pvaccess" >/dev/null 2>&1; then
+    echo "FATAL: pvapy (pvaccess) is not importable in ${VENV_PY}" >&2
     exit 1
 fi
+
+HOST_CA_PRELUDE="$(cat <<'PY'
+import threading as _threading
+
+import pvaccess as _pvaccess
+
+
+def _channel(pv, timeout):
+    channel = _pvaccess.Channel(pv, _pvaccess.CA)
+    channel.setTimeout(float(timeout))
+    return channel
+
+
+def caget(pv, timeout=15.0):
+    """A fresh read of pv's value over the wire; None if it never answered."""
+    try:
+        value = _channel(pv, timeout).get("field(value)")["value"]
+    except _pvaccess.PvaException:
+        return None
+    if isinstance(value, dict) and "index" in value:  # an enum: its index
+        return value["index"]
+    return value
+
+
+def caput(pv, value, timeout=30.0):
+    """Put with completion; 1 once the server completed it, else None."""
+    done, outcome = _threading.Event(), []
+
+    def settled(ok):
+        def callback(*_):
+            outcome.append(ok)
+            done.set()
+
+        return callback
+
+    payload = _pvaccess.PvObject({"value": _pvaccess.DOUBLE}, {"value": float(value)})
+    try:
+        channel = _channel(pv, timeout)
+        channel.get("field(value)")  # connect first: an unconnected asyncPut just fails
+        channel.asyncPut(
+            payload, settled(True), settled(False), "record[block=true]field(value)"
+        )
+    except _pvaccess.PvaException:
+        return None
+    if not done.wait(float(timeout)) or not outcome[0]:
+        return None
+    return 1
+PY
+)"
+
+# Run a host Channel Access payload (read from stdin) with HOST_CA_PRELUDE's
+# caget/caput in scope. Arguments are passed through as sys.argv[1:].
+host_ca_py() {
+    { printf '%s\n\n' "${HOST_CA_PRELUDE}"; cat; } | "${VENV_PY}" - "$@"
+}
 
 ca_fail() {
     echo "FATAL: $1" >&2
@@ -509,14 +571,13 @@ echo "--- [identity] Confirming the host client is talking to THIS container ---
 # here can put that value here. The host's own readback is captured first,
 # purely so a failure can say which end is wrong.
 IDENTITY_VALUE="3.7137"
-HOST_SEEN="$("${VENV_PY}" - "${EXCITE_PV}" "${IDENTITY_VALUE}" <<'PY'
+HOST_SEEN="$(host_ca_py "${EXCITE_PV}" "${IDENTITY_VALUE}" <<'PY'
 import sys
-import epics
 
 sp, value = sys.argv[1], float(sys.argv[2])
-if epics.caput(sp, value, wait=True, timeout=30) != 1:
+if caput(sp, value, timeout=30) != 1:
     raise SystemExit(f"FATAL: put-completion never returned for {sp}")
-v = epics.caget(sp, timeout=15, use_monitor=False)
+v = caget(sp, timeout=15)
 if v is None:
     raise SystemExit(f"FATAL: no CA connection to {sp}")
 print(f"{float(v):.17g}")
@@ -561,14 +622,13 @@ print("OK: the host's Channel Access client reaches this container and no other"
 PY
 
 # Put the machine back at rest, so step 2's quiescent baseline is one.
-"${VENV_PY}" - "${EXCITE_PV}" <<'PY' || ca_fail "could not restore ${EXCITE_PV} after the identity handshake"
+host_ca_py "${EXCITE_PV}" <<'PY' || ca_fail "could not restore ${EXCITE_PV} after the identity handshake"
 import sys
-import epics
 
 sp = sys.argv[1]
-if epics.caput(sp, 0.0, wait=True, timeout=30) != 1:
+if caput(sp, 0.0, timeout=30) != 1:
     raise SystemExit(f"FATAL: put-completion never returned for {sp}")
-v = epics.caget(sp, timeout=15, use_monitor=False)
+v = caget(sp, timeout=15)
 if v is None or abs(float(v)) > 1e-12:
     raise SystemExit(f"FATAL: {sp} reads {v!r} after being restored to 0")
 print(f"OK: {sp} restored to 0; the machine is back at rest")
@@ -597,12 +657,11 @@ echo "--- [2/8] Baseline: reading the quiescent BPMs over Channel Access ---"
 # Not an assertion of correctness -- see the header. With no corrector
 # excited the closed orbit is exactly zero, so this only establishes that CA
 # answers at all and records the baseline step 3 measures movement against.
-QUIESCENT="$("${VENV_PY}" - "${GATE_PV}" "${GATE_PV_2}" <<'PY'
+QUIESCENT="$(host_ca_py "${GATE_PV}" "${GATE_PV_2}" <<'PY'
 import sys
-import epics
 vals = []
 for pv in sys.argv[1:]:
-    v = epics.caget(pv, timeout=15, use_monitor=False)
+    v = caget(pv, timeout=15)
     if v is None:
         raise SystemExit(f"FATAL: no CA connection to {pv}")
     vals.append(f"{float(v):.12g}")
@@ -613,35 +672,34 @@ echo "OK: quiescent ${GATE_PV}=$(echo "${QUIESCENT}" | cut -d' ' -f1)" \
      "${GATE_PV_2}=$(echo "${QUIESCENT}" | cut -d' ' -f2)"
 
 echo "--- [3/8] Exciting ${EXCITE_PV} and requiring the BPMs to move ---"
-# The assertion with teeth. put-completion (wait=True) is what makes the read
+# The assertion with teeth. put-completion (caput) is what makes the read
 # safe to do immediately: the setpoint is asynchronous, so the put returns only
 # once the physics hand-off behind it has finished and the readings it produced
 # have been pushed. Without that this would race the solve and read staleness.
-"${VENV_PY}" - "${EXCITE_PV}" "${EXCITE_VALUE}" "${MOVED_THRESHOLD_M}" \
+host_ca_py "${EXCITE_PV}" "${EXCITE_VALUE}" "${MOVED_THRESHOLD_M}" \
     "${GATE_PV}" "${GATE_PV_2}" <<'PY' || ca_fail "the excitation did not move the BPM readings"
 import sys
-import epics
 
 sp, value, threshold = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
 bpms = sys.argv[4:]
 
 before = {}
 for pv in bpms:
-    v = epics.caget(pv, timeout=15, use_monitor=False)
+    v = caget(pv, timeout=15)
     if v is None:
         raise SystemExit(f"FATAL: no CA connection to {pv}")
     before[pv] = float(v)
 
-if epics.caput(sp, value, wait=True, timeout=30) != 1:
+if caput(sp, value, timeout=30) != 1:
     raise SystemExit(f"FATAL: put-completion never returned for {sp}")
 
-readback = epics.caget(sp, timeout=15, use_monitor=False)
+readback = caget(sp, timeout=15)
 if readback is None or abs(float(readback) - value) > 1e-9:
     raise SystemExit(f"FATAL: {sp} reads {readback!r} after a completed put of {value}")
 
 failures = []
 for pv in bpms:
-    v = epics.caget(pv, timeout=15, use_monitor=False)
+    v = caget(pv, timeout=15)
     if v is None:
         raise SystemExit(f"FATAL: no CA connection to {pv}")
     moved = abs(float(v) - before[pv])
@@ -706,15 +764,14 @@ fi
 # dropped -- so its absence is NOT evidence about control_pvs and must not be
 # read as any. It is kept purely as a forward regression guard, to fail if a
 # future change reintroduces that name into the served namespace.
-"${VENV_PY}" - "${EXCITE_PV}" "${RESET_PV}" "SNAPSHOT" <<'PY' || ca_fail "control-PV absence check failed"
+host_ca_py "${EXCITE_PV}" "${RESET_PV}" "SNAPSHOT" <<'PY' || ca_fail "control-PV absence check failed"
 import sys
-import epics
 
 control, reset_pv, regression_guard = sys.argv[1], sys.argv[2], sys.argv[3]
 
 # Absence is only meaningful next to a positive control: without one, a server
 # that had stopped answering altogether would satisfy every check below.
-if epics.caget(control, timeout=15, use_monitor=False) is None:
+if caget(control, timeout=15) is None:
     raise SystemExit(
         f"FATAL: positive control {control} did not answer, so this step cannot "
         "distinguish an absent control PV from a server that stopped responding"
@@ -725,7 +782,7 @@ print(f"  positive control {control}: answers")
 def served(pv: str) -> bool:
     # Short timeout deliberately: this waits for a connection that must never
     # come, and every second here is spent proving a negative.
-    return epics.caget(pv, timeout=3, connection_timeout=3, use_monitor=False) is not None
+    return caget(pv, timeout=3) is not None
 
 
 if served(reset_pv):
@@ -750,7 +807,7 @@ echo "--- [5/8] The model RPC from the host: status, a refused write, an accepte
 # that speaks PVA speaks it from inside the container -- so this is the path an
 # operator's client actually takes: through the published port, in name-server
 # mode, against the shipped wire contract rather than a second hand-rolled copy
-# of it. `build_request` and `parse_reply` are imported from the serving stack,
+# of it. `request_query` and `parse_reply` are imported from the serving stack,
 # so a change to the contract reaches this gate instead of drifting past it.
 #
 # The step needs an identity proof of its own for the same reason the Channel
@@ -783,15 +840,15 @@ host_py "${PVA_PORT}" "${MODEL_WRITE_TOKEN}" "${GATE_PV}" "${VA_LATTICE_VALUE}" 
 import sys
 from pathlib import Path
 
-from p4p.client.thread import Context
+import pvaccess
 
 from osprey.services.virtual_accelerator.bindings import load_bindings
 from osprey.services.virtual_accelerator.serving.model_rpc import (
     RPC_PV,
     RPC_TIMEOUT_S,
     ModelRpcError,
-    build_request,
     parse_reply,
+    request_query,
 )
 from osprey.services.virtual_accelerator.serving.model_surface import WRITES_DISABLED
 
@@ -810,12 +867,31 @@ TOL = 1e-9
 # unit this tree publishes its monitors in.
 OFFSET_FLOOR = 1e-3
 
-ctx = Context("pva")
+# pvapy, the host's EPICS client: p4p ships only with the virtual-accelerator
+# extra, which the host venv need not carry. The request is the contract's
+# NTURI (request_query checks it), wrapped in pvapy's own types.
+client = pvaccess.RpcClient(RPC_PV)
+REQUEST_STRUCTURE = {
+    "scheme": pvaccess.STRING,
+    "authority": pvaccess.STRING,
+    "path": pvaccess.STRING,
+    "query": {
+        "verb": pvaccess.STRING,
+        "names": [pvaccess.STRING],
+        "values": pvaccess.STRING,
+        "token": pvaccess.STRING,
+    },
+}
 
 
 def call(verb, **kwargs):
     """The verb's result, or ModelRpcError carrying the server's own refusal."""
-    return parse_reply(ctx.rpc(RPC_PV, build_request(verb, **kwargs), timeout=RPC_TIMEOUT_S))
+    request = pvaccess.PvObject(
+        REQUEST_STRUCTURE,
+        {"scheme": "pva", "path": RPC_PV, "query": request_query(verb, **kwargs)},
+        "epics:nt/NTURI:1.0",
+    )
+    return parse_reply(client.invoke(request, RPC_TIMEOUT_S)["value"])
 
 
 status = call("status")
@@ -983,12 +1059,11 @@ PY
 # twice -- co-hosted on Channel Access, natively on PVA because it is also a
 # model variable -- and a clamp that moved only the transport the client used
 # would leave the two views disagreeing about the machine.
-"${VENV_PY}" - "${EXCITE_PV}" "${DRIVE_HIGH}" <<'PY' || ca_fail "the clamped value did not reach the CA view"
+host_ca_py "${EXCITE_PV}" "${DRIVE_HIGH}" <<'PY' || ca_fail "the clamped value did not reach the CA view"
 import sys
-import epics
 
 sp, high = sys.argv[1], float(sys.argv[2])
-v = epics.caget(sp, timeout=15, use_monitor=False)
+v = caget(sp, timeout=15)
 if v is None:
     raise SystemExit(f"FATAL: no CA connection to {sp}")
 print(f"  CA view of {sp}: {float(v):g}")
@@ -1012,10 +1087,9 @@ echo "--- [7/8] A refused PVA put moves nothing ---"
 #
 # Channel Access is the right instrument here whether or not the PVA view of a
 # reading tracks it, so this step does not rest on which of those is true.
-CA_BEFORE="$("${VENV_PY}" - "${GATE_PV}" <<'PY'
+CA_BEFORE="$(host_ca_py "${GATE_PV}" <<'PY'
 import sys
-import epics
-v = epics.caget(sys.argv[1], timeout=15, use_monitor=False)
+v = caget(sys.argv[1], timeout=15)
 if v is None:
     raise SystemExit("FATAL: no CA connection")
 print(f"{float(v):.17g}")
@@ -1038,12 +1112,11 @@ else:
 print("OK: the read-only variable refused the put")
 PY
 
-"${VENV_PY}" - "${GATE_PV}" "${CA_BEFORE}" <<'PY' || ca_fail "a refused put moved the served value"
+host_ca_py "${GATE_PV}" "${CA_BEFORE}" <<'PY' || ca_fail "a refused put moved the served value"
 import sys
-import epics
 
 pv, before = sys.argv[1], float(sys.argv[2])
-v = epics.caget(pv, timeout=15, use_monitor=False)
+v = caget(pv, timeout=15)
 if v is None:
     raise SystemExit(f"FATAL: no CA connection to {pv}")
 after = float(v)

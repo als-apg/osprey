@@ -1218,17 +1218,18 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
     moves — which is also the blast-radius check, since a BPM reading error is
     a diagnostic fault and must perturb that BPM and nothing else.
     """
-    # Imported inside the test, the way `_minted_token` imports its parser: the
-    # serving stack is an optional extra, and this module must still COLLECT on
-    # a checkout that has docker but not the virtual-accelerator dependencies.
-    from p4p.client.thread import Context
+    # The client is pvapy, osprey's own EPICS stack, not p4p: p4p arrives only
+    # with the virtual-accelerator extra, which this lane does not install.
+    # model_rpc imports p4p lazily (server side only), so its contract --
+    # request_query, parse_reply -- is importable here without it.
+    import pvaccess
 
     from osprey.services.virtual_accelerator.serving.model_rpc import (
         RPC_PV,
         RPC_TIMEOUT_S,
         ModelRpcError,
-        build_request,
         parse_reply,
+        request_query,
     )
     from osprey.services.virtual_accelerator.serving.model_surface import (
         SURFACE_MODEL_ONLY,
@@ -1238,157 +1239,169 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
     endpoint = _published_pva_endpoint()
     # Name-server (TCP) discovery straight at the published port — the one
     # host<->container arrangement proven to work across container runtimes, and
-    # the same one this module's CA side uses (`_VA_GATEWAY`). p4p reads these
-    # at Context construction, so they must be in place before the line below;
-    # monkeypatch puts the host's own EPICS environment back afterwards.
+    # the same one this module's CA side uses (`_VA_GATEWAY`). pvapy reads these
+    # when this process first uses PVAccess, so they must be in place before the
+    # client below; monkeypatch puts the host's own EPICS environment back
+    # afterwards.
     monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", endpoint)
     monkeypatch.setenv("EPICS_PVA_AUTO_ADDR_LIST", "NO")
     monkeypatch.setenv("EPICS_PVA_ADDR_LIST", "")
 
-    ctx = Context("pva")
+    client = pvaccess.RpcClient(RPC_PV)
+    # The NTURI the contract's QUERY_FIELDS describe, in pvapy's own types.
+    request_structure = {
+        "scheme": pvaccess.STRING,
+        "authority": pvaccess.STRING,
+        "path": pvaccess.STRING,
+        "query": {
+            "verb": pvaccess.STRING,
+            "names": [pvaccess.STRING],
+            "values": pvaccess.STRING,
+            "token": pvaccess.STRING,
+        },
+    }
 
     def call(verb: str, **kwargs: Any) -> Any:
         """The verb's result, or ModelRpcError carrying the server's own refusal."""
-        return parse_reply(ctx.rpc(RPC_PV, build_request(verb, **kwargs), timeout=RPC_TIMEOUT_S))
+        request = pvaccess.PvObject(
+            request_structure,
+            {"scheme": "pva", "path": RPC_PV, "query": request_query(verb, **kwargs)},
+            "epics:nt/NTURI:1.0",
+        )
+        return parse_reply(client.invoke(request, RPC_TIMEOUT_S)["value"])
+
+    info = call("info")
+    # A writable model-only monitor offset: model-only because the surface
+    # refuses a write to a served address on principle, so this is what a
+    # write it can accept looks like at all.
+    faults = [
+        var
+        for var in info["variables"]
+        if var["surface"] == SURFACE_MODEL_ONLY
+        and not var["read_only"]
+        and var["name"].endswith(".offset_x")
+    ]
+    assert faults, (
+        f"the deployed model declares no writable model-only '.offset_x' variable, so "
+        f"there is no fault to write (backend={info['backend']!r}, "
+        f"lattice_source={info['lattice_source']!r} — the reading errors exist only on a "
+        f"lattice-backed boot, which is what naming a lattice file in the repo's .env buys)"
+    )
+    fault = faults[0]["name"]
+
+    before = call("diff")
+    assert before, (
+        "diff reports no served model variable at all, so there is nowhere to observe "
+        f"a model write (backend={info['backend']!r})"
+    )
+    gaps_before = {
+        address: float(entry["served"]) - float(entry["truth"]) for address, entry in before.items()
+    }
+    bands = _monitor_motion_bands(
+        deployed_stack.repo,
+        {address: float(entry["truth"]) for address, entry in before.items()},
+    )
+    # Two snapshots of one reading each carry an independent draw of its
+    # motion, so a reading counts as moved only past twice its band.
+    quiet = {address: 2.0 * band + MODEL_QUIET_TOL for address, band in bands.items()}
+    # A seeded displacement carries no declared bound -- it is whatever
+    # magnitude was asked for, in whatever unit this facility publishes its
+    # monitors in -- so the size to write is derived from what the
+    # deployment actually serves rather than assumed: ten times the largest
+    # reading on the machine and far above the loosest motion threshold,
+    # floored far above the solver's own repeatability. Unmistakable on the
+    # one channel it moves, in any unit.
+    scale = max(abs(float(entry["truth"])) for entry in before.values())
+    offset = max(
+        10.0 * scale,
+        MODEL_OFFSET_OVER_MOTION * max(quiet.values()),
+        MODEL_OFFSET_FLOOR,
+    )
+    assert offset > MODEL_QUIET_TOL, f"{fault} would be written a magnitude of {offset}"
+
+    held_before = call("get", names=[fault])[fault]
+
+    with pytest.raises(ModelRpcError) as refused:
+        call("set", values={fault: offset})
+    refusal = str(refused.value)
+    assert refusal.strip(), f"the token-less set was refused with an empty message: {refusal!r}"
+    assert refusal != WRITES_DISABLED, (
+        "the token-less set was refused because model writes are disabled outright, which "
+        "says nothing about the token: VA_MODEL_WRITE_TOKEN never reached the container "
+        f"(the .env line _write_env appends is the whole wiring).\n"
+        f"--- {VA_CONTAINER} ---\n{container_logs(VA_CONTAINER)}"
+    )
+    assert refusal == MODEL_NO_TOKEN_REFUSAL, (
+        f"expected a set carrying no token to be refused with "
+        f"{MODEL_NO_TOKEN_REFUSAL!r}, got {refusal!r}"
+    )
+
+    held_after = call("get", names=[fault])[fault]
+    assert held_after == held_before, (
+        f"the refused write still moved {fault} from {held_before!r} to {held_after!r}"
+    )
+    gaps_refused = {
+        address: float(entry["served"]) - float(entry["truth"])
+        for address, entry in call("diff").items()
+    }
+    assert gaps_refused.keys() == gaps_before.keys(), (
+        f"diff changed which addresses it reports across a REFUSED write: "
+        f"{sorted(gaps_refused.keys() ^ gaps_before.keys())}"
+    )
+    moved_by_refusal = {
+        address: (gaps_before[address], gap)
+        for address, gap in gaps_refused.items()
+        if abs(gap - gaps_before[address]) > quiet[address]
+    }
+    assert not moved_by_refusal, (
+        f"a set that was refused still moved the served/truth gap on "
+        f"{moved_by_refusal} — the refusal must reach the model at all"
+    )
 
     try:
-        info = call("info")
-        # A writable model-only monitor offset: model-only because the surface
-        # refuses a write to a served address on principle, so this is what a
-        # write it can accept looks like at all.
-        faults = [
-            var
-            for var in info["variables"]
-            if var["surface"] == SURFACE_MODEL_ONLY
-            and not var["read_only"]
-            and var["name"].endswith(".offset_x")
-        ]
-        assert faults, (
-            f"the deployed model declares no writable model-only '.offset_x' variable, so "
-            f"there is no fault to write (backend={info['backend']!r}, "
-            f"lattice_source={info['lattice_source']!r} — the reading errors exist only on a "
-            f"lattice-backed boot, which is what naming a lattice file in the repo's .env buys)"
-        )
-        fault = faults[0]["name"]
+        written = call("set", values={fault: offset}, token=MODEL_WRITE_TOKEN)
+        assert written == [fault], f"the accepted set reports writing {written!r}, not [{fault!r}]"
 
-        before = call("diff")
-        assert before, (
-            "diff reports no served model variable at all, so there is nowhere to observe "
-            f"a model write (backend={info['backend']!r})"
-        )
-        gaps_before = {
+        after = call("diff")
+        gaps_after = {
             address: float(entry["served"]) - float(entry["truth"])
-            for address, entry in before.items()
+            for address, entry in after.items()
         }
-        bands = _monitor_motion_bands(
-            deployed_stack.repo,
-            {address: float(entry["truth"]) for address, entry in before.items()},
-        )
-        # Two snapshots of one reading each carry an independent draw of its
-        # motion, so a reading counts as moved only past twice its band.
-        quiet = {address: 2.0 * band + MODEL_QUIET_TOL for address, band in bands.items()}
-        # A seeded displacement carries no declared bound -- it is whatever
-        # magnitude was asked for, in whatever unit this facility publishes its
-        # monitors in -- so the size to write is derived from what the
-        # deployment actually serves rather than assumed: ten times the largest
-        # reading on the machine and far above the loosest motion threshold,
-        # floored far above the solver's own repeatability. Unmistakable on the
-        # one channel it moves, in any unit.
-        scale = max(abs(float(entry["truth"])) for entry in before.values())
-        offset = max(
-            10.0 * scale,
-            MODEL_OFFSET_OVER_MOTION * max(quiet.values()),
-            MODEL_OFFSET_FLOOR,
-        )
-        assert offset > MODEL_QUIET_TOL, f"{fault} would be written a magnitude of {offset}"
-
-        held_before = call("get", names=[fault])[fault]
-
-        with pytest.raises(ModelRpcError) as refused:
-            call("set", values={fault: offset})
-        refusal = str(refused.value)
-        assert refusal.strip(), f"the token-less set was refused with an empty message: {refusal!r}"
-        assert refusal != WRITES_DISABLED, (
-            "the token-less set was refused because model writes are disabled outright, which "
-            "says nothing about the token: VA_MODEL_WRITE_TOKEN never reached the container "
-            f"(the .env line _write_env appends is the whole wiring).\n"
-            f"--- {VA_CONTAINER} ---\n{container_logs(VA_CONTAINER)}"
-        )
-        assert refusal == MODEL_NO_TOKEN_REFUSAL, (
-            f"expected a set carrying no token to be refused with "
-            f"{MODEL_NO_TOKEN_REFUSAL!r}, got {refusal!r}"
-        )
-
-        held_after = call("get", names=[fault])[fault]
-        assert held_after == held_before, (
-            f"the refused write still moved {fault} from {held_before!r} to {held_after!r}"
-        )
-        gaps_refused = {
-            address: float(entry["served"]) - float(entry["truth"])
-            for address, entry in call("diff").items()
-        }
-        assert gaps_refused.keys() == gaps_before.keys(), (
-            f"diff changed which addresses it reports across a REFUSED write: "
-            f"{sorted(gaps_refused.keys() ^ gaps_before.keys())}"
-        )
-        moved_by_refusal = {
-            address: (gaps_before[address], gap)
-            for address, gap in gaps_refused.items()
+        moved = sorted(
+            address
+            for address, gap in gaps_after.items()
             if abs(gap - gaps_before[address]) > quiet[address]
-        }
-        assert not moved_by_refusal, (
-            f"a set that was refused still moved the served/truth gap on "
-            f"{moved_by_refusal} — the refusal must reach the model at all"
+        )
+        # A BPM reading error sits between the ring and the client, never in
+        # the ring: it must perturb the one BPM's served reading and leave
+        # every other served value where the physics put it.
+        assert len(moved) == 1, (
+            f"writing {fault}={offset:g} should shift exactly one served reading away from "
+            f"the model's truth; it shifted {moved!r}"
+        )
+        address = moved[0]
+        assert abs(gaps_before[address]) <= bands[address] + MODEL_DIFF_TOL, (
+            f"{address} already read {gaps_before[address]:.3g} away from the model's truth "
+            f"before anything was written, so the disagreement after the write proves nothing"
+        )
+        # ``bpm_read`` subtracts the offset from the true position, so the
+        # served reading sits exactly that far BELOW the truth.
+        assert abs(gaps_after[address] + offset) <= bands[address] + MODEL_DIFF_TOL, (
+            f"{fault} was written to {offset:g}, so {address} should serve that far below "
+            f"the model's truth (served={after[address]['served']!r}, "
+            f"truth={after[address]['truth']!r}, gap={gaps_after[address]:.6g})"
         )
 
-        try:
-            written = call("set", values={fault: offset}, token=MODEL_WRITE_TOKEN)
-            assert written == [fault], (
-                f"the accepted set reports writing {written!r}, not [{fault!r}]"
-            )
-
-            after = call("diff")
-            gaps_after = {
-                address: float(entry["served"]) - float(entry["truth"])
-                for address, entry in after.items()
-            }
-            moved = sorted(
-                address
-                for address, gap in gaps_after.items()
-                if abs(gap - gaps_before[address]) > quiet[address]
-            )
-            # A BPM reading error sits between the ring and the client, never in
-            # the ring: it must perturb the one BPM's served reading and leave
-            # every other served value where the physics put it.
-            assert len(moved) == 1, (
-                f"writing {fault}={offset:g} should shift exactly one served reading away from "
-                f"the model's truth; it shifted {moved!r}"
-            )
-            address = moved[0]
-            assert abs(gaps_before[address]) <= bands[address] + MODEL_DIFF_TOL, (
-                f"{address} already read {gaps_before[address]:.3g} away from the model's truth "
-                f"before anything was written, so the disagreement after the write proves nothing"
-            )
-            # ``bpm_read`` subtracts the offset from the true position, so the
-            # served reading sits exactly that far BELOW the truth.
-            assert abs(gaps_after[address] + offset) <= bands[address] + MODEL_DIFF_TOL, (
-                f"{fault} was written to {offset:g}, so {address} should serve that far below "
-                f"the model's truth (served={after[address]['served']!r}, "
-                f"truth={after[address]['truth']!r}, gap={gaps_after[address]:.6g})"
-            )
-
-            restored = call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)
-            assert restored == [fault], f"the restoring set reports writing {restored!r}"
-            back = call("diff")
-            gap_restored = float(back[address]["served"]) - float(back[address]["truth"])
-            assert abs(gap_restored) <= bands[address] + MODEL_DIFF_TOL, (
-                f"{fault} did not go back to 0: {address} still reads {gap_restored:.3g} away "
-                f"from the model's truth"
-            )
-        finally:
-            # The fixture is module-scoped, so a failure above must not hand the
-            # next proof (or a rerun under `-p no:randomly`) a faulted ring.
-            with contextlib.suppress(Exception):
-                call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)
+        restored = call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)
+        assert restored == [fault], f"the restoring set reports writing {restored!r}"
+        back = call("diff")
+        gap_restored = float(back[address]["served"]) - float(back[address]["truth"])
+        assert abs(gap_restored) <= bands[address] + MODEL_DIFF_TOL, (
+            f"{fault} did not go back to 0: {address} still reads {gap_restored:.3g} away "
+            f"from the model's truth"
+        )
     finally:
-        ctx.close()
+        # The fixture is module-scoped, so a failure above must not hand the
+        # next proof (or a rerun under `-p no:randomly`) a faulted ring.
+        with contextlib.suppress(Exception):
+            call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)

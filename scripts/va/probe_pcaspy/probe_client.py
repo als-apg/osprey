@@ -30,6 +30,41 @@ CONNECT_TIMEOUT_S = float(os.environ.get("PROBE_CONNECT_TIMEOUT_S", "15"))
 MONITOR_WINDOW_S = max(4.0, TELEM_PERIOD_S * 6)
 
 
+class _CaClient:
+    """The three client calls this probe makes, over pvapy's Channel Access provider.
+
+    Shaped like the pyepics calls the probe was first written against:
+    ``caget`` returns ``None`` for an unreachable PV, and ``caput`` returns
+    ``1`` once put-completion (``record[block=true]``) arrived.
+    """
+
+    def __init__(self) -> None:
+        import pvaccess  # imported after the env is reported and checked
+
+        self.pvaccess = pvaccess
+
+    def channel(self, name: str, timeout: float):
+        channel = self.pvaccess.Channel(name, self.pvaccess.CA)
+        channel.setTimeout(timeout)
+        return channel
+
+    def caget(self, name: str, timeout: float):
+        try:
+            return self.channel(name, timeout).get("field(value)")["value"]
+        except self.pvaccess.PvaException:
+            return None
+
+    def caput(self, name: str, value: float, timeout: float):
+        # The server is out of process, so a synchronous put is fine here.
+        # setTimeout bounds the connect; the put-callback wait itself is not
+        # bounded by pvapy, which the probe server always answers.
+        try:
+            self.channel(name, timeout).put(float(value), "record[block=true]field(value)")
+        except self.pvaccess.PvaException:
+            return None
+        return 1
+
+
 def report_env() -> list[str]:
     """Print the CA transport environment and return any misconfigurations.
 
@@ -57,7 +92,7 @@ def report_env() -> list[str]:
     return problems
 
 
-def behavior_transport(epics) -> tuple[bool, str, float]:
+def behavior_transport(epics: _CaClient) -> tuple[bool, str, float]:
     """1. Basic transport: host caget and caput reach the served PVs."""
     sp = PREFIX + "SYNC:SP"
     rb = PREFIX + "SYNC:RB"
@@ -67,7 +102,7 @@ def behavior_transport(epics) -> tuple[bool, str, float]:
 
     target = 12.5
     started = time.monotonic()
-    put_result = epics.caput(sp, target, wait=True, timeout=10)
+    put_result = epics.caput(sp, target, timeout=10)
     elapsed = time.monotonic() - started
     if put_result != 1:
         return False, f"caput {sp} returned {put_result!r} (expected 1)", elapsed
@@ -83,18 +118,18 @@ def behavior_transport(epics) -> tuple[bool, str, float]:
     )
 
 
-def behavior_async_completion(epics, sync_elapsed: float) -> tuple[bool, str]:
+def behavior_async_completion(epics: _CaClient, sync_elapsed: float) -> tuple[bool, str]:
     """2. Asynchronous write completion observed with put-completion."""
     sp = PREFIX + "ASYNC:SP"
     rb = PREFIX + "ASYNC:RB"
     target = 42.0
     started = time.monotonic()
-    put_result = epics.caput(sp, target, wait=True, timeout=ASYNC_DELAY_S + 20)
+    put_result = epics.caput(sp, target, timeout=ASYNC_DELAY_S + 20)
     elapsed = time.monotonic() - started
     committed = epics.caget(rb, timeout=CONNECT_TIMEOUT_S)
 
     detail = (
-        f"caput {sp}={target} wait=True returned {put_result!r} after "
+        f"caput {sp}={target} put-completion returned {put_result!r} after "
         f"{elapsed:.3f}s (server delay {ASYNC_DELAY_S}s); {rb}={committed!r} "
         f"on unblock; synchronous control put took {sync_elapsed:.3f}s"
     )
@@ -109,17 +144,16 @@ def behavior_async_completion(epics, sync_elapsed: float) -> tuple[bool, str]:
     return True, detail
 
 
-def behavior_monitor_events(epics) -> tuple[bool, str]:
+def behavior_monitor_events(epics: _CaClient) -> tuple[bool, str]:
     """3. Server-initiated monitor events reach a host camonitor subscription."""
     name = PREFIX + "TELEM:COUNTER"
-    pv = epics.PV(name)
+    events: list[tuple[float, object]] = []
+    channel = epics.channel(name, CONNECT_TIMEOUT_S)
+    if epics.caget(name, CONNECT_TIMEOUT_S) is None:
+        return False, f"{name} never connected for monitoring"
+    channel.subscribe("probe", lambda pv: events.append((time.monotonic(), pv["value"])))
+    channel.startMonitor("field(value)")
     try:
-        if not pv.wait_for_connection(timeout=CONNECT_TIMEOUT_S):
-            return False, f"{name} never connected for monitoring"
-
-        events: list[tuple[float, object]] = []
-        pv.add_callback(lambda **kw: events.append((time.monotonic(), kw.get("value"))))
-
         # Drain the initial subscription value, which every CA subscription
         # delivers on connect and which is therefore not server-initiated.
         time.sleep(1.0)
@@ -148,13 +182,13 @@ def behavior_monitor_events(epics) -> tuple[bool, str]:
         )
     finally:
         try:
-            pv.clear_callbacks()
-            pv.disconnect()
+            channel.stopMonitor()
+            channel.unsubscribe("probe")
         except Exception:  # teardown must not mask the verdict
             pass
 
 
-def run_negative_control(epics) -> int:
+def run_negative_control(epics: _CaClient) -> int:
     """Confirm the PVs are unreachable when the name server address is wrong."""
     sp = PREFIX + "SYNC:SP"
     value = epics.caget(sp, timeout=5)
@@ -184,7 +218,7 @@ def main() -> int:
     args = parser.parse_args()
 
     problems = report_env()
-    import epics  # imported after the env is reported and checked
+    epics = _CaClient()  # pvapy is imported after the env is reported and checked
 
     if args.expect_unreachable:
         return run_negative_control(epics)
@@ -231,6 +265,6 @@ if __name__ == "__main__":
     code = main()
     sys.stdout.flush()
     sys.stderr.flush()
-    # Exit without unwinding: garbage-collecting live pyepics PVs can segfault
-    # libca on teardown and would corrupt an already-decided verdict.
+    # Exit without unwinding: EPICS client teardown at interpreter exit must not
+    # get a chance to corrupt (or hang) an already-decided verdict.
     os._exit(code)

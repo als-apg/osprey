@@ -165,6 +165,7 @@ from osprey.services.virtual_accelerator.manifest.standin_defaults import (
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
+from tests.va import _ca_client as ca_client
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -318,22 +319,14 @@ def _served(port: int) -> bool:
     per-thread, so a main-thread pyepics call in *this* process would deadlock
     the children these tests spend their time talking to.
 
-    It leaves through ``os._exit`` for that file's other reason: a bare
-    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
-    still on its exit hooks. That finalizer's recorded hang follows Channel
-    Access use on a worker thread -- what the connector's executor does --
-    rather than the one main-thread ``caget`` this child makes, which has
-    not been seen to hang. The forced exit is kept as a bound that costs
+    It leaves through ``os._exit`` rather than returning, so EPICS teardown at
+    interpreter exit can never hold the probe up. Its one read is on its main
+    thread, which pvapy exits cleanly from even on macOS (the known hang is a
+    joined *worker* thread that touched pvapy). The forced exit is kept as a bound that costs
     nothing: a probe that will not die is read here as a container that is
     not serving, and the word is written and flushed before the exit.
     """
-    code = (
-        "import sys, epics\n"
-        f"v = epics.caget({PROBE_CHANNEL!r}, timeout=1.0, connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
-    )
+    code = ca_client.served_probe_source(PROBE_CHANNEL)
     environment = {
         **os.environ,
         "EPICS_CA_NAME_SERVERS": f"localhost:{port}",

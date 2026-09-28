@@ -2,7 +2,8 @@
 
 Everything here runs in **one process**: a real ``pcaspy`` server hosting the
 real serving database, the real write path deciding what each write means, and
-a real ``pyepics`` client driving it from the pytest thread. No subprocess
+a real Channel Access client (pvapy, the library osprey's own connector uses)
+driving it from the pytest thread. No subprocess
 split, no fake driver -- the assertions are made from the far side of the wire,
 which is the only place the properties this file exists to pin are observable
 at all. ``tests/va/test_serving_pvdb.py`` and ``tests/va/test_serving_runner.py``
@@ -21,10 +22,10 @@ collection floor -- runs everywhere and is not gated.
 
 **The client and the server share a process.** ``pcaspy``'s compiled extension
 links EPICS statically and globally exports the ``ca_*`` client symbols, so
-whichever EPICS stack binds first wins. ``epics.ca.initialize_libca()`` is
-therefore called *before* pcaspy is imported, so the client's calls bind to
-pyepics' own libca and not to the copy buried in the server extension. That
-ordering is the whole reason these can be plain in-process tests.
+whichever EPICS stack binds first wins. ``pvaccess`` is therefore imported
+*before* pcaspy, so the client's calls bind to pvapy's own EPICS libraries and
+not to the copy buried in the server extension. That ordering is the whole
+reason these can be plain in-process tests.
 
 The run loop is stood in for by :class:`_RunLoop`, which reproduces the one
 property of the real loop the write path depends on: the model is touched from
@@ -52,7 +53,7 @@ def _free_port() -> str:
 
 
 # import-time required because libca latches the EPICS_CA_* environment when
-# the C library initialises, which happens on the first `import epics` anywhere
+# the first Channel Access channel is created, which can happen from any module
 # in the process -- earlier than any fixture can run.
 #
 # Loopback only, and on an ephemeral port unless the environment already pins
@@ -86,6 +87,7 @@ from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E4
     CohostWritePath,
     physics_setpoint_addresses,
 )
+from tests.va import _ca_client as ca_client  # noqa: E402
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -380,14 +382,12 @@ def _build_namespace(pcaspy: Any) -> LiveNamespace:
 def live() -> Any:
     """A live Channel Access server over the real serving layer.
 
-    ``initialize_libca()`` runs before pcaspy is imported, so the client's
-    ``ca_*`` calls bind to pyepics' libca rather than to the second, unset-up
-    copy the pcaspy extension exports. Import order is the mitigation; see the
-    module docstring.
+    ``pvaccess`` is imported before pcaspy, so the client's ``ca_*`` calls
+    bind to pvapy's libca rather than to the second, unset-up copy the pcaspy
+    extension exports. Import order is the mitigation; see the module
+    docstring.
     """
-    import epics
-
-    epics.ca.initialize_libca()
+    ca_client.initialize()
     pcaspy = pytest.importorskip(
         "pcaspy",
         reason=(
@@ -416,11 +416,12 @@ def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
 
 
 def _caget(address: str) -> Any:
-    """Read one value over the wire, never from pyepics' monitor cache.
+    """Read one value over the wire, never from a monitor cache.
 
-    ``use_monitor=False`` is load-bearing, not stylistic. pyepics' ``caget``
-    defaults to returning whatever its monitor subscription last cached, which
-    after a write is whatever arrived BEFORE the write did. Most reads in this
+    A fresh read is load-bearing, not stylistic. pyepics' ``caget``, this
+    suite's previous client, defaulted to returning whatever its monitor
+    subscription last cached, which after a write is whatever arrived BEFORE
+    the write did. Most reads in this
     module poll through ``_wait_until`` and so retry the stale value away, but
     the put-completion test deliberately reads once with no settle poll -- that
     is the property it exists to assert -- and it read back a previous test's
@@ -430,18 +431,12 @@ def _caget(address: str) -> Any:
     Same reasoning, and the same fix, as every read in
     ``scripts/va/build_and_boot_check.sh``.
     """
-    import epics
-
-    return epics.caget(
-        address, timeout=CA_TIMEOUT_S, connection_timeout=CA_TIMEOUT_S, use_monitor=False
-    )
+    return ca_client.caget(address, CA_TIMEOUT_S)
 
 
 def _caput(address: str, value: float) -> Any:
     """Write with put-completion: the client stays blocked until the write ends."""
-    import epics
-
-    return epics.caput(address, value, wait=True, timeout=CA_TIMEOUT_S)
+    return ca_client.caput(address, value, CA_TIMEOUT_S)
 
 
 def _settle(address: str, expected: float) -> Any:
@@ -520,20 +515,10 @@ class TestPhysicsRoundTrip:
         path that committed the echo and never posted it would hang the scan
         exactly as a missing echo would.
         """
-        import epics
-
-        seen: list[float] = []
-        readback = epics.PV(BAND_RB, auto_monitor=True)
-        try:
-            assert readback.wait_for_connection(timeout=CA_TIMEOUT_S)
-            readback.add_callback(lambda value=None, **_: seen.append(value))
-
+        with ca_client.Monitor(BAND_RB, CA_TIMEOUT_S) as readback:
+            seen = readback.values
             assert _caput(BAND_SP, -4.25) == 1
             _wait_until(lambda: any(abs(value + 4.25) < 1e-9 for value in seen))
-        finally:
-            # Explicit, in a finally: a PV finalised by the garbage collector
-            # tears libca down from the wrong thread.
-            readback.disconnect()
 
         assert seen, "no monitor event ever reached the subscriber"
         assert seen[-1] == pytest.approx(-4.25)
@@ -618,17 +603,12 @@ class TestDriveLimitClamp:
     def test_the_band_is_published_as_the_control_limits(self) -> None:
         """A client reads the same band the write path enforces, so it can
         refuse the write itself rather than discover the clamp afterwards."""
-        import epics
+        control = ca_client.control_limits(BAND_SP, CA_TIMEOUT_S)
+        assert control is not None, f"{BAND_SP} never answered a control-limits read"
 
-        setpoint = epics.PV(BAND_SP)
-        try:
-            assert setpoint.wait_for_connection(timeout=CA_TIMEOUT_S)
-            control = setpoint.get_ctrlvars()
-        finally:
-            setpoint.disconnect()
-
-        assert control["lower_ctrl_limit"] == pytest.approx(BAND_LOW)
-        assert control["upper_ctrl_limit"] == pytest.approx(BAND_HIGH)
+        low, high = control
+        assert low == pytest.approx(BAND_LOW)
+        assert high == pytest.approx(BAND_HIGH)
 
     @pytest.mark.usefixtures("live")
     def test_an_echo_setpoint_with_no_model_behind_it_is_clamped_too(self) -> None:
@@ -729,37 +709,20 @@ class TestRefusedWrite:
 
     @pytest.mark.usefixtures("live")
     def test_a_monitoring_reader_sees_no_movement_either(self) -> None:
-        import epics
-
         assert _caput(BAND_SP, 2.75) == 1
         _settle(BAND_RB, 2.75)
 
-        seen: list[float] = []
-        readback = epics.PV(BAND_RB, auto_monitor=True)
-        try:
-            assert readback.wait_for_connection(timeout=CA_TIMEOUT_S)
-            assert readback.get(use_monitor=False) == pytest.approx(2.75)
-            readback.add_callback(lambda value=None, **_: seen.append(value))
-
+        with ca_client.Monitor(BAND_RB, CA_TIMEOUT_S) as readback:
+            assert _caget(BAND_RB) == pytest.approx(2.75)
             assert _caput(BAND_SP, REFUSED_VALUE) == 1
             time.sleep(0.5)
-        finally:
-            readback.disconnect()
 
-        assert [value for value in seen if abs(value - 2.75) > 1e-9] == []
+        assert [value for value in readback.values if abs(value - 2.75) > 1e-9] == []
 
     def test_the_refusal_raises_an_alarm(self, live: Any) -> None:
         """The only trace a refusal can leave for a Channel Access client."""
-        import epics
-
-        setpoint = epics.PV(BAND_SP)
-        try:
-            assert setpoint.wait_for_connection(timeout=CA_TIMEOUT_S)
-            assert _caput(BAND_SP, REFUSED_VALUE) == 1
-            _wait_until(lambda: setpoint.get(use_monitor=False) is not None and setpoint.severity)
-            severity = setpoint.severity
-        finally:
-            setpoint.disconnect()
+        assert _caput(BAND_SP, REFUSED_VALUE) == 1
+        severity = _wait_until(lambda: ca_client.severity(BAND_SP, CA_TIMEOUT_S))
 
         assert severity == live.refusal_alarm[1]
 
@@ -779,19 +742,11 @@ class TestRefusedWrite:
         the next accepted write's ``setParam`` recomputes the condition from the
         value, and with nothing to compare against it always lands on
         NO_ALARM."""
-        import epics
-
-        setpoint = epics.PV(BAND_SP)
-        try:
-            assert setpoint.wait_for_connection(timeout=CA_TIMEOUT_S)
-            assert _caput(BAND_SP, REFUSED_VALUE) == 1
-            _wait_until(lambda: setpoint.get(use_monitor=False) is not None and setpoint.severity)
-            assert _caput(BAND_SP, 0.25) == 1
-            _settle(BAND_SP, 0.25)
-            _wait_until(lambda: setpoint.get(use_monitor=False) is not None)
-            severity = setpoint.severity
-        finally:
-            setpoint.disconnect()
+        assert _caput(BAND_SP, REFUSED_VALUE) == 1
+        _wait_until(lambda: ca_client.severity(BAND_SP, CA_TIMEOUT_S))
+        assert _caput(BAND_SP, 0.25) == 1
+        _settle(BAND_SP, 0.25)
+        severity = ca_client.severity(BAND_SP, CA_TIMEOUT_S)
 
         assert severity == 0  # NO_ALARM
 

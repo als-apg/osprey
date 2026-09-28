@@ -10,9 +10,9 @@ this file is.
 
 The venue and the in-process topology are the ones
 ``tests/va/test_record_factory.py`` documents: one process, a real ``pcaspy``
-server, a real ``pyepics`` client, and ``epics.ca.initialize_libca()`` before
-the pcaspy import so the client binds its own libca rather than the second copy
-the server extension exports. pcaspy has no loadable macOS arm64 wheel, so the
+server, a real Channel Access client (pvapy), and ``pvaccess`` imported before
+pcaspy so the client binds its own libca rather than the second copy the server
+extension exports. pcaspy has no loadable macOS arm64 wheel, so the
 live classes skip on a developer host and are proven in a linux container and
 on CI; the route-table tests need no server and run everywhere.
 
@@ -46,8 +46,7 @@ def _free_port() -> str:
 
 
 # import-time required because libca latches the EPICS_CA_* environment when
-# the C library initialises, which happens on the first `import epics` anywhere
-# in the process. Loopback only, on an ephemeral port unless the environment pins one,
+# the first Channel Access channel is created, from any module in the process. Loopback only, on an ephemeral port unless the environment pins one,
 # with the server and CAS ports equal -- a search reply carries the server's own
 # port, so a server listening anywhere else hands clients a dead address.
 os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
@@ -78,6 +77,7 @@ from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E4
     CohostWritePath,
     physics_setpoint_addresses,
 )
+from tests.va import _ca_client as ca_client  # noqa: E402
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -240,9 +240,7 @@ class LiveNamespace:
 @pytest.fixture(scope="module")
 def live() -> Any:
     """A live Channel Access server serving a faulted namespace."""
-    import epics
-
-    epics.ca.initialize_libca()
+    ca_client.initialize()
     pcaspy = pytest.importorskip(
         "pcaspy",
         reason=(
@@ -304,10 +302,10 @@ def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
 
 
 def _caget(address: str) -> Any:
-    """Read one value over the wire, never from pyepics' monitor cache.
+    """Read one value over the wire, never from a monitor cache.
 
-    ``use_monitor=False`` is load-bearing, not stylistic: pyepics' ``caget``
-    otherwise returns whatever its monitor subscription last cached, which
+    A fresh read is load-bearing, not stylistic: pyepics' ``caget``, this
+    suite's previous client, otherwise returned whatever its monitor subscription last cached, which
     after a write is whatever arrived BEFORE the write did. This suite asserts
     what a client sees over a real wire, including that a refused write moved
     NOTHING -- and a stale cache never moves, so that assertion would pass for
@@ -317,17 +315,11 @@ def _caget(address: str) -> Any:
     Same reasoning, and the same fix, as every read in
     ``scripts/va/build_and_boot_check.sh``.
     """
-    import epics
-
-    return epics.caget(
-        address, timeout=CA_TIMEOUT_S, connection_timeout=CA_TIMEOUT_S, use_monitor=False
-    )
+    return ca_client.caget(address, CA_TIMEOUT_S)
 
 
 def _caput(address: str, value: float) -> Any:
-    import epics
-
-    return epics.caput(address, value, wait=True, timeout=CA_TIMEOUT_S)
+    return ca_client.caput(address, value, CA_TIMEOUT_S)
 
 
 def _settle(address: str, expected: float) -> Any:
@@ -634,24 +626,13 @@ class TestLiveStuckEchoPair:
         """The freeze is in the served value, so there is no monitor event to
         deliver either -- a subscriber sees a device that simply never moves,
         not one that reports a value identical to the last."""
-        import epics
-
-        seen: list[float] = []
-        readback = epics.PV(STUCK_RB, auto_monitor=True)
-        try:
-            assert readback.wait_for_connection(timeout=CA_TIMEOUT_S)
-            assert readback.get(use_monitor=False) == pytest.approx(STUCK_BOOT)
-            readback.add_callback(lambda value=None, **_: seen.append(value))
-
+        with ca_client.Monitor(STUCK_RB, CA_TIMEOUT_S) as readback:
+            assert _caget(STUCK_RB) == pytest.approx(STUCK_BOOT)
             assert _caput(STUCK_SP, 6.0) == 1
             _settle(STUCK_SP, 6.0)
             time.sleep(0.5)
-        finally:
-            # Explicit, in a finally: a PV finalised by the garbage collector
-            # tears libca down from the wrong thread.
-            readback.disconnect()
 
-        assert [value for value in seen if abs(value - STUCK_BOOT) > 1e-9] == []
+        assert [value for value in readback.values if abs(value - STUCK_BOOT) > 1e-9] == []
 
     @pytest.mark.usefixtures("live")
     def test_the_write_still_completes(self) -> None:

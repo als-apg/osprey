@@ -4,7 +4,7 @@
 virtual accelerator's serving contract from the far side of a real Channel
 Access wire. Everything runs in one process: a real `pcaspy` CA server hosting
 the real serving database, the real write path deciding what each write means,
-and a real `pyepics` client driving it from the pytest thread.
+and a real `pvapy` (`pvaccess`) CA client driving it from the pytest thread.
 
 That needs `pcaspy`, and `pcaspy` publishes manylinux **x86_64** wheels only —
 no aarch64 wheel at any interpreter, and the macOS arm64 wheels it does publish

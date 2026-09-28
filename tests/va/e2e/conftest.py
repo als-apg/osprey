@@ -66,6 +66,7 @@ import yaml
 
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from tests.e2e._monitor_motion import still_monitor_motion
+from tests.va import _ca_client as ca_client
 
 if TYPE_CHECKING:
     from osprey.services.virtual_accelerator.bindings import Binding
@@ -547,31 +548,18 @@ def boot_report(container: str, host_port: int) -> str:
 def _readiness_pv_served() -> bool:
     """Probe container readiness in a SUBPROCESS.
 
-    The async connector wraps *sync* pyepics in a thread-pool executor, and
-    libca CA contexts are per-thread: a main-thread pyepics CA operation in
-    this process deadlocks the connector's executor-thread caget/caput calls.
-    So the readiness check must never touch pyepics in-process -- run it
+    libca latches ``EPICS_CA_*`` when this process creates its first Channel
+    Access channel, and the probe needs its own name-server environment -- so
+    the readiness check never touches Channel Access in-process; it runs
     out-of-process, exactly as the probe's caget check does. Returns True once
     the readiness PV is served.
 
-    The probe leaves through ``os._exit`` rather than returning. This child
-    calls ``epics.caget`` directly and builds no connector, so nothing takes
-    pyepics' ``finalize_libca`` off its exit hooks the way
-    ``EPICSConnector.connect`` does for the processes that go through it. That
-    finalizer's recorded hang follows Channel Access use on a worker thread --
-    what the connector's executor does -- rather than the one main-thread
-    ``caget`` this child makes, which has not been seen to hang. The forced
-    exit is kept as a bound that costs nothing: a probe that will not die is
-    read here as a container that is not serving, and the word is written and
-    flushed before the exit.
+    The child is :func:`tests.va._ca_client.served_probe_source`: one
+    main-thread pvapy read, then ``os._exit``, so a probe that will not die is
+    read here as a container that is not serving (the word is written and
+    flushed before the exit).
     """
-    code = (
-        "import sys, epics\n"
-        f"v = epics.caget({READINESS_ADDRESS!r}, timeout=1.0, connection_timeout=1.0)\n"
-        "sys.stdout.write('SERVED' if v is not None else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "import os; os._exit(0)\n"
-    )
+    code = ca_client.served_probe_source(READINESS_ADDRESS)
     env = {
         **os.environ,
         "EPICS_CA_NAME_SERVERS": f"localhost:{CA_PORT}",
