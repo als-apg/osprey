@@ -1739,3 +1739,161 @@ def test_referenced_persona_names_refuses_an_undeclared_role() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="admin"):
         env_production._referenced_persona_names(config)
+
+
+# ---------------------------------------------------------------------------
+# The gate reads the whole telemetry block
+#
+# For a config whose only references live under `openobserve`, every answer --
+# the generated file, the refusal set, the account advisory and the refusal
+# sentence -- is the one a reader of the two `openobserve` keys alone gives.
+# ---------------------------------------------------------------------------
+
+_PINNED_CHAIN = {
+    "ANTHROPIC_API_KEY": "cc-secret",
+    "ZO_INGEST_USER_EMAIL": "ingest-account@example.org",
+    "ZO_INGEST_SA_TOKEN": "Fak3T0kenFak3T0k",
+    "ZO_ROOT_USER_EMAIL": "store-account@example.org",
+    "ZO_ROOT_USER_PASSWORD": "store-admin-secret",
+}
+
+
+def _shipped_block(**overrides):
+    """The control-assistant preset's telemetry block, with ``overrides`` applied."""
+    block = {
+        "enabled": True,
+        "backend": "openobserve",
+        "protocol": "http/protobuf",
+        "openobserve": {
+            "user": _SHIPPED_INGEST_USER,
+            "password": _SHIPPED_INGEST_TOKEN,
+            "org": "default",
+        },
+        "log_user_prompts": True,
+        "log_assistant_responses": True,
+        "log_tool_details": True,
+        "log_raw_api_bodies": True,
+        "log_tool_content": True,
+    }
+    block.update(overrides)
+    return block
+
+
+def _write_block_persona(tmp_path, block, name="operator-proj"):
+    """Write a rendered persona project whose ``claude_code.telemetry`` is ``block``."""
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_name": name,
+                "claude_code": {"provider": "anthropic", "telemetry": block},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return name
+
+
+@pytest.mark.parametrize("deployed_services", [("openobserve",), ()])
+def test_the_shipped_store_block_generates_the_pinned_users_file(tmp_path, deployed_services):
+    """The generated payload for the shipped block, line for line."""
+    _write_dotenv(tmp_path / ".env", _PINNED_CHAIN)
+    config = _catalog_config(
+        _write_block_persona(tmp_path, _shipped_block()), deployed_services=deployed_services
+    )
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    lines = [
+        line
+        for line in result.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert lines == [
+        "ANTHROPIC_API_KEY=cc-secret",
+        "ZO_INGEST_USER_EMAIL=ingest-account@example.org",
+        "TZ=UTC",
+    ]
+
+
+_OPERATOR = "(persona 'operator')"
+_INGEST_ACCOUNT = {"ZO_INGEST_USER_EMAIL": f"claude_code.telemetry.openobserve.user {_OPERATOR}"}
+
+
+@pytest.mark.parametrize(
+    ("block", "deployed_services", "required", "accounts"),
+    [
+        (_shipped_block(), ("openobserve",), {}, _INGEST_ACCOUNT),
+        (
+            _shipped_block(),
+            (),
+            {"ZO_INGEST_SA_TOKEN": f"claude_code.telemetry.openobserve.password {_OPERATOR}"},
+            _INGEST_ACCOUNT,
+        ),
+        (
+            _shipped_block(
+                openobserve={
+                    "user": "${ZO_ROOT_USER_EMAIL}",
+                    "password": "${ZO_ROOT_USER_PASSWORD}",
+                }
+            ),
+            ("openobserve",),
+            {"ZO_ROOT_USER_PASSWORD": f"claude_code.telemetry.openobserve.password {_OPERATOR}"},
+            {"ZO_ROOT_USER_EMAIL": f"claude_code.telemetry.openobserve.user {_OPERATOR}"},
+        ),
+        (
+            _shipped_block(
+                openobserve={"user": "ingest@example.org", "password": _SHIPPED_STORE_PASSWORD}
+            ),
+            (),
+            {},
+            {},
+        ),
+        (_shipped_block(openobserve={"password": "literal-password"}), (), {}, {}),
+        (_shipped_block(enabled=False), (), {}, _INGEST_ACCOUNT),
+    ],
+    ids=[
+        "shipped-store-deployed",
+        "shipped-external-store",
+        "bare-root-identity",
+        "literal-user-defaulted-password",
+        "literal-password",
+        "switched-off",
+    ],
+)
+def test_the_store_block_answers_are_pinned(tmp_path, block, deployed_services, required, accounts):
+    """Exact answers of the refusal set and the account advisory."""
+    config = _catalog_config(
+        _write_block_persona(tmp_path, block), deployed_services=deployed_services
+    )
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == required
+    assert env_production._telemetry_user_references(config, tmp_path) == accounts
+
+
+def test_the_external_store_refusal_sentence_is_pinned(tmp_path, monkeypatch):
+    """The whole refusal sentence for an unset store token, word for word."""
+    monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(_write_block_persona(tmp_path, _shipped_block()), deployed_services=())
+
+    problem = env_production.users_env_generation_problem(config, tmp_path)
+
+    assert problem is not None
+    assert problem.replace(str(tmp_path), "<root>") == (
+        "Generating <root>/.env.users from <root>/.env would leave web terminals "
+        "unauthenticated: claude_code.telemetry.openobserve.password (persona "
+        "'operator') needs ZO_INGEST_SA_TOKEN, set in none of them. Add the missing "
+        "variable(s) to <root>/.env, or author .env.users yourself (an existing file "
+        "is never regenerated) if this deploy authenticates another way. Note: "
+        "ZO_INGEST_SA_TOKEN is an observability-store credential that reads every "
+        "transcript the store holds — the root password is the store's single admin "
+        "credential, and the ingest service account `osprey up` provisions reads back "
+        "every log and metric too (OpenObserve has no ingest-only role in any "
+        "edition). One .env.users is handed to every persona alike, read-only ones "
+        "included, so this file never carries either of them. The env chain is still "
+        "where it belongs — that is what the store and the agent read — but a web "
+        "terminal will not receive it from here. A telemetry block that names its own "
+        "fallback (${VAR:-default}) is not asked for here at all."
+    )
