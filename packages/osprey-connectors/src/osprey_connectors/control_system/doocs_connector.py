@@ -142,7 +142,7 @@ class DOOCSConnector(ControlSystemConnector):
             timestamp=timestamp,
             raw_metadata={
                 "macropulse": macropulse,
-                "type": type(value),
+                "type": type(value).__name__,
             },
         )
 
@@ -330,7 +330,7 @@ class DOOCSConnector(ControlSystemConnector):
                 timestamp=timestamp,
                 raw_metadata={
                     "macropulse": macropulse,
-                    "type": type(value),
+                    "type": type(value).__name__,
                 },
             )
 
