@@ -602,6 +602,33 @@ def test_va_is_never_gated_on_posture_or_acknowledgment() -> None:
     assert _eligibility(config, VA, direction=te.DIRECTION_AWAY).eligible is True
 
 
+@pytest.mark.parametrize("direction", [te.DIRECTION_AWAY, te.DIRECTION_BACK])
+def test_a_va_block_that_dials_a_live_gateway_is_refused_in_either_direction(direction) -> None:
+    """The simulator's label on the real machine's endpoint, even coming home.
+
+    The live write gateway, spelled differently: its host case aside and its
+    port as a string, as a port variable resolves to.
+    """
+    va = _va_block(gateways={"read_only": {"address": "GW.example.org ", "port": "5084"}})
+    config = _config(
+        control_system_type=VA_TYPE, connector={EPICS_TYPE: _epics_block(), VA_TYPE: va}
+    )
+
+    verdict = _eligibility(config, VA, direction=direction)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_REACHES_LIVE_MACHINE
+    assert "'write_access' gateway the live machine derives" in verdict.detail
+
+
+def test_a_va_block_on_the_live_host_at_another_port_is_eligible() -> None:
+    """Only the endpoint collides, not the host: one server may run both."""
+    va = _va_block(gateways={"read_only": {"address": "gw.example.org", "port": 5094}})
+    config = _config(connector={EPICS_TYPE: _epics_block(), VA_TYPE: va})
+
+    assert _eligibility(config, VA).eligible is True
+
+
 # ---------------------------------------------------------------------------
 # The stand-in as a third target
 # ---------------------------------------------------------------------------

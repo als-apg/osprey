@@ -10,14 +10,17 @@ switched to yet, and it is the gate the switch consults before it spawns
 anything: is there a connector block for this target, does it have a gateways
 table containing the role this deployment will actually select, does it name a
 ``probe_channel`` to prove itself with, does the ``standin`` target's block
-still select the stand-in this deployment co-deploys, would the switch create
+still select the stand-in this deployment co-deploys, does a target that is
+never the real machine select an endpoint the live machine derives, would the
+switch create
 the one archiver pairing that invents history, and — for the two machines an
 operator meets hardware behaviour on — is the deployment in the posture FR-8
 requires. An ineligible target reports a machine-readable reason, so the roster
 can say *why* rather than merely *no*.
 
 **VERIFICATION** is answered after the connector-host child has connected, by
-comparing what the child says it did against what this module derived it should
+comparing what the child says it did against what
+:func:`~osprey_connectors.ipc.verification.derive_endpoints` derived it should
 do. It is positive and role-aware: not "nothing looked wrong" but "the child
 configured exactly this host, this port, this mode, for exactly the role the
 derivation selected". A mismatch names the field, the expected value and the
@@ -29,19 +32,16 @@ process is spawned. Verification catches the child that came up pointed
 somewhere the config never described — the failure mode where every layer
 reports success and the tool calls land on the wrong machine.
 
-Both are computed from the same inputs the connector itself uses.
-:func:`derive_endpoints` restates ``EPICSConnector.connect()``'s gateway
-selection and environment derivation *positively* — the role it would pick given
-the target's own write posture and
+Both are computed from the same inputs the connector itself uses. The
+derivation and the verification live in :mod:`osprey_connectors.ipc.verification`,
+shared with the library's
+:class:`~osprey_connectors.ipc.pool.ConnectorHostPool`: it restates
+``EPICSConnector.connect()``'s gateway selection and environment derivation
+*positively* — the role it would pick given the target's own write posture and
 :func:`~osprey_connectors.control_system.base.is_readonly_run`, and the
-CA/PVA mode each gateway would produce — rather than re-deciding it. Where a
-pure helper already exists it is imported, never restated: the target resolves
-through :func:`~osprey_connectors.types.resolve_target`, its write posture
-through :func:`~osprey_connectors.types.target_writes_enabled`, and the virtual
-accelerator's unset gateway ports fill through
-:func:`~osprey_connectors.control_system.va_connector.fill_gateway_ports`, so
-this module and the process it describes cannot disagree about where a target
-lands, which port it lands on, or whether it may be written to once there.
+CA/PVA mode each gateway would produce — rather than re-deciding it, so this
+module and the process it describes cannot disagree about where a target lands,
+which port it lands on, or whether it may be written to once there.
 
 Write posture is per connector type, so the two targets of one deployment are
 not answered together: a facility whose baseline is the real machine can arm
@@ -93,7 +93,8 @@ the deployment's control-context record (read through
 child reads it on every write and on its own gateway selection, so a parent
 that derived the *configured* posture would derive ``write_access`` for a
 target the child has just connected to on ``read_only`` — and
-:func:`verify_child_report`, doing its job, would abort the switch on a
+:func:`~osprey_connectors.ipc.verification.verify_child_report`, doing its
+job, would abort the switch on a
 disagreement that is nobody's misconfiguration.
 
 :func:`effective_writes_for_target` is therefore what every caller in this
@@ -124,6 +125,7 @@ from osprey_connectors.ipc.verification import (
     _sub,
     connector_block,
     derive_endpoints,
+    live_collision,
 )
 from osprey_connectors.standin import (
     ARCHIVER_RECORDER_SERVICE,
@@ -178,6 +180,9 @@ REASON_GATEWAYS_MISSING = "gateways_missing"
 REASON_SELECTED_ROLE_MISSING = "selected_role_missing"
 REASON_PROBE_CHANNEL_MISSING = "probe_channel_missing"
 REASON_STANDIN_NOT_DEPLOYED = "standin_not_deployed"
+#: A target that is never the real machine — the virtual accelerator, the
+#: stand-in, the mock — selects an endpoint the live machine derives.
+REASON_REACHES_LIVE_MACHINE = "reaches_live_machine"
 REASON_INVENTED_HISTORY = "invented_history"
 REASON_LIMITS_POSTURE = "limits_posture"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
@@ -282,7 +287,7 @@ def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> b
 
 
 # ---------------------------------------------------------------------------
-# (a) Endpoint derivation
+# (a) The stand-in's endpoint
 # ---------------------------------------------------------------------------
 
 
@@ -451,10 +456,13 @@ def evaluate_eligibility(
        rather than judged on a table that cannot apply to it;
     4. that block names a ``probe_channel`` — a target that cannot prove itself
        reachable is never switched to;
-    5. for ``standin`` only: the endpoint that block selects really is the
-       co-deployed stand-in — the deployment built one, on this port, over
-       loopback — so the block cannot be repointed at hardware under a soft
-       label (:data:`REASON_STANDIN_NOT_DEPLOYED`);
+    5. where the target lands. For ``standin``, positively: the endpoint its
+       block selects really is the co-deployed stand-in — the deployment built
+       one, on this port, over loopback — so the block cannot be repointed at
+       hardware under a soft label (:data:`REASON_STANDIN_NOT_DEPLOYED`). Then,
+       for every target that is never the real machine — ``va`` and ``standin``
+       alike — negatively: the endpoint it selects is not a gateway ``live``
+       derives from the same config (:data:`REASON_REACHES_LIVE_MACHINE`);
     6. honesty: pointing a session at a machine this deployment stands up for
        itself — the virtual accelerator or the stand-in — while the archiver
        resolves to the mock would pair an invented present with an invented
@@ -476,7 +484,8 @@ def evaluate_eligibility(
     a block half authored — would otherwise be a target a session could leave
     and never come back to. Coming home still has to pass 1, 2, 5 and 6: the
     target resolves, its block exists, the stand-in is really this deployment's
-    stand-in, and an invented present is not paired with an invented past.
+    stand-in, a simulated machine does not dial the real one, and an invented
+    present is not paired with an invented past.
 
     Args:
         config: The full rendered config mapping.
@@ -592,6 +601,21 @@ def evaluate_eligibility(
             f"machine behind a soft label. Point '{block_key}.gateways' at the "
             f"stand-in's own port on loopback, or use {TARGET_LIVE!r} for the "
             "machine this facility authored.",
+        )
+
+    collision = live_collision(config, derivation)
+    if collision is not None:
+        chosen, live = collision.selected, collision.live
+        return Eligibility(
+            False,
+            REASON_REACHES_LIVE_MACHINE,
+            f"Refusing target {target!r}: '{block_key}.gateways.{selected_role}' "
+            f"selects {chosen.host}:{chosen.port}, which is the {collision.role!r} "
+            f"gateway the live machine derives ('control_system.connector."
+            f"{collision.connector_type}.gateways.{collision.role}' at "
+            f"{live.host}:{live.port}). {connector_type!r} is never the real machine, "
+            "so a session switched to it must not reach that endpoint. Point "
+            f"'{block_key}.gateways' at its own server.",
         )
 
     if connector_type in INVENTED_HISTORY_TYPES:
@@ -937,7 +961,7 @@ def in_flight_detail(
 
 
 # ---------------------------------------------------------------------------
-# (d) THE SWITCH GATE
+# (c) THE SWITCH GATE
 # ---------------------------------------------------------------------------
 #
 # One function answers "may this deployment move to that target right now", and
