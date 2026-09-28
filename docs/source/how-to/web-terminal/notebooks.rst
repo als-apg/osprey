@@ -196,23 +196,28 @@ toggle. Switching the terminal between light and dark leaves JupyterLab as it
 is. Pick a theme inside the tab from *Settings → Theme* instead. That pick is
 stored on the durable volume, so it comes back after a sidecar restart.
 
-When the tab is grey
---------------------
+When the tab fails to start
+---------------------------
 
-A grey JUPYTER entry means the sidecar did not start. The terminal log says
-why, with the last lines of the sidecar's own error output. The rest of the
-terminal is unaffected — only that one tab is unavailable, and it stays grey
-until the terminal is restarted.
+A dimmed JUPYTER entry whose tooltip reads *JUPYTER failed to start:
+<reason>* means the sidecar did not start. The reason is one line: what went
+wrong, and the sidecar's last error line when it has one. The terminal log has
+the full error output. The rest of the terminal is unaffected — only that one
+tab is unavailable.
 
-A sidecar that dies after it started shows itself differently. JupyterLab
-reads *Disconnected* and saves fail, and there is nowhere else to save to, so
-copy any unsaved cells out of the browser before you restart the terminal. The
-terminal log carries one ``notebook sidecar exited`` line with the sidecar's
-last error lines. The tab greys on the next page load.
+Click the entry to start the sidecar again. The terminal runs one attempt at a
+time and waits as long as it does at startup; the tooltip reads *JUPYTER is
+starting* until the attempt settles. A start that succeeds opens the tab; one
+that fails again shows its new reason.
 
-``osprey health`` does not probe the panel. It reports one row per enabled
-sidecar reading *not probed — served inside the web terminal*, so it never
-claims a panel is healthy on evidence it does not have.
+A sidecar that dies after it started turns the entry the same way within about
+ten seconds. JupyterLab reads *Disconnected* first and saves fail, and there is
+nowhere else to save to, so copy any unsaved cells out of the browser before you
+click the entry to start it again.
+
+``osprey health`` never fetches the panel. It shows the same *failed to start*
+sentence as a warning row when the terminal recorded a failure, and a skip row
+otherwise, so it never claims a panel is healthy on evidence it does not have.
 
 Not in this release
 -------------------
@@ -220,10 +225,9 @@ Not in this release
 - The agent cannot run cells. It edits notebook files; you run them.
 - No real-time collaborative editing. Two people in one notebook fall back to
   the save-time dialog above.
-- No health probe of the sidecar, only the skip row.
+- No health probe of the sidecar; the row reports what the terminal recorded.
 - No live theme following. The tab starts in the pinned theme and stays there
   until you pick another one inside it.
-- No per-panel restart. Restart the terminal.
 
 .. seealso::
 
