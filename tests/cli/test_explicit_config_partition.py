@@ -309,7 +309,9 @@ def test_root_render_is_partitioned_between_its_sources(
     # the tool-content gate and the content limit, which the telemetry block
     # did not carry when the freeze ran; and every preset that turns on the
     # full tool-call record gains its two `audit.tool_call.*` keys, which
-    # did not exist when the freeze ran.
+    # did not exist when the freeze ran; and every preset that carries a
+    # keyword block gains its `fuzzy_threshold`, the fuzzy-fallback floor,
+    # which was a number fixed in the keyword module.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -330,6 +332,8 @@ def test_root_render_is_partitioned_between_its_sources(
     for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
         if key in config:
             expected_gain = expected_gain | {key}
+    if "ariel.search_modules.keyword.settings.fuzzy_threshold" in config:
+        expected_gain = expected_gain | {"ariel.search_modules.keyword.settings.fuzzy_threshold"}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )

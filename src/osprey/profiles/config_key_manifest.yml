@@ -2020,6 +2020,15 @@ keys:
       configured `0` means the deployment believes it disabled the envelope,
       and answering that with a silent ten seconds is worse than naming the key.
     default: 10.0
+  ariel.search_modules.keyword.settings.fuzzy_threshold:
+    evidence: '_SETTINGS_PREFIX\}\.fuzzy_threshold must be a number in \[0, 1\]'
+    note: >-
+      Shipped as `0.3`, matching DEFAULT_FUZZY_THRESHOLD. Both fuzzy-fallback
+      probes read it: the one on the text the operator typed and the one on the
+      expanded text. The fallback runs only when the exact search returned
+      nothing and the query carried no pattern. A value outside [0, 1] is
+      refused, never clamped, because pg_trgm similarity has no other range.
+    default: 0.3
   ariel.search_modules.semantic: {covered-by: ariel.search_modules, default: n/a}
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic, default: false}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic, default: null}
@@ -3120,7 +3129,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 347
+  expected_union_size: 348
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

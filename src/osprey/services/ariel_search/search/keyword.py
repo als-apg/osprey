@@ -94,10 +94,14 @@ class KeywordSearchSettings:
         pattern_timeout_seconds: Statement-timeout envelope applied to a
             pattern-bearing search. Defaults to
             :data:`DEFAULT_PATTERN_TIMEOUT_SECONDS`.
+        fuzzy_threshold: Minimum ``pg_trgm`` similarity, in ``[0, 1]``, a row
+            must reach to be returned by the fuzzy fallback. Defaults to
+            :data:`DEFAULT_FUZZY_THRESHOLD`.
     """
 
     patterns_enabled: bool = DEFAULT_PATTERNS_ENABLED
     pattern_timeout_seconds: float = DEFAULT_PATTERN_TIMEOUT_SECONDS
+    fuzzy_threshold: float = DEFAULT_FUZZY_THRESHOLD
 
     @classmethod
     def from_ariel_config(cls, config: ARIELConfig | None) -> KeywordSearchSettings:
@@ -121,8 +125,9 @@ class KeywordSearchSettings:
 
         Raises:
             ValueError: If ``patterns_enabled`` is present but not a boolean,
-                or ``pattern_timeout_seconds`` is present but not a number
-                ``>= 0.001``.
+                ``pattern_timeout_seconds`` is present but not a number
+                ``>= 0.001``, or ``fuzzy_threshold`` is present but not a number
+                in ``[0, 1]``.
         """
         module = config.search_modules.get("keyword") if config is not None else None
         settings = module.settings if module is not None else None
@@ -144,7 +149,21 @@ class KeywordSearchSettings:
                 f"got {timeout!r}"
             )
 
-        return cls(patterns_enabled=patterns_enabled, pattern_timeout_seconds=float(timeout))
+        threshold = settings.get("fuzzy_threshold", cls.fuzzy_threshold)
+        if (
+            not isinstance(threshold, (int, float))
+            or isinstance(threshold, bool)
+            or not 0 <= threshold <= 1
+        ):
+            raise ValueError(
+                f"{_SETTINGS_PREFIX}.fuzzy_threshold must be a number in [0, 1], got {threshold!r}"
+            )
+
+        return cls(
+            patterns_enabled=patterns_enabled,
+            pattern_timeout_seconds=float(timeout),
+            fuzzy_threshold=float(threshold),
+        )
 
 
 def _balance_quotes(query: str) -> str:
@@ -613,7 +632,7 @@ async def keyword_search(
     if not results and fuzzy_fallback and probe_text.strip() and not parsed.pattern_spans:
         results = await repository.fuzzy_search(
             search_text=probe_text,
-            threshold=DEFAULT_FUZZY_THRESHOLD,
+            threshold=settings.fuzzy_threshold,
             max_results=max_results,
             start_date=start_date,
             end_date=end_date,
@@ -621,7 +640,7 @@ async def keyword_search(
         if not results and expansion_applied and query_expansion is not None:
             results = await repository.fuzzy_search(
                 search_text=query_expansion.flattened_text,
-                threshold=DEFAULT_FUZZY_THRESHOLD,
+                threshold=settings.fuzzy_threshold,
                 max_results=max_results,
                 start_date=start_date,
                 end_date=end_date,

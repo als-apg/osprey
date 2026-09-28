@@ -142,27 +142,35 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The seventeenth move, and control-assistant's family alone: the root
     # preset turns on the full tool-call record (`audit.tool_call.*`), which
     # the five `extends` children inherit; the other three stand still.
-    "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
+    # The eighteenth move, and the two presets that carry a keyword block:
+    # ariel-standalone and control-assistant gained
+    # `ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3`, the
+    # fuzzy-fallback similarity floor that was a literal in the keyword module.
+    # The value is the one the module already applied, so a rebuilt project
+    # behaves identically; the digest moves because the preset now states it.
+    # The five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    "ariel-standalone": ("sha256:fba3b12cb702e83da717b34e2905c69e6522473b552dc7baa58ca6baed3035e8"),
     "channel-finder-standalone": (
         "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
     ),
     "control-assistant": (
-        "sha256:f053c6de8fd9497d272a068a03f8174b9ed9c1d9c21c6fb800ef60b641a2f3ce"
+        "sha256:3178082f8e51f1859630aacb3c9b06fe7ea28a3d7675e0bb529f90f147010a39"
     ),
     "control-assistant-admin": (
-        "sha256:b27fb8d6fe3d79ba8ff5febdb28ccb70cbc117e3d8717b825002daa608694c57"
+        "sha256:d0dd9ed6f35edc5bb01eb461b98bafdb1be1c0b65e3471536f2466b925df5662"
     ),
     "control-assistant-knowledge": (
-        "sha256:53265269ecd689a2355c8c5bd892e68d022e0de03186ab4338104a805c54a6d0"
+        "sha256:7153d478089032145689452d0b81401a55968447078716b3daf5ab443cd35b28"
     ),
     "control-assistant-logbook": (
-        "sha256:cffa27c611273350222d9a3e064002435c36f670f7db8d383d94639002726437"
+        "sha256:ed26d5883f788c323f1d8c60a13c9f1ab9c529024d9d7c6201e52b7131cba65d"
     ),
     "control-assistant-readonly": (
-        "sha256:251d61c019a064f0b5d3386d7744c2a68c35ca929f61caa9bd1cd1418b4f532a"
+        "sha256:c9531554887546ebb5026517f783a08c3b417772a45cad1ebc03805bc56e587e"
     ),
     "control-assistant-readwrite": (
-        "sha256:88d62d2fdd672b4bf16d30ae9c72294e4b64f63a0819cdc0bc0e0be71a5746b6"
+        "sha256:06056d7cbbfdc8fb8a1c95f034c4f9700fd7f343e1feb088f0fc31b0831f2805"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }
