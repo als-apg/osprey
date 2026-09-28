@@ -217,6 +217,7 @@ see what the two source files become. The whole catalog appears under
            - claude-opus-5
            - claude-sonnet-5
            - claude-haiku-4-5
+         requests_per_minute: 18
 
        stanford:
          api_key: ${STANFORD_API_KEY}
@@ -230,8 +231,9 @@ see what the two source files become. The whole catalog appears under
 Each entry in ``providers.yml`` takes ``base_url``, ``default_model`` and
 ``models`` — a list of the model ids the gateway serves, spelled as the gateway
 spells them, which must contain ``default_model`` — plus optional ``api_key``,
-``health_model`` (the cheapest served id, used by ``osprey health``) and
-``claude_code_aliases`` (see :ref:`claude-code-alias-names` below). Use the
+``health_model`` (the cheapest served id, used by ``osprey health``),
+``claude_code_aliases`` (see :ref:`claude-code-alias-names` below) and
+``requests_per_minute`` (see below). Use the
 versioned ids a gateway serves: an unversioned alias such as
 ``anthropic/claude-sonnet`` carries no version for the agent's capability
 detection to match.
@@ -251,6 +253,12 @@ agent's own requests have it stripped automatically.
 completion. A LiteLLM gateway that uses client-side auth reads a per-user
 upstream key from it, so ``api_key`` stays the gateway credential while
 ``extra_body: {api_key: ${UPSTREAM_KEY}}`` carries the user's own.
+
+``requests_per_minute`` is an optional positive whole number: the in-context
+channel finder's subagent and the benchmark ReAct loop send the provider at most
+that many model calls a minute and wait when they reach it. The shipped
+``cborg`` entry sets 18, because its free tier allows 20 a minute per key; raise
+it or delete the line on a paid tier. An entry without it is not paced.
 
 **Select the active provider** with the profile's two top-level fields:
 
