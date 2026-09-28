@@ -445,11 +445,13 @@ def chat(
         # Start translation proxy for OpenAI-compatible providers
         if spec.needs_proxy and spec.upstream_base_url:
             from osprey.infrastructure.proxy.lifecycle import start_proxy
+            from osprey.models.spend_attribution import declared_header_names
 
             proxy_port = start_proxy(
                 spec.upstream_base_url,
                 os.environ.get(spec.auth_env_var),
                 provider=spec.provider,
+                forward_headers=declared_header_names(os.environ),
             )
             os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
             output.note(f"Translation proxy on :{proxy_port} forwards to {spec.upstream_base_url}")

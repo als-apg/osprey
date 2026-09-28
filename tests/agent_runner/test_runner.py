@@ -430,6 +430,7 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
         "CLAUDECODE": "",
         "ANTHROPIC_BASE_URL": "https://argo.example",  # stripped (Claude-Code-facing)
         "ANTHROPIC_AUTH_TOKEN": "sk-argo",
+        "ANTHROPIC_CUSTOM_HEADERS": "x-litellm-end-user-id: alice\nX-Corp-Trace: abc123",
     }
 
     with (
@@ -450,7 +451,12 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
 
     # Proxy upstream = spec.upstream_base_url (WITH /v1), NOT the stripped env var.
     # api_key sourced from the env dict (not os.environ) on this path.
-    proxy.assert_called_once_with("https://argo.example/v1", "sk-argo", provider="argo")
+    proxy.assert_called_once_with(
+        "https://argo.example/v1",
+        "sk-argo",
+        provider="argo",
+        forward_headers=frozenset({"x-litellm-end-user-id", "x-corp-trace"}),
+    )
     assert captured[0].env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8123"
 
 

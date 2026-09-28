@@ -694,7 +694,7 @@ def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
     """Custom provider: ${VAR} base_url is expanded, proxy started, base URL repointed."""
     _render_config(tmp_path, _ARGO_CONFIG)
     (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
-    fake = _isolated_environ(monkeypatch, tmp_path)
+    fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_CUSTOM_HEADERS="X-Corp-Trace: abc123")
     proxy = MagicMock(return_value=7777)
     monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
 
@@ -704,6 +704,7 @@ def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
     upstream, api_key = proxy.call_args[0]
     assert upstream == "https://argo.example/v1"
     assert api_key == "sk-argo"
+    assert proxy.call_args.kwargs["forward_headers"] == frozenset({"x-corp-trace"})
     assert fake["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:7777"
 
 

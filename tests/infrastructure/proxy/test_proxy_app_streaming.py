@@ -53,9 +53,10 @@ def _install_fake_stream_client(monkeypatch, *, stream_resp=None, post_behavior=
 
         # The httpx client this stands in for is called with the body and the headers
         # by keyword.
-        def stream(self, _method, url, json=None, headers=None):  # noqa: ARG002
+        def stream(self, _method, url, json=None, headers=None):
             captured["stream_url"] = url
             captured["stream_json"] = json
+            captured["stream_headers"] = headers
             return stream_resp
 
         # The httpx client this stands in for is called with the body and the headers
@@ -239,6 +240,32 @@ class TestStreaming:
             if e == "content_block_delta" and d.get("delta", {}).get("type") == "text_delta"
         ]
         assert "".join(text_deltas) == "ok"
+
+    def test_stream_forwards_exactly_the_declared_headers(self, monkeypatch):
+        lines = [
+            _sse_line({"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}),
+            "data: [DONE]",
+        ]
+        captured = _install_fake_stream_client(
+            monkeypatch, stream_resp=_FakeStreamResp(200, lines=lines)
+        )
+        app = create_proxy_app(
+            "https://up.example/v1", upstream_api_key="k", forward_headers={"X-Corp-Trace"}
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/messages",
+            json={"model": "m", "stream": True, "messages": [{"role": "user", "content": "x"}]},
+            headers={"X-Corp-Trace": "abc123", "X-Other": "1"},
+        )
+        assert resp.status_code == 200
+
+        sent = captured["stream_headers"]
+        lowered = {k.lower() for k in sent}
+        assert "x-corp-trace" in lowered
+        assert "x-other" not in lowered
+        assert sent["Authorization"] == "Bearer k"
 
 
 class TestNonStreamErrorTranslation:

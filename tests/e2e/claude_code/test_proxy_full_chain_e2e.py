@@ -21,6 +21,7 @@ import pytest
 
 from osprey.build.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
 from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
+from osprey.models.spend_attribution import declared_header_names
 
 OLLAMA_BASE = "http://localhost:11434/v1"
 OLLAMA_MODEL = "qwen2.5:32b"
@@ -58,7 +59,10 @@ def running_proxy():
     assert environ["ANTHROPIC_AUTH_TOKEN"] == "ollama"
 
     port = start_proxy(
-        spec.upstream_base_url, environ.get(spec.auth_env_var), provider=spec.provider
+        spec.upstream_base_url,
+        environ.get(spec.auth_env_var),
+        provider=spec.provider,
+        forward_headers=declared_header_names(environ),
     )
     base = f"http://127.0.0.1:{port}"  # what `osprey chat` writes to ANTHROPIC_BASE_URL
     try:

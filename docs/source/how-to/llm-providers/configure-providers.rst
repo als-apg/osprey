@@ -408,6 +408,12 @@ The agent carries them through Claude Code's ``ANTHROPIC_CUSTOM_HEADERS``
 LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
 ``user`` field. Nothing is sent to a direct vendor.
 
+On the OpenAI route the translation proxy forwards exactly the headers named in
+``ANTHROPIC_CUSTOM_HEADERS`` (the two above and any you set) and no other header
+of the agent's request. It never forwards a header it sets itself
+(``Authorization``, ``Content-Type``, ``Host``, ``Content-Length``,
+``x-api-key``) or a hop-by-hop header, and it logs any such name you declared.
+
 The built-in ``als-apg`` and ``cborg`` providers are LiteLLM proxies and get
 this automatically; a ``gateway:`` key on one of those names overrides that
 default, and ``gateway: none`` turns attribution off for an entry that points

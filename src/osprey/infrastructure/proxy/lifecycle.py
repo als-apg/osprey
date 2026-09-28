@@ -6,6 +6,7 @@ import logging
 import socket
 import threading
 import time
+from collections.abc import Iterable
 from typing import Any
 
 #: The two wire protocols a provider entry may declare, imported from the
@@ -112,6 +113,7 @@ def start_proxy(
     upstream_api_key: str | None = None,
     *,
     provider: str | None = None,
+    forward_headers: Iterable[str],
 ) -> int:
     """Start the translation proxy in a daemon thread.
 
@@ -121,6 +123,10 @@ def start_proxy(
         provider: The provider behind the upstream; its adapter class decides
             the token-cap parameter and, for each request's model, whether a
             temperature is sent.
+        forward_headers: The request headers the launch declared (see
+            :func:`osprey.models.spend_attribution.declared_header_names`),
+            forwarded to the upstream. A repeat call returns the running proxy
+            unchanged, as it does for the upstream.
 
     Returns the port number. Thread-safe; repeated calls are no-ops.
     """
@@ -130,7 +136,12 @@ def start_proxy(
 
         from osprey.infrastructure.proxy.app import create_proxy_app
 
-        app = create_proxy_app(upstream_base_url, upstream_api_key, **_request_shape(provider))
+        app = create_proxy_app(
+            upstream_base_url,
+            upstream_api_key,
+            forward_headers=frozenset(forward_headers),
+            **_request_shape(provider),
+        )
         port = find_free_port()
 
         import uvicorn
