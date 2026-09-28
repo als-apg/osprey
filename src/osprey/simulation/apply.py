@@ -482,13 +482,19 @@ def archiver_collection(store: dict):
     _require_pymongo()
     from pymongo import MongoClient
 
+    from osprey.connectors.archiver.mongodb_archiver_connector import mongo_client_kwargs
+
     client: Any = MongoClient(
-        host=store["host"],
-        port=store["port"],
-        username=store["username"],
-        password=store["password"],
-        authSource=store["auth_database"],
-        serverSelectionTimeoutMS=store["timeout_s"] * 1000,
+        **mongo_client_kwargs(
+            url=None,
+            host=store["host"],
+            port=store["port"],
+            username=store["username"],
+            password=store["password"],
+            auth_source=store["auth_database"],
+            ca_bundle=None,
+            timeout_s=store["timeout_s"],
+        )
     )
     try:
         yield client[store["database"]][store["collection"]]

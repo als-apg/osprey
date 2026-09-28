@@ -24,6 +24,8 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
+from osprey.connectors.archiver.mongodb_archiver_connector import mongo_client_kwargs
+
 from .config import RecorderSettings
 
 logger = logging.getLogger(__name__)
@@ -88,12 +90,16 @@ class ArchiveWriter:
         settings = self._settings
         try:
             client: MongoClient = MongoClient(
-                host=settings.host,
-                port=settings.port,
-                username=settings.username,
-                password=self._password,
-                authSource=settings.auth_database,
-                serverSelectionTimeoutMS=settings.timeout_sec * 1000,
+                **mongo_client_kwargs(
+                    url=None,
+                    host=settings.host,
+                    port=settings.port,
+                    username=settings.username,
+                    password=self._password,
+                    auth_source=settings.auth_database,
+                    ca_bundle=None,
+                    timeout_s=settings.timeout_sec,
+                )
             )
             client.admin.command("ping")
         except PyMongoError as exc:

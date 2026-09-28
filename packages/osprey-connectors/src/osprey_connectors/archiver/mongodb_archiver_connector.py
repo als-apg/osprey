@@ -91,6 +91,53 @@ def address_overrides() -> tuple[str | None, int | None]:
         raise ValueError(f"{PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})") from exc
 
 
+def mongo_client_kwargs(
+    *,
+    url: str | None,
+    host: str | None,
+    port: int | None,
+    username: str | None,
+    password: str | None,
+    auth_source: str | None,
+    ca_bundle: str | None,
+    timeout_s: float,
+) -> dict[str, Any]:
+    """The keyword arguments for ``pymongo.MongoClient``.
+
+    Every MongoDB client OSPREY opens takes its arguments from here: the agent's
+    connector, the archive recorder and the archive rewrite. One block can
+    therefore never produce two different clients. This is the only place
+    pymongo's keyword names are spelled.
+
+    Pure: it reads no environment and does no I/O. A caller applies the address
+    overrides (:func:`address_overrides`) to ``host`` and ``port`` itself,
+    before calling, because a host-side caller must take nothing from the
+    ambient environment.
+
+    A key whose value is unset is left out rather than passed as ``None``.
+
+    Args:
+        url: A connection string; when set it is passed as ``host`` and no
+            ``port`` is passed.
+        host: The store's host, used when ``url`` is unset.
+        port: The store's port, used when ``url`` is unset.
+        username: The login user; ``password`` and ``auth_source`` go with it.
+        password: The login secret.
+        auth_source: The database the user is defined in.
+        ca_bundle: A CA file to trust; setting it turns TLS on.
+        timeout_s: Seconds to wait for a server.
+    """
+    kwargs: dict[str, Any] = {"host": url} if url is not None else {"host": host, "port": port}
+    if username is not None:
+        kwargs["username"] = username
+        kwargs["password"] = password
+        kwargs["authSource"] = auth_source
+    if ca_bundle is not None:
+        kwargs["tlsCAFile"] = ca_bundle
+    kwargs["serverSelectionTimeoutMS"] = int(timeout_s * 1000)
+    return kwargs
+
+
 class MongoDBArchiverConnector(ArchiverConnector):
     """
     MongoDB archiver connector for historical channel data.
@@ -239,14 +286,17 @@ class MongoDBArchiverConnector(ArchiverConnector):
             )
 
         try:
-            # Create MongoDB client using direct parameter syntax (more readable than URI)
             self._client = self._MongoClient(
-                host=host,
-                port=port,
-                username=username,
-                password=password,
-                authSource=auth_db,
-                serverSelectionTimeoutMS=self._timeout * 1000,
+                **mongo_client_kwargs(
+                    url=None,
+                    host=host,
+                    port=port,
+                    username=username,
+                    password=password,
+                    auth_source=auth_db,
+                    ca_bundle=None,
+                    timeout_s=self._timeout,
+                )
             )
 
             # Test connection

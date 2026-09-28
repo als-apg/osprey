@@ -16,6 +16,7 @@ from osprey.connectors.archiver.mongodb_archiver_connector import (
 )
 from osprey.connectors.factory import ConnectorFactory
 from osprey.port_layout import default_port
+from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
 # container, and this file shares the group with the Postgres-backed ARIEL tests so
@@ -861,6 +862,21 @@ class TestQueryShapeWithoutDocker:
         # SLOW: its own 50 real samples, each its own bin.
         assert len(slow_values) == 50
         assert slow_values == pytest.approx([500.0 + i for i in range(50)])
+
+
+class TestClientKwargsWithoutDocker:
+    """The keyword arguments the connector hands pymongo, with the client patched."""
+
+    @pytest.mark.asyncio
+    async def test_a_bundled_block_builds_the_six_keyword_client(self, monkeypatch):
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(bundled_block())
+
+        assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
 
 
 class TestErrorHandlingWithoutDocker:
