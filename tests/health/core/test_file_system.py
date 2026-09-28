@@ -298,3 +298,50 @@ class TestDiskSpace:
         by_name = _by_name(_run({}, tmp_path))
         assert by_name["disk_space"].status is Status.WARNING
         assert "Could not check disk space" in by_name["disk_space"].message
+
+    def test_free_floor_is_exclusive(self, monkeypatch, tmp_path: Path) -> None:
+        self._patch_usage(monkeypatch, total=2 * _GB, used=1 * _GB, free=1 * _GB)
+        by_name = _by_name(_run({}, tmp_path))
+        assert by_name["disk_space"].status is Status.OK
+
+    def test_percent_ceiling_is_inclusive(self, monkeypatch, tmp_path: Path) -> None:
+        self._patch_usage(monkeypatch, total=100 * _GB, used=95 * _GB, free=5 * _GB)
+        config = {"health": {"disk": {"max_used_percent": 95}}}
+        by_name = _by_name(_run(config, tmp_path))
+        assert by_name["disk_space"].status is Status.WARNING
+
+    def test_configured_ceiling_passes_a_large_shared_volume(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        self._patch_usage(monkeypatch, total=10_000 * _GB, used=9_100 * _GB, free=900 * _GB)
+        config = {"health": {"disk": {"max_used_percent": 95}}}
+        row = _by_name(_run(config, tmp_path))["disk_space"]
+        assert row.status is Status.OK
+        assert row.message == "Disk 91% full (900.0 GB free)"
+        assert _by_name(_run({}, tmp_path))["disk_space"].status is Status.WARNING
+
+    def test_configured_free_floor_warns(self, monkeypatch, tmp_path: Path) -> None:
+        self._patch_usage(monkeypatch, total=100 * _GB, used=50 * _GB, free=50 * _GB)
+        config = {"health": {"disk": {"min_free_gb": 100}}}
+        row = _by_name(_run(config, tmp_path))["disk_space"]
+        assert row.status is Status.WARNING
+        assert row.details == (
+            "Container volumes (incl. the OpenObserve store) grow into this disk."
+        )
+
+    def test_invalid_threshold_skips_without_sampling(self, monkeypatch, tmp_path: Path) -> None:
+        def _must_not_sample(_path: Path) -> None:
+            raise AssertionError("disk_usage must not be called")
+
+        monkeypatch.setattr("osprey.health.core.file_system.shutil.disk_usage", _must_not_sample)
+        config = {"health": {"disk": {"max_used_percent": 150}}}
+        row = _by_name(_run(config, tmp_path))["disk_space"]
+        assert row.status is Status.SKIP
+        assert "health.disk.max_used_percent" in row.message
+
+    def test_non_mapping_health_section_grades_on_defaults(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        self._patch_usage(monkeypatch, total=100 * _GB, used=91 * _GB, free=9 * _GB)
+        row = _by_name(_run({"health": "oops"}, tmp_path))["disk_space"]
+        assert row.status is Status.WARNING

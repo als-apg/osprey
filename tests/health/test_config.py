@@ -7,6 +7,8 @@ import pytest
 from osprey.errors import ConfigurationError
 from osprey.health.config import (
     CORE_CATEGORY_NAMES,
+    DEFAULT_DISK_MAX_USED_PERCENT,
+    DEFAULT_DISK_MIN_FREE_GB,
     DEFAULT_HEALTH_TITLE,
     DEFAULT_ON_DEMAND_CALLABLE_TIMEOUT_S,
     DEFAULT_PROBE_TIMEOUTS,
@@ -16,7 +18,9 @@ from osprey.health.config import (
     CategoryRecord,
     CheckSpec,
     Cost,
+    DiskThresholds,
     HealthSettings,
+    parse_disk_thresholds,
     parse_health_config,
     resolve_callable_timeout_s,
     resolve_item_looping_on_demand_timeout,
@@ -40,6 +44,9 @@ def test_parse_none_yields_defaults() -> None:
     assert s.auto.enabled is True
     assert s.auto.url_key == "host_url"
     assert s.auto.url_key_explicit is False
+    assert s.disk == DiskThresholds()
+    assert s.disk.min_free_gb == 1.0
+    assert s.disk.max_used_percent == 90.0
 
 
 def test_parse_empty_dict_yields_defaults() -> None:
@@ -515,3 +522,71 @@ def test_auto_does_not_affect_other_parsing() -> None:
     assert s.suite_timeout_s == 40.0
     assert s.interval_s == 80.0
     assert s.categories == {}
+
+
+# --- health.disk --------------------------------------------------------------
+
+
+def test_disk_defaults_match_the_module_constants() -> None:
+    assert DiskThresholds().min_free_gb == DEFAULT_DISK_MIN_FREE_GB
+    assert DiskThresholds().max_used_percent == DEFAULT_DISK_MAX_USED_PERCENT
+
+
+def test_disk_thresholds_parsed_as_floats() -> None:
+    s = parse_health_config({"disk": {"min_free_gb": 50, "max_used_percent": 97}})
+    assert s.disk.min_free_gb == 50.0
+    assert s.disk.max_used_percent == 97.0
+    assert isinstance(s.disk.min_free_gb, float)
+    assert isinstance(s.disk.max_used_percent, float)
+
+
+def test_disk_one_key_keeps_the_other_default() -> None:
+    s = parse_health_config({"disk": {"max_used_percent": 95}})
+    assert s.disk.max_used_percent == 95.0
+    assert s.disk.min_free_gb == 1.0
+
+
+def test_disk_none_and_empty_yield_defaults() -> None:
+    assert parse_health_config({"disk": None}).disk == DiskThresholds()
+    assert parse_health_config({"disk": {}}).disk == DiskThresholds()
+
+
+def test_disk_non_mapping_raises() -> None:
+    with pytest.raises(ConfigurationError, match="health.disk must be a mapping"):
+        parse_health_config({"disk": 5})
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("min_free_gb", 0),
+        ("min_free_gb", -1),
+        ("min_free_gb", "lots"),
+        ("min_free_gb", True),
+        ("max_used_percent", 0),
+        ("max_used_percent", 101),
+        ("max_used_percent", "full"),
+        ("max_used_percent", False),
+    ],
+)
+def test_disk_invalid_value_raises(key: str, value: object) -> None:
+    with pytest.raises(ConfigurationError, match=f"health.disk.{key}"):
+        parse_health_config({"disk": {key: value}})
+
+
+def test_disk_max_used_percent_100_accepted() -> None:
+    assert parse_health_config({"disk": {"max_used_percent": 100}}).disk.max_used_percent == 100.0
+
+
+def test_disk_unknown_key_raises_naming_both_keys() -> None:
+    with pytest.raises(ConfigurationError) as excinfo:
+        parse_health_config({"disk": {"min_free_GB": 5}})
+    message = str(excinfo.value)
+    assert "min_free_GB" in message
+    assert "min_free_gb" in message
+    assert "max_used_percent" in message
+
+
+def test_parse_disk_thresholds_matches_parse_health_config() -> None:
+    raw = {"min_free_gb": 25, "max_used_percent": 98}
+    assert parse_disk_thresholds(raw) == parse_health_config({"disk": raw}).disk
