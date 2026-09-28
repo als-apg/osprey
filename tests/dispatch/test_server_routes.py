@@ -327,6 +327,26 @@ def test_dashboard_html_shell_is_ungated(app):
     assert "text/html" in resp.headers.get("content-type", "")
 
 
+def test_dashboard_injects_telemetry_url_and_org_from_env(app, monkeypatch):
+    monkeypatch.setenv("OSPREY_TELEMETRY_URL", "http://ctl-01.example.org:15080")
+    monkeypatch.setenv("OSPREY_TELEMETRY_ORG", "ops")
+    with TestClient(app) as client:
+        resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert '"telemetry_url": "http://ctl-01.example.org:15080"' in resp.text
+    assert '"telemetry_org": "ops"' in resp.text
+
+
+def test_dashboard_without_telemetry_env_injects_empty_values(app, monkeypatch):
+    monkeypatch.delenv("OSPREY_TELEMETRY_URL", raising=False)
+    monkeypatch.delenv("OSPREY_TELEMETRY_ORG", raising=False)
+    with TestClient(app) as client:
+        resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert '"telemetry_url": ""' in resp.text
+    assert '"telemetry_org": ""' in resp.text
+
+
 def test_stream_accepts_header_token(app, monkeypatch):
     """The stream route is header-gated; a valid bearer header reaches the SSE proxy.
 

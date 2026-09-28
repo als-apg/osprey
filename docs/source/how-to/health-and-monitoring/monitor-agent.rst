@@ -474,5 +474,7 @@ Caveats
   ``modules.web_terminals.external_origin`` (or ``deploy.fqdn`` when that is
   unset). A store published to the network by a deployment that declares
   neither gets no link at all, rather than one pointing at whichever machine the
-  operator's browser happens to be. The link is rendered at deploy time, so
-  changing either value takes effect at the next ``osprey up``.
+  operator's browser happens to be. The link opens the organization named by
+  ``claude_code.telemetry.openobserve.org``, the same one the agent exports to.
+  The link is rendered at deploy time, so changing either value takes effect at
+  the next ``osprey up``.

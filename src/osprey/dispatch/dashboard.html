@@ -31,7 +31,7 @@ applyEmbedded();
 // Fallback when the dashboard is served without server-side config injection
 // (e.g. opened as a static file). dashboard.py replaces the comment above with
 // a `window.__OSPREY_CONFIG__ = {...};` literal at request time.
-window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", channel_strip_prefix: "", telemetry_url: "" };
+window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", channel_strip_prefix: "", telemetry_url: "", telemetry_org: "" };
 </script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -884,13 +884,10 @@ function el(tag, props = {}, children = []) {
 }
 function truncId(id) { return id ? id.slice(0, 8) : '—'; }
 
-// Telemetry stream/org the agent's records land in. "default" on both counts:
-// the OTLP logs exporter writes to the `default` stream, and the org is the one
-// parsed from the exporter endpoint, which is `default` for the store OSPREY
-// deploys. Kept as named constants so a facility that diverges has one place to
-// look rather than a string buried in a query.
+// Telemetry stream the agent's records land in. The OTLP logs exporter writes to
+// the `default` stream, so the stream is a constant; the organization comes from
+// the injected config.
 const TELEMETRY_STREAM = 'default';
-const TELEMETRY_ORG = 'default';
 // Session ids are UUIDs OSPREY generates. Anything else is refused rather than
 // interpolated into the SQL literal below — the value reaches the dashboard via
 // the worker, and a link is not worth a query-injection seam.
@@ -911,11 +908,13 @@ const SESSION_ID_SAFE = /^[A-Za-z0-9._-]{1,128}$/;
  * The join works because OSPREY forces a known session UUID onto the agent
  * session (dispatch_worker/sdk_runner.py) so the emitter tags records with it,
  * and the store flattens OTEL's `session.id` attribute to a `session_id` column.
+ * The org is the one the exporter writes to, injected at deploy time beside the URL.
  */
 function telemetryUrlForRun(run) {
   const base = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.telemetry_url) || '';
+  const org = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.telemetry_org) || '';
   const sid = run && run.session_id;
-  if (!base || !sid || !SESSION_ID_SAFE.test(sid)) return null;
+  if (!base || !org || !sid || !SESSION_ID_SAFE.test(sid)) return null;
 
   // Bound the search to the run's own window (with padding for clock skew and
   // for records the harness flushes after the run returns) so the query scans a
@@ -936,7 +935,7 @@ function telemetryUrlForRun(run) {
     sql_mode: 'true',
     query: btoa(sql).replace(/=/g, '.'),
     defined_schemas: 'user_defined_schema',
-    org_identifier: TELEMETRY_ORG,
+    org_identifier: org,
     quick_mode: 'false',
     show_histogram: 'true',
   });
