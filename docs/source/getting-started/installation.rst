@@ -363,8 +363,10 @@ Troubleshooting
       you're using). Re-source your shell profile if needed: ``source ~/.zshrc``
 
    **Python version mismatch**
-      OSPREY requires Python 3.11+. Check with ``python3 --version``. The ``uv`` tool
-      can install the right version automatically.
+      OSPREY requires Python 3.11, 3.12 or 3.13 (3.14 is not supported until its
+      EPICS client, pvapy, publishes wheels for it). Check with
+      ``python3 --version``. The ``uv`` tool can install the right version
+      automatically.
 
    **Verification checklist:**
 

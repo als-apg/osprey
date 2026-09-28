@@ -2,7 +2,7 @@
 
 The connector-host child scrubs every inherited ``EPICS_PVA_*`` variable
 before the connector runs, so a ``pva_gateway`` block is the only route a PVA
-address list has into p4p. A deployment that lists ``pva_channels`` and sets
+address list has into the PVA client. A deployment that lists ``pva_channels`` and sets
 ``EPICS_PVA_ADDR_LIST`` in its environment instead gets subnet auto-discovery,
 which from an off-subnet host is a bare timeout on every read. The build is
 where that is worth saying.

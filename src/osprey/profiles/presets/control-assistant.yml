@@ -350,8 +350,8 @@ config:
   # control_system.connector.epics.gateways.write_access.address: your-ca-gateway.example.com
   # control_system.connector.epics.gateways.write_access.port: 5084
   # control_system.connector.epics.gateways.write_access.use_name_server: false
-  # PVAccess read routing: addresses matching these globs are read through
-  # p4p (the transport camera frames arrive on); everything else stays on
+  # PVAccess read routing: addresses matching these globs are read over
+  # PVAccess (the transport camera frames arrive on); everything else stays on
   # Channel Access. Read-only, and `pva_gateway` is the ONLY route: EPICS_PVA_*
   # variables never reach the connector. `address` maps to
   # EPICS_PVA_ADDR_LIST (UDP search, default port 5076), or to

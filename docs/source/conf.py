@@ -248,11 +248,13 @@ autodoc_mock_imports = [
     "podman",
     "python-dotenv",
     "dotenv",
-    # EPICS control system - specialized scientific software
-    "epics",
-    "pyepics",
-    "p4p",
+    # EPICS control system - specialized scientific software. pvaccess (pvapy)
+    # is the EPICS connector's client for CA and PVA; p4p is imported by the
+    # virtual accelerator's serving stack; epics is a user-code client the
+    # Python executor's sandbox guards patch when it is installed.
     "pvaccess",
+    "p4p",
+    "epics",
     # Notebook format library - not needed for static documentation
     "nbformat",
     # Development tools - not needed for static documentation

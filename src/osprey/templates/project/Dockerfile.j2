@@ -165,9 +165,11 @@ ENV DISABLE_AUTOUPDATER=1
 # spec pip cannot take a #subdirectory fragment on falls through to PyPI).
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
-# (CompileError escapes uncaught), which fails any source build of the EPICS
-# toolchain (pvxslibs/epicscorelibs/softioc) on platforms without a binary
-# wheel — notably linux/arm64 images built on Apple Silicon. PIP_CONSTRAINT
+# (CompileError escapes uncaught), which fails any source build of
+# epicscorelibs on platforms without a binary wheel — notably linux/arm64
+# images built on Apple Silicon. epicscorelibs arrives through a core
+# framework dependency (ophyd-async[ca] -> aioca), not through the EPICS
+# connector, whose pvapy client ships linux/aarch64 wheels. PIP_CONSTRAINT
 # reaches pip's isolated build environments, where a plain requirement pin
 # would not. Drop the constraint once a fixed setuptools or setuptools_dso
 # release is out.

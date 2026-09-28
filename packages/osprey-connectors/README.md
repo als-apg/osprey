@@ -51,17 +51,18 @@ directly.
 | `osprey.simulation.machine` | `osprey_connectors.simulation.machine` |
 | `osprey.simulation.series` | `osprey_connectors.simulation.series` |
 
-## Optional runtime dependencies
+## Runtime dependencies
 
-Only the connectors you actually use need their backing libraries installed;
-none of the following are declared as hard dependencies of this package, so
-importing `osprey_connectors` never requires them:
+`osprey-connectors` supports CPython 3.11, 3.12 and 3.13. The EPICS connector's
+client, `pvapy` (imported as `pvaccess`), serves both Channel Access and
+PVAccess and is a declared dependency; its wheels carry their own EPICS
+libraries for macOS (x86_64, arm64), Linux (x86_64, aarch64) and Windows, so
+there is no separate `libca` to install. Python 3.14 is not supported until
+pvapy publishes wheels for it.
 
-- **EPICS Channel Access client libraries** — `pyepics` itself is a declared
-  dependency, but it needs a working `libca` at runtime to talk to real IOCs.
-  Install `epicscorelibs` (or otherwise make a per-architecture `libca`
-  available) if you use `EPICSConnector` or `EPICSArchiverConnector` against a
-  live control system; `PYEPICS_LIBCA` can also point at one explicitly.
+Only the connectors you actually use need the remaining backing libraries
+installed:
+
 - **`pymongo`** — required by `MongoDBArchiverConnector`. Installed with this
   package; the connector imports it inside `connect()` so registration stays
   cheap, not because it is optional.

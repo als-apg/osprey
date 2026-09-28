@@ -560,13 +560,15 @@ def test_manifest_installing_recipes_constrain_setuptools(dockerfile):
     """Every recipe that installs the local manifest pins setuptools below 84.
 
     setuptools 84.0.0 broke ``setuptools_dso``'s compile-probe error handling,
-    so any source build of the EPICS toolchain (p4p pulls
-    pvxslibs/epicscorelibs) dies where no binary wheel exists — every
-    linux/arm64 image. p4p is a base framework dependency, so it is in the
-    manifest, so this is not optional for any recipe that installs it.
+    so a source build of epicscorelibs dies where no binary wheel exists —
+    every linux/arm64 image. epicscorelibs reaches every image through a base
+    framework dependency (``ophyd-async[ca]`` pulls ``aioca``, which pulls
+    it), so it is in the manifest, so this is not optional for any recipe that
+    installs it. (The EPICS connector's own client, pvapy, ships aarch64
+    wheels and is not the reason.)
 
     Parametrized over the discovered set rather than a list on purpose: the
-    single-recipe guard in :mod:`tests.deployment.test_arm64_p4p_image_build`
+    single-recipe guard in :mod:`tests.deployment.test_arm64_pvapy_image_build`
     covers only the rendered project image, which is how the sidecar spent a
     release without the constraint and only failed on a cold arm64 build.
     """

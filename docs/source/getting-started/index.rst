@@ -26,7 +26,7 @@ By following this comprehensive learning path, you'll have:
    :color: info
    :icon: list-unordered
 
-   * Python 3.11+ installed
+   * Python 3.11 to 3.13 installed
 
    * Basic Python knowledge
 

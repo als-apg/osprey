@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/als-apg/osprey/actions/workflows/ci.yml/badge.svg)](https://github.com/als-apg/osprey/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/osprey-framework)](https://pypi.org/project/osprey-framework/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11-3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](https://www.python.org/downloads/)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE.txt)
 [![DOI](https://img.shields.io/badge/DOI-10.1063%2F5.0306302-blue)](https://doi.org/10.1063/5.0306302)
 [![Documentation](https://img.shields.io/badge/docs-als--apg.github.io%2Fosprey-blue)](https://als-apg.github.io/osprey)

@@ -92,25 +92,14 @@ Pick a control system
                  write_access: { address: cagw.facility.edu, port: 5084 }
                timeout: 5.0
 
-      .. rubric:: Fresh reads
+      .. rubric:: Reads go to the IOC
 
-      An ordinary Channel Access read answers from pyepics' monitor cache,
-      which moves only when the IOC posts an update. An IOC that computes a
-      readback when it is read -- a caproto getter, for example -- posts none,
-      so a cached read of it keeps returning the first value it saw. Set
-      ``fresh_reads: true`` on the connector block and every Channel Access
-      read asks the IOC instead, at one network round trip per read:
-
-      .. code-block:: yaml
-
-         control_system:
-           connector:
-             epics:
-               fresh_reads: true
-
-      The option is per block, so a stand-in simulator can have it while the
-      live machine does not. Write confirmation and the ``max_step`` check
-      already read fresh whatever it says, and pvAccess reads are never cached.
+      Every read, over Channel Access or pvAccess, asks the IOC and costs one
+      network round trip; nothing answers from a client-side monitor cache.
+      An IOC that computes a readback when it is read -- a caproto getter, for
+      example -- therefore returns the current value on every read. Write
+      confirmation waits for the IOC's put-callback before the connector
+      reports the write as done.
 
       .. rubric:: PVAccess channels (PVA)
 
@@ -196,13 +185,12 @@ Pick a control system
 
       .. note::
 
-         The pvAccess client (``p4p``) ships with OSPREY as an ordinary
-         dependency, so there is normally nothing to install. The exception is
-         a bare-metal install on arm64 Linux, where ``p4p``, ``pvxslibs`` and
-         ``epicscorelibs`` publish no wheels and pip builds them from source:
-         that host needs a C toolchain (a compiler and ``make``) present.
-         OSPREY's own project images already stage one, so containerized
-         deployments are unaffected.
+         The EPICS client, ``pvapy`` (imported as ``pvaccess``), serves both
+         Channel Access and pvAccess and ships with OSPREY as an ordinary
+         dependency. Its wheels carry their own EPICS libraries for macOS
+         (x86_64, arm64), Linux (x86_64, aarch64) and Windows on CPython 3.11
+         to 3.13, so there is nothing to install or compile. Python 3.14 is not
+         supported until pvapy publishes wheels for it.
 
    .. tab-item:: DOOCS
       :sync: doocs

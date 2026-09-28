@@ -20,7 +20,7 @@ control-room operator skills.
 
    **Required:**
 
-   - Python 3.11+
+   - Python 3.11 to 3.13
    - `Claude Code <https://docs.anthropic.com/en/docs/claude-code/overview>`_ CLI installed
    - Osprey framework installed (``uv tool install osprey-framework``, or
      ``uv sync --extra dev`` if working from a clone)

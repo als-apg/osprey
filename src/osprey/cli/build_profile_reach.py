@@ -112,7 +112,7 @@ def pva_address_source_advisories(rendered_config: Mapping[str, Any]) -> list[st
 
     The connector-host child scrubs every inherited ``EPICS_PVA_*`` variable
     before the connector runs, so ``pva_gateway`` is the only route a PVA
-    address list has into p4p. A block that lists ``pva_channels`` and relies
+    address list has into the PVA client. A block that lists ``pva_channels`` and relies
     on ``EPICS_PVA_ADDR_LIST`` from the deployment's environment gets subnet
     auto-discovery instead, which from an off-subnet host is a bare timeout on
     every read. Advisory only: on the servers' own subnet discovery works.

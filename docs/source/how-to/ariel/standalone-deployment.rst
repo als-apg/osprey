@@ -33,7 +33,7 @@ on their corpus before committing to the full deployment.
    The standalone preset requires a working Osprey installation. Make sure
    you have the following ready before proceeding.
 
-   - **Python 3.11+** with a virtual environment
+   - **Python 3.11 to 3.13** with a virtual environment
    - **Osprey installed:** ``uv sync``
    - **Container runtime:** `Docker Desktop 4.0+ <https://docs.docker.com/get-docker/>`_ or `Podman 4.0+ <https://podman.io/getting-started/installation>`_ (for PostgreSQL and the web interface)
    - **LLM API access:** An API key for your configured provider (e.g., ``ANTHROPIC_API_KEY``)
