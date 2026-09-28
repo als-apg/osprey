@@ -1092,8 +1092,14 @@ def set_control_system_type(
 
     Args:
         config_path: Path to config.yml
-        control_type: 'mock', 'epics', or 'virtual_accelerator'
-        archiver_type: Optional archiver type ('mock_archiver', 'epics_archiver')
+        control_type: The connector name to write as ``control_system.type``: a
+            built-in from :data:`osprey_connectors.types.SET_CONTROL_SYSTEM_TYPES`,
+            or a custom connector's dotted module path. Written as given; not
+            validated here.
+        archiver_type: The connector name to write as ``archiver.type`` — a
+            built-in from :data:`osprey_connectors.types.CLI_ARCHIVER_TYPES`, or a
+            custom connector's dotted module path — or ``None`` to leave the key
+            untouched.
         create_backup: If True, copies the file into the agent-data state zone
                 before modifying it (see :func:`config_backup_path`)
 
