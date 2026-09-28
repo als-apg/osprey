@@ -271,7 +271,9 @@ def validate(facility_dir: Path, *, project_name: str, file: IO[Any] | None = No
     Returns:
         The exit code: 0 when every stage is clean, else 1.
     """
-    result = run_stages(facility_dir, project_name=project_name)
+    from osprey.facility.build import LATER_STAGES
+
+    result = run_stages(facility_dir, project_name=project_name, later=LATER_STAGES)
     report(result.errors, file)
     return 0 if result.ok else 1
 
