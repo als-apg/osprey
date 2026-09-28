@@ -170,7 +170,8 @@ class Sources:
         classes: ``classes.yaml``'s records, in file order.
         records: Every layer's records, ordered by layer, file and position.
         seeds: ``seeds.yaml``, address to seed record.
-        limits: ``limits.yaml`` without its header, or ``None`` when absent.
+        limits: ``limits.yaml`` without its header, or ``None`` when absent or
+            holding nothing but a header or comments (limits are opt-in).
         scenarios: One record per ``scenarios/<name>.yaml``, with its ``name``,
             sorted by name.
         measurement: ``measurement/<model>.yaml``, model name to its record.
@@ -437,7 +438,7 @@ class _Reader:
     def _read_limits(self) -> None:
         rel = "limits.yaml"
         data = self._mapping(self.root / rel)
-        if data is None:
+        if not data:
             return
         self._check_keys(data, "Limits", (), "path", rel, rel)
         defaults = data.get("defaults")
