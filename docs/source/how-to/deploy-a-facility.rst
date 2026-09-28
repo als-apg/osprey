@@ -490,6 +490,11 @@ images, which is what a runner with internet access wants.
 itself from the rendered persona projects, rather than pulling them from a
 registry.
 
+With ``registry``, the host pulls them under names derived from the top-level
+``registry.url`` in ``config:``, which is not this block's ``registry.url``, and
+the scaffolded pipeline does not push those images. The names and what has to
+push them: :ref:`multi-user-registry-images`.
+
 .. important::
 
    In the same edit, delete the ``image_source: local`` line from the
