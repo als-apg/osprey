@@ -628,6 +628,7 @@ def build_agent_options(
             auth_token,
             provider=spec.provider,
             forward_headers=declared_header_names(env),
+            supports_images=spec.supports_images,
         )
         env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 

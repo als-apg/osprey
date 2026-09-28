@@ -285,9 +285,14 @@ def _e2e_translation_proxy():
     # key the cell needs; the proxy var is never tied to one provider name.
     key = os.environ.get("OSPREY_E2E_PROXY_KEY", "")
     # One proxy serves every project's CLI; a project on a LiteLLM gateway declares
-    # exactly the two attribution headers.
+    # exactly the two attribution headers. The run's provider decides whether
+    # images are carried, as its request shape does.
     port = start_proxy(
-        upstream, key, provider=e2e_provider(), forward_headers=(END_USER_HEADER, TAGS_HEADER)
+        upstream,
+        key,
+        provider=e2e_provider(),
+        forward_headers=(END_USER_HEADER, TAGS_HEADER),
+        supports_images=None,
     )
     os.environ["OSPREY_E2E_PROXY_BASE_URL"] = f"http://127.0.0.1:{port}"
     try:

@@ -57,6 +57,7 @@ def create_proxy_app(
     upstream_base_url: str,
     upstream_api_key: str | None = None,
     *,
+    provider: str | None = None,  # noqa: ARG001
     max_tokens_param: str = "max_tokens",
     accepts_temperature: Callable[[str], bool] | None = None,
     forward_headers: Iterable[str] = (),
@@ -67,6 +68,8 @@ def create_proxy_app(
     Args:
         upstream_base_url: OpenAI-compatible endpoint (e.g. https://aiapi-prod.stanford.edu/v1).
         upstream_api_key: API key for the upstream provider.
+        provider: The provider behind the upstream, named in the proxy's
+            warnings and errors.
         max_tokens_param: The upstream parameter that carries the output-token cap.
         accepts_temperature: Asked with each request's model whether the upstream
             takes a caller-chosen temperature for it; None sends every temperature.

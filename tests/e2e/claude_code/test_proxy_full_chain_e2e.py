@@ -63,6 +63,7 @@ def running_proxy():
         environ.get(spec.auth_env_var),
         provider=spec.provider,
         forward_headers=declared_header_names(environ),
+        supports_images=spec.supports_images,
     )
     base = f"http://127.0.0.1:{port}"  # what `osprey chat` writes to ANTHROPIC_BASE_URL
     try:

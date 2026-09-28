@@ -705,6 +705,8 @@ def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
     assert upstream == "https://argo.example/v1"
     assert api_key == "sk-argo"
     assert proxy.call_args.kwargs["forward_headers"] == frozenset({"x-corp-trace"})
+    # The argo entry declares nothing, so the adapter decides at proxy start.
+    assert proxy.call_args.kwargs["supports_images"] is None
     assert fake["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:7777"
 
 
