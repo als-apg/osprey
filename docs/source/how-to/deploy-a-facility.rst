@@ -556,7 +556,8 @@ Two files appear:
    environment, which is why it is not in ``env.required``.
 
 ``scripts/verify.sh``
-   The post-deploy health check, at the repository root.
+   The post-deploy health check, at the repository root: every container of the
+   deployment, then the endpoints it can probe.
 
 Re-run ``osprey scaffold ci`` whenever the ``deploy:`` block changes. It is
 safe to re-run: a file whose content already matches is left untouched, and a
@@ -633,8 +634,9 @@ Step 9 — Deploy and check
    workflow.
 
 The first run is slow: the virtual accelerator and the facility's own image are
-both built locally. When the containers are up, ``osprey up`` runs
-``scripts/verify.sh`` itself and prints a summary of the published endpoints.
+both built locally. When the containers are up, ``osprey up`` prints a summary
+of the published endpoints and, on a deployment with the web tier, runs
+``scripts/verify.sh`` itself; without the web tier, nothing runs it for you.
 
 .. code-block:: bash
 
@@ -649,12 +651,15 @@ before you trust it:
 
 .. code-block:: bash
 
-   ./scripts/verify.sh              # every probe
-   ./scripts/verify.sh services     # one group
+   ./scripts/verify.sh              # every group
+   ./scripts/verify.sh containers   # one group
+   ./scripts/verify.sh --strict     # exit 1 if anything is flagged
 
-It always exits 0 — the output is the report, and the exit code says nothing.
-Probes are advisory: a failed probe tells you where to look, and must never be
-the reason a deploy is called a failure.
+It exits 0 unless run with ``--strict``. A container that is not running or not
+healthy, and a probe that gets no answer, is flagged and tells you where to
+look. ``osprey up`` never passes ``--strict``, so a flag is never the reason a
+deploy is called a failure; ``--strict`` is for a job of your own that should
+fail on it.
 
 
 What the pipeline does

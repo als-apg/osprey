@@ -1481,7 +1481,8 @@ All subcommands accept a common flag:
    untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
    file the scaffolder did not write is reported and left alone unless
    ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
-   pipeline includes it.
+   pipeline includes it. The health check exits 0 unless run with ``--strict``,
+   which exits 1 when a container or a probe is flagged.
 
 ``osprey scaffold systemd [--force]``
    Emit the files that start this deployment at boot: a systemd user unit,
