@@ -165,6 +165,57 @@ def test_a_sequence_is_replaced_whole_rather_than_concatenated() -> None:
     assert merged["services"]["worker"]["ports"] == ["9190:9190"]
 
 
+def test_list_form_service_labels_merge_by_key_with_a_later_mapping() -> None:
+    """Service labels are a mapping to compose in either spelling, so a later
+    file's label mapping adds to an earlier file's list instead of replacing it."""
+    merged = merge_compose_documents(
+        [
+            {"services": {"worker": {"labels": ["a=1", "b=2"]}}},
+            {"services": {"worker": {"labels": {"b": 3, "c": 4}}}},
+        ]
+    )
+
+    assert merged["services"]["worker"]["labels"] == {"a": "1", "b": 3, "c": 4}
+
+
+def test_list_form_labels_alone_come_out_as_a_mapping() -> None:
+    """``key=value`` splits on the first ``=``; a bare key is an empty value."""
+    merged = merge_compose_documents(
+        [{"services": {"worker": {"labels": ["site.owner=ops", "url=a=b", "flag"]}}}]
+    )
+
+    assert merged["services"]["worker"]["labels"] == {
+        "site.owner": "ops",
+        "url": "a=b",
+        "flag": "",
+    }
+
+
+def test_list_form_labels_are_not_mutated_in_the_input() -> None:
+    document = {"services": {"worker": {"labels": ["a=1"]}}}
+
+    merge_compose_documents([document, {"services": {"worker": {"labels": {"b": "2"}}}}])
+
+    assert document == {"services": {"worker": {"labels": ["a=1"]}}}
+
+
+def test_an_overlay_merges_after_every_file(repo: Path) -> None:
+    """The overlay is the last word, on a key a file sets too."""
+    (repo / "build" / "services" / "labelled.yml").write_text(
+        "services:\n  dispatch-worker-1:\n    labels:\n      - owner=file\n      - keep=yes\n",
+        encoding="utf-8",
+    )
+    files = [*rendered_files(repo), repo / "build" / "services" / "labelled.yml"]
+    overlay = {"services": {"dispatch-worker-1": {"labels": {"owner": "overlay"}}}}
+
+    document = yaml.safe_load(write_merged_compose(repo, files, overlay=overlay).read_text())
+
+    assert document["services"]["dispatch-worker-1"]["labels"] == {
+        "owner": "overlay",
+        "keep": "yes",
+    }
+
+
 def test_the_inputs_are_never_mutated() -> None:
     first = {"services": {"worker": {"image": "first"}}}
     second = {"services": {"worker": {"image": "second"}}}
