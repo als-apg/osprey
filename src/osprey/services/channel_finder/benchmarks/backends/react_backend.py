@@ -17,6 +17,7 @@ from osprey.services.channel_finder.benchmarks.harness import (
 from osprey.services.channel_finder.benchmarks.sdk import _read_agent_prompt
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
 
+from ..project_env import expand_api_providers, project_dotenv
 from .base import Backend, WorkflowOutput
 
 logger = logging.getLogger(__name__)
@@ -31,22 +32,6 @@ def _project_config(project_dir: Path) -> dict[str, Any]:
         return {}
     loaded = yaml.safe_load(config_path.read_text())
     return loaded if isinstance(loaded, dict) else {}
-
-
-def _project_dotenv(project_dir: Path) -> dict[str, str]:
-    """Read the project's ``.env``, so a benchmark run needs no exported shell vars.
-
-    Returns an empty mapping when there is no file, or when ``python-dotenv``
-    is not installed — the caller falls back to the process environment.
-    """
-    env_file = project_dir / ".env"
-    if not env_file.is_file():
-        return {}
-    try:
-        from dotenv import dotenv_values
-    except ImportError:
-        return {}
-    return {key: value for key, value in dotenv_values(env_file).items() if value is not None}
 
 
 def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
@@ -65,8 +50,9 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     ``yaml.safe_load`` + ``ClaudeCodeModelResolver.resolve`` rather than going
     through ``load_provider_spec``, because the contract differs (synthetic
     ``{"provider": provider}`` config + litellm ``api_base``). It does expand
-    ``${VAR}`` in a provider's ``base_url``, against the same
-    ``os.environ`` + project ``.env`` overlay the auth secret is read from, and
+    ``${VAR}`` in a provider's ``base_url``, against the overlay
+    ``project_env`` defines (``os.environ`` over the project ``.env``) that
+    the auth secret is read from, and
     refuses a reference that resolves to nothing rather than handing litellm a
     placeholder as a hostname — the shipped catalog spells gateway endpoints
     that way.
@@ -77,7 +63,7 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     import yaml
 
     from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
-    from osprey_connectors.config import is_unresolved_placeholder, resolve_env_vars
+    from osprey_connectors.config import is_unresolved_placeholder
 
     config_path = project_dir / "config.yml"
     if not config_path.exists():
@@ -85,9 +71,8 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     config = yaml.safe_load(config_path.read_text()) or {}
     # os.environ wins over the project .env, so a sweep can redirect a provider
     # for one run without editing the deployment's file.
-    dotenv = _project_dotenv(project_dir)
-    overlay = {**dotenv, **os.environ}
-    api_providers = resolve_env_vars(config.get("api", {}).get("providers", {}), environ=overlay)
+    dotenv = project_dotenv(project_dir)
+    api_providers = expand_api_providers(config, {**dotenv, **os.environ})
     spec = ClaudeCodeModelResolver.resolve({"provider": provider}, api_providers)
     if spec is None:
         return None
