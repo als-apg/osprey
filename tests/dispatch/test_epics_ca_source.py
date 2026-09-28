@@ -1,8 +1,8 @@
 """Unit tests for osprey.dispatch.sources.epics_ca.EpicsCaSource.
 
 Exercises edge detection, cool-down suppression, first-read suppression, and
-multi-PV independence without a live IOC.  pyepics is replaced by a minimal
-fake that injects callbacks synchronously.
+multi-PV independence without a live IOC.  ``pvaccess.Channel`` is replaced by
+a minimal fake that injects monitor updates synchronously.
 """
 
 from __future__ import annotations
@@ -14,8 +14,10 @@ from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
 import pytest
 
+from osprey.dispatch.sources import epics_ca
 from osprey.dispatch.sources.epics_ca import EpicsCaSource, _PvWatcher
 from osprey.dispatch.trigger_config import TriggerConfig
 
@@ -45,23 +47,52 @@ def _trigger(
     )
 
 
-class _FakePV:
-    """Minimal pyepics.PV stand-in; stores callback and exposes fire()."""
+class _FakeUpdate:
+    """Minimal ``pvaccess.PvObject`` stand-in: only ``toDict`` is read."""
 
-    def __init__(self, pvname: str, callback=None, **kw: Any) -> None:
-        self.pvname = pvname
-        self._callback = callback
+    def __init__(self, value: Any) -> None:
+        self._value = value
+
+    def toDict(self) -> dict[str, Any]:
+        return {
+            "value": self._value,
+            "alarm": {"severity": 0, "status": 0, "message": "NO_ALARM"},
+            "timeStamp": {"secondsPastEpoch": 0, "nanoseconds": 0, "userTag": 0},
+        }
+
+
+class _FakeChannel:
+    """Minimal ``pvaccess.Channel`` stand-in; stores subscribers and exposes fire()."""
+
+    def __init__(self, name: str, provider: Any = None) -> None:
+        self.name = name
+        self.provider = provider
+        self.subscribers: dict[str, Any] = {}
+        self.request: str | None = None
+        self.monitoring = False
+
+    def subscribe(self, name: str, callback: Any) -> None:
+        self.subscribers[name] = callback
+
+    def unsubscribe(self, name: str) -> None:
+        del self.subscribers[name]
+
+    def startMonitor(self, request: str = "") -> None:
+        self.request = request
+        self.monitoring = True
+
+    def stopMonitor(self) -> None:
+        self.monitoring = False
 
     def fire(self, value: Any) -> None:
-        """Synchronously invoke the callback as if a CA monitor event arrived."""
-        if self._callback is not None:
-            self._callback(pvname=self.pvname, value=value)
+        """Synchronously deliver a monitor update, as pvapy's worker thread would."""
+        if not self.monitoring:
+            return
+        for callback in list(self.subscribers.values()):
+            callback(_FakeUpdate(value))
 
-    def clear_callbacks(self) -> None:
-        self._callback = None
 
-    def disconnect(self) -> None:
-        pass
+_CHANNEL = "osprey.dispatch.sources.epics_ca.pvaccess.Channel"
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +146,7 @@ class TestPvWatcherEdgeDetection:
 # Integration-style tests: _PvWatcher with a fake CA monitor and a real asyncio
 # loop running in a background thread.
 #
-# This mirrors production: pyepics delivers CA callbacks on its own thread while
+# This mirrors production: pvapy delivers monitor updates on its own thread while
 # the dispatcher's asyncio loop runs elsewhere, and ``_PvWatcher`` bridges the
 # two via ``run_coroutine_threadsafe``.  Running a genuine loop (rather than
 # hand-stepping one) keeps the threadsafe hand-off deterministic regardless of
@@ -192,20 +223,14 @@ def _arm_watcher(
     trigger: TriggerConfig,
     fire_cb: Any,
     loop: asyncio.AbstractEventLoop,
-) -> tuple[_PvWatcher, _FakePV]:
-    """Arm a _PvWatcher with a _FakePV and return both."""
-    fake_pv = None
-
-    def _fake_epics_pv(pvname, callback=None, **kw):
-        nonlocal fake_pv
-        fake_pv = _FakePV(pvname, callback=callback)
-        return fake_pv
-
-    with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_fake_epics_pv):
+) -> tuple[_PvWatcher, _FakeChannel]:
+    """Arm a _PvWatcher with a _FakeChannel and return both."""
+    with patch(_CHANNEL, side_effect=_FakeChannel):
         watcher = _PvWatcher(trigger=trigger, fire_callback=fire_cb, loop=loop)
         watcher.start()
 
-    return watcher, fake_pv
+    assert isinstance(watcher._channel, _FakeChannel)
+    return watcher, watcher._channel
 
 
 class TestFirstReadSuppression:
@@ -318,6 +343,47 @@ class TestNonNumericValue:
         assert payload["previous_value"] == 0.0
 
 
+class TestEnumValue:
+    """pvapy hands an enum over as index + choices; the index is thresholded."""
+
+    def test_enum_thresholds_on_its_index(self) -> None:
+        rec = _FireRecorder()
+        trigger = _trigger(pv="SIM:STATE", threshold=1.0, edge="rising", cool_down_sec=0.0)
+        choices = ["OFF", "ON", "STANDBY"]
+        with _running_loop() as loop:
+            _watcher, channel = _arm_watcher(trigger, rec, loop)
+            channel.fire({"index": 0, "choices": choices})  # first read (suppressed)
+            channel.fire({"index": 1, "choices": choices})  # OFF -> ON crosses 1.0
+            assert rec.wait_until(1)
+        payload = rec.payloads[0]
+        assert payload["value"] == 1.0
+        assert payload["previous_value"] == 0.0
+
+
+class TestArrayValue:
+    """A one-element waveform is thresholded as its element, as pyepics handed it over."""
+
+    def test_one_element_array_thresholds_on_its_element(self) -> None:
+        rec = _FireRecorder()
+        trigger = _trigger(pv="SIM:WF1", threshold=1.0, edge="rising", cool_down_sec=0.0)
+        with _running_loop() as loop:
+            _watcher, channel = _arm_watcher(trigger, rec, loop)
+            channel.fire(np.array([0.0]))  # first read (suppressed)
+            channel.fire(np.array([2.0]))  # crosses 1.0
+            assert rec.wait_until(1)
+        assert rec.payloads[0]["value"] == 2.0
+
+    def test_longer_array_is_ignored_as_non_numeric(self) -> None:
+        rec = _FireRecorder()
+        trigger = _trigger(pv="SIM:WF3", threshold=1.0, edge="rising", cool_down_sec=0.0)
+        with _running_loop() as loop:
+            _watcher, channel = _arm_watcher(trigger, rec, loop)
+            channel.fire(0.0)  # first read (suppressed)
+            channel.fire([2.0, 3.0, 4.0])
+            rec.settle()
+        assert rec.call_count == 0
+
+
 # ---------------------------------------------------------------------------
 # Multi-PV independence
 # ---------------------------------------------------------------------------
@@ -408,17 +474,17 @@ class TestEpicsCaSourceLifecycle:
 
         created = []
 
-        def _fake_pv(pvname, callback=None, **kw):
-            pv = _FakePV(pvname, callback)
-            created.append(pv)
-            return pv
+        def _fake_channel(name, provider=None):
+            channel = _FakeChannel(name, provider)
+            created.append(channel)
+            return channel
 
-        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_fake_pv):
+        with patch(_CHANNEL, side_effect=_fake_channel):
             await source.start(triggers, fire_cb)
 
         assert len(source._watchers) == 2
         assert len(created) == 2
-        pv_names = {pv.pvname for pv in created}
+        pv_names = {pv.name for pv in created}
         assert pv_names == {"SIM:PV:1", "SIM:PV:2"}
 
     @pytest.mark.asyncio
@@ -432,7 +498,7 @@ class TestEpicsCaSourceLifecycle:
         )
         fire_cb = AsyncMock(return_value=None)
 
-        with patch("osprey.dispatch.sources.epics_ca.epics.PV") as mock_pv:
+        with patch(_CHANNEL) as mock_pv:
             await source.start([bad_trigger], fire_cb)
 
         mock_pv.assert_not_called()
@@ -446,7 +512,7 @@ class TestEpicsCaSourceLifecycle:
 
         with (
             caplog.at_level("WARNING", logger="osprey.dispatch.sources.epics_ca"),
-            patch("osprey.dispatch.sources.epics_ca.epics.PV") as mock_pv,
+            patch(_CHANNEL) as mock_pv,
         ):
             await source.start([_trigger(name="typo", edge="up")], fire_cb)
 
@@ -467,16 +533,16 @@ class TestEpicsCaSourceLifecycle:
 
         created = []
 
-        def _fake_pv(pvname, callback=None, **kw):
-            pv = _FakePV(pvname, callback)
-            created.append(pv)
-            return pv
+        def _fake_channel(name, provider=None):
+            channel = _FakeChannel(name, provider)
+            created.append(channel)
+            return channel
 
-        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_fake_pv):
+        with patch(_CHANNEL, side_effect=_fake_channel):
             await source.start(triggers, fire_cb)
 
         assert len(source._watchers) == 1
-        assert [pv.pvname for pv in created] == ["SIM:PV:2"]
+        assert [pv.name for pv in created] == ["SIM:PV:2"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("edge", ["rising", "falling", "both"])
@@ -485,7 +551,7 @@ class TestEpicsCaSourceLifecycle:
         source = EpicsCaSource()
         fire_cb = AsyncMock(return_value=None)
 
-        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_FakePV):
+        with patch(_CHANNEL, side_effect=_FakeChannel):
             await source.start([_trigger(edge=edge)], fire_cb)
 
         assert len(source._watchers) == 1
@@ -502,7 +568,7 @@ class TestEpicsCaSourceLifecycle:
             source_config={"pv": "SIM:PV"},
         )
 
-        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_FakePV):
+        with patch(_CHANNEL, side_effect=_FakeChannel):
             await source.start([trigger], fire_cb)
 
         assert len(source._watchers) == 1
@@ -514,12 +580,42 @@ class TestEpicsCaSourceLifecycle:
         triggers = [_trigger(name="t1", pv="SIM:PV:1")]
         fire_cb = AsyncMock(return_value=None)
 
-        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_FakePV):
+        with patch(_CHANNEL, side_effect=_FakeChannel):
             await source.start(triggers, fire_cb)
 
         assert len(source._watchers) == 1
         await source.stop()
         assert len(source._watchers) == 0
+
+    @pytest.mark.asyncio
+    async def test_monitor_is_opened_on_the_ca_provider(self) -> None:
+        """The channel is a Channel Access one, not the PVA default."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+
+        with patch(_CHANNEL, side_effect=_FakeChannel):
+            await source.start([_trigger(pv="SIM:PV:1")], fire_cb)
+
+        channel = source._watchers[0]._channel
+        assert channel.provider is epics_ca.pvaccess.CA
+        assert channel.monitoring
+        assert channel.request is not None and "value" in channel.request
+        assert len(channel.subscribers) == 1
+
+    @pytest.mark.asyncio
+    async def test_stop_ends_monitor_and_unsubscribes(self) -> None:
+        """After stop() no further update reaches the watcher."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+
+        with patch(_CHANNEL, side_effect=_FakeChannel):
+            await source.start([_trigger(pv="SIM:PV:1")], fire_cb)
+        channel = source._watchers[0]._channel
+
+        await source.stop()
+
+        assert not channel.monitoring
+        assert channel.subscribers == {}
 
     def test_source_type_classvar(self) -> None:
         assert EpicsCaSource.source_type == "epics_ca"

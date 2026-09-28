@@ -1,8 +1,14 @@
 """EPICS Channel Access trigger source for the event dispatcher.
 
-Manages one pyepics CA monitor per trigger, applies threshold/edge/cool-down/
-first-read-suppression logic, and forwards threshold-crossing events to the
-asyncio serving loop via ``run_coroutine_threadsafe``.
+Manages one Channel Access monitor per trigger (a pvapy ``pvaccess.Channel``
+opened on the CA provider), applies threshold/edge/cool-down/first-read-
+suppression logic, and forwards threshold-crossing events to the asyncio
+serving loop via ``run_coroutine_threadsafe``.
+
+pvapy reads the ``EPICS_CA_*`` environment when the first CA channel of the
+process is created, not at import, and the settings are then fixed for the
+process's lifetime: the dispatcher's environment decides which IOCs every
+trigger can reach.
 """
 
 from __future__ import annotations
@@ -13,7 +19,7 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import epics
+import pvaccess
 
 from osprey.dispatch.pool import QueueFullError
 
@@ -31,12 +37,42 @@ logger = logging.getLogger("osprey.dispatch.sources.epics_ca")
 #: silently.
 VALID_EDGES = frozenset({"rising", "falling", "both"})
 
+#: The fields each monitor asks for. Only ``value`` is thresholded; ``alarm``
+#: and ``timeStamp`` are the rest of a CA monitor event and are kept so a debug
+#: session inspecting the raw update sees the whole of it.
+_MONITOR_REQUEST = "field(value,alarm,timeStamp)"
+
+
+def _monitor_value(update: Any) -> Any:
+    """The scalar a monitor update carries, in the form pyepics used to hand over.
+
+    pvapy delivers a ``PvObject``; its ``value`` is a plain Python scalar for a
+    numeric or string record, and for an enum (``bi``/``mbbi``/``bo``/``mbbo``)
+    a ``{"index": …, "choices": […]}`` structure. The enum is reduced to its
+    index — the number pyepics passed as ``value`` — so a threshold on a
+    state PV keeps meaning what it meant before the client changed.
+
+    A one-element array is reduced to its element for the same reason: pyepics
+    handed a waveform of one element over as that scalar, so a threshold on
+    one kept working. Longer arrays stay arrays and are ignored as non-numeric.
+    """
+    value = update.toDict().get("value")
+    if isinstance(value, dict) and "index" in value:
+        return value["index"]
+    if not isinstance(value, str | bytes | dict):
+        try:
+            if len(value) == 1:
+                return value[0]
+        except TypeError:  # a scalar has no length
+            pass
+    return value
+
 
 class _PvWatcher:
     """Monitor one PV and fire a callback when its value crosses a threshold.
 
-    Runs on pyepics' CA thread; hands off to the asyncio serving loop via
-    ``run_coroutine_threadsafe``.  Each instance is self-contained so that
+    Runs on a pvapy monitor worker thread; hands off to the asyncio serving
+    loop via ``run_coroutine_threadsafe``.  Each instance is self-contained so that
     multiple PVs are independent: a cool-down or first-read on one does not
     affect the others.
     """
@@ -55,21 +91,36 @@ class _PvWatcher:
         self._trigger = trigger
         self._fire = fire_callback
         self._loop = loop
-        self._pv: epics.PV | None = None
+        self._channel: pvaccess.Channel | None = None
+        # One subscriber per watcher; the name only has to be unique on its
+        # channel, and each watcher opens its own channel.
+        self._subscriber = f"osprey-dispatch-{trigger.name}"
         self._last_fire_ts: float | None = None  # None = has not fired yet
         self._last_value: float | None = None  # None = first read not yet seen
 
     def start(self) -> None:
-        self._pv = epics.PV(self._pv_name, callback=self._on_change)
+        """Open the channel and start its monitor.
+
+        Neither call waits for the IOC: an unreachable PV arms a monitor that
+        begins delivering when the channel connects, so a missing IOC cannot
+        stall the dispatcher's lifespan startup. The first update after a
+        (re)connect carries the current value.
+        """
+        channel = pvaccess.Channel(self._pv_name, pvaccess.CA)
+        channel.subscribe(self._subscriber, self._on_update)
+        channel.startMonitor(_MONITOR_REQUEST)
+        self._channel = channel
 
     def stop(self) -> None:
-        if self._pv is not None:
-            self._pv.clear_callbacks()
-            self._pv.disconnect()
-            self._pv = None
+        if self._channel is not None:
+            # stopMonitor first: it takes effect at once, so no update arrives
+            # for a subscriber that is about to go away.
+            self._channel.stopMonitor()
+            self._channel.unsubscribe(self._subscriber)
+            self._channel = None
 
     # ------------------------------------------------------------------
-    # Internals (run on pyepics CA thread)
+    # Internals (run on the pvapy monitor thread)
     # ------------------------------------------------------------------
 
     def _detect_edge(self, prev: float, curr: float) -> bool:
@@ -86,21 +137,21 @@ class _PvWatcher:
         # "both"
         return (prev < self._threshold <= curr) or (prev > self._threshold >= curr)
 
-    def _on_change(
-        self,
-        pvname: str | None = None,  # noqa: ARG002 - Channel Access monitor callbacks arrive by keyword; the threshold reads the value
-        value: Any = None,
-        **kw: Any,
-    ) -> None:
-        """pyepics CA-thread callback. Schedules the fire coroutine on the loop."""
+    def _on_update(self, update: Any) -> None:
+        """pvapy monitor callback. Schedules the fire coroutine on the loop."""
+        self._on_change(_monitor_value(update))
+
+    def _on_change(self, value: Any) -> None:
+        """Threshold one monitored value; runs on the pvapy monitor thread."""
         if value is None:
             return
         try:
             numeric = float(value)
         except (TypeError, ValueError):
-            # Non-numeric PV (enum string, waveform, …): nothing to threshold on.
-            # Log and return rather than raise on the CA thread, where pyepics
-            # swallows the exception and the watcher would silently die.
+            # Non-numeric PV (string record, waveform, …): nothing to threshold
+            # on. Log and return rather than raise: pvapy logs
+            # an exception from a monitor callback and carries on, but a named
+            # warning says which trigger and PV it was.
             logger.warning(
                 "EPICS CA trigger '%s' PV '%s' produced non-numeric value %r; ignoring",
                 self._trigger.name,
