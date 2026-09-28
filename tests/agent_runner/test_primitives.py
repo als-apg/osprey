@@ -121,6 +121,53 @@ def test_in_context_backend_env_carries_the_gateway_endpoint(
 
 
 # ---------------------------------------------------------------------------
+# Custom request headers
+# ---------------------------------------------------------------------------
+
+
+def test_litellm_gateway_merges_attribution_into_the_operators_custom_headers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A LiteLLM gateway adds its attribution beside the operator's own headers."""
+    _write_config(tmp_path, "cborg")
+    monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-secret")
+    monkeypatch.setenv("ANTHROPIC_CUSTOM_HEADERS", "X-Corp-Trace: abc123")
+
+    env = provider_env_for_project(tmp_path)
+
+    lines = env["ANTHROPIC_CUSTOM_HEADERS"].splitlines()
+    assert lines[0] == "X-Corp-Trace: abc123"
+    assert any(line.startswith("x-litellm-end-user-id: ") for line in lines)
+    assert any(line.startswith("x-litellm-tags: ") for line in lines)
+
+
+def test_a_direct_provider_carries_the_operators_custom_headers_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A direct provider gets the operator's headers and no attribution."""
+    _write_config(tmp_path, "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+    monkeypatch.setenv("ANTHROPIC_CUSTOM_HEADERS", "X-Corp-Trace: abc123")
+
+    env = provider_env_for_project(tmp_path)
+
+    assert env["ANTHROPIC_CUSTOM_HEADERS"] == "X-Corp-Trace: abc123"
+
+
+def test_no_custom_headers_without_an_operator_value_or_a_gateway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Neither an operator value nor a gateway means the variable is not set."""
+    _write_config(tmp_path, "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+    monkeypatch.delenv("ANTHROPIC_CUSTOM_HEADERS", raising=False)
+
+    env = provider_env_for_project(tmp_path)
+
+    assert "ANTHROPIC_CUSTOM_HEADERS" not in env
+
+
+# ---------------------------------------------------------------------------
 # Direct provider: auth_env_var == auth_secret_env (anthropic)
 # ---------------------------------------------------------------------------
 
