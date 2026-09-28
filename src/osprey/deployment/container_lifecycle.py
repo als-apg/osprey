@@ -4970,8 +4970,8 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         load_machine_json_channels,
         load_manifest_file,
     )
-    from osprey.simulation.apply import resolve_simulation_file
     from osprey.simulation.engine import SimulationEngine, resolve_state_dir
+    from osprey_connectors.simulation.engine import resolve_simulation_file
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
     named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()

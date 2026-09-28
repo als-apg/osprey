@@ -7,7 +7,7 @@ raised otherwise. In VA mode (``control_system.type: virtual_accelerator``)
 that breaks the write->apply->read flow: the VA connector's simulation_file
 lives under ``connector.virtual_accelerator.simulation_file`` instead.
 
-``osprey.simulation.apply.resolve_simulation_file`` is the single shared
+``osprey_connectors.simulation.engine.resolve_simulation_file`` is the single shared
 resolver both call sites now use. This file pins:
 
 - mock resolution and its missing-key error text are bit-identical to the
@@ -29,7 +29,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
-from osprey.simulation.apply import apply_scenarios, resolve_simulation_file
+from osprey.simulation.apply import apply_scenarios
+from osprey_connectors.simulation.engine import resolve_simulation_file
 
 TEMPLATE_SIM = (
     Path(__file__).resolve().parents[2]
