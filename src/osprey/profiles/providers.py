@@ -20,7 +20,7 @@ import importlib.resources
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 import yaml
 
@@ -45,12 +45,24 @@ VALID_API_PROTOCOLS = frozenset({"anthropic", "openai"})
 #: entry without it names no endpoint, so nothing downstream can call it.
 #: ``default_model`` and ``models`` are required too and checked by their own
 #: shape (:func:`_validate_models`). ``api_key``, ``health_model``,
-#: ``claude_code_aliases`` and ``api_protocol`` are optional, and an entry may
-#: carry further keys the framework renders through without reading.
+#: ``claude_code_aliases``, ``api_protocol`` and ``requests_per_minute`` are
+#: optional, and an entry may carry further keys the framework renders through
+#: without reading.
 _REQUIRED_ENTRY_KEYS = ("base_url",)
 
 #: Claude Code's own alias names — the only keys ``claude_code_aliases`` takes.
 CLAUDE_CODE_ALIAS_NAMES = ("haiku", "sonnet", "opus")
+
+
+def is_request_cap(value: object) -> TypeGuard[int]:
+    """Return whether ``value`` is a valid ``requests_per_minute`` cap.
+
+    A request cap is a positive whole number of calls per minute. ``bool`` is
+    refused because YAML ``true`` loads as an ``int`` subclass. This is the one
+    spelling of the rule: the catalog loader and the rendered-config reader in
+    :mod:`osprey.models.config` both call it.
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 @dataclass(frozen=True)
@@ -180,6 +192,12 @@ def _validate_entry(path: Path, name: str, entry: Any) -> None:
         raise BuildProfileError(
             f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}.api_protocol` is "
             f"{protocol!r}; expected one of {', '.join(sorted(VALID_API_PROTOCOLS))}."
+        )
+    if "requests_per_minute" in entry and not is_request_cap(entry["requests_per_minute"]):
+        raise BuildProfileError(
+            f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}.requests_per_minute` must be "
+            f"a positive whole number of calls per minute, got "
+            f"{entry['requests_per_minute']!r}. Delete the key for no cap."
         )
     _validate_models(path, name, entry)
 

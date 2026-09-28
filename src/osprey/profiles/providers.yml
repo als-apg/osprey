@@ -26,6 +26,10 @@
 #                  an absent key means `openai`. Anything else, a capitalised
 #                  `Anthropic` included, is refused when the provider is
 #                  resolved rather than silently routed through the proxy.
+#   requests_per_minute
+#                  optional — a positive whole number: the most model calls a
+#                  minute the channel finder's subagent and its benchmark loop
+#                  send this provider. Absent, calls are not paced.
 #
 # Add your own gateway by appending an entry; the keys above are the whole
 # contract. A copy of this file beside profile.yml replaces the packaged
@@ -44,6 +48,8 @@ providers:
       - claude-opus-5
       - claude-sonnet-5
       - claude-haiku-4-5
+    # The free tier allows 20 requests a minute per key; raise or delete on a paid tier.
+    requests_per_minute: 18
   amsc-i2:
     api_key: ${AMSC_I2_API_KEY}
     base_url: https://api.i2-core.american-science-cloud.org/v1
