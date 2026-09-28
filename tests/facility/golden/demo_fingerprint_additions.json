@@ -1,0 +1,5 @@
+{
+  "_reproduce": "written by hand, in the change that adds the address",
+  "_description": "Addresses the demo serves beyond demo_fingerprint.json: one row per added address in the fingerprint's row shape (address, role, value_type, names, description), sorted by address.",
+  "rows": []
+}
