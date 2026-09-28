@@ -218,10 +218,11 @@ def read_connection_settings(
 
 
 def _read_url(value: Any, where: str) -> str | None:
-    if value is None:
+    # A blank url reads as unset, so the consumer's own "url is required" applies.
+    if value is None or (isinstance(value, str) and not value.strip()):
         return None
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"`{where}.url` must be a non-empty string")
+    if not isinstance(value, str):
+        raise ValueError(f"`{where}.url` must be a string")
     try:
         password = urllib.parse.urlsplit(value).password
     except ValueError:

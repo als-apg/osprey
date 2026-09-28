@@ -92,6 +92,16 @@ def test_a_variable_name_that_is_not_one_is_refused_without_echoing_it(value):
         assert value not in str(exc.value)
 
 
+@pytest.mark.parametrize("value", ["", "  "])
+def test_a_blank_url_reads_as_unset(value):
+    assert _read({"url": value}).url is None
+
+
+def test_a_url_that_is_not_a_string_is_refused():
+    with pytest.raises(ValueError, match=r"`archiver\.settings\.url` must be a string"):
+        _read({"url": 8443})
+
+
 def test_a_url_carrying_a_password_is_refused_without_echoing_it():
     with pytest.raises(ValueError, match="may not carry a password") as exc:
         _read({"url": "https://reader:hunter2@archiver.example.org"})
