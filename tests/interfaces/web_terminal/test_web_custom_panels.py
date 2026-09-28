@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,11 +56,16 @@ class SidecarScript:
     """
 
     def __init__(
-        self, preflight_error="stub sidecar: not launched", stderr_tail="", wait_ready_error=None
+        self,
+        preflight_error="stub sidecar: not launched",
+        stderr_tail="",
+        wait_ready_error=None,
+        exit_status=None,
     ):
         self.preflight_error = preflight_error
         self.wait_ready_error = wait_ready_error
         self.stderr_tail = stderr_tail
+        self.exit_status = exit_status
         self.url = "http://127.0.0.1:9/panel/" + SIDECAR_ID
         self.auth_headers = {"authorization": "Bearer stub-token"}
         self.constructed: list[tuple] = []
@@ -78,6 +84,14 @@ def _stub_sidecar_class(script):
         @property
         def stderr_tail(self):
             return script.stderr_tail
+
+        @property
+        def exit_status(self):
+            return script.exit_status
+
+        @property
+        def token(self):
+            return "stub-token"
 
         @property
         def auth_headers(self):
@@ -1394,13 +1408,23 @@ class TestSidecarPanelAvailability:
         resp = client_with_sidecar.get(f"/api/{SIDECAR_ID}-server")
 
         assert resp.status_code == 200
-        assert resp.json() == {"url": f"/panel/{SIDECAR_ID}", "available": True}
+        assert resp.json() == {
+            "url": f"/panel/{SIDECAR_ID}",
+            "available": True,
+            "state": "running",
+            "message": None,
+        }
 
     def test_the_route_reports_unavailable_when_the_sidecar_did_not_start(self, client_all_panels):
         resp = client_all_panels.get(f"/api/{SIDECAR_ID}-server")
 
         assert resp.status_code == 200
-        assert resp.json() == {"url": None, "available": False}
+        assert resp.json() == {
+            "url": None,
+            "available": False,
+            "state": "failed",
+            "message": "JUPYTER failed to start: stub sidecar: not launched",
+        }
 
     def test_a_failed_launch_publishes_neither_url_nor_credential(self, client_all_panels):
         state = client_all_panels.app.state
@@ -1408,6 +1432,22 @@ class TestSidecarPanelAvailability:
         assert getattr(state, f"{SIDECAR_ID}_server_url") is None
         assert SIDECAR_ID not in state.panel_auth_headers
         assert SIDECAR_ID not in state.sidecars
+
+    def test_a_failed_launch_records_its_reason_on_disk(self, client_all_panels):
+        state = client_all_panels.app.state
+        record = json.loads((state.panel_status_dir / f"{SIDECAR_ID}.json").read_text())
+
+        assert record["state"] == "failed"
+        assert record["reason"] == "stub sidecar: not launched"
+        assert record["recorded_at"]
+
+    def test_a_ready_launch_records_running(self, client_with_sidecar):
+        state = client_with_sidecar.app.state
+        record = json.loads((state.panel_status_dir / f"{SIDECAR_ID}.json").read_text())
+
+        assert record["state"] == "running"
+        assert record["reason"] is None
+        assert state.sidecar_status[SIDECAR_ID].state == "running"
 
     def test_a_sidecar_that_never_answers_is_stopped_and_publishes_nothing(
         self, workspace_dir, caplog
@@ -1512,7 +1552,7 @@ class TestSidecarCredentialThroughTheProxy:
 
 
 class TestSidecarExitsLater:
-    """A sidecar that dies after it was published is retracted, not restarted."""
+    """A sidecar that dies after it was published is retracted and recorded as failed."""
 
     def test_the_launch_registers_an_exit_hook_on_the_sidecar(self, client_with_sidecar):
         sidecar = client_with_sidecar.app.state.sidecars[SIDECAR_ID]
@@ -1523,6 +1563,7 @@ class TestSidecarExitsLater:
         state = client_with_sidecar.app.state
         assert client_with_sidecar.get(f"/api/{SIDECAR_ID}-server").json()["available"] is True
 
+        ready_sidecar.exit_status = 1
         # The real sidecar fires this from its watcher thread; the hook hands
         # the loop the retraction, so the route may need one more turn.
         threading.Thread(target=state.sidecars[SIDECAR_ID].on_exit).start()
@@ -1534,9 +1575,31 @@ class TestSidecarExitsLater:
                 break
             time.sleep(0.05)
 
-        assert resp.json() == {"url": None, "available": False}
+        assert resp.json() == {
+            "url": None,
+            "available": False,
+            "state": "failed",
+            "message": "JUPYTER failed to start: exited with status 1",
+        }
         assert getattr(state, f"{SIDECAR_ID}_server_url") is None
         assert SIDECAR_ID not in state.panel_auth_headers
         # It stays registered so shutdown still removes its per-launch state.
         assert state.sidecars[SIDECAR_ID] is not None
         assert ready_sidecar.stopped == 0
+
+    def test_an_exit_of_a_replaced_sidecar_retracts_nothing(self, client_with_sidecar):
+        state = client_with_sidecar.app.state
+        stale_hook = state.sidecars[SIDECAR_ID].on_exit
+        state.sidecars[SIDECAR_ID] = object()
+
+        thread = threading.Thread(target=stale_hook)
+        thread.start()
+        thread.join()
+        # One loop turn for the handed-over callback, then a few more requests.
+        for _ in range(5):
+            resp = client_with_sidecar.get(f"/api/{SIDECAR_ID}-server")
+            time.sleep(0.02)
+
+        assert resp.json()["available"] is True
+        assert resp.json()["state"] == "running"
+        assert SIDECAR_ID in state.panel_auth_headers

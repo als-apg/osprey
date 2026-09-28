@@ -61,6 +61,12 @@ from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.sidecar_status import (
+    PANEL_STATUS_DIRNAME,
+    SidecarStatus,
+    failure_reason,
+    write_status,
+)
 from osprey.interfaces.web_terminal.transcript_map import load as load_transcript_map
 from osprey.port_layout import default_port
 from osprey.profiles.web_panels import (
@@ -168,13 +174,20 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     The blocking halves run in a worker thread. ``spawn()`` blocks only for the
     fork, so it stays on the loop.
 
+    Every outcome is recorded (:func:`_record_sidecar_status`): ``starting``
+    before the sidecar is built, then ``running`` or ``failed`` with a one-line
+    reason. The object is registered in ``app.state.sidecars`` as soon as it is
+    built, so shutdown reaches a sidecar that is still coming up; a failed
+    launch removes it again.
+
     A sidecar that dies later is retracted the same way it was published: its
     ``on_exit`` hook, which the sidecar fires from its own watcher thread, hands
-    the loop a callback that clears the URL and drops the credential, so the
-    availability route answers unavailable at once and the next page load greys
-    the tab. The sidecar logs the exit itself, with its stderr tail. Nothing
-    restarts it; the object stays in ``app.state.sidecars`` so shutdown still
-    removes its per-launch tempdir.
+    the loop a callback that clears the URL, drops the credential and records
+    the sidecar as failed, so the availability route answers unavailable at
+    once. The sidecar logs the exit itself, with its stderr tail. Nothing
+    restarts it on its own: :func:`request_sidecar_start` starts a fresh one
+    when the operator opens the panel, and until then the dead object stays in
+    ``app.state.sidecars`` so shutdown still removes its per-launch tempdir.
 
     Args:
         app: The web-terminal application whose ``state`` the URL is published on.
@@ -182,6 +195,7 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     """
     attr = panel_url_state_attr(panel_id)
     setattr(app.state, attr, None)
+    _record_sidecar_status(app, panel_id, SidecarStatus.starting())
     sidecar = None
     try:
         from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
@@ -193,6 +207,7 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
             compute_url_prefix(),
             getattr(app.state, "web_theme_mode", None),
         )
+        app.state.sidecars[panel_id] = sidecar
         await asyncio.to_thread(sidecar.preflight)
         sidecar.spawn()
         await asyncio.to_thread(sidecar.wait_ready, SIDECAR_READY_TIMEOUT)
@@ -204,20 +219,31 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
         logger.warning("%s sidecar failed to start: %s", panel_id, detail)
         if sidecar is not None:
             await _stop_sidecar(panel_id, sidecar)
+            if app.state.sidecars.get(panel_id) is sidecar:
+                app.state.sidecars.pop(panel_id)
         setattr(app.state, attr, None)
+        reason = failure_reason(str(exc), tail, getattr(sidecar, "token", None))
+        _record_sidecar_status(app, panel_id, SidecarStatus.failed(reason))
         return
 
-    app.state.sidecars[panel_id] = sidecar
     app.state.panel_auth_headers[panel_id] = sidecar.auth_headers
     setattr(app.state, attr, sidecar.url)
     logger.info("%s sidecar available at %s", panel_id, sidecar.url)
+    _record_sidecar_status(app, panel_id, SidecarStatus.running())
 
     loop = asyncio.get_running_loop()
 
     def retract() -> None:
+        # A late exit of a sidecar that has since been replaced owns nothing.
+        if app.state.sidecars.get(panel_id) is not sidecar:
+            return
         setattr(app.state, attr, None)
         app.state.panel_auth_headers.pop(panel_id, None)
-        logger.info("%s panel retracted; restart the terminal to bring it back", panel_id)
+        reason = failure_reason(
+            f"exited with status {sidecar.exit_status}", sidecar.stderr_tail, sidecar.token
+        )
+        _record_sidecar_status(app, panel_id, SidecarStatus.failed(reason))
+        logger.info("%s panel retracted; opening its tab starts it again", panel_id)
 
     def on_exit() -> None:
         # Runs on the sidecar's watcher thread; ``app.state`` belongs to the loop.
@@ -229,6 +255,21 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     # Registered last: a setter that fires when the exit already happened
     # closes the gap between readiness and this line.
     sidecar.on_exit = on_exit
+
+
+def _record_sidecar_status(app: FastAPI, panel_id: str, status: SidecarStatus) -> None:
+    """Record *status* for *panel_id*: in memory for the routes, on disk for other processes.
+
+    The disk write never raises (:func:`~osprey.interfaces.web_terminal.sidecar_status.write_status`),
+    so recording cannot fail a launch.
+
+    Args:
+        app: The web-terminal application holding the in-memory copy.
+        panel_id: The sidecar's panel id.
+        status: The outcome to record.
+    """
+    app.state.sidecar_status[panel_id] = status
+    write_status(app.state.panel_status_root, panel_id, status)
 
 
 async def _stop_sidecar(panel_id: str, sidecar: object) -> None:
@@ -2353,8 +2394,8 @@ def _create_lifespan(
         # there would land outside the {user}-agent-data volume, where
         # `osprey feedback` on the host cannot reach it. Never
         # resolve_agent_data_root() either — that appends sessions/<id>, and
-        # both stores span sessions. They are siblings under one root: feedback
-        # records, and the per-user bar arrangement.
+        # every store spans sessions. They are siblings under one root: feedback
+        # records, the per-user bar arrangement, and the sidecars' start records.
         try:
             from osprey.utils.workspace import resolve_shared_data_root
 
@@ -2362,8 +2403,7 @@ def _create_lifespan(
         except Exception:  # never let config load block startup
             shared_data_root = workspace_dir
             logger.warning(
-                "Could not resolve the shared data root; siting the feedback and "
-                "bar-items stores under %s",
+                "Could not resolve the shared data root; siting the server-side stores under %s",
                 shared_data_root,
                 exc_info=True,
             )
@@ -2371,10 +2411,14 @@ def _create_lifespan(
         bar_items_dir = shared_data_root / "bar_items"
         app.state.feedback_dir = feedback_dir
         app.state.bar_items_dir = bar_items_dir
+        # What the terminal recorded about each sidecar's start, read back by
+        # `osprey health` from this same root.
+        app.state.panel_status_root = shared_data_root
+        app.state.panel_status_dir = shared_data_root / PANEL_STATUS_DIRNAME
         # Workspace-relative form of each store: the *file watcher's* form,
         # used below to drop change events for writes into them. The file
         # browser is not a consumer — routes/files.py derives its own predicate
-        # from ``feedback_dir`` and ``bar_items_dir``, because it must also
+        # from the store directories themselves, because it must also
         # handle symlink aliases and session-scoped roots that a single relative
         # path cannot express.
         # ``None`` when a store lies outside the watched tree (the watch_dir
@@ -2393,15 +2437,23 @@ def _create_lifespan(
             workspace_dir.mkdir(parents=True, exist_ok=True)
         app.state.feedback_rel = resolve_store_rel(feedback_dir, workspace_dir)
         app.state.bar_items_rel = resolve_store_rel(bar_items_dir, workspace_dir)
-        # One collection, in the order the stores are resolved above. Saving a
-        # bar arrangement must be as silent as filing feedback: a layout PUT
-        # writes one file, and an unconcealed store would push an SSE change
-        # frame to every connected browser the moment anyone rearranged a bar.
-        # This seam silences the watcher and only that; the file panel's listing
-        # and content reads hide both stores through routes/files.py's own
+        app.state.panel_status_rel = resolve_store_rel(app.state.panel_status_dir, workspace_dir)
+        # One collection of the three stores, in the order they are resolved
+        # above. Saving a bar arrangement or recording a sidecar's start must be
+        # as silent as filing feedback: each writes one file, and an unconcealed
+        # store would push an SSE change frame to every connected browser the
+        # moment anyone rearranged a bar or a sidecar changed state. This seam
+        # silences the watcher and only that; the file panel's listing and
+        # content reads hide all three stores through routes/files.py's own
         # predicate.
         app.state.concealed_store_rels = tuple(
-            rel for rel in (app.state.feedback_rel, app.state.bar_items_rel) if rel is not None
+            rel
+            for rel in (
+                app.state.feedback_rel,
+                app.state.bar_items_rel,
+                app.state.panel_status_rel,
+            )
+            if rel is not None
         )
 
         app.state.watcher = WorkspaceWatcher(
@@ -2509,6 +2561,9 @@ def _create_lifespan(
         # enabled, and a launch that failed adds to neither.
         app.state.sidecars = {}
         app.state.panel_auth_headers = {}
+        # The start outcome the terminal last recorded for each sidecar panel;
+        # the panel routes read it, `osprey health` reads the disk copy.
+        app.state.sidecar_status = {}
 
         _launch_enabled_panel_servers(app, enabled_panels)
         await _launch_enabled_sidecars(app, enabled_panels)

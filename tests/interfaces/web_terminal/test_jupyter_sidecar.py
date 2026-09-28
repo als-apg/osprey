@@ -639,6 +639,7 @@ def test_a_sidecar_that_dies_later_is_reported_once_with_its_stderr_tail(
     tail = sidecar.stderr_tail
     assert tail, "the sidecar wrote nothing to stderr before it was killed"
     assert message.endswith(tail)
+    assert sidecar.exit_status == -signal.SIGKILL
 
 
 @spawns

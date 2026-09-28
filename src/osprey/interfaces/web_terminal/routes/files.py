@@ -33,12 +33,14 @@ def _resolve_workspace(request: Request) -> Path:
 
 #: The server-side stores the file routes never show, each named by the
 #: ``app.state`` attribute its directory is published under and by what a
-#: warning calls it. Both are the server's own state, written through their own
-#: routes: the feedback store holds session context users submitted privately,
-#: and the bar-items store holds each operator's saved bar layout.
+#: warning calls it. All three are the server's own state, written through their
+#: own routes: the feedback store holds session context users submitted
+#: privately, the bar-items store holds each operator's saved bar layout, and
+#: the panel-status store holds what the terminal recorded about its sidecars.
 _CONCEALED_STORES: tuple[tuple[str, str], ...] = (
     ("feedback_dir", "feedback store"),
     ("bar_items_dir", "bar-items store"),
+    ("panel_status_dir", "panel-status store"),
 )
 
 

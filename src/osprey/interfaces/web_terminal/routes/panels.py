@@ -29,6 +29,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     panel_id_refusal,
 )
+from osprey.registry.web import panel_url_state_attr
 
 logger = logging.getLogger(__name__)
 
@@ -124,12 +125,32 @@ async def lattice_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
+def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
+    """The config body of a sidecar panel: its proxy URL and its start outcome.
+
+    ``url``/``available`` follow the published backend URL, exactly as for a
+    companion panel. ``state`` is what the terminal recorded for the sidecar
+    (``None`` when it was never launched), and ``message`` the operator-facing
+    sentence for it, spelled once in :mod:`~osprey.interfaces.web_terminal.sidecar_status`.
+    """
+    from osprey.interfaces.web_terminal.sidecar_status import status_message
+
+    state = request.app.state
+    url = getattr(state, panel_url_state_attr(panel_id), None)
+    proxy_url = f"{compute_url_prefix()}/panel/{panel_id}" if url else None
+    status = getattr(state, "sidecar_status", {}).get(panel_id)
+    return {
+        "url": proxy_url,
+        "available": proxy_url is not None,
+        "state": status.state if status is not None else None,
+        "message": status_message(panel_id, status),
+    }
+
+
 @router.get("/api/jupyter-server")
 async def jupyter_server_config(request: Request):
-    """Return the notebook sidecar URL for iframe embedding."""
-    url = getattr(request.app.state, "jupyter_server_url", None)
-    proxy_url = f"{compute_url_prefix()}/panel/jupyter" if url else None
-    return {"url": proxy_url, "available": proxy_url is not None}
+    """Return the notebook sidecar URL for iframe embedding, and its start outcome."""
+    return _sidecar_panel_config(request, "jupyter")
 
 
 @router.get("/api/okf-server")
