@@ -24,6 +24,8 @@ PROVIDER_FACTS = (
     "api_key_env_var",
     "api_protocol",
     "supports_interactive_login",
+    "supports_images",
+    "supports_thinking",
 )
 
 _ENV_REFERENCE = re.compile(r"^\$\{([A-Z0-9_]+)\}$")
@@ -50,6 +52,8 @@ class TestBaseDeclaration:
         assert BaseProvider.api_key_env_var is None
         assert BaseProvider.api_protocol == "openai"
         assert BaseProvider.supports_interactive_login is False
+        assert BaseProvider.supports_images is False
+        assert BaseProvider.supports_thinking is False
 
     def test_the_protocol_type_names_the_catalog_protocols(self):
         protocols = get_args(get_type_hints(BaseProvider)["api_protocol"])
@@ -75,6 +79,19 @@ class TestEveryAdapterDeclares:
             if cls.supports_interactive_login:
                 assert cls.api_protocol == "anthropic", name
                 assert cls.requires_api_key, name
+
+    @pytest.mark.parametrize("name", ["ollama", "vllm", "ds4"])
+    def test_a_local_server_assumes_no_image_input(self, name):
+        assert _adapters()[name].supports_images is False
+
+    def test_no_route_claims_thinking_the_translation_does_not_carry(self):
+        """The translated route maps no thinking in either direction.
+
+        A True here would be a claim the translation proxy cannot honour; this
+        test changes together with a translator that carries thinking.
+        """
+        claiming = sorted(name for name, cls in _adapters().items() if cls.supports_thinking)
+        assert not claiming, f"supports_thinking claimed by: {claiming}"
 
 
 class TestTablesAgreeWithTheDeclarations:

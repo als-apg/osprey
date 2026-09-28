@@ -42,6 +42,8 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
     api_key_env_var = "OPENAI_API_KEY"
     api_protocol = "openai"
     supports_interactive_login = False
+    supports_images = True
+    supports_thinking = False
 
     # LiteLLM integration - OpenAI models don't need a prefix in LiteLLM
     litellm_prefix = ""

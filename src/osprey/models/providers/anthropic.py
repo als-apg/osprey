@@ -38,6 +38,8 @@ class AnthropicProviderAdapter(LiteLLMDelegatingProvider):
     api_protocol = "anthropic"
     # A launch with no key signs in to a Claude subscription instead.
     supports_interactive_login = True
+    supports_images = True
+    supports_thinking = False
 
     # LiteLLM integration
     litellm_prefix = "anthropic"
