@@ -367,3 +367,50 @@ def test_proxy_asks_the_provider_per_request_model_whether_a_temperature_is_sent
         assert captured["json"]["temperature"] == 0.0
     else:
         assert "temperature" not in captured["json"]
+
+
+_PNG_BLOCK = {
+    "type": "image",
+    "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="},
+}
+
+_IMAGE_REQUEST = {
+    "model": "vision-model",
+    "messages": [{"role": "user", "content": [{"type": "text", "text": "see"}, _PNG_BLOCK]}],
+    "max_tokens": 16,
+}
+
+
+def test_proxy_sends_an_image_to_a_route_that_takes_images(monkeypatch):
+    captured = _install_fake_upstream(
+        monkeypatch,
+        {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
+    )
+    app = create_proxy_app(
+        "https://api.example.com/v1", upstream_api_key="secret-key", supports_images=True
+    )
+
+    resp = TestClient(app).post("/v1/messages", json=_IMAGE_REQUEST)
+
+    assert resp.status_code == 200
+    content = captured["json"]["messages"][-1]["content"]
+    assert {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}} in (
+        content
+    )
+
+
+def test_proxy_names_an_image_on_a_route_without_images(monkeypatch):
+    captured = _install_fake_upstream(
+        monkeypatch,
+        {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
+    )
+    app = create_proxy_app("https://api.example.com/v1", upstream_api_key="secret-key")
+
+    resp = TestClient(app).post("/v1/messages", json=_IMAGE_REQUEST)
+
+    assert resp.status_code == 200
+    sent = json.dumps(captured["json"])
+    assert "image_url" not in sent
+    assert captured["json"]["messages"][-1]["content"] == (
+        "see\n[image not sent: this provider's route does not carry images]"
+    )

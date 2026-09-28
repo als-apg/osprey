@@ -60,6 +60,7 @@ def create_proxy_app(
     max_tokens_param: str = "max_tokens",
     accepts_temperature: Callable[[str], bool] | None = None,
     forward_headers: Iterable[str] = (),
+    supports_images: bool = False,
 ) -> FastAPI:
     """Create the translation proxy FastAPI app.
 
@@ -72,6 +73,8 @@ def create_proxy_app(
         forward_headers: The client headers to carry upstream, which are the names
             the launch declared in ``ANTHROPIC_CUSTOM_HEADERS``. Matching ignores
             case, and a header the proxy owns is refused.
+        supports_images: Whether the upstream route takes images, as resolved by
+            the lifecycle; when False every image is replaced by a note.
     """
     declared = frozenset(n.strip().lower() for n in forward_headers if n.strip())
     refused = declared & _PROXY_OWNED_HEADERS
@@ -124,10 +127,11 @@ def create_proxy_app(
                 api_key = auth_header[7:]
 
         # Translate request
-        openai_body = anthropic_to_openai_request(
+        translated = anthropic_to_openai_request(
             body,
             max_tokens_param=max_tokens_param,
             accepts_temperature=accepts_temperature is None or accepts_temperature(model),
+            supports_images=supports_images,
         )
 
         # Build upstream URL and headers
@@ -143,13 +147,13 @@ def create_proxy_app(
 
         if is_stream:
             return StreamingResponse(
-                _stream_proxy(upstream_client, url, headers, openai_body, model),
+                _stream_proxy(upstream_client, url, headers, translated.body, model),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
         else:
             try:
-                resp = await upstream_client.post(url, json=openai_body, headers=headers)
+                resp = await upstream_client.post(url, json=translated.body, headers=headers)
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 return _translate_error(exc.response)

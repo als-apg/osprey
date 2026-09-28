@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import random
 import string
+from dataclasses import dataclass, field
 
 
 def _gen_id(prefix: str = "msg_") -> str:
@@ -17,13 +18,55 @@ def _gen_id(prefix: str = "msg_") -> str:
 
 # ── Request: Anthropic → OpenAI ──────────────────────────────────────
 
+#: The model reads this in place of an image the route does not carry.
+_IMAGE_NOT_CARRIED = "[image not sent: this provider's route does not carry images]"
+
+#: The model reads this in place of an image given by a source the proxy cannot send.
+_IMAGE_SOURCE_NOT_CARRIED = "[image not sent: the proxy carries base64 and URL images only]"
+
+#: The model reads this in a tool message in place of an image that rides the
+#: user message following the tool messages.
+_IMAGE_IN_NEXT_MESSAGE = "[image: sent in the next user message]"
+
+
+def _not_carried(kind: str) -> str:
+    """The note the model reads in place of a *kind* of content the route does not carry."""
+    return f"[{kind} not sent: this provider's route does not carry it]"
+
+
+@dataclass(frozen=True)
+class TranslatedRequest:
+    """An OpenAI Chat Completions request and what translating it left out.
+
+    Attributes:
+        body: The OpenAI request body.
+        dropped: The kinds of content this request lost; the proxy reads it to
+            name what it left out.
+        images_sent: The ``image_url`` parts in ``body``; the proxy reads it to
+            name the images in an upstream refusal.
+    """
+
+    body: dict
+    dropped: frozenset[str] = frozenset()
+    images_sent: int = 0
+
+
+@dataclass
+class _Notes:
+    """What the converters record while translating one request."""
+
+    supports_images: bool
+    dropped: set[str] = field(default_factory=set)
+    images_sent: int = 0
+
 
 def anthropic_to_openai_request(
     body: dict,
     *,
     max_tokens_param: str = "max_tokens",
     accepts_temperature: bool = True,
-) -> dict:
+    supports_images: bool = False,
+) -> TranslatedRequest:
     """Convert an Anthropic Messages API request body to OpenAI Chat Completions.
 
     Args:
@@ -31,8 +74,15 @@ def anthropic_to_openai_request(
         max_tokens_param: The upstream parameter that carries the output-token cap.
         accepts_temperature: Whether the upstream takes a caller-chosen temperature;
             when False the request carries none.
+        supports_images: Whether the upstream route takes ``image_url`` parts;
+            when False every image is replaced by a note.
+
+    Returns:
+        The OpenAI request body, with the kinds of content it left out and the
+        number of images it carries.
     """
-    messages = _convert_messages(body.get("messages", []), body.get("system"))
+    notes = _Notes(supports_images=supports_images)
+    messages = _convert_messages(body.get("messages", []), body.get("system"), notes)
     tools = _convert_tools_to_openai(body.get("tools"))
 
     openai_body: dict = {
@@ -43,8 +93,14 @@ def anthropic_to_openai_request(
 
     if body.get("max_tokens"):
         openai_body[max_tokens_param] = body["max_tokens"]
-    if accepts_temperature and body.get("temperature") is not None:
-        openai_body["temperature"] = body["temperature"]
+    if body.get("temperature") is not None:
+        if accepts_temperature:
+            openai_body["temperature"] = body["temperature"]
+        else:
+            notes.dropped.add("temperature")
+    thinking = body.get("thinking")
+    if isinstance(thinking, dict) and thinking.get("type") != "disabled":
+        notes.dropped.add("thinking")
     if body.get("top_p") is not None:
         openai_body["top_p"] = body["top_p"]
     if body.get("stop_sequences"):
@@ -67,7 +123,7 @@ def anthropic_to_openai_request(
                     "function": {"name": tc.get("name", "")},
                 }
 
-    return openai_body
+    return TranslatedRequest(openai_body, frozenset(notes.dropped), notes.images_sent)
 
 
 def _system_text(content: str | list | None) -> str:
@@ -83,6 +139,7 @@ def _system_text(content: str | list | None) -> str:
 def _convert_messages(
     anthropic_messages: list[dict],
     system: str | list | None,
+    notes: _Notes,
 ) -> list[dict]:
     """Convert Anthropic message array to OpenAI message array."""
     openai_messages: list[dict] = []
@@ -98,9 +155,9 @@ def _convert_messages(
         content = msg.get("content")
 
         if role == "user":
-            openai_messages.extend(_convert_user_message(content))
+            openai_messages.extend(_convert_user_message(content, notes))
         elif role == "assistant":
-            openai_messages.extend(_convert_assistant_message(content))
+            openai_messages.extend(_convert_assistant_message(content, notes))
         elif role == "system":
             # The Anthropic API carries the system prompt in the top-level
             # ``system`` field, but some clients put a ``role: system`` entry in
@@ -113,51 +170,105 @@ def _convert_messages(
     return openai_messages
 
 
-def _convert_user_message(content) -> list[dict]:
+def _image_part(block: dict, notes: _Notes) -> dict | str:
+    """An Anthropic image block as an OpenAI ``image_url`` part, or the note in its place."""
+    if not notes.supports_images:
+        notes.dropped.add("image")
+        return _IMAGE_NOT_CARRIED
+    source = block.get("source")
+    source = source if isinstance(source, dict) else {}
+    url = None
+    if source.get("type") == "base64" and source.get("data"):
+        url = f"data:{source.get('media_type') or 'image/png'};base64,{source['data']}"
+    elif source.get("type") == "url" and source.get("url"):
+        url = source["url"]
+    if url is None:
+        notes.dropped.add("image reference")
+        return _IMAGE_SOURCE_NOT_CARRIED
+    notes.images_sent += 1
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def _tool_result_text(content, images: list[dict], notes: _Notes) -> str:
+    """A tool result's content as tool-message text; carried images go to *images*."""
+    if not isinstance(content, list):
+        return str(content)
+    lines = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            lines.append(block.get("text", ""))
+        elif btype == "image":
+            part = _image_part(block, notes)
+            if isinstance(part, dict):
+                images.append(part)
+                lines.append(_IMAGE_IN_NEXT_MESSAGE)
+            else:
+                lines.append(part)
+        else:
+            notes.dropped.add(str(btype))
+            lines.append(_not_carried(str(btype)))
+    return "\n".join(lines)
+
+
+def _convert_user_message(content, notes: _Notes) -> list[dict]:
     """Convert a single Anthropic user message to OpenAI format."""
     if isinstance(content, str):
         return [{"role": "user", "content": content}]
 
     if isinstance(content, list):
-        # May contain text blocks and tool_result blocks
-        text_parts = []
-        tool_results = []
+        # The turn's own parts, in block order: text strings and image_url parts.
+        parts: list[str | dict] = []
+        tool_messages: list[dict] = []
+        tool_images: list[tuple[str, list[dict]]] = []
         for block in content:
             if isinstance(block, str):
-                text_parts.append(block)
+                parts.append(block)
             elif isinstance(block, dict):
                 btype = block.get("type")
                 if btype == "text":
-                    text_parts.append(block.get("text", ""))
-                elif btype == "tool_result":
-                    tool_results.append(block)
+                    parts.append(block.get("text", ""))
                 elif btype == "image":
-                    # Skip images for now — Phase 3
-                    text_parts.append("[image content omitted]")
+                    parts.append(_image_part(block, notes))
+                elif btype == "tool_result":
+                    tool_use_id = block.get("tool_use_id", "")
+                    images: list[dict] = []
+                    text = _tool_result_text(block.get("content", ""), images, notes)
+                    tool_messages.append(
+                        {"role": "tool", "tool_call_id": tool_use_id, "content": text}
+                    )
+                    if images:
+                        tool_images.append((tool_use_id, images))
+                else:
+                    notes.dropped.add(str(btype))
+                    parts.append(_not_carried(str(btype)))
 
-        messages = []
-        # Emit tool results first (OpenAI requires role=tool for each)
-        for tr in tool_results:
-            tr_content = tr.get("content", "")
-            if isinstance(tr_content, list):
-                tr_content = "\n".join(b.get("text", "") for b in tr_content if isinstance(b, dict))
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tr.get("tool_use_id", ""),
-                    "content": str(tr_content),
-                }
+        # Chat Completions tool messages carry text only, and they must directly
+        # follow the assistant turn that called them, so a tool's images ride
+        # the one user message emitted after every tool message.
+        messages = list(tool_messages)
+        if tool_images or any(isinstance(p, dict) for p in parts):
+            content_parts: list[dict] = []
+            for tool_use_id, images in tool_images:
+                content_parts.append(
+                    {"type": "text", "text": f"Images returned by tool call {tool_use_id}:"}
+                )
+                content_parts.extend(images)
+            content_parts.extend(
+                p if isinstance(p, dict) else {"type": "text", "text": p} for p in parts
             )
-
-        if text_parts:
-            messages.append({"role": "user", "content": "\n".join(text_parts)})
+            messages.append({"role": "user", "content": content_parts})
+        elif parts:
+            messages.append({"role": "user", "content": "\n".join(str(p) for p in parts)})
 
         return messages if messages else [{"role": "user", "content": ""}]
 
     return [{"role": "user", "content": str(content)}]
 
 
-def _convert_assistant_message(content) -> list[dict]:
+def _convert_assistant_message(content, notes: _Notes) -> list[dict]:
     """Convert an Anthropic assistant message to OpenAI format."""
     if isinstance(content, str):
         return [{"role": "assistant", "content": content}]
@@ -181,9 +292,12 @@ def _convert_assistant_message(content) -> list[dict]:
                             },
                         }
                     )
-                elif btype == "thinking":
-                    # Strip thinking blocks — not supported by OpenAI
-                    pass
+                elif btype in ("thinking", "redacted_thinking"):
+                    notes.dropped.add("thinking")
+                else:
+                    # The model's own history: what the route cannot carry is
+                    # named as dropped and leaves no text in the assistant turn.
+                    notes.dropped.add(str(btype))
 
         msg: dict = {"role": "assistant"}
         msg["content"] = "\n".join(text_parts) if text_parts else None
