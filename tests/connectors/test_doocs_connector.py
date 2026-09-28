@@ -11,6 +11,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
 from osprey.connectors.control_system.base import (
@@ -18,6 +19,7 @@ from osprey.connectors.control_system.base import (
     ChannelWriteResult,
     WriteOutcome,
 )
+from osprey_connectors.ipc import frames
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock doocs4py objects
@@ -202,6 +204,27 @@ class TestReadChannel:
 
         assert "INVALID/ADDR" in str(raised.value)
         assert isinstance(raised.value.__cause__, RuntimeError)
+
+    async def test_read_metadata_names_the_value_type(self, connector):
+        conn, mock_d4py = connector
+
+        scalar = await conn.read_channel("FAC/DEV/LOC/PROP")
+        mock_d4py.get.return_value = _make_eq_data(value=np.array([1.0, 2.0]))
+        array = await conn.read_channel("FAC/DEV/LOC/PROP")
+
+        assert scalar.metadata.raw_metadata["type"] == "float"
+        assert array.metadata.raw_metadata["type"] == "ndarray"
+
+    async def test_a_reading_round_trips_through_an_ipc_frame(self, connector):
+        conn, _ = connector
+        value = await conn.read_channel("FAC/DEV/LOC/PROP")
+
+        reader = frames.FrameReader()
+        decoded = reader.feed(frames.encode_result("req", value))
+
+        assert len(decoded) == 1
+        assert isinstance(decoded[0], frames.ResultFrame)
+        assert decoded[0].value == value
 
 
 # --------------------------------------------------------------------------------------
@@ -663,6 +686,20 @@ class TestSubscribe:
         sub_id = await conn.subscribe("FAC/DEV/LOC/PROP", cb)
 
         assert sub_id in conn._subscriptions
+
+    async def test_a_subscribed_reading_names_the_value_type(self, connector):
+        conn, mock_d4py = connector
+        cb = MagicMock()
+        await conn.subscribe("FAC/DEV/LOC/PROP", cb)
+
+        doocs_callback = mock_d4py.subscribe.call_args.args[1]
+        doocs_callback(_make_eq_data(3.5))
+        await asyncio.sleep(0)
+
+        cb.assert_called_once()
+        reading = cb.call_args.args[0]
+        assert isinstance(reading, ChannelValue)
+        assert reading.metadata.raw_metadata["type"] == "float"
 
     async def test_unsubscribe_removes_subscription(self, connector):
         conn, mock_d4py = connector
