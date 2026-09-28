@@ -23,6 +23,7 @@
  * @property {string | null} configEndpoint
  * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
  * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
+ * @property {string} [startEndpoint] - POST target that starts a failed sidecar again
  */
 
 /** Rail id of the terminal/chat tile. NOT a service panel: it has no iframe,
@@ -108,6 +109,7 @@ export const PANELS = [
     label: labelOf('jupyter'),
     configEndpoint: '/api/jupyter-server',
     healthEndpoint: '/api/status', // the sidecar's own status route, reached through the panel proxy
+    startEndpoint: '/api/panels/jupyter/start', // data string; apiRequest prefixes it in retryPanelStart()
   },
   {
     id: 'okf',

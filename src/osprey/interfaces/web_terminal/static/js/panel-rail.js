@@ -13,7 +13,9 @@
  * is reported in one place — the SYSTEM panel's `web_panels` health category —
  * so the rail stays a navigation surface rather than a status board. Health
  * still reaches the rail, but only as the coarse `.disabled` state: an entry
- * whose backend has never answered is dimmed and inert.
+ * whose backend has never answered is dimmed and inert. The one exception is a
+ * sidecar that failed to start: its entry is `.failed` and carries the server's
+ * sentence as its tooltip, because a click on it is the retry.
  *
  * The rail is a curated MEMBERSHIP list, not a tab strip with open/closed
  * state: an entry exists iff its panel is in the rail, at full brightness.
@@ -60,9 +62,11 @@
  * caller declines keeps its native behaviour on every input route.
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
- * not healthy yet), `.agent-attention` (badge). A badged entry also carries a
+ * not healthy yet), `.failed` (a sidecar that failed to start; dimmed but
+ * clickable), `.agent-attention` (badge). A badged entry also carries a
  * transient `data-title-base` holding the tooltip text the badge borrowed;
- * clearing the badge restores it and removes the attribute.
+ * clearing the badge restores it and removes the attribute. An entry showing a
+ * status message parks its own tooltip on `data-status-base` the same way.
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
@@ -112,6 +116,9 @@ const BUTTON_SELECTOR = '.panel-rail-button';
 const TITLE_BASE_ATTR = 'data-title-base';
 
 const TOUCHED_SEPARATOR = ' · agent touched ';
+
+/** Where an entry's own tooltip is parked while a status message owns it. */
+const STATUS_BASE_ATTR = 'data-status-base';
 
 // ---- Rendering ----
 
@@ -419,4 +426,40 @@ export function setEntryAttention(railEl, panelId, on, ts) {
     entry.scrollIntoView({ block: 'nearest' });
   }
   return true;
+}
+
+/**
+ * Show or clear a server-reported start status on an entry. `failed` toggles
+ * `.failed`, which replaces `.disabled`: the entry stays dimmed but takes a
+ * click, the caller's retry. While `message` is set, the tooltip and
+ * `aria-description` read exactly that string; `message: null` puts the
+ * entry's own tooltip back. Under an agent-attention badge the badge's stash
+ * is what gets updated, so clearing the badge lands on the current text.
+ * No-op when the entry is absent.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ * @param {{ failed: boolean, message: string | null }} status
+ */
+export function setEntryStatus(railEl, panelId, { failed, message }) {
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return;
+  entry.classList.toggle('failed', failed);
+  if (failed) entry.classList.remove('disabled');
+  const stashed = entry.getAttribute(TITLE_BASE_ATTR);
+  const base = entry.getAttribute(STATUS_BASE_ATTR);
+  const next = message ?? base;
+  if (message) {
+    if (base === null) entry.setAttribute(STATUS_BASE_ATTR, stashed ?? entry.title);
+    entry.setAttribute('aria-description', message);
+  } else {
+    entry.removeAttribute(STATUS_BASE_ATTR);
+    entry.removeAttribute('aria-description');
+  }
+  if (next === null) return;
+  if (stashed !== null) {
+    entry.title = `${next}${entry.title.slice(stashed.length)}`;
+    entry.setAttribute(TITLE_BASE_ATTR, next);
+  } else {
+    entry.title = next;
+  }
 }

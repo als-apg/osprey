@@ -2273,3 +2273,154 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(closeTerminalPanel).toHaveBeenCalled();
   });
 });
+
+describe('sidecar start failure and retry', () => {
+  const FAILED = 'JUPYTER failed to start: boom';
+  /** A config or start answer; its fields change between the steps of a test. @typedef {any} Answer */
+  /** @type {Answer} */
+  const STARTING = { url: null, available: false, state: 'starting', message: 'JUPYTER is starting' };
+  /** @type {Answer} */
+  const RUNNING = { url: '/panel/jupyter', available: true, state: 'running', message: null };
+  /** @param {string} message @returns {Answer} */
+  const failed = (message) => ({ url: null, available: false, state: 'failed', message });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * Boot with the workspace and the notebook sidecar as members. `server`
+   * is live: a test changes what the config route, the start route and the
+   * sidecar's health answer between steps.
+   * @param {{ config: any, start?: any, healthy?: boolean }} server
+   */
+  async function bootSidecar(server) {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    /** @type {{url: string, opts: any}[]} */
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+      calls.push({ url, opts: o });
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts', 'jupyter'], custom: [], default: null,
+          visible: ['artifacts', 'jupyter'], active: null, labels: {},
+        });
+      }
+      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
+      if (url === '/api/jupyter-server') return jsonOk(server.config);
+      if (url === '/api/panels/jupyter/start') return jsonOk(server.start);
+      if (url === '/panel/jupyter/api/status') {
+        return server.healthy === false
+          ? { ok: false, status: 502, statusText: 'Bad Gateway', json: async () => ({}) }
+          : jsonOk({});
+      }
+      return jsonOk({ status: 'ok' });
+    }));
+    stubEventSource();
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    await settled(() => expect(calls.some((c) => c.url === '/api/jupyter-server')).toBe(true));
+    const jupyter = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="jupyter"]'));
+    const starts = () => calls.filter((c) => c.url === '/api/panels/jupyter/start');
+    return { mod, calls, jupyter, starts };
+  }
+
+  test("a failed config answer renders the entry failed with the server's message", async () => {
+    const { jupyter } = await bootSidecar({ config: failed(FAILED) });
+
+    await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
+    expect(jupyter.classList.contains('disabled')).toBe(false);
+    expect(jupyter.title).toBe(FAILED);
+  });
+
+  test('clicking a failed entry POSTs the start endpoint once', async () => {
+    const server = { config: failed(FAILED), start: STARTING };
+    const { jupyter, starts } = await bootSidecar(server);
+    await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
+
+    jupyter.click();
+
+    await settled(() => expect(starts()).toHaveLength(1));
+    expect(starts()[0].opts).toMatchObject({ method: 'POST' });
+    await settled(() => expect(jupyter.title).toBe('JUPYTER is starting'));
+    expect(jupyter.classList.contains('failed')).toBe(false);
+    expect(jupyter.classList.contains('disabled')).toBe(true);
+  });
+
+  test('a second click while starting sends nothing', async () => {
+    const server = { config: failed(FAILED), start: STARTING };
+    const { jupyter, starts, calls } = await bootSidecar(server);
+    await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
+    jupyter.click();
+    await settled(() => expect(jupyter.title).toBe('JUPYTER is starting'));
+    const before = calls.length;
+
+    jupyter.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(starts()).toHaveLength(1);
+    expect(calls.slice(before).filter((c) => c.opts?.method === 'POST')).toEqual([]);
+  });
+
+  test('a start that settles running enables and activates the panel', async () => {
+    const server = { config: failed(FAILED), start: STARTING };
+    const { jupyter, calls } = await bootSidecar(server);
+    await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
+    jupyter.click();
+    await settled(() => expect(jupyter.title).toBe('JUPYTER is starting'));
+
+    server.config = RUNNING;
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await settled(() => expect(jupyter.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(jupyter.classList.contains('active')).toBe(true));
+    expect(jupyter.classList.contains('failed')).toBe(false);
+    expect(jupyter.title).toBe('JUPYTER · right-click for actions');
+    expect(calls.some((c) => c.url === '/api/panel-focus' && c.opts?.method === 'POST')).toBe(true);
+  });
+
+  test('a start that settles failed shows the new reason', async () => {
+    const server = { config: failed(FAILED), start: STARTING };
+    const { jupyter } = await bootSidecar(server);
+    await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
+    jupyter.click();
+    await settled(() => expect(jupyter.title).toBe('JUPYTER is starting'));
+
+    server.config = failed('JUPYTER failed to start: again');
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await settled(() => expect(jupyter.title).toBe('JUPYTER failed to start: again'));
+    expect(jupyter.classList.contains('failed')).toBe(true);
+  });
+
+  test('a panel that goes down and reports failed turns failed without a reload', async () => {
+    const server = { config: RUNNING, healthy: true };
+    const { jupyter } = await bootSidecar(server);
+    await settled(() => expect(jupyter.classList.contains('disabled')).toBe(false));
+    await vi.advanceTimersByTimeAsync(500); // startup poll → maintenance interval
+
+    server.healthy = false;
+    server.config = failed('JUPYTER failed to start: exited with status 1');
+    await vi.advanceTimersByTimeAsync(10000);
+
+    await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
+    expect(jupyter.title).toBe('JUPYTER failed to start: exited with status 1');
+  });
+
+  test('the context menu and drag refuse a failed entry', async () => {
+    const { jupyter } = await bootSidecar({ config: failed(FAILED) });
+    await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
+
+    expect(rightClick(jupyter).defaultPrevented).toBe(false);
+    expect(document.querySelector('.rail-context-item')).toBeNull();
+
+    const drag = new Event('dragstart', { bubbles: true, cancelable: true });
+    jupyter.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(true);
+    expect(jupyter.classList.contains('dragging')).toBe(false);
+  });
+});
