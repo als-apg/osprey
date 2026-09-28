@@ -45,8 +45,8 @@ VALID_API_PROTOCOLS = frozenset({"anthropic", "openai"})
 #: entry without it names no endpoint, so nothing downstream can call it.
 #: ``default_model`` and ``models`` are required too and checked by their own
 #: shape (:func:`_validate_models`). ``api_key``, ``health_model``,
-#: ``claude_code_aliases``, ``api_protocol`` and ``requests_per_minute`` are
-#: optional, and an entry may carry further keys the framework renders through
+#: ``claude_code_aliases``, ``api_protocol``, ``requests_per_minute`` and
+#: ``supports_images`` are optional, and an entry may carry further keys the framework renders through
 #: without reading.
 _REQUIRED_ENTRY_KEYS = ("base_url",)
 
@@ -198,6 +198,14 @@ def _validate_entry(path: Path, name: str, entry: Any) -> None:
             f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}.requests_per_minute` must be "
             f"a positive whole number of calls per minute, got "
             f"{entry['requests_per_minute']!r}. Delete the key for no cap."
+        )
+    # A present `null` is refused too: absence is the one spelling of "the
+    # provider's adapter decides".
+    if "supports_images" in entry and not isinstance(entry["supports_images"], bool):
+        raise BuildProfileError(
+            f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}.supports_images` must be "
+            f"true or false, got {entry['supports_images']!r}. Delete the key to follow "
+            f"the provider's own declaration."
         )
     _validate_models(path, name, entry)
 

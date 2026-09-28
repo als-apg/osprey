@@ -724,3 +724,33 @@ class TestSpendAttributionEnv:
         inject_provider_env(environ, spec)
 
         assert "ANTHROPIC_CUSTOM_HEADERS" not in environ
+
+
+# ── Image declaration on the provider entry ──────────────────────
+
+#: A local model server's entry as a site writes it, with no image declaration.
+_LOCAL_SERVER_ENTRY = {
+    "base_url": "http://127.0.0.1:8000/v1",
+    "default_model": "m",
+    "models": ["m"],
+}
+
+
+class TestImageDeclaration:
+    """``ClaudeCodeModelSpec.supports_images`` carries the provider entry's own
+    ``supports_images``, or ``None`` when the entry leaves it to the adapter."""
+
+    def test_an_entry_that_says_nothing_leaves_it_to_the_adapter(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "vllm"}, {"vllm": _LOCAL_SERVER_ENTRY})
+        assert spec.supports_images is None
+
+    @pytest.mark.parametrize("declared", [True, False])
+    def test_the_entry_declaration_is_carried(self, declared):
+        providers = {"vllm": {**_LOCAL_SERVER_ENTRY, "supports_images": declared}}
+        spec = ClaudeCodeModelResolver.resolve({"provider": "vllm"}, providers)
+        assert spec.supports_images is declared
+
+    def test_a_declaration_that_is_not_true_or_false_is_refused(self):
+        providers = {"vllm": {**_LOCAL_SERVER_ENTRY, "supports_images": "yes"}}
+        with pytest.raises(ValueError, match=r"api\.providers\.vllm\.supports_images"):
+            ClaudeCodeModelResolver.resolve({"provider": "vllm"}, providers)

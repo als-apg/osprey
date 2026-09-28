@@ -615,6 +615,9 @@ class ClaudeCodeModelSpec:
         gateway: ``"litellm"`` when a LiteLLM proxy fronts the provider, else
             ``None``; the built-ins ``als-apg`` and ``cborg`` are, and a custom
             provider declares it with ``gateway: litellm``.
+        supports_images: The provider entry's own ``supports_images``, or
+            ``None`` when the entry says nothing and the adapter's declaration
+            answers. The translation proxy completes the answer when it starts.
     """
 
     provider: str
@@ -634,6 +637,10 @@ class ClaudeCodeModelSpec:
     #: direct vendor. Decides whether the launch paths stamp the acting identity
     #: onto the agent's requests — see :mod:`osprey.models.spend_attribution`.
     gateway: str | None = None
+    #: The provider entry's own ``supports_images``, or ``None`` when the entry
+    #: says nothing and the adapter's declaration answers. The translation proxy
+    #: completes the answer when it starts, so resolving imports no adapter.
+    supports_images: bool | None = None
 
     def agent_model(self, name: str) -> str:
         """The model id a named agent runs (its ``model:`` frontmatter).
@@ -657,6 +664,27 @@ class ClaudeCodeModelSpec:
             if var in environ and environ[var] != settings_val:
                 conflicts[var] = (environ[var], settings_val)
         return conflicts
+
+
+def _declared_supports_images(provider_name: str, api_providers: Mapping[str, Any]) -> bool | None:
+    """The ``supports_images`` a provider entry declares, or ``None`` when it says nothing.
+
+    The catalog loader refuses a non-boolean value; this check stays because an
+    ``api.providers`` block can reach a launch without passing through the
+    catalog — a hand-edited ``build/config.yml``, for one.
+
+    Raises:
+        ValueError: If the entry declares a value that is neither true nor false.
+    """
+    entry = api_providers.get(provider_name) if api_providers else None
+    if not isinstance(entry, Mapping) or "supports_images" not in entry:
+        return None
+    value = entry["supports_images"]
+    if isinstance(value, bool):
+        return value
+    raise ValueError(
+        f"api.providers.{provider_name}.supports_images is {value!r}; expected true or false."
+    )
 
 
 def _dropped_alias_keys(aliases: Mapping[str, Any]) -> tuple[str, ...]:
@@ -1114,6 +1142,7 @@ class ClaudeCodeModelResolver:
             needs_proxy=_needs_proxy,
             upstream_base_url=_upstream_url,
             gateway=gateway_for(provider_name, api_providers),
+            supports_images=_declared_supports_images(provider_name, api_providers),
         )
 
     @staticmethod
