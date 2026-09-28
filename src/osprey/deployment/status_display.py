@@ -45,6 +45,7 @@ from osprey.deployment.container_ownership import (
     container_label,
     container_names,
     deployment_containers,
+    first_container_name,
 )
 from osprey.deployment.errors import NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
@@ -282,8 +283,7 @@ def _extract_web_terminal_user_names(users_raw):
 
 def _container_display_name(container):
     """The one name to show for a container; ``"unknown"`` when it has none."""
-    names = container_names(container)
-    return names[0] if names else "unknown"
+    return first_container_name(container) or "unknown"
 
 
 def _query_containers(config):

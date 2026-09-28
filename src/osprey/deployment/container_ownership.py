@@ -74,6 +74,12 @@ def container_names(container: Mapping[str, Any]) -> list[str]:
     return [str(name).lstrip("/") for name in candidates if name]
 
 
+def first_container_name(container: Mapping[str, Any]) -> str:
+    """The first name a ``ps`` record carries, or ``""`` when it has none."""
+    names = container_names(container)
+    return names[0] if names else ""
+
+
 def row_project(row: Mapping[str, Any]) -> str | None:
     """The project a row is labelled for, or ``None`` when it carries no project label.
 
@@ -155,11 +161,6 @@ class ClaimedContainer:
     basis: ClaimBasis
 
 
-def _first_name(row: Mapping[str, Any]) -> str:
-    names = container_names(row)
-    return names[0] if names else ""
-
-
 @dataclass(frozen=True)
 class DeploymentContainers:
     """The rows one deployment claims, and the rows other OSPREY projects hold.
@@ -190,7 +191,7 @@ class DeploymentContainers:
             for claimed in self.ours
             if names_match_service(claimed.row, service, self.project_name)
         ]
-        return sorted(rows, key=_first_name)
+        return sorted(rows, key=first_container_name)
 
 
 def deployment_containers(

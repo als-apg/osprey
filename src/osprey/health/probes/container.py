@@ -51,7 +51,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from osprey.deployment.compose_generator import resolve_project_name
-from osprey.deployment.container_ownership import container_names, deployment_containers
+from osprey.deployment.container_ownership import deployment_containers, first_container_name
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.health.models import CheckResult, Status
 from osprey.utils.config import get_full_configuration
@@ -231,7 +231,7 @@ def _grade_several(
     """
     rows = [
         (
-            (container_names(c) or ["unknown"])[0],
+            first_container_name(c) or "unknown",
             str(c.get("State", "unknown")),
             _extract_health(c),
         )

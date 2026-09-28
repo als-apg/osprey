@@ -61,6 +61,7 @@ __all__ = [
     "DEFAULT_INITIAL_DELAY",
     "DEFAULT_MAX_DELAY",
     "DEFAULT_MULTIPLIER",
+    "THROTTLE_DEFAULTS",
     "AttemptThrottle",
     "throttle_problems",
 ]
@@ -69,6 +70,14 @@ DEFAULT_INITIAL_DELAY = 1.0
 DEFAULT_MULTIPLIER = 2.0
 DEFAULT_MAX_DELAY = 30.0
 DEFAULT_FORGET_AFTER = 300.0
+
+#: Each default, keyed by its ``AttemptThrottle`` keyword.
+THROTTLE_DEFAULTS: dict[str, float] = {
+    "initial_delay": DEFAULT_INITIAL_DELAY,
+    "multiplier": DEFAULT_MULTIPLIER,
+    "max_delay": DEFAULT_MAX_DELAY,
+    "forget_after": DEFAULT_FORGET_AFTER,
+}
 
 
 def _usable_number(value: object) -> bool:

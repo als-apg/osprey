@@ -71,13 +71,7 @@ from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 
 # A stdlib-only leaf of the sidecar: the throttle's defaults and its one
 # validity predicate, shared with the sidecar that builds the throttle.
-from osprey.services.auth_sidecar.throttle import (
-    DEFAULT_FORGET_AFTER,
-    DEFAULT_INITIAL_DELAY,
-    DEFAULT_MAX_DELAY,
-    DEFAULT_MULTIPLIER,
-    throttle_problems,
-)
+from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
@@ -163,13 +157,6 @@ AUTH_THROTTLE_KEYS: dict[str, str] = {
     "multiplier": "multiplier",
     "max_delay_s": "max_delay",
     "forget_after_s": "forget_after",
-}
-
-_THROTTLE_DEFAULTS: dict[str, float] = {
-    "initial_delay": DEFAULT_INITIAL_DELAY,
-    "multiplier": DEFAULT_MULTIPLIER,
-    "max_delay": DEFAULT_MAX_DELAY,
-    "forget_after": DEFAULT_FORGET_AFTER,
 }
 
 _AUTH_THROTTLE_PATH = "modules.web_terminals.auth.throttle"
@@ -2393,7 +2380,7 @@ def _auth_throttle_problems(web_terminals: dict[str, Any]) -> list[str]:
         for key in throttle
         if key not in AUTH_THROTTLE_KEYS
     ]
-    parameters: dict[str, Any] = dict(_THROTTLE_DEFAULTS)
+    parameters: dict[str, Any] = dict(THROTTLE_DEFAULTS)
     key_for = {parameter: key for key, parameter in AUTH_THROTTLE_KEYS.items()}
     for key, parameter in AUTH_THROTTLE_KEYS.items():
         if key in throttle:
