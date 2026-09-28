@@ -1137,6 +1137,10 @@ config:
         # So the page reads people first, services after.
         - type: users
           label: Users
+          # `names: hidden` swaps the name cards in this section for one "Log in
+          # to your terminal" button, so the page lists nobody. It needs the
+          # login wall above (auth.method password or oidc).
+          # names: shown
     users:
       # One web terminal per entry. `index` pins that user's ports, `persona`
       # picks their permissions from the list below, and `display_name` becomes
