@@ -54,7 +54,7 @@ _SECRET_LIKE_KEYS = frozenset({"token", "password", "secret"})
 _TLS_KEYS = ("ca_bundle",)
 _VERIFY_OFF_KEYS = frozenset({"verify", "insecure", "verify_ssl"})
 
-#: Flat spellings the nested shape replaced, mapped to the key that holds them now.
+#: Flat spellings the shape refuses, mapped to the nested key that holds each.
 _MOVED_KEYS = {
     "timeout": "timeout_s",
     "token_env": "auth.token_env",

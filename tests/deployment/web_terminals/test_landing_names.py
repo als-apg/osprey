@@ -7,9 +7,9 @@ cards with one sign-in button that opens the card-less sign-in route. The names
 must be absent from the file, not hidden by a stylesheet.
 
 Everything else about the page keeps its meaning: tray sections lifted out of
-the same entry and ``links`` sections render as before, and a config that sets
-``names: shown`` or leaves it out renders byte-identically to one that never
-knew the key.
+the same entry and ``links`` sections render unaffected, and a config that sets
+``names: shown`` or leaves it out renders byte-identically to one without the
+key.
 """
 
 from __future__ import annotations
@@ -133,7 +133,7 @@ def test_hidden_names_leave_links_sections_as_they_are() -> None:
 
 
 def test_hidden_names_with_every_user_in_a_tray_render_no_button() -> None:
-    """A button that hides nobody is never shown; the empty default section drops as before."""
+    """A button that hides nobody is never shown; the empty default section renders nothing."""
     # Arrange
     roster = [{"name": "ariel", "index": 0, "persona": "ariel"}]
     config = _walled(
