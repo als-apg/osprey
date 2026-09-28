@@ -123,7 +123,9 @@ def _run(
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the script with only the stubs and the system tools on ``PATH``.
 
-    Returns the finished process and the stub log, one call per line.
+    Returns the finished process and the stub log, one call per line. The
+    timeout only guards against a hang: a run spawns a dozen short processes,
+    and on a loaded host each spawn can take a second.
     """
     assert _BASH, "bash must be on PATH"
     log = script.parents[1].parent / "stub.log"
@@ -139,7 +141,7 @@ def _run(
         cwd=script.parents[1],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=300,
     )
     return result, log.read_text(encoding="utf-8").splitlines()
 
@@ -270,3 +272,103 @@ def test_a_project_with_no_containers_is_flagged(tmp_path: Path, script: Path) -
     project = resolve_project_name({"project_name": "als-exemplar"})
     assert result.returncode == 0
     assert f"project {project} has no containers" in result.stdout
+
+
+# ── --strict and the argument line ───────────────────────────────────────────
+
+
+def test_strict_exits_1_when_a_container_is_flagged(tmp_path: Path, script: Path) -> None:
+    """``--strict`` turns anything flagged into exit 1."""
+    result, _ = _run(
+        script,
+        "--strict",
+        "containers",
+        stubs=_stubs(tmp_path),
+        listing=_listing(tmp_path, _FOUR_ROWS),
+    )
+
+    assert result.returncode == 1
+    assert "2 flagged. Exit 1: --strict." in result.stdout
+
+
+def test_strict_exits_0_when_nothing_is_flagged(tmp_path: Path, script: Path) -> None:
+    """``--strict`` with nothing flagged still exits 0."""
+    rows = [row for row in _FOUR_ROWS if row["Name"] in {"demo-postgres-1", "demo-qmd-1"}]
+    result, _ = _run(
+        script,
+        "--strict",
+        "containers",
+        stubs=_stubs(tmp_path),
+        listing=_listing(tmp_path, rows),
+    )
+
+    assert result.returncode == 0
+    assert "Nothing flagged." in result.stdout
+
+
+def test_strict_exits_1_on_a_failed_probe_alone(tmp_path: Path, script: Path) -> None:
+    """An endpoint that gets no answer counts under ``--strict`` too."""
+    result, log = _run(
+        script,
+        "--strict",
+        "dispatch",
+        stubs=_stubs(tmp_path),
+        listing=_listing(tmp_path, _FOUR_ROWS),
+        STUB_CURL_RC="7",
+    )
+
+    assert result.returncode == 1
+    assert "1 flagged. Exit 1: --strict." in result.stdout
+    assert _runtime_calls(log) == []
+
+
+def test_group_arguments_still_select_groups(tmp_path: Path, script: Path) -> None:
+    """A group argument runs that group alone, wherever ``--strict`` sits."""
+    stubs = _stubs(tmp_path)
+    listing = _listing(tmp_path, _FOUR_ROWS)
+
+    _, log = _run(script, "containers", stubs=stubs, listing=listing)
+    assert _runtime_calls(log) and not [line for line in log if line.startswith("curl ")]
+
+    _, log = _run(script, "web", "dispatch", stubs=stubs, listing=listing)
+    assert log and _runtime_calls(log) == []
+
+    before, before_log = _run(
+        script, "dispatch", "--strict", stubs=stubs, listing=listing, STUB_CURL_RC="7"
+    )
+    after, after_log = _run(
+        script, "--strict", "dispatch", stubs=stubs, listing=listing, STUB_CURL_RC="7"
+    )
+    assert (before.returncode, before.stdout, before_log) == (
+        after.returncode,
+        after.stdout,
+        after_log,
+    )
+
+
+@pytest.mark.parametrize("argument", ["--strcit", "servics"])
+def test_an_unknown_argument_exits_2_and_runs_nothing(
+    tmp_path: Path, script: Path, argument: str
+) -> None:
+    """A mistyped option or group is refused before anything runs."""
+    result, log = _run(
+        script, argument, stubs=_stubs(tmp_path), listing=_listing(tmp_path, _FOUR_ROWS)
+    )
+
+    assert result.returncode == 2
+    assert argument in result.stderr
+    assert log == []
+
+
+def test_no_answering_runtime_fails_under_strict(tmp_path: Path, script: Path) -> None:
+    """Nothing verified is flagged, so ``--strict`` exits 1 on it."""
+    result, _ = _run(
+        script,
+        "--strict",
+        "containers",
+        stubs=_stubs(tmp_path, runtimes=False),
+        listing=_listing(tmp_path, _FOUR_ROWS),
+    )
+
+    assert result.returncode == 1
+    assert "no container runtime answers" in result.stdout

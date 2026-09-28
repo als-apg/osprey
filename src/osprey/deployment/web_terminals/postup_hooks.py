@@ -123,9 +123,9 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     verify.sh`` doesn't exist — a profile that carries no such script must
     deploy without any mention of one.
 
-    The script's own convention (see its header) is to ALWAYS exit 0 —
-    verification is advisory, never deploy-blocking — but this runs it via
-    ``bash`` (rather than executing the path directly) and ignores whatever
+    The script exits 0 unless it is given ``--strict``, which this never
+    passes — verification is advisory, never deploy-blocking — but this runs
+    it via ``bash`` (rather than executing the path directly) and ignores whatever
     exit code it reports either way, so a site-customized copy that doesn't
     honor that convention still can never fail ``osprey up``: this
     step runs after compose already reported success, so a nonzero exit is a
