@@ -43,6 +43,7 @@ from osprey.errors import BuildProfileError
 from osprey.utils.dotenv import ENV_SHARED_FILENAME
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import STATE_ZONE_DIRS
+from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN
 
 from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR, convention_for
@@ -1233,9 +1234,9 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     metavar="KEY.PATH=VALUE",
     help="Inline scalar/list override baked into the emitted profile (repeatable). "
     "RHS parsed as YAML. Top-level shorthands: provider, model, "
-    "channel_finder_mode, connector (the control system to talk to — mock, "
-    "epics, virtual_accelerator, doocs, tango; a deployment being pointed at "
-    "its stand-in may also set live_standin), port_base (move the whole "
+    "channel_finder_mode, connector (the control system to talk to — "
+    f"{', '.join(CLI_CONTROL_SYSTEM_TYPES)}; a deployment being pointed at "
+    f"its stand-in may also set {LIVE_STANDIN}), port_base (move the whole "
     "deployment off the default 10000 port block, e.g. --set port_base=42000).",
 )
 @click.option(
