@@ -9,6 +9,7 @@ exists-check it (CI is expected to have produced it). Called from
 
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -174,8 +175,34 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
 #: reference would make any value containing a bare ``$`` look like one.
 _ENV_REFERENCE_RE = re.compile(r"\A\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}\Z")
 
-#: Where a project's telemetry credentials live in its own ``config.yml``.
-_TELEMETRY_CONFIG_PATH = ("claude_code", "telemetry", "openobserve")
+#: Every ``${NAME}`` / ``${NAME:-default}`` occurrence inside a string, in the
+#: :data:`_ENV_REFERENCE_RE` dialect but unanchored. The telemetry walk reads
+#: values that are not reference literals: ``Authorization: Bearer
+#: ${OTLP_TOKEN}`` depends on ``OTLP_TOKEN`` exactly as a whole-value reference
+#: does, because the config loader expands a reference anywhere in a string
+#: (:func:`osprey_connectors.config.resolve_env_vars`).
+_ENV_REFERENCES_IN_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+#: Where a project's telemetry block lives in its own ``config.yml``.
+_TELEMETRY_BLOCK_PATH = ("claude_code", "telemetry")
+
+#: What a reference at a key path under the telemetry block stands for.
+#:
+#: * ``"account"`` — the observability store's account NAME: reported to the
+#:   stale-file advisory in both forms, never required, and never copied except
+#:   through the fixed :data:`_TELEMETRY_USER_ENV_VAR` copy.
+#: * ``"store-secret"`` — the observability store's login secret: required when
+#:   bare, never copied into ``.env.users``, and explained by the store note of
+#:   the refusal.
+#:
+#: A path this table does not name is a ``"secret"``: required when bare, never
+#: copied into ``.env.users``. Failing closed is the point — a header or a key
+#: added later may carry a credential, and ``.env.users`` is handed to every
+#: persona alike.
+_TELEMETRY_REFERENCE_ROLES: dict[tuple[str, ...], str] = {
+    ("openobserve", "user"): "account",
+    ("openobserve", "password"): "store-secret",
+}
 
 #: The observability store's INGEST account NAME — an email address, not a
 #: secret. A fixed name rather than a config-declared one, like ``TZ`` and
@@ -195,26 +222,26 @@ _TELEMETRY_CONFIG_PATH = ("claude_code", "telemetry", "openobserve")
 #:
 #: There is no companion constant for the SECRET. The password half is read
 #: from the config, not from a fixed spelling here — see
-#: :func:`_telemetry_credential_requirements`, which reports whatever variable
-#: the telemetry block's ``password:`` names — so repointing the templates at
-#: the ingest token needed no change on that side.
+#: :func:`_telemetry_credential_requirements`, which reports every bare
+#: reference in the telemetry block outside the account name — so repointing
+#: the templates at the ingest token needed no change on that side.
 _TELEMETRY_USER_ENV_VAR = "ZO_INGEST_USER_EMAIL"
 
 
 def _env_reference(value: object) -> tuple[str, bool] | None:
     """Read a config value that IS an env-var reference.
 
-    The telemetry credential keys hold the reference itself (``user:
-    ${ZO_INGEST_USER_EMAIL:-ingest@example.com}``) rather than the *name* of a
-    variable the way ``llm.api_key_env_var`` does, so telling a reference from
-    a plain literal — and a bare reference from one carrying its own default —
-    takes reading the value, which is what this does.
+    ``api.providers.<name>.base_url`` holds the reference itself (``base_url:
+    ${GATEWAY_URL}``) rather than the *name* of a variable the way
+    ``llm.api_key_env_var`` does, so telling a reference from a plain literal —
+    and a bare reference from one carrying its own default — takes reading the
+    value, which is what this does.
 
     The distinction matters because the two forms fail differently in a
     container: a reference with a default quietly falls back to it when the
     variable is unset, while a bare one is left in the config verbatim (see
-    :func:`osprey_connectors.config.resolve_env_vars`) and reaches the store as
-    a literal ``${...}`` string.
+    :func:`osprey_connectors.config.resolve_env_vars`) and reaches its consumer
+    as a literal ``${...}`` string.
 
     :param value: A raw config value; anything that is not a string, and any
         string that is not exactly one reference, reads as a plain literal.
@@ -228,21 +255,59 @@ def _env_reference(value: object) -> tuple[str, bool] | None:
     return match.group(1), match.group(2) is not None
 
 
-def _telemetry_credentials(cfg: dict) -> dict:
-    """The ``claude_code.telemetry.openobserve`` block of one project's config."""
+def _telemetry_block(cfg: dict) -> dict:
+    """The ``claude_code.telemetry`` block of one project's config."""
     node: object = cfg
-    for key in _TELEMETRY_CONFIG_PATH:
+    for key in _TELEMETRY_BLOCK_PATH:
         if not isinstance(node, dict):
             return {}
         node = node.get(key)
     return node if isinstance(node, dict) else {}
 
 
+@dataclass(frozen=True)
+class _TelemetryReference:
+    """One env-var reference found in a telemetry block.
+
+    Attributes:
+        var: The referenced variable's name.
+        origin: The key path and the config that holds it, for messages.
+        role: ``"account"``, ``"store-secret"`` or ``"secret"`` (see
+            :data:`_TELEMETRY_REFERENCE_ROLES`).
+        has_default: Whether the reference names its own ``:-default``.
+    """
+
+    var: str
+    origin: str
+    role: str
+    has_default: bool
+
+
+def _block_references(
+    node: object, path: tuple[str, ...] = ()
+) -> Iterator[tuple[tuple[str, ...], str, bool]]:
+    """``(path, var, has_default)`` for every reference under ``node``.
+
+    Recurses through mappings (the path element is the key) and lists (the path
+    element is ``[i]``); every reference inside a string counts, whole value or
+    embedded.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _block_references(value, (*path, str(key)))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _block_references(value, (*path, f"[{index}]"))
+    elif isinstance(node, str):
+        for match in _ENV_REFERENCES_IN_RE.finditer(node):
+            yield path, match.group(1), match.group(2) is not None
+
+
 def _telemetry_enabled(cfg: dict) -> bool:
     """Whether one project's config asks for telemetry at all.
 
     The master switch, read exactly the way the builder reads it
-    (:func:`osprey.build.claude_code_telemetry.build_telemetry_env`, whose first
+    (:func:`osprey.build.claude_code_telemetry._build_telemetry_env`, whose first
     act is to return an empty env for a falsy or absent ``enabled``). Same rule
     on both sides on purpose: a block this module treats as live while the
     builder discards it would have an operator hunting for a credential nothing
@@ -251,12 +316,7 @@ def _telemetry_enabled(cfg: dict) -> bool:
     Absent reads as OFF, not on. A config with no ``enabled`` key exports
     nothing, so the credentials underneath it are decoration.
     """
-    node: object = cfg
-    for key in _TELEMETRY_CONFIG_PATH[:-1]:
-        if not isinstance(node, dict):
-            return False
-        node = node.get(key)
-    return bool(node.get("enabled")) if isinstance(node, dict) else False
+    return bool(_telemetry_block(cfg).get("enabled"))
 
 
 def _referenced_persona_names(config: dict) -> list[str]:
@@ -334,36 +394,39 @@ def _load_config_yml(path: Path) -> dict | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def _telemetry_credential_references(
-    config: dict, project_root: Path, field: str, *, bare_only: bool, enabled_only: bool = False
-) -> dict[str, str]:
-    """``{var: origin}`` for one telemetry credential key across every config in play.
+def _telemetry_references(
+    config: dict, project_root: Path, *, enabled_only: bool
+) -> list[_TelemetryReference]:
+    """Every env-var reference in the telemetry block of every config in play.
 
-    The deploy config and each referenced persona project's rendered
+    The whole block is read — store login, endpoint, headers, resource
+    attributes — so a credential cannot hide under a key this module does not
+    name. The deploy config and each referenced persona project's rendered
     ``config.yml`` are read the same way :func:`_claude_code_auth_secret_vars`
     reads them, since a per-user container runs its persona's project and it is
     that project's telemetry block which decides what the agent inside presents
-    to the observability store.
+    to the observability backend.
 
-    :param field: Key under ``claude_code.telemetry.openobserve`` to read.
-    :param bare_only: When true, report only references with no ``:-default``
-        of their own — the ones that cannot resolve to anything on their own.
     :param enabled_only: When true, skip a config whose telemetry master switch
         is off. Each config answers for itself, since a roster can mix a persona
         that exports with one that does not.
+    :return: Persona configs first, then the deploy config, each in walk order.
     """
-    references: dict[str, str] = {}
+    references: list[_TelemetryReference] = []
 
     def _record(cfg: dict, source: str) -> None:
         if enabled_only and not _telemetry_enabled(cfg):
             return
-        reference = _env_reference(_telemetry_credentials(cfg).get(field))
-        if reference is None:
-            return
-        var, has_default = reference
-        if bare_only and has_default:
-            return
-        references.setdefault(var, f"claude_code.telemetry.openobserve.{field} {source}")
+        for path, var, has_default in _block_references(_telemetry_block(cfg)):
+            dotted = ".".join(path).replace(".[", "[")
+            references.append(
+                _TelemetryReference(
+                    var=var,
+                    origin=f"claude_code.telemetry.{dotted} {source}",
+                    role=_TELEMETRY_REFERENCE_ROLES.get(path, "secret"),
+                    has_default=has_default,
+                )
+            )
 
     for persona_name, entry in _referenced_persona_entries(config):
         config_yml = _persona_config_yml(project_root, entry)
@@ -419,21 +482,23 @@ def deploy_issued_credential_vars(config: dict) -> set[str]:
 
 
 def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict[str, str]:
-    """``{var: origin}`` for telemetry passwords a config REQUIRES from the env chain.
+    """``{var: origin}`` for telemetry variables a config REQUIRES from the env chain.
 
-    A bare ``${VAR}`` password reference — no ``:-default`` — is a config
-    asserting that the variable is set: unset, it is left in the rendered
-    config verbatim and the agent authenticates to the observability store with
-    a literal ``${VAR}`` string. This reports those variables so
+    A bare ``${VAR}`` reference in the telemetry block — no ``:-default`` — is
+    a config asserting that the variable is set: unset, it is left in the
+    rendered config verbatim and the agent presents a literal ``${VAR}`` string
+    to the observability backend. This reports those variables so
     :func:`ensure_env_production` can refuse a deploy that would ship one,
     exactly as it refuses a missing provider auth secret.
 
-    Nothing here is bound to one variable spelling: whatever the telemetry
-    block's ``password:`` names is what gets reported. That is why repointing
-    the shipped configs from the store's root password to its ingest service
-    account's token (``ZO_INGEST_SA_TOKEN``) needed no edit on this side, while
-    :data:`_TELEMETRY_USER_ENV_VAR` — the account NAME, which IS a fixed
-    spelling — did.
+    Nothing here is bound to one variable spelling or one key: every bare
+    reference in the block outside the account table
+    (:data:`_TELEMETRY_REFERENCE_ROLES`) is reported, whichever key holds it —
+    the store password, a collector header, the endpoint. That is why
+    repointing the shipped configs from the store's root password to its ingest
+    service account's token (``ZO_INGEST_SA_TOKEN``) needed no edit on this
+    side, while :data:`_TELEMETRY_USER_ENV_VAR` — the account NAME, which IS a
+    fixed spelling — did.
 
     The result feeds the missing-variable gate ONLY. It must never reach
     :func:`_build_env_production_subset`, for either identity: the root
@@ -471,12 +536,26 @@ def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict
     deploy already declared inert, and send the operator to obtain a token that
     would go unused.
     """
-    referenced = _telemetry_credential_references(
-        config, project_root, "password", bare_only=True, enabled_only=True
-    )
-    self_issued = deploy_issued_credential_vars(config)
+    return {
+        var: ref.origin for var, ref in _telemetry_secret_requirements(config, project_root).items()
+    }
 
-    return {var: origin for var, origin in referenced.items() if var not in self_issued}
+
+def _telemetry_secret_requirements(
+    config: dict, project_root: Path
+) -> dict[str, _TelemetryReference]:
+    """``{var: reference}`` behind :func:`_telemetry_credential_requirements`.
+
+    The first reference to a variable wins, persona configs before the deploy
+    config.
+    """
+    self_issued = deploy_issued_credential_vars(config)
+    required: dict[str, _TelemetryReference] = {}
+    for ref in _telemetry_references(config, project_root, enabled_only=True):
+        if ref.role == "account" or ref.has_default or ref.var in self_issued:
+            continue
+        required.setdefault(ref.var, ref)
+    return required
 
 
 def _telemetry_user_references(config: dict, project_root: Path) -> dict[str, str]:
@@ -487,7 +566,11 @@ def _telemetry_user_references(config: dict, project_root: Path) -> dict[str, st
     to the shipped placeholder address, which is the wrong account whenever the
     deploy configured the store under a different one.
     """
-    return _telemetry_credential_references(config, project_root, "user", bare_only=False)
+    accounts: dict[str, str] = {}
+    for ref in _telemetry_references(config, project_root, enabled_only=False):
+        if ref.role == "account":
+            accounts.setdefault(ref.var, ref.origin)
+    return accounts
 
 
 def _copy_named_env_var(var_name: str | None, source: dict[str, str], dest: dict[str, str]) -> None:
@@ -971,14 +1054,18 @@ class _MissingRequiredVars:
         endpoints: The subset of ``missing`` naming a gateway endpoint — a
             provider that resolves no URL without it, so the container exits
             during startup and compose restarts it forever.
-        telemetry: The subset of ``missing`` naming an observability-store
-            credential, which the chain must carry and ``.env.users`` may not
-            (see :func:`_telemetry_credential_requirements`).
+        telemetry: The subset of ``missing`` named by a telemetry block, which
+            the chain must carry and ``.env.users`` may not (see
+            :func:`_telemetry_credential_requirements`).
+        telemetry_store: The subset of ``telemetry`` that is the observability
+            store's login secret (the ``"store-secret"`` role of
+            :data:`_TELEMETRY_REFERENCE_ROLES`).
     """
 
     missing: dict[str, str]
     endpoints: frozenset[str]
     telemetry: frozenset[str]
+    telemetry_store: frozenset[str]
 
 
 def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _MissingRequiredVars:
@@ -1011,9 +1098,10 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
     # Reported, never copied: these are variables a telemetry block depends on
     # that this file is not allowed to carry, so they join the gate and nothing
     # else. Keeping them out of the {**required, **extra} pair handed to
-    # _build_env_production_subset is what stops the store's admin password from
+    # _build_env_production_subset is what stops a telemetry secret from
     # being written into a file every persona reads.
-    telemetry_vars = _telemetry_credential_requirements(config, project_root)
+    telemetry_refs = _telemetry_secret_requirements(config, project_root)
+    telemetry_vars = {var: ref.origin for var, ref in telemetry_refs.items()}
 
     missing = {
         var: origin
@@ -1024,6 +1112,11 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
         missing=missing,
         endpoints=frozenset(var for var in missing if var in required_url_vars),
         telemetry=frozenset(var for var in missing if var in telemetry_vars),
+        telemetry_store=frozenset(
+            var
+            for var in missing
+            if var in telemetry_refs and telemetry_refs[var].role == "store-secret"
+        ),
     )
 
 
@@ -1095,8 +1188,8 @@ def _required_vars_refusal(
     # operator who adds one and expects it to reach the terminals has to be
     # told what actually happens instead.
     telemetry_note = ""
-    if gap.telemetry:
-        telemetry_missing = [var for var in gap.missing if var in gap.telemetry]
+    if gap.telemetry_store:
+        telemetry_missing = [var for var in gap.missing if var in gap.telemetry_store]
         telemetry_names = ", ".join(telemetry_missing)
         telemetry_verb = "are" if len(telemetry_missing) > 1 else "is"
         telemetry_note = (
@@ -1111,6 +1204,21 @@ def _required_vars_refusal(
             "agent read — but a web terminal will not receive it from here. A "
             "telemetry block that names its own fallback (${VAR:-default}) is "
             "not asked for here at all."
+        )
+    # Any other telemetry secret (a collector header, an endpoint) gets its own
+    # note: the store note names the store's accounts, which would misdescribe it.
+    other_missing = [
+        var for var in gap.missing if var in gap.telemetry and var not in gap.telemetry_store
+    ]
+    if other_missing:
+        other_names = ", ".join(other_missing)
+        other_verb = "are" if len(other_missing) > 1 else "is"
+        telemetry_note += (
+            f" Note: {other_names} {other_verb} referenced from the telemetry block "
+            "with no default of its own, so it is handled as a credential. One "
+            ".env.users is handed to every persona alike, so this file never "
+            "carries it; the env chain is still where it belongs, but a web "
+            "terminal will not receive it from here."
         )
 
     if existing:
@@ -1469,10 +1577,11 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       of generating: the resulting file would produce healthy-looking terminals
       that fail authentication on their first prompt (authoring
       ``.env.users`` directly remains the bypass for deploys that
-      authenticate another way). A telemetry password reference that carries no
-      default of its own (see :func:`_telemetry_credential_requirements`) joins
-      the same gate: the variable it names is reported when the chain does not
-      set it, and is never written into the generated file either way. So does
+      authenticate another way). Every bare reference in the telemetry block
+      outside the account name — one that carries no default of its own (see
+      :func:`_telemetry_credential_requirements`) — joins the same gate: the
+      variable it names is reported when the chain does not set it, and is
+      never written into the generated file either way. So does
       the gateway endpoint of a provider that ships no default host (see
       :func:`_provider_endpoint_vars`), whose absence is a container that exits
       during startup rather than one that fails on its first prompt.
