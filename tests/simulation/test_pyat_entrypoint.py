@@ -304,6 +304,25 @@ class TestPrepare:
         assert prepared.twiss_in is None
         assert prepared.rest_mass_gev == pytest.approx(0.51099895069e-3, rel=1e-12)
 
+    def test_length_is_the_last_exit(self, ab_deck: Path):
+        prepared = engine.prepare(ab_deck, None)
+        lattice = at.load_lattice(str(ab_deck))
+        last = lattice.get_s_pos(len(lattice) - 1)[0] + lattice[-1].Length
+        assert prepared.length_m == pytest.approx(3.7, abs=1e-12)
+        assert prepared.length_m == pytest.approx(float(last), abs=1e-12)
+
+    def test_length_is_as_written_under_periodicity(self, tmp_path: Path):
+        lattice = at.Lattice(
+            [at.Drift("D0", 1.0), at.Quadrupole("Q", 0.5, 1.0), at.Drift("D1", 1.5)],
+            energy=3e9,
+            particle="electron",
+            periodicity=4,
+        )
+        deck = tmp_path / "cell.json"
+        at.save_lattice(lattice, str(deck))
+        assert at.load_lattice(str(deck)).circumference == pytest.approx(12.0)
+        assert engine.prepare(deck, None).length_m == pytest.approx(3.0, abs=1e-12)
+
     def test_rest_mass_override(self, tmp_path: Path):
         prepared = engine.prepare(_line_deck(tmp_path), {"pyat": {"rest_mass_gev": 0.938272}})
         assert prepared.rest_mass_gev == 0.938272
