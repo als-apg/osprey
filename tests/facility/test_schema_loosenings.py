@@ -8,7 +8,9 @@ before anything is built on it.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -285,3 +287,87 @@ def test_vocabulary_carries_aliases_and_property_names(vocabulary: dict) -> None
     properties = vocabulary["enums"]["property_name_enum"]["permissible_values"]
     assert {"betax", "betay", "etax", "s_position", "length"} <= set(properties)
     assert all(value["aliases"] for value in properties.values())
+
+
+# --- the loosenings table -----------------------------------------------------
+
+_SCRIPT = REPO_ROOT / "scripts" / "facility_schema" / "loosenings.py"
+_spec = importlib.util.spec_from_file_location("facility_schema_loosenings", _SCRIPT)
+assert _spec and _spec.loader
+loosenings = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = loosenings
+_spec.loader.exec_module(loosenings)
+
+
+@pytest.fixture(scope="module")
+def rows() -> list[dict]:
+    return _load("loosenings.yaml")["rows"]
+
+
+def _required_seed_slots() -> set[tuple[str, str]]:
+    """Every required slot of the seeds, read here without the script."""
+    pairs = set()
+    for seed in SEED_DIGESTS:
+        schema = yaml.safe_load((SEEDS_DIR / seed).read_text(encoding="utf-8"))
+        for name, slot in (schema.get("slots") or {}).items():
+            if isinstance(slot, dict) and slot.get("required") is True:
+                pairs.add((seed, name))
+    return pairs
+
+
+def test_committed_table_is_what_the_script_writes() -> None:
+    committed = (SCHEMA_DIR / "loosenings.yaml").read_text(encoding="utf-8")
+    assert committed == loosenings.render()
+
+
+def test_every_required_seed_slot_has_exactly_one_row(rows: list[dict]) -> None:
+    keys = [(row["seed"], row["slot"]) for row in rows]
+    assert len(keys) == len(set(keys))
+    assert set(keys) == _required_seed_slots()
+    assert len(keys) == 40
+    assert sum(seed == "canonical_ingest.yaml" for seed, _ in keys) == 22
+
+
+def test_every_fate_is_one_of_the_four_shapes(rows: list[dict]) -> None:
+    shape = re.compile(r"^(dropped|optional|header|renamed:[A-Za-z_][A-Za-z0-9_]*)$")
+    assert [row for row in rows if not shape.match(row["fate"])] == []
+    assert all(row["why"] for row in rows)
+
+
+def test_every_renamed_slot_exists_in_core(rows: list[dict], core: dict) -> None:
+    slots = {name for cls in core["classes"].values() for name in (cls.get("attributes") or {})}
+    renamed = {row["fate"].split(":", 1)[1] for row in rows if row["fate"].startswith("renamed:")}
+    assert renamed - slots == set()
+
+
+def test_headline_loosenings(rows: list[dict]) -> None:
+    fate = {(row["seed"], row["slot"]): row["fate"] for row in rows}
+    assert fate["canonical_ingest.yaml", "beamline_sections"] == "optional"
+    assert fate["canonical_ingest.yaml", "devices"] == "optional"
+    assert fate["canonical_ingest.yaml", "raw_type"] == "dropped"
+    assert fate["canonical_ingest.yaml", "source_section_id"] == "optional"
+    assert fate["canonical_ingest.yaml", "unit"] == "optional"
+    assert fate["facility_bindings.yaml", "control_system"] == "dropped"
+    assert fate["facility_bindings.yaml", "binding_id"] == "renamed:id"
+    assert fate["facility_bindings.yaml", "canonical_device_id"] == "renamed:on"
+    for seed in ("canonical_ingest.yaml", "facility_bindings.yaml", "shared_semantics.yaml"):
+        assert fate[seed, "facility"] == "header"
+
+
+def test_script_refuses_a_required_slot_it_does_not_decide(tmp_path: Path) -> None:
+    for seed in SEED_DIGESTS:
+        (tmp_path / seed).write_bytes((SEEDS_DIR / seed).read_bytes())
+    extra = tmp_path / "canonical_ingest.yaml"
+    extra.write_text(
+        extra.read_text(encoding="utf-8") + "\n  new_slot:\n    required: true\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="undecided required slot: canonical_ingest.yaml new_slot"):
+        loosenings.render(tmp_path)
+
+
+def test_script_reads_only_the_vendored_seeds() -> None:
+    source = _SCRIPT.read_text(encoding="utf-8")
+    assert "narad-uitf" not in source
+    assert loosenings.SEEDS_DIR == SEEDS_DIR
+    assert set(loosenings.SEED_FILES) == set(SEED_DIGESTS)
