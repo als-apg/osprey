@@ -437,8 +437,8 @@ def agent_data_subdirs(hook_input, subdir) -> list[Path]:
     under the four-zone layout there are two plausible ones: the repo root that
     owns durable agent state (:func:`get_repo_root`) and the render Claude Code
     actually runs in (:func:`get_project_dir`). They coincide in a flat layout
-    and diverge in a zoned one, and the gallery has been observed writing under
-    each, so both are accepted rather than picking one and denying the agent its
+    and diverge in a zoned one, and the gallery can write under either, so
+    both are accepted rather than picking one and denying the agent its
     own notebooks under the other. An absolute ``base_dir`` needs no anchor and
     yields exactly one directory.
 

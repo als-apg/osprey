@@ -910,13 +910,13 @@ async def _start_handshake(
     redirect_uri = f"{settings.external_origin}{CALLBACK_PATH}"
 
     # Deliberately not `authorize_redirect`, which is these three steps with the
-    # state value kept inside it. The state is what binds this handshake to the
-    # user whose card was clicked, so this route needs it in hand.
+    # state value kept inside it. The state is what binds this handshake to
+    # `pending`, so this function needs it in hand.
     #
     # Authlib forwards any extra keyword into the authorization URL's query,
     # which is how the OIDC `claims` request parameter travels when the
     # deployment asks for one. Passed only then, so a deployment that does not
-    # sends the same URL it always has.
+    # sends no `claims` parameter.
     extra: dict[str, str] = {}
     claims_request = _claims_request(settings, _role_binding(request))
     if claims_request is not None:
