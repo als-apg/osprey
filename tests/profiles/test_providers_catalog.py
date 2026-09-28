@@ -80,6 +80,12 @@ class TestPackagedCatalog:
                 assert word not in entry["models"], name
                 assert entry["default_model"] != word, name
 
+    def test_only_the_cborg_entry_paces_its_calls(self):
+        catalog = load_provider_catalog(None)
+        paced = {n for n, e in catalog.entries.items() if "requests_per_minute" in e}
+        assert paced == {"cborg"}
+        assert catalog.entries["cborg"]["requests_per_minute"] == 18
+
     def test_catalog_carries_no_jinja(self):
         text = packaged_catalog_path().read_text(encoding="utf-8")
         assert "{{" not in text
@@ -127,12 +133,14 @@ class TestOptionalKeys:
                     "health_model": "claude-haiku-4-5",
                     "models": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
                     "claude_code_aliases": {"opus": "claude-opus-5"},
+                    "requests_per_minute": 30,
                 }
             },
         )
         entry = load_provider_catalog(tmp_path).entries["gw"]
         assert entry["api_protocol"] == "anthropic"
         assert entry["claude_code_aliases"] == {"opus": "claude-opus-5"}
+        assert entry["requests_per_minute"] == 30
 
     def test_unknown_entry_key_passes_through(self, tmp_path):
         _write_catalog(tmp_path, {"gw": _entry(timeout=30)})
@@ -223,6 +231,11 @@ class TestValidationRefusals:
     def test_alias_map_that_is_not_a_mapping_refused(self, tmp_path):
         message = self._refuses_entry(tmp_path, **_entry(claude_code_aliases=["m-1"]))
         assert "providers.gw.claude_code_aliases" in message
+
+    def test_request_cap_that_is_not_a_positive_whole_number_refused(self, tmp_path):
+        for value in (0, -5, 1.5, "18", True, None):
+            message = self._refuses_entry(tmp_path, **_entry(requests_per_minute=value))
+            assert "providers.gw.requests_per_minute" in message, value
 
     def test_unparseable_yaml_refused_naming_the_file(self, tmp_path):
         assert "Cannot read" in self._refuses(tmp_path, "providers:\n  gw: [unclosed\n")
