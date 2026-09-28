@@ -1,6 +1,8 @@
 """Tests for MongoDB Archiver connector."""
 
 import copy
+import logging
+import re
 import sys
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -880,6 +882,148 @@ class TestClientKwargsWithoutDocker:
             await MongoDBArchiverConnector().connect(bundled_block())
 
         assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
+
+class TestUrlWithoutDocker:
+    """A block that names its store by a connection string, with the client patched."""
+
+    URL = "mongodb://h1.example.org:27017,h2.example.org:27018/?replicaSet=rs0&tls=true"
+
+    @staticmethod
+    def _config(url, **extra):
+        return {"url": url, "name": "testdb", "collection": "testcoll", **extra}
+
+    @pytest.mark.asyncio
+    async def test_a_url_is_passed_verbatim_as_host(self, monkeypatch):
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(self._config(self.URL))
+
+        assert mock_client_cls.call_args.kwargs == {
+            "host": self.URL,
+            "serverSelectionTimeoutMS": 60000,
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_url_ignores_the_address_overrides(self, monkeypatch):
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(self._config(self.URL, host="localhost"))
+
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["host"] == self.URL
+        assert "port" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_a_url_with_a_login_passes_it_as_keywords(self, monkeypatch):
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        auth = {"source": "archive", "username": "reader", "password_env": "MONGODB_MOCK_PASSWORD"}
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(self._config(self.URL, auth=auth))
+
+        assert mock_client_cls.call_args.kwargs == {
+            "host": self.URL,
+            "username": "reader",
+            "password": "secret",
+            "authSource": "archive",
+            "serverSelectionTimeoutMS": 60000,
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "mongodb://u:p@h.example.org/",
+            "mongodb://u@h.example.org/",
+            "mongodb://h.example.org/?tlsCertificateKeyFilePassword=x",
+            "mongodb://h.example.org/?tls=true;tlsCertificateKeyFilePassword=x",
+        ],
+    )
+    async def test_a_url_carrying_a_credential_is_refused(self, url):
+        with pytest.raises(ValueError, match=r"archiver\.settings\.url") as exc_info:
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+        assert url not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("option", "key"),
+        [
+            ("authSource", "auth.source"),
+            ("authsource", "auth.source"),
+            ("tlsCAFile", "tls.ca_bundle"),
+            ("serverSelectionTimeoutMS", "timeout_s"),
+        ],
+    )
+    async def test_a_url_option_with_its_own_key_is_refused(self, option, key):
+        url = f"mongodb://h.example.org/?{option}=x"
+
+        with pytest.raises(ValueError, match=rf"`{option}`.*`{re.escape(key)}`"):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "option", ["tlsInsecure", "tlsAllowInvalidCertificates", "tlsAllowInvalidHostnames"]
+    )
+    async def test_a_url_option_that_turns_verification_off_is_refused(self, option):
+        url = f"mongodb://h.example.org/?tls=true&{option}=true"
+
+        with pytest.raises(ValueError, match=rf"`{option}`.*certificate verification"):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    async def test_a_malformed_url_is_refused_by_key(self):
+        url = "mongodb://[::1/"
+
+        with pytest.raises(
+            ValueError, match=r"archiver\.settings\.url.*not a valid connection string"
+        ):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("url", "option", "key"),
+        [
+            ("mongodb://h.example.org/?tls=true;authSource=x", "authSource", "auth.source"),
+            (
+                "mongodb://h.example.org/?tls=true;serverSelectionTimeoutMS=5",
+                "serverSelectionTimeoutMS",
+                "timeout_s",
+            ),
+        ],
+    )
+    async def test_an_option_after_a_semicolon_separator_is_refused(self, url, option, key):
+        with pytest.raises(ValueError, match=rf"`{option}`.*`{re.escape(key)}`"):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    async def test_a_url_with_another_scheme_is_refused(self):
+        with pytest.raises(ValueError, match="mongodb://"):
+            await MongoDBArchiverConnector().connect(self._config("https://h.example.org/"))
+
+    @pytest.mark.asyncio
+    async def test_the_route_is_logged_once_per_process(self, monkeypatch, caplog):
+        from osprey_connectors.archiver import mongodb_archiver_connector as module
+
+        monkeypatch.setattr(module, "_ROUTE_LOGGED", False)
+        monkeypatch.setattr(module.logger, "propagate", True, raising=False)
+        caplog.set_level(logging.INFO)
+
+        with patch("pymongo.MongoClient"):
+            await MongoDBArchiverConnector().connect(self._config(self.URL))
+            await MongoDBArchiverConnector().connect(self._config(self.URL))
+
+        routes = [r.getMessage() for r in caplog.records if "reaches its store" in r.getMessage()]
+        assert routes == [
+            "MongoDB archiver reaches its store by `url`; host, port and the "
+            "OSPREY_ARCHIVER_MONGODB_* overrides are not applied"
+        ]
+        assert self.URL not in caplog.text
 
 
 class TestErrorHandlingWithoutDocker:

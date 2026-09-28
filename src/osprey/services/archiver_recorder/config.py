@@ -124,11 +124,18 @@ def load_settings(config_path: Path) -> RecorderSettings:
         RecorderConfigError: if the file is unreadable, is not a mapping, or is
             missing a key the recorder has no honest default for. The message
             names the key and the block it belongs to, because the fix is
-            always a profile edit and a rebuild.
+            always a profile edit and a rebuild. Also raised when the block
+            names its store by ``url``: that store is one this deployment reads,
+            never one it writes.
     """
     config = _load_mapping(config_path)
     connection = _subtree(config, _CONNECTION_PREFIX, config_path)
     knobs = _subtree(config, _KNOBS_PREFIX, config_path)
+    if connection.get("url"):
+        raise RecorderConfigError(
+            f"{config_path}: `{'.'.join((*_CONNECTION_PREFIX, 'url'))}` is set. The recorder "
+            "writes only to the store this deployment runs, addressed by host and port."
+        )
     auth = _login_block(connection, config_path)
 
     # The in-network address override, read through the connector's own helper

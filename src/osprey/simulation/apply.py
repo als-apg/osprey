@@ -393,14 +393,17 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         config: The project's loaded ``config.yml``.
         project_dir: Root of the built project; supplies the ``.env``.
 
+    A store named by ``url`` is one this deployment reads, never one it writes.
+
     Returns:
         The parameters, or ``None`` when the project declares no MongoDB
         archive — a project whose history is synthesized at read time has
-        nothing to rewrite, which is a normal configuration, not a fault.
+        nothing to rewrite, which is a normal configuration, not a fault — or
+        names its store by ``url``.
     """
     archiver = config.get("archiver") or {}
     store = archiver.get(ARCHIVER_CONFIG_PREFIX)
-    if not isinstance(store, dict) or not store.get("host"):
+    if not isinstance(store, dict) or not store.get("host") or store.get("url"):
         return None
 
     from osprey.utils.dotenv import parse_dotenv_file
