@@ -1,0 +1,17 @@
+{
+  "_reproduce": "uv run python scripts/facility_demo/fingerprint.py --cf-index-pre-line --write tests/facility/golden/cf_index_pre_line",
+  "files": {
+    "hierarchical.json": {
+      "source": "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/hierarchical.json",
+      "sha256": "94644defd04f934a54bf2ff1475cbfac69249472965b5752ce28323625917d69"
+    },
+    "in_context.json": {
+      "source": "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/in_context.json",
+      "sha256": "3b2cc83e7938d0c3a7f00a667b506562be04275bd3e68bab850d300a8af05e70"
+    },
+    "middle_layer.json": {
+      "source": "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/middle_layer.json",
+      "sha256": "e504f83538b5d2ffda8aac51cefe95502edbca28cf5c04505a52d76100d66422"
+    }
+  }
+}
