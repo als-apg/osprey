@@ -33,6 +33,11 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
     ]
     api_key_note = "Must have affiliation with Berkeley Lab to request an API key."
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "CBORG_API_KEY"
+    api_protocol = "anthropic"
+    supports_interactive_login = False
+
     # LiteLLM integration - CBORG is an OpenAI-compatible proxy
     is_openai_compatible = True
     gateway = "litellm"  # a LiteLLM proxy — requests carry the acting identity

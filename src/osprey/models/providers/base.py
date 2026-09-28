@@ -2,7 +2,7 @@
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Literal
 
 from osprey_connectors.config import is_unresolved_placeholder
 
@@ -45,6 +45,18 @@ class BaseProvider(ABC):
         api_key_url: URL where users can obtain an API key (e.g., "https://console.anthropic.com/")
         api_key_instructions: Step-by-step instructions for obtaining an API key
         api_key_note: Additional notes or requirements (e.g., "Requires affiliation")
+
+    Provider Facts (stated by every built-in adapter):
+        api_key_env_var: The environment variable a deployment keeps this
+            provider's key in; None exactly when requires_api_key is False.
+        api_protocol: The protocol a Claude Code launch speaks to this
+            provider's endpoint, one of the catalog's api_protocol values —
+            "anthropic" (Messages API, no translation proxy) or "openai" (Chat
+            Completions, through the translation proxy). Not the same fact as
+            is_openai_compatible, which names the route LiteLLM calls: a
+            gateway that speaks both answers "anthropic" here and True there.
+        supports_interactive_login: Whether a launch that finds no key can sign
+            in interactively instead of failing.
 
     LiteLLM Integration Attributes:
         litellm_prefix: LiteLLM provider prefix (e.g., "anthropic", "gemini"). If None,
@@ -96,6 +108,11 @@ class BaseProvider(ABC):
     # max_tokens to each route's own parameter for the models it recognises; an
     # endpoint that refuses max_tokens outright declares the parameter it takes.
     max_tokens_param: str = "max_tokens"
+
+    # Provider facts. Every built-in adapter states each one in its own class body.
+    api_key_env_var: str | None = None
+    api_protocol: Literal["anthropic", "openai"] = "openai"
+    supports_interactive_login: bool = False
 
     @classmethod
     def accepts_temperature(cls, model_id: str) -> bool:

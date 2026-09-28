@@ -34,6 +34,11 @@ class AMSCI2ProviderAdapter(LiteLLMDelegatingProvider):
         "Requires an americansciencecloud.org Google account or lab ID via GlobusAuth whitelist."
     )
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "AMSC_I2_API_KEY"
+    api_protocol = "openai"
+    supports_interactive_login = False
+
     # LiteLLM integration - AMSC i2 is an OpenAI-compatible proxy
     is_openai_compatible = True
     supports_native_structured_output = True  # proxies to models with native json_schema support

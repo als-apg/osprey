@@ -44,6 +44,12 @@ class AskSageProviderAdapter(BaseProvider):
         "Follow the instructions on the AskSage website to get an API key.",
     ]
     api_key_note = None
+
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "ASKSAGE_API_KEY"
+    api_protocol = "openai"
+    supports_interactive_login = False
+
     _models_cache: list[str] | None = None
 
     def get_available_models(

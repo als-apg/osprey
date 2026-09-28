@@ -44,6 +44,11 @@ class DS4ProviderAdapter(BaseProvider):
     ]
     api_key_note = "No API key required - uses 'EMPTY' placeholder."
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = None
+    api_protocol = "openai"
+    supports_interactive_login = False
+
     # LiteLLM integration - ds4 is an OpenAI-compatible server.
     is_openai_compatible = True
     # ds4 ignores response_format json_schema -> use OSPREY's prompt-based fallback.
