@@ -8,6 +8,7 @@ Refactored from existing archiver integration code.
 
 import asyncio
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -63,6 +64,9 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._url: str | None = None
         self._retrieval_path = self.DEFAULT_RETRIEVAL_PATH
         self._opener: urllib.request.OpenerDirector | None = None
+        # The login's key and variable name, for messages; never the secret.
+        self._login_key: str | None = None
+        self._login_env: str | None = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -97,6 +101,9 @@ class EPICSArchiverConnector(ArchiverConnector):
         retrieval_path = config.get("retrieval_path") or self.DEFAULT_RETRIEVAL_PATH
         self._retrieval_path = "/" + retrieval_path.strip("/")
         self._opener = urllib_opener(settings)
+        if settings.login is not None:
+            self._login_key = "token_env" if settings.login.kind == "token" else "password_env"
+            (self._login_env,) = settings.login.env_names
         self._connected = True
 
         logger.debug(
@@ -107,6 +114,8 @@ class EPICSArchiverConnector(ArchiverConnector):
         """Cleanup archiver connection."""
         self._url = None
         self._opener = None
+        self._login_key = None
+        self._login_env = None
         self._connected = False
         logger.debug("EPICS Archiver connector disconnected")
 
@@ -140,7 +149,17 @@ class EPICSArchiverConnector(ArchiverConnector):
             # connect, which carries the login and the CA.
             with opener.open(req, timeout=self._timeout) as resp:
                 payload = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise ConnectionError(self._refused_login_message(e.code)) from e
+            raise ConnectionError(f"Cannot connect to archiver at {self._url}: {e}") from e
         except urllib.error.URLError as e:
+            if isinstance(e.reason, ssl.SSLCertVerificationError):
+                raise ConnectionError(
+                    f"The archiver at {self._url} presented a certificate this process does "
+                    "not trust: name its CA in `archiver.settings.tls.ca_bundle`, or add it "
+                    "to the image with `images.site_ca`."
+                ) from e
             raise ConnectionError(f"Cannot connect to archiver at {self._url}: {e}") from e
 
         # Empty response: [] or [{"meta": ..., "data": []}]
@@ -160,6 +179,20 @@ class EPICSArchiverConnector(ArchiverConnector):
         values = [dp["val"] for dp in data_points]
 
         return pd.Series(values, index=timestamps, name=pv)
+
+    def _refused_login_message(self, code: int) -> str:
+        """Name the login the appliance refused, or the keys that would supply one."""
+        if self._login_key is not None:
+            return (
+                f"The archiver at {self._url} refused the login from "
+                f"`archiver.settings.auth.{self._login_key}` (HTTP {code}). "
+                f"Check the credential in {self._login_env}."
+            )
+        return (
+            f"The archiver at {self._url} asks for a login (HTTP {code}) and "
+            "`archiver.settings.auth` names none: set `auth.token_env`, or "
+            "`auth.username` and `auth.password_env`."
+        )
 
     async def get_data(
         self,
