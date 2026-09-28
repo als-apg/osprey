@@ -24,6 +24,7 @@ from click.testing import CliRunner
 
 from osprey.cli import build_cmd, build_limits_check
 from osprey.cli.build_cmd import build
+from osprey.deployment import runtime_helper
 from osprey.utils import config_writer
 from osprey.utils.config_writer import config_edit_session, config_update_fields
 
@@ -111,6 +112,10 @@ class TestTheRenderedConfigIsUnchanged:
         self, lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         runner = CliRunner()
+        # Both renders resolve ``container_runtime: auto`` alike, with no daemon probe.
+        monkeypatch.setattr(
+            runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
+        )
 
         def build_here() -> bytes:
             previous = Path.cwd()
