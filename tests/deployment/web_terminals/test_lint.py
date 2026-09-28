@@ -5434,3 +5434,146 @@ def test_lint_self_only_card_on_a_privileged_persona_reports_nothing() -> None:
     # Assert
     assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
     assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+
+
+# --- landing names ------------------------------------------------------------
+
+
+def _with_landing_groups(config: dict, groups: list[dict]) -> dict:
+    config = copy.deepcopy(config)
+    config["modules"]["web_terminals"]["landing"] = {"groups": groups}
+    return config
+
+
+_HIDDEN_USERS = [{"type": "users", "names": "hidden"}]
+
+
+def test_lint_hidden_names_under_token_is_refused_naming_login_url() -> None:
+    """Under token the name card is the way in, so the refusal names the verb that mints it."""
+    # Arrange
+    config = _with_landing_groups(_auth_config({"method": "token"}), _HIDDEN_USERS)
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "landing_names_hidden_without_sign_in")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "osprey users login-url" in findings[0].message
+    assert "groups[0]" in findings[0].message
+
+
+def test_lint_hidden_names_under_the_default_posture_is_refused() -> None:
+    """No `auth` stanza is token, so the same refusal applies."""
+    # Arrange
+    config = _with_landing_groups(_CLEAN_CONFIG, _HIDDEN_USERS)
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "landing_names_hidden_without_sign_in")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+
+def test_lint_hidden_names_under_open_mode_is_refused() -> None:
+    """Under none nobody signs in, so the button has nowhere to send anyone."""
+    # Arrange
+    config = _with_landing_groups(_auth_config({"method": "none"}), _HIDDEN_USERS)
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "landing_names_hidden_without_sign_in")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "auth.method: none" in findings[0].message
+
+
+@pytest.mark.parametrize("auth", [{"method": "password"}, _oidc()], ids=["password", "oidc"])
+def test_lint_hidden_names_behind_a_login_wall_is_clean(auth: dict) -> None:
+    """A login in front of the roster is what the button opens."""
+    # Arrange
+    config = _with_landing_groups(_auth_config(auth), _HIDDEN_USERS)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "landing_names_hidden_without_sign_in") == []
+    assert _coded(findings, "invalid_landing_names") == []
+
+
+@pytest.mark.parametrize("value", ["Hidden", True, None, "none"])
+def test_lint_names_value_must_be_shown_or_hidden(value: object) -> None:
+    """Any other value would render the cards the operator meant to hide."""
+    # Arrange
+    config = _with_landing_groups(
+        _auth_config({"method": "password"}), [{"type": "users", "names": value}]
+    )
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "invalid_landing_names")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+
+def test_lint_names_on_a_links_section_is_refused() -> None:
+    """Only a `type: users` section reads `names`."""
+    # Arrange
+    config = _with_landing_groups(
+        _auth_config({"method": "password"}),
+        [{"type": "users"}, {"type": "links", "label": "Tools", "links": [], "names": "hidden"}],
+    )
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "invalid_landing_names")
+
+    # Assert
+    assert len(findings) == 1
+    assert "groups[1]" in findings[0].message
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [{"method": "token"}, {"method": "none"}, {"method": "password"}, _oidc()],
+    ids=["token", "none", "password", "oidc"],
+)
+def test_lint_shown_names_are_clean_under_every_method(auth: dict) -> None:
+    """`shown` is the default rendering, valid under every posture."""
+    # Arrange
+    config = _with_landing_groups(_auth_config(auth), [{"type": "users", "names": "shown"}])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "landing_names_hidden_without_sign_in") == []
+    assert _coded(findings, "invalid_landing_names") == []
+
+
+def test_lint_hidden_names_under_an_unknown_method_reports_only_the_method() -> None:
+    """An unknown method is reported once, with no confused follow-on finding."""
+    # Arrange
+    config = _with_landing_groups(_auth_config({"method": "basic"}), _HIDDEN_USERS)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "unknown_auth_method")
+    assert _coded(findings, "landing_names_hidden_without_sign_in") == []
+
+
+def test_profile_config_errors_refuses_hidden_names_under_token() -> None:
+    """The refusal reaches `osprey build` and `osprey profile validate`."""
+    # Arrange
+    config = _profile_config(landing={"groups": [{"type": "users", "names": "hidden"}]})
+
+    # Act
+    messages = profile_config_errors(config)
+
+    # Assert
+    assert any("names: hidden" in message for message in messages)
