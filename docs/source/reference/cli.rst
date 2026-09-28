@@ -1310,7 +1310,10 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.
 
-``web [--port N] [--host ADDR] [--reload]`` -- Launch web interface.
+``web [--port N] [--host ADDR] [--reload]``
+   Launch the web interface on the host and port ``ariel.web`` names (default
+   ``127.0.0.1`` and the layout's ARIEL port); ``--host`` and ``--port`` override
+   them.
 
 ``purge [--yes] [--embeddings-only]`` -- Delete all ARIEL data.
 
