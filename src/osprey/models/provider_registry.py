@@ -8,14 +8,18 @@ call ``get_provider_registry().get_provider("cborg")`` to obtain the provider
 class, then use it via ``get_chat_completion()`` or ``aget_chat_completion()``.
 
 Adding a new built-in provider = one entry in ``_BUILTIN_PROVIDERS`` below.
+The entry names the provider's key variable and launch protocol, which the
+adapter class declares too; a parity test keeps the two equal.
 """
 
 from __future__ import annotations
 
 import importlib
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
@@ -25,46 +29,109 @@ logger = logging.getLogger("osprey.models.provider_registry")
 
 @dataclass(frozen=True, slots=True)
 class _ProviderEntry:
-    """Lazy-load descriptor for a provider class."""
+    """Lazy-load descriptor for a provider class.
+
+    A built-in entry restates two class attributes of its adapter,
+    ``api_key_env_var`` and ``api_protocol``, so the facts every build and
+    launch reads come from this table without importing the adapter; a parity
+    test holds each to its class. ``key_env_var = None`` on a built-in means the
+    provider is keyless. An entry made by ``ProviderRegistry.register_provider``
+    carries neither fact (``api_protocol is None``), and its class is the only
+    declaration.
+    """
 
     module_path: str
     class_name: str
-
-
-# ── Provider → API key env var (single source of truth) ───────────────
-# Maps each provider name to the environment variable holding its API key.
-# ``None`` means the provider does not require an API key.
-PROVIDER_API_KEYS: dict[str, str | None] = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "cborg": "CBORG_API_KEY",
-    "amsc-i2": "AMSC_I2_API_KEY",
-    "argo": "ARGO_API_KEY",
-    "stanford": "STANFORD_API_KEY",
-    "als-apg": "ALS_APG_API_KEY",
-    "ollama": None,
-    "asksage": "ASKSAGE_API_KEY",
-    "vllm": None,  # local, no key
-    "ds4": None,  # local DwarfStar server, no key
-}
+    key_env_var: str | None = None
+    api_protocol: Literal["anthropic", "openai"] | None = None
 
 
 # ── Built-in provider table (single source of truth) ──────────────────
 _BUILTIN_PROVIDERS: dict[str, _ProviderEntry] = {
-    "anthropic": _ProviderEntry("osprey.models.providers.anthropic", "AnthropicProviderAdapter"),
-    "openai": _ProviderEntry("osprey.models.providers.openai", "OpenAIProviderAdapter"),
-    "google": _ProviderEntry("osprey.models.providers.google", "GoogleProviderAdapter"),
-    "ollama": _ProviderEntry("osprey.models.providers.ollama", "OllamaProviderAdapter"),
-    "cborg": _ProviderEntry("osprey.models.providers.cborg", "CBorgProviderAdapter"),
-    "stanford": _ProviderEntry("osprey.models.providers.stanford", "StanfordProviderAdapter"),
-    "argo": _ProviderEntry("osprey.models.providers.argo", "ArgoProviderAdapter"),
-    "amsc-i2": _ProviderEntry("osprey.models.providers.amsc_i2", "AMSCI2ProviderAdapter"),
-    "als-apg": _ProviderEntry("osprey.models.providers.als_apg", "ALSAPGProviderAdapter"),
-    "asksage": _ProviderEntry("osprey.models.providers.asksage", "AskSageProviderAdapter"),
-    "vllm": _ProviderEntry("osprey.models.providers.vllm", "VLLMProviderAdapter"),
-    "ds4": _ProviderEntry("osprey.models.providers.ds4", "DS4ProviderAdapter"),
+    "anthropic": _ProviderEntry(
+        "osprey.models.providers.anthropic",
+        "AnthropicProviderAdapter",
+        key_env_var="ANTHROPIC_API_KEY",
+        api_protocol="anthropic",
+    ),
+    "openai": _ProviderEntry(
+        "osprey.models.providers.openai",
+        "OpenAIProviderAdapter",
+        key_env_var="OPENAI_API_KEY",
+        api_protocol="openai",
+    ),
+    "google": _ProviderEntry(
+        "osprey.models.providers.google",
+        "GoogleProviderAdapter",
+        key_env_var="GOOGLE_API_KEY",
+        api_protocol="openai",
+    ),
+    "cborg": _ProviderEntry(
+        "osprey.models.providers.cborg",
+        "CBorgProviderAdapter",
+        key_env_var="CBORG_API_KEY",
+        api_protocol="anthropic",
+    ),
+    "amsc-i2": _ProviderEntry(
+        "osprey.models.providers.amsc_i2",
+        "AMSCI2ProviderAdapter",
+        key_env_var="AMSC_I2_API_KEY",
+        api_protocol="openai",
+    ),
+    "argo": _ProviderEntry(
+        "osprey.models.providers.argo",
+        "ArgoProviderAdapter",
+        key_env_var="ARGO_API_KEY",
+        api_protocol="openai",
+    ),
+    "stanford": _ProviderEntry(
+        "osprey.models.providers.stanford",
+        "StanfordProviderAdapter",
+        key_env_var="STANFORD_API_KEY",
+        api_protocol="openai",
+    ),
+    "als-apg": _ProviderEntry(
+        "osprey.models.providers.als_apg",
+        "ALSAPGProviderAdapter",
+        key_env_var="ALS_APG_API_KEY",
+        api_protocol="anthropic",
+    ),
+    "ollama": _ProviderEntry(
+        "osprey.models.providers.ollama",
+        "OllamaProviderAdapter",
+        key_env_var=None,
+        api_protocol="openai",
+    ),
+    "asksage": _ProviderEntry(
+        "osprey.models.providers.asksage",
+        "AskSageProviderAdapter",
+        key_env_var="ASKSAGE_API_KEY",
+        api_protocol="openai",
+    ),
+    "vllm": _ProviderEntry(
+        "osprey.models.providers.vllm",
+        "VLLMProviderAdapter",
+        key_env_var=None,  # local, no key
+        api_protocol="openai",
+    ),
+    "ds4": _ProviderEntry(
+        "osprey.models.providers.ds4",
+        "DS4ProviderAdapter",
+        key_env_var=None,  # local DwarfStar server, no key
+        api_protocol="openai",
+    ),
 }
+
+
+# ── Provider → API key env var (read from the table above) ────────────
+# Maps each built-in provider to the environment variable its API key arrives
+# in; ``None`` means the provider is keyless. To add a provider, add an entry
+# to ``_BUILTIN_PROVIDERS``. A name registered at run time is answered by
+# ``ProviderRegistry.api_key_env_var``, not by this view. Read-only, so no
+# caller can add a provider here instead of to the table.
+PROVIDER_API_KEYS: Mapping[str, str | None] = MappingProxyType(
+    {name: entry.key_env_var for name, entry in _BUILTIN_PROVIDERS.items()}
+)
 
 
 class ProviderRegistry:
@@ -112,6 +179,41 @@ class ProviderRegistry:
     def list_providers(self) -> list[str]:
         """Return sorted list of all known provider names (built-in + custom)."""
         return sorted(self._entries)
+
+    def api_key_env_var(self, name: str) -> str | None:
+        """Return the variable *name*'s API key arrives in.
+
+        A built-in provider that has not been replaced answers from its entry,
+        without importing its adapter; a registered provider answers from its
+        class. Returns ``None`` when the provider is keyless, unknown, or
+        registered with a class that does not load.
+        """
+        entry = self._entries.get(name)
+        if entry is None:
+            return None
+        if entry.api_protocol is not None:
+            return entry.key_env_var
+        cls = self.get_provider(name)
+        if cls is None:
+            return None
+        return cls.api_key_env_var
+
+    def api_key_env_vars(self) -> dict[str, str | None]:
+        """Map every provider the registry holds to its API-key variable.
+
+        Built-ins come first in table order, then registrations in registration
+        order; a keyless provider maps to ``None``. A registered name whose
+        class does not load is left out, since it declares nothing.
+        """
+        result: dict[str, str | None] = {}
+        for name, entry in list(self._entries.items()):
+            if entry.api_protocol is not None:
+                result[name] = entry.key_env_var
+                continue
+            cls = self.get_provider(name)
+            if cls is not None:
+                result[name] = cls.api_key_env_var
+        return result
 
     def load_providers(
         self,
