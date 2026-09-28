@@ -358,7 +358,9 @@ lists the ids the gateway serves, spelled as it spells them, and
 ``default_model`` — one of them — answers when the profile names no ``model:``.
 ``api_protocol:
 anthropic`` marks an Anthropic-native endpoint rather than an
-OpenAI-compatible one.
+OpenAI-compatible one. ``supports_images: true`` or ``false`` says whether
+images reach the model on the provider's OpenAI route. Absent, the provider's
+own declaration answers.
 
 Three rules follow from the catalog being the one home for these facts:
 
