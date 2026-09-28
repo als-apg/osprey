@@ -231,6 +231,43 @@ class TestServeFileEndpoint:
         assert resp.text.count("plotly-3.3.1.min.js") == 1
         assert ".js-plotly-plot" in resp.text  # snippet still injected
 
+    def test_plotly_injection_for_include_plotlyjs_false(self, app_client, monkeypatch):
+        """A figure exported with include_plotlyjs=False calls Plotly but never
+        loads it; serving it injects exactly one local bundle script tag."""
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        client, _ = app_client
+        entry = _save_html_artifact(
+            client.app.state.artifact_store,
+            "<html><head></head><body>"
+            '<div id="fig" class="plotly-graph-div"></div>'
+            '<script>Plotly.newPlot("fig", [{"y": [1, 2, 3]}], {});</script>'
+            "</body></html>",
+        )
+        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert resp.text.count('src="/static/js/vendor/plotly-3.3.1.min.js"') == 1
+
+    def test_plotly_injection_skipped_for_inline_bundle(self, app_client, monkeypatch):
+        """A figure exported with include_plotlyjs=True inlines the bundle
+        (banner ``plotly.js v...``); no second copy is injected, whatever its
+        version, while the responsive snippet still is."""
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        client, _ = app_client
+        entry = _save_html_artifact(
+            client.app.state.artifact_store,
+            "<html><head></head><body>"
+            "<script>/**\n* plotly.js v2.35.2\n* Copyright 2012-2024, Plotly, Inc.\n*/"
+            "window.Plotly = {};</script>"
+            '<div id="fig" class="plotly-graph-div"></div>'
+            '<script>Plotly.newPlot("fig", [{"y": [1, 2, 3]}], {});</script>'
+            "</body></html>",
+        )
+        resp = client.get(f"/files/{entry.id}/{entry.filename}")
+        assert resp.status_code == 200
+        assert "plotly-3.3.1.min.js" not in resp.text
+        assert "cdn.plot.ly" not in resp.text
+        assert ".js-plotly-plot" in resp.text  # snippet still injected
+
     def test_offline_rewrites_cdn_plotly_to_local(self, app_client, monkeypatch):
         """In offline mode a CDN Plotly reference is rewritten to the bundled
         copy and its SRI attributes are stripped (the local file may differ

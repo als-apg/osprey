@@ -16,6 +16,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import ssl
 import time
 import urllib.error
@@ -324,3 +325,36 @@ def vendor_url(name: str, local_path: str) -> str:
     target dirs — the caller knows which one applies to this page.
     """
     return local_path if is_offline() else asset_cdn_url(name)
+
+
+# A <script> tag whose src names a Plotly bundle: local or CDN, any version,
+# minified or not.
+_PLOTLY_SCRIPT_SRC = re.compile(
+    rb"""<script\b[^>]*?\bsrc\s*=\s*["']?[^"'\s>]*plotly[^"'\s>]*\.js""",
+    re.IGNORECASE,
+)
+# The banner every distributed plotly.js build opens with, kept when a page
+# inlines the bundle (``to_html(include_plotlyjs=True)``).
+_PLOTLY_INLINE_MARKER = b"plotly.js v"
+
+
+def html_has_plotly_bundle(html: bytes) -> bool:
+    """True when the page loads Plotly itself, by script tag or inlined bundle.
+
+    :param html: Raw HTML bytes.
+    :return: Whether a ``<script src=...plotly...js>`` tag or the inlined
+        bundle's ``plotly.js v`` banner is present.
+    """
+    return _PLOTLY_INLINE_MARKER in html or _PLOTLY_SCRIPT_SRC.search(html) is not None
+
+
+def html_needs_plotly(html: bytes) -> bool:
+    """True when the page calls ``Plotly.`` but never loads the library.
+
+    Such a page renders blank on its own, e.g. a figure exported with
+    ``include_plotlyjs=False``.
+
+    :param html: Raw HTML bytes.
+    :return: Whether a Plotly bundle must be supplied for the page to render.
+    """
+    return b"Plotly." in html and not html_has_plotly_bundle(html)
