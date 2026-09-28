@@ -49,6 +49,9 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     api_key_env_var = "ALS_APG_API_KEY"
     api_protocol = "anthropic"
     supports_interactive_login = False
+    # The gateway's OpenAI route translates image parts for the models it fronts.
+    supports_images = True
+    supports_thinking = False
 
     # LiteLLM integration - ALS-APG is an OpenAI-compatible proxy
     is_openai_compatible = True

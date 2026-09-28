@@ -49,6 +49,9 @@ class AskSageProviderAdapter(BaseProvider):
     api_key_env_var = "ASKSAGE_API_KEY"
     api_protocol = "openai"
     supports_interactive_login = False
+    # The OpenAI route documents no image input, so none is assumed.
+    supports_images = False
+    supports_thinking = False
 
     _models_cache: list[str] | None = None
 

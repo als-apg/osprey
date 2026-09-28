@@ -178,6 +178,9 @@ class ArgoProviderAdapter(BaseProvider):
     api_key_env_var = "ARGO_API_KEY"
     api_protocol = "openai"
     supports_interactive_login = False
+    # The OpenAI route documents no image input, so none is assumed.
+    supports_images = False
+    supports_thinking = False
 
     # LiteLLM integration - ARGO is an OpenAI-compatible proxy
     is_openai_compatible = True

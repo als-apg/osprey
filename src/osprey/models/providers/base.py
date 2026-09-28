@@ -57,6 +57,14 @@ class BaseProvider(ABC):
             gateway that speaks both answers "anthropic" here and True there.
         supports_interactive_login: Whether a launch that finds no key can sign
             in interactively instead of failing.
+        supports_images: Whether this provider's OpenAI-protocol route accepts
+            image input as image_url content parts. That is the route the
+            translation proxy calls; a launch that speaks Anthropic to the
+            provider carries images regardless. False where the vendor
+            documents no such support, and for a local server, whose image
+            input depends on the model each site serves.
+        supports_thinking: Whether this provider's OpenAI-protocol route takes
+            the request's thinking setting and returns the model's thinking.
 
     LiteLLM Integration Attributes:
         litellm_prefix: LiteLLM provider prefix (e.g., "anthropic", "gemini"). If None,
@@ -113,6 +121,8 @@ class BaseProvider(ABC):
     api_key_env_var: str | None = None
     api_protocol: Literal["anthropic", "openai"] = "openai"
     supports_interactive_login: bool = False
+    supports_images: bool = False
+    supports_thinking: bool = False
 
     @classmethod
     def accepts_temperature(cls, model_id: str) -> bool:
