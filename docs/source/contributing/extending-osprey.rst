@@ -124,8 +124,11 @@ and does something only for a source that serves HTTP routes, and ``start`` and
 ``stop``, which run with the event loop going. ``start`` receives the triggers
 that name this source and a fire callback. The source reads each trigger's own
 ``source_config`` and awaits the callback with the trigger and a payload
-mapping for every event it detects. The callback returns the queued run's id,
-returns ``None`` when the trigger is disabled, and raises
+mapping for every event it detects. Stamp the event's instant as a
+timezone-aware ``datetime``: the dispatcher stores it as given and shows it to
+the agent in the facility zone, while a time carried as text reaches the agent
+unchanged. The callback returns the queued run's id, returns ``None`` when the
+trigger is disabled, and raises
 ``osprey.dispatch.pool.QueueFullError`` when the queue is full; what happens
 then is the source's decision, and every shipped source logs the event and
 drops it. A fire from a source is attributed to nobody.
