@@ -2293,8 +2293,9 @@ keys:
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
   # have usable defaults, so a facility writes a block only to ADD its own
-  # checks or retune the timing. Only the two sub-blocks the configuration
-  # reference names as dotted paths are carried here; the scalar suite settings
+  # checks or retune the timing. Only the three sub-blocks the configuration
+  # reference names as dotted paths (`categories`, `auto`, `disk`) are carried
+  # here; the scalar suite settings
   # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
   # bare leaf names and read straight off the same mapping.
   health.categories:
@@ -2333,6 +2334,31 @@ keys:
     default: derived
     default_note: >-
       the default AutoMcpSettings: mcp.enabled true, url_key host_url, not explicit
+  health.disk:
+    rendered: false
+    evidence: 'disk = parse_disk_thresholds\(health\.get\("disk"\)\)'
+    note: >-
+      Holds the two thresholds of the `file_system.disk_space` row. Parsed by
+      `osprey.health.config.parse_disk_thresholds`, which both
+      `parse_health_config` and the row itself call, so the load-time refusal
+      and the grading cannot drift. Unknown keys under it are refused.
+    default: {}
+  health.disk.min_free_gb:
+    rendered: false
+    evidence: 'value\["min_free_gb"\], "disk\.min_free_gb"'
+    note: >-
+      The `disk_space` row warns while free space is below this many GB (1024³
+      bytes, as the row prints it); a positive number. A facility raises it when
+      its container volumes grow faster than 1 GB can absorb.
+    default: 1.0
+  health.disk.max_used_percent:
+    rendered: false
+    evidence: 'value\["max_used_percent"\], "disk\.max_used_percent"'
+    note: >-
+      The `disk_space` row warns once usage reaches this percentage; greater
+      than 0 and at most 100. A deployment on a large shared volume that runs
+      full by design raises it so hundreds of GB free do not grade as a warning.
+    default: 90.0
 
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}

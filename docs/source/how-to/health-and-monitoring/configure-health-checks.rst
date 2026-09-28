@@ -125,6 +125,23 @@ its share of the machine. A facility whose hosts publish no such statistics has
 to measure them itself, which is a ``health.plugins`` module rather than a YAML
 check.
 
+Recipe: a large shared volume
+-----------------------------
+
+``file_system.disk_space`` warns when the filesystem holding the project is at
+least 90 % full or has less than 1 GB free. On a multi-terabyte shared volume
+that runs at 91 % by design, hundreds of GB are still free, yet the row warns
+on every run and ``osprey health`` exits 1. Raise the limits from the build
+profile's ``config:`` block:
+
+.. code-block:: yaml
+
+   config:
+     health.disk.max_used_percent: 97
+     health.disk.min_free_gb: 50
+
+The rules for both keys are in :ref:`config-health`.
+
 Recipe: archive freshness, without declaring a check
 -----------------------------------------------------
 

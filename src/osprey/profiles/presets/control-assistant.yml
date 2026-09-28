@@ -1215,6 +1215,13 @@ config:
         build_profile: control-assistant-knowledge
         landing_group: Standalone deployments
 
+  # ── Health checks ──────────────────────────────────────────────────────────
+  # `osprey health` warns when the disk holding this deployment has less than
+  # min_free_gb free or is at least max_used_percent full. Raise both on a
+  # large shared volume that runs full by design.
+  # health.disk.min_free_gb: 1.0
+  # health.disk.max_used_percent: 90
+
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.
   execution.execution_method: subprocess

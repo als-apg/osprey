@@ -103,6 +103,10 @@ default timing.
      on_demand_timeout_s: 120     # on_demand wall-clock budget (default: sum of budgets)
      interval_s: 300              # minimum server-side re-run interval
 
+     disk:
+       min_free_gb: 1.0           # disk_space warns below this many GB free (default 1.0)
+       max_used_percent: 90       # ...and at or above this % full (default 90)
+
      plugins:
        - my_facility.health       # dotted module paths to plugin modules
 
@@ -427,6 +431,27 @@ At a cost-class deadline, unfinished checks are not dropped — every configured
 check still produces a row (an eligible pending check becomes an ``error``
 "suite deadline exceeded"; a pending check whose dependency failed becomes a
 ``skip``), so the report always accounts for every declared check.
+
+Disk-space thresholds
+~~~~~~~~~~~~~~~~~~~~~
+
+Two keys set when the built-in ``file_system.disk_space`` row warns about the
+filesystem holding the project:
+
+- ``health.disk.min_free_gb`` (default 1.0) — the row warns while free space is
+  strictly below this many GB. GB is the unit the row prints: 1024³ bytes.
+- ``health.disk.max_used_percent`` (default 90) — the row warns once usage is
+  at or above this percentage. 100 warns only on a completely full filesystem.
+
+Either key may be set alone; the other keeps its default. A value that is not a
+positive number, a percentage above 100, or any other key under
+``health.disk`` is refused at load time: the ``configuration.health_config``
+row reports it as an ``error`` naming the key, and the ``disk_space`` row is a
+``skip`` rather than grading against numbers the operator did not choose.
+
+The thresholds are not spelled as a ``file_system`` entry under
+``health.categories``: that entry is a metadata-only override, which keeps only
+``cost`` and ``timeout_s``.
 
 .. _config-web:
 
