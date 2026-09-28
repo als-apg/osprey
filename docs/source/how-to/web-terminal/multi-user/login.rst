@@ -630,7 +630,7 @@ Keep names off the landing page
 
 The users section then shows one "Log in to your terminal" button and no names.
 The button opens the sign-in described in :ref:`multi-user-own-terminal-entry`.
-Service trays and link sections render as before.
+Service trays and link sections are not affected.
 
 ``names: shown`` is the default. ``names: hidden`` needs ``auth.method:
 password`` or ``oidc``. Under any other method ``osprey build`` refuses it as
