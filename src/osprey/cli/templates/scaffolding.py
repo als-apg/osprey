@@ -96,20 +96,20 @@ def render_project_config(
 def provider_api_key_entries() -> list[dict[str, str]]:
     """Provider API-key env vars for env-file templates, in registry order.
 
-    Derived from :data:`osprey.models.provider_registry.PROVIDER_API_KEYS`
-    (the single source of truth for the provider list) so that
-    ``env.example.j2`` cannot drift from the real provider set. Key-less
-    providers (ollama, vllm, ds4) are excluded — they have no API-key env var
-    to scaffold.
+    Derived from the provider registry, where a built-in's entry names its
+    variable and a registered provider's class does, so ``env.example.j2``
+    cannot drift from the providers the registry holds. Built-ins come first in
+    table order, then registrations. Keyless providers (ollama, vllm, ds4) are
+    left out: they have no API-key env var to scaffold.
 
     Returns:
         Ordered list of ``{"provider": <name>, "var": <ENV_VAR>}`` dicts.
     """
-    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from osprey.models.provider_registry import get_provider_registry
 
     return [
         {"provider": provider, "var": var}
-        for provider, var in PROVIDER_API_KEYS.items()
+        for provider, var in get_provider_registry().api_key_env_vars().items()
         if var is not None
     ]
 
