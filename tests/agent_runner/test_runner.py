@@ -399,11 +399,13 @@ class _FakeSpec:
         auth_env_var: str = "ANTHROPIC_AUTH_TOKEN",
         upstream_base_url: str | None = "https://argo.example/v1",
         provider: str = "argo",
+        supports_images: bool | None = None,
     ) -> None:
         self.needs_proxy = needs_proxy
         self.auth_env_var = auth_env_var
         self.upstream_base_url = upstream_base_url
         self.provider = provider
+        self.supports_images = supports_images
 
 
 def _capture(captured: list, async_cm):
@@ -456,6 +458,7 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
         "sk-argo",
         provider="argo",
         forward_headers=frozenset({"x-litellm-end-user-id", "x-corp-trace"}),
+        supports_images=None,
     )
     assert captured[0].env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8123"
 

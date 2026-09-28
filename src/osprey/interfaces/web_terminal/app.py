@@ -2333,6 +2333,7 @@ def _create_lifespan(
                         os.environ.get(_spec.auth_env_var),
                         provider=_spec.provider,
                         forward_headers=declared_header_names(os.environ),
+                        supports_images=_spec.supports_images,
                     )
                     os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
                     logger.info(

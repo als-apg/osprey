@@ -19,8 +19,11 @@ Experiment branch: experiment/cborg-claude-code.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import struct
+import zlib
 from functools import cache
 
 import httpx
@@ -79,6 +82,45 @@ def _client(name: str) -> TestClient:
     return TestClient(
         create_proxy_app(u["base_url"], upstream_api_key=u["key"], **_request_shape(name))
     )
+
+
+def _solid_png(rgb: tuple[int, int, int], size: int = 16) -> str:
+    """A base64 PNG of one solid colour, built in place so the module keeps no fixture."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)  # 8-bit RGB
+    row = b"\x00" + bytes(rgb) * size  # filter type 0, then the pixels
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(row * size))
+        + chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode("ascii")
+
+
+def _red_square() -> dict:
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": _solid_png((255, 0, 0))},
+    }
+
+
+_COLOUR_QUESTION = "What colour is this square? Answer with one word."
+
+
+def _skip_unless_images_reach(name: str) -> None:
+    if not _request_shape(name)["supports_images"]:
+        pytest.skip(f"upstream '{name}': route declares no images")
+    _skip_if_unusable(name)
+
+
+def _answer_text(resp) -> str:
+    assert resp.status_code == 200, resp.text
+    return "".join(b.get("text", "") for b in resp.json()["content"] if b["type"] == "text")
 
 
 def _parse_sse(text: str) -> list[dict]:
@@ -175,3 +217,64 @@ def test_streaming_through_proxy(name):
     assert types and types[0] == "message_start", types
     assert "content_block_delta" in types, types
     assert types[-1] == "message_stop", types
+
+
+@pytest.mark.parametrize("name", list(UPSTREAMS))
+def test_an_image_reaches_a_vision_model_through_proxy(name):
+    _skip_unless_images_reach(name)
+    u = UPSTREAMS[name]
+    resp = _client(name).post(
+        "/v1/messages",
+        json={
+            "model": u["model"],
+            "max_tokens": 16,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [_red_square(), {"type": "text", "text": _COLOUR_QUESTION}],
+                }
+            ],
+        },
+    )
+    assert "red" in _answer_text(resp).casefold()
+
+
+@pytest.mark.parametrize("name", list(UPSTREAMS))
+def test_a_tool_result_image_reaches_a_vision_model_through_proxy(name):
+    _skip_unless_images_reach(name)
+    u = UPSTREAMS[name]
+    resp = _client(name).post(
+        "/v1/messages",
+        json={
+            "model": u["model"],
+            "max_tokens": 16,
+            "tools": [
+                {
+                    "name": "read_screen",
+                    "description": "Capture the operator screen.",
+                    "input_schema": {"type": "object", "properties": {}},
+                }
+            ],
+            "messages": [
+                {"role": "user", "content": "Read the screen."},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": "toolu_1", "name": "read_screen", "input": {}}
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": [_red_square()],
+                        },
+                        {"type": "text", "text": _COLOUR_QUESTION},
+                    ],
+                },
+            ],
+        },
+    )
+    assert "red" in _answer_text(resp).casefold()

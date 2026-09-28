@@ -88,12 +88,15 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def _request_shape(provider: str | None) -> dict[str, Any]:
+def _request_shape(provider: str | None, supports_images: bool | None = None) -> dict[str, Any]:
     """The request parameters *provider*'s adapter class declares for its endpoint.
 
     An unregistered or absent provider gets ``max_tokens`` and no temperature
     rule (every model sent the caller's temperature), the OpenAI Chat
-    Completions defaults.
+    Completions defaults. Whether the route carries images is the provider
+    entry's own declaration (*supports_images*) when it makes one, else the
+    adapter's; an unregistered or absent provider with no declaration takes
+    none.
     """
     provider_class = None
     if provider:
@@ -105,6 +108,11 @@ def _request_shape(provider: str | None) -> dict[str, Any]:
         "accepts_temperature": (
             provider_class.accepts_temperature if provider_class is not None else None
         ),
+        "supports_images": (
+            supports_images
+            if supports_images is not None
+            else bool(getattr(provider_class, "supports_images", False))
+        ),
     }
 
 
@@ -114,6 +122,7 @@ def start_proxy(
     *,
     provider: str | None = None,
     forward_headers: Iterable[str],
+    supports_images: bool | None,
 ) -> int:
     """Start the translation proxy in a daemon thread.
 
@@ -127,6 +136,11 @@ def start_proxy(
             :func:`osprey.models.spend_attribution.declared_header_names`),
             forwarded to the upstream. A repeat call returns the running proxy
             unchanged, as it does for the upstream.
+        supports_images: The provider entry's own ``supports_images``
+            (``ClaudeCodeModelSpec.supports_images``), or ``None`` to follow the
+            adapter. Required, so a launch path cannot drop a site's opt-in by
+            omission. A repeat call returns the running proxy unchanged, as for
+            the upstream.
 
     Returns the port number. Thread-safe; repeated calls are no-ops.
     """
@@ -139,8 +153,9 @@ def start_proxy(
         app = create_proxy_app(
             upstream_base_url,
             upstream_api_key,
+            provider=provider,
             forward_headers=frozenset(forward_headers),
-            **_request_shape(provider),
+            **_request_shape(provider, supports_images),
         )
         port = find_free_port()
 

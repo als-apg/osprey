@@ -452,6 +452,7 @@ def chat(
                 os.environ.get(spec.auth_env_var),
                 provider=spec.provider,
                 forward_headers=declared_header_names(os.environ),
+                supports_images=spec.supports_images,
             )
             os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
             output.note(f"Translation proxy on :{proxy_port} forwards to {spec.upstream_base_url}")

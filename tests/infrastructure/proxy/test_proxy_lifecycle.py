@@ -139,7 +139,7 @@ class TestStartStop:
         app_factory = _install_fake_uvicorn(monkeypatch)
 
         port = lifecycle.start_proxy(
-            "https://up.example/v1", upstream_api_key="k", forward_headers=()
+            "https://up.example/v1", upstream_api_key="k", forward_headers=(), supports_images=None
         )
 
         assert isinstance(port, int)
@@ -149,9 +149,11 @@ class TestStartStop:
         app_factory.assert_called_once_with(
             "https://up.example/v1",
             "k",
+            provider=None,
             max_tokens_param="max_tokens",
             accepts_temperature=None,
             forward_headers=frozenset(),
+            supports_images=False,
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
@@ -162,15 +164,21 @@ class TestStartStop:
         app_factory = _install_fake_uvicorn(monkeypatch)
 
         lifecycle.start_proxy(
-            "https://api.openai.com/v1", upstream_api_key="k", provider="openai", forward_headers=()
+            "https://api.openai.com/v1",
+            upstream_api_key="k",
+            provider="openai",
+            forward_headers=(),
+            supports_images=None,
         )
 
         app_factory.assert_called_once_with(
             "https://api.openai.com/v1",
             "k",
+            provider="openai",
             max_tokens_param="max_completion_tokens",
             accepts_temperature=OpenAIProviderAdapter.accepts_temperature,
             forward_headers=frozenset(),
+            supports_images=True,
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
@@ -178,16 +186,60 @@ class TestStartStop:
         app_factory = _install_fake_uvicorn(monkeypatch)
 
         lifecycle.start_proxy(
-            "https://up.example/v1", upstream_api_key="k", provider="house-llm", forward_headers=()
+            "https://up.example/v1",
+            upstream_api_key="k",
+            provider="house-llm",
+            forward_headers=(),
+            supports_images=None,
         )
 
         app_factory.assert_called_once_with(
             "https://up.example/v1",
             "k",
+            provider="house-llm",
             max_tokens_param="max_tokens",
             accepts_temperature=None,
             forward_headers=frozenset(),
+            supports_images=False,
         )
+
+    @pytest.mark.parametrize(("declared", "provider"), [(True, "ollama"), (False, "openai")])
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_the_entrys_declaration_beats_the_adapters(self, monkeypatch, declared, provider):
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy(
+            "https://up.example/v1",
+            upstream_api_key="k",
+            provider=provider,
+            forward_headers=(),
+            supports_images=declared,
+        )
+
+        assert app_factory.call_args.kwargs["supports_images"] is declared
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_an_undeclared_local_server_takes_no_images(self, monkeypatch):
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy(
+            "http://localhost:11434/v1",
+            upstream_api_key="k",
+            provider="ollama",
+            forward_headers=(),
+            supports_images=None,
+        )
+
+        assert app_factory.call_args.kwargs["supports_images"] is False
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_proxy_requires_the_image_declaration(self, monkeypatch):
+        _install_fake_uvicorn(monkeypatch)
+
+        with pytest.raises(TypeError):
+            lifecycle.start_proxy(  # type: ignore[call-arg]
+                "https://up.example/v1", upstream_api_key="k", forward_headers=()
+            )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_hands_the_app_the_declared_headers(self, monkeypatch):
@@ -197,6 +249,7 @@ class TestStartStop:
             "https://up.example/v1",
             upstream_api_key="k",
             forward_headers=["X-Corp-Trace", "x-litellm-tags"],
+            supports_images=None,
         )
 
         # Lower-casing is the app's job; the lifecycle passes the names as given.
@@ -209,15 +262,21 @@ class TestStartStop:
         _install_fake_uvicorn(monkeypatch)
 
         with pytest.raises(TypeError):
-            lifecycle.start_proxy("https://up.example/v1")  # type: ignore[call-arg]
+            lifecycle.start_proxy(  # type: ignore[call-arg]
+                "https://up.example/v1", supports_images=None
+            )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_is_idempotent(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        first = lifecycle.start_proxy("https://up.example/v1", forward_headers=())
+        first = lifecycle.start_proxy(
+            "https://up.example/v1", forward_headers=(), supports_images=None
+        )
         server = lifecycle._state["server"]
-        second = lifecycle.start_proxy("https://up.example/v1", forward_headers=())
+        second = lifecycle.start_proxy(
+            "https://up.example/v1", forward_headers=(), supports_images=None
+        )
 
         assert first == second
         # Repeated calls must not rebuild the app or swap the server out.
@@ -246,7 +305,9 @@ class TestStartStop:
         sleep = MagicMock()
         monkeypatch.setattr(lifecycle.time, "sleep", sleep)
 
-        port = lifecycle.start_proxy("https://up.example/v1", forward_headers=())
+        port = lifecycle.start_proxy(
+            "https://up.example/v1", forward_headers=(), supports_images=None
+        )
 
         assert lifecycle._state["port"] == port
         # It polled ``started`` and slept while the server was still coming up.
@@ -255,7 +316,7 @@ class TestStartStop:
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_stop_shuts_down_and_clears_state(self, monkeypatch):
         _install_fake_uvicorn(monkeypatch)
-        lifecycle.start_proxy("https://up.example/v1", forward_headers=())
+        lifecycle.start_proxy("https://up.example/v1", forward_headers=(), supports_images=None)
         server = lifecycle._state["server"]
 
         lifecycle.stop_proxy()

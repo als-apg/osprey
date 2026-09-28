@@ -241,6 +241,7 @@ def _inject_provider_env_once() -> None:
                     os.environ.get(spec.auth_env_var),
                     provider=spec.provider,
                     forward_headers=declared_header_names(os.environ),
+                    supports_images=spec.supports_images,
                 )
                 os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
                 logger.info("Translation proxy on :%d (provider=%s)", port, spec.provider)
