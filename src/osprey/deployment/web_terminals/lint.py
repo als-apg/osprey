@@ -256,6 +256,7 @@ def lint_web_terminals(
     findings.extend(_check_listener_ports(root, web_terminals))
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
+    findings.extend(_check_landing_names(web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
     findings.extend(_check_shared_card_duplicate_subject(web_terminals, users))
     findings.extend(_check_shared_card_subject(web_terminals, users))
@@ -3885,6 +3886,83 @@ def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> l
                     ),
                 )
             )
+    return findings
+
+
+def _check_landing_names(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A hidden roster needs a sign-in in front of it.
+
+    ``names: hidden`` on a ``type: users`` section of ``landing.groups``
+    replaces that section's name cards with one button that opens the card-less
+    sign-in. That route exists only behind a login wall. Under ``token`` the
+    name card is the way in, because each person enters through their own
+    ``?token=`` URL and returns through the card; under ``none`` nobody signs
+    in at all. Both are refused. The refusal is decided on the derived
+    ``walled`` boolean, so any method that puts no login in front of the
+    roster is refused; the message text is picked off ``auth_method``.
+
+    The render reads the switch as a literal ``== "hidden"``, so any value other
+    than ``shown`` or ``hidden`` (and ``names`` on a section that is not
+    ``users``) is refused too: it would publish the names the operator meant to
+    hide.
+    """
+    groups = as_dict(web_terminals.get("landing")).get("groups")
+    if not isinstance(groups, list):
+        return []
+
+    findings: list[Finding] = []
+    for i, entry in enumerate(groups):
+        if not isinstance(entry, dict) or "names" not in entry:
+            continue
+        where = f"modules.web_terminals.landing.groups[{i}]"
+        value = entry["names"]
+        if entry.get("type") != "users":
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_landing_names",
+                    message=(
+                        f"{where} sets names, which only a `type: users` section reads; remove it."
+                    ),
+                )
+            )
+            continue
+        if value not in ("shown", "hidden"):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_landing_names",
+                    message=f"{where}.names is {value!r}; expected shown or hidden.",
+                )
+            )
+            continue
+        if value != "hidden":
+            continue
+        ctx = _auth_context(web_terminals)
+        if ctx is None or ctx["walled"]:
+            continue
+        method = ctx["auth_method"]
+        if method == "token":
+            reason = (
+                "under auth.method: token the name card is the way in: each person "
+                "opens their terminal once from `osprey users login-url <name>` and "
+                "comes back through their card."
+            )
+        else:
+            reason = (
+                f"under auth.method: {method} nobody signs in, so the button has "
+                "nowhere to send them and the name card is the only way in."
+            )
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.landing_names_hidden_without_sign_in",
+                message=(
+                    f"{where} sets names: hidden, but {reason} Set names: shown, or put "
+                    "a login in front of the roster with auth.method: password or oidc."
+                ),
+            )
+        )
     return findings
 
 
