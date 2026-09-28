@@ -39,6 +39,7 @@ from osprey.simulation.apply import (
     DENSIFIED_FIELD,
     active_archiver_events,
     apply_scenarios,
+    archiver_collection,
     archiver_store_config,
     event_subwindows,
     event_window,
@@ -355,6 +356,24 @@ class TestStoreResolution:
         store = archiver_store_config(yaml.safe_load((root / "config.yml").read_text()), root)
         assert store is not None
         assert store["password"] is None
+
+    def test_archiver_collection_builds_its_client_from_the_shared_function(self, tmp_path):
+        """A bundled store gets the same six-keyword client the agent's connector builds."""
+        from unittest.mock import patch
+
+        from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
+
+        root = tmp_path / "proj"
+        root.mkdir()
+        (root / ".env").write_text("MONGO_ROOT_PASSWORD=pw\n")
+        config = {"archiver": {"type": "mongodb_archiver", "mongodb_archiver": bundled_block()}}
+        store = archiver_store_config(config, root)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            with archiver_collection(store):
+                pass
+
+        assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
 
 
 # ---------------------------------------------------------------------------

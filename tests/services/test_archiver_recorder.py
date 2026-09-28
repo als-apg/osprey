@@ -759,6 +759,18 @@ def archive_collection(mongodb_container):  # noqa: F811
         client.close()
 
 
+def test_archive_writer_builds_its_client_from_the_shared_function() -> None:
+    """A bundled store gets the same six-keyword client the agent's connector builds."""
+    from unittest.mock import patch
+
+    from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS
+
+    with patch("pymongo.MongoClient") as mock_client_cls:
+        ArchiveWriter(_settings(host="localhost", port=27100), "pw").connect()
+
+    assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
+
 def test_stored_documents_carry_the_shape_the_connector_reads(archive_collection) -> None:
     """One document per timestamp, ``date`` plus a field per PV — the shape
     ``MongoDBArchiverConnector`` queries and projects."""
