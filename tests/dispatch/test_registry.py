@@ -1,5 +1,7 @@
 """Tests for TriggerRegistry."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from osprey.dispatch.registry import TriggerRegistry
@@ -285,3 +287,17 @@ async def test_history_deque_capped_at_history_max():
     # Verify the cap is configured on the deque rather than overflowing it
     # (default _HISTORY_MAX is large).
     assert reg._history["capped"].maxlen == _HISTORY_MAX
+
+
+@pytest.mark.asyncio
+async def test_record_event_keeps_a_stamped_instant_as_given():
+    """A stamped instant is stored as given; the entry's own stamp stays a UTC string."""
+    stamp = datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
+    reg = TriggerRegistry()
+    await reg.register(_make_trigger("t", "cron"))
+    await reg.record_event("t", {"timestamp": stamp}, "dispatched")
+
+    entry = (await reg.get_history("t"))[-1]
+    assert entry["event_data"]["timestamp"] is stamp
+    assert isinstance(entry["timestamp"], str)
+    assert entry["timestamp"].endswith("+00:00")
