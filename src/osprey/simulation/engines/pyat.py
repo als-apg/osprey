@@ -68,11 +68,15 @@ class Prepared:
             when the block states none.
         rest_mass_gev: The particle's rest energy: ``rest_mass_gev`` when the
             block states it, else the deck's particle.
+        length_m: The end of the deck's s axis, the axis ``locate`` reports
+            on: one pass through the elements as written, never multiplied
+            by the deck's periodicity.
     """
 
     solve: str
     twiss_in: dict[str, np.ndarray] | None
     rest_mass_gev: float
+    length_m: float
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,7 @@ class _Loaded:
     lattice: Any
     indices: dict[str, tuple[int, ...]]
     s_pos: tuple[float, ...]
+    length_m: float
 
 
 def _load(deck: Deck) -> _Loaded:
@@ -103,6 +108,7 @@ def _load_cached(path: str, mtime_ns: int, size: int) -> _Loaded:
         lattice=lattice,
         indices={name: tuple(found) for name, found in indices.items()},
         s_pos=tuple(float(s) for s in s_pos),
+        length_m=float(lattice.get_s_pos(len(lattice))[0]),
     )
 
 
@@ -227,7 +233,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             omitted.
 
     Returns:
-        The normalised block.
+        The normalised block and the deck's length.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` for an unknown settings key or
@@ -330,7 +336,9 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
                 "give rest_mass_gev as a finite non-negative number",
             )
         rest_mass_gev = float(rest_mass)
-    return Prepared(solve=solve, twiss_in=twiss_in, rest_mass_gev=rest_mass_gev)
+    return Prepared(
+        solve=solve, twiss_in=twiss_in, rest_mass_gev=rest_mass_gev, length_m=loaded.length_m
+    )
 
 
 def _read_element(loaded: _Loaded, deck: Deck, record: Any, record_id: str) -> float | None:
