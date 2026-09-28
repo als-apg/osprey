@@ -7,7 +7,7 @@ name = "osprey-connectors"
 dynamic = ["version"]
 description = "Control-system and archiver connectors for OSPREY"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 license = {text = "BSD-3-Clause"}
 dependencies = [
     "rich>=14.0.0",
@@ -16,18 +16,13 @@ dependencies = [
     "numpy>=2.2.6",
     "pandas>=2.2.3",
     "python-dateutil>=2.9.0",
-    "pyepics",
-    # pvAccess client for the EPICS connector's PVA transport. Core, not an
-    # extra: extras get forgotten by deployments, and a platform marker would
-    # strip p4p from exactly the arm64 images that need it. Wheels ship for
-    # macOS universal2, linux x86_64 and windows, but NOT for linux aarch64 --
-    # there p4p, pvxslibs and epicscorelibs build from source, which needs a C
-    # toolchain. The project image's deps layer already stages and purges one
-    # under the `setuptools<84` pip constraint, so containers are covered;
-    # bare-metal arm64-linux installs need a compiler present. Note this is a
-    # stricter reach than pyepics, which is a py3-none-any wheel that installs
-    # anywhere and only fails at runtime if no libca is found.
-    "p4p>=4.2",
+    # EPICS client for the EPICS connector, over both Channel Access and
+    # PVAccess (the `pvaccess` module). Wheels ship for CPython 3.9-3.13 on
+    # macOS (x86_64, arm64), linux (x86_64, aarch64) and windows, which is why
+    # requires-python stops below 3.14. Capped below the next major because the
+    # connector classifies pvapy's single exception type by its message text,
+    # which tests/connectors/test_epics_soft_ioc.py pins against a live IOC.
+    "pvapy>=5.6,<6",
     # MongoDB client for MongoDBArchiverConnector. Declared even though the
     # connector imports it inside connect(): the deferred import exists so
     # registration stays cheap, not to make the dependency optional.
