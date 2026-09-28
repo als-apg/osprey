@@ -457,8 +457,8 @@ class TestWatcherThreadsTheCollectionThrough:
             _WorkspaceHandler(tmp_path, MagicMock(), (PurePath("feedback"),))
 
 
-class TestLifespanConcealsBothStores:
-    """``app.py`` resolves both stores and hands the watcher the pair.
+class TestLifespanConcealsItsStores:
+    """``app.py`` resolves every server-side store and hands the watcher all of them.
 
     Also the one place the per-user layout's lifespan state is pinned: the
     store directory, the cache the renderer reads and the lock the routes take
@@ -503,12 +503,14 @@ class TestLifespanConcealsBothStores:
                 yield_state = client.app.state
                 return workspace_dir, constructed, yield_state
 
-    def test_both_store_paths_reach_the_watcher(self, tmp_path):
+    def test_every_store_path_reaches_the_watcher(self, tmp_path):
         workspace_dir, constructed, state = self._boot(tmp_path)
 
-        assert constructed == [(workspace_dir, (PurePath("feedback"), PurePath("bar_items")))]
+        stores = (PurePath("feedback"), PurePath("bar_items"), PurePath("panel_status"))
+        assert constructed == [(workspace_dir, stores)]
         assert state.feedback_rel == PurePath("feedback")
         assert state.bar_items_rel == PurePath("bar_items")
+        assert state.panel_status_rel == PurePath("panel_status")
 
     def test_the_bar_items_store_is_a_sibling_of_the_feedback_store(self, tmp_path):
         workspace_dir, _, state = self._boot(tmp_path)

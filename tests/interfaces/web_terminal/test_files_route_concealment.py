@@ -45,7 +45,12 @@ def case_insensitive_fs(tmp_path):
 
 
 def _make_client(
-    workspace, feedback_dir, *, set_state: bool = True, bar_items_dir: object = None
+    workspace,
+    feedback_dir,
+    *,
+    set_state: bool = True,
+    bar_items_dir: object = None,
+    panel_status_dir: object = None,
 ) -> TestClient:
     """Router-only app with just the state the files routes read."""
     app = FastAPI()
@@ -56,6 +61,8 @@ def _make_client(
         app.state.feedback_dir = feedback_dir
     if bar_items_dir is not None:
         app.state.bar_items_dir = bar_items_dir
+    if panel_status_dir is not None:
+        app.state.panel_status_dir = panel_status_dir
     return TestClient(app)
 
 
@@ -152,6 +159,32 @@ class TestTreeKeepsLookalikes:
         sub = _named(tree, "sub")
         assert "feedback" in _child_names(sub)
         assert _child_names(_named(sub, "feedback")) == ["survey.md"]
+
+
+@pytest.fixture
+def status_store(workspace):
+    """The panel-status store, sited directly under the workspace."""
+    panel_status_dir = workspace / "panel_status"
+    panel_status_dir.mkdir()
+    (panel_status_dir / "jupyter.json").write_text('{"state": "running"}')
+    (workspace / "notes.md").write_text("# hello")
+    return panel_status_dir
+
+
+class TestThePanelStatusStoreIsConcealed:
+    def test_the_store_is_absent_from_the_tree(self, workspace, status_store):
+        client = _make_client(workspace, None, panel_status_dir=status_store)
+        names = _child_names(client.get("/api/files/tree").json())
+        assert "panel_status" not in names
+        assert "notes.md" in names
+
+    def test_reading_a_record_is_indistinguishable_from_absent(self, workspace, status_store):
+        client = _make_client(workspace, None, panel_status_dir=status_store)
+        concealed = client.get("/api/files/content/panel_status/jupyter.json")
+        absent = client.get("/api/files/content/panel_status/never.json")
+
+        assert concealed.status_code == 404
+        assert concealed.json() == absent.json()
 
 
 class TestTheSavedBarLayoutIsConcealedToo:

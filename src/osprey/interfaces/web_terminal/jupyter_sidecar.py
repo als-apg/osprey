@@ -43,7 +43,8 @@ plugins that make no sense inside an embedded panel (see
 
 A sidecar that exits on its own — outside :meth:`JupyterSidecar.stop` — is
 reported once, with its last stderr lines, and :attr:`JupyterSidecar.on_exit`
-is invoked so the terminal can retract the panel. Nothing restarts it.
+is invoked so the terminal can retract the panel. The terminal starts a fresh
+sidecar when the operator opens the panel again.
 """
 
 from __future__ import annotations
@@ -408,6 +409,12 @@ class JupyterSidecar:
     @property
     def stderr_tail(self) -> str:
         return self._tail.text if self._tail is not None else ""
+
+    @property
+    def exit_status(self) -> int | None:
+        """The status of an exit :meth:`stop` did not cause; ``None`` otherwise."""
+        with self._exit_lock:
+            return self._exit_status
 
     @property
     def auth_headers(self) -> dict[str, str]:
