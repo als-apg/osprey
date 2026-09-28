@@ -117,9 +117,10 @@ persona is already a whole project, so it can differ in what it *is* as
 easily as in what it may write. Both cards are shared — any roster login
 opens them with their own password (:ref:`multi-user-shared-card`).
 
-``osprey build`` renders one persona project per delta in ``personas/``, and
-``osprey up`` builds each one's container image locally, so no registry or CI is
-involved.
+``osprey build`` renders one persona project per delta in ``personas/``. In the
+preset's local mode, ``osprey up`` builds each one's container image locally, so
+no registry or CI is involved. A deployment can pull them from a registry
+instead; see :ref:`multi-user-registry-images`.
 
 **One front door.** An nginx reverse proxy serves the landing page and proxies
 ``/u/<name>/`` to that user's container. The per-user containers are pinned to
@@ -380,7 +381,8 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    (``image_source: local``), ``osprey up`` builds each persona's image
    (tagged ``<project>:local`` after the persona's rendered project, e.g.
    ``my-control-assistant-readwrite:local``) from that rendered project —
-   no registry, no CI.
+   no registry, no CI. Registry mode pulls them instead; see
+   :ref:`multi-user-registry-images`.
 
 #. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
    serves the landing page on ``http://127.0.0.1:10000``, and one Web Terminal
@@ -409,6 +411,100 @@ Stop the stack again with ``osprey down``; check on it with
    this one its own block rather than moving services one by one — for example
    ``osprey set config.deployment.port_base=20000 && osprey build`` — before
    ``osprey up``. See :ref:`reference-ports`.
+
+.. _multi-user-registry-images:
+
+Pull the terminal images from a registry
+----------------------------------------
+
+With ``image_source: registry`` (the value whenever the key is unset),
+``osprey up`` builds no terminal image. It pulls one image per persona, under
+names it derives itself.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Who pulls it
+     - Image
+   * - The ``default_persona``, and every user when there is no ``personas`` catalog
+     - ``<registry.url>/web-terminal:<tag>``
+   * - Every other persona
+     - ``<registry.url>/web-terminal-<persona>:<tag>``
+
+``<persona>`` is the persona's key in the ``personas`` catalog, not its
+``project``.
+The default persona keeps the unsuffixed name, so adding a catalog never
+renames the image its users already pull.
+
+``<tag>`` is ``modules.web_terminals.image_tag``, ``latest`` when unset.
+A ``${VAR}`` in it is expanded from the environment of ``osprey up``, and a
+variable that is unset there expands to nothing.
+``osprey scaffold web-terminals lint`` warns when the whole tag comes out empty
+(code ``web_terminals.empty_image_tag``).
+
+``<registry.url>`` is the top-level ``registry.url`` of ``config.yml``, with no
+scheme.
+It is the only namespace: two deployments that share a registry keep their
+images apart by giving ``registry.url`` different paths.
+There is no per-persona ``image:`` key.
+
+This ``registry.url`` is not the ``deploy.registry.url`` of the profile's
+``deploy:`` block.
+The build copies ``deploy.image_source`` into the rendered config, but not the
+registry.
+Set it in the profile's ``config:`` block
+(``osprey set config.registry.url=<path>``), usually to the same path as
+``deploy.registry.url``.
+
+The scaffolded pipeline builds only the facility's own service images, not
+these, so the facility's pipeline must push them.
+Put that job in ``ci-extra.yml`` (see :doc:`../../deploy-a-facility`).
+Build each image from that persona's rendered project: the same render
+``image_source: local`` builds as ``<project>:local``.
+
+Registry mode also pulls the auth sidecar from
+``modules.web_terminals.auth.image`` when login is on; see :doc:`login`.
+
+``osprey scaffold web-terminals lint`` refuses a registry-mode config that has a
+``personas`` catalog but no ``registry.url`` (code
+``web_terminals.registry_mode_missing_url``).
+
+For example, with this config:
+
+.. code-block:: yaml
+
+   registry:
+     url: registry.example.org/accelerator/demo
+
+   modules:
+     web_terminals:
+       image_tag: "2026.09.1"
+       default_persona: readonly
+       users:
+       - name: alice
+         index: 0
+         persona: readwrite
+       - name: bob
+         index: 1
+       personas:
+         readonly:
+           project: demo-readonly
+           project_path: build/demo-readonly
+           build_profile: personas/readonly.yml
+         readwrite:
+           project: demo-readwrite
+           project_path: build/demo-readwrite
+           build_profile: personas/readwrite.yml
+
+``osprey up`` pulls:
+
+.. code-block:: text
+
+   alice  registry.example.org/accelerator/demo/web-terminal-readwrite:2026.09.1
+   bob    registry.example.org/accelerator/demo/web-terminal:2026.09.1
+
+``bob`` names no persona, so he gets the ``default_persona`` and the unsuffixed
+image.
 
 The landing page
 ----------------
