@@ -165,6 +165,37 @@ export function facilityDayKey(value) {
 }
 
 /**
+ * The wall-clock reading `YYYY-MM-DD HH:MM:SS.mmm` of *value* in the resolved
+ * zone: the form a chart's date axis takes. Plotly drops any offset in a date
+ * string and draws the digits as written, so an instant has to become the
+ * facility's digits before it reaches the axis. Machine text, so its locale is
+ * fixed to keep its digits Latin.
+ * @param {Date|string|number|null|undefined} value  A Date, an ISO string or epoch ms.
+ * @returns {string} The wall clock, or `''` for empty or unparsable input.
+ */
+export function facilityWallClock(value) {
+  const date = toDate(value);
+  if (!date) return '';
+  const parts = formatter('en-US', {
+    timeZone: facilityZone().id,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  /** @param {string} type */
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
+  return (
+    `${get('year')}-${get('month')}-${get('day')} ` +
+    `${get('hour')}:${get('minute')}:${get('second')}.${get('fractionalSecond')}`
+  );
+}
+
+/**
  * Whether the viewer's own zone shows the same wall time as the resolved zone
  * at *value*. Aliases and distinct zones at the same offset count as the same
  * clock; with no usable stamp the answer is always true.

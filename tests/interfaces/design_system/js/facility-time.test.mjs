@@ -16,6 +16,7 @@ import {
   formatFacilityTime,
   facilityZoneLabel,
   facilityDayKey,
+  facilityWallClock,
   viewerSharesFacilityClock,
 } from '/design-system/js/facility-time.js';
 
@@ -135,6 +136,29 @@ describe('facility-time.js', () => {
       stamp('UTC');
       expect(facilityDayKey(INSTANT)).toBe('2026-01-15');
       expect(facilityDayKey('garbage')).toBe('');
+    });
+  });
+
+  describe('facilityWallClock', () => {
+    test('the wall-clock digits in the stamped zone, to the millisecond', () => {
+      stamp('Asia/Tokyo');
+      expect(facilityWallClock('2026-01-15T20:04:05.123Z')).toBe('2026-01-16 05:04:05.123');
+      stamp('UTC');
+      expect(facilityWallClock(INSTANT)).toBe('2026-01-15 20:04:05.000');
+    });
+
+    test('midnight is 00, never 24', () => {
+      stamp('UTC');
+      expect(facilityWallClock('2026-01-15T00:00:00Z')).toBe('2026-01-15 00:00:00.000');
+      stamp('Asia/Tokyo');
+      expect(facilityWallClock('2026-01-15T15:00:00Z')).toBe('2026-01-16 00:00:00.000');
+    });
+
+    test('bad input is the empty string', () => {
+      stamp('Asia/Tokyo');
+      for (const bad of ['', null, undefined, 'garbage', new Date(NaN)]) {
+        expect(facilityWallClock(bad)).toBe('');
+      }
     });
   });
 

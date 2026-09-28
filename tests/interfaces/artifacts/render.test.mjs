@@ -33,6 +33,7 @@ import {
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs, byId } from '../_support/dom.mjs';
+import { stampFacilityZone } from '../_support/facility-zone.mjs';
 
 /** Minimal DOM fixture matching artifacts/static/index.html's structure. */
 function mountFixture() {
@@ -130,6 +131,11 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
 });
 
 describe('activity-mode chronological ordering', () => {
+  // Date groups are the facility calendar's days, and the fixtures are UTC
+  // instants, so the facility zone is UTC here in any runner zone.
+  beforeEach(() => stampFacilityZone('UTC'));
+  afterEach(() => stampFacilityZone(null));
+
   test('groups by date label and orders newest-first within "today"-equivalent single-day fixtures', () => {
     // All four fixtures land on distinct days, so each date group holds one
     // item; assert the date GROUPS themselves preserve encounter order
