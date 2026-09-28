@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import json
 import logging
 import os
 import time
@@ -28,6 +27,7 @@ from fastmcp.server.auth import AccessToken, TokenVerifier
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
+from osprey.dispatch.agent_time import agent_json
 from osprey.dispatch.clock_schedule import next_fire
 from osprey.dispatch.dashboard import render_dashboard_html
 from osprey.dispatch.mcp_tools import register_tools
@@ -171,9 +171,11 @@ async def _dispatch_with_policy(
     # Fold the event payload into the prompt so payload-driven triggers can act
     # on it. The payload is UNTRUSTED input (a webhook body); the per-trigger
     # tool allowlist and the worker's denylist — not the prompt — are the
-    # security controls. Empty payloads (e.g. a bare ping) add nothing.
+    # security controls. Empty payloads (e.g. a bare ping) add nothing. An
+    # instant a trigger source stamped is shown in the facility zone, and a
+    # value the payload carried as text is shown as it came.
     if payload:
-        prompt = f"{prompt}\n\nEvent payload (JSON):\n{json.dumps(payload, indent=2, default=str)}"
+        prompt = f"{prompt}\n\nEvent payload (JSON):\n{agent_json(payload)}"
 
     try:
         result = await dispatch_to_worker(
@@ -611,9 +613,9 @@ def create_server() -> FastMCP:
         return await pool.submit(trigger.name, fn)
 
     # Trigger sources: discover from the ``osprey.trigger_sources`` entry-point
-    # group (built-ins: webhook, cron — see pyproject.toml), then register their
-    # routes at factory time. A source type with no registered class is skipped
-    # gracefully (logged in SourceRegistry.setup).
+    # group (built-ins: webhook, cron, epics_ca — see pyproject.toml), then
+    # register their routes at factory time. A source type with no registered
+    # class is skipped gracefully (logged in SourceRegistry.setup).
     source_reg = SourceRegistry()
     source_reg.discover()
     source_reg.setup(trigger_list, mcp)  # FACTORY: registers webhook routes

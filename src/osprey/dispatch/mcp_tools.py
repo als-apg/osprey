@@ -9,6 +9,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
+from osprey.dispatch.agent_time import agent_json, registry_instant
 from osprey.dispatch.pool import DispatchPool, QueueFullError
 from osprey.dispatch.registry import TriggerRegistry
 from osprey.dispatch.trigger_config import TriggerConfig
@@ -50,10 +51,12 @@ def register_tools(
         """List all registered triggers with their current status.
 
         Returns a JSON array of trigger summaries including name, source,
-        status, and last_fired timestamp.
+        status, and last_fired time in the facility zone.
         """
         triggers = await registry.list_triggers()
-        return json.dumps(triggers, indent=2)
+        return agent_json(
+            [{**t, "last_fired": registry_instant(t["last_fired"])} for t in triggers]
+        )
 
     @mcp.tool()
     async def trigger_history(name: str, limit: int = 20) -> str:
@@ -65,13 +68,14 @@ def register_tools(
 
         Returns:
             JSON array of event records (timestamp, event_data, result, and
-            owner when a person fired it), newest-last order.
+            owner when a person fired it), newest-last order. Times are in the
+            facility zone.
         """
         try:
             history = await registry.get_history(name, limit=limit)
         except KeyError as exc:
             return json.dumps({"error": str(exc)})
-        return json.dumps(history, indent=2)
+        return agent_json([{**e, "timestamp": registry_instant(e["timestamp"])} for e in history])
 
     @mcp.tool()
     async def trigger_status(name: str) -> str:
@@ -82,14 +86,16 @@ def register_tools(
 
         Returns:
             JSON object with trigger status fields and current pool metrics.
+            Times are in the facility zone.
         """
         try:
             status = await registry.get_status(name)
         except KeyError as exc:
             return json.dumps({"error": str(exc)})
 
+        status["last_fired"] = registry_instant(status["last_fired"])
         pool_status = pool.get_pool_status()
-        return json.dumps({**status, "pool": pool_status}, indent=2)
+        return agent_json({**status, "pool": pool_status})
 
     @mcp.tool()
     async def manual_fire(name: str, payload: dict[str, Any] | None = None) -> str:
