@@ -34,6 +34,11 @@ handler drops the connector so the next call rebuilds it, while an
 untranslated error reaches the unexpected-error branch and leaves a stale
 connector in place. Mock has no row: it accepts every channel name and
 serves a value for each, so it has no transport to fail.
+
+What a connector reads must also cross the connector host, whose frames carry
+only plain data — scalars, arrays, datetimes, lists, dicts and the contract's
+own result types. So each connector's real reading is encoded into one IPC
+frame and decoded back once, and must come out equal to what went in.
 """
 
 import sys
@@ -43,9 +48,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import WriteOutcome
+from osprey.connectors.control_system.base import ChannelValue, WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.ipc import frames
 
 # The one value every scenario writes, and the value a channel that did not
 # keep it holds instead.
@@ -205,6 +211,7 @@ def _fake_pv(value, *, pv_type="time_double", labels=None):
     pv.status = 0
     pv.severity = 0
     pv.type = pv_type
+    pv.count = 1
     if labels is not None:
         pv.enum_strs = labels
     return pv
@@ -605,3 +612,83 @@ class TestTranslatedReadFailures:
         failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
 
         assert isinstance(failure.exception.__cause__, RuntimeError)
+
+
+# ---------------------------------------------------------------------------
+# The reading crosses the connector host
+# ---------------------------------------------------------------------------
+
+
+async def _reading_mock(monkeypatch) -> ChannelValue:
+    monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    connector = MockConnector()
+    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+    reading = await connector.read_channel("TEST:CHANNEL:RB")
+    await connector.disconnect()
+    return reading
+
+
+async def _reading_epics(monkeypatch) -> ChannelValue:
+    connector = _epics_connector(monkeypatch, pv=_fake_pv(VALUE_SENT))
+    return await connector.read_channel("SR:CH")
+
+
+async def _reading_doocs(_monkeypatch) -> ChannelValue:
+    mock_d4py = _fake_doocs4py(VALUE_SENT)
+
+    with (
+        patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+        patch(_LIMITS_PATCH, return_value=None),
+        patch(_TZ_PATCH, return_value=UTC),
+        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+    ):
+        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+
+        conn = DOOCSConnector()
+        await conn.connect({})
+        reading = await conn.read_channel("FAC/DEV/LOC/PROP")
+        await conn.disconnect()
+
+    return reading
+
+
+async def _reading_tango(_monkeypatch) -> ChannelValue:
+    mock_tango, _ = _fake_tango(VALUE_SENT)
+
+    with (
+        patch.dict(sys.modules, {"tango": mock_tango}),
+        patch(_TANGO_LIMITS_PATCH, return_value=None),
+        patch(_TANGO_TZ_PATCH, return_value=UTC),
+        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+    ):
+        from osprey.connectors.control_system.tango_connector import TangoConnector
+
+        conn = TangoConnector()
+        await conn.connect({})
+        reading = await conn.read_channel("sr/power_supply/ps01/Current")
+        await conn.disconnect()
+
+    return reading
+
+
+_READERS = {
+    "mock": _reading_mock,
+    "epics": _reading_epics,
+    "doocs": _reading_doocs,
+    "tango": _reading_tango,
+}
+
+
+@pytest.mark.parametrize("connector_name", list(_READERS), ids=list(_READERS))
+class TestReadingCrossesTheConnectorHost:
+    """A reading served through the connector host arrives as it was read."""
+
+    async def test_a_reading_round_trips_through_an_ipc_frame(self, connector_name, monkeypatch):
+        reading = await _READERS[connector_name](monkeypatch)
+
+        decoded = frames.FrameReader().feed(frames.encode_result("req", reading))
+
+        assert len(decoded) == 1
+        assert isinstance(decoded[0], frames.ResultFrame)
+        assert isinstance(decoded[0].value, ChannelValue)
+        assert decoded[0].value == reading
