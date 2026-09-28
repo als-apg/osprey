@@ -463,6 +463,11 @@ webhook = "osprey.dispatch.sources.webhook:WebhookSource"
 cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
+# Simulation engine plug-ins, each entry naming the module that implements the
+# plug-in contract; a facility build reaches an engine only through this group.
+[project.entry-points."osprey.simulation.engines"]
+pyat = "osprey.simulation.engines.pyat"
+
 # Resolver exemptions for two packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
 # "nothing newer than N days" policy). Both are exact pins this project needs
