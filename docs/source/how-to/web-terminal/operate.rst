@@ -465,8 +465,9 @@ there is, drawn as it will look in the bar. From there:
   header. Drag an item already in a bar to move it, within its own bar or
   across to the other one.
 - **Drag an item off both bars** to take it away.
-- **Click an item** to open its options — the clock's zone, 24- or 12-hour
-  format and seconds, a space's width, what the Bluesky queue shows and which
+- **Click an item** to open its options — the clock's zone (yours, the
+  facility's, UTC, or yours beside UTC), 24- or 12-hour format and seconds, a
+  space's width, what the Bluesky queue shows and which
   of its controls it offers, what the system-health chip says and lists — along
   with **Move left** and **Move right** within its bar, **Move to status bar**
   (or back to the header) and **Remove**. Every item can go in either bar: the

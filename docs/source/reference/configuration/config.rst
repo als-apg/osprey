@@ -654,6 +654,20 @@ The ``system-health`` item, offered where the SYSTEM panel is enabled, takes
 suite's worst outcome in a word) and ``detail`` (``categories``, the default:
 its card lists one row per check category; ``checks``: every check).
 
+The ``clock`` item takes ``zone`` with these values:
+
+- ``none``, the default: the viewer's time;
+- ``local``: the same, with its zone named in the header;
+- ``facility``: the time in ``system.timezone``;
+- ``utc``;
+- ``both``: the viewer's time beside UTC.
+
+It also takes ``format`` (``24h``, the default, or ``12h``) and ``seconds``
+(default ``false``). Wherever the viewer's clock shows a different time from
+the facility's, a clock showing the viewer's time names that zone in either
+bar. A ``facility`` clock is named in the header, and in the status bar too
+when the viewer is elsewhere.
+
 Nothing here can stop the terminal from booting. An item name the build does
 not know, a second copy of an item that can only appear once (everything but
 ``clock``, ``stopwatch``, ``space`` and ``separator``), or a line that is not an
