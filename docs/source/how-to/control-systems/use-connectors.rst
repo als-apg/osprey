@@ -188,13 +188,20 @@ Pick a control system
       :sync: doocs
 
       DOOCS (DESY, European XFEL). Channel addresses are DOOCS properties
-      (``FACILITY/DEVICE/LOCATION/PROPERTY``), and the connector needs no
-      options -- it reads its environment from the DOOCS installation:
+      (``FACILITY/DEVICE/LOCATION/PROPERTY``). The ENS comes from the DOOCS
+      installation's environment, and the block takes one option:
 
       .. code-block:: yaml
 
          control_system:
            type: doocs
+           connector:
+             doocs:
+               timeout_s: 5.0   # optional; seconds per ENS lookup, read or set
+
+      A read that does not answer within ``timeout_s`` (or the call's own
+      timeout) raises ``TimeoutError``. A set that does not return within it
+      is reported ``unconfirmed``, because the value may still arrive.
 
       The connector requires ``doocs4py``, which the DOOCS environment
       provides rather than PyPI. The import is deferred to ``connect()``, so

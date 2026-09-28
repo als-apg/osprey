@@ -1059,6 +1059,7 @@ keys:
   # `control-assistant` documents both as commented examples — so the parents
   # and every leaf below them are `rendered: false` together.
   control_system.connector.doocs: {rendered: false, covered-by: control_system.connector, default: n/a}
+  control_system.connector.doocs.timeout_s: {rendered: false, covered-by: control_system.connector.doocs, default: 5.0}
   control_system.connector.tango: {rendered: false, covered-by: control_system.connector, default: n/a}
   control_system.connector.tango.tango_host:
     rendered: false
