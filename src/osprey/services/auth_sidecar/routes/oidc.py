@@ -1831,20 +1831,21 @@ async def _own_terminal_callback(request: Request, settings: AuthSettings) -> Re
     # Own cards first: a card is the person's own when its roster entry is
     # mapped to the asserted identity; a rule-admitted or roster-opened card
     # of somebody else is listed as shared.
-    admissions.sort(key=lambda admission: not _is_own_identity(settings, admission.card, asserted))
-    session = _mint(request, settings, admissions)
+    opened = sorted(
+        (
+            (admission, _is_own_identity(settings, admission.card, asserted))
+            for admission in admissions
+        ),
+        key=lambda pair: not pair[1],
+    )
+    session = _mint(request, settings, [admission for admission, _ in opened])
     response = opened_response(
         request,
         settings,
         get_session_codec(request),
         session,
-        tuple(
-            OpenedCard(
-                name=admission.card, own=_is_own_identity(settings, admission.card, asserted)
-            )
-            for admission in admissions
-        ),
+        tuple(OpenedCard(name=admission.card, own=own) for admission, own in opened),
     )
-    for admission in admissions:
+    for admission, _ in opened:
         _record_success(settings, admission)
     return response
