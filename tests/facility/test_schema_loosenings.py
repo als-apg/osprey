@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import re
-import sys
 from pathlib import Path
 
 import pytest
@@ -295,7 +294,6 @@ _SCRIPT = REPO_ROOT / "scripts" / "facility_schema" / "loosenings.py"
 _spec = importlib.util.spec_from_file_location("facility_schema_loosenings", _SCRIPT)
 assert _spec and _spec.loader
 loosenings = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = loosenings
 _spec.loader.exec_module(loosenings)
 
 
