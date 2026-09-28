@@ -39,9 +39,20 @@ What a connector reads must also cross the connector host, whose frames carry
 only plain data — scalars, arrays, datetimes, lists, dicts and the contract's
 own result types. So each connector's real reading is encoded into one IPC
 frame and decoded back once, and must come out equal to what went in.
+
+No call outlives its bound. On every connector whose transport call runs in a
+worker thread — DOOCS and TANGO — a read whose transport stalls raises
+``TimeoutError`` naming the channel, and a send whose transport stalls is
+``unconfirmed``, because the thread cannot be stopped and the value may still
+arrive. EPICS (and the Virtual Accelerator, an EPICS subclass) has no row: it
+hands its bound to pyepics' own connection and get timeouts, and a channel
+that never connects is the ``ConnectionError`` the unreachable-channel class
+already pins. Mock has no transport to stall.
 """
 
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC
 from unittest.mock import MagicMock, patch
@@ -692,3 +703,113 @@ class TestReadingCrossesTheConnectorHost:
         assert isinstance(decoded[0], frames.ResultFrame)
         assert isinstance(decoded[0].value, ChannelValue)
         assert decoded[0].value == reading
+
+
+# ---------------------------------------------------------------------------
+# A stalled transport is bounded
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class StalledRun:
+    """What one connector did while its transport was stalled."""
+
+    outcome: object
+    elapsed: float
+    confirming_reads: int
+
+
+async def _stall_doocs(action: str) -> StalledRun:
+    """Drive DOOCS with ``get`` (read) or ``set`` (send) blocked."""
+    release = threading.Event()
+    mock_d4py = _fake_doocs4py(VALUE_SENT)
+    if action == "read":
+        mock_d4py.get.side_effect = lambda _address: release.wait(10)
+    else:
+        mock_d4py.set.side_effect = lambda _address, _value: release.wait(10)
+    try:
+        with (
+            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+
+            conn = DOOCSConnector()
+            await conn.connect({"timeout_s": 0.2})
+            outcome = await _stalled_call(conn, "FAC/DEV/LOC/PROP", action)
+    finally:
+        release.set()
+
+    return StalledRun(*outcome, confirming_reads=mock_d4py.get.call_count)
+
+
+async def _stall_tango(action: str) -> StalledRun:
+    """Drive TANGO with ``read_attribute`` (read) or ``write_attribute`` (send) blocked."""
+    release = threading.Event()
+    mock_tango, proxy = _fake_tango(VALUE_SENT)
+    if action == "read":
+        proxy.read_attribute.side_effect = lambda _attr: release.wait(10)
+    else:
+        proxy.write_attribute.side_effect = lambda _attr, _value: release.wait(10)
+    try:
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_TANGO_LIMITS_PATCH, return_value=None),
+            patch(_TANGO_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({"timeout": 0.2})
+            outcome = await _stalled_call(conn, "sr/power_supply/ps01/Current", action)
+    finally:
+        release.set()
+
+    return StalledRun(*outcome, confirming_reads=proxy.read_attribute.call_count)
+
+
+async def _stalled_call(conn, channel: str, action: str) -> tuple[object, float]:
+    """Run one read or confirmed send, returning what it gave and how long it took."""
+    start = time.monotonic()
+    if action == "read":
+        try:
+            await conn.read_channel(channel)
+        except Exception as exc:
+            return exc, time.monotonic() - start
+        raise AssertionError(f"the stalled read of {channel!r} returned")
+    result = await conn.write_channel(channel, VALUE_SENT, confirm=True)
+    return result, time.monotonic() - start
+
+
+_STALL_DRIVERS = {
+    "doocs": (_stall_doocs, "FAC/DEV/LOC/PROP"),
+    "tango": (_stall_tango, "sr/power_supply/ps01/Current"),
+}
+
+
+@pytest.mark.parametrize("connector_name", list(_STALL_DRIVERS), ids=list(_STALL_DRIVERS))
+class TestStalledTransportParity:
+    """A transport that never returns cannot hold a call past its bound."""
+
+    async def test_a_stalled_read_is_a_timeout_error_naming_the_channel(self, connector_name):
+        driver, channel = _STALL_DRIVERS[connector_name]
+
+        run = await driver("read")
+
+        assert isinstance(run.outcome, TimeoutError)
+        assert not isinstance(run.outcome, ConnectionError)
+        assert channel in str(run.outcome)
+        assert run.elapsed < 2.0
+
+    async def test_a_stalled_send_is_unconfirmed_with_no_confirming_read(self, connector_name):
+        driver, _channel = _STALL_DRIVERS[connector_name]
+
+        run = await driver("send")
+
+        assert run.outcome.outcome is WriteOutcome.UNCONFIRMED
+        assert run.outcome.error_message is not None
+        assert run.confirming_reads == 0
+        assert run.elapsed < 2.0
