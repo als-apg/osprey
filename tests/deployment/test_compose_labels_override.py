@@ -10,6 +10,10 @@ deployment's.
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -33,7 +37,7 @@ from osprey.deployment.compose_generator import (
     repo_identity,
 )
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
-from osprey.deployment.runtime_helper import CONFIG_DIGEST_VAR, ComposeProvider
+from osprey.deployment.runtime_helper import CONFIG_DIGEST_VAR, ComposeProvider, runtime_env
 
 
 def test_status_reads_the_project_label_the_render_writes() -> None:
@@ -284,4 +288,52 @@ def test_the_podman_document_carries_the_labels_on_every_service(
     for name in ("openobserve", "site-probe"):
         for key, value in _expected_labels(tmp_path).items():
             assert services[name]["labels"][key] == value
+    assert services["site-probe"]["labels"]["site.owner"] == "ops"
+
+
+# ---------------------------------------------------------------------------
+# What compose itself sees
+# ---------------------------------------------------------------------------
+
+
+def _docker_compose_missing() -> str | None:
+    """Why ``docker compose config`` cannot run here, or ``None`` when it can."""
+    if shutil.which("docker") is None:
+        return "the docker CLI is not on PATH"
+    probe = subprocess.run(
+        ["docker", "compose", "version"], capture_output=True, text=True, check=False
+    )
+    if probe.returncode != 0:
+        return "the docker compose plugin is not installed"
+    return None
+
+
+def test_docker_compose_config_shows_the_four_labels_on_every_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``docker compose config`` needs the CLI plugin and no daemon."""
+    missing = _docker_compose_missing()
+    if missing is not None:
+        pytest.skip(f"{missing}: docker compose config cannot run")
+    files = _render(tmp_path, monkeypatch)
+    config = yaml.safe_load((tmp_path / "config.yml").read_text(encoding="utf-8"))
+    env = runtime_env(config, dict(os.environ))
+
+    argv = compose_base_cmd(["docker", "compose"], files, tmp_path)
+    result = subprocess.run(
+        [*argv, "config", "--format", "json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    services = json.loads(result.stdout)["services"]
+    expected = {**_expected_labels(tmp_path), CONFIG_DIGEST_LABEL: env[CONFIG_DIGEST_VAR]}
+    assert set(services) == {"openobserve", "site-probe"}
+    for name, service in services.items():
+        for key, value in expected.items():
+            assert service["labels"][key] == value, (name, key)
     assert services["site-probe"]["labels"]["site.owner"] == "ops"
