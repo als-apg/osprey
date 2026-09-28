@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+from collections import OrderedDict
 from collections.abc import Callable, Iterable
 
 import httpx
@@ -52,12 +53,42 @@ _PROXY_OWNED_HEADERS: frozenset[str] = frozenset(
     }
 )
 
+#: The agent CLI names the conversation with this header on every request, and
+#: one proxy serves every conversation of its process.
+_CONVERSATION_HEADER = "x-claude-code-session-id"
+
+#: The most conversations whose drop notices are remembered; the oldest is
+#: forgotten first, so a long-lived process does not grow without bound.
+_MAX_CONVERSATIONS = 1024
+
+
+class _DropNotices:
+    """The kinds of left-out content already named, per conversation.
+
+    The request handler runs on one event loop with no ``await`` between the
+    check and the record, so no lock is needed.
+    """
+
+    def __init__(self) -> None:
+        self._named: OrderedDict[str, set[str]] = OrderedDict()
+
+    def unnamed(self, conversation: str, kinds: frozenset[str]) -> list[str]:
+        """The sorted *kinds* not yet named for *conversation*, recorded as named now."""
+        named = self._named.get(conversation)
+        if named is None:
+            named = self._named[conversation] = set()
+            while len(self._named) > _MAX_CONVERSATIONS:
+                self._named.popitem(last=False)
+        new = sorted(kinds - named)
+        named.update(new)
+        return new
+
 
 def create_proxy_app(
     upstream_base_url: str,
     upstream_api_key: str | None = None,
     *,
-    provider: str | None = None,  # noqa: ARG001
+    provider: str | None = None,
     max_tokens_param: str = "max_tokens",
     accepts_temperature: Callable[[str], bool] | None = None,
     forward_headers: Iterable[str] = (),
@@ -109,6 +140,8 @@ def create_proxy_app(
         finally:
             await upstream_client.aclose()
 
+    notices = _DropNotices()
+
     app = FastAPI(title="osprey-proxy", docs_url=None, redoc_url=None, lifespan=lifespan)
 
     @app.get("/health")
@@ -136,6 +169,24 @@ def create_proxy_app(
             accepts_temperature=accepts_temperature is None or accepts_temperature(model),
             supports_images=supports_images,
         )
+        if translated.dropped:
+            conversation = request.headers.get(_CONVERSATION_HEADER, "")
+            new = notices.unnamed(conversation, translated.dropped)
+            if new:
+                hint = (
+                    " Its providers.yml entry takes `supports_images: true` when the model"
+                    " it serves takes images."
+                    if "image" in new
+                    else ""
+                )
+                logger.warning(
+                    "Provider %s: the proxy left out what its OpenAI route does not carry: "
+                    "%s (conversation %s).%s",
+                    provider or upstream_base_url,
+                    ", ".join(new),
+                    conversation or "without an id",
+                    hint,
+                )
 
         # Build upstream URL and headers
         url = upstream_base_url.rstrip("/") + "/chat/completions"
