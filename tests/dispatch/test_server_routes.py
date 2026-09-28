@@ -21,6 +21,7 @@ from an earlier ``create_server()`` would shadow the live one and 503).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from datetime import UTC, datetime, timedelta
@@ -999,3 +1000,60 @@ def test_webhook_fire_records_no_owner(app):
 
     (entry,) = history
     assert "owner" not in entry
+
+
+def _folded_payload(prompt: str) -> dict:
+    """Return the event payload the fold appended to a dispatched prompt."""
+    return json.loads(prompt.split("Event payload (JSON):\n", 1)[1])
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_folds_a_stamped_instant_in_the_facility_zone(monkeypatch):
+    """An instant a trigger source stamped reaches the agent in the facility zone."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    stamp = datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["prompt"] = prompt
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(name="t", source="cron", action={"prompt": "base prompt"})
+    await reg.register(trig)
+    payload = {"source": "cron", "trigger": "t", "timestamp": stamp}
+    await server._dispatch_with_policy(trig, payload, reg, "http://w", "tok")
+
+    assert _folded_payload(captured["prompt"])["timestamp"] == "2026-01-16T05:00:00+09:00"
+    history = await reg.get_history("t")
+    assert history[-1]["event_data"]["timestamp"] is stamp
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_folds_a_webhook_timestamp_as_it_came(monkeypatch):
+    """A time a webhook body carries as text reaches the agent as it was sent."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["prompt"] = prompt
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(name="t", source="webhook", action={"prompt": "base prompt"})
+    await reg.register(trig)
+    await server._dispatch_with_policy(
+        trig, {"timestamp": "2026-01-15T20:00:00+00:00"}, reg, "http://w", "tok"
+    )
+
+    assert _folded_payload(captured["prompt"])["timestamp"] == "2026-01-15T20:00:00+00:00"
