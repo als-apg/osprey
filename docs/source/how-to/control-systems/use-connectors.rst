@@ -321,13 +321,27 @@ independently of the control system:
            type: epics_archiver
            settings:
              url: https://archiver.facility.edu:8443   # required
-             timeout: 60                                # seconds, default 60
+             timeout_s: 60                              # seconds, default 60
              retrieval_path: /retrieval                 # default; a reverse proxy may rename it
+             # auth:                                    # only when a proxy asks for a login
+             #   token_env: OSPREY_ARCHIVER_TOKEN       # the variable that holds the token
+             # tls:                                     # only for a CA the image does not trust
+             #   ca_bundle: /etc/ssl/certs/site-ca.pem  # absolute path of the CA file
 
       ``url`` is the appliance's root (or the reverse proxy's). The connector
       reads through the appliance's retrieval servlet, mounted at ``/retrieval``
       on a bare appliance; when a proxy in front of the appliance publishes that
       servlet under a different prefix, name the prefix with ``retrieval_path``.
+
+      ``auth:`` takes ``token_env`` (sent as a bearer token), or ``username``
+      and ``password_env`` (sent as HTTP Basic). Each ``*_env`` names an
+      environment variable that is read when the connector connects; the
+      connector refuses to start while it is unset. The login goes only to the
+      host ``url`` names, never to a host a redirect names. ``tls.ca_bundle`` is
+      an absolute path to the CA file the appliance's certificate is checked
+      against; it replaces the trust store for this appliance. When it is unset
+      the image's trust store, which ``images.site_ca`` extends, applies. No
+      setting turns certificate checking off.
 
    .. tab-item:: DOOCS
       :sync: doocs
@@ -395,8 +409,12 @@ independently of the control system:
            settings:
              myquery_server: myquery.facility.edu
              deployment: ops        # MYA deployment to query
-             timeout: 60            # seconds per request
+             timeout_s: 60          # seconds per request
              timezone: America/New_York   # default: system.timezone
+
+      MYA takes no ``auth:`` or ``tls:``: its client sends every request
+      itself, so the connector refuses both rather than ignore them. A site CA
+      reaches it through ``images.site_ca``.
 
       ``timezone`` spells a UTC query window in the server's own local time,
       which is the one place myquery has no offset to read. It does not affect
@@ -446,6 +464,11 @@ In a profile's ``config:`` block that is ``archiver.settings.server:
 history.facility.edu``. The block is handed to the connector's ``connect()``
 whole. Any other block under ``archiver:`` is one no archiver reads, and
 ``osprey build`` stops and names it.
+
+Every archiver that reaches a service by address spells its request bound
+``timeout_s``, and a login and a CA as ``auth:`` and ``tls:`` above. A flat
+``timeout``, ``token_env``, ``username``, ``password_env`` or ``ca_bundle`` is
+refused with the nested key it moved to.
 
 Contracts and Custom Connectors
 -------------------------------
