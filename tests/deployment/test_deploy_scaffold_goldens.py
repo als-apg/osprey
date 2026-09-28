@@ -338,7 +338,7 @@ def test_probe_group_filter_is_not_named_groups(rendered_verify: str) -> None:
     would leave every ``wants`` call false. The script exits 0 either way, and
     a health check that runs no probes reports perfect health.
     """
-    assert 'PROBE_GROUPS="${*:-services web}"' in rendered_verify
+    assert 'PROBE_GROUPS="${*:-containers services web}"' in rendered_verify
     assert not re.search(r"^\s*GROUPS=", rendered_verify, re.MULTILINE)
     assert not re.search(r"\$\{?GROUPS\b", rendered_verify)
 
@@ -366,10 +366,10 @@ def test_health_check_drops_the_web_group_when_there_are_no_terminals(
     profile["config"]["modules.web_terminals"]["enabled"] = False
     rendered = render(VERIFY_TEMPLATE, build_verify_context(profile, FROZEN_VERSION))
 
-    assert 'PROBE_GROUPS="${*:-services}"' in rendered
+    assert 'PROBE_GROUPS="${*:-containers services}"' in rendered
     assert "Web terminals" not in rendered
     assert "nginx" not in rendered
-    assert "./scripts/verify.sh services" in rendered
+    assert "./scripts/verify.sh containers" in rendered
 
 
 def test_health_check_is_advisory(rendered_verify: str) -> None:

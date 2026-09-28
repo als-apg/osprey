@@ -2599,11 +2599,15 @@ VERIFY_SH = """\
 # up` runs it automatically once the containers are up; you can also run it by
 # hand from anywhere in the repo:
 #
-#   ./scripts/verify.sh                    # every probe
-#   ./scripts/verify.sh services           # one group
+#   ./scripts/verify.sh                    # every group
+#   ./scripts/verify.sh containers         # one group
 #
 # ALWAYS exits 0. Verification is advisory: a failed probe tells an operator
 # where to look, and must never be the reason a deploy is reported as failed.
+# A container that is not running or not healthy, and a probe that gets no
+# answer, is flagged.
+#
+# Needs curl, and python3 to read the container runtime's JSON.
 #
 # No `set -e`: one probe timing out must not skip the ones after it.
 # =============================================================================
@@ -2613,7 +2617,10 @@ GREEN=$'\\033[32m'; RED=$'\\033[31m'; DIM=$'\\033[90m'; BOLD=$'\\033[1m'; RESET=
 
 # Probe groups, selectable as arguments. Default is all of them. Not named
 # GROUPS: bash owns that name, and assigning to it silently does nothing.
-PROBE_GROUPS="${*:-services web dispatch}"
+PROBE_GROUPS="${*:-containers services web dispatch}"
+
+# Everything flagged below, counted for the summary.
+FLAGGED=0
 
 # An HTTP endpoint that answers. Used for anything speaking HTTP.
 probe_http() {
@@ -2622,6 +2629,7 @@ probe_http() {
     printf '  %s✓%s %s\\n' "$GREEN" "$RESET" "$label"
   else
     printf '  %s✗%s %s — no response from %s\\n' "$RED" "$RESET" "$label" "$url"
+    FLAGGED=$((FLAGGED + 1))
   fi
 }
 
@@ -2634,10 +2642,132 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
     printf '  %s✓%s %s\\n' "$GREEN" "$RESET" "$label"
   else
     printf '  %s✗%s %s — nothing listening on %s:%s\\n' "$RED" "$RESET" "$label" "$host" "$port"
+    FLAGGED=$((FLAGGED + 1))
   fi
 }
 
+# The repo root: this script sits in scripts/ directly under it.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# This deployment's compose project, named the way `osprey up` names it:
+# COMPOSE_PROJECT_NAME when the caller pins it, else the repo directory's name
+# in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
+compose_project() {
+  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    printf '%s' "$COMPOSE_PROJECT_NAME"
+    return
+  fi
+  local name
+  name="$(basename "$REPO_ROOT" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
+    | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
+  printf '%s' "${name:-unnamed-project}"
+}
+
+# The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
+# build/config.yml, then docker before podman — the first whose compose
+# and daemon both answer.
+container_runtime() {
+  local pinned="${CONTAINER_RUNTIME:-}" runtime
+  if [ -z "$pinned" ] && [ -f "$REPO_ROOT/build/config.yml" ]; then
+    pinned="$(sed -n "s/^container_runtime:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z]*\\).*/\\1/p" \\
+      "$REPO_ROOT/build/config.yml")"
+  fi
+  case "$(printf '%s' "$pinned" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+    docker) printf docker; return ;;
+    podman) printf podman; return ;;
+  esac
+  for runtime in docker podman; do
+    if command -v "$runtime" >/dev/null 2>&1 \\
+      && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
+      printf '%s' "$runtime"
+      return
+    fi
+  done
+}
+
+# Every container of the project as JSON, stopped ones included. podman-compose's
+# own `ps` prints no JSON; it lists by the same compose project label.
+list_containers() {
+  local runtime="$1" project="$2"
+  if [ "$runtime" = podman ]; then
+    podman ps -a --filter "label=com.docker.compose.project=$project" --format json
+  else
+    docker compose -p "$project" ps -a --format json
+  fi
+}
+
+# `ps --format json` on stdin, as one array or one object per line, out as one
+# "name<TAB>state<TAB>health" line per container, sorted by name. Health is
+# the healthcheck's verdict, from the Health field or else the status text,
+# and empty for a container that declares none.
+PS_ROWS='
+import json, sys
+text = sys.stdin.read().strip()
+try:
+    data = json.loads(text) if text else []
+except ValueError:
+    data = [json.loads(line) for line in text.splitlines() if line.strip()]
+rows = []
+for row in data if isinstance(data, list) else [data]:
+    names = row.get("Name") or row.get("Names") or "?"
+    name = names[0] if isinstance(names, list) else str(names).split(",")[0]
+    state = str(row.get("State") or "unknown").lower()
+    if state == "exited" and row.get("ExitCode") is not None:
+        state = "exited (%s)" % row["ExitCode"]
+    health = str(row.get("Health") or "").lower()
+    if not health:
+        status = str(row.get("Status") or "").lower()
+        health = next((t for t in ("unhealthy", "healthy", "starting") if t in status), "")
+    rows.append((name, state, health))
+for row in sorted(rows):
+    print("\\t".join(row))
+'
+
+# One line per container; a container not running, or running unhealthy, is
+# flagged. The loop reads a here-string, not a pipe, so the count survives it.
+check_containers() {
+  local runtime project listing rows name state health
+  runtime="$(container_runtime)"
+  if [ -z "$runtime" ]; then
+    printf '  %s✗%s no container runtime answers (docker, podman)\\n' "$RED" "$RESET"
+    FLAGGED=$((FLAGGED + 1))
+    return
+  fi
+  project="$(compose_project)"
+  if ! listing="$(list_containers "$runtime" "$project")" \\
+    || ! rows="$(printf '%s' "$listing" | python3 -c "$PS_ROWS")"; then
+    printf '  %s✗%s could not list project %s with %s\\n' "$RED" "$RESET" "$project" "$runtime"
+    FLAGGED=$((FLAGGED + 1))
+    return
+  fi
+  if [ -z "$rows" ]; then
+    printf '  %s✗%s project %s has no containers\\n' "$RED" "$RESET" "$project"
+    FLAGGED=$((FLAGGED + 1))
+    return
+  fi
+  while IFS=$'\\t' read -r name state health; do
+    if [ "$state" != running ]; then
+      printf '  %s✗%s %s — %s\\n' "$RED" "$RESET" "$name" "$state"
+      FLAGGED=$((FLAGGED + 1))
+    elif [ "$health" = unhealthy ]; then
+      printf '  %s✗%s %s — running but unhealthy\\n' "$RED" "$RESET" "$name"
+      FLAGGED=$((FLAGGED + 1))
+    elif [ "$health" = starting ]; then
+      printf '  %s…%s %s — healthcheck still starting\\n' "$DIM" "$RESET" "$name"
+    else
+      printf '  %s✓%s %s\\n' "$GREEN" "$RESET" "$name"
+    fi
+  done <<< "$rows"
+}
+
 wants() { case " $PROBE_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# ── Containers ───────────────────────────────────────────────────────────────
+# Every container of this deployment's compose project, stopped ones included.
+if wants containers; then
+  printf '\\n%s── Containers ──%s\\n\\n' "$BOLD" "$RESET"
+  check_containers
+fi
 
 # ── Deployed services ────────────────────────────────────────────────────────
 if wants services; then
@@ -2667,8 +2797,12 @@ if wants dispatch; then
   probe_http 'dispatcher health' http://localhost:10010/health
 fi
 
-printf '\\n%sProbes are advisory — a failure here does not mean the deploy failed.%s\\n\\n' \\
-  "$DIM" "$RESET"
+if [ "$FLAGGED" -eq 0 ]; then
+  printf '\\n%sNothing flagged.%s\\n\\n' "$DIM" "$RESET"
+else
+  printf '\\n%s%s flagged. Advisory: the deploy did not fail on it.%s\\n\\n' \\
+    "$DIM" "$FLAGGED" "$RESET"
+fi
 exit 0
 """
 

@@ -1,0 +1,1 @@
+The health check `osprey scaffold ci` emits at `scripts/verify.sh` now lists every container of the deployment and flags any that is not running or reports an unhealthy healthcheck, beside its endpoint probes.

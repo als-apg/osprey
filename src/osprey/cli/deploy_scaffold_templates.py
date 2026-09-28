@@ -150,6 +150,9 @@ PROFILE_PATH: str = PROFILE_FILENAME
 BUILD_DIR: str = BUILD_OUTPUT_DIR
 STATE_DIR_PATH: str = STATE_DIR
 VERIFY_PATH: str = "scripts/verify.sh"
+#: The one group every health check has: the deployment's containers. It runs
+#: first, because a container that is down explains the endpoint failures below it.
+CONTAINERS_GROUP_ID: str = "containers"
 BOOT_HOOK_PATH: str = f"scripts/{BOOT_HOOK_OUTPUT_NAME}"
 
 #: What ``osprey users env --output`` writes on the deploy host, at the repo
@@ -302,7 +305,8 @@ class VerifyContext:
     Attributes:
         facility_name: The profile's ``name:`` — the script's title.
         osprey_version: Installed framework version, for the provenance header.
-        groups: Probe groups, in the order they run.
+        groups: The endpoint probe groups, in the order they run after the
+            containers group.
         runs_verify_on_up: Whether ``osprey up`` runs this script itself — see
             :attr:`CIContext.runs_verify_on_up`. The header tells the operator
             which it is, so nobody assumes a health report that never runs.
@@ -314,17 +318,25 @@ class VerifyContext:
     runs_verify_on_up: bool = False
 
     @property
+    def group_ids(self) -> tuple[str, ...]:
+        """Every group the script accepts, in the order it runs them."""
+        return (CONTAINERS_GROUP_ID, *(group.id for group in self.groups))
+
+    @property
     def usage_group(self) -> str:
-        """The group the usage comment shows as an example argument."""
-        return self.groups[0].id if self.groups else ""
+        """The group the usage comment shows as an example argument.
+
+        The containers group leads every script, so the example always names a
+        group that exists.
+        """
+        return self.group_ids[0]
 
     @property
     def has_tcp_probe(self) -> bool:
         """Whether any group needs the TCP helper.
 
-        The helper shells out to ``python3``, which is one more thing that has
-        to exist on the deploy host. A script with no TCP probe must not carry
-        it: an operator reading the check would take the dependency as real.
+        A script with no TCP probe must not carry the helper: an unused
+        helper is dead text an operator has to read past.
         """
         return any(probe.kind == "tcp" for group in self.groups for probe in group.probes)
 
