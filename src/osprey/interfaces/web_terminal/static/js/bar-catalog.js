@@ -311,10 +311,12 @@ export const BAR_CATALOG = Object.freeze({
     group: 'System',
     multi: true,
     // `none` is the plain clock: local time, no zone suffix anywhere. `local`
-    // is the same time with the zone's name beside it; `utc` and `both` say
-    // what they are. `format` is the hour cycle, 24h or 12h with AM/PM.
+    // is the same time with the zone's name beside it; `facility` is the time
+    // in the zone the page is stamped with (`system.timezone`); `utc` and
+    // `both` say what they are. `format` is the hour cycle, 24h or 12h with
+    // AM/PM.
     options: Object.freeze({
-      zone: enumSpec(Object.freeze(['none', 'local', 'utc', 'both']), 'none'),
+      zone: enumSpec(Object.freeze(['none', 'local', 'facility', 'utc', 'both']), 'none'),
       format: enumSpec(Object.freeze(['24h', '12h']), '24h'),
       seconds: booleanSpec(false),
     }),

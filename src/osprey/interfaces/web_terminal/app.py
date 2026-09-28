@@ -542,7 +542,11 @@ BAR_ITEM_MULTI: frozenset[str] = frozenset({"clock", "stopwatch", "space", "sepa
 #: frozen and shared across requests.
 BAR_ITEM_OPTIONS: dict[str, dict[str, dict]] = {
     "clock": {
-        "zone": {"kind": "enum", "values": ("none", "local", "utc", "both"), "default": "none"},
+        "zone": {
+            "kind": "enum",
+            "values": ("none", "local", "facility", "utc", "both"),
+            "default": "none",
+        },
         "format": {"kind": "enum", "values": ("24h", "12h"), "default": "24h"},
         "seconds": {"kind": "boolean", "default": False},
     },
