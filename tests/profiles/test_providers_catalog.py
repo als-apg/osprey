@@ -86,6 +86,13 @@ class TestPackagedCatalog:
         assert paced == {"cborg"}
         assert catalog.entries["cborg"]["requests_per_minute"] == 18
 
+    def test_no_packaged_entry_declares_image_carriage(self):
+        # The adapters decide for the built-ins; the key is a site's own
+        # statement about the model it serves.
+        catalog = load_provider_catalog(None)
+        declared = {n for n, e in catalog.entries.items() if "supports_images" in e}
+        assert declared == set()
+
     def test_catalog_carries_no_jinja(self):
         text = packaged_catalog_path().read_text(encoding="utf-8")
         assert "{{" not in text
@@ -134,6 +141,7 @@ class TestOptionalKeys:
                     "models": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
                     "claude_code_aliases": {"opus": "claude-opus-5"},
                     "requests_per_minute": 30,
+                    "supports_images": True,
                 }
             },
         )
@@ -141,6 +149,7 @@ class TestOptionalKeys:
         assert entry["api_protocol"] == "anthropic"
         assert entry["claude_code_aliases"] == {"opus": "claude-opus-5"}
         assert entry["requests_per_minute"] == 30
+        assert entry["supports_images"] is True
 
     def test_unknown_entry_key_passes_through(self, tmp_path):
         _write_catalog(tmp_path, {"gw": _entry(timeout=30)})
@@ -236,6 +245,11 @@ class TestValidationRefusals:
         for value in (0, -5, 1.5, "18", True, None):
             message = self._refuses_entry(tmp_path, **_entry(requests_per_minute=value))
             assert "providers.gw.requests_per_minute" in message, value
+
+    def test_a_supports_images_that_is_not_true_or_false_refused(self, tmp_path):
+        for value in ("yes", 1, None, "true"):
+            message = self._refuses_entry(tmp_path, **_entry(supports_images=value))
+            assert "providers.gw.supports_images" in message, value
 
     def test_unparseable_yaml_refused_naming_the_file(self, tmp_path):
         assert "Cannot read" in self._refuses(tmp_path, "providers:\n  gw: [unclosed\n")
