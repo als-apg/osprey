@@ -223,6 +223,17 @@ REPO_ID_LABEL = "com.osprey.repo-id"
 #: returns.
 PROJECT_LABEL = "osprey.project.name"
 
+#: Label carrying the deployment repo path recorded at render time. ``osprey
+#: reset``'s path evidence falls back to it when compose's own working-dir
+#: record is absent.
+PROJECT_ROOT_LABEL = "osprey.project.root"
+
+#: Label carrying the as-built config fingerprint. Its value is interpolated
+#: from :data:`~osprey.deployment.runtime_helper.CONFIG_DIGEST_VAR` at compose
+#: time, so a changed config changes the label and compose recreates the
+#: container.
+CONFIG_DIGEST_LABEL = "osprey.config.digest"
+
 
 def repo_identity(repo_root):
     """A short, stable identity for the deployment repo at *repo_root*.
@@ -1510,6 +1521,48 @@ def _telemetry_link_host(config):
     return urlsplit(origin).hostname or None
 
 
+def project_label_values(config):
+    """The values of the project labels a render gives every container.
+
+    One mapping, read by the template context (``osprey_labels``) and by the
+    generated labels override, so the two can never disagree about what a
+    service is labelled with.
+
+    :param config: Configuration dictionary.
+    :return: ``{"project_name", "project_root", "repo_id"}``.
+    """
+    return {
+        "project_name": resolve_project_name(config),
+        "project_root": config.get("project_root", os.getcwd()),
+        # Deliberately NO deploy timestamp. A wall-clock value here made the
+        # rendered compose documents differ on every build for no reader:
+        # nothing in the framework ever read the label back, and a container's
+        # creation time is already reported natively by the runtime
+        # (`docker inspect` exposes it as `.Created`). Keeping it would have
+        # meant a build/ tree whose bytes are not a function of its inputs.
+        #
+        # A deploy-time `${VAR}` was considered and rejected for the same
+        # reason in a different place: a wall-clock value in the interpolation
+        # seam changes the compose document on every `osprey up` and so
+        # recreates every container for a label nobody reads.
+        #
+        # Which CHECKOUT this is (:func:`repo_identity`). Baked in as a literal
+        # at render time rather than left as a `${VAR}` for compose to
+        # interpolate: the label has to be trustworthy for a verb that reads it
+        # back to decide what to DESTROY, and an interpolated one is silently
+        # empty for anyone who runs `docker compose` by hand without the
+        # variable exported. A baked literal is a property of the build,
+        # readable with `docker inspect` and reproducible from the repo path.
+        #
+        # Applied at CREATE time, like every container label: containers that
+        # were already running keep whatever label they were created with until
+        # something recreates them, and a named volume takes its labels only
+        # when it is first created — an existing volume is never relabelled by a
+        # later deploy.
+        "repo_id": repo_identity(resolve_repo_root(config)),
+    }
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -1556,41 +1609,12 @@ def _inject_project_metadata(config):
     osprey_version = get_image_pin_version(bool(config.get("dev_mode")))
 
     # The deployment repo this render belongs to. Resolved once, here, because
-    # three separate things below are derived from it.
+    # several separate things below are derived from it.
     repo_root = resolve_repo_root(config)
 
     # Create enhanced config with label metadata
     config_with_labels = config.copy()
-    config_with_labels["osprey_labels"] = {
-        "project_name": project_name,
-        "project_root": config.get("project_root", os.getcwd()),
-        # Deliberately NO deploy timestamp. A wall-clock value here made the
-        # rendered compose documents differ on every build for no reader:
-        # nothing in the framework ever read the label back, and a container's
-        # creation time is already reported natively by the runtime
-        # (`docker inspect` exposes it as `.Created`). Keeping it would have
-        # meant a build/ tree whose bytes are not a function of its inputs.
-        #
-        # A deploy-time `${VAR}` was considered and rejected for the same
-        # reason in a different place: a wall-clock value in the interpolation
-        # seam changes the compose document on every `osprey up` and so
-        # recreates every container for a label nobody reads.
-        #
-        # Which CHECKOUT this is (:func:`repo_identity`). Baked in as a literal
-        # at render time rather than left as a `${VAR}` for compose to
-        # interpolate: the label has to be trustworthy for a verb that reads it
-        # back to decide what to DESTROY, and an interpolated one is silently
-        # empty for anyone who runs `docker compose` by hand without the
-        # variable exported. A baked literal is a property of the build,
-        # readable with `docker inspect` and reproducible from the repo path.
-        #
-        # Applied at CREATE time, like every container label: containers that
-        # were already running keep whatever label they were created with until
-        # something recreates them, and a named volume takes its labels only
-        # when it is first created — an existing volume is never relabelled by a
-        # later deploy.
-        "repo_id": repo_identity(repo_root),
-    }
+    config_with_labels["osprey_labels"] = project_label_values(config)
     config_with_labels["osprey_version"] = osprey_version
     # A beta framework exists only beside a beta connectors, which pip never
     # picks for a requirement that names none: the service recipes take this
