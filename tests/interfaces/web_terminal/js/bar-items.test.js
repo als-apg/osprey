@@ -586,6 +586,79 @@ describe('clock item: the facility zone', () => {
     expect(plain.querySelector('.bar-clock-zone')).toBeNull();
     warn.mockRestore();
   });
+
+  test("a plain clock names the viewer's zone in the status bar when the facility is elsewhere", () => {
+    freezeAt(AT);
+    stamp(ELSEWHERE);
+    seedDom('', shellMarkup('clock'));
+    host.hydrate();
+
+    expect(shellOf('clock').dataset.barDensity).toBe('compact');
+    expect(clockTime().textContent).toBe(localTimeText(AT, false));
+    if (cityOf(VIEWER)) expect(clockZoneLabel()?.textContent).toBe(cityOf(VIEWER));
+  });
+
+  test('a plain clock stays plain where the viewer shares the facility clock', () => {
+    freezeAt(AT);
+    stamp(VIEWER);
+    seedDom(shellMarkup('clock'), '');
+    host.hydrate();
+    expect(clockZoneLabel()).toBeNull();
+
+    host.reconcile(layoutOf([], ['clock']));
+    expect(shellOf('clock').dataset.barDensity).toBe('compact');
+    expect(clockZoneLabel()).toBeNull();
+  });
+
+  test('a local clock is named in the status bar when the facility is elsewhere', () => {
+    freezeAt(AT);
+    stamp(ELSEWHERE);
+    seedDom('', shellMarkup('clock', { zone: 'local' }));
+    host.hydrate();
+
+    expect(shellOf('clock').dataset.barDensity).toBe('compact');
+    expect(clockZoneLabel()?.textContent).toBe(cityOf(VIEWER));
+  });
+
+  test('a dual clock names its local half when the facility is elsewhere', () => {
+    freezeAt(AT);
+    stamp(ELSEWHERE);
+    seedDom('', shellMarkup('clock', { zone: 'both' }));
+    host.hydrate();
+
+    expect(clockTime().textContent).toBe(`${localTimeText(AT, false)} · 14:32`);
+    expect(clockZoneLabel()?.textContent).toBe(`${cityOf(VIEWER)} · UTC`);
+
+    stamp(VIEWER);
+    vi.advanceTimersByTime(1000);
+    expect(clockZoneLabel()?.textContent).toBe('UTC');
+  });
+
+  test('a UTC clock reads the same wherever the facility is', () => {
+    freezeAt(AT);
+    stamp(ELSEWHERE);
+    seedDom('', shellMarkup('clock', { zone: 'utc' }));
+    host.hydrate();
+
+    expect(clockTime().textContent).toBe('14:32');
+    expect(clockZoneLabel()?.textContent).toBe('UTC');
+  });
+
+  test('the name follows the stamp from one tick to the next', () => {
+    freezeAt(AT);
+    stamp(VIEWER);
+    seedDom('', shellMarkup('clock'));
+    host.hydrate();
+    expect(clockZoneLabel()).toBeNull();
+
+    stamp(ELSEWHERE);
+    vi.advanceTimersByTime(1000);
+    expect(clockZoneLabel()?.textContent).toBe(cityOf(VIEWER));
+
+    stamp(VIEWER);
+    vi.advanceTimersByTime(1000);
+    expect(clockZoneLabel()).toBeNull();
+  });
 });
 
 describe('clock item: the interval is attach-scoped', () => {

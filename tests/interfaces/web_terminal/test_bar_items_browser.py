@@ -68,6 +68,8 @@ Coverage (one test each):
       the focus on its first control, Move left re-opens it on the moved item
       with the same button focused so a second Enter moves the item further,
       and Escape gives the focus back to the item.
+  (t) a clock in a browser set to another zone reads the facility's wall time
+      when asked for it, and a plain clock beside it names the browser's zone.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -88,8 +90,10 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 import requests
@@ -173,8 +177,12 @@ def engine_browser(request: pytest.FixtureRequest) -> Browser:
 
 
 @contextmanager
-def _launch_web_terminal(tmp_path: Path) -> Iterator[tuple[str, Any]]:
+def _launch_web_terminal(
+    tmp_path: Path, *, facility_timezone: str | None = None
+) -> Iterator[tuple[str, Any]]:
     """A real web_terminal over a throwaway workspace and a throwaway store.
+
+    *facility_timezone*, when given, is the zone the page is stamped with.
 
     Yields:
         ``(base_url, app)`` — the address and the FastAPI app, so a test can
@@ -206,6 +214,13 @@ def _launch_web_terminal(tmp_path: Path) -> Iterator[tuple[str, Any]]:
             return_value=agent_data,
         ),
     ]
+    if facility_timezone is not None:
+        patches.append(
+            patch(
+                "osprey.interfaces.web_terminal.app.get_facility_timezone",
+                return_value=ZoneInfo(facility_timezone),
+            )
+        )
     with _apply_all(patches):
         from osprey.interfaces.web_terminal.app import create_app
 
@@ -827,6 +842,44 @@ def test_the_status_readouts_are_live_on_a_real_page(tmp_path, engine_browser):
         expect(page.locator(f"{STATUS_HOST} .bar-clock-time")).to_have_text(
             re.compile(r"^\d{2}:\d{2}$"), timeout=10_000
         )
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (t) a facility clock reads the facility's time in another zone
+# ---------------------------------------------------------------------------
+
+
+def test_a_facility_clock_reads_the_facility_time_in_another_zone(tmp_path, engine_browser):
+    """The facility clock follows the page's stamp, not the browser's zone.
+
+    The browser runs in New York and the facility is in Tokyo, so the two
+    clocks disagree: the facility clock names Tokyo, and the plain clock beside
+    it names the browser's own zone.
+    """
+    with _launch_web_terminal(tmp_path, facility_timezone="Asia/Tokyo") as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=[{"type": "clock", "options": {"zone": "facility"}}, "clock"],
+        )
+        page = engine_browser.new_page(viewport=VIEWPORT, timezone_id="America/New_York")
+        page.goto(base_url, wait_until="domcontentloaded")
+        page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
+
+        clocks = page.locator(f'{STATUS_HOST} > .bar-item[data-bar-item="clock"]')
+        facility_time = clocks.nth(0).locator(".bar-clock-time")
+        expect(facility_time).to_have_text(re.compile(r"^\d{2}:\d{2}$"), timeout=10_000)
+
+        tokyo = ZoneInfo("Asia/Tokyo")
+        before = datetime.now(tokyo).strftime("%H:%M")
+        text = facility_time.inner_text()
+        after = datetime.now(tokyo).strftime("%H:%M")
+        assert text in {before, after}
+
+        expect(clocks.nth(0).locator(".bar-clock-zone")).to_have_text("Tokyo")
+        expect(clocks.nth(1).locator(".bar-clock-zone")).to_have_text("New York")
 
         page.close()
 
