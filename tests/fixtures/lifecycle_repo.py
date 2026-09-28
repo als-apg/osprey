@@ -504,8 +504,10 @@ config:
   # control_system.connector.epics.pva_gateway.use_name_server: false
   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
   # facility's own DOOCS environment already names, so the empty coordinate set
-  # is the point of this block rather than an omission — what is left is the
-  # four leaves every connector type answers.
+  # is the point of this block rather than an omission — what is left is how
+  # long a call is given and the four leaves every connector type answers.
+  # Seconds an ENS lookup, a property read or a property set is given.
+  # control_system.connector.doocs.timeout_s: 5.0
   # Write posture for the DOOCS machine. Same tri-state as the epics leaf
   # above: stating it pins it, and only a literal true arms writes.
   # control_system.connector.doocs.writes_enabled: false
