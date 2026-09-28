@@ -800,6 +800,9 @@ class ConnectorHostPool:
             key[0],
             writes_enabled=writes,
             readonly_run=readonly_run,
+            # The child fills an unset VA gateway port from config_file, so the
+            # derivation must read the same file or the ports disagree.
+            config_path=self._config_file,
         )
 
     def _config_refusal(
@@ -852,7 +855,11 @@ class ConnectorHostPool:
             return None
         try:
             live = derive_endpoints(
-                {"control_system": section}, TARGET_LIVE, writes_enabled=False, readonly_run=True
+                {"control_system": section},
+                TARGET_LIVE,
+                writes_enabled=False,
+                readonly_run=True,
+                config_path=self._config_file,
             )
         except ValueError:
             # No live machine on this deployment, so no endpoint to collide with.

@@ -219,6 +219,7 @@ def derive_endpoints(
     *,
     writes_enabled: bool | None = None,
     readonly_run: bool | None = None,
+    config_path: str | None = None,
 ) -> TargetDerivation:
     """Derive the per-role endpoints and selected role for *target*.
 
@@ -234,6 +235,10 @@ def derive_endpoints(
             than the configured one.
         readonly_run: Whether this is a readonly executor run. Defaults to
             :func:`~osprey_connectors.control_system.base.is_readonly_run`.
+        config_path: The project config an unset virtual-accelerator gateway
+            port is filled from — the file the child reads, so the port derived
+            here is the port it connects to. ``None`` reads ``CONFIG_FILE``,
+            else ``./config.yml``.
 
     Returns:
         The derivation, whose ``endpoints`` may be empty when the deployment has
@@ -268,7 +273,7 @@ def derive_endpoints(
         # every other one.
         from osprey_connectors.control_system.va_connector import fill_gateway_ports
 
-        block = fill_gateway_ports(block)
+        block = fill_gateway_ports(block, config_path)
 
     gateways = _sub(block, "gateways")
     endpoints: dict[str, Endpoint] = {}

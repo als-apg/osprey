@@ -615,6 +615,29 @@ async def test_a_standin_on_a_named_host_apart_from_the_live_machine_passes_the_
     assert caught.value.stage == "spawn"
 
 
+def test_an_unset_va_gateway_port_is_derived_from_the_pools_config_file(isolated):
+    # The child fills an unset VA gateway port from config_file, which the
+    # pool exports as its CONFIG_FILE. The derivation it is verified against
+    # must read the same file — not this process's own ./config.yml, absent
+    # here — or a healthy child is refused over a port mismatch.
+    config_file = isolated / "project" / "config.yml"
+    config_file.parent.mkdir()
+    config_file.write_text(yaml.safe_dump({"services": {"virtual_accelerator": {"port": 5100}}}))
+    section = {
+        "type": "virtual_accelerator",
+        "connector": {
+            "virtual_accelerator": {
+                "gateways": {"read_only": {"address": "localhost", "use_name_server": True}}
+            }
+        },
+    }
+    pool = ConnectorHostPool(section, config_file=config_file)
+
+    derivation = pool._derive(("va", None), section)
+
+    assert derivation.selected_endpoint().port == 5100
+
+
 # ------------------------------------------------------------ lifetime
 
 
