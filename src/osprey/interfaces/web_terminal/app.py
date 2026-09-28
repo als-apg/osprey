@@ -64,6 +64,7 @@ from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_M
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
+    clear_status,
     failure_reason,
     write_status,
 )
@@ -209,6 +210,8 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
         )
         app.state.sidecars[panel_id] = sidecar
         await asyncio.to_thread(sidecar.preflight)
+        if app.state.sidecars_closing:
+            raise RuntimeError("the terminal is shutting down")
         sidecar.spawn()
         await asyncio.to_thread(sidecar.wait_ready, SIDECAR_READY_TIMEOUT)
     except Exception as exc:  # a dead panel must not block startup
@@ -222,6 +225,8 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
             if app.state.sidecars.get(panel_id) is sidecar:
                 app.state.sidecars.pop(panel_id)
         setattr(app.state, attr, None)
+        if app.state.sidecars_closing:
+            return  # shutdown clears the record; a failure it caused is not one
         reason = failure_reason(str(exc), tail, getattr(sidecar, "token", None))
         _record_sidecar_status(app, panel_id, SidecarStatus.failed(reason))
         return
@@ -255,6 +260,64 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     # Registered last: a setter that fires when the exit already happened
     # closes the gap between readiness and this line.
     sidecar.on_exit = on_exit
+
+
+async def request_sidecar_start(app: FastAPI, panel_id: str) -> SidecarStatus:
+    """Start the sidecar behind *panel_id* again, one attempt at a time.
+
+    The operator's retry, and the only one: nothing calls this on its own. A
+    request while an attempt is in flight joins it, and a request for a
+    published sidecar does nothing; both answer the current status. Otherwise
+    one task stops the dead sidecar left in ``app.state.sidecars``, which reaps
+    its tempdir and any straggling kernels, and then runs a fresh
+    :func:`_launch_sidecar`. That is the same function the lifespan's first
+    attempt awaits, so the retry waits exactly as long.
+
+    Args:
+        app: The web-terminal application.
+        panel_id: An enabled sidecar panel id, a key of ``SIDECAR_PANELS``.
+
+    Returns:
+        The status recorded once the request is handled: ``starting`` for a
+        new or joined attempt, ``running`` for a published sidecar.
+    """
+    tasks: dict[str, asyncio.Task[None]] = app.state.sidecar_start_tasks
+    recorded: dict[str, SidecarStatus] = app.state.sidecar_status
+    task = tasks.get(panel_id)
+    if task is not None and not task.done():
+        return recorded[panel_id]
+    if getattr(app.state, panel_url_state_attr(panel_id), None):
+        return recorded[panel_id]
+
+    # Registered before anything awaits, so a second request joins this attempt.
+    # Recorded here as well as by the launch, so the answer below is the new
+    # attempt's and not the failure it replaces.
+    dead = app.state.sidecars.pop(panel_id, None)
+    _record_sidecar_status(app, panel_id, SidecarStatus.starting())
+    task = asyncio.create_task(_relaunch_sidecar(app, panel_id, dead))
+    tasks[panel_id] = task
+
+    def _forget(done: asyncio.Task[None]) -> None:
+        if tasks.get(panel_id) is done:
+            tasks.pop(panel_id)
+
+    task.add_done_callback(_forget)
+    return recorded[panel_id]
+
+
+async def _relaunch_sidecar(app: FastAPI, panel_id: str, dead: object | None) -> None:
+    """Stop the dead sidecar *dead*, then launch a fresh one for *panel_id*.
+
+    Args:
+        app: The web-terminal application.
+        panel_id: The sidecar's panel id.
+        dead: The sidecar the failed attempt left behind, or ``None``.
+    """
+    if dead is not None:
+        await _stop_sidecar(panel_id, dead)
+    if app.state.sidecars_closing:
+        return
+    await _launch_sidecar(app, panel_id)
 
 
 def _record_sidecar_status(app: FastAPI, panel_id: str, status: SidecarStatus) -> None:
@@ -2564,6 +2627,10 @@ def _create_lifespan(
         # The start outcome the terminal last recorded for each sidecar panel;
         # the panel routes read it, `osprey health` reads the disk copy.
         app.state.sidecar_status = {}
+        # One start task per sidecar panel while a retry is in flight, and the
+        # flag that tells a failing start it was shutdown that stopped it.
+        app.state.sidecar_start_tasks = {}
+        app.state.sidecars_closing = False
 
         _launch_enabled_panel_servers(app, enabled_panels)
         await _launch_enabled_sidecars(app, enabled_panels)
@@ -2631,8 +2698,17 @@ def _create_lifespan(
 
         stop_proxy()
 
-        for panel_id, sidecar in app.state.sidecars.items():
+        # Stop every sidecar, one still coming up included: a stopped process
+        # ends its start's wait within one poll. Then no record may outlive the
+        # terminal claiming a sidecar runs or is starting.
+        app.state.sidecars_closing = True
+        for panel_id, sidecar in list(app.state.sidecars.items()):
             await _stop_sidecar(panel_id, sidecar)
+        start_tasks = list(app.state.sidecar_start_tasks.values())
+        if start_tasks:
+            await asyncio.gather(*start_tasks, return_exceptions=True)
+        for panel_id in sorted(enabled_panels & set(SIDECAR_PANELS)):
+            clear_status(app.state.panel_status_root, panel_id)
 
         app.state.watcher.stop()
         app.state.pty_registry.cleanup_all()
