@@ -38,6 +38,11 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
     ]
     api_key_note = None
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "OPENAI_API_KEY"
+    api_protocol = "openai"
+    supports_interactive_login = False
+
     # LiteLLM integration - OpenAI models don't need a prefix in LiteLLM
     litellm_prefix = ""
     # OpenAI's API takes max_completion_tokens on every chat model and refuses

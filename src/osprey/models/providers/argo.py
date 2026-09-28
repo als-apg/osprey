@@ -174,6 +174,11 @@ class ArgoProviderAdapter(BaseProvider):
     ]
     api_key_note = None
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "ARGO_API_KEY"
+    api_protocol = "openai"
+    supports_interactive_login = False
+
     # LiteLLM integration - ARGO is an OpenAI-compatible proxy
     is_openai_compatible = True
     supports_native_structured_output = True  # proxies to models with native json_schema support

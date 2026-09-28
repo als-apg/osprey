@@ -33,6 +33,12 @@ class AnthropicProviderAdapter(LiteLLMDelegatingProvider):
     ]
     api_key_note = None
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "ANTHROPIC_API_KEY"
+    api_protocol = "anthropic"
+    # A launch with no key signs in to a Claude subscription instead.
+    supports_interactive_login = True
+
     # LiteLLM integration
     litellm_prefix = "anthropic"
 
