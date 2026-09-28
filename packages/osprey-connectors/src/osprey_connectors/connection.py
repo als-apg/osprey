@@ -77,6 +77,11 @@ class Login:
     password_env: str | None = None
 
     @property
+    def env_key(self) -> str:
+        """The ``auth:`` key that names this login's secret variable."""
+        return "token_env" if self.kind == "token" else "password_env"
+
+    @property
     def env_names(self) -> tuple[str, ...]:
         """The environment variable that holds this login's secret."""
         name = self.token_env if self.kind == "token" else self.password_env
@@ -134,7 +139,7 @@ class ConnectionSettings:
         if self.login is None:
             return None
         env = os.environ if environ is None else environ
-        key = "token_env" if self.login.kind == "token" else "password_env"
+        key = self.login.env_key
         (name,) = self.login.env_names
         secret = env.get(name, "")
         if not secret.strip():
