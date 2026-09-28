@@ -160,7 +160,7 @@ logger = get_logger("deployment.lifecycle")
 # container (MONGO_INITDB_ROOT_PASSWORD), the archiver_recorder service writing
 # samples in-network, and the agent's own connector, whose config block names
 # the variable rather than carrying a value
-# (``archiver.mongodb_archiver.password_env: MONGO_ROOT_PASSWORD``). All three
+# (``archiver.mongodb_archiver.auth.password_env: MONGO_ROOT_PASSWORD``). All three
 # resolve the same ``.env`` entry, which is what keeps one store openable by
 # the process that writes it and the process that reads it. The seeder and
 # ``osprey sim apply`` read it from the project ``.env`` explicitly rather than

@@ -1193,8 +1193,8 @@ by name, rather than silently having one copy win:
 
 - the connector's eight connection keys —
   ``archiver.mongodb_archiver.host``, ``.port``, ``.name``, ``.collection``,
-  ``.auth``, ``.username``, ``.password_env``, ``.timeout`` — all derived from
-  the keys above;
+  ``.auth.source``, ``.auth.username``, ``.auth.password_env``, ``.timeout_s`` —
+  all derived from the keys above;
 - the shape knobs, written to ``va_archiver.*`` in the rendered ``config.yml``
   for the seeder and the recorder to read;
 - ``health.categories.archiver``, when ``freshness_channel`` is set.

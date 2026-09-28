@@ -371,9 +371,15 @@ independently of the control system:
              port: 27017
              name: archiver_db
              collection: pv_data
-             auth: admin
-             username: readonly
-             password_env: MONGODB_READONLY_PASSWORD
+             auth:
+               source: admin
+               username: readonly
+               password_env: MONGODB_READONLY_PASSWORD
+             timeout_s: 60     # seconds, default 60
+
+      The password is only ever named, never written: ``auth.password_env`` is
+      the environment variable that holds it. ``auth.source`` is the database
+      the user is defined in.
 
       Documents in the collection are expected to have a ``date`` field
       (``ISODate``) and one or more PV names as top-level fields:

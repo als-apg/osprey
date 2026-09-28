@@ -2994,7 +2994,7 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
 # Archiver connector -> per-user store password
 #
 # The archiver connector authenticates with the variable its own config block
-# names (`archiver.<type>.password_env`); `osprey up` mints it into the deploy
+# names (`archiver.<type>.auth.password_env`); `osprey up` mints it into the deploy
 # `.env` for a store the project deploys. `.env.users` excludes service tokens
 # by design and cannot say "the personas whose archiver reads this", so the
 # grant is per-user, and it carries the configured NAME because the block may
@@ -3003,7 +3003,7 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
 
 _MONGO_ARCHIVER = {
     "type": "mongodb_archiver",
-    "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+    "mongodb_archiver": {"host": "localhost", "auth": {"password_env": "MONGO_ROOT_PASSWORD"}},
 }
 
 
@@ -3020,10 +3020,20 @@ def test_config_archiver_password_env_ignores_an_unselected_connector_block() ->
     assert config_archiver_password_env({"archiver": archiver}) is None
 
 
+def test_config_archiver_password_env_ignores_a_flat_password_env() -> None:
+    """The variable is named under `auth:`; a flat `password_env` grants nothing."""
+    archiver = {
+        "type": "mongodb_archiver",
+        "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+    }
+
+    assert config_archiver_password_env({"archiver": archiver}) is None
+
+
 def test_config_archiver_password_env_follows_any_connector_that_names_one() -> None:
     """The key, not the connector name, is what is read: a future connector with a
-    `password_env` is granted exactly like MongoDB's."""
-    archiver = {"type": "facility_db", "facility_db": {"password_env": "FACILITY_DB_PW"}}
+    `auth.password_env` is granted exactly like MongoDB's."""
+    archiver = {"type": "facility_db", "facility_db": {"auth": {"password_env": "FACILITY_DB_PW"}}}
 
     assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
 
@@ -3037,7 +3047,7 @@ def test_config_archiver_password_env_is_none_without_a_named_variable(missing: 
 
 @pytest.mark.parametrize("blank", ["", "   ", None, 7])
 def test_config_archiver_password_env_treats_a_blank_name_as_unset(blank: Any) -> None:
-    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": blank}}
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {"password_env": blank}}}
 
     assert config_archiver_password_env({"archiver": archiver}) is None
 
@@ -3046,9 +3056,9 @@ def test_config_archiver_password_env_treats_a_blank_name_as_unset(blank: Any) -
 def test_config_archiver_password_env_refuses_a_name_compose_cannot_carry(bad: str) -> None:
     """The name is emitted into a compose `environment:` line verbatim, so anything
     that is not a plain identifier is refused here rather than rendered broken."""
-    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": bad}}
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {"password_env": bad}}}
 
-    with pytest.raises(ValueError, match="password_env"):
+    with pytest.raises(ValueError, match=r"auth\.password_env"):
         config_archiver_password_env({"archiver": archiver})
 
 
@@ -3056,7 +3066,7 @@ def test_config_archiver_password_env_reads_the_settings_block() -> None:
     """A connector selected by dotted module path is configured from `archiver.settings`."""
     archiver = {
         "type": "my_facility.stores.Archive",
-        "settings": {"password_env": "FACILITY_DB_PW"},
+        "settings": {"auth": {"password_env": "FACILITY_DB_PW"}},
     }
 
     assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
@@ -3064,9 +3074,12 @@ def test_config_archiver_password_env_reads_the_settings_block() -> None:
 
 def test_config_archiver_password_env_refusal_names_the_settings_key() -> None:
     """The refusal names the block the operator wrote."""
-    archiver = {"type": "my_facility.stores.Archive", "settings": {"password_env": "PW NAME"}}
+    archiver = {
+        "type": "my_facility.stores.Archive",
+        "settings": {"auth": {"password_env": "PW NAME"}},
+    }
 
-    with pytest.raises(ValueError, match=r"archiver\.settings\.password_env"):
+    with pytest.raises(ValueError, match=r"archiver\.settings\.auth\.password_env"):
         config_archiver_password_env({"archiver": archiver})
 
 
@@ -3086,7 +3099,12 @@ def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tm
             "project_path": _write_persona_project_config(
                 tmp_path,
                 "fac",
-                {"archiver": {"type": "other_db", "other_db": {"password_env": "OTHER_DB_PW"}}},
+                {
+                    "archiver": {
+                        "type": "other_db",
+                        "other_db": {"auth": {"password_env": "OTHER_DB_PW"}},
+                    }
+                },
             ),
         },
         "readonly": {

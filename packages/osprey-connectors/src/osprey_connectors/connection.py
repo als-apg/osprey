@@ -181,6 +181,7 @@ def read_connection_settings(
     logins: frozenset[LoginKind] = ALL_LOGINS,
     tls: bool = True,
     unsupported_because: str = "",
+    extra_auth_keys: frozenset[str] = frozenset(),
 ) -> ConnectionSettings:
     """Read the shared keys of an outbound connection block.
 
@@ -194,6 +195,9 @@ def read_connection_settings(
         tls: Whether this consumer can apply a per-connection CA.
         unsupported_because: Why a refused login or ``tls:`` cannot be sent.
             Required whenever ``logins`` or ``tls`` is restricted.
+        extra_auth_keys: Keys under ``auth:`` this consumer reads itself beside
+            the login. They are accepted and left to the consumer; they never
+            count as a login.
 
     Raises:
         TypeError: ``logins`` or ``tls`` is restricted without a reason.
@@ -217,7 +221,7 @@ def read_connection_settings(
         where=where,
         url=_read_url(block.get("url"), where),
         timeout_s=_read_timeout(block.get("timeout_s"), where),
-        login=_read_auth(block.get("auth"), where, logins, unsupported_because),
+        login=_read_auth(block.get("auth"), where, logins, unsupported_because, extra_auth_keys),
         ca_bundle=_read_tls(block.get("tls"), where, tls, unsupported_because),
     )
 
@@ -246,7 +250,11 @@ def _read_timeout(value: Any, where: str) -> float | None:
 
 
 def _read_auth(
-    value: Any, where: str, logins: frozenset[LoginKind], unsupported_because: str
+    value: Any,
+    where: str,
+    logins: frozenset[LoginKind],
+    unsupported_because: str,
+    extra_auth_keys: frozenset[str],
 ) -> Login | None:
     if value is None:
         return None
@@ -258,7 +266,7 @@ def _read_auth(
             f"{key} must be a mapping of `token_env`, or `username` and `password_env`"
         )
     for k in value:
-        if k not in _AUTH_KEYS:
+        if k not in _AUTH_KEYS and k not in extra_auth_keys:
             hint = (
                 "; secrets are named by environment variable, never written in config"
                 if k in _SECRET_LIKE_KEYS

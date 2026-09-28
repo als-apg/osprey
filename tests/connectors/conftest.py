@@ -116,10 +116,12 @@ def mongodb_config(mongodb_container, monkeypatch):
         "port": mongodb_container["port"],
         "name": mongodb_container["db_name"],
         "collection": mongodb_container["collection_name"],
-        "auth": mongodb_container["auth_db"],
-        "username": mongodb_container["username"],
-        "password_env": password_env,
-        "timeout": 10,
+        "auth": {
+            "source": mongodb_container["auth_db"],
+            "username": mongodb_container["username"],
+            "password_env": password_env,
+        },
+        "timeout_s": 10,
     }
 
     yield config

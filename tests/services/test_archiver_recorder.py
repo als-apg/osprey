@@ -55,10 +55,10 @@ def _settings(**overrides) -> RecorderSettings:
         "port": 27017,
         "database": "osprey_archiver",
         "collection": "pv_history",
-        "auth_database": "admin",
+        "auth_source": "admin",
         "username": "osprey",
         "password_env": "MONGO_ROOT_PASSWORD",
-        "timeout_sec": 5,
+        "timeout_s": 5,
         "cadence_sec": 10,
         "tail_cadence_sec": 60,
         "poll_sec": 30,
@@ -106,10 +106,12 @@ def _write_config(
                 "port": 27017,
                 "name": "osprey_archiver",
                 "collection": "pv_history",
-                "auth": "admin",
-                "username": "osprey",
-                "password_env": "MONGO_ROOT_PASSWORD",
-                "timeout": 5,
+                "auth": {
+                    "source": "admin",
+                    "username": "osprey",
+                    "password_env": "MONGO_ROOT_PASSWORD",
+                },
+                "timeout_s": 5,
             }
         },
         "va_archiver": {
@@ -185,6 +187,27 @@ def test_in_network_host_and_port_override_the_file(
     settings = load_settings(_write_config(tmp_path / "config.yml"))
 
     assert (settings.host, settings.port) == ("archiver-mongodb", 27017)
+
+
+def test_settings_read_the_login_under_auth(tmp_path: Path) -> None:
+    settings = load_settings(_write_config(tmp_path / "config.yml"))
+
+    assert (settings.auth_source, settings.username, settings.password_env) == (
+        "admin",
+        "osprey",
+        "MONGO_ROOT_PASSWORD",
+    )
+
+
+@pytest.mark.parametrize("leaf", ["source", "username", "password_env"])
+def test_a_missing_login_key_is_an_error_naming_it(tmp_path: Path, leaf: str) -> None:
+    path = _write_config(tmp_path / "config.yml")
+    config = yaml.safe_load(path.read_text())
+    del config["archiver"]["mongodb_archiver"]["auth"][leaf]
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match=rf"archiver\.mongodb_archiver\.auth\.{leaf}"):
+        load_settings(path)
 
 
 @pytest.mark.parametrize(
@@ -750,7 +773,7 @@ def archive_collection(mongodb_container):  # noqa: F811
         database=mongodb_container["db_name"],
         collection="recorder_shape",
         username=mongodb_container["username"],
-        auth_database=mongodb_container["auth_db"],
+        auth_source=mongodb_container["auth_db"],
     )
     try:
         yield settings, collection, mongodb_container["password"]

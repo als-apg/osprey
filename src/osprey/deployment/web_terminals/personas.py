@@ -617,7 +617,7 @@ def config_archiver_password_env(config: Any) -> str | None:
     """The variable ``config``'s archiver connector authenticates with, or ``None``.
 
     The archiver connector reads its password from the environment variable its
-    settings block names — ``archiver.settings.password_env`` — and raises on every
+    settings block names — ``archiver.settings.auth.password_env`` — and raises on every
     read when that variable is unset. For a store the project deploys itself,
     ``osprey up`` mints the value into the deploy ``.env`` under that name; for
     a facility-run store the operator puts it there. Either way the web
@@ -642,14 +642,15 @@ def config_archiver_password_env(config: Any) -> str | None:
     connector = archiver.get("type")
     if not isinstance(connector, str) or not connector:
         return None
-    password_env = resolve_archiver_settings(archiver).get("password_env")
+    auth = resolve_archiver_settings(archiver).get("auth")
+    password_env = auth.get("password_env") if isinstance(auth, dict) else None
     if not isinstance(password_env, str) or not password_env.strip():
         return None
     password_env = password_env.strip()
     if not _ENV_VAR_NAME_RE.match(password_env):
         raise ValueError(
-            f"{archiver_settings_key(archiver)}.password_env must name an environment variable "
-            f"(letters, digits and underscores, not starting with a digit), got "
+            f"{archiver_settings_key(archiver)}.auth.password_env must name an environment "
+            f"variable (letters, digits and underscores, not starting with a digit), got "
             f"{password_env!r}"
         )
     return password_env

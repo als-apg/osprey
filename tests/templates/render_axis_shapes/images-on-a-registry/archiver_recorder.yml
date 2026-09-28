@@ -82,7 +82,7 @@ services:
       OSPREY_ARCHIVER_MONGODB_HOST: archiver-mongodb
       OSPREY_ARCHIVER_MONGODB_PORT: "27017"
       # The store's minted root password, read through the same variable the
-      # agent connector's `password_env` names, so container, recorder, seeder
+      # agent connector's `auth.password_env` names, so container, recorder, seeder
       # and agent all authenticate with one value. `osprey up` mints it
       # into the project .env when unset. The literal fallback matches the
       # mongodb template's own MONGO_INITDB_ROOT_PASSWORD default line for

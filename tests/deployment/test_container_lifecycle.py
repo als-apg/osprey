@@ -3200,10 +3200,12 @@ ARCHIVER_CONFIG = {
             "port": 27017,
             "name": "osprey_archiver",
             "collection": "pv_history",
-            "auth": "admin",
-            "username": "osprey",
-            "password_env": "MONGO_ROOT_PASSWORD",
-            "timeout": 5,
+            "auth": {
+                "source": "admin",
+                "username": "osprey",
+                "password_env": "MONGO_ROOT_PASSWORD",
+            },
+            "timeout_s": 5,
         }
     },
 }
