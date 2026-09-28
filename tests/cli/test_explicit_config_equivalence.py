@@ -423,6 +423,38 @@ def _query_max_rows_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _fuzzy_threshold_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The keyword fuzzy-fallback similarity floor the presets now state.
+
+    The floor was a literal in the keyword module, so a facility could tune the
+    pattern envelope but not how loose a spelling the fallback accepts. The
+    floor is now ``ariel.search_modules.keyword.settings.fuzzy_threshold``,
+    stated at its previous value beside the two pattern knobs in the two
+    presets that carry a keyword block, so every document they render gains the
+    leaf. The fixtures were frozen before the key existed, which is why it
+    reads as a difference here rather than as a render that changed.
+
+    ``hello-world`` and ``channel-finder-standalone`` name no keyword block and
+    gain nothing, so their cells are absent below.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="ariel.search_modules.keyword.settings.fuzzy_threshold",
+            fixture=ABSENT,
+            live=0.3,
+        )
+        for document in documents
+    )
+
+
 def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
     """The dispatch worker's turn ceiling, now written into its service block.
 
@@ -791,7 +823,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     "ariel-standalone/unset": _standalone_catalog_delta()
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
-    + _retired_upstream_link_deltas("root"),
+    + _retired_upstream_link_deltas("root")
+    + _fuzzy_threshold_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root"),
@@ -814,7 +847,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -828,7 +862,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -842,7 +877,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -856,7 +892,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 

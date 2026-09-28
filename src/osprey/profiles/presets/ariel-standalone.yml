@@ -292,6 +292,10 @@ config:
   # use the index scans the whole logbook; this returns a timeout diagnostic
   # instead of holding the caller open.
   ariel.search_modules.keyword.settings.pattern_timeout_seconds: 10.0
+  # Lowest trigram similarity, 0 to 1, a row needs to come back from the
+  # fallback a keyword search runs when nothing matches exactly. Lower accepts
+  # looser spellings.
+  ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3
   # Semantic search over pgvector embeddings. Degrades to keyword-only when
   # Ollama or pgvector is unavailable, and says so.
   ariel.search_modules.semantic.enabled: true

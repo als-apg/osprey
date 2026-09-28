@@ -220,8 +220,9 @@ class TestParameterDescriptors:
     Only the semantic module grew a ``config`` parameter alongside hybrid's.
     The keyword module's two descriptors (``include_highlights``,
     ``fuzzy_fallback``) have no counterpart in ``KeywordSearchSettings``, which
-    covers ``patterns_enabled`` and ``pattern_timeout_seconds`` instead — there
-    is no configured value for them to report, so ``keyword`` stays zero-arg
+    covers ``patterns_enabled``, ``pattern_timeout_seconds`` and
+    ``fuzzy_threshold`` instead, none of them a per-query parameter — there is
+    no configured value for them to report, so ``keyword`` stays zero-arg
     deliberately rather than by oversight.
     """
 

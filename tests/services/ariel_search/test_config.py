@@ -947,6 +947,67 @@ class TestKeywordPatternSettings:
         assert not [error for error in errors if "patterns_enabled" in error]
 
 
+class TestKeywordFuzzyThreshold:
+    """Tests for ``fuzzy_threshold`` resolution."""
+
+    def test_defaults_when_block_absent(self) -> None:
+        """No settings block yields the documented default."""
+        settings = KeywordSearchSettings.from_ariel_config(_keyword_config())
+        assert settings.fuzzy_threshold == 0.3
+
+    def test_defaults_without_a_config(self) -> None:
+        """``from_ariel_config(None)`` yields the default."""
+        assert KeywordSearchSettings.from_ariel_config(None).fuzzy_threshold == 0.3
+
+    def test_reads_the_configured_value(self) -> None:
+        """A well-formed value is read verbatim."""
+        settings = KeywordSearchSettings.from_ariel_config(
+            _keyword_config({"fuzzy_threshold": 0.55})
+        )
+        assert settings.fuzzy_threshold == 0.55
+
+    @pytest.mark.parametrize("bound", [0, 1])
+    def test_accepts_both_bounds_as_integers(self, bound: int) -> None:
+        """Both ends of the closed range are accepted and resolve as floats."""
+        settings = KeywordSearchSettings.from_ariel_config(
+            _keyword_config({"fuzzy_threshold": bound})
+        )
+        assert settings.fuzzy_threshold == float(bound)
+        assert isinstance(settings.fuzzy_threshold, float)
+
+    def test_rejects_a_value_above_one(self) -> None:
+        """A similarity above 1 is refused, never clamped."""
+        with pytest.raises(ValueError) as exc_info:
+            KeywordSearchSettings.from_ariel_config(_keyword_config({"fuzzy_threshold": 1.5}))
+        assert (
+            str(exc_info.value)
+            == "search_modules.keyword.settings.fuzzy_threshold must be a number in [0, 1], got 1.5"
+        )
+
+    @pytest.mark.parametrize("bad", [-0.1, "0.3", True, None])
+    def test_rejects_every_other_spelling(self, bad: object) -> None:
+        """Negative numbers, strings, booleans and nulls are refused by name."""
+        with pytest.raises(ValueError) as exc_info:
+            KeywordSearchSettings.from_ariel_config(_keyword_config({"fuzzy_threshold": bad}))
+        assert str(exc_info.value) == (
+            f"search_modules.keyword.settings.fuzzy_threshold must be a number in [0, 1], "
+            f"got {bad!r}"
+        )
+
+    def test_error_surfaces_from_validate(self) -> None:
+        """validate() reports the refusal, naming the key."""
+        errors = _keyword_config({"fuzzy_threshold": 2}).validate()
+        assert (
+            "search_modules.keyword.settings.fuzzy_threshold must be a number in [0, 1], got 2"
+            in errors
+        )
+
+    def test_is_not_validated_when_keyword_is_disabled(self) -> None:
+        """A disabled module's settings reach no reader, so validate() stays quiet."""
+        errors = _keyword_config({"fuzzy_threshold": 2}, enabled=False).validate()
+        assert not [error for error in errors if "fuzzy_threshold" in error]
+
+
 def _hybrid_config(
     settings: dict[str, object] | None = None, *, enabled: bool = True
 ) -> ARIELConfig:
