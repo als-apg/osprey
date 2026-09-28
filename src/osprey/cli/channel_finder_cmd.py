@@ -423,7 +423,7 @@ def preview(
 
 
 @channel_finder.command("web")
-@click.option("--host", default="127.0.0.1", help="Host to bind to")
+@click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
 @click.option(
     "--port",
     default=None,
@@ -434,7 +434,7 @@ def preview(
     ),
 )
 @click.pass_context
-def web(ctx, host: str, port: int | None):
+def web(ctx, host: str | None, port: int | None):
     """Launch the Channel Finder web interface.
 
     Opens a browser-based interface for exploring, searching, and managing
@@ -458,13 +458,24 @@ def web(ctx, host: str, port: int | None):
     from osprey.interfaces.common_middleware import WEB_PORT_ENV
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
     from osprey.registry.web import resolve_web_server_address
+    from osprey.utils.config import get_config_builder
 
-    if port is None:
-        # The framework's shared derivation: the OSPREY_CHANNEL_FINDER_PORT
-        # override a multi-user deployment exports, then the config section's
-        # own port, then the Channel Finder's slot at the base this deployment
-        # resolved. An explicit --port wins over all of it.
-        _, port = resolve_web_server_address("channel_finder")
+    if host is None or port is None:
+        # Explicit flags win. Otherwise the framework's shared derivation runs
+        # over the config ``_setup_config`` selected through CONFIG_FILE, the
+        # one the app serves from: the section's own host, else loopback; the
+        # OSPREY_CHANNEL_FINDER_PORT override a multi-user deployment exports,
+        # then the section's port, then the Channel Finder's slot at the base
+        # this deployment resolved. A config-less resolve would read the
+        # working directory's config, which under --project is another
+        # deployment's.
+        default_host, default_port = resolve_web_server_address(
+            "channel_finder", get_config_builder().raw_config
+        )
+        if host is None:
+            host = default_host
+        if port is None:
+            port = default_port
 
     # Publish the settled port before the app is constructed: cookies ignore
     # ports, so two OSPREY servers on this host share an origin as far as the
