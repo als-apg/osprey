@@ -13,6 +13,7 @@ that answers a question rather than performing a render —
 because its wrong answer is an empty list rather than an error.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -31,7 +32,11 @@ from osprey.channel_roster import RosterAbsenceReason, RosterResult, registered_
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
-from osprey.deployment.compose_merge import _atomic_write, _load_compose_document
+from osprey.deployment.compose_merge import (
+    ComposeMergeError,
+    _atomic_write,
+    _load_compose_document,
+)
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
@@ -411,6 +416,71 @@ def read_rendered_env_chain(repo_root, build_dir=None):
     return recorded
 
 
+def labels_override_path(repo_root):
+    """Where a deployment's labels override is read from: ``<repo>/build/``.
+
+    :param repo_root: The deployment repo root.
+    :return: Path of :data:`LABELS_OVERRIDE_FILENAME` in the render zone.
+    """
+    from osprey.utils.workspace import BUILD_DIR_NAME
+
+    return Path(repo_root) / BUILD_DIR_NAME / LABELS_OVERRIDE_FILENAME
+
+
+def _invocation_labels_override(root, compose_files):
+    """The labels override restricted to the services this invocation defines.
+
+    Compose refuses an override entry for a service no other ``-f`` file
+    defines, so an invocation is handed only the entries for its own services.
+    A listed file that is missing or does not parse defines none here; compose
+    reports that file itself.
+
+    :param root: The deployment repo root, absolute.
+    :param compose_files: The invocation's compose files, in ``-f`` order.
+    :return: The restricted override document, or ``None`` when there is no
+        override or it names none of this invocation's services.
+    :raises ComposeMergeError: The override itself does not parse.
+    """
+    override_file = labels_override_path(root)
+    if not override_file.is_file():
+        return None
+    entries = _load_compose_document(override_file).get("services")
+    if not isinstance(entries, dict):
+        return None
+    defined: set[str] = set()
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        try:
+            services = _load_compose_document(path if path.is_absolute() else root / path).get(
+                "services"
+            )
+        except ComposeMergeError:
+            continue
+        if isinstance(services, dict):
+            defined.update(str(name) for name in services)
+    kept = {name: entry for name, entry in entries.items() if name in defined}
+    if not kept:
+        return None
+    return {"services": kept}
+
+
+def _labels_override_file(root, document):
+    """The ``-f`` path carrying *document*: the override itself, or a subset of it.
+
+    A subset is written to a content-addressed file in the render zone, so two
+    concurrent invocations over different subsets never write the same path.
+    """
+    override_file = labels_override_path(root)
+    full = _load_compose_document(override_file).get("services")
+    if isinstance(full, dict) and list(full) == list(document["services"]):
+        return override_file
+    text = _LABELS_OVERRIDE_HEADER + "\n" + _dump_override(document)
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    subset = override_file.parent / f"osprey-labels.{digest}.override.yml"
+    _atomic_write(subset, text)
+    return subset
+
+
 def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None, provider=None):
     """Pin a compose argv to one deployment repo, before any subcommand.
 
@@ -432,6 +502,7 @@ def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None, 
         <runtime> compose [--progress plain]
             --project-directory <repo-root>
             -f <repo-root>/build/<file> ...
+            [-f <repo-root>/build/osprey-labels.override.yml]
             [--env-file <repo-root>/.env.shared --env-file <repo-root>/.env]
 
     ``--project-directory`` is what makes the rest true. Without it compose
@@ -445,7 +516,7 @@ def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None, 
     podman-compose::
 
         <runtime> compose [--progress plain]
-            -f <repo-root>/.osprey-compose.yml
+            -f <repo-root>/.osprey-compose.yml    (rendered files + labels override)
             [--env-file <repo-root>/build/.env.merged]
 
     No podman-compose version parses ``--project-directory``, so the pin has to
@@ -466,6 +537,20 @@ def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None, 
     fragments come from
     :func:`osprey.deployment.container_lifecycle._env_file_args`, which is also
     where the merged file is (re)generated.
+
+    THE LABELS OVERRIDE
+    ===================
+
+    The render writes :data:`LABELS_OVERRIDE_FILENAME` with OSPREY's labels for
+    every service it rendered, and every invocation carries it: as the last
+    ``-f`` in the docker shape, as an overlay merged after every file in the
+    podman shape. It comes last so its values win over whatever a template
+    spells. Its entries are restricted to the services this invocation's own
+    files define, because compose refuses an override entry for a service no
+    other file defines; an invocation that defines a subset gets a
+    content-addressed subset file, and one that defines none of them (the web
+    stack's own) gets none. A render zone without an override leaves the argv
+    exactly as the rest of this docstring describes.
 
     Neither shape uses compose ``profiles:``/``--profile``: podman-compose's
     support for them differs by version, and a service silently left out of a
@@ -495,15 +580,18 @@ def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None, 
     """
     root = Path(repo_root).expanduser().absolute()
     cmd = list(runtime_cmd)
+    labels = _invocation_labels_override(root, compose_files)
     if provider is ComposeProvider.PODMAN_COMPOSE:
         from osprey.deployment.compose_merge import write_merged_compose
 
-        cmd.extend(("-f", str(write_merged_compose(root, compose_files))))
+        cmd.extend(("-f", str(write_merged_compose(root, compose_files, overlay=labels))))
     else:
         cmd.extend(("--project-directory", str(root)))
         for compose_file in compose_files:
             path = Path(compose_file)
             cmd.extend(("-f", str(path if path.is_absolute() else root / path)))
+        if labels is not None:
+            cmd.extend(("-f", str(_labels_override_file(root, labels))))
     if env_file_args is None:
         # Deferred: the provider-shaped resolver lives with the merged file it
         # (re)writes, in the module that owns the lifecycle verbs, and that
