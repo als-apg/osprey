@@ -5,7 +5,6 @@ import json
 import pytest
 
 from osprey.mcp_server.channel_finder_in_context.server_context import (
-    PROVIDER_RPM,
     get_cf_ic_context,
     initialize_cf_ic_context,
     reset_cf_ic_context,
@@ -13,6 +12,13 @@ from osprey.mcp_server.channel_finder_in_context.server_context import (
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter, get_rate_limiter
 
 _MINIMAL_MODEL_CONFIG = "claude_code:\n  model: test-model\n  provider: anthropic\n"
+
+#: A minimal valid provider entry, indented to sit under ``api.providers.<name>``.
+_GATEWAY_ENTRY = (
+    "      base_url: https://gateway.example.test/v1\n"
+    "      default_model: m-1\n"
+    "      models: [m-1]\n"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -104,13 +110,48 @@ def test_context_subagent_model_fallback_to_claude_code(tmp_path, monkeypatch):
     assert reg.subagent_model_id == "test-model"
 
 
-def test_context_rate_limiter_armed_for_cborg(tmp_path, monkeypatch):
+def _cborg_config(cap_line: str = "") -> str:
+    return (
+        "claude_code:\n  provider: cborg\n"
+        "api:\n  providers:\n    cborg:\n" + _GATEWAY_ENTRY + cap_line
+    )
+
+
+def test_context_rate_limiter_armed_from_the_catalog_cap(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("claude_code:\n  model: m\n  provider: cborg\n")
+    (tmp_path / "config.yml").write_text(_cborg_config("      requests_per_minute: 18\n"))
     initialize_cf_ic_context()
     limiter = get_rate_limiter()
     assert limiter is not None
-    assert limiter.max_calls == PROVIDER_RPM["cborg"]
+    assert limiter.max_calls == 18
+    assert limiter.window == 60.0
+
+
+def test_context_rate_limiter_follows_any_provider_cap(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        "channel_finder:\n  pipelines:\n    in_context:\n"
+        "      subagent_model: m-1\n      subagent_provider: gw\n"
+        "api:\n  providers:\n    gw:\n" + _GATEWAY_ENTRY + "      requests_per_minute: 5\n"
+    )
+    initialize_cf_ic_context()
+    limiter = get_rate_limiter()
+    assert limiter is not None
+    assert limiter.max_calls == 5
+
+
+def test_context_cborg_without_a_cap_is_not_paced(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_cborg_config())
+    initialize_cf_ic_context()
+    assert get_rate_limiter() is None
+
+
+def test_context_malformed_cap_is_refused(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_cborg_config("      requests_per_minute: 0\n"))
+    with pytest.raises(ValueError, match="requests_per_minute"):
+        initialize_cf_ic_context()
 
 
 def test_context_rate_limiter_none_for_anthropic(tmp_path, monkeypatch):

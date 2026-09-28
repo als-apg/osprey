@@ -27,12 +27,6 @@ from osprey.utils.facility import resolve_facility_name
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.server_context")
 
-PROVIDER_RPM: dict[str, int | None] = {
-    "cborg": 18,
-    "anthropic": None,
-    "als-apg": None,
-}
-
 
 class ChannelFinderICContext:
     """Singleton registry for in-context channel finder MCP server state.
@@ -139,8 +133,11 @@ class ChannelFinderICContext:
             self._subagent_model_id = spec.default_model_id
             self._subagent_provider = ic_provider if ic_provider else spec.provider
 
-        # Arm rate limiter for providers with a known RPM cap
-        rpm_cap = PROVIDER_RPM.get(self._subagent_provider)
+        # Pace the subagent to its provider's catalog cap; a provider without one is
+        # not paced.
+        from osprey.models.config import provider_requests_per_minute
+
+        rpm_cap = provider_requests_per_minute(self._raw_config, self._subagent_provider)
         if rpm_cap is not None:
             configure_rate_limiter(rpm_cap, window=60.0)
             logger.info(
