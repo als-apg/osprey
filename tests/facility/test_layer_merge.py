@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.combine import CombineResult, combine
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults, build_provenance, set_place_from
 from osprey.facility.sources import load_sources
@@ -26,9 +27,21 @@ def _load_errors(tmp_path: Path, files: dict[str, Any]) -> list[FacilityBuildErr
     return load_sources(_write(tmp_path, files)).errors
 
 
+def _build(tmp_path: Path, files: dict[str, Any]) -> CombineResult:
+    loaded = load_sources(_write(tmp_path, files))
+    assert [e.format_message() for e in loaded.errors] == []
+    return combine(loaded.sources)
+
+
 def _one(errors: list[FacilityBuildError]) -> FacilityBuildError:
     assert len(errors) == 1, [e.format_message() for e in errors]
     return errors[0]
+
+
+def _record(result: CombineResult, plural: str, rid: str) -> dict[str, Any]:
+    key = "name" if plural == "models" else "id"
+    (record,) = [r for r in result.document[plural] if r[key] == rid]
+    return record
 
 
 class TestSourcesLoad:
@@ -163,6 +176,223 @@ class TestSourcesLoad:
             },
         )
         assert [e.record_id for e in errors] == ["X", "Q1"]
+
+
+class TestLayerMerge:
+    def test_fields_are_collected_per_layer(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [{"id": "SR:X", "description": "Horizontal position"}],
+                "imported/mml/channels.yaml": [{"id": "SR:X", "unit": "mm"}],
+            },
+        )
+        assert result.errors == []
+        channel = _record(result, "channels", "SR:X")
+        assert channel["description"] == "Horizontal position"
+        assert channel["unit"] == "mm"
+        assert channel["provenance"]["sources"] == [
+            {"layer": "authored", "file": "records/channels.yaml", "fields": ["description"]},
+            {"layer": "mml", "file": "imported/mml/channels.yaml", "fields": ["unit"]},
+        ]
+
+    def test_equal_values_do_not_conflict(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [{"id": "SR:X", "unit": "mm"}],
+                "imported/mml/channels.yaml": [{"id": "SR:X", "unit": "mm"}],
+            },
+        )
+        assert result.errors == []
+
+    def test_unequal_values_are_layer_conflict(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [{"id": "SR:X", "unit": "mm"}],
+                "imported/mml/channels.yaml": [{"id": "SR:X", "unit": "m"}],
+            },
+        )
+        err = _one(result.errors)
+        assert (err.kind, err.record_kind, err.record_id) == ("layer-conflict", "channel", "SR:X")
+        assert err.detail == "`unit` differs: authored=mm; mml=m"
+        assert err.sources == ("imported/mml/channels.yaml", "records/channels.yaml")
+
+    def test_a_boolean_never_equals_a_number(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/devices.yaml": [{"id": "Q1", "properties": {"on": True}}],
+                "imported/mml/devices.yaml": [{"id": "Q1", "properties": {"on": 1}}],
+            },
+        )
+        assert _one(result.errors).kind == "layer-conflict"
+
+    def test_map_slot_compares_whole(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "models.yaml": [{"name": "lattice", "settings": {"pyat": {"twiss_in": [1, 2]}}}],
+                "imported/mml/models.yaml": [
+                    {"name": "lattice", "settings": {"pyat": {"solve": "closed"}}}
+                ],
+            },
+        )
+        err = _one(result.errors)
+        assert (err.kind, err.record_kind, err.record_id) == ("layer-conflict", "model", "lattice")
+        assert err.detail.startswith("`settings` differs:")
+
+    def test_differing_on_is_layer_conflict(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [{"id": "SR:X", "on": {"device": "BPM1"}}],
+                "imported/csv/channels.yaml": [{"id": "SR:X", "on": {"place": "SR/S01"}}],
+            },
+        )
+        err = _one(result.errors)
+        assert err.kind == "layer-conflict"
+        assert err.detail.startswith("`on` differs:")
+
+    def test_role_less_list_and_mml_import_build(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "imported/csv/channels.yaml": [{"id": "SR:Q1:SP", "on": {"device": "Q1"}}],
+                "imported/mml/channels.yaml": [{"id": "SR:Q1:SP", "role": "setpoint"}],
+            },
+        )
+        assert result.errors == []
+        channel = _record(result, "channels", "SR:Q1:SP")
+        assert channel["role"] == "setpoint"
+        assert channel["pair"] == "SR:Q1:SP"
+        assert "role" not in channel["provenance"]["defaults"]
+        assert "pair" in channel["provenance"]["defaults"]
+
+    def test_role_less_address_in_two_lists_takes_the_default(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "imported/csv/channels.yaml": [{"id": "SR:X", "unit": "mm"}],
+                "imported/mml/channels.yaml": [{"id": "SR:X", "role": "readback"}],
+                "records/channels.yaml": [{"id": "SR:Y"}],
+            },
+        )
+        assert result.errors == []
+        assert "role" not in _record(result, "channels", "SR:X")["provenance"]["defaults"]
+        other = _record(result, "channels", "SR:Y")
+        assert other["role"] == "readback"
+        assert other["value_type"] == "float"
+        assert "on" not in other
+        assert other["provenance"]["defaults"] == ["on", "role", "value_type"]
+
+    def test_slice_weight_default_is_filled_before_comparison(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "models.yaml": [
+                    {
+                        "name": "lattice",
+                        "wiring": [{"address": "SR:Q1", "slices": [{"element": "Q1"}]}],
+                    }
+                ],
+                "imported/mml/models.yaml": [
+                    {
+                        "name": "lattice",
+                        "wiring": [
+                            {"address": "SR:Q1", "slices": [{"element": "Q1", "weight": 1}]}
+                        ],
+                    }
+                ],
+            },
+        )
+        assert result.errors == []
+        (wiring,) = _record(result, "models", "lattice")["wiring"]
+        assert wiring["slices"] == [{"element": "Q1", "weight": 1}]
+
+    def test_slices_keep_source_order(self, tmp_path: Path) -> None:
+        slices = [{"element": "B", "weight": 2}, {"element": "A"}]
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [{"id": "SR:Q:SP", "on": {"device": "Q"}}],
+                "models.yaml": [
+                    {"name": "lattice", "wiring": [{"address": "SR:Q:SP", "slices": slices}]}
+                ],
+            },
+        )
+        assert result.errors == []
+        (wiring,) = _record(result, "models", "lattice")["wiring"]
+        assert wiring["slices"] == [
+            {"element": "B", "weight": 2, "device": "Q"},
+            {"element": "A", "weight": 1, "device": "Q"},
+        ]
+        assert wiring["provenance"]["defaults"] == ["slices.device", "slices.weight"]
+
+    def test_set_valued_lists_compare_sorted(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [{"id": "SR:X", "tags": ["orbit", "bpm"]}],
+                "imported/mml/channels.yaml": [{"id": "SR:X", "tags": ["bpm", "orbit"]}],
+            },
+        )
+        assert result.errors == []
+        assert _record(result, "channels", "SR:X")["tags"] == ["bpm", "orbit"]
+
+    def test_ordered_lists_compare_in_source_order(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/channels.yaml": [{"id": "SR:X", "names": ["b", "a"]}],
+                "imported/mml/channels.yaml": [{"id": "SR:X", "names": ["a", "b"]}],
+            },
+        )
+        assert _one(result.errors).kind == "layer-conflict"
+
+    def test_bool_options_default(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path, {"records/channels.yaml": [{"id": "SR:ON", "value_type": "bool"}]}
+        )
+        channel = _record(result, "channels", "SR:ON")
+        assert channel["options"] == ["FALSE", "TRUE"]
+        assert "options" in channel["provenance"]["defaults"]
+
+    def test_seed_merges_as_the_channel_simulation(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "imported/mml/channels.yaml": [{"id": "SR:X"}],
+                "seeds.yaml": {"SR:X": {"nominal": 0.5}},
+            },
+        )
+        channel = _record(result, "channels", "SR:X")
+        assert channel["simulation"] == {"nominal": 0.5}
+        assert {"layer": "authored", "file": "seeds.yaml", "fields": ["simulation"]} in channel[
+            "provenance"
+        ]["sources"]
+
+    def test_emission_order(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
+                "records/devices.yaml": [{"id": "Q2"}, {"id": "Q1"}],
+                "models.yaml": [
+                    {"name": "texture"},
+                    {"name": "lattice", "wiring": [{"address": "Z"}, {"address": "A"}]},
+                    {"name": "booster"},
+                ],
+                "classes.yaml": [{"class": "Quad"}, {"class": "BPM"}],
+            },
+        )
+        document = result.document
+        assert [d["id"] for d in document["devices"]] == ["Q1", "Q2"]
+        assert [m["name"] for m in document["models"]] == ["booster", "lattice", "texture"]
+        lattice = _record(result, "models", "lattice")
+        assert [w["id"] for w in lattice["wiring"]] == ["lattice/A", "lattice/Z"]
+        assert list(lattice)[-2:] == ["wiring", "provenance"]
+        assert [c["class"] for c in document["classes"]] == ["BPM", "Quad"]
 
 
 class TestProvenance:
