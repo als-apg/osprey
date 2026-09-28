@@ -245,10 +245,9 @@ def resolve_repo_root(config=None, config_path=None):
 #: refuse to remove the other checkout's resources.
 REPO_ID_LABEL = "com.osprey.repo-id"
 
-#: Label naming the compose project a container belongs to. Every packaged
-#: service template writes it (``osprey.project.name:`` in each
-#: ``docker-compose.yml.j2``), with the value :func:`resolve_project_name`
-#: returns.
+#: Label naming the compose project a container belongs to. The generated
+#: labels override gives it to every rendered service, with the value
+#: :func:`resolve_project_name` returns.
 PROJECT_LABEL = "osprey.project.name"
 
 #: Label carrying the deployment repo path recorded at render time. ``osprey
@@ -278,12 +277,13 @@ def repo_identity(repo_root):
     compares against it and a second derivation would eventually disagree with
     the first — at which point one verb would act on a set of containers another
     verb reports. The consumers today: :func:`_inject_project_metadata` renders
-    it into every container's and volume's :data:`REPO_ID_LABEL`, ``osprey
-    down`` uses it to find this deployment's containers when ``build/`` no
-    longer holds the compose files that declared them, ``osprey reset`` uses it
-    to refuse removing resources that belong to a different checkout of the same
-    name, and ``osprey status`` uses it to sort every container on the host by
-    which checkout it belongs to. Any new one derives it from here too.
+    it into :data:`REPO_ID_LABEL`, which the generated labels override gives every
+    container and the templates give every named volume, ``osprey down`` uses it
+    to find this deployment's containers when ``build/`` no longer holds the
+    compose files that declared them, ``osprey reset`` uses it to refuse removing
+    resources that belong to a different checkout of the same name, and ``osprey
+    status`` uses it to sort every container on the host by which checkout it
+    belongs to. Any new one derives it from here too.
 
     :param repo_root: The deployment repo root.
     :return: 12 lowercase hex characters.

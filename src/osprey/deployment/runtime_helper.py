@@ -414,7 +414,8 @@ ENV_DIGEST_VAR = "OSPREY_ENV_DIGEST"
 
 #: The same contract as :data:`ENV_DIGEST_VAR`, for the other file a container
 #: reads its settings out of: the rendered config the build decided on. Carried
-#: into an ``osprey.config.digest`` label by every service template.
+#: into the ``osprey.config.digest`` label the generated labels override gives
+#: every rendered service.
 CONFIG_DIGEST_VAR = "OSPREY_CONFIG_DIGEST"
 
 

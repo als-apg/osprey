@@ -7028,13 +7028,15 @@ _DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
 #: :func:`test_render_carries_no_deploy_timestamp`.
 _DEPLOYED_AT_LABEL_LINE = '      osprey.deployed.at: ""\n'
 
-#: The config-digest label and the comment that carries its reasoning, as the
-#: committed side does not render them yet while this addition is uncommitted.
-#: The mirror image of :data:`_DEPLOYED_AT_LABEL_LINE` — one delta is a removal
-#: and this one an addition, and both have to be nameable for the comparison
-#: below to survive its own commit. Includes the comment because the delta IS
-#: the whole block: stripping the label alone would leave the comment as an
-#: unexplained difference and fail for the wrong reason.
+#: The config-digest label and the comment that carried its reasoning, which
+#: the template no longer writes: the build's generated labels override gives
+#: every rendered service that label. Named, like
+#: :data:`_DEPLOYED_AT_LABEL_LINE`, because a delta that is being REMOVED has to
+#: be nameable too or the comparison below cannot survive its own commit; once
+#: committed neither side emits it and the replacement is a no-op. Includes the
+#: comment because the delta IS the whole block: stripping the label alone
+#: would leave the comment as an unexplained difference and fail for the wrong
+#: reason.
 _CONFIG_DIGEST_BLOCK = (
     "      # Content fingerprint of the rendered config this deploy built\n"
     "      # (runtime_helper's as_built_config_digest, carried in by\n"
@@ -7045,6 +7047,15 @@ _CONFIG_DIGEST_BLOCK = (
     "      # the settings it parsed at startup. Empty when the invocation did not set\n"
     "      # the variable (a hand-run `docker compose up`).\n"
     '      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"\n'
+)
+
+#: The project, checkout and project-root labels the template no longer writes,
+#: as :func:`_dispatcher_context` renders them. Removed for the same reason as
+#: :data:`_CONFIG_DIGEST_BLOCK`: the generated labels override carries them.
+_GENERATED_LABEL_LINES = (
+    '      osprey.project.name: "p"\n'
+    '      com.osprey.repo-id: ""\n'
+    '      osprey.project.root: "/r"\n'
 )
 
 #: The MCP transport path and the comment carrying its reasoning, as the
@@ -7106,7 +7117,7 @@ def _head_dispatcher_render() -> str:
     return environment.from_string(head_source).render(**_dispatcher_context())
 
 
-def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_label() -> None:
+def test_dispatcher_default_render_matches_the_committed_one_but_for_the_label_deltas() -> None:
     """The enumerated deltas, byte for byte, and nothing else.
 
     Asserted on raw text rather than parsed YAML: the macros' whole whitespace
@@ -7121,6 +7132,7 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
         return (
             text.replace(_DIGEST_LABEL_LINE, "", 1)
             .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
+            .replace(_GENERATED_LABEL_LINES, "", 1)
             .replace(_CONFIG_DIGEST_BLOCK, "", 1)
             .replace(_MCP_TRANSPORT_PATH_BLOCK, "", 1)
         )
@@ -7128,7 +7140,10 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
-    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 1, "the config digest renders exactly once"
+    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 0, (
+        "the labels override carries the config digest"
+    )
+    assert _GENERATED_LABEL_LINES not in rendered, "the labels override carries the project labels"
     assert _normalized(rendered) == _normalized(_head_dispatcher_render())
 
 
