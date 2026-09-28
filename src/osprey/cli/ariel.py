@@ -374,6 +374,15 @@ def sync_command(limit: int | None, watch: bool) -> None:
         raise
 
 
+def _warn_unreadable(count: int) -> None:
+    """Warn about the entries an ingest pass skipped because it could not read them."""
+    if count:
+        output.warn(
+            f"Skipped {count} entries that could not be read",
+            "The ingest log names each one.",
+        )
+
+
 @ariel_group.command("ingest")
 @click.option("--source", "-s", required=True, help="Source file path or URL")
 @click.option(
@@ -413,20 +422,12 @@ def ingest_command(
         output.report("")
         if result.dry_run:
             output.report(f"Dry run complete: {result.count} entries would be ingested")
-            if result.unreadable_count:
-                output.warn(
-                    f"Skipped {result.unreadable_count} entries that could not be read",
-                    "The ingest log names each one.",
-                )
+            _warn_unreadable(result.unreadable_count)
             if result.enhancer_names:
                 output.note(f"Enhancement modules would run: {result.enhancer_names}")
         else:
             output.report(f"Ingestion complete: {result.count} entries stored")
-            if result.unreadable_count:
-                output.warn(
-                    f"Skipped {result.unreadable_count} entries that could not be read",
-                    "The ingest log names each one.",
-                )
+            _warn_unreadable(result.unreadable_count)
             if result.enhancer_names:
                 output.note(f"Enhancement complete: {result.enhanced_count} enhancements applied")
     except DatabaseQueryError as e:

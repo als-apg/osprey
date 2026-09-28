@@ -83,6 +83,7 @@ from .throttle import (
     DEFAULT_INITIAL_DELAY,
     DEFAULT_MAX_DELAY,
     DEFAULT_MULTIPLIER,
+    THROTTLE_DEFAULTS,
     AttemptThrottle,
     throttle_problems,
 )
@@ -157,13 +158,6 @@ class ThrottleParameters(TypedDict):
     max_delay: float
     forget_after: float
 
-
-_THROTTLE_DEFAULTS: dict[str, float] = {
-    "initial_delay": DEFAULT_INITIAL_DELAY,
-    "multiplier": DEFAULT_MULTIPLIER,
-    "max_delay": DEFAULT_MAX_DELAY,
-    "forget_after": DEFAULT_FORGET_AFTER,
-}
 
 ENV_PW_HASH_PREFIX = "OSPREY_AUTH_PW_HASH_"
 """Per-user stored hash: ``OSPREY_AUTH_PW_HASH_<SUFFIX>``."""
@@ -1288,7 +1282,7 @@ def _log_configuration(settings: AuthSettings, env: Mapping[str, str] | None) ->
                 "the default %s instead",
                 var,
                 _logged_value(raw),
-                _THROTTLE_DEFAULTS[name],
+                THROTTLE_DEFAULTS[name],
             )
 
     origin_is_https = settings.external_origin.startswith("https://")
