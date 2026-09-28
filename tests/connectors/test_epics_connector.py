@@ -519,6 +519,21 @@ class TestConfirmingRead:
         assert [c.kwargs["use_monitor"] for c in pv.get.call_args_list] == [False] * 3
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env", "fake_pyepics")
+    @pytest.mark.parametrize(("value", "expected"), [("false", False), ("True", True)])
+    async def test_fresh_reads_reads_a_resolved_placeholder_for_what_it_spells(
+        self, monkeypatch, value, expected
+    ):
+        """``${VAR:-false}`` resolves to the string ``"false"``, which must not arm it."""
+        _patch_writes_enabled(monkeypatch, False)
+        connector = EPICSConnector()
+        await connector.connect(
+            {"fresh_reads": value, "gateways": {"read_only": {"address": "ro", "port": 5064}}}
+        )
+
+        assert connector._fresh_reads is expected
+
+    @pytest.mark.asyncio
     async def test_a_confirming_put_waits_for_the_ioc_callback(self):
         """Put-callback is the protocol's acknowledgement that the put landed."""
         connector = _write_connector(observed=5.0)

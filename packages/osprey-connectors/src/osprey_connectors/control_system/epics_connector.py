@@ -474,7 +474,12 @@ class EPICSConnector(ControlSystemConnector):
         # when the IOC posts an event. An IOC that computes a readback on get
         # posts none, so a cached read of it never changes. `fresh_reads` makes
         # every Channel Access read ask the IOC instead, at one round trip each.
-        self._fresh_reads = bool(config.get("fresh_reads", False))
+        # A ${VAR:-false} placeholder resolves to a string, and bool("false") is
+        # True, so a string is read for what it spells.
+        fresh_reads = config.get("fresh_reads", False)
+        if isinstance(fresh_reads, str):
+            fresh_reads = fresh_reads.strip().lower() in ("true", "1", "yes", "on")
+        self._fresh_reads = bool(fresh_reads)
 
         # Configure PVAccess routing. Addresses matching one of these globs are
         # served by the p4p client; every other address keeps using Channel
