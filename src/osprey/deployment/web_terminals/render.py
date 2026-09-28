@@ -192,7 +192,7 @@ _DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 
 #: Label key the auth sidecar's service carries the sha256 digest of
 #: ``.env.auth``'s content under (repo label convention: dotted ``osprey.*``
-#: keys, as in the service templates' ``osprey.project.name``). Compose bakes
+#: keys, as in ``osprey.project.name``). Compose bakes
 #: ``env_file`` content into a container at CREATION time, and a
 #: service-definition change is the only recreate trigger every compose
 #: implementation honours — podman-compose in particular never recreates on a
