@@ -40,6 +40,7 @@ import {
   requestColorPass,
 } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs } from '../_support/dom.mjs';
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -269,6 +270,56 @@ describe('formatTime / formatFullTime / formatDate', () => {
     // ISO-shaped but impossible (month 99): Date coercion yields NaN.
     expect(formatFullTime('2026-99-99T00:00:00Z')).toBe('');
     expect(formatDate('2026-99-99T00:00:00Z')).toBe('Unknown');
+  });
+});
+
+describe('gallery times on the facility clock', () => {
+  afterEach(() => {
+    stampFacilityZone(null);
+    vi.useRealTimers();
+  });
+
+  const ISO = '2026-01-15T20:04:05Z';
+
+  /** @param {string} zone @param {Intl.DateTimeFormatOptions} options */
+  const intl = (zone, options) =>
+    new Intl.DateTimeFormat(undefined, { ...options, timeZone: zone }).format(new Date(ISO));
+
+  /** @type {Intl.DateTimeFormatOptions} */
+  const FULL = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+
+  test('formatTime reads the stamped zone', () => {
+    stampFacilityZone(FACILITY_ZONE);
+    expect(formatTime(ISO)).toBe(intl(FACILITY_ZONE, { hour: '2-digit', minute: '2-digit' }));
+  });
+
+  test('formatFullTime names the zone when the viewer reads another clock, and not otherwise', () => {
+    stampFacilityZone(FACILITY_ZONE);
+    expect(formatFullTime(ISO)).toBe(intl(FACILITY_ZONE, { ...FULL, timeZoneName: 'short' }));
+    stampFacilityZone(VIEWER_ZONE);
+    expect(formatFullTime(ISO)).toBe(intl(VIEWER_ZONE, FULL));
+  });
+
+  test('Today and Yesterday are the facility calendar\'s days', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // Jan 16 01:00 in Kathmandu; still Jan 15 in UTC and the Americas.
+    vi.setSystemTime(new Date('2026-01-15T19:15:00Z'));
+    stampFacilityZone('Asia/Kathmandu');
+    expect(formatDate('2026-01-15T18:30:00Z')).toBe('Today');
+    expect(formatDate('2026-01-15T18:00:00Z')).toBe('Yesterday');
+    const older = formatDate('2026-01-14T18:00:00Z');
+    expect(older).not.toBe('Today');
+    expect(older).not.toBe('Yesterday');
+  });
+
+  test('Yesterday is the civil day before, across a spring-forward night', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // 00:30 EDT on Mar 9, the morning after the 23-hour Mar 8.
+    vi.setSystemTime(new Date('2026-03-09T04:30:00Z'));
+    stampFacilityZone('America/New_York');
+    expect(formatDate('2026-03-08T12:00:00Z')).toBe('Yesterday');
+    // Exactly 24 h back is 23:30 on Mar 7.
+    expect(formatDate('2026-03-08T04:30:00Z')).not.toBe('Yesterday');
   });
 });
 

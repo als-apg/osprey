@@ -12,6 +12,11 @@
 
 import { fileUrl } from "./state.js";
 import { escapeHtml } from "/design-system/js/dom.js";
+import {
+  facilityDayKey,
+  formatFacilityTime,
+  viewerSharesFacilityClock,
+} from "/design-system/js/facility-time.js";
 
 // ---- Type Registry ---- //
 
@@ -196,47 +201,52 @@ export function formatSize(bytes) {
 }
 
 /**
- * Locale time-of-day (e.g. "3:45 PM"). Empty string for falsy or non-ISO
- * input (see `isoToDate`).
+ * Facility-clock time-of-day (e.g. "3:45 PM"). Empty string for falsy or
+ * non-ISO input (see `isoToDate`).
  * @param {string} [iso]
  * @returns {string}
  */
 export function formatTime(iso) {
   const d = isoToDate(iso);
   if (!d) return "";
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return formatFacilityTime(d, { hour: "2-digit", minute: "2-digit" });
 }
 
 /**
- * Full locale date + time (e.g. "Jul 3, 2026, 3:45 PM"). Empty string for
- * falsy or non-ISO input (see `isoToDate`).
+ * Full facility-clock date + time (e.g. "Jul 3, 2026, 3:45 PM"), naming the
+ * zone when the viewer's clock reads differently. Empty string for falsy or
+ * non-ISO input (see `isoToDate`).
  * @param {string} [iso]
  * @returns {string}
  */
 export function formatFullTime(iso) {
   const d = isoToDate(iso);
   if (!d) return "";
-  return d.toLocaleString(undefined, {
+  return formatFacilityTime(d, {
     year: "numeric", month: "short", day: "numeric",
     hour: "2-digit", minute: "2-digit",
+    ...(viewerSharesFacilityClock(d) ? {} : { timeZoneName: "short" }),
   });
 }
 
 /**
- * "Today" / "Yesterday" / a short locale date, for grouping the activity
- * timeline. "Unknown" for falsy or non-ISO input (see `isoToDate`).
+ * "Today" / "Yesterday" / a short facility-clock date, for grouping the
+ * activity timeline. "Unknown" for falsy or non-ISO input (see `isoToDate`).
  * @param {string} [iso]
  * @returns {string}
  */
 export function formatDate(iso) {
   const d = isoToDate(iso);
   if (!d) return "Unknown";
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) return "Today";
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const day = facilityDayKey(d);
+  const today = facilityDayKey(new Date());
+  if (day === today) return "Today";
+  // The civil day before, by calendar arithmetic: counting back 24 hours
+  // lands two days back on the morning after a 23-hour spring-forward day.
+  const [y, m, dd] = today.split("-").map(Number);
+  const yesterday = new Date(Date.UTC(y, m - 1, dd - 1)).toISOString().slice(0, 10);
+  if (day === yesterday) return "Yesterday";
+  return formatFacilityTime(d, { month: "short", day: "numeric" });
 }
 
 /**
