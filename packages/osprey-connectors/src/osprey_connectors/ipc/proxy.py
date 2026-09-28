@@ -5,10 +5,11 @@ client library lives. :class:`ConnectorHostProxy` is what makes that true: it
 offers the connector call surface tools actually use, and serves each call by
 writing a request frame down a pipe and awaiting the matching reply from the
 child that owns the real connector. The parent process therefore never imports
-``epics``/``p4p`` — which is the entire reason the child exists, since those
-libraries cannot be unloaded once loaded and pin the parent to one gateway for
-its lifetime. That property is pinned by a test which imports this module in a
-fresh interpreter and asserts none of them appeared in ``sys.modules``.
+``pvaccess`` (pvapy) — which is the entire reason the child exists, since
+the client reads its EPICS environment once, when its first channel is made,
+and pins the parent to one gateway for its lifetime. That property is pinned
+by a test which imports this module in a fresh interpreter and asserts no
+control-system client appeared in ``sys.modules``.
 
 Why this is not a ``ControlSystemConnector`` subclass
 ----------------------------------------------------

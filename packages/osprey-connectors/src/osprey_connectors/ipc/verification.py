@@ -76,7 +76,7 @@ MODE_ADDR_LIST = "addr_list"
 #: none. The virtual accelerator never reaches the CA default: its unset ports
 #: are filled from ``services.virtual_accelerator.port`` first. The PVA default
 #: applies to name servers only (TCP); an address-list entry that names no port
-#: is passed to p4p without one, so its row carries ``None``.
+#: is passed to pvapy without one, so its row carries ``None``.
 DEFAULT_CA_PORT = 5064
 DEFAULT_PVA_PORT = 5075
 
@@ -289,8 +289,8 @@ def derive_endpoints(
             endpoints[role] = row
 
     # PVA is derived only under the same conjunction connect() requires: routing
-    # globs AND a gateway. Globs without a gateway import p4p but touch no PVA
-    # environment variable, so there is no endpoint to report.
+    # globs AND a gateway. Globs without a gateway touch no PVA environment
+    # variable, so there is no endpoint to report.
     if _pva_globs(block):
         pva_gateway = block.get("pva_gateway")
         # connect() appends no port to an address list unless one is set; the

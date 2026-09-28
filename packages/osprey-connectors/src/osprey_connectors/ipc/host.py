@@ -25,7 +25,7 @@ up in ``ps``.
 regardless of what a control-system library decides to print, the child
 duplicates its stdout to a private file descriptor at startup and then points
 file descriptor 1 at stderr. A stray ``print()`` — from this module, from
-pyepics, from anything imported below — lands on stderr and cannot desynchronise
+pvapy, from anything imported below — lands on stderr and cannot desynchronise
 the stream. Frames are written to the private descriptor with :func:`os.write`.
 
 The init frame
@@ -255,7 +255,7 @@ def _claim_frame_channel() -> int:
     Returns:
         A private duplicate of the original stdout, which is from here on the
         only way to reach the parent's read pipe. File descriptor 1 becomes a
-        duplicate of stderr, so anything that prints — this module, pyepics,
+        duplicate of stderr, so anything that prints — this module, pvapy,
         rich, a library's import-time banner — is diagnostics rather than
         stream corruption.
     """

@@ -1,19 +1,30 @@
 """
-EPICS control system connector using pyepics.
+EPICS control system connector using pvapy.
 
-Provides interface to EPICS Channel Access (CA) control system.
-Refactored from existing EPICS integration code.
+Provides interface to both EPICS transports — Channel Access (CA) and PVAccess
+(PVA) — through ONE client library: pvapy (``import pvaccess``). Every channel
+is a ``pvaccess.Channel(address, provider)`` whose provider is ``pvaccess.CA``
+or ``pvaccess.PVA``; which one an address gets is decided by the configured
+``pva_channels`` globs, exactly as before.
 
+One client for both transports is what lets one mapping serve both: pvapy
+answers a Channel Access get with the same normative-type shape a PVAccess
+server sends (``value``, ``alarm``, ``timeStamp``, ``display``; an enum as
+``value: {index, choices}``), so a reading means the same thing whichever
+protocol served it.
 """
 
 import asyncio
-import atexit
+import concurrent.futures
 import fnmatch
 import os
+import queue
+import re
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system.base import (
@@ -34,62 +45,205 @@ from osprey_connectors.types import writes_enabled_key
 
 logger = get_logger("epics_connector")
 
+_T = TypeVar("_T")
 
-def _configure_pyepics_libca() -> None:
-    """Point pyepics at epicscorelibs' per-architecture libca before it loads CA.
 
-    pyepics's bundled ``clibs`` are x86_64-only: its ``find_libca()`` selects
-    ``clibs/linux64`` for any 64-bit OS, so on an arm64 host it loads a
-    mismatched-architecture ``libca.so`` and Channel Access initialization
-    fails outright. ``epicscorelibs`` (already present via the CA stack) ships a
-    correct per-architecture libca; exporting ``PYEPICS_LIBCA`` to it makes the
-    connector's CA work in arm64 and amd64 containers alike.
+# ----------------------------------------------------------------------
+# pvRequests
+# ----------------------------------------------------------------------
 
-    Only sets the variable when it is unset, so an operator's explicit
-    ``PYEPICS_LIBCA`` override always wins. A no-op that leaves pyepics' own
-    resolution in place when ``epicscorelibs`` is not installed.
+# A Channel Access read. pvapy's CA provider cannot return ``timeStamp``
+# together with ``display``/``control``: asking for all of them silently drops
+# the timestamp (and so does a bare ``field()`` on an ao). The value, its alarm
+# and its timestamp are therefore one request — an enum's choices come with
+# ``value`` — and the display metadata is a second, cached one
+# (:data:`_CA_DISPLAY_REQUEST`).
+_CA_READ_REQUEST = "field(value,alarm,timeStamp)"
+
+# The display metadata (units, format, description, display limits) of a CA
+# channel. Static per record in practice, so it is fetched once per channel and
+# cached; see :meth:`EPICSConnector._ca_display`.
+_CA_DISPLAY_REQUEST = "field(display)"
+
+# A PVAccess read: the server's whole structure, which for a normative type
+# carries value, alarm, timeStamp and display together.
+_PVA_READ_REQUEST = "field()"
+
+# pvRequest used whenever only a PVA channel's metadata is wanted. Asking for
+# the whole structure would pull the payload too — on an NTNDArray that is a
+# full camera frame per call, and a frame in a codec the connector cannot
+# decode would make a metadata lookup fail on a channel that is perfectly
+# reachable.
+_PVA_METADATA_REQUEST = "field(alarm,timeStamp,display)"
+
+# The just-the-value read the ``max_step`` check makes before a write.
+_VALUE_REQUEST = "field(value)"
+
+# A put that returns only once the IOC's put-callback has fired — Channel
+# Access's acknowledgement that the record processed the put. pvapy's plain
+# ``put`` does not wait for it, and ``record[block=true]`` without a
+# ``field()`` clause is rejected, hence the whole string. Note that
+# ``Channel.setTimeout`` does NOT bound this put (a put-callback that takes
+# 1.5 s completes under a 0.5 s channel timeout), so the connector enforces
+# its own deadline around it; see :meth:`EPICSConnector._put`.
+_CONFIRMING_PUT_REQUEST = "record[block=true]field(value)"
+
+# What a monitor asks for, per transport, for the same reason as the reads.
+_CA_MONITOR_REQUEST = _CA_READ_REQUEST
+_PVA_MONITOR_REQUEST = _PVA_READ_REQUEST
+
+
+# ----------------------------------------------------------------------
+# pvapy error classification
+# ----------------------------------------------------------------------
+
+# pvapy raises ONE exception type, ``pvaccess.PvaException``, for everything —
+# an unreachable channel, an access-security denial, a malformed value — so the
+# only thing that tells them apart is the message text. These are the two
+# texts the connector acts on, pinned against a real IOC by
+# tests/connectors/test_epics_soft_ioc.py so a pvapy upgrade that rewords them
+# fails there rather than silently changing what an outcome means:
+#
+#   "Channel SPK:NOPE timed out."                           (connect or get)
+#   "channel SPK:SP PvaClientPut::put Write access denied"  (access security)
+_TIMED_OUT_PATTERN = re.compile(r"^Channel \S+ timed out\.$")
+_ACCESS_DENIED_TEXT = "Write access denied"
+
+#: :func:`_classify_client_error` verdicts.
+_UNREACHABLE = "unreachable"
+_ACCESS_DENIED = "access_denied"
+
+
+def _classify_client_error(exc: BaseException, error_type: Any) -> str | None:
+    """Name what a pvapy failure means, or ``None`` when it is not recognized.
+
+    ``error_type`` is ``pvaccess.PvaException``, passed in by the connector
+    that imported pvapy (this module never imports it at module scope). A
+    failure of any other type — a Boost ``ArgumentError`` for a value pvapy
+    cannot convert, say — is never classified, whatever its text.
+
+    Returns:
+        :data:`_UNREACHABLE` for a channel that did not connect or answer in
+        time, :data:`_ACCESS_DENIED` for a put the control system's access
+        security refused, and ``None`` for everything else. ``None`` is the
+        safe answer: the caller re-raises, so an unrecognized failure stays an
+        error whose outcome is unknown — it is never reported as a refusal,
+        which would claim that nothing was written.
     """
-    if os.environ.get("PYEPICS_LIBCA"):
-        return
-    try:
-        from epicscorelibs.path import get_lib
+    if not isinstance(error_type, type) or not isinstance(exc, error_type):
+        return None
+    message = str(exc).strip()
+    if _TIMED_OUT_PATTERN.match(message):
+        return _UNREACHABLE
+    if _ACCESS_DENIED_TEXT in message:
+        return _ACCESS_DENIED
+    return None
 
-        os.environ["PYEPICS_LIBCA"] = get_lib("ca")
-        logger.debug("Configured PYEPICS_LIBCA from epicscorelibs: %s", os.environ["PYEPICS_LIBCA"])
-    except Exception:  # epicscorelibs absent/failed -> pyepics falls back to its own resolution
-        logger.debug("epicscorelibs libca unavailable; using pyepics default libca resolution")
+
+# ----------------------------------------------------------------------
+# Mapping helpers (shared by both transports)
+# ----------------------------------------------------------------------
+
+# Normative-type kinds the read path maps specially, recorded as
+# ``raw_metadata["nt_type"]``. pvapy exposes no normative-type id without
+# rendering the whole value to text (a full camera frame, for an NTNDArray), so
+# the kind is recognized from the structure's shape instead: see
+# :func:`_nt_kind`.
+_NT_ENUM = "NTEnum"
+_NT_NDARRAY = "NTNDArray"
 
 
-def _alarm_name(code: Any) -> str:
-    """Map a Channel Access alarm status code onto its EPICS name.
+def _nt_kind(structure: Any) -> str | None:
+    """Recognize an NTEnum or an NTNDArray from its introspection dict.
 
-    Channel Access reports the alarm status as a small integer; the rest of
-    OSPREY (and ``ChannelMetadata.alarm_status``) speaks names, which is what
-    PVAccess already emits. This is the one place codes become names, so the
-    shared connector core stays free of EPICS constants.
+    ``structure`` is ``PvObject.getStructureDict()`` — field types only, never
+    data, so this costs nothing on a camera channel. pvapy spells a union as a
+    tuple and a sub-structure as a dict, which is enough to tell the two
+    normative types that need special mapping apart from everything else:
 
-    Anything the enum cannot map — an out-of-range code, ``None`` from a PV
-    that has not reported yet — becomes ``"UNKNOWN"``. pyepics' enum already
-    does that itself (verified on 3.5.9), but the guard keeps the read path
-    from failing on a pyepics build that decides otherwise, or one where the
-    import is unavailable.
+    * NTNDArray — ``value`` is a union and ``codec`` and ``dimension`` are
+      present (the fields the NTNDArray mapping reads).
+    * NTEnum — ``value`` is a structure carrying ``index`` and ``choices``.
+      Channel Access enums (mbbo/bo) arrive in exactly this shape too.
+
+    Anything else is mapped as a scalar or scalar array: ``None``.
     """
-    try:
-        from epics.dbr import AlarmStatus
+    if not isinstance(structure, dict):
+        return None
+    value = structure.get("value")
+    if isinstance(value, tuple) and "codec" in structure and "dimension" in structure:
+        return _NT_NDARRAY
+    if isinstance(value, dict) and "index" in value and "choices" in value:
+        return _NT_ENUM
+    return None
 
-        return str(AlarmStatus(code).name)
-    except Exception:  # unmappable code, or pyepics unavailable
-        return "UNKNOWN"
 
+def _top_fields(obj: Any) -> dict[str, Any]:
+    """The top-level fields of a pvapy ``PvObject`` as a plain dict.
 
-def _is_enum_type(pv_type: Any) -> bool:
-    """True when a Channel Access field type names an enumeration.
-
-    pyepics spells the type of an ``mbbi``/``bi``/``bo`` as ``"enum"`` or, in
-    the connector's default ``time`` form, ``"time_enum"`` — hence the substring
-    test rather than an equality check against one spelling.
+    Each field is converted once, by pvapy's own ``obj[name]``: a sub-structure
+    becomes a dict, a union a ``(value_dict, type_dict)`` tuple, an array a
+    numpy array. Everything downstream works on plain Python values, so an
+    optional field that a server does not send is simply a missing key. Going
+    field by field rather than through ``toDict()`` keeps one field pvapy
+    cannot convert from costing the reading all the others.
     """
-    return "enum" in str(pv_type)
+    fields: dict[str, Any] = {}
+    for name in obj.keys():
+        try:
+            fields[name] = obj[name]
+        except Exception as exc:  # one unconvertible field must not lose the read
+            logger.debug(f"Could not convert field '{name}': {exc}")
+    return fields
+
+
+def _sub(container: Any, name: str) -> dict[str, Any]:
+    """A sub-structure as a dict, or ``{}`` when absent or not a structure."""
+    if not isinstance(container, dict):
+        return {}
+    found = container.get(name)
+    return found if isinstance(found, dict) else {}
+
+
+def _union_value(union: Any) -> Any:
+    """The selected member of a pvapy union, or ``None`` when nothing is selected.
+
+    pvapy hands a union over as ``(value_dict, type_dict)``, where
+    ``value_dict`` holds only the selected member (``{'ushortValue': array}``)
+    — or nothing, for an empty union.
+    """
+    if isinstance(union, tuple) and union and isinstance(union[0], dict):
+        return next(iter(union[0].values()), None)
+    return None
+
+
+_FORMAT_PRECISION = re.compile(r"\.(\d+)")
+
+
+def _precision(display: dict[str, Any]) -> int | None:
+    """Display precision, from a ``precision`` field or a ``format`` string.
+
+    A PVA server may carry precision as a number, but pvapy's Channel Access
+    provider (and pvapy's own NT servers) carry it only inside ``format``, as
+    a FORTRAN-style edit descriptor: ``"F9.3"`` is 3 decimals, ``"F8.2"`` is 2,
+    and ``"I12"`` — an integer format with no fractional part — reports none.
+    """
+    number = display.get("precision")
+    if isinstance(number, int) and not isinstance(number, bool):
+        return number
+    fmt = display.get("format")
+    if isinstance(fmt, str):
+        match = _FORMAT_PRECISION.search(fmt)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _finite_float(value: Any) -> float | None:
+    """``float(value)`` for a real number, else ``None``."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    return None
 
 
 def _enum_label_fields(labels: Any, index: Any) -> tuple[list[str] | None, str | None]:
@@ -117,22 +271,6 @@ def _enum_label_fields(labels: Any, index: Any) -> tuple[list[str] | None, str |
     if isinstance(index, int) and 0 <= index < len(normalized):
         label = normalized[index]
     return normalized, label
-
-
-def _ca_enum_labels(pv: Any, index: Any) -> tuple[list[str] | None, str | None]:
-    """The state labels of an enum-typed PV, and the one this reading is in.
-
-    ``pv.enum_strs`` triggers pyepics' lazy ``get_ctrlvars`` fetch, which is a
-    round trip to the IOC and so can time out or fail on a PV that answered its
-    value perfectly well. That is caught here: labels are an enrichment, never a
-    precondition of the read.
-    """
-    try:
-        labels = pv.enum_strs
-    except Exception as exc:  # ctrlvars fetch failed — the value still stands
-        logger.debug("Could not fetch enum labels for '%s': %s", getattr(pv, "pvname", pv), exc)
-        return None, None
-    return _enum_label_fields(labels, index)
 
 
 def _severity_int(severity: Any) -> int | None:
@@ -168,81 +306,313 @@ def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
     return (str(status) if status is not None else None, severity)
 
 
-# Normative-type identifiers the PVA read path maps specially. Compared with a
-# prefix match so a minor revision ("epics:nt/NTEnum:1.1") keeps its mapping
-# instead of silently degrading to the generic scalar path.
-_NT_ENUM_ID = "epics:nt/NTEnum:"
-_NT_NDARRAY_ID = "epics:nt/NTNDArray:"
+def _timestamp(fields: dict[str, Any]) -> datetime:
+    """Channel timestamp from the NT ``timeStamp`` field, else now().
 
-# pvRequest used whenever only a channel's metadata is wanted. Asking for the
-# whole structure would pull the payload too — on an NTNDArray that is a full
-# camera frame per call, and a frame in a codec the connector cannot decode
-# would make a metadata lookup fail on a channel that is perfectly reachable.
-_PVA_METADATA_REQUEST = "field(alarm,timeStamp,display)"
-
-
-def _pva_type_id(value: Any) -> str:
-    """Return the normative-type id of a p4p Value, or "" when it has none."""
-    get_id = getattr(value, "getID", None)
-    if not callable(get_id):
-        return ""
-    try:
-        return str(get_id())
-    except Exception:
-        return ""
-
-
-def _pva_field(container: Any, name: str, default: Any = None) -> Any:
-    """Read one field from a p4p Value (or nested sub-Value), tolerating absence.
-
-    Optional NT fields (``display``, ``precision``, ``attribute``) are present on
-    some servers and missing on others, so every access on the read path goes
-    through here rather than assuming a full structure.
+    Both providers report POSIX-epoch seconds (pvapy converts Channel Access's
+    1990 EPICS epoch). A record that has never processed reports 0, which is
+    "no timestamp", not 1970.
     """
-    if container is None:
-        return default
-    getter = getattr(container, "get", None)
-    if callable(getter):
-        try:
-            found = getter(name, None)
-        except Exception:
-            found = None
-        return default if found is None else found
-    try:
-        found = container[name]
-    except Exception:
-        return default
-    return default if found is None else found
+    stamp = _sub(fields, "timeStamp")
+    seconds = stamp.get("secondsPastEpoch") or 0
+    nanoseconds = stamp.get("nanoseconds") or 0
+    if isinstance(seconds, int | float) and seconds:
+        nanos = nanoseconds if isinstance(nanoseconds, int | float) else 0
+        return datetime.fromtimestamp(seconds + nanos * 1e-9, get_facility_timezone())
+    return datetime.now(get_facility_timezone())
 
 
-def _pva_color_mode(value: Any) -> Any:
-    """Extract the areaDetector ColorMode NTAttribute, or None when absent."""
-    for entry in _pva_field(value, "attribute", []) or []:
-        if _pva_field(entry, "name", "") == "ColorMode":
-            return _pva_field(entry, "value")
+def _alarm_metadata(fields: dict[str, Any], provider: str) -> dict[str, Any]:
+    """Alarm fields, recorded raw so nothing about the alarm state is lost.
+
+    ``alarm.message`` is the alarm status by NAME: pvapy's Channel Access
+    provider spells the CA status there (``'UDF'``, ``'HIHI'``), so no CA
+    status-code table is needed. ``alarm.status`` is kept alongside it, but on
+    CA it is the normative-type status (DEVICE, UNDEFINED, ...), not the CA
+    code.
+
+    One gap is filled: for a healthy CA record the provider sends an EMPTY
+    message rather than ``'NO_ALARM'``. A CA reading with severity 0 and no
+    message is therefore named ``'NO_ALARM'`` — the name the connector has
+    always reported for it. PVA keeps an empty message as "not reported":
+    a PVA server's message is free text, not a status name.
+    """
+    if "alarm" not in fields:
+        return {}
+    alarm = _sub(fields, "alarm")
+    message = str(alarm.get("message") or "")
+    if not message and provider == "ca" and alarm.get("severity") == 0:
+        message = "NO_ALARM"
+    return {
+        "severity": alarm.get("severity"),
+        "status": alarm.get("status"),
+        "alarm_message": message,
+    }
+
+
+def _metadata(
+    fields: dict[str, Any], timestamp: datetime, raw_metadata: dict[str, Any]
+) -> ChannelMetadata:
+    """Map the NT ``display`` and ``alarm`` fields onto :class:`ChannelMetadata`.
+
+    Reads nothing but metadata fields, so it maps a full read and a
+    metadata-only get (:data:`_PVA_METADATA_REQUEST`) identically — the
+    payload branches contribute only what they put in ``raw_metadata``.
+    """
+    display = _sub(fields, "display")
+    description = display.get("description") or None
+    return ChannelMetadata(
+        units=str(display.get("units") or ""),
+        precision=_precision(display),
+        alarm_status=raw_metadata.get("alarm_message") or None,
+        alarm_severity=_severity_int(raw_metadata.get("severity")),
+        timestamp=timestamp,
+        description=str(description) if description else None,
+        display_low=_finite_float(display.get("limitLow")),
+        display_high=_finite_float(display.get("limitHigh")),
+        raw_metadata=raw_metadata,
+    )
+
+
+def _scalar_value(fields: dict[str, Any]) -> dict[str, Any]:
+    """Scalar / scalar array / unrecognized structure: the value field as-is."""
+    scalar = fields.get("value")
+    dtype = getattr(scalar, "dtype", None)
+    return {
+        "value": scalar,
+        "raw_metadata": {"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
+    }
+
+
+def _enum_value(fields: dict[str, Any]) -> dict[str, Any]:
+    """An enum (NTEnum, or a CA mbbo/bo): the INDEX is the value.
+
+    Both halves of a state reading reach the operator, and each in the place
+    it belongs: ``value`` is the index, so a reading has one machine-readable
+    type whichever protocol served it, and the choice string arrives as
+    ``ChannelMetadata.enum_label`` — surfaced in the tool envelope, so nobody
+    has to know that "2" means ACQUIRING.
+
+    The index and the choices list stay in ``raw_metadata`` as well: they
+    predate the typed fields and are what a PVA-specific consumer already
+    reads.
+    """
+    enum_field = _sub(fields, "value")
+    index = enum_field.get("index")
+    choices = list(enum_field.get("choices") or [])
+    labels, label = _enum_label_fields(choices, index)
+    return {
+        "value": index,
+        "enum_labels": labels,
+        "enum_label": label,
+        "raw_metadata": {"dtype": "enum", "enum_index": index, "enum_choices": choices},
+    }
+
+
+def _color_mode(fields: dict[str, Any]) -> Any:
+    """The areaDetector ColorMode NTAttribute, or None when absent.
+
+    An attribute's ``value`` is a variant union, which pvapy spells
+    ``({'value': 0}, {...})``.
+    """
+    for entry in fields.get("attribute") or []:
+        if isinstance(entry, dict) and entry.get("name") == "ColorMode":
+            return _union_value(entry.get("value"))
     return None
 
 
-class _ChannelSubscription:
-    """One active subscription plus the teardown its transport needs.
+def _ndarray_value(channel_address: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """NTNDArray: the carried array, reshaped per its dimension list.
 
-    Both transports store one of these in ``EPICSConnector._subscriptions``:
-    Channel Access keeps the pyepics ``PV`` (released with
-    ``clear_callbacks()``), PVAccess keeps the p4p ``Subscription`` (released
-    with ``close()`` — it has no ``clear_callbacks`` at all). Dispatching here
-    is what lets ``unsubscribe`` and ``disconnect`` walk subscription ids
-    without knowing which protocol opened them.
+    The array is taken from the selected union member exactly as pvapy decoded
+    it — never re-cast — so an unsigned frame stays unsigned instead of
+    reading as negative pixels.
+    """
+    codec_name = str(_sub(fields, "codec").get("name") or "")
+    dimensions = [dim.get("size") for dim in fields.get("dimension") or [] if isinstance(dim, dict)]
+
+    if codec_name:
+        # Never reshape a compressed payload: the union carries the compressed
+        # byte blob, and reshaping it would produce a plausible image full of
+        # meaningless pixel statistics.
+        raise ValueError(
+            f"Cannot read '{channel_address}': compressed NTNDArray unsupported; "
+            f"disable ADPva compression for this channel "
+            f"(codec={codec_name!r}, dimensions={dimensions})"
+        )
+
+    array = _union_value(fields.get("value"))
+    raw_metadata: dict[str, Any] = {
+        "dtype": str(getattr(array, "dtype", type(array).__name__)),
+        "dimensions": dimensions,
+        "color_mode": _color_mode(fields),
+        "codec": codec_name,
+        "unique_id": fields.get("uniqueId"),
+    }
+
+    # NT dimensions run innermost-first (width, height, ...); numpy shape is
+    # the reverse. This holds for the RGB color modes too, whose dimension
+    # list already carries the 3 in its own place.
+    shape = tuple(int(size) for size in reversed(dimensions) if isinstance(size, int))
+    if shape and hasattr(array, "reshape"):
+        try:
+            array = array.reshape(shape)
+        except ValueError as exc:
+            raise ValueError(
+                f"Cannot read '{channel_address}': NTNDArray dimensions {dimensions} "
+                f"do not describe its {getattr(array, 'size', '?')}-element payload ({exc})"
+            ) from None
+
+    raw_metadata["shape"] = list(getattr(array, "shape", ()))
+    return {"value": array, "raw_metadata": raw_metadata}
+
+
+def _channel_value(
+    channel_address: str,
+    obj: Any,
+    provider: str,
+    display: dict[str, Any] | None = None,
+) -> ChannelValue:
+    """Map one pvapy ``PvObject`` onto :class:`ChannelValue`, for either transport.
+
+    Args:
+        channel_address: The channel the object was read from (for messages).
+        obj: What ``Channel.get`` or a monitor update delivered.
+        provider: ``"ca"`` or ``"pva"``, recorded in ``raw_metadata``.
+        display: Display metadata fetched separately — the Channel Access
+            path, whose read cannot carry ``display`` alongside ``timeStamp``.
+            Used only when the object itself carries no ``display``.
+    """
+    try:
+        structure = obj.getStructureDict()
+    except Exception:  # introspection is an optimization, never a precondition
+        structure = None
+    kind = _nt_kind(structure)
+    fields = _top_fields(obj)
+    if display and "display" not in fields:
+        fields["display"] = display
+
+    timestamp = _timestamp(fields)
+    raw_metadata: dict[str, Any] = {"provider": provider, "nt_type": kind}
+    raw_metadata.update(_alarm_metadata(fields, provider))
+
+    if kind == _NT_NDARRAY:
+        payload = _ndarray_value(channel_address, fields)
+    elif kind == _NT_ENUM:
+        payload = _enum_value(fields)
+    else:
+        payload = _scalar_value(fields)
+
+    raw_metadata.update(payload.pop("raw_metadata", {}))
+    metadata = _metadata(fields, timestamp, raw_metadata)
+    # Only the enum branch contributes these; every other payload leaves the
+    # fields at their None default, which is what marks a channel as not
+    # enum-typed.
+    metadata.enum_labels = payload.get("enum_labels")
+    metadata.enum_label = payload.get("enum_label")
+    return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
+
+
+def _put_value(value: Any) -> Any:
+    """Reduce a value to a type pvapy's ``Channel.put`` overloads accept.
+
+    ``put`` is a set of C++ overloads over Python scalars, ``str`` and
+    ``list``; a numpy array or a tuple matches none of them and raises a Boost
+    argument error. numpy scalars and arrays both answer ``tolist()`` with the
+    plain Python equivalent; a tuple becomes a list.
+    """
+    if isinstance(value, tuple):
+        return list(value)
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist) and not isinstance(value, (str, bytes)):
+        return tolist()
+    return value
+
+
+class _EpicsWorkers:
+    """Daemon worker threads for every blocking pvapy call — threads that never exit.
+
+    Why not ``asyncio.to_thread``: EPICS libCom registers per-thread state for
+    any foreign (non-EPICS) thread that calls into it, and on macOS its
+    thread-exit destructor fails (``pthread_attr_destroy ERROR Invalid
+    argument``) and then *suspends the exiting thread forever*
+    (``cantProceed``). Anything that joins such a thread hangs — a
+    ``ThreadPoolExecutor`` shutdown, and so ``asyncio.run``'s
+    ``shutdown_default_executor``, which is how a connector-host child or a
+    sandbox script ends. Measured against pvapy 5.6.0 with a bare
+    ``threading.Thread`` doing one CA get.
+
+    This is a macOS defect. The same probe was verified clean on glibc
+    Linux (amd64 and aarch64: the thread joins, the process exits 0), which is
+    where production runs. The workers stay anyway, and must not be
+    "optimized" back to ``asyncio.to_thread``: developers and a CI lane run
+    on macOS, and on Linux they cost nothing. tests/connectors/
+    test_epics_soft_ioc.py fails if a scenario's process does not exit
+    promptly after disconnect().
+
+    So pvapy is only ever called from these threads: daemons (the interpreter
+    never joins them at exit) that loop forever (so the broken destructor
+    never runs). One pool serves every connector in the process — threads
+    that never exit are worth sharing — and grows on demand up to
+    ``max_workers``, the same ceiling the default executor uses. A confirming
+    put abandoned at its deadline keeps its worker until the IOC answers.
+    """
+
+    def __init__(self, max_workers: int) -> None:
+        self._max_workers = max_workers
+        self._queue: queue.SimpleQueue[
+            tuple[concurrent.futures.Future[Any], Callable[..., Any], tuple[Any, ...]]
+        ] = queue.SimpleQueue()
+        self._idle = threading.Semaphore(0)
+        self._lock = threading.Lock()
+        self._threads = 0
+
+    def submit(self, fn: Callable[..., Any], *args: Any) -> "concurrent.futures.Future[Any]":
+        """Run ``fn(*args)`` on a worker; the returned future carries its outcome."""
+        future: concurrent.futures.Future[Any] = concurrent.futures.Future()
+        self._queue.put((future, fn, args))
+        if not self._idle.acquire(blocking=False):
+            with self._lock:
+                if self._threads < self._max_workers:
+                    self._threads += 1
+                    threading.Thread(
+                        target=self._work, name=f"epics-worker-{self._threads}", daemon=True
+                    ).start()
+        return future
+
+    def _work(self) -> None:
+        while True:
+            future, fn, args = self._queue.get()
+            if future.set_running_or_notify_cancel():
+                try:
+                    future.set_result(fn(*args))
+                except BaseException as exc:  # handed to the awaiting caller
+                    future.set_exception(exc)
+            del future, fn, args  # drop references while idle
+            self._idle.release()
+
+
+_workers = _EpicsWorkers(max_workers=min(32, (os.cpu_count() or 1) + 4))
+
+
+class _ChannelSubscription:
+    """One active monitor plus the teardown it needs.
+
+    Both transports are pvapy monitors now: a dedicated ``Channel`` (never the
+    connector's shared read channel, since a Channel runs one monitor) with
+    one named subscriber. ``close()`` stops the monitor — immediate in pvapy —
+    and removes the subscriber.
 
     ``close()`` is idempotent and best effort: closing twice is a no-op, and a
     handle that fails to release is logged rather than raised, so tearing down
     a whole connector cannot be derailed by one dead channel.
     """
 
-    __slots__ = ("_closed", "handle", "kind")
+    __slots__ = ("_closed", "channel", "name")
 
-    def __init__(self, kind: str, handle: Any) -> None:
-        self.kind = kind
-        self.handle = handle
+    def __init__(self, channel: Any, name: str) -> None:
+        self.channel = channel
+        self.name = name
         self._closed = False
 
     @property
@@ -251,26 +621,25 @@ class _ChannelSubscription:
         return self._closed
 
     def close(self) -> None:
-        """Release the underlying handle. Safe to call any number of times."""
+        """Release the monitor. Safe to call any number of times."""
         if self._closed:
             return
         self._closed = True
-        try:
-            if self.kind == "pva":
-                self.handle.close()
-            else:
-                self.handle.clear_callbacks()
-        except Exception as exc:  # teardown is best effort, never fatal
-            logger.debug(f"Subscription teardown failed for {self.kind} handle: {exc}")
+        for step in (self.channel.stopMonitor, lambda: self.channel.unsubscribe(self.name)):
+            try:
+                step()
+            except Exception as exc:  # teardown is best effort, never fatal
+                logger.debug(f"Subscription teardown step failed for '{self.name}': {exc}")
 
 
 class EPICSConnector(ControlSystemConnector):
     """
-    EPICS control system connector using pyepics.
+    EPICS control system connector using pvapy.
 
-    Provides read/write access to EPICS Process Variables through
-    Channel Access protocol. Supports gateway configuration for
-    remote access and read-only/write-access gateways.
+    Provides read/write access to EPICS Process Variables over Channel Access,
+    and read access over PVAccess for addresses matching ``pva_channels``.
+    Supports gateway configuration for remote access and
+    read-only/write-access gateways.
 
     Example:
         Direct gateway connection:
@@ -307,34 +676,40 @@ class EPICSConnector(ControlSystemConnector):
 
     def __init__(self):
         self._connected = False
+        self._timeout = 5.0
         # The `max_step` fresh-read budget, replaced from the connector's own
         # config block on connect. Set here so the reader is usable on a
         # connector that has not connected — the fallback is the same number
         # the block's default resolves to.
         self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_SECONDS
-        # Whether every Channel Access read goes to the wire; see connect().
-        self._fresh_reads = False
-        self._subscriptions: dict[str, Any] = {}
-        self._pv_cache: dict[str, Any] = {}
-        self._pv_cache_lock = threading.Lock()  # Thread safety for PV cache
+        self._subscriptions: dict[str, _ChannelSubscription] = {}
+        # pvapy Channels, one per (address, provider), reused by every read and
+        # put: a first connect costs ~0.1 s, and one Channel serves concurrent
+        # gets from many threads. Guarded by a lock so two threads reading a
+        # new address at once build one Channel, not two.
+        self._channels: dict[tuple[str, bool], Any] = {}
+        # Channel Access display metadata per address; see _ca_display().
+        self._ca_displays: dict[str, dict[str, Any]] = {}
+        self._channels_lock = threading.Lock()
         self._epics_configured = False
-        # PVA routing state. Empty globs => this connector is pure Channel
-        # Access: p4p is never imported and no PVA environment variable is set.
+        # The pvaccess module, imported by connect() (never at module scope:
+        # this file is held to import isolation).
+        self._pvaccess: Any = None
+        # PVA routing state. Empty globs => every address is Channel Access and
+        # no PVA environment variable is set.
         self._pva_channel_globs: list[str] = []
-        self._p4p: Any = None
-        self._pva_context: Any = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
-        Configure EPICS environment and test connection.
+        Configure EPICS environment and load the pvapy client.
+
+        Every read goes to the IOC: pvapy keeps no monitor cache, so there is
+        no stale cached value to bypass (the former ``fresh_reads`` option is
+        gone — every read is already fresh).
 
         Args:
             config: Configuration with keys:
                 - timeout: Default timeout in seconds (default: 5.0)
-                - fresh_reads: (optional) Read every Channel Access channel
-                  from the IOC (``use_monitor=False``) instead of pyepics'
-                  monitor cache. For IOCs that compute readbacks on get and
-                  post no monitor event. Default: False
                 - gateways: Gateway configuration dict with:
                     - read_only: {address, port, use_name_server} for read operations
                     - write_access: {address, port, use_name_server} for write operations
@@ -345,53 +720,44 @@ class EPICSConnector(ControlSystemConnector):
                     - use_name_server: (optional) Use EPICS_CA_NAME_SERVERS instead of
                       EPICS_CA_ADDR_LIST. Required for SSH tunnels. Default: False
                 - pva_channels: (optional) List of glob patterns. Channel addresses
-                  matching any pattern are served over PVAccess (p4p) instead of
-                  Channel Access. Absent or empty => pure Channel Access, exactly
-                  as before: p4p is not imported and no PVA env var is touched.
+                  matching any pattern are served over PVAccess instead of
+                  Channel Access. Absent or empty => pure Channel Access: no PVA
+                  env var is touched.
                 - pva_gateway: (optional) {address, port, use_name_server} naming
                   where PVA searches go. Only read when pva_channels is non-empty,
                   and the ONLY route: the connector host scrubs every inherited
                   EPICS_PVA_* variable before connect() runs, so a value set in
-                  the deployment's environment never reaches p4p.
+                  the deployment's environment never reaches pvapy.
                     - address: one host, or a space-separated list of hosts (what
                       a facility with many PVA servers and no gateway needs).
                     - port: (optional) With use_name_server false the entries go
                       to EPICS_PVA_ADDR_LIST as UDP search targets, and no port
-                      is appended unless one is set here (p4p's default, 5076,
+                      is appended unless one is set here (the PVA default, 5076,
                       applies). Set, it is appended to every listed host. With
                       use_name_server true the entry is a TCP name server in
                       EPICS_PVA_NAME_SERVERS, defaulting to 5075.
                     - use_name_server: (optional) TCP instead of UDP search.
                       Required for SSH tunnels. Default: False
 
+        The environment is read by pvapy when the FIRST channel of a provider
+        is created, and is fixed for the process from then on. connect()
+        creates no channel, so the variables it sets here are the ones that
+        count — provided nothing else in this process opened a channel first.
+        That is why a target switch is a new connector-host process, never a
+        second connect() in the same one.
+
         Raises:
-            ImportError: If pyepics is not installed, or if PVA channels are
-                configured and p4p is not installed
+            ImportError: If pvapy is not installed
         """
-        # Ensure pyepics loads a correct-architecture libca before first CA use.
-        _configure_pyepics_libca()
-
-        # Import epics here to give clear error if not installed
+        # Import pvapy here (never at module scope) to give a clear error if it
+        # is not installed, and to keep this module importable without it.
         try:
-            import epics
-
-            self._epics = epics
+            import pvaccess
         except ImportError:
             raise ImportError(
-                "pyepics is required for EPICS connector. Install with: pip install pyepics"
+                "pvapy is required for the EPICS connector. Install with: pip install pvapy"
             ) from None
-
-        # pyepics registers ``finalize_libca`` with ``atexit`` the first time
-        # libca loads. Once Channel Access has been used from a worker thread —
-        # which this connector always does, via ``asyncio.to_thread`` — that
-        # finalizer wedges or crashes the interpreter on the way out, and a
-        # process that cannot exit is worse than one that skips the hook: the
-        # OS reclaims the sockets, and nothing is lost. Switched off here,
-        # before the first CA call below loads libca and would register it; a
-        # process whose libca loaded earlier already carries the hook, so it
-        # is taken out as well.
-        epics.ca.AUTO_CLEANUP = False
-        atexit.unregister(epics.ca.finalize_libca)
+        self._pvaccess = pvaccess
 
         # Select the CA gateway. EPICS uses one process-wide context, so the
         # connector points at a single gateway. A read-only gateway rejects
@@ -440,7 +806,7 @@ class EPICSConnector(ControlSystemConnector):
             # Configure EPICS environment variables
             # Clear conflicting variables first — having both CA_ADDR_LIST and
             # CA_NAME_SERVERS set causes TCP connection attempts that block
-            # asyncio.to_thread() worker threads.
+            # the connector's worker threads.
             if use_name_server:
                 # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
                 os.environ["EPICS_CA_NAME_SERVERS"] = f"{address}:{port}"
@@ -456,9 +822,6 @@ class EPICSConnector(ControlSystemConnector):
 
             os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
 
-            # Clear EPICS cache to pick up new environment
-            self._epics.ca.clear_cache()
-
             logger.debug(f"Configured EPICS gateway: {address}:{port}")
             self._epics_configured = True
 
@@ -470,40 +833,16 @@ class EPICSConnector(ControlSystemConnector):
         # the write — raising it buys a slow channel more room, never a
         # weaker check.
         self._step_read_timeout = step_read_timeout_seconds(config, self._connector_type)
-        # An ordinary read answers from pyepics' monitor cache, which only moves
-        # when the IOC posts an event. An IOC that computes a readback on get
-        # posts none, so a cached read of it never changes. `fresh_reads` makes
-        # every Channel Access read ask the IOC instead, at one round trip each.
-        # A ${VAR:-false} placeholder resolves to a string, and bool("false") is
-        # True, so a string is read for what it spells.
-        fresh_reads = config.get("fresh_reads", False)
-        if isinstance(fresh_reads, str):
-            fresh_reads = fresh_reads.strip().lower() in ("true", "1", "yes", "on")
-        self._fresh_reads = bool(fresh_reads)
 
         # Configure PVAccess routing. Addresses matching one of these globs are
-        # served by the p4p client; every other address keeps using Channel
-        # Access. An absent or empty list is a hard no-op: no p4p import, no PVA
-        # environment variable, no client context.
+        # served by pvapy's PVA provider; every other address by its CA
+        # provider. An absent or empty list sets no PVA environment variable.
         pva_channels = config.get("pva_channels") or []
         if isinstance(pva_channels, str):
             pva_channels = [pva_channels]
         self._pva_channel_globs = [str(p).strip() for p in pva_channels if str(p).strip()]
 
         if self._pva_channel_globs:
-            # Import p4p here (never at module scope) to give a clear error if
-            # the PVA client is not installed, mirroring the pyepics guard above.
-            try:
-                import p4p
-                import p4p.client.thread  # loads the client API
-
-                self._p4p = p4p
-            except ImportError:
-                raise ImportError(
-                    "p4p is required for PVA channels (control_system.connector."
-                    "epics.pva_channels). Install with: pip install p4p"
-                ) from None
-
             pva_gateway = config.get("pva_gateway") or {}
             if pva_gateway:
                 pva_address = str(pva_gateway.get("address", ""))
@@ -539,10 +878,6 @@ class EPICSConnector(ControlSystemConnector):
                 os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
                 logger.debug(f"Configured PVA gateway: {pva_endpoint}")
 
-            # Create the PVA client context EAGERLY, here, rather than on first
-            # read: concurrent reads (read_multiple_channels gathers several
-            # asyncio.to_thread calls) would otherwise race to build it.
-            self._pva_context = self._p4p.client.thread.Context("pva")
             logger.debug(f"PVA routing enabled for {len(self._pva_channel_globs)} glob pattern(s)")
 
         # Initialize limits validator for automatic validation and confirm policy
@@ -572,46 +907,117 @@ class EPICSConnector(ControlSystemConnector):
         )
 
     async def disconnect(self) -> None:
-        """Cleanup EPICS connections on both transports.
+        """Stop every monitor and drop every cached channel.
 
-        Order matters: subscriptions first, then the PVA client context, then
-        Channel Access. A p4p ``Subscription`` belongs to the ``Context`` that
-        opened it, so the context outlives its monitors here rather than being
-        torn down underneath them.
-
-        Closing the context is not optional bookkeeping: it owns worker
-        threads, and a ``ConnectionError`` invalidates and rebuilds the
-        connector in production — a context left open on every invalidation
-        leaks those threads for the life of the process. The close is
-        idempotent (a connector that never built a context, or that is
-        disconnected twice, does nothing) and best effort, like the CA teardown
-        below.
+        Monitors go first: each runs on a Channel of its own, and stopping it is
+        immediate in pvapy. pvapy Channels have no close of their own — the
+        client releases a channel when the last reference to it goes — so
+        forgetting the cached ones is the teardown. A connector disconnected
+        twice does nothing the second time.
         """
-        # Unsubscribe from all active subscriptions
         for sub_id in list(self._subscriptions.keys()):
             await self.unsubscribe(sub_id)
 
-        # Close the PVA client context, once, after the monitors it owns
-        pva_context, self._pva_context = self._pva_context, None
-        if pva_context is not None:
-            try:
-                pva_context.close()
-            except Exception as exc:  # teardown is best effort, never fatal
-                logger.debug(f"PVA client context close failed: {exc}")
-            else:
-                logger.debug("PVA client context closed")
-
-        # Disconnect and clear cached PVs
-        with self._pv_cache_lock:
-            for pv in self._pv_cache.values():
-                try:
-                    pv.disconnect()
-                except Exception:
-                    pass  # Best effort cleanup
-            self._pv_cache.clear()
+        with self._channels_lock:
+            self._channels.clear()
+            self._ca_displays.clear()
 
         self._connected = False
         logger.info("EPICS connector disconnected")
+
+    # ------------------------------------------------------------------
+    # pvapy plumbing
+    # ------------------------------------------------------------------
+
+    def _require_client(self, channel_address: str) -> Any:
+        """The pvaccess module, or a ConnectionError on a connector never connected."""
+        if self._pvaccess is None:
+            raise ConnectionError(
+                f"Cannot reach channel '{channel_address}': the EPICS connector is not "
+                "connected (connect() loads the pvapy client)."
+            )
+        return self._pvaccess
+
+    @staticmethod
+    async def _offload(fn: Callable[..., _T], *args: Any) -> _T:
+        """Await ``fn(*args)`` run on a pvapy worker (see :class:`_EpicsWorkers`)."""
+        future: concurrent.futures.Future[_T] = _workers.submit(fn, *args)
+        return await asyncio.wrap_future(future)
+
+    def _channel(self, channel_address: str, pva: bool) -> Any:
+        """The cached pvapy Channel for this address and provider (thread-safe)."""
+        pvaccess = self._require_client(channel_address)
+        key = (channel_address, pva)
+        with self._channels_lock:
+            channel = self._channels.get(key)
+            if channel is None:
+                channel = pvaccess.Channel(channel_address, pvaccess.PVA if pva else pvaccess.CA)
+                self._channels[key] = channel
+        return channel
+
+    def _classify(self, exc: BaseException) -> str | None:
+        """:func:`_classify_client_error` against this connector's pvaccess module."""
+        error_type = getattr(self._pvaccess, "PvaException", None)
+        return _classify_client_error(exc, error_type)
+
+    def _get(self, channel_address: str, pva: bool, request: str, timeout: float) -> Any:
+        """Blocking pvapy get, returning the raw ``PvObject`` (runs on a pvapy worker).
+
+        ``Channel.setTimeout`` bounds connect and get together. The channel is
+        shared, so two concurrent calls with different timeouts race to set it
+        — the loser's get runs under the other's budget. That is accepted: every
+        caller passes the connector's configured timeouts, and the only
+        consequence is a get that gives up a little early or late.
+
+        A channel that did not connect or answer in time is re-raised as the
+        stdlib ``ConnectionError``, so the MCP error envelope and the
+        connector-invalidation logic treat an outage the same on both
+        transports. Every other failure propagates unchanged.
+        """
+        channel = self._channel(channel_address, pva)
+        try:
+            channel.setTimeout(float(timeout))
+            return channel.get(request)
+        except Exception as exc:
+            if self._classify(exc) == _UNREACHABLE:
+                protocol = "PVA" if pva else "CA"
+                raise ConnectionError(
+                    f"Failed to connect to {protocol} channel '{channel_address}' "
+                    f"(timeout after {timeout}s): {exc}"
+                ) from exc
+            raise
+
+    def _ca_display(self, channel_address: str, timeout: float) -> dict[str, Any]:
+        """The display metadata of a CA channel, fetched once and cached.
+
+        Channel Access cannot deliver ``display`` in the same get as
+        ``timeStamp`` (see :data:`_CA_READ_REQUEST`), so it takes a second
+        round trip — paid on the first read of a channel only, the way pyepics
+        used to cache a PV's control variables. Units, precision, description
+        and display limits are record configuration, not live state.
+
+        Never fatal: a failed fetch is logged and answers ``{}``, and is retried
+        on the next read. The read it enriches already has its value; losing
+        that value for want of its units would be the wrong trade. An enum
+        record answers with no ``display`` at all, which is cached as ``{}``.
+        """
+        with self._channels_lock:
+            cached = self._ca_displays.get(channel_address)
+        if cached is not None:
+            return cached
+        try:
+            result = self._get(channel_address, False, _CA_DISPLAY_REQUEST, timeout)
+            display = _sub(_top_fields(result), "display")
+        except Exception as exc:  # metadata is an enrichment, never a precondition
+            logger.debug(f"Could not fetch display metadata for '{channel_address}': {exc}")
+            return {}
+        with self._channels_lock:
+            self._ca_displays[channel_address] = display
+        return display
+
+    # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
 
     async def read_channel(
         self, channel_address: str, timeout: float | None = None
@@ -621,7 +1027,8 @@ class EPICSConnector(ControlSystemConnector):
 
         Addresses matching one of the configured ``pva_channels`` globs are read
         over PVAccess; every other address is read over Channel Access. Both
-        paths are blocking client calls, so both run in a worker thread.
+        are blocking pvapy calls, so both run in a worker thread, and both
+        always ask the IOC (pvapy has no monitor cache).
 
         Args:
             channel_address: EPICS channel address (e.g., 'BEAM:CURRENT')
@@ -632,330 +1039,59 @@ class EPICSConnector(ControlSystemConnector):
 
         Raises:
             ConnectionError: If channel cannot be connected
-            TimeoutError: If operation times out
             ValueError: If a PVA channel serves a compressed NTNDArray
         """
         timeout = timeout or self._timeout
 
-        # Use asyncio.to_thread for blocking EPICS operations
         if self._is_pva_channel(channel_address):
-            return await asyncio.to_thread(self._read_channel_pva, channel_address, timeout)
+            return await self._offload(self._read_channel_pva, channel_address, timeout)
+        return await self._offload(self._read_channel_ca, channel_address, timeout)
 
-        return await asyncio.to_thread(
-            self._read_channel_sync, channel_address, timeout, use_monitor=not self._fresh_reads
-        )
-
-    def _read_channel_sync(
-        self, pv_address: str, timeout: float, use_monitor: bool = True
-    ) -> ChannelValue:
-        """Synchronous PV read (runs in thread pool).
-
-        Uses PV cache to reuse PV objects for the same channel address.
-        This prevents subscription floods when reading the same channel rapidly,
-        which can crash soft IOCs like caproto due to race conditions.
-
-        ``use_monitor=False`` bypasses that cache for this one call and asks the
-        IOC for the value now — what a write confirmation needs, and what an
-        ordinary read deliberately does not pay for.
-        """
-        # Get or create cached PV object (thread-safe)
-        with self._pv_cache_lock:
-            if pv_address not in self._pv_cache:
-                self._pv_cache[pv_address] = self._epics.PV(pv_address)
-            pv = self._pv_cache[pv_address]
-
-        pv.wait_for_connection(timeout=timeout)
-
-        if not pv.connected:
-            raise ConnectionError(
-                f"Failed to connect to PV '{pv_address}' (timeout after {timeout}s)"
-            )
-
-        # Use pv.get() with explicit timeout instead of pv.value.
-        # pv.value uses a 1s default timeout for ca.get() which is too short
-        # when running in asyncio.to_thread() worker threads where the CA
-        # context needs extra time to receive the first value.
-        value = pv.get(timeout=timeout, use_monitor=use_monitor)
-
-        # Get timestamp from EPICS (seconds since epoch), rendered in facility tz
-        if pv.timestamp:
-            timestamp = datetime.fromtimestamp(pv.timestamp, get_facility_timezone())
-        else:
-            timestamp = datetime.now(get_facility_timezone())
-
-        # Extract metadata. The alarm status is reported by name; the raw CA
-        # code stays in raw_metadata next to the severity so nothing is lost.
-        alarm_code = getattr(pv, "status", None)
-        pv_type = getattr(pv, "type", None)
-        labels, label = _ca_enum_labels(pv, value) if _is_enum_type(pv_type) else (None, None)
-        metadata = ChannelMetadata(
-            units=getattr(pv, "units", "") or "",
-            precision=getattr(pv, "precision", None),
-            alarm_status=_alarm_name(alarm_code),
-            alarm_severity=_severity_int(getattr(pv, "severity", None)),
-            timestamp=timestamp,
-            enum_labels=labels,
-            enum_label=label,
-            raw_metadata={
-                "status": alarm_code,
-                "severity": getattr(pv, "severity", None),
-                "type": pv_type,
-                "count": getattr(pv, "count", None),
-            },
-        )
-
-        return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
-
-    # ------------------------------------------------------------------
-    # PVAccess read path
-    # ------------------------------------------------------------------
-
-    def _pva_connection_error_types(self) -> tuple[type[BaseException], ...]:
-        """p4p exceptions that mean "the channel is not reachable".
-
-        Looked up through ``self._p4p`` (never a module-scope import) and
-        filtered to real exception classes, so a p4p release that drops or
-        renames one of them degrades to "not caught here" instead of crashing
-        the read with a TypeError inside the except clause.
-        """
-        thread_module = getattr(getattr(self._p4p, "client", None), "thread", None)
-        found: list[type[BaseException]] = []
-        for name in ("Disconnected", "RemoteError", "Cancelled"):
-            candidate = getattr(thread_module, name, None)
-            if isinstance(candidate, type) and issubclass(candidate, BaseException):
-                found.append(candidate)
-        return tuple(found)
-
-    def _pva_get(self, channel_address: str, timeout: float, request: str | None = None) -> Any:
-        """Blocking p4p get, returning the raw p4p Value (runs in a thread pool).
-
-        Failures are re-raised as stdlib ``ConnectionError`` / ``TimeoutError``
-        so the MCP error envelope and the connector-invalidation logic treat a
-        PVA outage exactly like a CA one. p4p's own ``TimeoutError`` already IS
-        the builtin; ``Disconnected`` (a RuntimeError) is not, and would
-        otherwise escape as an unclassified error.
-
-        A default p4p Context unwraps normative types into augmented python
-        objects (ntfloat, ntenum, ntndarray) that keep the underlying Value on
-        ``.raw``. Returning that raw structure — rather than the augmented
-        object — is what lets the codec guard run before any reshape, and keeps
-        the mapping identical for an unwrap-disabled Context.
-
-        Args:
-            channel_address: PVA channel to read.
-            timeout: Timeout in seconds.
-            request: Optional pvRequest string (e.g. :data:`_PVA_METADATA_REQUEST`).
-                When omitted, the server's whole structure is fetched.
-        """
-        context = self._pva_context
-        if context is None:
-            raise ConnectionError(
-                f"Cannot read PVA channel '{channel_address}': no PVA client context. "
-                "connect() builds it from control_system.connector.epics.pva_channels."
-            )
-
-        try:
-            if request is None:
-                result = context.get(channel_address, timeout=timeout)
-            else:
-                result = context.get(channel_address, request=request, timeout=timeout)
-        except TimeoutError:
-            raise TimeoutError(
-                f"Failed to read PVA channel '{channel_address}' (timeout after {timeout}s)"
-            ) from None
-        except self._pva_connection_error_types() as exc:
-            raise ConnectionError(
-                f"Failed to connect to PVA channel '{channel_address}': {exc}"
-            ) from exc
-
-        return getattr(result, "raw", result)
+    def _read_channel_ca(self, channel_address: str, timeout: float) -> ChannelValue:
+        """Synchronous Channel Access read (runs on a pvapy worker)."""
+        result = self._get(channel_address, False, _CA_READ_REQUEST, timeout)
+        display = self._ca_display(channel_address, timeout)
+        return _channel_value(channel_address, result, "ca", display=display)
 
     def _read_channel_pva(self, channel_address: str, timeout: float) -> ChannelValue:
-        """Synchronous PVAccess read (runs in a thread pool, like the CA read)."""
-        value = self._pva_get(channel_address, timeout)
-        return self._pva_channel_value(channel_address, value)
-
-    def _pva_channel_value(self, channel_address: str, value: Any) -> ChannelValue:
-        """Map a p4p Value onto :class:`ChannelValue` by normative type."""
-        type_id = _pva_type_id(value)
-        timestamp = self._pva_timestamp(value)
-        raw_metadata: dict[str, Any] = {"nt_id": type_id}
-        raw_metadata.update(self._pva_alarm_metadata(value))
-
-        if type_id.startswith(_NT_NDARRAY_ID):
-            payload = self._pva_ndarray_value(channel_address, value)
-        elif type_id.startswith(_NT_ENUM_ID):
-            payload = self._pva_enum_value(value)
-        else:
-            payload = self._pva_scalar_value(value)
-
-        raw_metadata.update(payload.pop("raw_metadata", {}))
-
-        metadata = self._pva_metadata(value, timestamp, raw_metadata)
-        # Only the enum branch contributes these; every other payload leaves the
-        # fields at their None default, which is what marks a channel as not
-        # enum-typed.
-        metadata.enum_labels = payload.get("enum_labels")
-        metadata.enum_label = payload.get("enum_label")
-
-        return ChannelValue(value=payload["value"], timestamp=timestamp, metadata=metadata)
-
-    def _pva_metadata(
-        self, value: Any, timestamp: datetime, raw_metadata: dict[str, Any]
-    ) -> ChannelMetadata:
-        """Map the NT ``display`` and ``alarm`` fields onto :class:`ChannelMetadata`.
-
-        Reads nothing but metadata fields, so it maps a full read and a
-        metadata-only get (:data:`_PVA_METADATA_REQUEST`) identically — the
-        payload branches contribute only what they put in ``raw_metadata``.
-        """
-        display = _pva_field(value, "display")
-        units = _pva_field(display, "units", "") or ""
-        precision = _pva_field(display, "precision")
-        description = _pva_field(display, "description") or None
-        display_low = _pva_field(display, "limitLow")
-        display_high = _pva_field(display, "limitHigh")
-
-        return ChannelMetadata(
-            units=str(units),
-            precision=int(precision) if isinstance(precision, int | float) else None,
-            alarm_status=raw_metadata.get("alarm_message") or None,
-            alarm_severity=_severity_int(raw_metadata.get("severity")),
-            timestamp=timestamp,
-            description=str(description) if description else None,
-            display_low=float(display_low) if isinstance(display_low, int | float) else None,
-            display_high=float(display_high) if isinstance(display_high, int | float) else None,
-            raw_metadata=raw_metadata,
-        )
-
-    def _pva_timestamp(self, value: Any) -> datetime:
-        """Channel timestamp from the NT timeStamp field, else now()."""
-        stamp = _pva_field(value, "timeStamp")
-        seconds = _pva_field(stamp, "secondsPastEpoch", 0) or 0
-        nanoseconds = _pva_field(stamp, "nanoseconds", 0) or 0
-        if isinstance(seconds, int | float) and seconds:
-            nanos = nanoseconds if isinstance(nanoseconds, int | float) else 0
-            return datetime.fromtimestamp(seconds + nanos * 1e-9, get_facility_timezone())
-        return datetime.now(get_facility_timezone())
-
-    def _pva_alarm_metadata(self, value: Any) -> dict[str, Any]:
-        """Alarm fields, recorded raw so nothing about the alarm state is lost."""
-        alarm = _pva_field(value, "alarm")
-        if alarm is None:
-            return {}
-        message = _pva_field(alarm, "message", "") or ""
-        return {
-            "severity": _pva_field(alarm, "severity"),
-            "status": _pva_field(alarm, "status"),
-            "alarm_message": str(message),
-        }
-
-    def _pva_scalar_value(self, value: Any) -> dict[str, Any]:
-        """NTScalar / NTScalarArray / unrecognized structure: the value field as-is."""
-        scalar = _pva_field(value, "value")
-        dtype = getattr(scalar, "dtype", None)
-        return {
-            "value": scalar,
-            "raw_metadata": {"dtype": str(dtype) if dtype is not None else type(scalar).__name__},
-        }
-
-    def _pva_enum_value(self, value: Any) -> dict[str, Any]:
-        """NTEnum: the INDEX is the value; the choices become enum metadata.
-
-        Both halves of a state reading reach the operator, and each in the place
-        it belongs: ``value`` is the index, so a reading has one machine-readable
-        type whichever protocol served it, and the choice string arrives as
-        ``ChannelMetadata.enum_label`` — surfaced in the tool envelope, so
-        nobody has to know that "2" means ACQUIRING. Channel Access maps enums
-        the same way, which is what makes a channel's reading independent of
-        whether it was routed over CA or PVA.
-
-        The index and the choices list stay in ``raw_metadata`` as well: they
-        predate the typed fields and are what a PVA-specific consumer already
-        reads.
-        """
-        enum_field = _pva_field(value, "value")
-        index = _pva_field(enum_field, "index")
-        choices = list(_pva_field(enum_field, "choices", []) or [])
-        labels, label = _enum_label_fields(choices, index)
-
-        return {
-            "value": index,
-            "enum_labels": labels,
-            "enum_label": label,
-            "raw_metadata": {
-                "dtype": "enum",
-                "enum_index": index,
-                "enum_choices": choices,
-            },
-        }
-
-    def _pva_ndarray_value(self, channel_address: str, value: Any) -> dict[str, Any]:
-        """NTNDArray: the carried array, reshaped per its dimension list.
-
-        The array is taken from the selected union member exactly as p4p decoded
-        it — never re-cast — so an unsigned frame stays unsigned instead of
-        reading as negative pixels.
-        """
-        codec = _pva_field(value, "codec")
-        codec_name = str(_pva_field(codec, "name", "") or "")
-        dimensions = [_pva_field(dim, "size") for dim in _pva_field(value, "dimension", []) or []]
-
-        if codec_name:
-            # Never reshape a compressed payload: the union carries the
-            # compressed byte blob, and reshaping it would produce a plausible
-            # image full of meaningless pixel statistics.
-            raise ValueError(
-                f"Cannot read '{channel_address}': compressed NTNDArray unsupported; "
-                f"disable ADPva compression for this channel "
-                f"(codec={codec_name!r}, dimensions={dimensions})"
-            )
-
-        array = _pva_field(value, "value")
-        color_mode = _pva_color_mode(value)
-        raw_metadata: dict[str, Any] = {
-            "dtype": str(getattr(array, "dtype", type(array).__name__)),
-            "dimensions": dimensions,
-            "color_mode": color_mode,
-            "codec": codec_name,
-            "unique_id": _pva_field(value, "uniqueId"),
-        }
-
-        # NT dimensions run innermost-first (width, height, ...); numpy shape is
-        # the reverse. This holds for the RGB color modes too, whose dimension
-        # list already carries the 3 in its own place.
-        shape = tuple(int(size) for size in reversed(dimensions) if isinstance(size, int))
-        if shape and hasattr(array, "reshape"):
-            try:
-                array = array.reshape(shape)
-            except ValueError as exc:
-                raise ValueError(
-                    f"Cannot read '{channel_address}': NTNDArray dimensions {dimensions} "
-                    f"do not describe its {getattr(array, 'size', '?')}-element payload ({exc})"
-                ) from None
-
-        raw_metadata["shape"] = list(getattr(array, "shape", ()))
-        return {"value": array, "raw_metadata": raw_metadata}
+        """Synchronous PVAccess read (runs on a pvapy worker, like the CA read)."""
+        result = self._get(channel_address, True, _PVA_READ_REQUEST, timeout)
+        return _channel_value(channel_address, result, "pva")
 
     def _current_value_reader(self) -> Callable[[str], Any] | None:
         """The channel's present value, read with the client this connector connected with.
 
-        Never ``import epics`` here: the module this connector actually holds
-        is the one the deployment configured (gateway routing included), and
-        this file is held to import isolation besides.
+        Never import a client library here: the one this connector holds is
+        configured for the deployment's gateway, and this file is held to
+        import isolation besides.
 
-        A PVA-routed address answers ``None``, which fails the step check
-        closed. ``write_channel`` refuses those before validation ever runs,
-        so this is the belt to that braces: the CA client must not be pointed
-        at an address routed over PVAccess.
+        Any failure answers ``None``, which the limits validator treats as
+        "cannot verify the step" and refuses the write. An enum answers its
+        index, the number a step is measured in.
+
+        A PVA-routed address answers ``None`` as well, which fails the step
+        check closed. ``write_channel`` refuses those before validation ever
+        runs, so this is the belt to that braces.
         """
 
         def read_current(channel_address: str) -> Any:
             if self._is_pva_channel(channel_address):
                 return None
-            return self._epics.caget(channel_address, timeout=self._step_read_timeout)
+            try:
+                result = self._get(channel_address, False, _VALUE_REQUEST, self._step_read_timeout)
+                value = result["value"]
+            except Exception as exc:
+                logger.debug(f"Step-check read of '{channel_address}' failed: {exc}")
+                return None
+            if isinstance(value, dict) and "index" in value:
+                return value["index"]
+            return value
 
         return read_current
+
+    # ------------------------------------------------------------------
+    # Writes
+    # ------------------------------------------------------------------
 
     async def write_channel(
         self,
@@ -987,15 +1123,14 @@ class EPICSConnector(ControlSystemConnector):
 
         Raises:
             ConnectionError: If channel cannot be connected
-            TimeoutError: If operation times out
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
         # Step 0: PVA-routed addresses are read-only. This check MUST stay ahead
         # of limits validation: validating max_step reads the channel's current
-        # value with a blocking `caget`, so a refusal placed after it would put
-        # the CA client on an address routed over PVAccess — the very thing this
-        # refusal exists to prevent — and would do it for the arrays PVA channels
-        # carry, which have no scalar limit to be compared against.
+        # value over Channel Access, so a refusal placed after it would point
+        # the CA provider at an address routed over PVAccess — the very thing
+        # this refusal exists to prevent — and would do it for the arrays PVA
+        # channels carry, which have no scalar limit to be compared against.
         if self._is_pva_channel(channel_address):
             return ChannelWriteResult(
                 channel_address=channel_address,
@@ -1020,56 +1155,40 @@ class EPICSConnector(ControlSystemConnector):
         # Import here to avoid circular dependency
         from osprey_connectors.errors import ChannelLimitsViolationError
 
-        # Step 2: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
-        # offload, so a caller on the event loop is never stalled by the blocking
-        # caget that max_step validation performs.
-
-        # A control-system denial (IOC access security answering the put with
-        # "Write access denied") is not a client bug and must not be reported as
-        # one. It is caught by class, resolved off the module this connector
-        # actually connected with — this module must never import pyepics
-        # (tests/connectors/test_import_isolation.py, and the readonly runtime
-        # forbids it outright). An empty tuple catches nothing, so a connector
-        # whose client library does not expose the class behaves exactly as
-        # before.
-        _refusal_class = getattr(getattr(self._epics, "ca", None), "CASeverityException", None)
-        control_system_refusals: tuple[type[BaseException], ...] = (
-            (_refusal_class,)
-            if isinstance(_refusal_class, type) and issubclass(_refusal_class, BaseException)
-            else ()
-        )
-
-        def _validate_and_put():
-            if self._limits_validator:
-                try:
-                    self._limits_validator.validate(
-                        channel_address, value, read_current=self._current_value_reader()
-                    )
-                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
-                except ChannelLimitsViolationError:
-                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
-                except Exception as e:
-                    # FAIL CLOSED: any other validation error refuses the write — no caput
-                    # issued. The refusal itself is built on the loop, by the base class's
-                    # one helper, so all four connectors word it identically.
-                    return ("refused", e)  # sentinel: no caput issued
+        # Step 2: Validate limits (FAIL CLOSED), off the loop: max_step
+        # validation makes a blocking read of the channel's current value.
+        def _validate() -> Exception | None:
+            if not self._limits_validator:
+                return None
             try:
-                # The put-callback is Channel Access's acknowledgement that the
-                # IOC processed the put, so a confirming write waits for it: the
-                # read that follows would otherwise race the record's own
-                # processing. A write nobody asked to confirm does not wait.
-                success = self._epics.caput(channel_address, value, wait=confirm, timeout=timeout)
-            except control_system_refusals as e:
-                # The control system was asked and said no. Every other caput
-                # error stays a raised failure: it leaves the outcome genuinely
-                # unknown, and a refusal claims the opposite.
-                return ("cs_refused", e)
-            return ("ok", success)
+                self._limits_validator.validate(
+                    channel_address, value, read_current=self._current_value_reader()
+                )
+                logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+            except ChannelLimitsViolationError:
+                raise  # limits refusal propagates unchanged (carries LIMITS semantics)
+            except Exception as e:
+                # FAIL CLOSED: any other validation error refuses the write — no
+                # put issued. The refusal itself is built on the loop, by the
+                # base class's one helper, so all four connectors word it
+                # identically.
+                return e
+            return None
 
-        put_result, payload = await asyncio.to_thread(_validate_and_put)
+        validation_error = await self._offload(_validate)
+        if validation_error is not None:
+            return self._validation_refusal(channel_address, value, validation_error)
 
-        if put_result == "cs_refused":
-            logger.warning(f"Control system refused write to {channel_address}: {payload}")
+        # Step 3: The put.
+        try:
+            acknowledged = await self._put(channel_address, value, confirm=confirm, timeout=timeout)
+        except Exception as e:
+            if self._classify(e) != _ACCESS_DENIED:
+                # Every other put error stays a raised failure: it leaves the
+                # outcome genuinely unknown, and a refusal claims the opposite.
+                raise
+            # The control system was asked and said no (IOC access security).
+            logger.warning(f"Control system refused write to {channel_address}: {e}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
@@ -1077,20 +1196,13 @@ class EPICSConnector(ControlSystemConnector):
                 refusal_reason="CONTROL_SYSTEM_REFUSED",
                 error_message=(
                     f"Write to '{channel_address}' refused by the control system "
-                    f"(access security); no value was written: {payload}"
+                    f"(access security); no value was written: {e}"
                 ),
             )
 
-        if put_result == "refused":
-            return self._validation_refusal(channel_address, value, payload)
-
-        # pyepics answers a put whose callback never arrived with -1, not with
-        # a falsy value: ``ca.put`` waits for the callback and, on timeout,
-        # negates its return (``ret = -ret``). -1 is truthy, so it must be
-        # caught before the falsy check below or it would sail on to the
-        # confirming read as a success. The value was sent; nothing has said
-        # the IOC took it, so the outcome is unknown and no re-read is made.
-        if payload == -1:
+        if not acknowledged:
+            # The value was sent; nothing has said the IOC took it, so the
+            # outcome is unknown and no re-read is made.
             logger.warning(
                 f"EPICS put not acknowledged within {timeout}s: {channel_address} = {value}"
             )
@@ -1104,14 +1216,6 @@ class EPICSConnector(ControlSystemConnector):
                 ),
             )
 
-        if not payload:
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=f"Failed to write to channel '{channel_address}'",
-            )
-
         if not confirm:
             # Nothing was checked, and nothing may be claimed: the result stays
             # value-less by design.
@@ -1122,7 +1226,7 @@ class EPICSConnector(ControlSystemConnector):
                 outcome=WriteOutcome.UNREQUESTED,
             )
 
-        # Step 3: One fresh read of the channel that was just written.
+        # Step 4: One fresh read of the channel that was just written.
         try:
             observed = await self._confirming_read(channel_address, timeout)
         except Exception as e:
@@ -1169,28 +1273,119 @@ class EPICSConnector(ControlSystemConnector):
             notes=f"Channel holds {observed.value}, sent {value}",
         )
 
-    async def _confirming_read(self, channel_address: str, timeout: float) -> ChannelValue:
-        """Read the channel a write just touched, straight off the wire.
+    async def _put(
+        self, channel_address: str, value: Any, *, confirm: bool, timeout: float
+    ) -> bool:
+        """Put ``value`` over Channel Access; True unless an awaited ack never came.
 
-        An ordinary read is answered from pyepics' auto-monitor cache, which can
-        still hold the pre-write value: the put-callback says the IOC processed
-        the put, not that a cached subscription update has arrived. Confirming
-        against that stale reading would report a mismatch the machine never
-        had, so this read asks for the current value with ``use_monitor=False``.
-        Everything else — alarm state, enum labels, timestamp — is the ordinary
-        read path's construction, unchanged.
+        A write nobody asked to confirm uses pvapy's plain ``put``, which
+        returns once the value is sent (``Channel.setTimeout`` bounds its
+        connect) and answers True.
 
-        A ``pv.get()`` that times out answers ``None`` rather than raising, and
-        a ``None`` compared against the setpoint would not match — reporting a
-        mismatch, and an ``observed_value`` of ``None``, for an observation that
-        was never made. Confirmation is the one caller that cannot tolerate
-        that, so here (and only here) an unanswered read is raised as the
-        timeout it is, and the write is reported as unconfirmed: what the
-        channel holds is unknown, not different.
+        A confirming write waits for the IOC's put-callback
+        (:data:`_CONFIRMING_PUT_REQUEST`): the read that follows would otherwise
+        race the record's own processing. pvapy's blocking put has no deadline
+        of its own, so the loop waits at most ``timeout`` for it. Past that,
+        the answer is False — the value was sent and nothing acknowledged it,
+        which the caller reports as UNCONFIRMED. The put itself cannot be
+        interrupted (it is a blocking C call) and is left to finish on its
+        worker, which stays busy until the IOC answers; see
+        :class:`_EpicsWorkers`, whose threads nobody ever joins.
+
+        "Sent" is only claimed once it is true. The channel is connected (by a
+        get, bounded by the channel timeout) BEFORE the put is issued, and a
+        deadline that passes while still connecting raises ConnectionError: a
+        value that never left cannot be reported as unacknowledged.
+
+        Raises:
+            ConnectionError: The channel did not connect in time.
+            Exception: Any other pvapy failure, unchanged — including the
+                access-security denial, which the caller classifies.
         """
-        observed = await asyncio.to_thread(
-            self._read_channel_sync, channel_address, timeout, use_monitor=False
+        payload = _put_value(value)
+
+        if not confirm:
+
+            def _plain_put() -> None:
+                channel = self._channel(channel_address, False)
+                channel.setTimeout(float(timeout))
+                channel.put(payload)
+
+            await self._offload(self._translating(channel_address, timeout, _plain_put))
+            return True
+
+        # "sent" and "abandoned" are decided under one lock, so a deadline that
+        # passes while the channel is still connecting and a connect that
+        # completes just after it cannot both win: either the put was issued
+        # (and the deadline reports it unacknowledged) or it never will be.
+        gate = threading.Lock()
+        state = {"sent": False, "abandoned": False}
+
+        def _blocking_put() -> None:
+            channel = self._channel(channel_address, False)
+            channel.setTimeout(float(timeout))
+            if not channel.isConnected():
+                channel.get(_VALUE_REQUEST)  # connect, bounded by the channel timeout
+            with gate:
+                if state["abandoned"]:
+                    return  # the caller already reported that nothing was sent
+                state["sent"] = True
+            channel.put(payload, _CONFIRMING_PUT_REQUEST)
+
+        put_done = asyncio.ensure_future(
+            self._offload(self._translating(channel_address, timeout, _blocking_put))
         )
+        try:
+            # shield: a deadline must not cancel the future the worker settles.
+            await asyncio.wait_for(asyncio.shield(put_done), timeout)
+        except TimeoutError:
+            # Retrieve the late outcome so it is never logged as unhandled.
+            put_done.add_done_callback(lambda f: f.cancelled() or f.exception())
+            with gate:
+                was_sent = state["sent"]
+                state["abandoned"] = not was_sent
+            if not was_sent:
+                raise ConnectionError(
+                    f"Failed to connect to CA channel '{channel_address}' "
+                    f"(timeout after {timeout}s); no value was sent"
+                ) from None
+            return False
+        return True
+
+    def _translating(
+        self, channel_address: str, timeout: float, call: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Wrap a blocking put so an unreachable channel raises ConnectionError."""
+
+        def run() -> None:
+            try:
+                call()
+            except Exception as exc:
+                if self._classify(exc) == _UNREACHABLE:
+                    raise ConnectionError(
+                        f"Failed to connect to CA channel '{channel_address}' "
+                        f"(timeout after {timeout}s): {exc}"
+                    ) from exc
+                raise
+
+        return run
+
+    async def _confirming_read(self, channel_address: str, timeout: float) -> ChannelValue:
+        """Read the channel a write just touched.
+
+        Every read goes to the IOC (pvapy keeps no monitor cache), so this is
+        the ordinary read path — alarm state, enum labels and timestamp are
+        built the same way.
+
+        A reading that carries no value is not a reading of the setpoint: a
+        ``None`` compared against it would report a mismatch, and an
+        ``observed_value`` of ``None``, for an observation that was never made.
+        Confirmation is the one caller that cannot tolerate that, so here (and
+        only here) a missing value is raised as a timeout, and the write is
+        reported as unconfirmed: what the channel holds is unknown, not
+        different.
+        """
+        observed = await self._offload(self._read_channel_ca, channel_address, timeout)
         if observed.value is None:
             raise TimeoutError(f"confirming read of '{channel_address}' timed out after {timeout}s")
         return observed
@@ -1208,6 +1403,10 @@ class EPICSConnector(ControlSystemConnector):
             if not isinstance(result, Exception)
         }
 
+    # ------------------------------------------------------------------
+    # Subscriptions
+    # ------------------------------------------------------------------
+
     async def subscribe(
         self, channel_address: str, callback: Callable[[ChannelValue], None]
     ) -> str:
@@ -1221,109 +1420,69 @@ class EPICSConnector(ControlSystemConnector):
         Returns:
             Subscription ID for later unsubscription
 
-        Routing mirrors the read path: a PVA-routed address opens a p4p
-        monitor, every other address a Channel Access monitor. Either way the
-        subscriber callback runs on the event loop, never on the transport's
-        own worker thread.
+        Routing mirrors the read path: a PVA-routed address opens a PVA
+        monitor, every other address a Channel Access one. Either way the
+        subscriber callback runs on the event loop, never on pvapy's own worker
+        thread, and the first update is the channel's current value.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
+        pva = self._is_pva_channel(channel_address)
+        return await self._offload(self._start_monitor, channel_address, callback, loop, pva)
 
-        if self._is_pva_channel(channel_address):
-            return self._subscribe_pva(channel_address, callback, loop)
-
-        def epics_callback(pvname=None, value=None, timestamp=None, **kwargs):  # noqa: ARG001 - pyepics monitor callback signature; the subscriber reads the value and its timestamp
-            """Wrapper to convert EPICS callback to our format.
-
-            pyepics hands a monitor callback a copy of the PV's whole argument
-            set, so ``enum_strs`` is among the kwargs — carrying the labels once
-            the PV's control variables have been fetched, and ``None`` until
-            then (pyepics does not fetch them on connect). Both cases are
-            handled: an update with no labels reports the index alone rather
-            than being dropped or delayed by a synchronous fetch on the
-            transport's own callback thread.
-            """
-            alarm_code = kwargs.get("status")
-            labels, label = _enum_label_fields(kwargs.get("enum_strs"), value)
-            pv_value = ChannelValue(
-                value=value,
-                timestamp=(
-                    datetime.fromtimestamp(timestamp, get_facility_timezone())
-                    if timestamp
-                    else datetime.now(get_facility_timezone())
-                ),
-                metadata=ChannelMetadata(
-                    units=kwargs.get("units", ""),
-                    alarm_status=_alarm_name(alarm_code),
-                    alarm_severity=_severity_int(kwargs.get("severity")),
-                    enum_labels=labels,
-                    enum_label=label,
-                    raw_metadata={
-                        "status": alarm_code,
-                        "severity": kwargs.get("severity"),
-                    },
-                ),
-            )
-            # Schedule callback in event loop
-            loop.call_soon_threadsafe(callback, pv_value)
-
-        # Create PV and add callback
-        pv = self._epics.PV(channel_address, callback=epics_callback)
-
-        # Generate subscription ID
-        sub_id = f"{channel_address}_{id(pv)}"
-        self._subscriptions[sub_id] = _ChannelSubscription("ca", pv)
-
-        logger.debug(f"EPICS subscription created: {sub_id}")
-        return sub_id
-
-    def _subscribe_pva(
+    def _start_monitor(
         self,
         channel_address: str,
         callback: Callable[[ChannelValue], None],
         loop: asyncio.AbstractEventLoop,
+        pva: bool,
     ) -> str:
-        """Open a p4p monitor and adapt its updates to the connector callback.
+        """Open a pvapy monitor on a Channel of its own (runs on a pvapy worker).
 
-        p4p delivers monitor updates on its own worker thread, and hands the
-        callback whatever the subscription queue holds — including exception
-        instances (``Disconnected``, ``RemoteError``, ``Finished``) when the
-        event is connection state rather than data. Those are filtered exactly
-        the way p4p's own dispatcher classifies them: a connection event is not
-        a channel value and must never reach the subscriber as one.
+        A Channel runs one monitor, so a subscription never uses the shared
+        read channel. A Channel Access monitor cannot carry ``display`` either,
+        so its units and precision come from the same cached display metadata
+        the reads use, fetched here — never on pvapy's callback thread, where a
+        round trip would delay every update behind it.
 
         A mapping failure (an NTNDArray in a codec the connector cannot decode,
-        say) drops that one update with a log line. Raising instead would
-        propagate into p4p's dispatcher, which responds by closing the
-        subscription outright — one bad frame would silently end the monitor.
+        say) drops that one update with a log line. pvapy would log a raising
+        callback and keep the monitor running, but a log line naming the
+        channel is the one worth having.
         """
-        context = self._pva_context
-        if context is None:
-            raise ConnectionError(
-                f"Cannot subscribe to PVA channel '{channel_address}': no PVA client context. "
-                "connect() builds it from control_system.connector.epics.pva_channels."
-            )
+        pvaccess = self._require_client(channel_address)
+        display = {} if pva else self._ca_display(channel_address, self._timeout)
+        provider = "pva" if pva else "ca"
 
-        def pva_callback(update: Any) -> None:
-            """Wrapper to convert a p4p monitor update to our format."""
-            if isinstance(update, Exception):
-                logger.debug(f"PVA monitor event for '{channel_address}': {update!r}")
+        def monitor_callback(update: Any) -> None:
+            """Convert a pvapy monitor update to our format, on pvapy's thread."""
+            try:
+                channel_value = _channel_value(channel_address, update, provider, display=display)
+            except Exception as exc:
+                logger.warning(f"Dropping {provider.upper()} update for '{channel_address}': {exc}")
                 return
             try:
-                channel_value = self._pva_channel_value(
-                    channel_address, getattr(update, "raw", update)
-                )
-            except Exception as exc:
-                logger.warning(f"Dropping PVA update for '{channel_address}': {exc}")
-                return
-            # Schedule callback in event loop
-            loop.call_soon_threadsafe(callback, channel_value)
+                loop.call_soon_threadsafe(callback, channel_value)
+            except RuntimeError:  # the loop closed under a still-running monitor
+                logger.debug(f"Dropping update for '{channel_address}': event loop closed")
 
-        subscription = context.monitor(channel_address, pva_callback)
+        channel = pvaccess.Channel(channel_address, pvaccess.PVA if pva else pvaccess.CA)
+        name = f"osprey-{uuid.uuid4().hex}"
+        subscription = _ChannelSubscription(channel, name)
+        try:
+            channel.setTimeout(float(self._timeout))
+            channel.subscribe(name, monitor_callback)
+            channel.startMonitor(_PVA_MONITOR_REQUEST if pva else _CA_MONITOR_REQUEST)
+        except Exception as exc:
+            subscription.close()
+            if self._classify(exc) == _UNREACHABLE:
+                raise ConnectionError(
+                    f"Failed to monitor channel '{channel_address}': {exc}"
+                ) from exc
+            raise
 
-        sub_id = f"{channel_address}_{id(subscription)}"
-        self._subscriptions[sub_id] = _ChannelSubscription("pva", subscription)
-
-        logger.debug(f"PVA subscription created: {sub_id}")
+        sub_id = f"{channel_address}_{name}"
+        self._subscriptions[sub_id] = subscription
+        logger.debug(f"EPICS subscription created: {sub_id}")
         return sub_id
 
     async def unsubscribe(self, subscription_id: str) -> None:
@@ -1331,38 +1490,45 @@ class EPICSConnector(ControlSystemConnector):
         subscription = self._subscriptions.pop(subscription_id, None)
         if subscription is None:
             return
-        subscription.close()
+        # On a pvapy worker like every other pvapy call (see _EpicsWorkers).
+        await self._offload(subscription.close)
         logger.debug(f"EPICS subscription removed: {subscription_id}")
 
+    # ------------------------------------------------------------------
+    # Metadata
+    # ------------------------------------------------------------------
+
     def _read_metadata_pva(self, channel_address: str, timeout: float) -> ChannelMetadata:
-        """Metadata-only PVAccess get (runs in a thread pool, like the reads).
+        """Metadata-only PVAccess get (runs on a pvapy worker, like the reads).
 
         Asks the server for :data:`_PVA_METADATA_REQUEST` only, so a metadata
         lookup on a camera channel costs a few fields instead of a whole frame,
         and maps the reply with the same helpers the full read uses — the
         payload branches are skipped entirely, because the reply carries no
         payload to branch on. Failures translate the same way as
-        :meth:`_read_channel_pva` — both go through :meth:`_pva_get`.
+        :meth:`_read_channel_pva` — both go through :meth:`_get`.
 
         One consequence: the returned metadata carries no ``enum_labels``. The
         NTEnum choices live under ``value``, which this request deliberately
         does not ask for, and the label for "the current value" is meaningless
         without a value anyway. Enum labels come from a read.
         """
-        value = self._pva_get(channel_address, timeout, request=_PVA_METADATA_REQUEST)
-        raw_metadata: dict[str, Any] = {"nt_id": _pva_type_id(value)}
-        raw_metadata.update(self._pva_alarm_metadata(value))
-        return self._pva_metadata(value, self._pva_timestamp(value), raw_metadata)
+        result = self._get(channel_address, True, _PVA_METADATA_REQUEST, timeout)
+        fields = _top_fields(result)
+        raw_metadata: dict[str, Any] = {"provider": "pva", "nt_type": None}
+        raw_metadata.update(_alarm_metadata(fields, "pva"))
+        return _metadata(fields, _timestamp(fields), raw_metadata)
 
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get metadata for a channel, over whichever transport serves it.
 
         The PVA path asks for the metadata fields alone rather than reading the
-        channel and discarding its value; the CA path keeps reading the channel,
-        because pyepics reports units and precision off the PV it just read.
+        channel and discarding its value; the CA path reads the channel, which
+        is what carries its alarm state and timestamp (its display metadata is
+        cached after the first read anyway).
         """
         if self._is_pva_channel(channel_address):
-            return await asyncio.to_thread(self._read_metadata_pva, channel_address, self._timeout)
+            return await self._offload(self._read_metadata_pva, channel_address, self._timeout)
 
         channel_value = await self.read_channel(channel_address)
         return channel_value.metadata
@@ -1385,7 +1551,7 @@ class EPICSConnector(ControlSystemConnector):
         timeout = self._timeout
         try:
             if self._is_pva_channel(channel_address):
-                await asyncio.to_thread(self._read_metadata_pva, channel_address, timeout)
+                await self._offload(self._read_metadata_pva, channel_address, timeout)
             else:
                 await self.read_channel(channel_address, timeout=timeout)
             return True
