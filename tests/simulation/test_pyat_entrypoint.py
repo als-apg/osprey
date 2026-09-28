@@ -121,6 +121,16 @@ class TestEntryPoint:
         assert result.returncode == 0, result.stderr
 
 
+class TestCalibrationTypes:
+    def test_bindings_reuse_the_engine_types(self):
+        from osprey.services.virtual_accelerator import bindings
+        from osprey.simulation.engines import calibration
+
+        assert bindings.Linear is calibration.Linear
+        assert bindings.Table is calibration.Table
+        assert bindings.Calibration is calibration.Calibration
+
+
 class TestLocate:
     def test_entrance_and_length(self, ab_deck: Path):
         assert engine.locate(ab_deck, "A") == pytest.approx((1.0, 0.2), abs=1e-12)
