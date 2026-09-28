@@ -128,6 +128,17 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # here. One name per family is listed so the table still names the library
     # and so a test that puts back what a guard patched covers all three.
     ("pvaccess.Channel", ("put", "putGet", "asyncPut", "parsePut", "parsePutGet")),
+    # ``MultiChannel`` writes a list of values across the channels it was
+    # built over, and holds no accessor for those names. ``RpcClient.invoke``
+    # is pvaPy's spelling of p4p's ``Context.rpc``: an arbitrary payload to a
+    # service that can do anything, including write.
+    ("pvaccess.MultiChannel", ("put", "putAsDoubleArray")),
+    ("pvaccess.RpcClient", ("invoke",)),
+    # The server side, pvaPy's counterparts of p4p's ``SharedPV``: an
+    # in-process PVA server and an in-process Channel Access IOC. Each serves
+    # PVs rather than writing a device, but what it publishes goes on the wire.
+    ("pvaccess.PvaServer", ("update", "updateUnchecked")),
+    ("pvaccess.CaIoc", ("putField", "dbpf")),
     # --- DOOCS (doocs4py). The client the shipped DOOCS connector writes
     # through (``osprey_connectors.control_system.doocs_connector``), so a
     # readonly script on a DOOCS deployment can reach the machine with the one
@@ -384,6 +395,15 @@ _LIMITS_REFUSED: dict[tuple[str, str], str] = {
         "a list of JSON strings parsed against the channel's own structure — "
         "nothing says which string carries the field the limits are about"
     ),
+    ("pvaccess.MultiChannel", "put"): (
+        "a list of values across the channels the MultiChannel was built over, "
+        "and pvaPy gives no accessor for those names: nothing to key limits by"
+    ),
+    ("pvaccess.MultiChannel", "putAsDoubleArray"): (
+        "a list of values across the channels the MultiChannel was built over, "
+        "and pvaPy gives no accessor for those names: nothing to key limits by"
+    ),
+    ("pvaccess.RpcClient", "invoke"): "an rpc payload is arbitrary; limits cannot apply",
     ("tango.DeviceProxy", "command_inout"): (
         "a command is an action on the device, not a channel write: no address "
         "to look limits up under and no number to bound"
@@ -431,6 +451,10 @@ _LIMITS_UNWRAPPABLE: dict[tuple[str, str], str] = {
     ("p4p.server.thread.SharedPV", "open"): "server side — serves a PV, writes no device",
     ("p4p.server.asyncio.SharedPV", "post"): "server side — serves a PV, writes no device",
     ("p4p.server.asyncio.SharedPV", "open"): "server side — serves a PV, writes no device",
+    ("pvaccess.PvaServer", "update"): "server side — serves a PV, writes no device",
+    ("pvaccess.PvaServer", "updateUnchecked"): "server side — serves a PV, writes no device",
+    ("pvaccess.CaIoc", "putField"): "server side — writes a record of an in-process IOC",
+    ("pvaccess.CaIoc", "dbpf"): "server side — writes a record of an in-process IOC",
     ("tango.DeviceProxy", "put_property"): "writes the Tango database, not a channel",
 }
 

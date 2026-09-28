@@ -45,6 +45,22 @@ pv = PV("SR:MAG:QF:01:CURRENT:SP")
 pv.put(150)  # Bypasses all safety layers
 ```
 
+The same prohibition covers the `pvaccess` library (pvaPy). It is installed
+in every OSPREY environment, and it speaks both Channel Access and pvAccess —
+importable is not the same as permitted:
+
+```python
+# DO NOT use these — they bypass safety controls
+import pvaccess                                  # Bypasses all safety layers
+ch = pvaccess.Channel("SR:MAG:QF:01:CURRENT:SP", pvaccess.CA)
+ch.get()                                         # Bypasses audit logging
+ch.monitor(callback)                             # Bypasses audit logging
+ch.put(150)                                      # Bypasses limits + approval
+ch.putDouble(150.0)                              # Same bypass, typed setter
+pvaccess.MultiChannel(names).putAsDoubleArray(v) # Bypasses limits + approval
+pvaccess.RpcClient("SR:SVC:ORBIT").invoke(req)   # Not approvable — refused at runtime
+```
+
 The same prohibition covers pvAccess (PVA) through the `p4p` library — every
 client flavor, not just the threaded one:
 
@@ -58,7 +74,8 @@ ctxt.put("SR:MAG:QF:01:CURRENT:SP", 150)    # Bypasses limits + approval
 ctxt.rpc("SR:SVC:ORBIT", request)           # Not approvable — refused at runtime
 ```
 
-`ctxt.rpc(...)` is the one to remember: an rpc call carries an arbitrary
+`ctxt.rpc(...)` is the one to remember — and `RpcClient(...).invoke(...)`,
+its `pvaccess` spelling, with it: an rpc call carries an arbitrary
 payload, so limits checking cannot apply to it — there is nothing for the
 approval workflow to check. It is refused at runtime in every readonly run
 and wherever limits checking is enabled. Use `write_channel` for the write

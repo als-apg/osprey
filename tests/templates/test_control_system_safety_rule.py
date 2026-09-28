@@ -1,12 +1,15 @@
 """Render tests for ``control-system-safety.md.j2``.
 
-Two contracts live here: the p4p (pvAccess) prohibition block, and the routing
-section that tells the agent which tool answers which request shape.
+Two contracts live here: the pvAccess prohibition blocks (``pvaccess`` and
+``p4p``), and the routing section that tells the agent which tool answers
+which request shape.
 
-The EPICS connector reads pvAccess channels through ``p4p``, so the shipped
-safety rule has to name that library the same way it names ``pyepics`` --
-otherwise an agent steered off ``epics.caput`` simply reaches for
-``Context.put`` instead. Two details matter enough to pin here:
+The EPICS connector talks to the machine through ``pvaccess`` (pvaPy), which is
+therefore installed wherever OSPREY is, and ``p4p`` may be installed alongside
+it. The shipped safety rule has to name both the same way it names
+``pyepics`` -- otherwise an agent steered off ``epics.caput`` simply reaches
+for ``Channel.put`` or ``Context.put`` instead. Two p4p details matter enough
+to pin here:
 
 * Both client flavors are named. ``p4p`` ships parallel ``thread`` and
   ``asyncio`` client classes, and a rule that mentions only the threaded one
@@ -83,6 +86,20 @@ P4P_LINES = (
 #: Every p4p marker, including the refusal wording that separates rpc from the
 #: merely-prohibited calls.
 P4P_MARKERS = P4P_LINES + ("Not approvable — refused at runtime",)
+
+#: Lines the pvaccess (pvaPy) block must contain, verbatim. pvaPy is the EPICS
+#: connector's own client and is installed in every OSPREY environment, so it
+#: is the direct client an agent finds importable first.
+PVACCESS_LINES = (
+    "import pvaccess",
+    "pvaccess.Channel(",
+    "ch.get()",
+    "ch.monitor(",
+    "ch.put(",
+    "ch.putDouble(",
+    "pvaccess.MultiChannel(",
+    "pvaccess.RpcClient(",
+)
 
 #: The routing section's heading and the four protocol-neutral cases. The
 #: multi-setting case is deployment-dependent and pinned separately.
@@ -225,8 +242,45 @@ def test_non_epics_branches_have_no_p4p_lines(tmp_path):
             assert marker not in content, f"{cs_type}: unexpected p4p marker {marker!r}"
 
 
+def test_epics_family_rules_name_pvaccess(tmp_path):
+    """Both EPICS-family branches carry the pvaccess prohibition block, with
+    the rpc spelling marked not approvable the way ``ctxt.rpc`` is."""
+    for cs_type in ("epics", "virtual_accelerator"):
+        content = _render_safety_rule(tmp_path / cs_type, f"pva-{cs_type}", cs_type)
+
+        for line in PVACCESS_LINES:
+            assert line in content, f"{cs_type} rule missing pvaccess line: {line!r}"
+
+        annotated = {
+            stem.strip(): annotation.strip()
+            for stem, _, annotation in (
+                raw.partition("#")
+                for raw in content.splitlines()
+                if "#" in raw and raw.strip().startswith(("import pvaccess", "ch.", "pvaccess."))
+            )
+        }
+        assert annotated, f"{cs_type}: no annotated pvaccess example lines rendered"
+        for stem, annotation in annotated.items():
+            assert annotation, f"pvaccess example line has an empty annotation: {stem!r}"
+        rpc = [a for stem, a in annotated.items() if stem.startswith("pvaccess.RpcClient(")]
+        assert rpc, f"{cs_type}: the RpcClient example line is not annotated"
+        assert all("Not approvable — refused at runtime" in a for a in rpc)
+
+        prose = " ".join(content.split())
+        assert "`RpcClient(...).invoke(...)`, its `pvaccess` spelling" in prose
+
+
+def test_non_epics_branches_have_no_pvaccess_lines(tmp_path):
+    """pvaccess is an EPICS-family client; naming it elsewhere would be noise."""
+    for cs_type in ("tango", "opcua", "labview", "mock"):
+        content = _render_safety_rule(tmp_path / cs_type, f"pva-{cs_type}", cs_type)
+
+        assert "pvaccess" not in content, f"{cs_type}: pvaccess leaked outside the EPICS branch"
+
+
 def test_existing_pyepics_prohibitions_survive(tmp_path):
-    """Adding the p4p block must not displace the pyepics examples."""
+    """Adding the pvaccess and p4p blocks must not displace the pyepics
+    examples - pyepics may still be installed where OSPREY runs."""
     content = _render_safety_rule(tmp_path, "p4p-pyepics", "epics")
 
     assert "import epics" in content

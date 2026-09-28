@@ -1014,6 +1014,25 @@ def test_fallback_covers_p4p_write_idioms(hook_module):
     assert r"\.post\s*\(" not in fallback_patterns
 
 
+def test_fallback_covers_pvaccess_write_idioms(hook_module):
+    """The fallback list must carry the pvaPy (``pvaccess``) write spellings.
+
+    pvaPy is installed wherever OSPREY is, so it is pinned for the same reason
+    p4p is: parity alone would stay green if both lists lost it together. The
+    put family is anchored to pvaccess because the generic ``.put(`` misses the
+    typed setters, asyncPut and parsePut; RpcClient is pvaPy's rpc.
+    """
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
+
+    for pattern in (
+        r"\bpvaccess\b[\s\S]*?\.(?:put|asyncPut|parsePut)\w*\s*\(",
+        r"\bRpcClient\s*\(",
+        r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
+        r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
+    ):
+        assert pattern in fallback_patterns
+
+
 def test_fallback_covers_the_doocs_write_idiom(hook_module):
     """The fallback list must carry the DOOCS write spelling.
 
@@ -1042,6 +1061,18 @@ def test_fallback_covers_the_doocs_write_idiom(hook_module):
         pytest.param(
             "from p4p.client.asyncio import Context\nr = await Context('pva').rpc('SR:C', a)\n",
             id="p4p-rpc",
+        ),
+        pytest.param(
+            "import pvaccess as pva\npva.Channel('SR:A:SP').putDouble(1.0)\n",
+            id="pvaccess-typed-put",
+        ),
+        pytest.param(
+            "import pvaccess\npvaccess.Channel('SR:A:SP').asyncPut(pv, cb, err)\n",
+            id="pvaccess-async-put",
+        ),
+        pytest.param(
+            "from pvaccess import RpcClient\nRpcClient('SR:C').invoke(request)\n",
+            id="pvaccess-rpc",
         ),
     ],
 )

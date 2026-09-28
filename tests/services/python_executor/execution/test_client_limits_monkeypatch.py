@@ -294,8 +294,9 @@ def _install_fake_p4p(monkeypatch):
 class _FakePvObject:
     """The structure a pvaccess ``Channel`` hands back and takes in.
 
-    Shaped after the real binding, because pvaccess is not installed here and
-    this fake is therefore the only evidence the guard binds correctly on it.
+    Shaped after the real binding. pvaccess is installed wherever OSPREY is,
+    but the block is exec'd in this process, so it is always run against this
+    fake rather than the real library.
     pvaPy's no-arg ``getPyObject()`` answers the VALUE of the structure's
     ``value`` field and raises ``pvaccess.InvalidRequest`` when there is none;
     ``toDict()`` is the spelling that answers the whole structure as a dict.
@@ -374,7 +375,33 @@ def _install_fake_pvaccess(monkeypatch, writes=None, reads=None, read=None):
             writes.append((self._name, args))
             return _FakePvObject({"value": args})
 
+    class MultiChannel:
+        # Built over a list of names, and - as in pvaPy - with no accessor
+        # that hands them back.
+        def __init__(self, names, provider=None):  # noqa: ARG002 - pvaPy MultiChannel signature
+            self._names = list(names)
+
+        def get(self, request=""):  # noqa: ARG002 - pvaPy MultiChannel signature
+            reads.extend(self._names)
+            return _FakePvObject({"value": [1.0] * len(self._names)})
+
+        def put(self, values):
+            writes.append((tuple(self._names), values))
+
+        def putAsDoubleArray(self, values):  # pvaccess spells it this way
+            writes.append((tuple(self._names), values))
+
+    class RpcClient:
+        def __init__(self, channel_name):
+            self._name = channel_name
+
+        def invoke(self, argument, timeout=None):  # noqa: ARG002 - pvaPy RpcClient signature
+            writes.append((self._name, argument))
+            return _FakePvObject({"value": 0})
+
     mod.Channel = Channel
+    mod.MultiChannel = MultiChannel
+    mod.RpcClient = RpcClient
     mod.PvObject = _FakePvObject
     monkeypatch.setitem(sys.modules, "pvaccess", mod)
     return mod
@@ -1253,6 +1280,40 @@ def test_pvaccess_parse_put_cannot_be_limits_checked(monkeypatch):
         mod.Channel("TEST:MAG:SP").parsePut(["value=5.0"])
     with pytest.raises(ValueError, match="cannot be limits-checked"):
         mod.Channel("TEST:MAG:SP").parsePutGet(["value=5.0"])
+    assert writes == []
+
+
+def test_pvaccess_multichannel_writes_are_refused_but_reads_survive(monkeypatch):
+    """A MultiChannel write names no channel the guard can read back.
+
+    pvaPy builds a ``MultiChannel`` over a list of names and hands none of them
+    back, so a limits check has nothing to key by. The write is refused in
+    range or not; the read on the same object is left alone.
+    """
+    writes: list = []
+    reads: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes, reads)
+    _run_monkeypatch(monkeypatch)
+
+    multi = mod.MultiChannel(["TEST:MAG:SP", "TEST:MAG:STEP"])
+    with pytest.raises(ValueError, match="cannot be limits-checked"):
+        multi.put([_FakePvObject({"value": 1.0}), _FakePvObject({"value": 1.0})])
+    with pytest.raises(ValueError, match="cannot be limits-checked"):
+        multi.putAsDoubleArray([1.0, 1.0])
+    assert writes == []
+
+    multi.get()
+    assert reads == ["TEST:MAG:SP", "TEST:MAG:STEP"]
+
+
+def test_pvaccess_rpc_invoke_is_refused(monkeypatch):
+    """``RpcClient.invoke`` is pvaPy's ``Context.rpc``: refused, not approvable."""
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="cannot be approved"):
+        mod.RpcClient("TEST:SVC").invoke(_FakePvObject({"value": 1.0}))
     assert writes == []
 
 
@@ -2340,6 +2401,12 @@ _REFUSAL_CALLS = {
         (['{"value": 1.0}'],),
         "cannot be limits-checked",
     ),
+    "pvaccess.MultiChannel": (
+        lambda cls: cls(["TEST:MAG:SP", "TEST:MAG:STEP"]),
+        ([1.0, 1.0],),
+        "cannot be limits-checked",
+    ),
+    "pvaccess.RpcClient": (lambda cls: cls("TEST:SVC"), (None,), "cannot be approved"),
     "tango.DeviceProxy": (
         lambda cls: cls("sys/tg_test/1"),
         ("On",),

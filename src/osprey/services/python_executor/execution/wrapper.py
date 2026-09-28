@@ -932,6 +932,33 @@ if not _execution_dir.exists():
                             setattr(_pva_channel_cls, _pva_attr, _pva_wrapper)
                             _pva_swept.append(_pva_attr)
 
+                    # ``MultiChannel`` writes a list of values across the
+                    # channels it was built over and gives no accessor for
+                    # those names, so there is nothing to key a limits check
+                    # by: its writes are refused outright, like parsePut.
+                    _pva_multi_cls = getattr(_pvaccess, 'MultiChannel', None)
+                    if _pva_multi_cls is not None:
+                        for _pva_attr in ('put', 'putAsDoubleArray'):
+                            if callable(getattr(_pva_multi_cls, _pva_attr, None)):
+                                setattr(
+                                    _pva_multi_cls,
+                                    _pva_attr,
+                                    _pva_refuse_unreducible('MultiChannel.' + _pva_attr),
+                                )
+
+                    # ``RpcClient.invoke`` is pvaPy's ``Context.rpc``: an
+                    # arbitrary payload to a service, so refusal is the only
+                    # honest parity with the p4p guard.
+                    def _pva_blocked_invoke(self, *args, **kwargs):
+                        raise RuntimeError(
+                            "rpc is not mediated and cannot be approved — "
+                            "use the supervised write path"
+                        )
+
+                    _pva_rpc_cls = getattr(_pvaccess, 'RpcClient', None)
+                    if _pva_rpc_cls is not None and hasattr(_pva_rpc_cls, 'invoke'):
+                        _pva_rpc_cls.invoke = _pva_blocked_invoke
+
                     # The success line is the operator's only evidence the
                     # guard is on. A pvaccess without a Channel, or a Channel
                     # carrying no put, wrapped nothing and must not report

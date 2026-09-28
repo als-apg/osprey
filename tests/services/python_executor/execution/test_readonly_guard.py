@@ -17,6 +17,7 @@ in the file runs the guard in a subprocess against whatever is installed.
 
 import asyncio
 import importlib
+import importlib.util
 import json
 import platform
 import re
@@ -432,6 +433,74 @@ def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
         channel.parsePut(["value=150.0"])
     assert writes == []
     assert channel.get() == 1.0, "reads must survive the guard untouched"
+
+
+def test_readonly_refuses_pvaccess_multichannel_rpc_and_servers(monkeypatch):
+    """pvaPy's writes beyond ``Channel``: MultiChannel, RpcClient and its servers.
+
+    ``RpcClient.invoke`` is pvaPy's ``Context.rpc``, and ``PvaServer`` and
+    ``CaIoc`` are its counterparts of p4p's ``SharedPV``. Each is refused;
+    the MultiChannel read on the same object is not.
+    """
+    mod = ModuleType("pvaccess")
+    writes: list = []
+
+    class MultiChannel:
+        def __init__(self, names):
+            self.names = names
+
+        def put(self, values):
+            writes.append(("put", values))
+
+        def putAsDoubleArray(self, values):  # pvaPy's own spelling
+            writes.append(("putAsDoubleArray", values))
+
+        def get(self):
+            return [1.0] * len(self.names)
+
+    class RpcClient:
+        def __init__(self, name):
+            self.name = name
+
+        def invoke(self, argument):
+            writes.append(("invoke", argument))
+
+    class PvaServer:
+        def update(self, name, value):
+            writes.append(("update", name, value))
+
+        def updateUnchecked(self, name, value):  # pvaPy's own spelling
+            writes.append(("updateUnchecked", name, value))
+
+    class CaIoc:
+        def putField(self, name, value):  # pvaPy's own spelling
+            writes.append(("putField", name, value))
+
+        def dbpf(self, name, value):
+            writes.append(("dbpf", name, value))
+
+    mod.MultiChannel = MultiChannel
+    mod.RpcClient = RpcClient
+    mod.PvaServer = PvaServer
+    mod.CaIoc = CaIoc
+    monkeypatch.setitem(sys.modules, "pvaccess", mod)
+    _run_guard("readonly")
+
+    multi = mod.MultiChannel(["SR:A:SP", "SR:B:SP"])
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        multi.put([1.0, 2.0])
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        multi.putAsDoubleArray([1.0, 2.0])
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        mod.RpcClient("SR:SVC").invoke({"value": 1})
+    for method in ("update", "updateUnchecked"):
+        with pytest.raises(RuntimeError, match=_REFUSAL):
+            getattr(mod.PvaServer(), method)("SR:A", 1.0)
+    for method in ("putField", "dbpf"):
+        with pytest.raises(RuntimeError, match=_REFUSAL):
+            getattr(mod.CaIoc(), method)("SR:A", 1.0)
+    assert writes == []
+    assert multi.get() == [1.0, 1.0], "reads must survive the guard untouched"
 
 
 def test_readonly_refuses_tango_write_attribute(monkeypatch):
@@ -882,6 +951,7 @@ _INSTALLED_LIBRARY_PROBE = """
 #
 # argv[1] is the guard source; argv[2] is the substring every refusal carries.
 import importlib
+import importlib.util
 import json
 import pathlib
 import sys
@@ -1006,13 +1076,20 @@ for row in snapshot:
             )
 
 # --- the rows this hotfix exists for ---------------------------------------
+# p4p is named only where it is installed: pvaPy replaced it as the EPICS
+# connector's client, so it is present only alongside the virtual-accelerator
+# extra. pvaPy is installed wherever OSPREY is, so its rows are always named.
 NAMED = (
     ("aioca._catools", "caput"),
-    ("p4p.client.raw.Context", "put"),
     ("epicscorelibs.ca.cadef", "ca_array_put"),
     ("bluesky.run_engine.RunEngine", "__call__"),
     ("ophyd_async.core.SignalRW", "set"),
+    ("pvaccess.Channel", "put"),
+    ("pvaccess.MultiChannel", "put"),
+    ("pvaccess.RpcClient", "invoke"),
 )
+if importlib.util.find_spec("p4p") is not None:
+    NAMED += (("p4p.client.raw.Context", "put"),)
 checked_named = []
 for dotted, attr in NAMED:
     obj = resolve(dotted)
@@ -1065,29 +1142,54 @@ expect_refusal(
 # and hands the SAME object out for get as for put, so a row naming either of
 # those two names refuses every PVAccess read — the path readonly mode exists
 # to keep open. Pinned here: a get against a PV nobody serves has to time out,
-# and only the put has to refuse.
-import p4p.client.thread
+# and only the put has to refuse. p4p is pinned only where it is installed; it
+# is no longer an OSPREY dependency.
+if importlib.util.find_spec("p4p") is not None:
+    import p4p.client.thread
 
-context = p4p.client.thread.Context("pva")
-try:
+    context = p4p.client.thread.Context("pva")
     try:
-        context.get("OSPREY:READONLY:PROBE:NO:SUCH:PV", timeout=0.3)
-        read_outcome = "returned a value"
-    except TimeoutError:
-        read_outcome = "TimeoutError"
-    except BaseException as exc:
-        read_outcome = type(exc).__name__ + ": " + str(exc)
-    if read_outcome != "TimeoutError":
-        failures.append(
-            "(read) p4p Context.get under the guard: " + read_outcome
-            + " -- a readonly run must still be able to read PVAccess"
+        try:
+            context.get("OSPREY:READONLY:PROBE:NO:SUCH:PV", timeout=0.3)
+            read_outcome = "returned a value"
+        except TimeoutError:
+            read_outcome = "TimeoutError"
+        except BaseException as exc:
+            read_outcome = type(exc).__name__ + ": " + str(exc)
+        if read_outcome != "TimeoutError":
+            failures.append(
+                "(read) p4p Context.get under the guard: " + read_outcome
+                + " -- a readonly run must still be able to read PVAccess"
+            )
+        expect_refusal(
+            "p4p thread Context.put",
+            lambda: context.put("OSPREY:READONLY:PROBE:NO:SUCH:PV", 1.0, timeout=0.3),
         )
-    expect_refusal(
-        "p4p thread Context.put",
-        lambda: context.put("OSPREY:READONLY:PROBE:NO:SUCH:PV", 1.0, timeout=0.3),
+    finally:
+        context.close()
+
+# pvaPy is the EPICS connector's client and is installed wherever OSPREY is.
+# Its ``Channel`` carries get and put on one class, so the same pin applies:
+# a read against a PV nobody serves has to time out in pvaPy's own words, and
+# only the put has to refuse.
+import pvaccess
+
+pva_channel = pvaccess.Channel("OSPREY:READONLY:PROBE:NO:SUCH:PV")
+pva_channel.setTimeout(0.3)
+try:
+    pva_channel.get()
+    pva_read_outcome = "returned a value"
+except RuntimeError as exc:
+    pva_read_outcome = "RuntimeError: " + str(exc)
+except BaseException as exc:
+    pva_read_outcome = type(exc).__name__
+if pva_read_outcome != "PvaException":
+    failures.append(
+        "(read) pvaccess Channel.get under the guard: " + pva_read_outcome
+        + " -- a readonly run must still be able to read PVAccess"
     )
-finally:
-    context.close()
+expect_refusal("pvaccess Channel.put", lambda: pva_channel.put(1.0))
+expect_refusal("pvaccess Channel.putDouble", lambda: pva_channel.putDouble(1.0))
 
 print(
     REPORT_MARKER
@@ -1114,12 +1216,16 @@ print(
 #: import the guard has to leave working, in the one ordering where it breaks.
 _COLD_IMPORT_PROBE = """
 import importlib
+import importlib.util
 import sys
 
 assert "bluesky" not in sys.modules and "ophyd_async" not in sys.modules, (
     "the guard must not load an acquisition framework the script never imports"
 )
-assert {"epics", "aioca", "epicscorelibs", "p4p"} <= set(sys.modules), (
+# pyepics and p4p are no longer OSPREY dependencies; they are resolved where
+# they are installed. pvaPy, aioca and epicscorelibs always are.
+optional_clients = {name for name in ("epics", "p4p") if importlib.util.find_spec(name)}
+assert {"pvaccess", "aioca", "epicscorelibs", *optional_clients} <= set(sys.modules), (
     "the client rows must be resolved before the script runs"
 )
 run_engine = importlib.import_module("bluesky.run_engine")
@@ -1162,10 +1268,14 @@ def test_guard_holds_against_installed_libraries(tmp_path):
 
     Rows for libraries that are not installed contribute nothing, which is the
     ordinary case; the named rows are guarded by ``importorskip`` so a missing
-    library skips loudly instead of passing quietly.
+    library skips loudly instead of passing quietly. p4p is the exception: it
+    is no longer an OSPREY dependency, so its rows are checked where it is
+    installed and left out where it is not, rather than skipping the whole
+    probe in the ordinary environment.
     """
-    for library in ("aioca", "p4p", "epicscorelibs", "bluesky", "ophyd_async"):
+    for library in ("aioca", "pvaccess", "epicscorelibs", "bluesky", "ophyd_async"):
         pytest.importorskip(library, reason=f"{library} is not installed in this environment")
+    have_p4p = importlib.util.find_spec("p4p") is not None
 
     guard_path = tmp_path / "readonly_guard.py"
     guard_path.write_text(ExecutionWrapper(execution_mode="readonly")._get_readonly_guard())
@@ -1192,20 +1302,27 @@ def test_guard_holds_against_installed_libraries(tmp_path):
     # vacuously if nothing did. The rows this hotfix was written for are named
     # here: the libraries are importorskip'd above, so their absence from the
     # report is a broken probe rather than a thin environment.
-    assert set(report["checked_named"]) == {
+    expected_named = {
         "aioca._catools.caput",
-        "p4p.client.raw.Context.put",
         "epicscorelibs.ca.cadef.ca_array_put",
         "bluesky.run_engine.RunEngine.__call__",
         "ophyd_async.core.SignalRW.set",
+        "pvaccess.Channel.put",
+        "pvaccess.MultiChannel.put",
+        "pvaccess.RpcClient.invoke",
     }
+    if have_p4p:
+        expected_named.add("p4p.client.raw.Context.put")
+    assert set(report["checked_named"]) == expected_named
     assert "aioca._catools.caput" in report["checked_home"], (
         "the defining-module check must have run for aioca, the re-export that "
         "reached the machine before this fix"
     )
-    assert "p4p.client.raw.Context.put" in report["checked_mro"], (
-        "the MRO check must have run for the p4p base every client flavour inherits its put from"
-    )
+    if have_p4p:
+        assert "p4p.client.raw.Context.put" in report["checked_mro"], (
+            "the MRO check must have run for the p4p base every client flavour "
+            "inherits its put from"
+        )
     assert "ophyd_async.core._signal.SignalW.set" in report["checked_mro"], (
         "the MRO check must have run for the ophyd-async base SignalRW inherits set from"
     )
@@ -1217,10 +1334,11 @@ def test_guard_holds_against_installed_libraries(tmp_path):
         assert skipped.endswith(("(immutable C type)", "(typing.Protocol)")), (
             f"a base was skipped for an unnamed reason: {skipped}"
         )
-    assert any(s.startswith("p4p._p4p.SharedPV.") for s in report["skipped_mro"]), (
-        "p4p's immutable C base is the floor write_surface documents; it has to "
-        "be reached and skipped, not silently absent"
-    )
+    if have_p4p:
+        assert any(s.startswith("p4p._p4p.SharedPV.") for s in report["skipped_mro"]), (
+            "p4p's immutable C base is the floor write_surface documents; it has "
+            "to be reached and skipped, not silently absent"
+        )
     assert any(s.startswith("bluesky.protocols.Movable.set") for s in report["skipped_mro"]), (
         "the Movable protocol stub has to be reached and skipped"
     )
@@ -1338,10 +1456,17 @@ def test_two_guards_in_one_process_delegate_without_recursing(tmp_path, monkeypa
 
 def test_the_client_rows_are_resolved_before_the_script_runs():
     """The counterpart to the framework tests: the client half does not wait."""
-    for library in ("epics", "aioca", "p4p"):
+    # pvaPy and aioca are installed wherever OSPREY is; pyepics and p4p are
+    # not any more, so they are checked only where they are present.
+    for library in ("pvaccess", "aioca"):
         pytest.importorskip(library, reason=f"{library} is not installed in this environment")
+    optional = {
+        module
+        for library, module in (("epics", "epics"), ("p4p", "p4p.client.thread"))
+        if importlib.util.find_spec(library) is not None
+    }
 
     _run_guard("readonly")
 
     assert subprocess.run.__name__ == "_osprey_readonly_refuse"
-    assert {"epics", "aioca", "p4p.client.thread"} <= set(sys.modules)
+    assert {"pvaccess", "aioca", *optional} <= set(sys.modules)
