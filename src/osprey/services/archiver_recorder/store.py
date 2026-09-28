@@ -24,7 +24,10 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
-from osprey.connectors.archiver.mongodb_archiver_connector import mongo_client_kwargs
+from osprey.connectors.archiver.mongodb_archiver_connector import (
+    CA_FILE_ERRORS,
+    mongo_client_kwargs,
+)
 
 from .config import RecorderSettings
 
@@ -97,12 +100,18 @@ class ArchiveWriter:
                     username=settings.username,
                     password=self._password,
                     auth_source=settings.auth_source,
-                    ca_bundle=None,
+                    ca_bundle=settings.ca_bundle,
                     timeout_s=settings.timeout_s,
                 )
             )
             client.admin.command("ping")
-        except PyMongoError as exc:
+        except (PyMongoError, OSError) as exc:
+            # pymongo loads the CA file while it builds the client, before any ping.
+            if settings.ca_bundle is not None and isinstance(exc, CA_FILE_ERRORS):
+                raise ConnectionError(
+                    f"cannot load the CA file named by tls.ca_bundle for the archive store "
+                    f"at {settings.host}:{settings.port}: {exc}"
+                ) from exc
             raise ConnectionError(
                 f"cannot reach the archive store at {settings.host}:{settings.port} "
                 f"as {settings.username!r}: {exc}"

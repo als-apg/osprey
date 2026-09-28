@@ -7,6 +7,7 @@ Documents are expected to have a 'date' field and channel addresses as fields.
 
 import asyncio
 import os
+import ssl
 import urllib.parse
 from collections.abc import Mapping
 from datetime import datetime
@@ -157,6 +158,9 @@ _OPTIONS_WITH_A_KEY = {
     "serverselectiontimeoutms": "timeout_s",
 }
 
+#: Errors pymongo raises while it loads a CA file.
+CA_FILE_ERRORS = (ssl.SSLError, FileNotFoundError, IsADirectoryError, PermissionError)
+
 #: Url options that carry a secret.
 _SECRET_OPTIONS = frozenset({"tlscertificatekeyfilepassword"})
 
@@ -292,6 +296,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 - auth.password_env: Environment variable name for password
                   (required with ``auth.username``)
                 - timeout_s: Default timeout in seconds (default: 60)
+                - tls.ca_bundle: Absolute path of a CA file to trust (optional);
+                  setting it turns TLS on. Unset, a ``tls=true`` url checks the
+                  store's certificate against the image trust store.
 
         Raises:
             ImportError: If pymongo is not installed
@@ -395,6 +402,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         password_env = login.password_env if login is not None else None
         source = auth_block.get("source")
         auth_source = str(source) if source else None
+        ca_bundle = str(settings.ca_bundle) if settings.ca_bundle is not None else None
 
         # Get password from environment variable. An unset variable is a
         # deployment state, not a config error: `osprey up` mints the password
@@ -423,7 +431,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                     username=username,
                     password=password,
                     auth_source=auth_source,
-                    ca_bundle=None,
+                    ca_bundle=ca_bundle,
                     timeout_s=self._timeout,
                 )
             )
@@ -450,6 +458,12 @@ class MongoDBArchiverConnector(ArchiverConnector):
         except self._ConfigurationError as e:
             raise ConnectionError(f"MongoDB configuration error: {e}") from e
         except (TimeoutError, OSError) as e:
+            # pymongo loads the CA file while it builds the client, before any ping.
+            if ca_bundle is not None and isinstance(e, CA_FILE_ERRORS):
+                raise ConnectionError(
+                    f"MongoDB TLS setup failed: the CA file named by {_WHERE}.tls.ca_bundle "
+                    f"could not be loaded: {e}"
+                ) from e
             raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
         except Exception as e:
             # Last resort - log and re-raise as ConnectionError

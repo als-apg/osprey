@@ -1589,6 +1589,14 @@ keys:
       OSPREY_ARCHIVER_MONGODB_* overrides, and the recorder and the archive
       rewrite never write to the store it names
     default: null
+  archiver.mongodb_archiver.tls: {rendered: false, covered-by: archiver.mongodb_archiver, default: {}}
+  archiver.mongodb_archiver.tls.ca_bundle:
+    rendered: false
+    covered-by: archiver.mongodb_archiver.tls
+    note: >-
+      an absolute path to a CA file the store's certificate is checked against;
+      unset uses the image trust store
+    default: null
 
   # ── Execution ───────────────────────────────────────────────────────
   execution: {all-templates: true, evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None', default: null}

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -804,6 +805,59 @@ def test_archive_writer_builds_its_client_from_the_shared_function() -> None:
         ArchiveWriter(_settings(host="localhost", port=27100), "pw").connect()
 
     assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
+
+def test_the_writer_passes_the_ca_bundle(tmp_path: Path) -> None:
+    """A site CA named under `tls:` reaches the recorder's client as its trust anchor."""
+    from unittest.mock import patch
+
+    from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS
+
+    path = _write_config(tmp_path / "config.yml")
+    config = yaml.safe_load(path.read_text())
+    config["archiver"]["mongodb_archiver"]["tls"] = {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    settings = load_settings(path)
+    assert settings.ca_bundle == "/etc/ssl/certs/site-ca.pem"
+
+    with patch("pymongo.MongoClient") as mock_client_cls:
+        ArchiveWriter(
+            _settings(host="localhost", port=27100, ca_bundle=settings.ca_bundle), "pw"
+        ).connect()
+
+    assert mock_client_cls.call_args.kwargs == {
+        **BUNDLED_CLIENT_KWARGS,
+        "tlsCAFile": "/etc/ssl/certs/site-ca.pem",
+    }
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        ssl.SSLError("no certificate"),
+        FileNotFoundError(2, "No such file or directory"),
+    ],
+)
+def test_an_unreadable_ca_bundle_is_a_connection_error_naming_it(raised) -> None:
+    """The CA file is read while the client is built, before any ping."""
+    from unittest.mock import patch
+
+    settings = _settings(host="localhost", port=27100, ca_bundle="/etc/ssl/certs/missing.pem")
+    with patch("pymongo.MongoClient", side_effect=raised):
+        with pytest.raises(ConnectionError, match=r"tls\.ca_bundle") as exc_info:
+            ArchiveWriter(settings, "pw").connect()
+
+    assert exc_info.value.__cause__ is raised
+
+
+def test_a_socket_failure_without_a_ca_bundle_is_a_connection_error() -> None:
+    from unittest.mock import patch
+
+    with patch("pymongo.MongoClient", side_effect=OSError("unreachable")):
+        with pytest.raises(ConnectionError, match="archive store") as exc_info:
+            ArchiveWriter(_settings(host="localhost", port=27100), "pw").connect()
+
+    assert "tls.ca_bundle" not in str(exc_info.value)
 
 
 def test_stored_documents_carry_the_shape_the_connector_reads(archive_collection) -> None:

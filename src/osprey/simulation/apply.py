@@ -435,6 +435,7 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         "password": env.get(password_env),
         "password_env": password_env,
         "timeout_s": connection.timeout_or(5),
+        "ca_bundle": str(connection.ca_bundle) if connection.ca_bundle is not None else None,
     }
 
 
@@ -504,7 +505,7 @@ def archiver_collection(store: dict):
             username=store["username"],
             password=store["password"],
             auth_source=store["auth_source"],
-            ca_bundle=None,
+            ca_bundle=store.get("ca_bundle"),
             timeout_s=store["timeout_s"],
         )
     )
