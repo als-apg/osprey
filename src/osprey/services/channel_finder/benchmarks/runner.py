@@ -25,8 +25,10 @@ from typing import Any
 
 from osprey.services.channel_finder.benchmarks.backends import create_backend
 from osprey.services.channel_finder.benchmarks.evaluation import (
+    JudgeRoute,
     compute_f1,
     evaluate_response,
+    resolve_judge,
 )
 from osprey.services.channel_finder.benchmarks.models import (
     BenchmarkRun,
@@ -140,6 +142,12 @@ class BenchmarkRunner:
     Saved ``BenchmarkRun.model`` records the exact slash-form string,
     making cells reproducible regardless of the project's ``claude_code``
     configuration at the time of the run.
+
+    The coverage judge (``use_llm_judge=True``) runs on the benchmarked
+    model's provider unless ``judge_provider`` names another, both configured
+    under the project's ``api.providers``. Its model is ``judge_model`` or that
+    provider's main model. A judge the project cannot run is refused here,
+    before any backend is built.
     """
 
     def __init__(
@@ -155,6 +163,7 @@ class BenchmarkRunner:
         backend: str = "auto",
         repeat_idx: int = 0,
         use_llm_judge: bool = False,
+        judge_provider: str | None = None,
         judge_model: str | None = None,
     ) -> None:
         if "/" not in model:
@@ -162,14 +171,24 @@ class BenchmarkRunner:
         self.project_dir = Path(project_dir)
         self.model = model
         self.provider, self.wire_id = model.split("/", 1)
+        self.judge: JudgeRoute | None
+        if use_llm_judge:
+            self.judge = resolve_judge(
+                self.project_dir, judge_provider or self.provider, judge_model=judge_model
+            )
+        elif judge_provider or judge_model:
+            raise ValueError(
+                "judge_provider and judge_model choose the coverage judge; "
+                "pass use_llm_judge=True to run it."
+            )
+        else:
+            self.judge = None
         self.max_turns = max_turns
         self.max_budget_per_query = max_budget_per_query
         self.max_concurrent = max_concurrent
         self.verbose = verbose
         self.queries_override = queries_override
         self.repeat_idx = repeat_idx
-        self.use_llm_judge = use_llm_judge
-        self.judge_model = judge_model
         self._backend = create_backend(
             backend,
             self.project_dir,
@@ -402,10 +421,7 @@ class BenchmarkRunner:
                     latency = time.monotonic() - t0
 
                 predicted, eval_meta = evaluate_response(
-                    output.response_text,
-                    expected,
-                    use_llm_judge=self.use_llm_judge,
-                    judge_model=self.judge_model,
+                    output.response_text, expected, judge=self.judge
                 )
                 precision, recall, f1 = compute_f1(predicted, expected)
 

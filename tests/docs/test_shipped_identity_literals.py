@@ -167,7 +167,6 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/models/providers/cborg.py",
                 "src/osprey/profiles/providers.yml",
                 "src/osprey/services/ariel_search/ingestion/adapters/als.py",
-                "src/osprey/services/channel_finder/benchmarks/evaluation.py",
                 # A case that asserts the literal's absence has to spell it.
                 "tests/integration/test_preset_static.py",
                 # A case that asserts the literal is ignored has to spell it.
@@ -273,7 +272,6 @@ DENIED: tuple[Denied, ...] = (
                 # surfaces that name the gateway it fronts.
                 "docs/source/how-to/llm-providers/configure-providers.rst",
                 "src/osprey/models/providers/als_apg.py",
-                "src/osprey/services/channel_finder/benchmarks/evaluation.py",
                 # The shipped plugin manifest, whose author field is the project's
                 # own packaging metadata.
                 "plugins/osprey/.claude-plugin/plugin.json",

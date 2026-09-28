@@ -65,4 +65,5 @@ def expand_api_providers(config: Mapping[str, Any], env: Mapping[str, str]) -> d
         The expanded providers mapping; ``{}`` when the config names no providers.
     """
     providers = (config.get("api") or {}).get("providers") or {}
-    return resolve_env_vars(providers, environ=env)
+    expanded: dict[str, Any] = resolve_env_vars(providers, environ=env)
+    return expanded
