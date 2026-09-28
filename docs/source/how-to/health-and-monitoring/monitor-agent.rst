@@ -107,6 +107,13 @@ from it — then run the agent as usual:
 
 That is all Phase 1 requires — the agent begins emitting on its next run.
 
+On a web-terminal deploy, every ``${VAR}`` in the ``telemetry`` block that has
+no ``:-default`` must be set in the project's ``.env``; ``osprey up`` refuses
+the deploy and names the key and the variable. None of these values is copied
+into ``.env.users``, the one file every web terminal shares — the only
+exception is the store account name ``ZO_INGEST_USER_EMAIL`` (Phase 2) — so a
+value the terminals need from this block does not reach them from there.
+
 .. _monitor-agent-signals:
 
 Export without traces
