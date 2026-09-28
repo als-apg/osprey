@@ -143,7 +143,7 @@ class TestChannelMetadataAlarmStatusNotWidened:
 
 
 #: Protocol client libraries the shared core must never reach for.
-_PROTOCOL_PACKAGES = {"epics", "pyepics", "p4p", "aioca", "caproto"}
+_PROTOCOL_PACKAGES = {"epics", "pyepics", "p4p", "pvaccess", "pvapy", "aioca", "caproto"}
 
 
 class TestSharedCoreIsProtocolAgnostic:

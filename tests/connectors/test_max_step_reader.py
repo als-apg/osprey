@@ -28,6 +28,7 @@ from osprey.connectors.control_system.limits_validator import (
 )
 from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.errors import ChannelLimitsViolationError
+from tests.connectors._epics_fakes import FakePvaccess, ca_connector, enum_record, record
 
 _DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
 _DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
@@ -69,13 +70,31 @@ async def test_the_simulator_reads_its_own_store(monkeypatch):
 
 
 def test_the_epics_connector_reads_with_the_client_it_connected_with():
-    connector = EPICSConnector()
-    connector._epics = MagicMock()
-    connector._epics.caget.return_value = CURRENT
+    """One just-the-value get, over Channel Access, on the pvapy module it holds."""
+    pvaccess = FakePvaccess()
+    pvaccess.serve("SR:CH", record(CURRENT))
+    connector = ca_connector(pvaccess)
 
     assert connector._current_value_reader()("SR:CH") == CURRENT
-    connector._epics.caget.assert_called_once()
-    assert connector._epics.caget.call_args.args[0] == "SR:CH"
+    (get,) = pvaccess.calls("get")
+    assert get["address"] == "SR:CH"
+    assert get["provider"] == pvaccess.CA
+    assert get["request"] == "field(value)"
+
+
+def test_the_epics_connector_measures_an_enum_by_its_index():
+    """A step on a state channel is counted in indices, the number it is written in."""
+    pvaccess = FakePvaccess()
+    pvaccess.serve("SR:MODE", enum_record(2, ("OFF", "STANDBY", "ON")))
+
+    assert ca_connector(pvaccess)._current_value_reader()("SR:MODE") == 2
+
+
+def test_the_epics_connector_answers_none_when_the_read_fails():
+    """An unreachable channel is "could not read", which the step check refuses on."""
+    connector = ca_connector(FakePvaccess())
+
+    assert connector._current_value_reader()("SR:NOPE") is None
 
 
 def test_the_epics_connector_refuses_to_read_a_pva_routed_address():
@@ -85,12 +104,12 @@ def test_the_epics_connector_refuses_to_read_a_pva_routed_address():
     rule stated where the read is made. ``None`` is what the step check treats
     as "could not read", so the write fails closed.
     """
-    connector = EPICSConnector()
-    connector._epics = MagicMock()
-    connector._pva_channel_globs = ["PVA:*"]
+    pvaccess = FakePvaccess()
+    pvaccess.serve("PVA:IMAGE", record(CURRENT))
+    connector = ca_connector(pvaccess, globs=["PVA:*"])
 
     assert connector._current_value_reader()("PVA:IMAGE") is None
-    connector._epics.caget.assert_not_called()
+    assert pvaccess.channels == []  # no channel opened, on either provider
 
 
 async def test_the_doocs_connector_reads_with_doocs4py():
@@ -237,14 +256,14 @@ def test_a_declared_budget_is_read() -> None:
 
 async def test_the_epics_connector_reads_with_the_budget_its_block_declares() -> None:
     """The connector's own block is where the budget comes from."""
-    connector = EPICSConnector()
-    connector._epics = MagicMock()
-    connector._epics.caget.return_value = CURRENT
+    pvaccess = FakePvaccess()
+    pvaccess.serve("SR:CH", record(CURRENT))
+    connector = ca_connector(pvaccess)
     connector._step_read_timeout = step_read_timeout_seconds({"step_read_timeout_s": 0.5})
 
     connector._current_value_reader()("SR:CH")
 
-    assert connector._epics.caget.call_args.kwargs["timeout"] == 0.5
+    assert pvaccess.calls("get")[0]["timeout"] == 0.5
 
 
 def test_an_unconnected_connector_still_has_a_budget() -> None:

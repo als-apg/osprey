@@ -1,59 +1,71 @@
 """What a client sees when it reads a real PVAccess server over the wire.
 
-Everything here runs in **one process**: a real ``p4p`` server hosting real
-normative-type structures, the real EPICS connector routing addresses onto its
-PVA client, and — for the batch and artifact assertions — the real
-``channel_read`` tool body deciding what the agent gets to see. No fake p4p
-module, no hand-rolled ``Value``. ``tests/connectors/test_pva_read_mapping.py``
-already proves the mapping in process against an injected client; this file is
-the check that the wire agrees with it, and it is where success criteria 1-4 of
-the PVA feature are asserted concretely.
+A real pvapy ``PvaServer`` hosts real normative-type structures, the real EPICS
+connector reads them through pvapy's PVA client, and — for the batch and
+artifact assertions — the real ``channel_read`` tool body decides what the
+agent gets to see. No fake ``pvaccess`` module, no hand-built ``PvObject``.
+``tests/connectors/test_pva_read_mapping.py`` already proves the mapping in
+process against an injected client; this file is the check that the wire
+agrees with it, and it is where success criteria 1-4 of the PVA feature are
+asserted concretely.
 
-Three things about the venue are worth stating plainly, because a green run
+Four things about the venue are worth stating plainly, because a green run
 means nothing without them.
 
-**p4p is the venue's hard requirement.** The module is ``importorskip``-gated,
+**pvapy is the venue's hard requirement.** The module is ``importorskip``-gated,
 and a skipped suite proves nothing at all — which is why
 ``tests/connectors/test_pva_venue_guard.py`` fails the lane on any platform
-where p4p must be importable.
+where pvapy must be importable.
 
-**The server is isolated, and the client is pinned to it.** ``Server(...,
-isolate=True)`` binds to 127.0.0.1 on a randomly chosen port and does not
-beacon off the loopback interface, so concurrent runs of this file — and the
-operator's own IOCs — can never answer for each other. The connector is pointed
-at that port through ``pva_gateway.use_name_server``, which sets
-``EPICS_PVA_NAME_SERVERS``: the client then opens a TCP connection straight to
-the server instead of UDP-searching for it, so no search packet leaves the
-host. The suite-wide ``restore_environ`` fixture puts every ``EPICS_PVA_*``
-variable the connector wrote back after each test.
+**Nothing here talks PVAccess from the pytest process.** pvapy reads
+``EPICS_PVA_*`` when the first PVA channel of a process is created and never
+again, and an xdist worker is shared with every other test it runs; and on
+macOS a thread that used pvapy is suspended forever when it exits. So, as in
+``test_epics_soft_ioc.py``, the server is its own process, and every client
+scenario runs this same file as a script (``python -m
+tests.connectors.test_pva_live_fixture <scenario> <port> <workdir>``) in a
+fresh interpreter, printing its observations as one JSON line. Each scenario
+runs once per module; the tests below assert on what it saw.
+
+**The server is isolated, and the client is pinned to it.** The server binds
+127.0.0.1 on a randomly chosen port (``EPICS_PVAS_INTF_ADDR_LIST``,
+``EPICS_PVAS_SERVER_PORT``) and beacons only to the loopback, so concurrent
+runs of this file — and the operator's own IOCs — can never answer for each
+other. The connector is pointed at that port through
+``pva_gateway.use_name_server``, which sets ``EPICS_PVA_NAME_SERVERS``: the
+client opens a TCP connection straight to the server instead of UDP-searching
+for it, so no search packet leaves the host.
 
 **The Channel Access half of the mixed batch is unreachable on purpose.** Its
 address matches no ``pva_channels`` glob, so it takes the CA path, where no
-server answers it — that is the point. The connectors are built against a
-stand-in pyepics whose channels never connect, so that half sends no Channel
-Access search off the host, and the real libca is never loaded into (nor its
-shutdown hook taken out of) the test process.
+server answers it — that is the point. The scenario's ``EPICS_CA_ADDR_LIST``
+names a loopback port nobody listens on, with auto-addressing off, so that
+half sends no Channel Access search off the host either.
 """
 
-import gc
-from unittest.mock import AsyncMock, patch
+import asyncio
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 
-pytest.importorskip("p4p", reason="p4p is required to serve a live PVAccess fixture")
+pytest.importorskip("pvaccess", reason="pvapy is required to serve a live PVAccess fixture")
 
-from p4p.nt import NTEnum, NTNDArray, NTScalar
-from p4p.server import Server
-from p4p.server.thread import SharedPV
-
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
-from tests.connectors._epics_fakes import (
-    install_fake_pyepics,
-    writes_enabled,  # noqa: F401 - fixture, used by name
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PYTHONPATH = os.pathsep.join(
+    [
+        str(REPO_ROOT),
+        str(REPO_ROOT / "src"),
+        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+    ]
 )
-from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 # The served namespace, kept to one prefix so a single glob routes all of it
 # over PVAccess and nothing else in the suite can collide with it.
@@ -89,10 +101,8 @@ READ_TIMEOUT_S = 5.0
 # The mixed batch and the unserved-address probe each pay this once for the
 # address nobody serves.
 BATCH_TIMEOUT_S = 2.0
-
-# Everything ``connect()`` writes when a PVA gateway is configured, restored
-# when the module's connectors are torn down.
-_PVA_ENV_KEYS = ("EPICS_PVA_NAME_SERVERS", "EPICS_PVA_ADDR_LIST", "EPICS_PVA_AUTO_ADDR_LIST")
+SERVER_READY_TIMEOUT_S = 30.0
+SCENARIO_TIMEOUT_S = 90.0
 
 
 def _gaussian_spot(height: int = FRAME_HEIGHT, width: int = FRAME_WIDTH) -> np.ndarray:
@@ -106,145 +116,338 @@ def _gaussian_spot(height: int = FRAME_HEIGHT, width: int = FRAME_WIDTH) -> np.n
 FRAME = _gaussian_spot()
 
 
-def _scalar_pv() -> SharedPV:
-    """An NTScalar carrying the display fields a metadata-only get asks for.
+def _free_port(kind: int = socket.SOCK_STREAM) -> int:
+    with socket.socket(socket.AF_INET, kind) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
 
-    ``form=True`` is what puts ``precision`` in the display structure — p4p's
-    plain ``display=True`` serves ``format`` instead, and the connector reads
-    ``display.precision``.
+
+def _scrubbed_env() -> dict[str, str]:
+    """This process's environment with every EPICS client/server variable removed."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("EPICS_")}
+
+
+# ---------------------------------------------------------------------------
+# The server: its own process
+# ---------------------------------------------------------------------------
+
+
+def _ndarray(frame: np.ndarray, *, codec: str = "") -> Any:
+    """An NTNDArray carrying ``frame``, optionally tagged with a codec.
+
+    A codec tag is exactly what an ADPva IOC with compression enabled sends;
+    here the payload stays the raw frame, which is all the connector needs to
+    see to refuse it.
     """
-    nt = NTScalar("d", display=True, form=True)
-    return SharedPV(
-        nt=nt,
-        initial=nt.wrap(
+    import pvaccess
+
+    value = pvaccess.NtNdArray()
+    value["value"] = {"ushortValue": frame.flatten()}
+    value["dimension"] = [
+        pvaccess.PvDimension(size, 0, size, 1, False) for size in reversed(frame.shape)
+    ]
+    value["attribute"] = [pvaccess.NtAttribute("ColorMode", pvaccess.PvInt(0))]
+    if codec:
+        value["codec"] = {"name": codec}
+    return value
+
+
+def serve() -> None:
+    """Serve the four channels until killed or orphaned (run in the server process).
+
+    The wait is a sleep loop, not a blocking read of stdin: a server whose
+    main thread sat in ``sys.stdin.read()`` was observed never to answer a
+    single get. Should the test process die without stopping it, the server
+    notices it has been reparented and exits on its own.
+
+    The scalar carries its precision inside ``display.format`` (``"F8.3"``),
+    the way pvapy's own NT servers — and its Channel Access provider — spell it.
+    """
+    import pvaccess
+
+    scalar = pvaccess.NtScalar(pvaccess.DOUBLE, SCALAR_VALUE)
+    scalar["display"] = {
+        "units": SCALAR_UNITS,
+        "format": f"F8.{SCALAR_PRECISION}",
+        "description": SCALAR_DESCRIPTION,
+        "limitLow": SCALAR_LIMITS[0],
+        "limitHigh": SCALAR_LIMITS[1],
+    }
+    server = pvaccess.PvaServer()
+    server.addRecord(SCALAR, scalar)
+    server.addRecord(ENUM, pvaccess.NtEnum(ENUM_CHOICES, ENUM_INDEX))
+    server.addRecord(IMAGE, _ndarray(FRAME))
+    server.addRecord(CODEC, _ndarray(FRAME, codec=CODEC_NAME))
+    print("serving", flush=True)
+    parent = os.getppid()
+    while os.getppid() == parent:
+        time.sleep(0.5)
+    server.stop()
+
+
+class PvaServerProcess:
+    """A pvapy ``PvaServer`` on its own loopback port, in its own process."""
+
+    def __init__(self, log: Path) -> None:
+        self.port = _free_port()
+        env = _scrubbed_env()
+        env.update(
             {
-                "value": SCALAR_VALUE,
-                "display": {
-                    "units": SCALAR_UNITS,
-                    "precision": SCALAR_PRECISION,
-                    "description": SCALAR_DESCRIPTION,
-                    "limitLow": SCALAR_LIMITS[0],
-                    "limitHigh": SCALAR_LIMITS[1],
-                },
+                "PYTHONPATH": PYTHONPATH,
+                "EPICS_PVAS_INTF_ADDR_LIST": "127.0.0.1",
+                "EPICS_PVAS_SERVER_PORT": str(self.port),
+                "EPICS_PVAS_BROADCAST_PORT": str(_free_port(socket.SOCK_DGRAM)),
+                "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
+                "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
             }
-        ),
-    )
+        )
+        self.log = log
+        with log.open("wb") as output:
+            self.process = subprocess.Popen(
+                [sys.executable, "-m", "tests.connectors.test_pva_live_fixture", "serve"],
+                cwd=REPO_ROOT,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+            )
+        self._wait_until_serving()
 
+    def _wait_until_serving(self) -> None:
+        """Wait for the server's own "serving" line.
 
-def _codec_pv() -> SharedPV:
-    """An NTNDArray tagged with a codec, served as a raw ``Value``.
+        Not a TCP connect to the port, which is how ``test_epics_soft_ioc.py``
+        waits for an IOC: a bare connect-and-close was observed to leave the
+        pvapy server answering no get at all afterwards.
+        """
+        deadline = time.monotonic() + SERVER_READY_TIMEOUT_S
+        while time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                raise RuntimeError(
+                    f"PVA server exited with {self.process.returncode}: "
+                    f"{self.log.read_text(errors='replace')}"
+                )
+            if "serving" in self.log.read_text(errors="replace"):
+                return
+            time.sleep(0.1)
+        self.stop()
+        raise RuntimeError(f"PVA server never came up on 127.0.0.1:{self.port}")
 
-    p4p's own ``NTNDArray`` wrapping ignores ``codec`` entirely, so a PV opened
-    with ``nt=NTNDArray()`` would drop the tag on every post and serve a frame
-    that looks uncompressed. Opening the PV on an already-built ``Value`` keeps
-    the tag on the wire, which is what an ADPva IOC with compression enabled
-    actually sends.
-    """
-    value = NTNDArray().wrap(FRAME)
-    value["codec.name"] = CODEC_NAME
-    return SharedPV(initial=value)
+    def stop(self) -> None:
+        self.process.kill()
+        self.process.wait(timeout=10)
 
 
 @pytest.fixture(scope="module")
-def pva_server():
-    """A localhost-only PVAccess server on a random port, serving four channels.
-
-    ``isolate=True`` picks the port and the interface; ``conf()`` reports which,
-    so the connector can be pointed straight at it. Stopped unconditionally, so
-    a failing assertion never leaves a listening socket behind.
-    """
-    server = Server(
-        providers=[
-            {
-                SCALAR: _scalar_pv(),
-                ENUM: SharedPV(nt=NTEnum(), initial={"index": ENUM_INDEX, "choices": ENUM_CHOICES}),
-                IMAGE: SharedPV(nt=NTNDArray(), initial=FRAME),
-                CODEC: _codec_pv(),
-            }
-        ],
-        isolate=True,
-    )
+def pva_server(tmp_path_factory):
+    """The server, stopped unconditionally so no listening socket outlives the module."""
+    server = PvaServerProcess(tmp_path_factory.mktemp("pva_server") / "server.log")
     try:
-        yield server.conf()
+        yield server
     finally:
         server.stop()
 
 
-@pytest.fixture(scope="module")
-def connector_factory(pva_server):
-    """Builds connectors pointed at the live server, and tears every one down.
-
-    Module-scoped on purpose. Every ``connect()`` builds a p4p client context,
-    and a context binds UDP sockets of its own even when it is reaching the
-    server by name server; building and tearing one down per test was observed
-    to fail intermittently with "Unable to bind random UDP6 port" in a full
-    directory run. Two contexts for the module is both faster and steadier, and
-    a connector carries no per-test state — reads do not mutate it.
-
-    Driven with ``asyncio.run`` rather than as an async fixture so the setup and
-    the teardown do not need a module-scoped event loop of their own; the
-    connector's own reads are plain ``asyncio.to_thread`` calls that work in
-    whichever loop a test brings.
-
-    The teardown is not bookkeeping: the PVA client context owns worker threads,
-    and they must be closed deterministically rather than collected at some
-    later moment. The ``EPICS_PVA_*`` variables ``connect()`` writes are put
-    back at the same time, so nothing downstream of this module inherits a
-    pinned name server, and the stand-in pyepics is taken out of
-    ``sys.modules`` again.
-    """
-    import asyncio
-    import os
-
-    saved_env = {key: os.environ.get(key) for key in _PVA_ENV_KEYS}
-    built: list[EPICSConnector] = []
-    patcher = pytest.MonkeyPatch()
-    install_fake_pyepics(patcher)
-
-    def build(timeout: float = READ_TIMEOUT_S) -> EPICSConnector:
-        connector = EPICSConnector()
-        asyncio.run(
-            connector.connect(
-                {
-                    "timeout": timeout,
-                    "pva_channels": [PVA_GLOB],
-                    "pva_gateway": {
-                        "address": "127.0.0.1",
-                        # The TCP port the isolated server listens on. Reached by
-                        # name-server lookup, so the client never broadcasts.
-                        "port": int(pva_server["EPICS_PVAS_SERVER_PORT"]),
-                        "use_name_server": True,
-                    },
-                }
-            )
+def _drive(scenario: str, port: int, workdir: Path) -> dict[str, Any]:
+    """Run one client scenario in a fresh interpreter pointed at ``port`` alone."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    config = workdir / "config.yml"
+    config.write_text(
+        "control_system:\n"
+        "  type: epics\n"
+        "  writes_enabled: true\n"
+        "  limits_checking:\n"
+        "    enabled: false\n"
+    )
+    env = _scrubbed_env()
+    env.update(
+        {
+            "PYTHONPATH": PYTHONPATH,
+            "CONFIG_FILE": str(config),
+            # Channel Access searches go to a loopback port nobody answers on.
+            "EPICS_CA_ADDR_LIST": f"127.0.0.1:{_free_port(socket.SOCK_DGRAM)}",
+            "EPICS_CA_AUTO_ADDR_LIST": "NO",
+        }
+    )
+    env.pop("OSPREY_EXECUTION_MODE", None)
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.connectors.test_pva_live_fixture",
+                scenario,
+                str(port),
+                str(workdir),
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=SCENARIO_TIMEOUT_S,
         )
-        built.append(connector)
-        return connector
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"scenario {scenario} never exited; it printed: {exc.stdout!r}\n{exc.stderr!r}")
+    assert result.returncode == 0, f"scenario {scenario} failed:\n{result.stderr}"
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"scenario {scenario} printed no result:\n{result.stdout}\n{result.stderr}"
+    return json.loads(lines[-1])
+
+
+@pytest.fixture(scope="module")
+def wire(pva_server, tmp_path_factory) -> dict[str, Any]:
+    """Everything the connector saw reading, probing and writing the live server."""
+    return _drive("wire", pva_server.port, tmp_path_factory.mktemp("wire"))
+
+
+@pytest.fixture(scope="module")
+def tool(pva_server, tmp_path_factory) -> dict[str, Any]:
+    """What the ``channel_read`` tool body handed back for the live server."""
+    return _drive("tool", pva_server.port, tmp_path_factory.mktemp("tool"))
+
+
+# ---------------------------------------------------------------------------
+# Scenarios: run in the child interpreter, never in the pytest process.
+# ---------------------------------------------------------------------------
+
+
+async def _connector(port: int, timeout: float = READ_TIMEOUT_S):
+    from osprey_connectors.control_system.epics_connector import EPICSConnector
+
+    connector = EPICSConnector()
+    await connector.connect(
+        {
+            "timeout": timeout,
+            "pva_channels": [PVA_GLOB],
+            "pva_gateway": {
+                "address": "127.0.0.1",
+                # The TCP port the server listens on. Reached by name-server
+                # lookup, so the client never broadcasts.
+                "port": port,
+                "use_name_server": True,
+            },
+        }
+    )
+    return connector
+
+
+async def _raised(call) -> dict[str, Any]:
+    try:
+        await call
+    except Exception as exc:
+        return {"type": type(exc).__name__, "message": str(exc)}
+    return {"type": None, "message": None}
+
+
+def _write(result) -> dict[str, Any]:
+    return {
+        "outcome": str(result.outcome.value),
+        "refusal_reason": result.refusal_reason,
+        "error_message": result.error_message,
+    }
+
+
+async def scenario_wire(port: int, _workdir: Path) -> dict[str, Any]:
+    connector = await _connector(port)
+    short = await _connector(port, timeout=BATCH_TIMEOUT_S)
+    try:
+        scalar = await connector.read_channel(SCALAR)
+        enum = await connector.read_channel(ENUM)
+        image = await connector.read_channel(IMAGE)
+        scalar_meta = await connector.get_metadata(SCALAR)
+        image_meta = await connector.get_metadata(IMAGE)
+        return {
+            "scalar": {
+                "value": scalar.value,
+                "units": scalar.metadata.units,
+                "precision": scalar.metadata.precision,
+                "raw": scalar.metadata.raw_metadata,
+            },
+            "enum": {
+                "value": enum.value,
+                "value_is_str": isinstance(enum.value, str),
+                "label": enum.metadata.enum_label,
+                "labels": enum.metadata.enum_labels,
+                "raw": enum.metadata.raw_metadata,
+            },
+            "image": {
+                "is_ndarray": isinstance(image.value, np.ndarray),
+                "dtype": str(image.value.dtype),
+                "shape": list(image.value.shape),
+                "equals_frame": bool(np.array_equal(image.value, FRAME)),
+                "raw": image.metadata.raw_metadata,
+            },
+            "codec": await _raised(connector.read_channel(CODEC)),
+            "scalar_meta": {
+                "units": scalar_meta.units,
+                "precision": scalar_meta.precision,
+                "description": scalar_meta.description,
+                "display_low": scalar_meta.display_low,
+                "display_high": scalar_meta.display_high,
+            },
+            "image_meta_raw": image_meta.raw_metadata,
+            "valid": {
+                "scalar": await connector.validate_channel(SCALAR),
+                "codec": await connector.validate_channel(CODEC),
+                "unserved": await short.validate_channel(UNSERVED),
+            },
+            "writes": {
+                "scalar": _write(await connector.write_channel(SCALAR, 99.0)),
+                "array": _write(
+                    await connector.write_channel(SCALAR, np.zeros(4, dtype=np.uint16))
+                ),
+            },
+            "scalar_after_writes": (await connector.read_channel(SCALAR)).value,
+        }
+    finally:
+        await connector.disconnect()
+        await short.disconnect()
+
+
+async def scenario_tool(port: int, workdir: Path) -> dict[str, Any]:
+    """Drive the real ``channel_read`` tool body against live connectors."""
+    from unittest.mock import AsyncMock, patch
+
+    from osprey.mcp_server.control_system.server_context import initialize_server_context
+    from osprey.mcp_server.control_system.tools.channel_read import channel_read
+    from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
+    from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
+
+    os.chdir(workdir)
+    initialize_server_context()
+    initialize_artifact_store(workspace_root=workdir / "agent_data")
+    connector = await _connector(port)
+    short = await _connector(port, timeout=BATCH_TIMEOUT_S)
+
+    async def read(target, channels: list[str]) -> dict[str, Any]:
+        with (
+            patch(
+                "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+                new_callable=AsyncMock,
+                return_value=target,
+            ),
+            patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
+        ):
+            result = await get_tool_fn(channel_read)(channels=channels)
+        return extract_response_dict(result)
 
     try:
-        yield build
+        batch = await read(short, [SCALAR, CA_UNREACHABLE, ENUM])
+        frame = await read(connector, [IMAGE])
+        entry = frame["summary"]["readings"][IMAGE]
+        path = Path(get_artifact_store().repo_root) / entry.get("data_file", "missing")
+        persisted: dict[str, Any] = {"exists": path.exists()}
+        if path.exists():
+            loaded = np.load(path)
+            persisted.update(
+                dtype=str(loaded.dtype),
+                shape=list(loaded.shape),
+                equals_frame=bool(np.array_equal(loaded, FRAME)),
+            )
+        return {"batch": batch, "frame_entry": entry, "persisted": persisted}
     finally:
-        for connector in built:
-            asyncio.run(connector.disconnect())
-        gc.collect()
-        patcher.undo()
-        for key, value in saved_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-
-@pytest.fixture(scope="module")
-def connector(connector_factory):
-    """One connected connector, shared by every read this module makes."""
-    return connector_factory()
-
-
-@pytest.fixture(scope="module")
-def batch_connector(connector_factory):
-    """A second connector on a short timeout, for the addresses nobody answers."""
-    return connector_factory(timeout=BATCH_TIMEOUT_S)
+        await connector.disconnect()
+        await short.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -255,29 +458,29 @@ def batch_connector(connector_factory):
 class TestLiveReads:
     """Every normative type the connector claims to map, read off the wire."""
 
-    async def test_ntscalar_returns_its_value(self, connector):
-        """A PVA-only read answers with the number, and does not time out."""
-        reading = await connector.read_channel(SCALAR)
+    def test_ntscalar_returns_its_value(self, wire):
+        """A PVA-only read answers with the number, its units and its precision."""
+        scalar = wire["scalar"]
 
-        assert reading.value == pytest.approx(SCALAR_VALUE)
-        assert reading.metadata.raw_metadata["nt_id"] == "epics:nt/NTScalar:1.0"
-        assert reading.metadata.units == SCALAR_UNITS
-        assert reading.metadata.precision == SCALAR_PRECISION
+        assert scalar["value"] == pytest.approx(SCALAR_VALUE)
+        assert scalar["raw"]["provider"] == "pva"
+        assert scalar["raw"]["nt_type"] is None  # a scalar, mapped as one
+        assert scalar["units"] == SCALAR_UNITS
+        assert scalar["precision"] == SCALAR_PRECISION  # from display.format
 
-    async def test_ntenum_reads_as_the_index_with_its_label(self, connector):
+    def test_ntenum_reads_as_the_index_with_its_label(self, wire):
         """An operator reading a state channel gets 1 *and* "Open"."""
-        reading = await connector.read_channel(ENUM)
+        enum = wire["enum"]
 
-        assert reading.value == ENUM_INDEX
-        assert not isinstance(reading.value, str)
-        assert reading.metadata.enum_label == ENUM_CHOICES[ENUM_INDEX]
-        assert reading.metadata.enum_labels == ENUM_CHOICES
-        raw = reading.metadata.raw_metadata
-        assert raw["nt_id"] == "epics:nt/NTEnum:1.0"
-        assert raw["enum_index"] == ENUM_INDEX
-        assert raw["enum_choices"] == ENUM_CHOICES
+        assert enum["value"] == ENUM_INDEX
+        assert enum["value_is_str"] is False
+        assert enum["label"] == ENUM_CHOICES[ENUM_INDEX]
+        assert enum["labels"] == ENUM_CHOICES
+        assert enum["raw"]["nt_type"] == "NTEnum"
+        assert enum["raw"]["enum_index"] == ENUM_INDEX
+        assert enum["raw"]["enum_choices"] == ENUM_CHOICES
 
-    async def test_ntndarray_returns_the_served_frame(self, connector):
+    def test_ntndarray_returns_the_served_frame(self, wire):
         """The frame arrives unsigned, reshaped rows-by-columns, pixel for pixel.
 
         The shape assertion is the row/column order: the server sent dimensions
@@ -285,34 +488,33 @@ class TestLiveReads:
         order rather than reversing it would hand back a (64, 48) array of the
         same 3072 pixels — a plausible image with its rows and columns swapped.
         """
-        reading = await connector.read_channel(IMAGE)
+        image = wire["image"]
 
-        assert isinstance(reading.value, np.ndarray)
-        assert reading.value.dtype == np.uint16
-        assert reading.value.shape == (FRAME_HEIGHT, FRAME_WIDTH)
-        np.testing.assert_array_equal(reading.value, FRAME)
+        assert image["is_ndarray"] is True
+        assert image["dtype"] == "uint16"
+        assert image["shape"] == [FRAME_HEIGHT, FRAME_WIDTH]
+        assert image["equals_frame"] is True
 
-    async def test_ntndarray_raw_metadata_reports_the_wire_layout(self, connector):
+    def test_ntndarray_raw_metadata_reports_the_wire_layout(self, wire):
         """NT dimensions stay innermost-first; the numpy shape is the reverse."""
-        reading = await connector.read_channel(IMAGE)
+        raw = wire["image"]["raw"]
 
-        raw = reading.metadata.raw_metadata
-        assert raw["nt_id"] == "epics:nt/NTNDArray:1.0"
+        assert raw["nt_type"] == "NTNDArray"
         assert raw["dtype"] == "uint16"
         assert raw["dimensions"] == [FRAME_WIDTH, FRAME_HEIGHT]
         assert raw["shape"] == [FRAME_HEIGHT, FRAME_WIDTH]
         assert raw["codec"] == ""
+        assert raw["color_mode"] == 0
 
-    async def test_compressed_frame_is_refused_with_the_remedy(self, connector):
+    def test_compressed_frame_is_refused_with_the_remedy(self, wire):
         """A codec-tagged frame raises rather than reshaping a compressed blob."""
-        with pytest.raises(ValueError) as excinfo:
-            await connector.read_channel(CODEC)
+        raised = wire["codec"]
 
-        message = str(excinfo.value)
-        assert "compressed NTNDArray unsupported" in message
-        assert "disable ADPva compression" in message
-        assert CODEC_NAME in message
-        assert CODEC in message
+        assert raised["type"] == "ValueError"
+        assert "compressed NTNDArray unsupported" in raised["message"]
+        assert "disable ADPva compression" in raised["message"]
+        assert CODEC_NAME in raised["message"]
+        assert CODEC in raised["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -323,48 +525,49 @@ class TestLiveReads:
 class TestMetadataAndValidation:
     """What the connector learns without reading a payload."""
 
-    async def test_get_metadata_maps_the_display_structure(self, connector):
+    def test_get_metadata_maps_the_display_structure(self, wire):
         """The field-limited get comes back with the display fields intact.
 
         The connector asks for ``field(alarm,timeStamp,display)`` and never
         falls back to a full get, so everything asserted here travelled in a
         reply that carried no value — which is the point on a camera channel.
         """
-        metadata = await connector.get_metadata(SCALAR)
+        meta = wire["scalar_meta"]
 
-        assert metadata.units == SCALAR_UNITS
-        assert metadata.precision == SCALAR_PRECISION
-        assert metadata.description == SCALAR_DESCRIPTION
-        assert metadata.display_low == pytest.approx(SCALAR_LIMITS[0])
-        assert metadata.display_high == pytest.approx(SCALAR_LIMITS[1])
+        assert meta["units"] == SCALAR_UNITS
+        assert meta["precision"] == SCALAR_PRECISION
+        assert meta["description"] == SCALAR_DESCRIPTION
+        assert meta["display_low"] == pytest.approx(SCALAR_LIMITS[0])
+        assert meta["display_high"] == pytest.approx(SCALAR_LIMITS[1])
 
-    async def test_metadata_of_a_frame_channel_costs_no_frame(self, connector):
+    def test_metadata_of_a_frame_channel_costs_no_frame(self, wire):
         """A camera channel answers a metadata lookup out of its header alone."""
-        metadata = await connector.get_metadata(IMAGE)
+        raw = wire["image_meta_raw"]
 
-        assert metadata.raw_metadata["nt_id"] == "epics:nt/NTNDArray:1.0"
+        assert raw["provider"] == "pva"
         # The payload branches never ran: no dtype, no dimensions, no shape.
-        assert "dimensions" not in metadata.raw_metadata
-        assert "shape" not in metadata.raw_metadata
+        assert "dimensions" not in raw
+        assert "shape" not in raw
+        assert "dtype" not in raw
 
-    async def test_validate_channel_is_true_for_a_served_address(self, connector):
-        assert await connector.validate_channel(SCALAR) is True
+    def test_validate_channel_is_true_for_a_served_address(self, wire):
+        assert wire["valid"]["scalar"] is True
 
-    async def test_validate_channel_is_false_for_an_unserved_address(self, batch_connector):
+    def test_validate_channel_is_false_for_an_unserved_address(self, wire):
         """A PVA-globbed address nobody serves is not reachable.
 
         The probe waits out the connector's whole timeout, so it runs on the
         short-timeout connector.
         """
-        assert await batch_connector.validate_channel(UNSERVED) is False
+        assert wire["valid"]["unserved"] is False
 
-    async def test_a_compressed_channel_still_validates(self, connector):
+    def test_a_compressed_channel_still_validates(self, wire):
         """Reachability is a property of the channel, not of its payload.
 
         Reading this address raises; validating it must not, or an operator
         would be told a camera that is plainly on the network does not exist.
         """
-        assert await connector.validate_channel(CODEC) is True
+        assert wire["valid"]["codec"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -372,28 +575,21 @@ class TestMetadataAndValidation:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("writes_enabled")
 class TestWriteRefusal:
     """A PVA-routed address is read-only, whatever the value's shape."""
 
-    @pytest.mark.parametrize(
-        "value",
-        [pytest.param(99.0, id="scalar"), pytest.param(np.zeros(4, dtype=np.uint16), id="array")],
-    )
-    async def test_write_is_refused_before_the_network(self, connector, value):
-        result = await connector.write_channel(SCALAR, value)
+    @pytest.mark.parametrize("kind", ["scalar", "array"])
+    def test_write_is_refused_before_the_network(self, wire, kind):
+        result = wire["writes"][kind]
 
-        assert result.outcome is WriteOutcome.REFUSED
-        assert result.refusal_reason == "VALIDATION_ERROR"
-        assert "PVAccess writes are not supported" in result.error_message
-        assert "No write was attempted." in result.error_message
+        assert result["outcome"] == "refused"
+        assert result["refusal_reason"] == "VALIDATION_ERROR"
+        assert "PVAccess writes are not supported" in result["error_message"]
+        assert "No write was attempted." in result["error_message"]
 
-    async def test_the_served_value_is_untouched_by_a_refused_write(self, connector):
+    def test_the_served_value_is_untouched_by_a_refused_write(self, wire):
         """The refusal's claim that no write was attempted, checked at the server."""
-        await connector.write_channel(SCALAR, 99.0)
-
-        reading = await connector.read_channel(SCALAR)
-        assert reading.value == pytest.approx(SCALAR_VALUE)
+        assert wire["scalar_after_writes"] == pytest.approx(SCALAR_VALUE)
 
 
 # ---------------------------------------------------------------------------
@@ -401,64 +597,12 @@ class TestWriteRefusal:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def tool_singletons():
-    """Reset the process-wide MCP singletons around a tool-body test.
-
-    The server context, the artifact store and the config caches all outlive a
-    test. Resetting on both sides keeps a store rooted at a deleted ``tmp_path``
-    from leaking into whatever runs next in this directory.
-    """
-    import osprey.utils.config as config_module
-    from osprey.mcp_server.control_system.server_context import reset_server_context
-    from osprey.stores.artifact_store import reset_artifact_store
-    from osprey.utils.workspace import reset_config_cache
-
-    def reset_all():
-        reset_server_context()
-        reset_artifact_store()
-        reset_config_cache()
-        config_module._config_cache.clear()
-
-    reset_all()
-    yield
-    reset_all()
-
-
-async def _read_through_the_tool(tmp_path, monkeypatch, connector, channels: list[str]) -> dict:
-    """Drive the real ``channel_read`` tool body against the live connector."""
-    from osprey.mcp_server.control_system.server_context import initialize_server_context
-    from osprey.mcp_server.control_system.tools.channel_read import channel_read
-    from osprey.stores.artifact_store import initialize_artifact_store
-
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: epics\n")
-    initialize_server_context()
-    initialize_artifact_store(workspace_root=tmp_path / "agent_data")
-
-    with (
-        patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
-            new_callable=AsyncMock,
-            return_value=connector,
-        ),
-        patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
-    ):
-        result = await get_tool_fn(channel_read)(channels=channels)
-    return extract_response_dict(result)
-
-
-@pytest.mark.usefixtures("tool_singletons")
 class TestThroughTheToolBody:
     """What the agent is handed when the reads come off a real PVA server."""
 
-    async def test_mixed_batch_reports_the_unreachable_address(
-        self, tmp_path, monkeypatch, batch_connector
-    ):
+    def test_mixed_batch_reports_the_unreachable_address(self, tool):
         """One dead CA address does not cost the batch its PVA readings."""
-        data = await _read_through_the_tool(
-            tmp_path, monkeypatch, batch_connector, [SCALAR, CA_UNREACHABLE, ENUM]
-        )
+        data = tool["batch"]
 
         assert data["status"] == "success"
         readings = data["summary"]["readings"]
@@ -475,11 +619,9 @@ class TestThroughTheToolBody:
         assert CA_UNREACHABLE in failures[CA_UNREACHABLE]
         assert failures[CA_UNREACHABLE].startswith("ConnectionError:")
 
-    async def test_the_frame_takes_the_artifact_path(self, tmp_path, monkeypatch, connector):
+    def test_the_frame_takes_the_artifact_path(self, tool):
         """3072 pixels are over the inline budget, so the value is withheld."""
-        data = await _read_through_the_tool(tmp_path, monkeypatch, connector, [IMAGE])
-
-        entry = data["summary"]["readings"][IMAGE]
+        entry = tool["frame_entry"]
 
         assert "value" not in entry
         assert entry["value_withheld"] is True
@@ -490,19 +632,24 @@ class TestThroughTheToolBody:
         assert entry["artifact_id"]
         assert entry["data_file"].endswith(".npy")
 
-    async def test_the_persisted_frame_round_trips_exactly(self, tmp_path, monkeypatch, connector):
+    def test_the_persisted_frame_round_trips_exactly(self, tool):
         """``np.load(data_file)`` gives back the machine's own pixels, unsigned."""
-        from pathlib import Path
+        persisted = tool["persisted"]
 
-        from osprey.stores.artifact_store import get_artifact_store
+        assert persisted["exists"] is True, tool["frame_entry"]
+        assert persisted["dtype"] == "uint16"
+        assert persisted["shape"] == [FRAME_HEIGHT, FRAME_WIDTH]
+        assert persisted["equals_frame"] is True
 
-        data = await _read_through_the_tool(tmp_path, monkeypatch, connector, [IMAGE])
-        entry = data["summary"]["readings"][IMAGE]
 
-        path = Path(get_artifact_store().repo_root) / entry["data_file"]
-        assert path.exists(), entry["data_file"]
-        loaded = np.load(path)
+async def _main(scenario: str, port: int, workdir: Path) -> None:
+    """Run one scenario and print its result before the loop and process wind down."""
+    result = await globals()[f"scenario_{scenario}"](port, workdir)
+    print(json.dumps(result, default=str), flush=True)
 
-        assert loaded.dtype == np.uint16
-        assert loaded.shape == (FRAME_HEIGHT, FRAME_WIDTH)
-        np.testing.assert_array_equal(loaded, FRAME)
+
+if __name__ == "__main__":
+    if sys.argv[1] == "serve":
+        serve()
+    else:
+        asyncio.run(_main(sys.argv[1], int(sys.argv[2]), Path(sys.argv[3])))

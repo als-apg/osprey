@@ -854,7 +854,7 @@ def test_the_import_closure_never_reaches_a_control_system_client():
     )
     probe = (
         "import osprey_connectors.ipc.pool, os, sys; "
-        "loaded = [m for m in ('epics', 'pyepics', 'p4p') if m in sys.modules]; "
+        "loaded = [m for m in ('pvaccess', 'epics', 'pyepics', 'p4p') if m in sys.modules]; "
         "env = [k for k in os.environ if k.startswith(('EPICS_', 'PYEPICS_'))]; "
         "print(loaded, env); "
         "sys.exit(1 if loaded or env else 0)"

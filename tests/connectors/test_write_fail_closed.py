@@ -2,11 +2,15 @@
 
 Task 1.3: a validation error other than a limits violation must REFUSE the
 write (outcome=WriteOutcome.REFUSED, refusal_reason="VALIDATION_ERROR") and
-never issue a caput. A ChannelLimitsViolationError still propagates unchanged,
-and an error raised by the caput itself (e.g. ConnectionError) propagates
-untouched — it is a genuine failure, not a refusal. The one caput error that
-IS a refusal is the control system's own denial; see
+never issue a put. A ChannelLimitsViolationError still propagates unchanged,
+and an error raised by the put itself (an unreachable channel, or any pvapy
+failure the connector does not recognize) propagates — it is a genuine
+failure whose outcome is unknown, not a refusal. The one put error that IS a
+refusal is the control system's own denial; see
 test_control_system_refused.py.
+
+The connector holds a fake ``pvaccess`` module (``tests/connectors/_write_fakes.py``);
+``connector._pvaccess.calls("put")`` is every put it issued.
 """
 
 import threading
@@ -16,6 +20,7 @@ import pytest
 
 from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey.errors import ChannelLimitsViolationError
+from tests.connectors._epics_fakes import FakePvaException, timed_out
 from tests.connectors._write_fakes import make_mock_epics_connector as _make_connector
 from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
 
@@ -23,7 +28,7 @@ from tests.connectors._write_fakes import writes_enabled_config as _writes_enabl
 class TestFailClosedValidation:
     @pytest.mark.asyncio
     async def test_non_limits_validation_error_refuses_write(self):
-        """A non-limits exception from validate() refuses the write; caput never runs."""
+        """A non-limits exception from validate() refuses the write; no put is issued."""
         connector = _make_connector(validate_side_effect=RuntimeError("boom"))
 
         with patch(
@@ -37,7 +42,7 @@ class TestFailClosedValidation:
         assert result.refusal_reason == "VALIDATION_ERROR"
         assert "TEST:PV" in result.error_message
         # The write must NEVER have been issued.
-        connector._epics.caput.assert_not_called()
+        assert connector._pvaccess.calls("put") == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -48,9 +53,9 @@ class TestFailClosedValidation:
         ],
         ids=["max_value", "max_step"],
     )
-    async def test_limits_violation_propagates_without_caput(self, violation_type, value, reason):
-        """A ChannelLimitsViolationError raised inside the validate+caput offload
-        propagates out of write_channel unchanged, and caput never runs.
+    async def test_limits_violation_propagates_without_a_put(self, violation_type, value, reason):
+        """A ChannelLimitsViolationError raised inside the validation offload
+        propagates out of write_channel unchanged, and no put is issued.
 
         ``max_step`` is not skipped by the offload: it raises from the same
         thread hop a ``max_value`` violation does.
@@ -72,40 +77,57 @@ class TestFailClosedValidation:
 
         assert raised.value is violation
         connector._limits_validator.validate.assert_called_once()
-        connector._epics.caput.assert_not_called()
+        assert connector._pvaccess.calls("put") == []
 
     @pytest.mark.asyncio
-    async def test_caput_connection_error_propagates_not_refused(self):
-        """validate passes but caput raises ConnectionError → it propagates.
+    async def test_an_unreachable_channel_on_put_propagates_not_refused(self):
+        """validate passes but the put times out → ConnectionError propagates.
 
-        Regression guard: a caput-raised error must NOT be swallowed into a
+        Regression guard: a put-raised error must NOT be swallowed into a
         refusal ChannelWriteResult. It is a genuine write failure and must
-        surface as the raised exception.
+        surface as the raised exception — as the stdlib ConnectionError, the
+        word the MCP error envelope and connector invalidation key on.
         """
-        connector = _make_connector(caput_side_effect=ConnectionError("gateway down"))
+        connector = _make_connector(put_error=timed_out("TEST:PV"))
 
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(ConnectionError, match="TEST:PV"):
                 await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
-        # validate passed and the caput was actually attempted.
+        # validate passed and the put was actually attempted.
         connector._limits_validator.validate.assert_called_once()
-        connector._epics.caput.assert_called_once()
+        assert len(connector._pvaccess.calls("put")) == 1
+
+    @pytest.mark.asyncio
+    async def test_an_unrecognized_put_error_propagates_unchanged(self):
+        """A pvapy failure the classifier does not name is neither a refusal nor
+        a connection error: the outcome is unknown, so it is raised as it came."""
+        error = FakePvaException("channel TEST:PV PvaClientPut::put something else")
+        connector = _make_connector(put_error=error)
+
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_writes_enabled_config,
+        ):
+            with pytest.raises(FakePvaException) as raised:
+                await connector.write_channel("TEST:PV", 42.0, confirm=False)
+
+        assert raised.value is error
 
 
 class TestNonBlockingOffload:
-    """Task 2.1: validate()+caput run in ONE thread offload so a caller on the
-    event loop is never stalled by the blocking caget that max_step performs.
+    """Task 2.1: validate() runs off the event loop, so a caller on the loop is
+    never stalled by the blocking read that max_step performs.
     """
 
     @pytest.mark.asyncio
     async def test_validate_runs_off_the_event_loop(self):
         """A blocking validate() runs on a worker thread, not the event loop.
 
-        max_step's fresh read is a blocking caget; if validate() ran on the
+        max_step's fresh read is a blocking pvapy get; if validate() ran on the
         loop thread it would stall every other coroutine for its duration.
         Recording the thread validate() runs on pins the offload directly.
         """

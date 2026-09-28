@@ -1,7 +1,7 @@
 """Shared fakes for the write-path and write-posture tests.
 
-One recording connector, one config-reader shape and one mocked
-``EPICSConnector`` builder, so the files that pin the write guard do not each
+One recording connector, one config-reader shape and one ``EPICSConnector``
+builder over a fake ``pvaccess`` module, so the files that pin the write guard do not each
 carry their own byte-equivalent copy.
 """
 
@@ -99,23 +99,30 @@ class RecordingConnector(ControlSystemConnector):
 
 def make_mock_epics_connector(
     *,
+    channel: str = "TEST:PV",
     validate_side_effect: Any = None,
-    caput_side_effect: Any = None,
-    caput_return: Any = True,
-    ca_severity_exception: type[BaseException] | None = None,
+    put_error: BaseException | None = None,
 ) -> EPICSConnector:
-    """An ``EPICSConnector`` wired with a mock epics module and limits validator.
+    """An ``EPICSConnector`` wired with a fake ``pvaccess`` module and a mock validator.
 
-    Bypasses ``connect()`` (which imports pyepics) by setting the attributes
-    the write path depends on directly. ``ca_severity_exception``, when given,
-    is attached at ``ca.CASeverityException`` on the mock module, which is
-    where the connector resolves the access-denied class from.
+    Bypasses ``connect()`` by setting the attributes the write path depends on
+    directly. The fake serves ``channel`` (so a put reaches it and a
+    confirming read answers), and ``put_error``, when given, is what its put
+    raises. Every put the connector issued is in
+    ``connector._pvaccess.calls("put")``.
     """
+    from tests.connectors._epics_fakes import FakePvaccess, record
+
+    pvaccess = FakePvaccess()
+    pvaccess.serve(channel, record(0.0))
+    if put_error is not None:
+
+        def _raise(_value: Any, _request: str | None) -> None:
+            raise put_error
+
+        pvaccess.put_hooks[channel] = _raise
     connector = EPICSConnector()
-    connector._epics = MagicMock()
-    connector._epics.caput = MagicMock(side_effect=caput_side_effect, return_value=caput_return)
-    if ca_severity_exception is not None:
-        connector._epics.ca.CASeverityException = ca_severity_exception
+    connector._pvaccess = pvaccess
     connector._limits_validator = MagicMock()
     connector._limits_validator.validate = MagicMock(side_effect=validate_side_effect)
     connector._timeout = 5.0

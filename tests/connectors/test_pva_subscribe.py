@@ -1,108 +1,74 @@
-"""PVA subscriptions: monitor lifecycle, callback marshaling and sentinel filtering.
+"""PVA subscriptions: monitor lifecycle, callback marshaling and undecodable updates.
 
-Task 1.1 decided WHICH transport an address uses and task 1.2 mapped a p4p
-``Value`` onto :class:`ChannelValue`; this file covers the third path into that
-mapping — a p4p monitor, which differs from a read in three ways that matter:
+Routing decided WHICH transport an address uses and the read mapping turned a
+pvapy ``PvObject`` into a :class:`ChannelValue`; this file covers the third
+path into that mapping — a pvapy monitor, which differs from a read in ways
+that matter:
 
-* its updates arrive on p4p's worker thread, so the subscriber callback has to
-  be handed to the event loop rather than called where the update landed;
-* p4p delivers connection state (``Disconnected`` and friends) to the same
-  callback, *as a value*, so anything that is an exception instance has to be
-  filtered before it can be mistaken for channel data;
-* raising inside a monitor callback makes p4p close the subscription, so a
-  value the mapping cannot decode (a compressed NTNDArray, say) must be dropped
-  rather than propagated.
+* it runs on a ``Channel`` of its own (a pvapy Channel runs one monitor), so a
+  subscription never borrows the connector's shared read channel;
+* its updates arrive on pvapy's monitor thread, so the subscriber callback has
+  to be handed to the event loop rather than called where the update landed;
+* a value the mapping cannot decode (a compressed NTNDArray, say) must be
+  dropped with a log line rather than raised into pvapy's dispatcher.
 
-Teardown is asserted on both transports together: a p4p ``Subscription`` has no
-``clear_callbacks`` and a pyepics ``PV`` has no ``close``, so the connector
-stores every subscription behind one ``_ChannelSubscription`` wrapper and
-dispatches there. The fakes below are deliberately strict — no ``MagicMock``
-for the handles — so calling the wrong teardown method raises instead of
-silently recording a call that would never work against a real library.
+Both transports are pvapy monitors now, torn down the same way: ``stopMonitor``
+and then ``unsubscribe`` of the one named subscriber. The fake ``pvaccess``
+module (``tests/connectors/_epics_fakes.py``) records both, so a teardown that
+skipped either is visible.
 """
 
 import asyncio
 import threading
-from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 from osprey.connectors.control_system.epics_connector import (
+    EPICSConnector,
     _ChannelSubscription,
 )
-from tests.connectors._epics_fakes import FakeDisconnected, FakeRemoteError, FakeValue
-from tests.connectors._epics_fakes import pva_connector as _pva_connector
+from tests.connectors._epics_fakes import (
+    CA_DISPLAY_REQUEST,
+    CA_READ_REQUEST,
+    PVA_READ_REQUEST,
+    FakePvaccess,
+    ndarray_record,
+    pva_connector,
+    record,
+    timed_out,
+)
 
-PVA_GLOB = "SR:CAM*:IMAGE"
 PVA_ADDRESS = "SR:CAM1:IMAGE"
 CA_ADDRESS = "SR:BEAM:CURRENT"
 
 
-# ---------------------------------------------------------------------------
-# Fakes
-# ---------------------------------------------------------------------------
+def _connector() -> EPICSConnector:
+    """A PVA-capable connector serving one PVA and one CA address."""
+    pvaccess = FakePvaccess()
+    pvaccess.serve(PVA_ADDRESS, record(1.5, units="mA"))
+    pvaccess.serve(CA_ADDRESS, record(0.5, units="A"))
+    return pva_connector(pvaccess)
 
 
-class FakeSubscription:
-    """A p4p ``Subscription`` stand-in: it can be closed, and nothing else.
-
-    Deliberately has NO ``clear_callbacks`` — that is the pyepics spelling, and
-    calling it here must fail loudly rather than pass a mock assertion.
-    """
-
-    def __init__(self) -> None:
-        self.close_calls = 0
-
-    def close(self) -> None:
-        self.close_calls += 1
+def _monitor(connector: EPICSConnector, sub_id: str):
+    """The fake Channel a subscription's monitor runs on."""
+    return connector._subscriptions[sub_id].channel
 
 
-class FakeMonitorContext:
-    """A p4p thread ``Context`` whose ``monitor`` records and hands back a handle."""
-
-    def __init__(self) -> None:
-        self.calls: list[dict] = []
-        self.subscriptions: list[FakeSubscription] = []
-
-    def monitor(self, name, cb, **kwargs):
-        self.calls.append({"name": name, "cb": cb, **kwargs})
-        subscription = FakeSubscription()
-        self.subscriptions.append(subscription)
-        return subscription
-
-    def fire(self, update, index: int = 0) -> None:
-        """Deliver one update the way p4p's worker thread would."""
-        self.calls[index]["cb"](update)
-
-
-def _scalar_update(value=1.5) -> FakeValue:
-    """An NTScalar update carrying a value, units and a timestamp."""
-    return FakeValue(
-        "epics:nt/NTScalar:1.0",
-        {
-            "value": value,
-            "timeStamp": {"secondsPastEpoch": 1_700_000_000, "nanoseconds": 0},
-            "display": {"units": "mA"},
-        },
-    )
-
-
-def _compressed_frame() -> FakeValue:
+def _compressed_frame() -> dict:
     """A codec-tagged NTNDArray — the mapping refuses these with a ValueError."""
-    return FakeValue(
-        "epics:nt/NTNDArray:1.0",
-        {
-            "codec": {"name": "jpeg"},
-            "dimension": [FakeValue("", {"size": 64}), FakeValue("", {"size": 48})],
-            "value": b"compressed-blob",
-        },
-    )
+    return ndarray_record(np.zeros(7, dtype=np.uint8), [64, 48], member="ubyteValue", codec="jpeg")
 
 
 def _recording_loop(monkeypatch) -> list[tuple]:
-    """Capture ``call_soon_threadsafe`` on the running loop instead of running it."""
+    """Capture ``call_soon_threadsafe`` on the running loop instead of running it.
+
+    Installed only after ``subscribe`` has returned: the connector's own
+    offload hands its result back through the same method.
+    """
     calls: list[tuple] = []
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     monkeypatch.setattr(loop, "call_soon_threadsafe", lambda fn, *args: calls.append((fn, args)))
     return calls
 
@@ -114,45 +80,74 @@ def _recording_loop(monkeypatch) -> list[tuple]:
 
 class TestSubscribeRouting:
     @pytest.mark.asyncio
-    async def test_pva_address_opens_a_monitor_and_no_ca_pv(self):
-        context = FakeMonitorContext()
-        epics = MagicMock()
-        connector = _pva_connector(context=context, epics=epics)
+    async def test_pva_address_opens_a_pva_monitor_and_no_ca_channel(self):
+        connector = _connector()
 
         sub_id = await connector.subscribe(PVA_ADDRESS, lambda v: None)
 
-        assert [call["name"] for call in context.calls] == [PVA_ADDRESS]
-        epics.PV.assert_not_called()  # no Channel Access connection was made
+        pvaccess = connector._pvaccess
+        (started,) = pvaccess.calls("startMonitor")
+        assert (started["address"], started["provider"]) == (PVA_ADDRESS, "PVA")
+        assert started["request"] == PVA_READ_REQUEST
+        assert pvaccess.calls(provider="CA") == []  # no Channel Access connection was made
         assert sub_id.startswith(f"{PVA_ADDRESS}_")
-        assert connector._subscriptions[sub_id].kind == "pva"
-        assert connector._subscriptions[sub_id].handle is context.subscriptions[0]
+        assert _monitor(connector, sub_id).subscribers.keys() == {
+            connector._subscriptions[sub_id].name
+        }
 
     @pytest.mark.asyncio
-    async def test_ca_address_on_a_pva_capable_connector_still_uses_pyepics(self):
-        context = FakeMonitorContext()
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _pva_connector(context=context, epics=epics)
+    async def test_ca_address_on_a_pva_capable_connector_monitors_over_ca(self):
+        connector = _connector()
 
         sub_id = await connector.subscribe(CA_ADDRESS, lambda v: None)
 
-        assert context.calls == []  # PVA client untouched
-        assert epics.PV.call_args.args == (CA_ADDRESS,)
+        pvaccess = connector._pvaccess
+        (started,) = pvaccess.calls("startMonitor")
+        assert (started["address"], started["provider"]) == (CA_ADDRESS, "CA")
+        assert started["request"] == CA_READ_REQUEST
+        # Its display metadata is fetched up front, never on pvapy's callback thread.
+        assert len(pvaccess.calls("get", request=CA_DISPLAY_REQUEST)) == 1
+        assert pvaccess.calls(provider="PVA") == []
         assert sub_id.startswith(f"{CA_ADDRESS}_")
-        assert connector._subscriptions[sub_id].kind == "ca"
-        assert connector._subscriptions[sub_id].handle is pv
 
     @pytest.mark.asyncio
-    async def test_subscribe_without_a_context_is_a_connection_error(self):
-        connector = _pva_connector(context=None)
+    async def test_each_subscription_gets_its_own_channel(self):
+        """A pvapy Channel runs one monitor: two subscriptions, two Channels."""
+        connector = _connector()
+
+        first = await connector.subscribe(PVA_ADDRESS, lambda v: None)
+        second = await connector.subscribe(PVA_ADDRESS, lambda v: None)
+
+        assert first != second
+        assert _monitor(connector, first) is not _monitor(connector, second)
+
+    @pytest.mark.asyncio
+    async def test_subscribe_without_a_client_is_a_connection_error(self):
+        connector = pva_connector()
+        connector._pvaccess = None
 
         with pytest.raises(ConnectionError) as excinfo:
             await connector.subscribe(PVA_ADDRESS, lambda v: None)
 
         assert PVA_ADDRESS in str(excinfo.value)
-        assert "pva_channels" in str(excinfo.value)
         assert connector._subscriptions == {}
+
+    @pytest.mark.asyncio
+    async def test_a_monitor_that_cannot_start_is_a_connection_error_and_released(self):
+        """An unreachable channel leaves no half-open monitor behind."""
+        connector = _connector()
+        connector._pvaccess.monitor_errors[PVA_ADDRESS] = timed_out(PVA_ADDRESS)
+
+        with pytest.raises(ConnectionError, match=PVA_ADDRESS):
+            await connector.subscribe(PVA_ADDRESS, lambda v: None)
+
+        assert connector._subscriptions == {}
+        (channel,) = connector._pvaccess.channels_for(PVA_ADDRESS)
+        assert channel.subscribers == {}
+        assert [entry["op"] for entry in connector._pvaccess.log[-2:]] == [
+            "stopMonitor",
+            "unsubscribe",
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -162,161 +157,152 @@ class TestSubscribeRouting:
 
 class TestUpdateMarshaling:
     @pytest.mark.asyncio
+    async def test_the_first_update_is_the_current_value(self):
+        connector = _connector()
+        received = []
+
+        await connector.subscribe(PVA_ADDRESS, received.append)
+        await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
+
+        assert [value.value for value in received] == [1.5]
+        assert received[0].metadata.units == "mA"
+        assert received[0].metadata.raw_metadata["provider"] == "pva"
+
+    @pytest.mark.asyncio
     async def test_update_is_handed_to_the_loop_not_called_inline(self, monkeypatch):
-        """p4p's worker thread must never run the subscriber callback itself."""
-        context = FakeMonitorContext()
-        connector = _pva_connector(context=context)
+        """pvapy's monitor thread must never run the subscriber callback itself."""
+        connector = _connector()
         received = []
         subscriber = received.append  # bind once: a fresh bound method is never `is`-equal
+        sub_id = await connector.subscribe(PVA_ADDRESS, subscriber)
+        await asyncio.sleep(0.01)
+        received.clear()
         loop_calls = _recording_loop(monkeypatch)
 
-        await connector.subscribe(PVA_ADDRESS, subscriber)
-        context.fire(_scalar_update(1.5))
+        _monitor(connector, sub_id).fire(record(2.5, units="mA"))
 
         assert received == []  # nothing ran on the monitor thread
         assert len(loop_calls) == 1
         scheduled_callback, args = loop_calls[0]
         assert scheduled_callback is subscriber
-        assert args[0].value == 1.5
+        assert args[0].value == 2.5
         assert args[0].metadata.units == "mA"
 
     @pytest.mark.asyncio
     async def test_update_fired_from_another_thread_reaches_the_subscriber(self):
         """End to end with the real loop: a worker-thread update is delivered."""
-        context = FakeMonitorContext()
-        connector = _pva_connector(context=context)
+        connector = _connector()
         received = []
 
-        await connector.subscribe(PVA_ADDRESS, received.append)
-        worker = threading.Thread(target=context.fire, args=(_scalar_update(2.5),))
+        sub_id = await connector.subscribe(PVA_ADDRESS, received.append)
+        worker = threading.Thread(target=_monitor(connector, sub_id).fire, args=(record(3.5),))
         worker.start()
         worker.join()
         await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
 
-        assert [value.value for value in received] == [2.5]
+        assert [value.value for value in received] == [1.5, 3.5]
 
     @pytest.mark.asyncio
-    async def test_ca_subscription_still_marshals_through_the_loop(self, monkeypatch):
-        """The CA callback path is unchanged by the shared wrapper."""
-        pv = MagicMock()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _pva_connector(epics=epics)
+    async def test_ca_subscription_marshals_through_the_loop_too(self, monkeypatch):
+        """The CA monitor is the same pvapy monitor, delivered the same way."""
+        connector = _connector()
         received = []
         subscriber = received.append
+        sub_id = await connector.subscribe(CA_ADDRESS, subscriber)
+        await asyncio.sleep(0.01)
         loop_calls = _recording_loop(monkeypatch)
 
-        await connector.subscribe(CA_ADDRESS, subscriber)
-        epics.PV.call_args.kwargs["callback"](pvname=CA_ADDRESS, value=7.0, units="A")
+        _monitor(connector, sub_id).fire(record(7.0, units="A"))
 
-        assert received == []
         assert len(loop_calls) == 1
         assert loop_calls[0][0] is subscriber
         assert loop_calls[0][1][0].value == 7.0
+        assert loop_calls[0][1][0].metadata.units == "A"  # from the cached display
 
 
 # ---------------------------------------------------------------------------
-# Filtering: sentinels and undecodable values never become a ChannelValue
+# Filtering: undecodable values never become a ChannelValue
 # ---------------------------------------------------------------------------
 
 
-class TestSentinelAndErrorFiltering:
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "sentinel",
-        [FakeDisconnected("channel disconnected"), FakeRemoteError("server said no")],
-        ids=["disconnected", "remote-error"],
-    )
-    async def test_exception_sentinels_never_reach_the_subscriber(self, monkeypatch, sentinel):
-        """p4p reports connection state as a callback value — it is not data."""
-        context = FakeMonitorContext()
-        connector = _pva_connector(context=context)
-        received = []
-        loop_calls = _recording_loop(monkeypatch)
-
-        await connector.subscribe(PVA_ADDRESS, received.append)
-        context.fire(sentinel)
-
-        assert received == []
-        assert loop_calls == []  # nothing was even scheduled
-
-    @pytest.mark.asyncio
-    async def test_a_sentinel_does_not_end_the_subscription(self, monkeypatch):
-        """A disconnect is transient: the next real update still gets through."""
-        context = FakeMonitorContext()
-        connector = _pva_connector(context=context)
-        received = []
-        loop_calls = _recording_loop(monkeypatch)
-
-        await connector.subscribe(PVA_ADDRESS, received.append)
-        context.fire(FakeDisconnected("gone"))
-        context.fire(_scalar_update(3.5))
-
-        assert [call[1][0].value for call in loop_calls] == [3.5]
-
+class TestUndecodableUpdates:
     @pytest.mark.asyncio
     async def test_undecodable_value_is_dropped_without_raising(self, monkeypatch):
-        """A compressed frame is logged and skipped — raising would kill the monitor."""
-        context = FakeMonitorContext()
-        connector = _pva_connector(context=context)
+        """A compressed frame is logged and skipped; the next update still gets through."""
+        connector = _connector()
         received = []
+        sub_id = await connector.subscribe(PVA_ADDRESS, received.append)
+        await asyncio.sleep(0.01)
+        received.clear()
         loop_calls = _recording_loop(monkeypatch)
+        monitor = _monitor(connector, sub_id)
 
-        await connector.subscribe(PVA_ADDRESS, received.append)
-        context.fire(_compressed_frame())  # must not propagate to p4p's dispatcher
-        context.fire(_scalar_update(4.5))
+        monitor.fire(_compressed_frame())  # must not propagate to pvapy's dispatcher
+        monitor.fire(record(4.5))
 
         assert received == []
         assert [call[1][0].value for call in loop_calls] == [4.5]
 
+    def test_an_update_after_the_loop_closed_is_dropped_quietly(self):
+        """A monitor still running under a closed loop must not raise into pvapy."""
+        connector = _connector()
+        closed = asyncio.new_event_loop()
+        closed.close()
+        received = []
+
+        # The first update is delivered inside startMonitor, onto the closed loop.
+        sub_id = connector._start_monitor(PVA_ADDRESS, received.append, closed, True)
+        _monitor(connector, sub_id).fire(record(9.0))  # would raise RuntimeError unguarded
+
+        assert received == []
+        connector._subscriptions.pop(sub_id).close()
+
 
 # ---------------------------------------------------------------------------
-# Teardown: one wrapper, two transports
+# Teardown
 # ---------------------------------------------------------------------------
 
 
 class TestUnsubscribe:
     @pytest.mark.asyncio
-    async def test_unsubscribe_closes_the_p4p_subscription(self):
-        context = FakeMonitorContext()
-        connector = _pva_connector(context=context)
+    async def test_unsubscribe_stops_the_monitor_and_removes_the_subscriber(self):
+        connector = _connector()
         sub_id = await connector.subscribe(PVA_ADDRESS, lambda v: None)
+        monitor = _monitor(connector, sub_id)
+        name = connector._subscriptions[sub_id].name
 
         await connector.unsubscribe(sub_id)
 
-        # FakeSubscription has no clear_callbacks: reaching for one would raise.
-        assert context.subscriptions[0].close_calls == 1
-        assert sub_id not in connector._subscriptions
-
-    @pytest.mark.asyncio
-    async def test_unsubscribe_clears_callbacks_on_a_ca_pv(self):
-        pv = MagicMock(spec=["clear_callbacks"])  # a PV has no close()
-        epics = MagicMock()
-        epics.PV.return_value = pv
-        connector = _pva_connector(epics=epics)
-        sub_id = await connector.subscribe(CA_ADDRESS, lambda v: None)
-
-        await connector.unsubscribe(sub_id)
-
-        pv.clear_callbacks.assert_called_once()
+        assert monitor.monitoring is False
+        assert monitor.subscribers == {}
+        assert connector._pvaccess.calls("unsubscribe") == [
+            {
+                "op": "unsubscribe",
+                "address": PVA_ADDRESS,
+                "provider": "PVA",
+                "request": name,
+                "timeout": 3.0,
+            }
+        ]
         assert sub_id not in connector._subscriptions
 
     @pytest.mark.asyncio
     async def test_unsubscribe_twice_is_a_noop(self):
-        context = FakeMonitorContext()
-        connector = _pva_connector(context=context)
+        connector = _connector()
         sub_id = await connector.subscribe(PVA_ADDRESS, lambda v: None)
 
         await connector.unsubscribe(sub_id)
         await connector.unsubscribe(sub_id)
 
-        assert context.subscriptions[0].close_calls == 1
+        assert len(connector._pvaccess.calls("stopMonitor")) == 1
 
     @pytest.mark.asyncio
     async def test_unsubscribe_unknown_id_is_a_noop(self):
-        connector = _pva_connector(context=FakeMonitorContext())
+        connector = _connector()
 
         await connector.unsubscribe("never-registered")
+
+        assert connector._pvaccess.log == []
 
 
 # ---------------------------------------------------------------------------
@@ -324,31 +310,48 @@ class TestUnsubscribe:
 # ---------------------------------------------------------------------------
 
 
+class _Channel:
+    """A monitor channel stand-in recording its teardown calls, in order."""
+
+    def __init__(self, fail_stop: bool = False) -> None:
+        self.calls: list[str] = []
+        self._fail_stop = fail_stop
+
+    def stopMonitor(self) -> None:  # pvapy's spelling
+        self.calls.append("stopMonitor")
+        if self._fail_stop:
+            raise RuntimeError("already gone")
+
+    def unsubscribe(self, name: str) -> None:
+        self.calls.append(f"unsubscribe:{name}")
+
+
 class TestChannelSubscriptionWrapper:
     def test_close_is_idempotent(self):
-        handle = FakeSubscription()
-        subscription = _ChannelSubscription("pva", handle)
+        channel = _Channel()
+        subscription = _ChannelSubscription(channel, "osprey-1")
 
         subscription.close()
         subscription.close()
         subscription.close()
 
-        assert handle.close_calls == 1
+        assert channel.calls == ["stopMonitor", "unsubscribe:osprey-1"]
         assert subscription.closed is True
 
-    def test_a_failing_handle_does_not_break_teardown(self):
-        handle = MagicMock(spec=["close"])
-        handle.close.side_effect = RuntimeError("already gone")
-        subscription = _ChannelSubscription("pva", handle)
+    def test_a_failing_step_does_not_skip_the_next_one(self):
+        """Best effort: a dead monitor still has its subscriber removed."""
+        channel = _Channel(fail_stop=True)
+        subscription = _ChannelSubscription(channel, "osprey-1")
 
-        subscription.close()  # best effort: swallowed so disconnect() can continue
+        subscription.close()  # swallowed so disconnect() can continue
 
+        assert channel.calls == ["stopMonitor", "unsubscribe:osprey-1"]
         assert subscription.closed is True
 
-    def test_handle_and_kind_are_readable(self):
-        handle = FakeSubscription()
-        subscription = _ChannelSubscription("pva", handle)
+    def test_channel_and_name_are_readable(self):
+        channel = _Channel()
+        subscription = _ChannelSubscription(channel, "osprey-1")
 
-        assert subscription.kind == "pva"
-        assert subscription.handle is handle
+        assert subscription.channel is channel
+        assert subscription.name == "osprey-1"
         assert subscription.closed is False

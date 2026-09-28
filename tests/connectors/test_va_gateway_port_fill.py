@@ -34,7 +34,7 @@ from osprey.connectors.control_system.va_connector import (
 )
 from tests.connectors._epics_fakes import (  # noqa: F401 - fixtures, used by name
     clean_epics_env,
-    fake_pyepics,
+    fake_pvaccess,
 )
 
 CONTROL_ASSISTANT_PRESET = "control-assistant"
@@ -276,8 +276,8 @@ def test_a_config_with_no_gateways_passes_through(config: dict[str, Any], monkey
 async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, monkeypatch) -> None:
     """The derived port reaches EPICSConnector.connect, which configures CA.
 
-    The real ``EPICSConnector.connect`` is stubbed: it imports pyepics and
-    sets up a CA context against a soft-IOC that is not running here.
+    The real ``EPICSConnector.connect`` is stubbed: what is under test is the
+    config it is handed, not the client it would load.
     """
     deployed_va_port(15064)
     captured: dict[str, Any] = {}
@@ -295,7 +295,7 @@ async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("clean_epics_env", "fake_pyepics")
+@pytest.mark.usefixtures("clean_epics_env", "fake_pvaccess")
 async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeypatch) -> None:
     """A production EPICS gateway is external infrastructure — it must not move.
 

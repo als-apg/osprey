@@ -10,14 +10,21 @@ each name their expected outcome exactly once, in ``_SCENARIOS``, and every
 connector is driven through the same row. A connector that drifts fails its
 row against the shared expectation, not against a private copy of it.
 
+One row has one exemption, named in ``_NO_FAILED_OUTCOME``: EPICS has no
+``failed``. Channel Access gives no signal for "sent, and not taken" — a put
+either is refused by access security (``refused``), goes unacknowledged
+(``unconfirmed``), or fails in a way whose outcome is unknown, which is raised
+rather than reported as a verdict. That is pinned by its own test below
+instead of being quietly skipped.
+
 Each connector reaches the scenarios through its own seam, and the seams are
 deliberately the ones the connector authors left:
 
 - **Mock** — ``_confirming_read`` (noise-free, and *not* ``read_channel``) and
   ``_put``. Patching ``read_channel`` no longer steers a write at all.
-- **EPICS** — an injected fake ``_epics.PV``. The confirming read runs for
-  real down to ``pv.get()``; patching the read would hide the very thing the
-  confirming read does differently.
+- **EPICS** — an injected fake ``pvaccess`` module. The confirming read runs
+  for real down to the channel's ``get``; patching the read would hide the
+  very thing the confirming read does differently.
 - **DOOCS** — a fake ``doocs4py`` module whose ``set``/``get`` are the put and
   the confirming read.
 - **TANGO** — a fake ``tango`` module whose ``DeviceProxy`` carries the put
@@ -46,7 +53,13 @@ import pytest
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
-from tests.connectors._epics_fakes import ca_connector, connected_pv
+from tests.connectors._epics_fakes import (
+    CA_READ_REQUEST,
+    FakePvaccess,
+    FakePvaException,
+    ca_connector,
+    record,
+)
 
 # The one value every scenario writes, and the value a channel that did not
 # keep it holds instead.
@@ -190,11 +203,11 @@ async def _run_mock(scenario: Scenario, monkeypatch) -> WriteRun:
 
 
 # ---------------------------------------------------------------------------
-# EPICS — seam: an injected fake _epics.PV
+# EPICS — seam: an injected fake pvaccess module
 # ---------------------------------------------------------------------------
 
 
-def _epics_connector(monkeypatch, *, pv, caput=True):
+def _epics_connector(monkeypatch, pvaccess):
     """A connected EPICS connector with no limits database and writes allowed.
 
     connect() is skipped by injecting the runtime state it would have built;
@@ -202,27 +215,37 @@ def _epics_connector(monkeypatch, *, pv, caput=True):
     reaches the confirm flow this file is about.
     """
     monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
-    epics = MagicMock()
-    epics.caput.return_value = caput
-    epics.PV.return_value = pv
-    return ca_connector(epics=epics)
+    return ca_connector(pvaccess)
 
 
 async def _run_epics(scenario: Scenario, monkeypatch) -> WriteRun:
     """Drive EPICSConnector through ``scenario``.
 
-    ``caput`` returning False is the put the control system did not take; the
-    channel's own reading is what separates confirmed from mismatched.
+    The record takes the put; a put hook that leaves a different number
+    behind is the channel that did not keep it, and a failing read of it is
+    the confirming read that raises.
     """
-    observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
-    pv = connected_pv(observed, pv_type="time_double")
+    pvaccess = FakePvaccess()
+    served = pvaccess.serve("SR:CH", record(0.0))
+    if scenario is VALUE_DIFFERS:
+        pvaccess.put_hooks["SR:CH"] = lambda _sent, _request: served.update(
+            value=VALUE_HELD_INSTEAD
+        )
     if scenario is READ_RAISES:
-        pv.get.side_effect = TimeoutError(READ_ERROR)
 
-    connector = _epics_connector(monkeypatch, pv=pv, caput=scenario is not PUT_FAILS)
+        def failing_read(request):
+            if request == CA_READ_REQUEST:
+                raise TimeoutError(READ_ERROR)
+            return None
+
+        pvaccess.get_hooks["SR:CH"] = failing_read
+
+    connector = _epics_connector(monkeypatch, pvaccess)
     result = await connector.write_channel("SR:CH", VALUE_SENT, confirm=_confirm_argument(scenario))
 
-    return WriteRun(result=result, confirming_reads=pv.get.call_count)
+    return WriteRun(
+        result=result, confirming_reads=len(pvaccess.calls("get", request=CA_READ_REQUEST))
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -348,14 +371,24 @@ _DRIVERS = {
     "tango": _run_tango,
 }
 
+#: Connectors whose protocol has no "sent, and not taken" signal — see the
+#: module docstring and :class:`TestEpicsHasNoFailedOutcome`.
+_NO_FAILED_OUTCOME = {"epics"}
+
+_MATRIX = [
+    pytest.param(name, scenario, id=f"{scenario.name}-{name}")
+    for scenario in _SCENARIOS
+    for name in _DRIVERS
+    if not (scenario is PUT_FAILS and name in _NO_FAILED_OUTCOME)
+]
+
 
 # ---------------------------------------------------------------------------
 # The parity matrix
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("connector_name", list(_DRIVERS), ids=list(_DRIVERS))
-@pytest.mark.parametrize("scenario", _SCENARIOS, ids=[s.name for s in _SCENARIOS])
+@pytest.mark.parametrize(("connector_name", "scenario"), _MATRIX)
 class TestWriteOutcomeParity:
     """The same situation gets the same outcome word from all four connectors."""
 
@@ -396,6 +429,34 @@ class TestWriteOutcomeParity:
         assert run.confirming_reads == scenario.confirming_reads
 
 
+class TestEpicsHasNoFailedOutcome:
+    """The EPICS answer to ``put_fails``: a raise, never a verdict it cannot vouch for.
+
+    A put that fails in a way pvapy does not name leaves the outcome unknown,
+    so it propagates as raised. It is not dressed up as ``failed`` (which
+    would claim the control system saw the value and declined it) nor as
+    ``refused`` (which would claim nothing was written), and nothing is
+    re-read after it.
+    """
+
+    async def test_an_unrecognized_put_failure_is_raised_and_not_re_read(self, monkeypatch):
+        pvaccess = FakePvaccess()
+        pvaccess.serve("SR:CH", record(0.0))
+        error = FakePvaException(PUT_ERROR)
+
+        def failing_put(_sent, _request):
+            raise error
+
+        pvaccess.put_hooks["SR:CH"] = failing_put
+        connector = _epics_connector(monkeypatch, pvaccess)
+
+        with pytest.raises(FakePvaException) as excinfo:
+            await connector.write_channel("SR:CH", VALUE_SENT)
+
+        assert excinfo.value is error
+        assert pvaccess.calls("get", request=CA_READ_REQUEST) == []
+
+
 class TestScenarioTable:
     """The table itself is the contract, so it is pinned like one."""
 
@@ -421,35 +482,39 @@ class TestScenarioTable:
 class ReadFailure:
     """How one connector answered a read it could not serve.
 
-    ``transport_message`` is what the transport itself said, for the
-    connectors whose failure arrives as a raised exception. EPICS' Channel
-    Access path reports an unreachable PV as a *state* — the PV simply never
-    connects — so there is no underlying error to carry and no message to
-    keep.
+    ``transport_message`` is what the transport itself said, and
+    ``transport_error`` the type it raised it as — every connector's failure
+    arrives as a raised exception now, EPICS' pvapy ``"Channel X timed out."``
+    included.
     """
 
     exception: BaseException
     channel: str
     transport_message: str | None
+    transport_error: type[BaseException]
 
 
-async def _capture_read_failure(connector, channel: str, message: str | None) -> ReadFailure:
+async def _capture_read_failure(
+    connector, channel: str, message: str | None, error: type[BaseException] = RuntimeError
+) -> ReadFailure:
     """Run one read that must fail, and hand the exception back unclassified."""
     try:
         await connector.read_channel(channel)
     except Exception as exc:
-        return ReadFailure(exception=exc, channel=channel, transport_message=message)
+        return ReadFailure(
+            exception=exc, channel=channel, transport_message=message, transport_error=error
+        )
     raise AssertionError(f"the read of {channel!r} did not fail")
 
 
 async def _unreachable_epics(monkeypatch) -> ReadFailure:
-    """A PV that never connects — the CA path's own unreachable channel."""
-    pv = connected_pv(VALUE_SENT, pv_type="time_double")
-    pv.wait_for_connection.return_value = False
-    pv.connected = False
-    connector = _epics_connector(monkeypatch, pv=pv)
+    """A channel nobody serves — pvapy answers "Channel SR:CH timed out."."""
+    connector = _epics_connector(monkeypatch, FakePvaccess())
+    connector._timeout = 0.2
 
-    return await _capture_read_failure(connector, "SR:CH", None)
+    return await _capture_read_failure(
+        connector, "SR:CH", "Channel SR:CH timed out.", FakePvaException
+    )
 
 
 async def _unreachable_doocs(_monkeypatch) -> ReadFailure:
@@ -498,8 +563,8 @@ _UNREACHABLE_DRIVERS = {
     "tango": _unreachable_tango,
 }
 
-#: The two connectors whose transport reports the failure by raising.
-_TRANSLATING = ["doocs", "tango"]
+#: The connectors whose transport reports the failure by raising — all of them.
+_TRANSLATING = ["epics", "doocs", "tango"]
 
 
 @pytest.mark.parametrize(
@@ -541,4 +606,4 @@ class TestTranslatedReadFailures:
         """``raise ... from exc``, so the traceback still reaches the transport."""
         failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
 
-        assert isinstance(failure.exception.__cause__, RuntimeError)
+        assert isinstance(failure.exception.__cause__, failure.transport_error)
