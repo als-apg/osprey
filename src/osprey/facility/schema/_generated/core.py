@@ -1108,7 +1108,7 @@ class Provenance(ConfiguredBaseModel):
 
     sources: Optional[list[ProvenanceSource]] = Field(default=None, description="""One entry per layer that stated a field, sorted by layer.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
     fixes: Optional[list[ProvenanceFix]] = Field(default=None, description="""The fixes applied to the record, in fixes.yaml order.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
-    defaults: Optional[list[str]] = Field(default=None, description="""The fields the build filled because no source stated them.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance', 'Limits'], 'list_elements_ordered': True} })
+    defaults: Optional[list[str]] = Field(default=None, description="""The fields the build filled because no source stated them.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
     place_from: Optional[PlaceFromEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance']} })
 
 
@@ -1417,15 +1417,7 @@ class MeasurementInstruments(ConfiguredBaseModel):
 class Limits(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    defaults: LimitDefaults = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance', 'Limits']} })
     records: Optional[list[LimitRecord]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Limits'], 'list_elements_ordered': True} })
-
-
-class LimitDefaults(ConfiguredBaseModel):
-    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
-
-    writable: bool = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LimitDefaults', 'LimitRecord']} })
-    confirm: bool = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LimitDefaults', 'LimitRecord']} })
 
 
 class LimitRecord(ConfiguredBaseModel):
@@ -1438,8 +1430,8 @@ class LimitRecord(ConfiguredBaseModel):
     min_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_step: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
-    writable: Optional[bool] = Field(default=None, description="""Absent means `defaults.writable`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['LimitDefaults', 'LimitRecord']} })
-    confirm: Optional[bool] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitDefaults', 'LimitRecord']} })
+    writable: Optional[bool] = Field(default=None, description="""Absent means true on a setpoint carrying both `min_value` and `max_value`, false otherwise.""", json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
+    confirm: Optional[bool] = Field(default=None, description="""Absent means true; false turns off the re-read after a write.""", json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
 
 
 class Scenario(ConfiguredBaseModel):
@@ -1524,6 +1516,5 @@ Measurement.model_rebuild()
 MeasurementGroups.model_rebuild()
 MeasurementInstruments.model_rebuild()
 Limits.model_rebuild()
-LimitDefaults.model_rebuild()
 LimitRecord.model_rebuild()
 Scenario.model_rebuild()

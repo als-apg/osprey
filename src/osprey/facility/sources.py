@@ -441,9 +441,6 @@ class _Reader:
         if not data:
             return
         self._check_keys(data, "Limits", (), "path", rel, rel)
-        defaults = data.get("defaults")
-        if isinstance(defaults, dict):
-            self._check_keys(defaults, "LimitDefaults", (), "path", f"{rel}.defaults", rel)
         records = data.get("records")
         for index, row in enumerate(records if isinstance(records, list) else []):
             if isinstance(row, dict):

@@ -570,24 +570,11 @@ classes:
 
   Limits:
     attributes:
-      defaults:
-        range: LimitDefaults
-        required: true
-        inlined: true
       records:
         range: LimitRecord
         multivalued: true
         inlined_as_list: true
         list_elements_ordered: true
-
-  LimitDefaults:
-    attributes:
-      writable:
-        range: boolean
-        required: true
-      confirm:
-        range: boolean
-        required: true
 
   LimitRecord:
     description: The write limits of one channel.
@@ -603,9 +590,12 @@ classes:
         range: float
       writable:
         range: boolean
-        description: Absent means `defaults.writable`.
+        description: >-
+          Absent means true on a setpoint carrying both `min_value` and
+          `max_value`, false otherwise.
       confirm:
         range: boolean
+        description: Absent means true; false turns off the re-read after a write.
 
   Scenario:
     description: Values written into the models at start, and the narratives that go with them.

@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.schema import core
 from osprey.facility.sources import load_sources
 from osprey.facility.validate import (
     SET_VALUED_SLOTS,
@@ -169,7 +170,7 @@ class TestGather:
             return FacilityBuildError(kind, rid, ["f"], "r", record_kind=record_kind, detail="d")
 
         errors = [
-            error("limit-invalid", "path", "limits.defaults"),
+            error("limit-invalid", "limit", "Q1:RB"),
             error("source-invalid", "path", "b"),
             error("class-unknown", "device", "A"),
             error("reference-missing", "seed", "A"),
@@ -183,7 +184,7 @@ class TestGather:
             ("reference-missing", "channel", "Z"),
             ("reference-missing", "seed", "A"),
             ("class-unknown", "device", "A"),
-            ("limit-invalid", "path", "limits.defaults"),
+            ("limit-invalid", "limit", "Q1:RB"),
         ]
 
     def test_validate_prints_every_error_of_the_first_failing_stage(self, tmp_path: Path) -> None:
@@ -285,28 +286,22 @@ class TestSchemaStage:
         assert error.sources == ("records/channels.yaml",)
         assert error.remedy == "correct `value_type` in records/channels.yaml"
 
-    def test_limits_without_defaults_is_limit_invalid(self, tmp_path: Path) -> None:
-        files = _tree(**{"limits.yaml": {"records": [{"address": "Q1:SP"}]}})
-        error = _one(tmp_path, files, "schema")
-        assert error.format_message() == (
-            "facility: limit-invalid: path limits.defaults — limits.yaml has no `defaults` "
-            "block; fix: add `defaults: {writable: <bool>, confirm: <bool>}` to limits.yaml,"
-            " or delete limits.yaml to run without limits"
-        )
-
-    def test_limits_without_defaults_prints_beside_other_schema_errors(
-        self, tmp_path: Path
-    ) -> None:
-        files = _tree(
-            **{
-                "limits.yaml": {"records": [{"address": "Q1:SP", "max_step": "big"}]},
-            }
-        )
-        result = _run(tmp_path, files)
-        assert [(e.kind, e.record_id) for e in result.errors] == [
-            ("source-invalid", "limits.records.0.max_step"),
-            ("limit-invalid", "limits.defaults"),
+    def test_limits_hold_records_only(self, tmp_path: Path) -> None:
+        records = [
+            {"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0},
+            {"address": "Q1:RB"},
         ]
+        result = _run(tmp_path, _tree(**{"limits.yaml": {"records": records}}))
+        assert result.ok, _lines(result)
+        assert result.validated.document["limits"] == {"records": records}
+        fields = core.LimitRecord.model_fields
+        assert fields["writable"].description == (
+            "Absent means true on a setpoint carrying both `min_value` and `max_value`, "
+            "false otherwise."
+        )
+        assert fields["confirm"].description == (
+            "Absent means true; false turns off the re-read after a write."
+        )
 
     @pytest.mark.parametrize(
         "text",
@@ -320,10 +315,11 @@ class TestSchemaStage:
         assert result.ok, _lines(result)
         assert "limits" not in result.validated.document
 
-    def test_other_limit_defaults_failures_stay_source_invalid(self, tmp_path: Path) -> None:
-        files = _tree(**{"limits.yaml": {"defaults": {"writable": False}}})
-        error = _one(tmp_path, files, "schema")
-        assert (error.kind, error.record_id) == ("source-invalid", "limits.defaults.confirm")
+    def test_a_defaults_block_is_an_unknown_key(self, tmp_path: Path) -> None:
+        files = _tree(**{"limits.yaml": {"defaults": {"writable": False, "confirm": True}}})
+        error = _one(tmp_path, files, "load")
+        assert (error.kind, error.record_id) == ("source-invalid", "limits.yaml")
+        assert error.remedy == "remove `defaults` from limits.yaml"
 
     @pytest.mark.parametrize(
         ("slot", "value"),
@@ -419,7 +415,7 @@ class TestReferences:
         _missing(_one(tmp_path, files, "references"), "seed", "GONE", "seeds.yaml")
 
     def test_limit_address(self, tmp_path: Path) -> None:
-        limits = {"defaults": {"writable": False, "confirm": True}, "records": [{"address": "G"}]}
+        limits = {"records": [{"address": "G"}]}
         files = _tree(**{"limits.yaml": limits})
         error = _one(tmp_path, files, "references")
         _missing(error, "limit", "G", "limits.yaml `records.address` names channel G")
@@ -502,7 +498,7 @@ class TestDroppedReferences:
         assert "fixes.yaml" in error.sources
 
     def test_limits_record(self, tmp_path: Path) -> None:
-        limits = {"defaults": {"writable": False, "confirm": True}, "records": [{"address": "X2"}]}
+        limits = {"records": [{"address": "X2"}]}
         error = _one(tmp_path, _dropping_tree(**{"limits.yaml": limits}), "references")
         self._check(error, "limit", "X2")
 
@@ -846,7 +842,6 @@ class TestValueRules:
 
     def test_limit_bounds_on_a_non_numeric_channel(self, tmp_path: Path) -> None:
         limits = {
-            "defaults": {"writable": False, "confirm": True},
             "records": [{"address": "T", "min_value": 0.0}],
         }
         files = _with_channels({"id": "T", "value_type": "string"}, **{"limits.yaml": limits})
@@ -888,10 +883,8 @@ class TestValueRules:
 
 
 class TestLimitRules:
-    DEFAULTS = {"writable": False, "confirm": True}
-
     def _limits(self, *records: dict[str, Any]) -> dict[str, Any]:
-        return {"limits.yaml": {"defaults": self.DEFAULTS, "records": list(records)}}
+        return {"limits.yaml": {"records": list(records)}}
 
     def test_writable_only_on_a_setpoint(self, tmp_path: Path) -> None:
         files = _tree(**self._limits({"address": "Q1:RB", "writable": True}))

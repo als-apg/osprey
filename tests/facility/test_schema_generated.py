@@ -108,7 +108,6 @@ def test_package_imports_without_warnings() -> None:
 
 def _limits(addresses: list[str]) -> dict[str, Any]:
     return {
-        "defaults": {"writable": False, "confirm": True},
         "records": [{"address": address, "writable": False} for address in addresses],
     }
 
