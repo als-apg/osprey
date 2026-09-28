@@ -208,6 +208,9 @@ dependencies = [
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
+    # The facility file validates through a pydantic model generated from its
+    # LinkML schema (src/osprey/facility/schema/_generated/core.py).
+    "pydantic>=2.11,<3",
     # `osprey up --dev` builds a wheel from the local checkout. A shipped
     # CLI flag must not depend on an optional extra: an editable install without
     # `--extra dev` would otherwise satisfy every other --dev precondition and
@@ -279,6 +282,10 @@ dev = [
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
     "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
+    # Generates the facility file's pydantic model and vocabulary table. Exact:
+    # the committed output is byte-compared against a regeneration, and
+    # gen-pydantic's output changes between releases.
+    "linkml==1.11.1",
     "PyJWT[crypto]>=2.8",  # Teams relay token validation; its tests import jwt plainly, so a missing install must fail
 ]
 
@@ -541,6 +548,7 @@ exclude = [
     "^venv/",
     "_agent_data/",
     "__pycache__/",
+    "^src/osprey/facility/schema/_generated/",
 ]
 
 # Specific modules to ignore due to optional dependencies
@@ -586,6 +594,14 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["sphinx.*"]
 follow_imports = "skip"
+
+# The facility schema's generated pydantic model is gen-pydantic output, byte
+# for byte; its root class's `schema` field overrides `BaseModel.schema`. The
+# `exclude` entry above only stops discovery, and importers still reach the
+# module, so `silent` keeps its types visible to them and its own errors quiet.
+[[tool.mypy.overrides]]
+module = ["osprey.facility.schema._generated.*"]
+follow_imports = "silent"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -643,6 +659,9 @@ src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 extend-exclude = [
     "src/osprey/_version.py",
     "packages/osprey-connectors/src/osprey_connectors/_version.py",
+    # Generated from the facility schema by gen-pydantic; compared byte for byte
+    # with a regeneration, so it is never reformatted.
+    "src/osprey/facility/schema/_generated/",
 ]
 
 [tool.ruff.format]
