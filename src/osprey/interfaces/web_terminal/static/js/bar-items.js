@@ -341,20 +341,22 @@ function formatClock(fields, seconds, hour12) {
  */
 function clockSuffix(zone, density, now) {
   const comfortable = density === 'comfortable';
+  const elsewhere = !viewerSharesFacilityClock(now);
   const viewer = zoneLabel(viewerZoneId());
   switch (zone) {
     case 'local':
-      return comfortable ? viewer : '';
+      return comfortable || elsewhere ? viewer : '';
     case 'utc':
-    case 'both':
       return 'UTC';
+    case 'both':
+      return elsewhere && viewer ? `${viewer} · UTC` : 'UTC';
     case 'facility': {
       const facility = facilityZone();
       if (!facility.facility) return viewer;
-      return comfortable || !viewerSharesFacilityClock(now) ? zoneLabel(facility.id) : '';
+      return comfortable || elsewhere ? zoneLabel(facility.id) : '';
     }
     default:
-      return '';
+      return elsewhere ? viewer : '';
   }
 }
 
