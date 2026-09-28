@@ -396,6 +396,8 @@ independently of the control system:
                source: admin
                username: readonly
                password_env: MONGODB_READONLY_PASSWORD
+             tls:                 # only for a CA the image does not trust
+               ca_bundle: /etc/ssl/certs/site-ca.pem
 
       The url wins over ``host``, ``port`` and the ``OSPREY_ARCHIVER_MONGODB_*``
       address overrides. It may not carry a user, a password or a key-file
@@ -404,6 +406,10 @@ independently of the control system:
       certificate verification off (``tlsInsecure``,
       ``tlsAllowInvalidCertificates``, ``tlsAllowInvalidHostnames``). The
       recorder and the archive rewrite never write to a store named by url.
+
+      ``tls.ca_bundle`` is an absolute path to the CA file the store's
+      certificate is checked against; without it, a ``tls=true`` url uses the
+      image's trust store. No setting turns certificate checking off.
 
       Documents in the collection are expected to have a ``date`` field
       (``ISODate``) and one or more PV names as top-level fields:

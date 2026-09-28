@@ -3,6 +3,7 @@
 import copy
 import logging
 import re
+import ssl
 import sys
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,7 @@ import pytest
 
 from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.mongodb_archiver_connector import (
+    DEPLOY_HINT,
     HOST_OVERRIDE_ENV,
     PORT_OVERRIDE_ENV,
     MongoDBArchiverConnector,
@@ -883,6 +885,32 @@ class TestClientKwargsWithoutDocker:
 
         assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
 
+    @pytest.mark.asyncio
+    async def test_a_ca_bundle_becomes_tls_ca_file(self, monkeypatch):
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        block = {**bundled_block(), "tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}}
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(block)
+
+        assert mock_client_cls.call_args.kwargs == {
+            **BUNDLED_CLIENT_KWARGS,
+            "tlsCAFile": "/etc/ssl/certs/site-ca.pem",
+        }
+
+    @pytest.mark.asyncio
+    async def test_no_ca_bundle_passes_no_tls_key(self, monkeypatch):
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect({**bundled_block(), "tls": {}})
+
+        assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
 
 class TestUrlWithoutDocker:
     """A block that names its store by a connection string, with the client patched."""
@@ -1076,6 +1104,60 @@ class TestErrorHandlingWithoutDocker:
                 await connector.connect(config)
 
         assert isinstance(exc_info.value.__cause__, type(raised))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            ssl.SSLError("no certificate"),
+            FileNotFoundError(2, "No such file or directory"),
+            IsADirectoryError(21, "Is a directory"),
+            PermissionError(13, "Permission denied"),
+        ],
+    )
+    async def test_an_unreadable_ca_bundle_is_named(self, raised, monkeypatch):
+        """pymongo reads the CA file while it builds the client, before any ping."""
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        config = {
+            "host": "mongodb.example.invalid",
+            "port": default_port("mongo"),
+            "name": "testdb",
+            "collection": "testcoll",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
+            "tls": {"ca_bundle": "/etc/ssl/certs/missing-site-ca.pem"},
+        }
+
+        with patch("pymongo.MongoClient", side_effect=raised):
+            with pytest.raises(ConnectionError, match=r"tls\.ca_bundle") as exc_info:
+                await MongoDBArchiverConnector().connect(config)
+
+        assert exc_info.value.__cause__ is raised
+        assert DEPLOY_HINT not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_a_missing_file_without_a_ca_bundle_is_not_blamed_on_one(self, monkeypatch):
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        config = {
+            "host": "mongodb.example.invalid",
+            "port": default_port("mongo"),
+            "name": "testdb",
+            "collection": "testcoll",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
+        }
+
+        with patch("pymongo.MongoClient", side_effect=FileNotFoundError(2, "missing")):
+            with pytest.raises(ConnectionError, match="MongoDB connection failed") as exc_info:
+                await MongoDBArchiverConnector().connect(config)
+
+        assert "tls.ca_bundle" not in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_a_bearer_token_is_refused_by_name(self, monkeypatch):

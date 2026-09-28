@@ -115,6 +115,8 @@ class RecorderSettings:
     poll_sec: int
     hot_span_hours: int
     retention_days: int
+    #: A CA file to trust for the store (``tls.ca_bundle``); ``None`` keeps TLS off.
+    ca_bundle: str | None = None
 
 
 def load_settings(config_path: Path) -> RecorderSettings:
@@ -136,7 +138,7 @@ def load_settings(config_path: Path) -> RecorderSettings:
             f"{config_path}: `{'.'.join((*_CONNECTION_PREFIX, 'url'))}` is set. The recorder "
             "writes only to the store this deployment runs, addressed by host and port."
         )
-    auth = _login_block(connection, config_path)
+    auth, ca_bundle = _login_block(connection, config_path)
 
     # The in-network address override, read through the connector's own helper
     # so this service and the agent's connector cannot come to differ on what an
@@ -164,6 +166,7 @@ def load_settings(config_path: Path) -> RecorderSettings:
         username=str(_require(auth, "username", _AUTH_PREFIX, config_path)),
         password_env=str(_require(auth, "password_env", _AUTH_PREFIX, config_path)),
         timeout_s=_int_key(connection, "timeout_s", _CONNECTION_PREFIX, config_path),
+        ca_bundle=ca_bundle,
         cadence_sec=_int_key(knobs, "recorder_cadence_sec", _KNOBS_PREFIX, config_path),
         tail_cadence_sec=_int_key(knobs, "recorder_tail_cadence_sec", _KNOBS_PREFIX, config_path),
         poll_sec=_int_key(knobs, "recorder_poll_sec", _KNOBS_PREFIX, config_path),
@@ -419,8 +422,10 @@ def _subtree(config: dict[str, Any], prefix: tuple[str, ...], config_path: Path)
     return node
 
 
-def _login_block(connection: dict[str, Any], config_path: Path) -> dict[str, Any]:
-    """The block's ``auth:`` mapping, checked by the shared connection reader.
+def _login_block(
+    connection: dict[str, Any], config_path: Path
+) -> tuple[dict[str, Any], str | None]:
+    """The block's ``auth:`` mapping and ``tls.ca_bundle``, checked by the shared reader.
 
     Each of ``source``, ``username`` and ``password_env`` stays required and is
     checked by the caller, so a missing one is named before the reader's own
@@ -431,7 +436,7 @@ def _login_block(connection: dict[str, Any], config_path: Path) -> dict[str, Any
     for leaf in ("source", "username", "password_env"):
         _require(auth, leaf, _AUTH_PREFIX, config_path)
     try:
-        read_connection_settings(
+        settings = read_connection_settings(
             connection,
             where=".".join(_CONNECTION_PREFIX),
             logins=frozenset({"password"}),
@@ -440,7 +445,8 @@ def _login_block(connection: dict[str, Any], config_path: Path) -> dict[str, Any
         )
     except ValueError as exc:
         raise RecorderConfigError(f"{config_path}: {exc}") from exc
-    return auth
+    ca_bundle = str(settings.ca_bundle) if settings.ca_bundle is not None else None
+    return auth, ca_bundle
 
 
 def _require(block: dict[str, Any], key: str, prefix: tuple[str, ...], config_path: Path) -> Any:

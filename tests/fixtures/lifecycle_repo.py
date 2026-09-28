@@ -595,6 +595,7 @@ config:
   # archiver.settings.auth.username: your-readonly-user
   # archiver.settings.auth.password_env: OSPREY_ARCHIVER_PASSWORD
   # archiver.settings.timeout_s: 60
+  # archiver.settings.tls.ca_bundle: /etc/ssl/certs/your-site-ca.pem
   # DOOCS local history: like the DOOCS connector it takes no coordinates and
   # reaches the ENS the environment names. Both knobs are optional — a centered
   # moving average over this many seconds, and the read budget.
