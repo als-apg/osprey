@@ -18,60 +18,86 @@ Available Providers
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 35 15 25
+   :widths: 12 30 16 18 10 10
 
    * - Name
      - Description
      - API Key Env Var
      - Protocol
+     - Images
+     - Thinking
    * - ``anthropic``
      - Anthropic direct API
      - ``ANTHROPIC_API_KEY``
      - Anthropic (native)
+     - Yes
+     - Yes
    * - ``cborg``
      - LBNL CBorg proxy
      - ``CBORG_API_KEY``
      - Anthropic (native)
+     - Yes
+     - Yes
    * - ``als-apg``
      - ALS Accelerator Physics Group gateway
      - ``ALS_APG_API_KEY``
      - Anthropic (native)
+     - Yes
+     - Yes
    * - ``stanford``
      - Stanford AI Playground
      - ``STANFORD_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``amsc-i2``
      - American Science Cloud proxy
      - ``AMSC_I2_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``argo``
      - ANL Argo proxy
      - ``ARGO_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``asksage``
      - AskSage proxy
      - ``ASKSAGE_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``openai``
      - OpenAI (GPT models)
      - ``OPENAI_API_KEY``
      - OpenAI (proxied)
+     - Yes
+     - No
    * - ``google``
      - Google (Gemini models)
      - ``GOOGLE_API_KEY``
      - OpenAI (proxied)
+     - Yes
+     - No
    * - ``ollama``
      - Ollama (local models)
      - *(none)*
      - OpenAI (proxied)
+     - No
+     - No
    * - ``vllm``
      - vLLM inference server
      - *(none)*
      - OpenAI (proxied)
+     - No
+     - No
    * - ``ds4``
      - DwarfStar local server
      - *(none)*
      - OpenAI (proxied)
+     - No
+     - No
 
 **Protocol** indicates how the provider communicates with the OSPREY agent:
 
@@ -79,6 +105,13 @@ Available Providers
   translation needed.
 - **OpenAI (proxied)**: Speaks the OpenAI Chat Completions API. Osprey
   automatically starts a local translation proxy to bridge the protocols.
+
+**Images** and **Thinking** say whether images and the model's thinking reach
+the model on that route. An Anthropic-native route carries both. A proxied
+route carries images when the provider declares it, and never carries
+thinking. A site whose model sees images turns them on for a provider marked
+*No* with ``supports_images: true`` in its ``providers.yml`` entry (see
+:ref:`what-the-translated-route-does-not-carry`).
 
 Setting Up API Keys
 -------------------
@@ -361,7 +394,8 @@ translation.
 
 Osprey handles this automatically: when an OpenAI-only provider is selected,
 a local translation proxy starts on a random port before the OSPREY agent launches.
-No manual configuration is required — you never invoke the proxy yourself.
+You never invoke the proxy yourself. What it
+carries follows the provider's declarations in the table above.
 
 The path is identical whether the endpoint is self-hosted (``ollama``, ``vllm``
 — local, so no API key) or a remote service that speaks only the OpenAI
@@ -388,6 +422,49 @@ Anything else — including a capitalised ``Anthropic`` — is refused when the
 provider is resolved, naming the provider and the two accepted values. Leave
 the key out and the provider is treated as OpenAI, which is what all but the
 Anthropic-native built-ins are.
+
+.. _what-the-translated-route-does-not-carry:
+
+What the translated route does not carry
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The proxy sends images as OpenAI ``image_url`` parts on a route whose
+**Images** column says *Yes*, including images a tool returns, such as a
+screenshot the agent reads. An image inside a tool result follows that result
+in a user message, because OpenAI tool messages carry text only.
+
+What a route cannot take is replaced, where it stood, by a note the model
+reads, such as ``[image not sent: this provider's route does not carry
+images]``:
+
+* images, on a route marked *No*, and images given by file reference on any
+  route;
+* documents (PDF blocks) and any other content block the OpenAI protocol has
+  no counterpart for.
+
+Two request settings are left out with no note: the model's thinking, and a
+temperature the model refuses (see :ref:`provider-configuration`). The proxy
+logs one warning per conversation for each kind it leaves out, on the
+``osprey.infrastructure.proxy`` logger.
+
+A local model server (``ollama``, ``vllm``, ``ds4``) takes no images until its
+entry says so, because that depends on the model the site serves:
+
+.. code-block:: yaml
+
+   providers:
+     ollama:
+       base_url: ${OLLAMA_HOST:-http://localhost:11434}
+       default_model: qwen2.5vl:7b
+       models:
+         - qwen2.5vl:7b
+       supports_images: true
+
+``supports_images: false`` turns images off for a provider marked *Yes*
+whose chosen model takes none. The build refuses any value but ``true`` or
+``false``. When the upstream refuses a request that carries images, the
+agent receives an ``invalid_request_error`` that names the images and this
+key.
 
 Spend Attribution on a LiteLLM Gateway
 --------------------------------------
