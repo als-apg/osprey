@@ -209,7 +209,8 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     Returns:
         Env dict with ``ANTHROPIC_BASE_URL``, the auth-token var, the tier-model
         vars, and the *raw* upstream secret var (see below), populated from the
-        configured provider.
+        configured provider. It also carries ``ANTHROPIC_CUSTOM_HEADERS`` whenever
+        the operator set one or the gateway attributes spend.
 
     Raises:
         RuntimeError: When the project has no resolvable provider.
@@ -270,9 +271,14 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
         if base_url:
             env[base_url_var] = base_url
 
-    # Spend attribution on a LiteLLM-fronted provider (mirrors inject_provider_env).
-    from osprey.models.spend_attribution import apply_attribution_env
+    # The operator's own request headers (from the shell or the .env) ride into the
+    # launch env, and a LiteLLM gateway's spend attribution is merged into them, as
+    # inject_provider_env does for the launch paths that share os.environ.
+    from osprey.models.spend_attribution import CUSTOM_HEADERS_ENV, apply_attribution_env
 
+    operator_headers = lookup.get(CUSTOM_HEADERS_ENV)
+    if operator_headers:
+        env[CUSTOM_HEADERS_ENV] = operator_headers
     apply_attribution_env(env, spec.gateway)
     return env
 
