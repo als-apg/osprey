@@ -20,12 +20,13 @@
  * panel-sse's own surfaces, since it holds no panel state of its own.
  */
 
-import { fetchJSON } from './api.js';
+import { apiRequest, fetchJSON } from './api.js';
 import { setKnownServicePanels } from './dock-iframe.js';
 import { PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
-import { startHealthPolling as startPolling } from './panel-health.js';
+import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
+import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
-import { createRail, addEntry, setActive, setEntryEnabled } from './panel-rail.js';
+import { createRail, addEntry, setActive, setEntryEnabled, setEntryStatus } from './panel-rail.js';
 
 /** @typedef {import('./panel-catalog.js').Panel} Panel */
 /** @typedef {import('./panel-manager.js').PanelState} PanelState */
@@ -41,6 +42,7 @@ import { createRail, addEntry, setActive, setEntryEnabled } from './panel-rail.j
  * @property {() => HTMLElement} getRailEl - the rail nav the entries live in
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} ensureActive - give the empty workspace slot to the best panel available
+ * @property {(id: string, options?: {userInitiated?: boolean}) => void} activate - surface a healthy panel
  */
 
 /** @type {LifecycleDeps | null} */
@@ -105,6 +107,7 @@ function applyEntryState(panelId) {
   const ps = c.panelState[panelId];
   if (!ps) return;
   if (ps.healthy) setEntryEnabled(c.getRailEl(), panelId, true);
+  if (ps.failedMessage) setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
 }
 
@@ -183,8 +186,10 @@ export async function initPanel(panel) {
   // /api/panels. Skip the fetch and leave the panel disabled until then.
   if (!panel.configEndpoint) { state.configLoaded = true; return; }
 
+  /** @type {any} */
+  let config = null;
   try {
-    const config = await fetchJSON(panel.configEndpoint);
+    config = await fetchJSON(panel.configEndpoint);
     // Artifact server returns { url }, ARIEL returns { url, available }
     if (config.url && (config.available === undefined || config.available)) {
       state.url = config.url;
@@ -195,7 +200,11 @@ export async function initPanel(panel) {
     state.configLoaded = true;
   }
 
-  if (state.url) {
+  // A sidecar reports its start outcome with its config: a failed one gets
+  // its clickable failed entry, a starting one is followed until it settles.
+  if (config?.state === 'failed') showFailed(panel, config.message);
+  else if (config?.state === 'starting') followStart(panel);
+  else if (state.url) {
     // External panels (healthEndpoint === null) skip health polling —
     // mark healthy immediately so the tab is enabled.
     if (panel.healthEndpoint == null) {  // null or undefined → skip polling
@@ -222,15 +231,110 @@ export async function initPanel(panel) {
  */
 function onHealthSettled(panel, wasHealthy) {
   const c = ctx();
-  if (c.panelState[panel.id].healthy && !wasHealthy) {
+  const state = c.panelState[panel.id];
+  if (state.healthy && !wasHealthy) {
     setEntryEnabled(c.getRailEl(), panel.id, true);
-    c.ensureActive();
+    if (state.activateOnHealthy) {
+      // The operator asked for this panel by clicking its failed entry.
+      state.activateOnHealthy = false;
+      c.activate(panel.id, { userInitiated: true });
+    } else c.ensureActive();
+  } else if (wasHealthy && !state.healthy && panel.startEndpoint && panel.configEndpoint) {
+    // A sidecar that stopped answering may have died: ask the terminal once,
+    // so a live page shows the failed entry without a reload.
+    fetchJSON(panel.configEndpoint).then((config) => {
+      if (config?.state !== 'failed') return;
+      stopHealthPolling(state);
+      state.url = null;
+      state.healthy = false;
+      showFailed(panel, config.message);
+    }).catch(() => {});
   }
 }
 
 /** @param {Panel} panel  Start panel-health's polling loop with this module's hook. */
 export function startHealthPolling(panel) {
   startPolling(panel, ctx().panelState[panel.id], onHealthSettled);
+}
+
+// ---- Sidecar Start Recovery ----
+
+/**
+ * Show a sidecar's failed entry: dimmed, clickable, the server's sentence as
+ * its tooltip. The message is kept on the state so a rebuilt entry shows it too.
+ * @param {Panel} panel
+ * @param {string | null} message
+ */
+function showFailed(panel, message) {
+  const c = ctx();
+  c.panelState[panel.id].failedMessage = message;
+  setEntryStatus(c.getRailEl(), panel.id, { failed: true, message });
+}
+
+/**
+ * Start a failed sidecar again: POST its start endpoint, show the server's
+ * "is starting" sentence on a disabled entry, then follow the start until it
+ * settles. The click on a failed entry lands here; the entry is no longer
+ * `.failed` once it has, so a second click sends nothing.
+ * @param {Panel} panel
+ */
+export async function retryPanelStart(panel) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  if (!panel.startEndpoint || !state) return;
+  const lastMessage = state.failedMessage ?? null;
+  state.failedMessage = null;
+  setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: null });
+  setEntryEnabled(c.getRailEl(), panel.id, false);
+  let answer;
+  try {
+    answer = await apiRequest(panel.startEndpoint, { errorPrefix: 'Could not start the panel' });
+  } catch {
+    showFailed(panel, lastMessage);
+    return;
+  }
+  state.activateOnHealthy = true;
+  settleStart(panel, answer, lastMessage);
+}
+
+/**
+ * Follow a start already in flight (a page loaded while the sidecar started).
+ * @param {Panel} panel
+ */
+function followStart(panel) {
+  settleStart(panel, { state: 'starting', message: null }, null);
+}
+
+/**
+ * Apply one config answer during a start, polling the config endpoint once a
+ * second while it still says `starting`. `running` publishes the url, reloads
+ * an open iframe (same proxy path, new backend) and starts health polling;
+ * `failed` shows the new reason; a fetch error restores the last known one.
+ * @param {Panel} panel
+ * @param {any} answer
+ * @param {string | null} lastMessage
+ */
+function settleStart(panel, answer, lastMessage) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  if (answer?.state === 'starting') {
+    setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: answer.message ?? null });
+    setTimeout(() => {
+      if (!panel.configEndpoint) return;
+      fetchJSON(panel.configEndpoint).then(
+        (next) => settleStart(panel, next, lastMessage),
+        () => showFailed(panel, lastMessage),
+      );
+    }, 1000);
+    return;
+  }
+  if (answer?.state === 'failed') { showFailed(panel, answer.message ?? lastMessage); return; }
+  setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: null });
+  if (!answer?.url || !answer.available) { showFailed(panel, lastMessage); return; }
+  state.url = answer.url;
+  if (state.iframe) state.iframe.src = buildEmbedSrc(answer.url);
+  stopHealthPolling(state);
+  startHealthPolling(panel);
 }
 
 // ---- Entry State ----

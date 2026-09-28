@@ -59,7 +59,7 @@ import { initMenuPolicy, openTileContextMenu } from './panel-menu-policy.js';
 import { removeEntry, setActive } from './panel-rail.js';
 import {
   initPanelLifecycle, freshPanelState, renderRail, ensureRailMembership,
-  initPanel, assumeHealthy, startHealthPolling,
+  initPanel, assumeHealthy, startHealthPolling, retryPanelStart,
 } from './panel-lifecycle.js';
 import { initAgentAttention, flashAgentTile, clearBadge } from './panel-agent-attention.js';
 import { subscribePanelEvents } from './panel-sse.js';
@@ -77,6 +77,8 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {boolean} polling
  * @property {boolean} configLoaded
  * @property {string | null} [pendingUrl]
+ * @property {string | null} [failedMessage] - the server's sentence while a sidecar's start has failed
+ * @property {boolean} [activateOnHealthy] - surface the panel on its first healthy settle (an operator retry)
  */
 
 /**
@@ -255,6 +257,7 @@ export async function initPanelManager(panelId) {
     getRailEl,
     getActive: getActiveTabId,
     ensureActive: ensureActivePanel,
+    activate: activateTab,
   });
 
   initAgentAttention(railEl);
@@ -303,6 +306,10 @@ export async function initPanelManager(panelId) {
     isMember: isRailMember,
     getActiveTabId,
     activateTab, showPanel, retireTile, labelOf, getPanelStandaloneUrl, popoutPanel,
+    retryStart: (id) => {
+      const panel = PANELS.find((p) => p.id === id);
+      if (panel) retryPanelStart(panel);
+    },
   });
 
   // Rail drag-and-drop: a rail entry dropped on a tile edge opens (or moves)

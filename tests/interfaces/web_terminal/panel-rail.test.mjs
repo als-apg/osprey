@@ -32,6 +32,7 @@ import {
   setActive,
   setEntryEnabled,
   setEntryAttention,
+  setEntryStatus,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
 
 const PANELS = [
@@ -778,5 +779,64 @@ describe('getEntry', () => {
     createRail(rail, PANELS);
     expect(getEntry(rail, 'artifacts')?.getAttribute('data-panel-id')).toBe('artifacts');
     expect(getEntry(rail, 'ghost')).toBeNull();
+  });
+});
+
+/**
+ * A sidecar that failed to start is the one status the rail names: its entry
+ * is dimmed but clickable (the click is the retry), and its tooltip is the
+ * server's sentence, verbatim.
+ */
+describe('setEntryStatus', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  const MESSAGE = 'JUPYTER failed to start: boom';
+  const JUPYTER = { id: 'jupyter', label: 'JUPYTER', hint: 'right-click for actions' };
+
+  beforeEach(() => {
+    rail = freshRail();
+  });
+
+  test("a failed entry is clickable and carries the server's message as its tooltip", () => {
+    const onActivate = vi.fn();
+    createRail(rail, [JUPYTER], { onActivate });
+
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.classList.contains('failed')).toBe(true);
+    expect(entry.classList.contains('disabled')).toBe(false);
+    expect(entry.title).toBe(MESSAGE);
+    expect(entry.getAttribute('aria-description')).toBe(MESSAGE);
+    entry.click();
+    expect(onActivate).toHaveBeenCalledWith('jupyter');
+  });
+
+  test('clearing the status restores the base tooltip', () => {
+    createRail(rail, [JUPYTER]);
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+
+    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
+
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.classList.contains('failed')).toBe(false);
+    expect(entry.title).toBe('JUPYTER · right-click for actions');
+    expect(entry.hasAttribute('aria-description')).toBe(false);
+    expect(entry.hasAttribute('data-status-base')).toBe(false);
+  });
+
+  test('a message set under an attention badge survives the badge clearing', () => {
+    createRail(rail, [JUPYTER]);
+    setEntryAttention(rail, 'jupyter', true, 1_755_000_000);
+
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.title.startsWith(`${MESSAGE} · agent touched `)).toBe(true);
+
+    setEntryAttention(rail, 'jupyter', false);
+    expect(entry.title).toBe(MESSAGE);
+
+    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
+    expect(entry.title).toBe('JUPYTER · right-click for actions');
   });
 });
