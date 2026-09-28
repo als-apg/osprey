@@ -368,10 +368,9 @@ def schema_document(
 def check_schema(document: Mapping[str, Any], sources: Sources) -> list[FacilityBuildError]:
     """Validate the filled document against the generated model (stage S3).
 
-    Each failing path is one ``source-invalid`` line naming the dotted path; a
-    limits.yaml without its ``defaults`` block is ``limit-invalid``. The slots
-    typed ``Any`` (scenario ``overrides`` and ``faults``) are checked for being
-    mappings here too.
+    Each failing path is one ``source-invalid`` line naming the dotted path. The
+    slots typed ``Any`` (scenario ``overrides`` and ``faults``) are checked for
+    being mappings here too.
 
     Args:
         document: The document from ``schema_document``.
@@ -441,16 +440,6 @@ def _schema_error(
     message = message[:1].lower() + message[1:]
     if item.get("type") == "missing":
         remedy = f"add `{slot}` to {where}"
-        if loc == ("limits", "defaults"):
-            return FacilityBuildError(
-                "limit-invalid",
-                dotted,
-                files,
-                "add `defaults: {writable: <bool>, confirm: <bool>}` to limits.yaml,"
-                " or delete limits.yaml to run without limits",
-                record_kind="path",
-                detail="limits.yaml has no `defaults` block",
-            )
     elif item.get("type") == "extra_forbidden":
         remedy = f"remove `{slot}` from {where}"
     else:

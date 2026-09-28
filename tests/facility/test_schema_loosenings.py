@@ -209,9 +209,9 @@ def test_wiring_drives_element_or_slices_with_an_engine_block(core: dict) -> Non
     assert set(_attrs(core, "Calibration")) == {"curve", "inverse", "energy_scaling"}
 
 
-def test_limits_are_defaults_plus_records(core: dict) -> None:
-    assert set(_attrs(core, "Limits")) == {"defaults", "records"}
-    assert _attrs(core, "Limits")["defaults"]["required"]
+def test_limits_are_records_only(core: dict) -> None:
+    assert set(_attrs(core, "Limits")) == {"records"}
+    assert "LimitDefaults" not in core["classes"]
     record = _attrs(core, "LimitRecord")
     assert set(record) - {"address"} == {
         "min_value",
