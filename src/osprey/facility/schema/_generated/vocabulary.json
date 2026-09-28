@@ -1,0 +1,1184 @@
+{
+  "classes": [
+    {
+      "abstract": true,
+      "aliases": [
+        "accelerating cavity",
+        "RF cavity",
+        "cavity"
+      ],
+      "description": "RF accelerating cavity structure.",
+      "iri": "https://narad.example.org/schema/shared_semantics/AcceleratingCavity",
+      "name": "AcceleratingCavity",
+      "parent": "RadioFrequency"
+    },
+    {
+      "abstract": true,
+      "aliases": [],
+      "description": "Abstract root for all accelerator devices.",
+      "iri": "https://narad.example.org/schema/shared_semantics/AcceleratorDevice",
+      "name": "AcceleratorDevice",
+      "parent": null
+    },
+    {
+      "abstract": true,
+      "aliases": [
+        "actuated",
+        "insertable"
+      ],
+      "description": "Instrumentation devices with mechanically actuated or insertable elements.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Actuated",
+      "name": "Actuated",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "aperture",
+        "collimator",
+        "scraper"
+      ],
+      "description": "Insertable aperture/collimator element used to constrain beam envelope and scrape halo.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Aperture",
+      "name": "Aperture",
+      "parent": "Actuated"
+    },
+    {
+      "abstract": true,
+      "aliases": [],
+      "description": "Abstract root for magnets whose purpose is field correction or cancellation rather than primary beam steering / focusing (e.g. bucking coils that null a solenoid's fringe field at the cathode).",
+      "iri": "https://narad.example.org/schema/shared_semantics/AuxiliaryCoil",
+      "name": "AuxiliaryCoil",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "beam current monitor",
+        "current monitor",
+        "BCM",
+        "BC"
+      ],
+      "description": "Beam current monitor (BCM) for non-intercepting beam intensity readback.",
+      "iri": "https://narad.example.org/schema/shared_semantics/BeamCurrentMonitor",
+      "name": "BeamCurrentMonitor",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "beam loss monitor",
+        "loss monitor",
+        "BLM",
+        "LM"
+      ],
+      "description": "Beam loss monitor (BLM) for machine protection and tuning.",
+      "iri": "https://narad.example.org/schema/shared_semantics/BeamLossMonitor",
+      "name": "BeamLossMonitor",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "beam position monitor",
+        "position monitor",
+        "BPM",
+        "PM",
+        "position pickup"
+      ],
+      "description": "Non-intercepting beam position monitor (stripline, cavity BPM, etc.).",
+      "iri": "https://narad.example.org/schema/shared_semantics/BeamPositionMonitor",
+      "name": "BeamPositionMonitor",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "Field-cancellation coil pair used to null a parent magnet's fringe field (typically at the gun cathode).",
+      "iri": "https://narad.example.org/schema/shared_semantics/BuckingCoil",
+      "name": "BuckingCoil",
+      "parent": "AuxiliaryCoil"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "bunch length monitor",
+        "bunch monitor"
+      ],
+      "description": "Instrumentation for bunch-length related observation and monitoring.",
+      "iri": "https://narad.example.org/schema/shared_semantics/BunchLengthMonitor",
+      "name": "BunchLengthMonitor",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": true,
+      "aliases": [],
+      "description": "Abstract root for RF cavities whose primary function is longitudinal bunching rather than acceleration.",
+      "iri": "https://narad.example.org/schema/shared_semantics/BunchingCavity",
+      "name": "BunchingCavity",
+      "parent": "RadioFrequency"
+    },
+    {
+      "abstract": true,
+      "aliases": [
+        "corrector",
+        "steerer",
+        "steering magnet",
+        "orbit corrector"
+      ],
+      "description": "Orbit corrector magnet (horizontal or vertical).",
+      "iri": "https://narad.example.org/schema/shared_semantics/Corrector",
+      "name": "Corrector",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "dipole",
+        "bending magnet",
+        "bend magnet",
+        "bend",
+        "dipole magnet"
+      ],
+      "description": "Dipole bending magnet.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Dipole",
+      "name": "Dipole",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "dump",
+        "beam dump"
+      ],
+      "description": "Beam dump element used to absorb beam under controlled operating conditions.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Dump",
+      "name": "Dump",
+      "parent": "Actuated"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "DC electron gun with high-voltage power supply (HVPS). Produces the primary beam; includes the gun electrode, HVPS, and SF6-insulated pressure vessel.",
+      "iri": "https://narad.example.org/schema/shared_semantics/ElectronGun",
+      "name": "ElectronGun",
+      "parent": "AcceleratorDevice"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "faraday cup",
+        "cup",
+        "faraday"
+      ],
+      "description": "Insertable Faraday cup used for beam current interception and measurement.",
+      "iri": "https://narad.example.org/schema/shared_semantics/FaradayCup",
+      "name": "FaradayCup",
+      "parent": "Actuated"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "gauge",
+        "vacuum gauge",
+        "pressure gauge"
+      ],
+      "description": "Vacuum pressure gauge (cold cathode, Pirani, ionisation gauge, etc.).",
+      "iri": "https://narad.example.org/schema/shared_semantics/Gauge",
+      "name": "Gauge",
+      "parent": "Vacuum"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "horizontal corrector",
+        "HCorrector",
+        "HCOR",
+        "horizontal orbit corrector",
+        "horizontal steering magnet"
+      ],
+      "description": "Horizontal orbit corrector.",
+      "iri": "https://narad.example.org/schema/shared_semantics/HCorrector",
+      "name": "HCorrector",
+      "parent": "Corrector"
+    },
+    {
+      "abstract": true,
+      "aliases": [
+        "instrumentation",
+        "diagnostics"
+      ],
+      "description": "Abstract root for instrumentation and diagnostic devices.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Instrumentation",
+      "name": "Instrumentation",
+      "parent": "AcceleratorDevice"
+    },
+    {
+      "abstract": true,
+      "aliases": [
+        "magnet",
+        "electromagnet"
+      ],
+      "description": "A device whose primary function is magnetic beam steering or focusing.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Magnet",
+      "name": "Magnet",
+      "parent": "AcceleratorDevice"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "High-power klystron / RF-driver modulator providing pulsed DC to an RF amplifier chain.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Modulator",
+      "name": "Modulator",
+      "parent": "RadioFrequency"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "normal conducting",
+        "warm RF",
+        "warm"
+      ],
+      "description": "Normal-conducting (warm) accelerating RF cavity structure.",
+      "iri": "https://narad.example.org/schema/shared_semantics/NormalConducting",
+      "name": "NormalConducting",
+      "parent": "AcceleratingCavity"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "octupole"
+      ],
+      "description": "Octupole magnet used for nonlinear optics shaping and stability control.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Octupole",
+      "name": "Octupole",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "pump",
+        "ion pump",
+        "vacuum pump"
+      ],
+      "description": "Vacuum pump (ion pump, NEG pump, etc.).",
+      "iri": "https://narad.example.org/schema/shared_semantics/Pump",
+      "name": "Pump",
+      "parent": "Vacuum"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "quadrupole",
+        "quad",
+        "focusing magnet",
+        "defocusing magnet",
+        "quadrupole magnet"
+      ],
+      "description": "Quadrupole focusing or defocusing magnet.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Quadrupole",
+      "name": "Quadrupole",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": true,
+      "aliases": [
+        "radio frequency",
+        "radiofrequency",
+        "RF"
+      ],
+      "description": "Abstract root for RF acceleration structures.",
+      "iri": "https://narad.example.org/schema/shared_semantics/RadioFrequency",
+      "name": "RadioFrequency",
+      "parent": "AcceleratorDevice"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "screen",
+        "viewer",
+        "profile screen"
+      ],
+      "description": "Intercepting screen diagnostic (YAG screen, OTR, etc.).",
+      "iri": "https://narad.example.org/schema/shared_semantics/ScreenDiagnostic",
+      "name": "ScreenDiagnostic",
+      "parent": "Actuated"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "sextupole",
+        "sext"
+      ],
+      "description": "Sextupole magnet used for chromatic correction and higher-order optics control.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Sextupole",
+      "name": "Sextupole",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "solenoid",
+        "solenoid magnet",
+        "axial focusing magnet"
+      ],
+      "description": "Solenoid focusing magnet.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Solenoid",
+      "name": "Solenoid",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "Sub-harmonic buncher cavity operated below the linac fundamental frequency to compress bunches before injection.",
+      "iri": "https://narad.example.org/schema/shared_semantics/SubHarmonicBuncher",
+      "name": "SubHarmonicBuncher",
+      "parent": "BunchingCavity"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "superconducting",
+        "SRF",
+        "cold",
+        "cryo"
+      ],
+      "description": "Superconducting RF structures.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Superconducting",
+      "name": "Superconducting",
+      "parent": "AcceleratingCavity"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "target"
+      ],
+      "description": "Beam-intercepting target element used for dedicated measurement or interaction stations.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Target",
+      "name": "Target",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "Programmable event-timing channel (trigger, delay) sourced from the event-distribution system.",
+      "iri": "https://narad.example.org/schema/shared_semantics/TimingChannel",
+      "name": "TimingChannel",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "Master phase / timing reference distributed to downstream timing channels.",
+      "iri": "https://narad.example.org/schema/shared_semantics/TimingReference",
+      "name": "TimingReference",
+      "parent": "Instrumentation"
+    },
+    {
+      "abstract": false,
+      "aliases": [],
+      "description": "Travelling-wave RF accelerating structure (sibling to NormalConducting / Superconducting standing-wave cavities).",
+      "iri": "https://narad.example.org/schema/shared_semantics/TravellingWaveCavity",
+      "name": "TravellingWaveCavity",
+      "parent": "AcceleratingCavity"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "vertical corrector",
+        "VCorrector",
+        "VCOR",
+        "vertical orbit corrector",
+        "vertical steering magnet"
+      ],
+      "description": "Vertical orbit corrector.",
+      "iri": "https://narad.example.org/schema/shared_semantics/VCorrector",
+      "name": "VCorrector",
+      "parent": "Corrector"
+    },
+    {
+      "abstract": true,
+      "aliases": [
+        "vacuum"
+      ],
+      "description": "Abstract root for vacuum systems and instrumentation.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Vacuum",
+      "name": "Vacuum",
+      "parent": "AcceleratorDevice"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "valve",
+        "beamline valve",
+        "gate valve",
+        "isolation valve",
+        "fast valve",
+        "BV",
+        "FV"
+      ],
+      "description": "Beamline gate valve or isolation valve.",
+      "iri": "https://narad.example.org/schema/shared_semantics/Valve",
+      "name": "Valve",
+      "parent": "Vacuum"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "wien filter",
+        "wien"
+      ],
+      "description": "Crossed-field Wien filter used for velocity and spin manipulation with minimal orbit distortion.",
+      "iri": "https://narad.example.org/schema/shared_semantics/WienFilter",
+      "name": "WienFilter",
+      "parent": "Magnet"
+    },
+    {
+      "abstract": false,
+      "aliases": [
+        "wire scanner",
+        "harp",
+        "wire harp",
+        "profile monitor",
+        "beam harp"
+      ],
+      "description": "Beam profile wire scanner or harp.",
+      "iri": "https://narad.example.org/schema/shared_semantics/WireScanner",
+      "name": "WireScanner",
+      "parent": "Actuated"
+    }
+  ],
+  "properties": [
+    {
+      "aliases": [
+        "alphax",
+        "alpha x",
+        "horizontal alpha",
+        "horizontal alpha function"
+      ],
+      "description": "Horizontal alpha (Twiss parameter) from the optics model.",
+      "name": "alphax",
+      "unit": null
+    },
+    {
+      "aliases": [
+        "alphay",
+        "alpha y",
+        "vertical alpha",
+        "vertical alpha function"
+      ],
+      "description": "Vertical alpha (Twiss parameter) from the optics model.",
+      "name": "alphay",
+      "unit": null
+    },
+    {
+      "aliases": [
+        "betax",
+        "beta x",
+        "horizontal beta function",
+        "horizontal beta",
+        "beta horizontal"
+      ],
+      "description": "Horizontal beta function from the accelerator optics model.",
+      "name": "betax",
+      "unit": "m"
+    },
+    {
+      "aliases": [
+        "betay",
+        "beta y",
+        "vertical beta function",
+        "vertical beta",
+        "beta vertical"
+      ],
+      "description": "Vertical beta function from the accelerator optics model.",
+      "name": "betay",
+      "unit": "m"
+    },
+    {
+      "aliases": [
+        "emitx",
+        "emit x",
+        "horizontal emittance",
+        "x emittance"
+      ],
+      "description": "Horizontal normalised emittance.",
+      "name": "emitx",
+      "unit": "m*rad"
+    },
+    {
+      "aliases": [
+        "emity",
+        "emit y",
+        "vertical emittance",
+        "y emittance"
+      ],
+      "description": "Vertical normalised emittance.",
+      "name": "emity",
+      "unit": "m*rad"
+    },
+    {
+      "aliases": [
+        "etax",
+        "eta x",
+        "horizontal dispersion",
+        "dispersion x"
+      ],
+      "description": "Horizontal dispersion function from the optics model.",
+      "name": "etax",
+      "unit": "m"
+    },
+    {
+      "aliases": [
+        "etay",
+        "eta y",
+        "vertical dispersion",
+        "dispersion y"
+      ],
+      "description": "Vertical dispersion function from the optics model.",
+      "name": "etay",
+      "unit": "m"
+    },
+    {
+      "aliases": [
+        "length",
+        "element length",
+        "physical element length",
+        "device length",
+        "active length"
+      ],
+      "description": "Physical length of the device element.",
+      "name": "length",
+      "unit": "m"
+    },
+    {
+      "aliases": [
+        "pCentral",
+        "central momentum",
+        "design momentum",
+        "reference momentum"
+      ],
+      "description": "Central (design) beam momentum from the optics model.",
+      "name": "pCentral",
+      "unit": "MeV/c"
+    },
+    {
+      "aliases": [
+        "psix",
+        "psi x",
+        "horizontal phase advance"
+      ],
+      "description": "Horizontal betatron phase advance.",
+      "name": "psix",
+      "unit": "rad"
+    },
+    {
+      "aliases": [
+        "psiy",
+        "psi y",
+        "vertical phase advance"
+      ],
+      "description": "Vertical betatron phase advance.",
+      "name": "psiy",
+      "unit": "rad"
+    },
+    {
+      "aliases": [
+        "s_position",
+        "s position",
+        "longitudinal position",
+        "s coord",
+        "beamline position",
+        "position along beamline"
+      ],
+      "description": "Longitudinal position along the beamline (s-coordinate).",
+      "name": "s_position",
+      "unit": "m"
+    },
+    {
+      "aliases": [
+        "sigmax",
+        "sigma x",
+        "horizontal beam size",
+        "rms beam size x"
+      ],
+      "description": "Horizontal beam-envelope RMS size from the optics model.",
+      "name": "sigmax",
+      "unit": "m"
+    },
+    {
+      "aliases": [
+        "sigmay",
+        "sigma y",
+        "vertical beam size",
+        "rms beam size y"
+      ],
+      "description": "Vertical beam-envelope RMS size from the optics model.",
+      "name": "sigmay",
+      "unit": "m"
+    }
+  ],
+  "schema": "osprey.facility.vocabulary",
+  "signal_roles": [
+    {
+      "aliases": [],
+      "description": "AC-supply OK readback (120 V auxiliary supply healthy).",
+      "name": "ac_supply_ok_status"
+    },
+    {
+      "aliases": [],
+      "description": "Compressed-air-pressure (pneumatic actuator supply) readback.",
+      "name": "air_pressure_status"
+    },
+    {
+      "aliases": [
+        "beam intensity",
+        "wire sum",
+        "beam current",
+        "charge readback",
+        "intensity readback",
+        "BPM sum"
+      ],
+      "description": "Scalar beam intensity or charge readback (e.g. BPM .VAL).",
+      "name": "beam_intensity_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Fast-orbit-feedback channel-index readback for a BPM.",
+      "name": "bpm_fofb_index"
+    },
+    {
+      "aliases": [],
+      "description": "BPM acquisition sample-rate readback (configuration channel).",
+      "name": "bpm_sample_rate"
+    },
+    {
+      "aliases": [],
+      "description": "BPM sum-signal readback (intensity proxy from button electrodes).",
+      "name": "bpm_sum_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Bulk-supply control command (mode/enable).",
+      "name": "bulk_supply_command"
+    },
+    {
+      "aliases": [],
+      "description": "Bulk-supply on/off state readback.",
+      "name": "bulk_supply_on_status"
+    },
+    {
+      "aliases": [],
+      "description": "Bulk-supply DC voltage readback.",
+      "name": "bulk_supply_voltage_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Control-computer heartbeat / health readback.",
+      "name": "computer_status"
+    },
+    {
+      "aliases": [],
+      "description": "Controlled-power-mode readback for a main dipole supply.",
+      "name": "controlled_power_mode_status"
+    },
+    {
+      "aliases": [],
+      "description": "Stored \"golden\" current setpoint reference for a powered device.",
+      "name": "current_golden_readback"
+    },
+    {
+      "aliases": [
+        "current readback",
+        "measured current",
+        "current measurement",
+        "current readout",
+        "readback current"
+      ],
+      "description": "Measured current value read back from a powered device.",
+      "name": "current_readback"
+    },
+    {
+      "aliases": [
+        "current setpoint",
+        "magnet setpoint",
+        "demand current",
+        "set current",
+        "current demand",
+        "setpoint current",
+        "commanded current"
+      ],
+      "description": "Commanded current value sent to a powered device.",
+      "name": "current_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "DC-supply OK readback (24 V auxiliary supply healthy).",
+      "name": "dc_supply_ok_status"
+    },
+    {
+      "aliases": [],
+      "description": "External interlock channel 1 readback.",
+      "name": "external_interlock_1_status"
+    },
+    {
+      "aliases": [],
+      "description": "External interlock channel 2 readback.",
+      "name": "external_interlock_2_status"
+    },
+    {
+      "aliases": [],
+      "description": "External interlock channel 3 readback.",
+      "name": "external_interlock_3_status"
+    },
+    {
+      "aliases": [],
+      "description": "Generic device fault flag readback.",
+      "name": "fault_status"
+    },
+    {
+      "aliases": [
+        "field readback",
+        "measured field",
+        "field measurement",
+        "field readout"
+      ],
+      "description": "Measured field readback for a magnetic device.",
+      "name": "field_readback"
+    },
+    {
+      "aliases": [
+        "field setpoint",
+        "BDL setpoint",
+        "integrated field setpoint",
+        "field demand",
+        "set field"
+      ],
+      "description": "Commanded field (integrated or peak) for a magnetic device.",
+      "name": "field_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Filament warm-up / runtime timeout readback.",
+      "name": "filament_timeout_status"
+    },
+    {
+      "aliases": [
+        "gradient readback",
+        "cavity gradient readback",
+        "measured gradient",
+        "GMES"
+      ],
+      "description": "Measured accelerating gradient readback for an RF cavity.",
+      "name": "gradient_readback"
+    },
+    {
+      "aliases": [
+        "gradient setpoint",
+        "cavity gradient setpoint",
+        "set gradient",
+        "GSET"
+      ],
+      "description": "Commanded accelerating gradient setpoint for an RF cavity.",
+      "name": "gradient_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Beam current or supply current readback from an electron gun HVPS (mA).",
+      "name": "gun_current_readback"
+    },
+    {
+      "aliases": [],
+      "description": "High-voltage readback from an electron gun HVPS (measured kV).",
+      "name": "gun_voltage_readback"
+    },
+    {
+      "aliases": [],
+      "description": "High-voltage setpoint for an electron gun or its HVPS (preset demand, kV).",
+      "name": "gun_voltage_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Integrated beam-loss count readback from a beam loss monitor (BLM).",
+      "name": "integrated_count"
+    },
+    {
+      "aliases": [],
+      "description": "Generic interlock readback (active / cleared).",
+      "name": "interlock_status"
+    },
+    {
+      "aliases": [],
+      "description": "Internal interlock channel 1 readback.",
+      "name": "internal_interlock_1_status"
+    },
+    {
+      "aliases": [],
+      "description": "Internal interlock channel 2 readback.",
+      "name": "internal_interlock_2_status"
+    },
+    {
+      "aliases": [],
+      "description": "Internal interlock channel 3 readback.",
+      "name": "internal_interlock_3_status"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded lamp on/off transition.",
+      "name": "lamp_command"
+    },
+    {
+      "aliases": [],
+      "description": "Illumination-lamp on/off state readback.",
+      "name": "lamp_status"
+    },
+    {
+      "aliases": [],
+      "description": "Leakage-current readback for a magnet supply.",
+      "name": "leakage_current_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Local-vs-remote control-mode readback.",
+      "name": "local_mode_status"
+    },
+    {
+      "aliases": [],
+      "description": "Locally-measured RF-phase readback.",
+      "name": "local_phase_readback"
+    },
+    {
+      "aliases": [
+        "voltage",
+        "voltages",
+        "magnet voltage",
+        "magnet voltages",
+        "voltage readback",
+        "magnet voltage readback",
+        "driver supply voltage",
+        "high voltage readback",
+        "HV readback",
+        "D.H"
+      ],
+      "description": "Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).",
+      "name": "magnet_voltage_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Modulator state-machine command (StateCmd; MemberOf=Boolean Control).",
+      "name": "modulator_state_command"
+    },
+    {
+      "aliases": [],
+      "description": "Over-temperature fault flag readback.",
+      "name": "over_temperature_status"
+    },
+    {
+      "aliases": [],
+      "description": "Stored golden RF-phase reference.",
+      "name": "phase_golden_readback"
+    },
+    {
+      "aliases": [
+        "phase readback",
+        "cavity phase readback",
+        "measured phase",
+        "PMES"
+      ],
+      "description": "Measured RF phase readback for an RF cavity.",
+      "name": "phase_readback"
+    },
+    {
+      "aliases": [
+        "phase setpoint",
+        "cavity phase setpoint",
+        "set phase",
+        "PSET"
+      ],
+      "description": "Commanded RF phase setpoint for an RF cavity.",
+      "name": "phase_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Plug-interlock readback (mating-connector presence).",
+      "name": "plug_interlock_status"
+    },
+    {
+      "aliases": [],
+      "description": "Horizontal-position error readback (delta from golden reference).",
+      "name": "position_x_error_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Golden-orbit horizontal-position reference readback.",
+      "name": "position_x_golden_readback"
+    },
+    {
+      "aliases": [
+        "horizontal beam position",
+        "X position",
+        "XPOS",
+        "measured X",
+        "x readback",
+        "measured horizontal position",
+        "horizontal position readback",
+        "horizontal beam position readback",
+        "beam x position"
+      ],
+      "description": "Horizontal beam position readback from a beam position monitor.",
+      "name": "position_x_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS horizontal position over a 10k-sample window.",
+      "name": "position_x_rms_10k_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS horizontal position over a 200-sample window.",
+      "name": "position_x_rms_200_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Vertical-position error readback (delta from golden reference).",
+      "name": "position_y_error_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Golden-orbit vertical-position reference readback.",
+      "name": "position_y_golden_readback"
+    },
+    {
+      "aliases": [
+        "vertical beam position",
+        "Y position",
+        "YPOS",
+        "measured Y",
+        "y readback",
+        "measured vertical position",
+        "vertical position readback",
+        "vertical beam position readback",
+        "beam y position"
+      ],
+      "description": "Vertical beam position readback from a beam position monitor.",
+      "name": "position_y_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS vertical position over a 10k-sample window.",
+      "name": "position_y_rms_10k_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS vertical position over a 200-sample window.",
+      "name": "position_y_rms_200_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded power on/off transition for a powered device.",
+      "name": "power_on_command"
+    },
+    {
+      "aliases": [],
+      "description": "Power-on (energised) state readback of a powered device.",
+      "name": "power_on_status"
+    },
+    {
+      "aliases": [
+        "profile",
+        "beam profile",
+        "wire profile",
+        "harp profile",
+        "profile readback",
+        "transverse profile"
+      ],
+      "description": "Beam profile readback from a wire scanner or harp.",
+      "name": "profile_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Modulator pulse-amplitude setpoint.",
+      "name": "pulse_amplitude_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Modulator pulse-delay setpoint.",
+      "name": "pulse_delay_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Pulsing-permit interlock readback.",
+      "name": "pulse_permit_status"
+    },
+    {
+      "aliases": [],
+      "description": "Modulator pulse-width setpoint.",
+      "name": "pulse_width_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded pulsing on/off transition.",
+      "name": "pulsing_command"
+    },
+    {
+      "aliases": [],
+      "description": "Pulsing-on state readback.",
+      "name": "pulsing_on_status"
+    },
+    {
+      "aliases": [],
+      "description": "Pulsing-ready handshake readback.",
+      "name": "pulsing_ready_status"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded ramp-rate setpoint for a powered device's current loop.",
+      "name": "ramp_rate_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Ramping-in-progress readback.",
+      "name": "ramping_status"
+    },
+    {
+      "aliases": [],
+      "description": "Device-ready handshake readback (interlocks satisfied, supplies up).",
+      "name": "ready_status"
+    },
+    {
+      "aliases": [],
+      "description": "Regulator / power-stage temperature readback.",
+      "name": "regulator_temperature_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Remotely-reported RF-phase readback.",
+      "name": "remote_phase_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Latching-fault reset command.",
+      "name": "reset_command"
+    },
+    {
+      "aliases": [],
+      "description": "RF drive-amplitude readback.",
+      "name": "rf_drive_amplitude_readback"
+    },
+    {
+      "aliases": [
+        "rf forward power",
+        "forward power",
+        "cavity forward power",
+        "CRFP"
+      ],
+      "description": "RF forward power readback at an accelerating cavity input.",
+      "name": "rf_forward_power_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Stored golden HV reference for an RF cavity.",
+      "name": "rf_hv_golden_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RF / klystron high-voltage readback.",
+      "name": "rf_hv_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RF / klystron high-voltage setpoint.",
+      "name": "rf_hv_setpoint"
+    },
+    {
+      "aliases": [
+        "rf reflected power",
+        "reflected power",
+        "cavity reflected power",
+        "CRRP"
+      ],
+      "description": "RF reflected power readback from an accelerating cavity.",
+      "name": "rf_reflected_power_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded screen-insert transition.",
+      "name": "screen_in_command"
+    },
+    {
+      "aliases": [],
+      "description": "Screen-inserted state readback.",
+      "name": "screen_in_status"
+    },
+    {
+      "aliases": [],
+      "description": "Screen-extracted state readback.",
+      "name": "screen_out_status"
+    },
+    {
+      "aliases": [],
+      "description": "SF6 insulating-gas pressure readback in an electron gun pressure vessel (PSI).",
+      "name": "sf6_pressure_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Dipole shunt-circuit state readback.",
+      "name": "shunt_status"
+    },
+    {
+      "aliases": [
+        "status",
+        "device status",
+        "state",
+        "fault status",
+        "enable status",
+        "on off status",
+        "open closed status"
+      ],
+      "description": "Generic device status (on/off/fault/enabled/disabled).",
+      "name": "status"
+    },
+    {
+      "aliases": [],
+      "description": "Thermal/over-temperature interlock flag readback.",
+      "name": "thermal_status"
+    },
+    {
+      "aliases": [
+        "vacuum readback",
+        "pressure readback",
+        "vacuum pressure",
+        "pressure reading",
+        "vacuum reading",
+        "pressure measurement"
+      ],
+      "description": "Vacuum pressure readback from a vacuum gauge or pump.",
+      "name": "vacuum_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Cathode-side interlock / status channel for a vacuum valve.",
+      "name": "valve_cathode_status"
+    },
+    {
+      "aliases": [],
+      "description": "Downstream-side limit-switch state readback for a vacuum valve.",
+      "name": "valve_downstream_status"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded valve open/close transition.",
+      "name": "valve_open_command"
+    },
+    {
+      "aliases": [],
+      "description": "Open/closed/fault status readback for a beamline gate valve or fast valve.",
+      "name": "valve_status"
+    },
+    {
+      "aliases": [],
+      "description": "Upstream-side limit-switch state readback for a vacuum valve.",
+      "name": "valve_upstream_status"
+    }
+  ]
+}

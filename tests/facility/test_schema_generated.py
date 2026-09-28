@@ -7,6 +7,7 @@ alone and compares the bytes, so a schema edit without a regeneration fails.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = REPO_ROOT / "src" / "osprey" / "facility" / "schema"
 GENERATED_DIR = SCHEMA_DIR / "_generated"
+VOCABULARY_SCRIPT = REPO_ROOT / "scripts" / "facility_schema" / "vocabulary.py"
 
 #: The lines above gen-pydantic's output in the committed ``core.py``.
 CORE_HEADER = (
@@ -57,6 +59,44 @@ def test_core_is_gen_pydantic_output_of_the_schema(schema_copy: Path) -> None:
         "_generated/core.py is stale: from src/osprey/facility/schema/ run "
         "`gen-pydantic core.yaml` and keep the three header lines above its output"
     )
+
+
+def test_vocabulary_json_is_the_script_output_of_the_schema(
+    schema_copy: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "vocabulary.json"
+    _run(
+        [str(VOCABULARY_SCRIPT), "--schema-dir", str(schema_copy), "--output", str(output)],
+        cwd=tmp_path,
+    )
+    committed = (GENERATED_DIR / "vocabulary.json").read_bytes()
+    assert committed == output.read_bytes(), (
+        "_generated/vocabulary.json is stale: run scripts/facility_schema/vocabulary.py"
+    )
+
+
+def test_vocabulary_json_reads_with_the_standard_library() -> None:
+    table = json.loads((GENERATED_DIR / "vocabulary.json").read_text(encoding="utf-8"))
+    assert table["schema"] == "osprey.facility.vocabulary"
+    classes = {record["name"]: record for record in table["classes"]}
+    assert [name for name, record in classes.items() if record["parent"] is None] == [
+        "AcceleratorDevice"
+    ]
+    assert all(
+        record["parent"] is None or record["parent"] in classes for record in classes.values()
+    )
+    assert classes["HCorrector"]["parent"] == "Corrector"
+    assert "HCOR" in classes["HCorrector"]["aliases"]
+    assert classes["Corrector"]["abstract"] is True
+    assert classes["BeamPositionMonitor"]["iri"].endswith("/BeamPositionMonitor")
+    roles = {record["name"]: record for record in table["signal_roles"]}
+    assert "current setpoint" in roles["current_setpoint"]["aliases"]
+    properties = {record["name"]: record for record in table["properties"]}
+    assert properties["betax"]["unit"] == "m"
+    assert properties["alphax"]["unit"] is None
+    for key in ("classes", "signal_roles", "properties"):
+        names = [record["name"] for record in table[key]]
+        assert names == sorted(names)
 
 
 def test_package_imports_without_warnings() -> None:
