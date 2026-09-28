@@ -300,11 +300,10 @@ def test_the_web_probes_split_the_perimeter_from_the_application(
 def test_the_tcp_helper_is_emitted_only_where_a_probe_uses_it(
     profile: dict[str, Any], rendered: dict[str, str]
 ) -> None:
-    """A helper shelling out to ``python3`` must not appear unused.
+    """The TCP helper must not appear unused.
 
-    The deploy host needs ``python3`` only because of this helper, so a script
-    carrying it with nothing to probe documents a dependency the deployment does
-    not have.
+    A script carrying it with nothing to probe holds dead text an operator has
+    to read past.
     """
     assert ("probe_tcp" in rendered["scripts/verify.sh"]) is True
     assert build_verify_context(profile).has_tcp_probe
