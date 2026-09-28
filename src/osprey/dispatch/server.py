@@ -772,9 +772,9 @@ def create_server() -> FastMCP:
         for t in triggers:
             cfg = registry._triggers.get(t["name"])
             t["next_fire"] = None
-            if cfg and cfg.schedule is not None:
-                t["next_fire"] = next_fire(cfg.schedule, now, zone).isoformat()
             if cfg:
+                if cfg.schedule is not None:
+                    t["next_fire"] = next_fire(cfg.schedule, now, zone).isoformat()
                 t["on_error"] = cfg.on_error.get("action", "drop")
                 t["allowed_tools"] = cfg.action.get("allowed_tools", [])
                 t["prompt"] = cfg.action.get("prompt", "")
