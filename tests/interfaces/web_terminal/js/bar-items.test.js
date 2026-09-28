@@ -465,6 +465,129 @@ describe('clock item: renders per the option spec', () => {
   });
 });
 
+/* ============================================================================
+ * The facility zone. The server stamps `data-facility-timezone` on `<html>`;
+ * the clock reads it only through facility-time.js. Expectations are written
+ * against the viewer zone the suite runs in, so the file holds under any TZ.
+ * ========================================================================= */
+
+/** The zone this run's Intl calls the viewer's. */
+const VIEWER = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** Wall times at `AT` in each candidate facility zone, h23. */
+const WALL_AT = Object.freeze({
+  'Asia/Tokyo': '23:32:07',
+  'America/Los_Angeles': '07:32:07',
+  'Europe/Berlin': '16:32:07',
+});
+
+/**
+ * @param {string} timeZone
+ * @returns {string} `HH:MM` at `AT` in *timeZone*
+ */
+function hourMinuteAt(timeZone) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(AT);
+}
+
+/** A facility zone whose wall clock differs from the viewer's at `AT`. */
+const ELSEWHERE = /** @type {keyof typeof WALL_AT} */ (
+  Object.keys(WALL_AT).find((id) => hourMinuteAt(id) !== localTimeText(AT, false))
+);
+
+/**
+ * A zone id as the clock names it: last segment, underscores as spaces.
+ * @param {string} id
+ * @returns {string}
+ */
+function cityOf(id) {
+  return (id.split('/').at(-1) ?? id).replace(/_/g, ' ');
+}
+
+/**
+ * Stamp the facility zone the way the server does, before `hydrate()`.
+ * @param {string} id
+ */
+function stamp(id) {
+  document.documentElement.setAttribute('data-facility-timezone', id);
+}
+
+describe('clock item: the facility zone', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-facility-timezone');
+  });
+
+  test("zone facility shows the stamped zone's wall time and names it in the status bar", () => {
+    freezeAt(AT);
+    stamp(ELSEWHERE);
+    seedDom('', shellMarkup('clock', { zone: 'facility' }));
+    host.hydrate();
+
+    expect(shellOf('clock').dataset.barDensity).toBe('compact');
+    expect(clockTime().textContent).toBe(WALL_AT[ELSEWHERE].slice(0, 5));
+    expect(clockZoneLabel()?.textContent).toBe(cityOf(ELSEWHERE));
+    expect(partOf('clock', '.bar-clock').title).toBe('Facility time');
+  });
+
+  test('zone facility carries seconds and the 12h cycle', () => {
+    freezeAt(AT);
+    stamp('Asia/Tokyo');
+    seedDom('', shellMarkup('clock', { zone: 'facility', seconds: true }));
+    host.hydrate();
+    expect(clockTime().textContent).toBe('23:32:07');
+
+    host.reconcile(layoutOf([], [{ type: 'clock', options: { zone: 'facility', format: '12h' } }]));
+    expect(clockTime().textContent).toBe('11:32 PM');
+  });
+
+  test('zone facility is named in the header and plain in the status bar where the viewer shares its clock', () => {
+    freezeAt(AT);
+    stamp(VIEWER);
+    seedDom(shellMarkup('clock', { zone: 'facility' }), '');
+    host.hydrate();
+
+    expect(shellOf('clock').dataset.barDensity).toBe('comfortable');
+    expect(clockTime().textContent).toBe(localTimeText(AT, false));
+    expect(clockZoneLabel()?.textContent).toBe(cityOf(VIEWER));
+
+    host.reconcile(layoutOf([], [{ type: 'clock', options: { zone: 'facility' } }]));
+    expect(shellOf('clock').dataset.barDensity).toBe('compact');
+    expect(clockZoneLabel()).toBeNull();
+  });
+
+  test('zone facility without a stamp shows local time and names it at both densities', () => {
+    freezeAt(AT);
+    seedDom(shellMarkup('clock', { zone: 'facility' }), '');
+    host.hydrate();
+
+    expect(clockTime().textContent).toBe(localTimeText(AT, false));
+    expect(clockZoneLabel()?.textContent).toBe(cityOf(VIEWER));
+
+    host.reconcile(layoutOf([], [{ type: 'clock', options: { zone: 'facility' } }]));
+    expect(shellOf('clock').dataset.barDensity).toBe('compact');
+    expect(clockTime().textContent).toBe(localTimeText(AT, false));
+    expect(clockZoneLabel()?.textContent).toBe(cityOf(VIEWER));
+  });
+
+  test('an unknown stamp is the no-stamp case', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    freezeAt(AT);
+    stamp('Not/AZone');
+    seedDom(shellMarkup('clock', { zone: 'facility' }), shellMarkup('clock'));
+    host.hydrate();
+
+    const [facility, plain] = document.querySelectorAll('.bar-item[data-bar-item="clock"]');
+    expect(facility.querySelector('.bar-clock-time')?.textContent).toBe(localTimeText(AT, false));
+    expect(facility.querySelector('.bar-clock-zone')?.textContent).toBe(cityOf(VIEWER));
+    expect(plain.querySelector('.bar-clock-zone')).toBeNull();
+    warn.mockRestore();
+  });
+});
+
 describe('clock item: the interval is attach-scoped', () => {
   test('not one timer callback fires after the item is parked', () => {
     freezeAt(AT);

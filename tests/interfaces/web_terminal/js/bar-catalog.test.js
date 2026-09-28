@@ -228,9 +228,9 @@ describe('option spec', () => {
     expect(spec.default).toBe(0);
   });
 
-  test('clock offers none/local/UTC/both, 24h/12h, plus seconds', () => {
+  test('clock offers none/local/facility/UTC/both, 24h/12h, plus seconds', () => {
     const zone = asEnumSpec(BAR_CATALOG.clock.options.zone);
-    expect(zone.values).toEqual(['none', 'local', 'utc', 'both']);
+    expect(zone.values).toEqual(['none', 'local', 'facility', 'utc', 'both']);
     // The plain clock is the default: no zone suffix until one is asked for.
     expect(zone.default).toBe('none');
     const format = asEnumSpec(BAR_CATALOG.clock.options.format);

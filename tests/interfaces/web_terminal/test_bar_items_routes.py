@@ -261,6 +261,19 @@ class TestPut:
             {"type": "clock", "options": {"zone": "none", "format": "24h", "seconds": False}}
         ]
 
+    def test_a_facility_clock_round_trips(self, client):
+        response = client.put(
+            "/api/bar-items",
+            json=document(0, status=[{"type": "clock", "options": {"zone": "facility"}}]),
+        )
+
+        assert response.status_code == 200
+        stored = [
+            {"type": "clock", "options": {"zone": "facility", "format": "24h", "seconds": False}}
+        ]
+        assert response.json()["status"] == stored
+        assert client.get("/api/bar-items").json()["status"] == stored
+
     def test_stores_the_visibility_flag(self, client):
         body = client.put("/api/bar-items", json=document(0, status_visible=False)).json()
 

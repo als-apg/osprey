@@ -636,7 +636,13 @@ class TestBarItemVocabulary:
 
         items = bar_item_vocabulary().items
 
-        assert items["clock"]["options"]["zone"]["values"] == ("none", "local", "utc", "both")
+        assert items["clock"]["options"]["zone"]["values"] == (
+            "none",
+            "local",
+            "facility",
+            "utc",
+            "both",
+        )
         assert items["bluesky-queue"]["options"]["controls"]["default"] == "none"
         assert items["clock"]["options"]["seconds"]["default"] is False
         assert items["space"]["options"]["width"]["default"] == 0
