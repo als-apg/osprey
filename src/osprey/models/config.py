@@ -93,3 +93,35 @@ def main_model_id(config: Mapping[str, Any], provider: str) -> str:
         f"No model named for provider '{provider}': set claude_code.default_model, "
         f"or api.providers.{provider}.default_model in config.yml."
     )
+
+
+def provider_requests_per_minute(config: Mapping[str, Any], provider: str) -> int | None:
+    """The most model calls a minute the deployment sends *provider*.
+
+    The cap is ``api.providers.<provider>.requests_per_minute`` in the rendered
+    ``config.yml`` — the provider's catalog entry as the build wrote it. An
+    entry without the key, or a provider without an entry, is not paced.
+
+    Args:
+        config: The loaded ``config.yml`` mapping.
+        provider: The provider the calls go to.
+
+    Returns:
+        The cap in calls per minute, or ``None`` when the provider is not paced.
+
+    Raises:
+        ValueError: If the key is present but not a positive whole number.
+    """
+    from osprey.profiles.providers import is_request_cap
+
+    entry = ((config.get("api") or {}).get("providers") or {}).get(provider)
+    if not isinstance(entry, Mapping) or "requests_per_minute" not in entry:
+        return None
+    value = entry["requests_per_minute"]
+    if not is_request_cap(value):
+        raise ValueError(
+            f"api.providers.{provider}.requests_per_minute in config.yml must be a "
+            f"positive whole number of calls per minute, got {value!r}. "
+            "Delete the key for no cap."
+        )
+    return value

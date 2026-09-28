@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
+from osprey.models.config import provider_requests_per_minute
 from osprey.models.providers.litellm_adapter import get_litellm_model_name
 from osprey.services.channel_finder.benchmarks.harness import (
     combined_text_from_react,
@@ -17,16 +19,18 @@ from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
 
 from .base import Backend, WorkflowOutput
 
-# Per-provider LiteLLM call rate caps (calls per minute). Set conservatively
-# below the documented limit to leave a small safety margin. ``None`` disables
-# throttling for that provider.
-_PROVIDER_RATE_LIMIT_RPM: dict[str, int | None] = {
-    "cborg": 18,  # CBORG free tier is 20 req/min/key
-    "anthropic": None,  # Direct Anthropic — no proxy throttle needed
-    "als-apg": None,
-}
-
 logger = logging.getLogger(__name__)
+
+
+def _project_config(project_dir: Path) -> dict[str, Any]:
+    """Read the project's ``config.yml``; empty when there is none or it is no mapping."""
+    import yaml
+
+    config_path = project_dir / "config.yml"
+    if not config_path.is_file():
+        return {}
+    loaded = yaml.safe_load(config_path.read_text())
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _project_dotenv(project_dir: Path) -> dict[str, str]:
@@ -133,12 +137,10 @@ class ReactBackend(Backend):
         self.system_prompt = _read_agent_prompt(project_dir)
         self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, self.provider)
 
-        # Arm the global rate limiter based on which provider the project
-        # is configured to hit. Ollama models bypass this (the override
-        # resolver returned None earlier and the provider is local).
-        if self.provider != "ollama":
-            rpm = _PROVIDER_RATE_LIMIT_RPM.get(self.provider, None)
-            configure_rate_limiter(rpm)
+        # Pace calls to the provider's catalog cap; a provider without one is not paced.
+        configure_rate_limiter(
+            provider_requests_per_minute(_project_config(project_dir), self.provider)
+        )
 
     async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:
         async with mcp_client_session(self.project_dir, pipeline_mode) as client:

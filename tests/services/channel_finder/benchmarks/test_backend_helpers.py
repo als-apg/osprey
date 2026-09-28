@@ -1,7 +1,8 @@
 """Unit tests for pure helpers in the benchmark backends.
 
-Covers the provider-free text-extraction helper and the deterministic
-early-return branches of the LiteLLM endpoint resolver. The provider-driving
+Covers the provider-free text-extraction helper, the deterministic
+early-return branches of the LiteLLM endpoint resolver, and how the ReAct
+backend arms the shared rate limiter at construction. The provider-driving
 ``run_query`` paths are the human-babysat benchmark surface and are not
 unit-tested here.
 """
@@ -12,12 +13,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from osprey.services.channel_finder.benchmarks.backends import SdkBackend, create_backend
 from osprey.services.channel_finder.benchmarks.backends.in_context_backend import _extract_text
 from osprey.services.channel_finder.benchmarks.backends.react_backend import (
+    ReactBackend,
     _resolve_litellm_endpoint,
 )
+from osprey.services.channel_finder.rate_limiter import configure_rate_limiter, get_rate_limiter
 
 
 class TestExtractText:
@@ -106,6 +110,53 @@ class TestResolveLitellmEndpoint:
         resolved = _resolve_litellm_endpoint(project, "als-apg")
 
         assert resolved == {"api_base": "https://from-dotenv.example.com", "api_key": "dotenv-key"}
+
+
+#: The smallest valid provider entry; the key reference is exported per test.
+_GATEWAY_ENTRY = {
+    "api_key": "${GW_API_KEY}",
+    "base_url": "https://gateway.example.test/v1",
+    "default_model": "m-1",
+    "models": ["m-1"],
+}
+
+
+class TestReactBackendPacing:
+    """The backend paces its calls to the provider's catalog cap, and only that."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self, monkeypatch):
+        monkeypatch.setenv("GW_API_KEY", "test-key")
+        configure_rate_limiter(None)
+        yield
+        configure_rate_limiter(None)
+
+    @staticmethod
+    def _project(tmp_path: Path, providers: dict) -> Path:
+        (tmp_path / "config.yml").write_text(yaml.safe_dump({"api": {"providers": providers}}))
+        return tmp_path
+
+    def test_arms_the_limiter_from_the_catalog_cap(self, tmp_path: Path):
+        project = self._project(tmp_path, {"gw": {**_GATEWAY_ENTRY, "requests_per_minute": 7}})
+        ReactBackend(project, "gw/m-1", 3)
+        limiter = get_rate_limiter()
+        assert limiter is not None
+        assert limiter.max_calls == 7
+
+    @pytest.mark.parametrize(
+        ("provider", "model"), [("cborg", "cborg/m-1"), ("ollama", "ollama/gpt-oss:20b")]
+    )
+    def test_a_provider_without_a_cap_clears_an_armed_limiter(
+        self, tmp_path: Path, provider: str, model: str
+    ):
+        project = self._project(tmp_path, {provider: dict(_GATEWAY_ENTRY)})
+        configure_rate_limiter(3)
+        ReactBackend(project, model, 3)
+        assert get_rate_limiter() is None
+
+    def test_a_project_without_a_config_is_not_paced(self, tmp_path: Path):
+        ReactBackend(tmp_path, "gw/m-1", 3)
+        assert get_rate_limiter() is None
 
 
 def _graph_project(tmp_path: Path) -> Path:
