@@ -4,22 +4,31 @@ Tests cover:
   - programmatic_recall_check: substring matching (full, partial, case-insensitive)
   - compute_f1: edge cases (perfect, both empty, one empty, partial, case-insensitive)
   - evaluate_response: stage 1 default, stage 2 always-on when opted in
-  - llm_judge_coverage: mocked LLM structured output
+  - llm_judge_coverage: mocked adapter call; route resolution from a project config
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
+from osprey.models import provider_registry
+from osprey.models.provider_registry import ProviderRegistry
 from osprey.services.channel_finder.benchmarks.evaluation import (
     ChannelExtractionResult,
+    JudgeRoute,
     compute_f1,
     evaluate_response,
     llm_judge_coverage,
     programmatic_recall_check,
+    resolve_judge,
 )
+from osprey.services.channel_finder.core.exceptions import CoverageJudgeError
+
+_ROUTE = JudgeRoute("als-apg", "claude-sonnet-5", "https://gateway.example.org/v1", api_key="k")
 
 # ---------------------------------------------------------------------------
 # programmatic_recall_check
@@ -151,9 +160,11 @@ class TestComputeF1:
 
 
 class TestLlmJudgeCoverage:
-    """Tests for LLM-based coverage judging with mocked completions."""
+    """Tests for LLM-based coverage judging with a mocked adapter call."""
 
-    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
+    _PATCH = "osprey.models.providers.als_apg.execute_litellm_completion"
+
+    @patch(_PATCH)
     def test_returns_covered_and_extras(self, mock_completion):
         """Indices resolve back to expected strings; extras pass through."""
         mock_completion.return_value = ChannelExtractionResult(
@@ -161,12 +172,12 @@ class TestLlmJudgeCoverage:
             extra_recommended=["CH:Z"],
             reasoning="Agent enumerated A and B; also recommended Z.",
         )
-        covered, extras = llm_judge_coverage("some response text", ["CH:A", "CH:B"])
+        covered, extras = llm_judge_coverage("some response text", ["CH:A", "CH:B"], judge=_ROUTE)
         assert covered == ["CH:A", "CH:B"]
         assert extras == ["CH:Z"]
         mock_completion.assert_called_once()
 
-    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
+    @patch(_PATCH)
     def test_out_of_range_indices_dropped(self, mock_completion):
         """Hallucinated indices (negative or beyond length) are filtered out."""
         mock_completion.return_value = ChannelExtractionResult(
@@ -174,109 +185,220 @@ class TestLlmJudgeCoverage:
             extra_recommended=[],
             reasoning="Mix of valid and invalid indices.",
         )
-        covered, extras = llm_judge_coverage("response", ["CH:A", "CH:B"])
+        covered, extras = llm_judge_coverage("response", ["CH:A", "CH:B"], judge=_ROUTE)
         assert covered == ["CH:A"]
         assert extras == []
 
-    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
-    def test_non_pydantic_returns_empty(self, mock_completion):
-        """Non-Pydantic return value falls back to empty lists."""
+    @patch(_PATCH)
+    def test_a_reply_without_a_verdict_fails_the_query(self, mock_completion):
+        """A reply that is not a structured verdict is an error, never 'covered nothing'."""
         mock_completion.return_value = "raw string response"
-        covered, extras = llm_judge_coverage("some response", ["CH:A"])
-        assert covered == []
-        assert extras == []
+        with pytest.raises(CoverageJudgeError, match="als-apg/claude-sonnet-5"):
+            llm_judge_coverage("some response", ["CH:A"], judge=_ROUTE)
 
-    @staticmethod
-    def _judge_env(monkeypatch, **present: str) -> None:
-        """Leave exactly *present* set among the vars the judge consults."""
-        for name in (
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AUTH_TOKEN",
-            "ANTHROPIC_BASE_URL",
-            "ALS_APG_API_KEY",
-            "ALS_APG_BASE_URL",
-            "CBORG_API_KEY",
-        ):
+    @patch(_PATCH)
+    def test_the_call_carries_the_route(self, mock_completion, monkeypatch):
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        mock_completion.return_value = ChannelExtractionResult(
+            covered_expected_indices=[], extra_recommended=[], reasoning=""
+        )
+
+        llm_judge_coverage("response", ["CH:A"], judge=_ROUTE)
+
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["model_id"] == "claude-sonnet-5"
+        assert kwargs["api_key"] == "k"
+        assert kwargs["base_url"] == "https://gateway.example.org/v1"
+        assert kwargs["max_tokens"] == 2048
+        assert kwargs["temperature"] == 0.0
+        assert kwargs["output_format"] is ChannelExtractionResult
+
+    @patch(_PATCH)
+    def test_a_failing_call_names_the_judge(self, mock_completion):
+        upstream = RuntimeError("upstream 500")
+        mock_completion.side_effect = upstream
+
+        with pytest.raises(CoverageJudgeError) as info:
+            llm_judge_coverage("response", ["CH:A"], judge=_ROUTE)
+
+        assert "als-apg/claude-sonnet-5" in str(info.value)
+        assert "upstream 500" in str(info.value)
+        assert info.value.__cause__ is upstream
+
+
+# ---------------------------------------------------------------------------
+# resolve_judge
+# ---------------------------------------------------------------------------
+
+
+def _write_config(project_dir: Path, config: dict) -> None:
+    (project_dir / "config.yml").write_text(yaml.safe_dump(config))
+
+
+def _providers(**entries: dict) -> dict:
+    return {"api": {"providers": entries}}
+
+
+_ALS_APG_ENTRY = {
+    "api_key": "${ALS_APG_API_KEY}",
+    "base_url": "https://gateway.example.org/v1",
+    "default_model": "claude-sonnet-5",
+}
+
+
+class TestResolveJudge:
+    """The judge's provider, endpoint, key and model come from the project's config."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        for name in ("ALS_APG_BASE_URL", "ANTHROPIC_API_KEY", "CBORG_API_KEY"):
             monkeypatch.delenv(name, raising=False)
-        for name, value in present.items():
-            monkeypatch.setenv(name, value)
 
-    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
-    def test_als_apg_needs_its_gateway_url_to_be_a_candidate(self, mock_completion, monkeypatch):
-        """The judge addresses the gateway itself, so a key on its own names no
-        reachable server — it falls through to the next provider rather than
-        calling one it cannot address."""
-        self._judge_env(monkeypatch, ALS_APG_API_KEY="key", CBORG_API_KEY="cborg-key")
-        mock_completion.return_value = ChannelExtractionResult(
-            covered_expected_indices=[], extra_recommended=[], reasoning=""
+    def test_a_facility_provider_judges_through_api_providers(self, tmp_path, monkeypatch):
+        reg = ProviderRegistry()
+        reg.register_provider("facility-gw", "osprey.models.providers.vllm", "VLLMProviderAdapter")
+        monkeypatch.setattr(provider_registry, "_registry", reg)
+        monkeypatch.setenv("FACILITY_GW_TOKEN", "tok")
+        _write_config(
+            tmp_path,
+            _providers(
+                **{
+                    "facility-gw": {
+                        "base_url": "https://gw.example.org/v1",
+                        "api_key": "${FACILITY_GW_TOKEN}",
+                        "default_model": "m1",
+                        "models": ["m1"],
+                    }
+                }
+            ),
         )
 
-        llm_judge_coverage("response", ["CH:A"])
+        route = resolve_judge(tmp_path, "facility-gw")
+        with patch("osprey.models.providers.vllm.execute_litellm_completion") as mock_completion:
+            mock_completion.return_value = ChannelExtractionResult(
+                covered_expected_indices=[0], extra_recommended=[], reasoning=""
+            )
+            covered, _ = llm_judge_coverage("CH:A", ["CH:A"], judge=route)
 
+        assert covered == ["CH:A"]
         kwargs = mock_completion.call_args.kwargs
-        assert kwargs["provider"] == "cborg"
-        assert kwargs["api_key"] == "cborg-key"
+        assert kwargs["model_id"] == "m1"
+        assert kwargs["api_key"] == "tok"
+        assert kwargs["base_url"] == "https://gw.example.org/v1"
 
-    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
-    def test_als_apg_is_used_when_its_gateway_url_is_exported(self, mock_completion, monkeypatch):
-        """With both halves exported the gateway is addressable, and its URL is
-        what the call is aimed at."""
-        self._judge_env(
-            monkeypatch,
-            ALS_APG_API_KEY="key",
-            ALS_APG_BASE_URL="https://gateway.example.org",
-            CBORG_API_KEY="cborg-key",
+    def test_an_exported_vendor_key_does_not_choose_the_judge(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+        monkeypatch.setenv("CBORG_API_KEY", "cborg-key")
+        monkeypatch.setenv("ALS_APG_API_KEY", "als-apg-key")
+        _write_config(tmp_path, _providers(**{"als-apg": _ALS_APG_ENTRY}))
+
+        route = resolve_judge(tmp_path, "als-apg")
+
+        assert route.provider == "als-apg"
+        assert route.api_key == "als-apg-key"
+
+    def test_the_main_model_answers_when_no_judge_model_is_named(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ALS_APG_API_KEY", "k")
+        monkeypatch.setenv("OTHER_GW_KEY", "k2")
+        config = _providers(
+            **{
+                "als-apg": _ALS_APG_ENTRY,
+                "cborg": {
+                    "api_key": "${OTHER_GW_KEY}",
+                    "base_url": "https://other.example.org/v1",
+                    "default_model": "other-default",
+                },
+            }
         )
-        mock_completion.return_value = ChannelExtractionResult(
-            covered_expected_indices=[], extra_recommended=[], reasoning=""
-        )
+        config["claude_code"] = {
+            "provider": "als-apg",
+            "default_model": "claude-haiku-4-5-20251001",
+        }
+        _write_config(tmp_path, config)
 
-        llm_judge_coverage("response", ["CH:A"])
+        assert resolve_judge(tmp_path, "als-apg").model_id == "claude-haiku-4-5-20251001"
+        assert resolve_judge(tmp_path, "cborg").model_id == "other-default"
 
-        kwargs = mock_completion.call_args.kwargs
-        assert kwargs["provider"] == "als-apg"
-        assert kwargs["base_url"] == "https://gateway.example.org"
+    def test_a_named_judge_model_wins(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ALS_APG_API_KEY", "k")
+        _write_config(tmp_path, _providers(**{"als-apg": _ALS_APG_ENTRY}))
+
+        route = resolve_judge(tmp_path, "als-apg", judge_model="claude-opus-5-5")
+
+        assert route.model_id == "claude-opus-5-5"
+
+    def test_the_key_may_come_from_the_project_env_file(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
+        (tmp_path / ".env").write_text("ALS_APG_API_KEY=from-dotenv\n")
+        _write_config(tmp_path, _providers(**{"als-apg": _ALS_APG_ENTRY}))
+
+        assert resolve_judge(tmp_path, "als-apg").api_key == "from-dotenv"
+
+    def test_the_endpoint_override_variable_wins(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ALS_APG_API_KEY", "k")
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://override.example.org")
+        _write_config(tmp_path, _providers(**{"als-apg": _ALS_APG_ENTRY}))
+
+        assert resolve_judge(tmp_path, "als-apg").base_url == "https://override.example.org"
+
+    def test_the_route_keeps_its_key_out_of_its_repr(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ALS_APG_API_KEY", "sk-secret-value")
+        _write_config(tmp_path, _providers(**{"als-apg": _ALS_APG_ENTRY}))
+
+        route = resolve_judge(tmp_path, "als-apg")
+
+        assert route.api_key == "sk-secret-value"
+        assert "sk-secret-value" not in repr(route)
 
     @pytest.mark.parametrize(
-        ("present", "provider"),
+        ("provider", "config", "match"),
         [
-            ({"ANTHROPIC_API_KEY": "k"}, "anthropic"),
-            (
-                {"ALS_APG_API_KEY": "k", "ALS_APG_BASE_URL": "https://gateway.example.org"},
+            pytest.param("als-apg", None, "config.yml", id="no-config"),
+            pytest.param(
                 "als-apg",
+                _providers(cborg={"api_key": "k", "default_model": "m"}),
+                "cborg",
+                id="provider-not-configured",
             ),
-            ({"CBORG_API_KEY": "k"}, "cborg"),
+            pytest.param(
+                "no-such-gw",
+                _providers(**{"no-such-gw": {"api_key": "k", "default_model": "m"}}),
+                "no-such-gw",
+                id="no-registered-adapter",
+            ),
+            pytest.param(
+                "als-apg",
+                _providers(**{"als-apg": {**_ALS_APG_ENTRY, "api_key": "${UNSET_JUDGE_KEY}"}}),
+                r"UNSET_JUDGE_KEY.*\.env",
+                id="unset-key-reference",
+            ),
+            pytest.param(
+                "amsc-i2",
+                _providers(
+                    **{
+                        "amsc-i2": {
+                            "api_key": "k",
+                            "base_url": "${UNSET_GW_URL}",
+                            "default_model": "m",
+                        }
+                    }
+                ),
+                "base_url",
+                id="unset-endpoint-reference",
+            ),
         ],
     )
-    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
-    def test_the_judge_runs_the_provider_default_model(
-        self, mock_completion, monkeypatch, present, provider
+    def test_a_judge_it_cannot_resolve_is_refused_by_name(
+        self, tmp_path, monkeypatch, provider, config, match
     ):
-        """The judge names no vendor id of its own: the catalog entry's default answers."""
-        from osprey.profiles.providers import load_provider_catalog
+        monkeypatch.delenv("UNSET_JUDGE_KEY", raising=False)
+        monkeypatch.delenv("UNSET_GW_URL", raising=False)
+        monkeypatch.setenv("ALS_APG_API_KEY", "k")
+        if config is not None:
+            _write_config(tmp_path, config)
 
-        self._judge_env(monkeypatch, **present)
-        mock_completion.return_value = ChannelExtractionResult(
-            covered_expected_indices=[], extra_recommended=[], reasoning=""
-        )
-
-        llm_judge_coverage("response", ["CH:A"])
-
-        kwargs = mock_completion.call_args.kwargs
-        assert kwargs["provider"] == provider
-        expected = load_provider_catalog(None).entries[provider]["default_model"]
-        assert kwargs["model_id"] == expected
-
-    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
-    def test_a_named_judge_model_wins(self, mock_completion, monkeypatch):
-        self._judge_env(monkeypatch, ANTHROPIC_API_KEY="k")
-        mock_completion.return_value = ChannelExtractionResult(
-            covered_expected_indices=[], extra_recommended=[], reasoning=""
-        )
-
-        llm_judge_coverage("response", ["CH:A"], judge_model="claude-opus-5")
-
-        assert mock_completion.call_args.kwargs["model_id"] == "claude-opus-5"
+        with pytest.raises(CoverageJudgeError, match=match):
+            resolve_judge(tmp_path, provider)
 
 
 # ---------------------------------------------------------------------------
@@ -313,14 +435,15 @@ class TestEvaluateResponse:
         text = "The channels are CH:A and CH:B in the final answer."
         expected = ["CH:A", "CH:B"]
 
-        predicted, meta = evaluate_response(text, expected, use_llm_judge=True)
+        predicted, meta = evaluate_response(text, expected, judge=_ROUTE)
 
         assert predicted == ["CH:A", "CH:B"]
         assert meta["stage"] == 2
         assert meta["evaluation"] == "llm_judge"
         assert meta["llm_covered"] == ["CH:A", "CH:B"]
         assert meta["llm_extras"] == []
-        mock_judge.assert_called_once_with(text, expected, judge_model=None)
+        mock_judge.assert_called_once_with(text, expected, judge=_ROUTE)
+        assert meta["judge"] == "als-apg/claude-sonnet-5"
 
     @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
     def test_missing_channels_runs_judge_when_opted_in(self, mock_judge):
@@ -331,7 +454,7 @@ class TestEvaluateResponse:
         text = "Use the full set of CH channels (both A and B)."
         expected = ["CH:A", "CH:B"]
 
-        predicted, meta = evaluate_response(text, expected, use_llm_judge=True)
+        predicted, meta = evaluate_response(text, expected, judge=_ROUTE)
 
         assert predicted == ["CH:A", "CH:B"]
         assert meta["stage"] == 2
@@ -339,7 +462,8 @@ class TestEvaluateResponse:
         # Stage 1 still reported the literal-only view in meta for debuggability.
         assert meta["found"] == []
         assert meta["missing"] == ["CH:A", "CH:B"]
-        mock_judge.assert_called_once_with(text, expected, judge_model=None)
+        mock_judge.assert_called_once_with(text, expected, judge=_ROUTE)
+        assert meta["judge"] == "als-apg/claude-sonnet-5"
 
     @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
     def test_judge_reports_extras(self, mock_judge):
@@ -348,7 +472,7 @@ class TestEvaluateResponse:
         text = "I recommend CH:A, plus CH:Z and CH:Y as bonus monitors."
         expected = ["CH:A", "CH:B"]
 
-        predicted, meta = evaluate_response(text, expected, use_llm_judge=True)
+        predicted, meta = evaluate_response(text, expected, judge=_ROUTE)
 
         assert predicted == ["CH:A", "CH:Z", "CH:Y"]
         precision, recall, f1 = compute_f1(predicted, expected)
@@ -356,27 +480,25 @@ class TestEvaluateResponse:
         assert precision == pytest.approx(1 / 3)
         assert recall == pytest.approx(1 / 2)
         assert meta["llm_extras"] == ["CH:Z", "CH:Y"]
+        mock_judge.assert_called_once_with(text, expected, judge=_ROUTE)
+        assert meta["judge"] == "als-apg/claude-sonnet-5"
 
     @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
-    def test_judge_error_falls_back_to_found(self, mock_judge):
-        """Judge failure falls back to Stage 1 found list."""
-        mock_judge.side_effect = RuntimeError("API error")
+    def test_a_judge_error_fails_the_query(self, mock_judge):
+        """A query the judge could not score is not rescored by substring match."""
+        mock_judge.side_effect = CoverageJudgeError("boom")
         text = "Channels CH:A and CH:B are recommended."
         expected = ["CH:A", "CH:B"]
 
-        predicted, meta = evaluate_response(text, expected, use_llm_judge=True)
-
-        assert predicted == ["CH:A", "CH:B"]
-        assert meta["stage"] == 2
-        assert meta["evaluation"] == "llm_judge_error"
-        assert "API error" in meta["llm_error"]
+        with pytest.raises(CoverageJudgeError, match="boom"):
+            evaluate_response(text, expected, judge=_ROUTE)
 
     def test_empty_expected_skips_judge(self):
         """Empty expected list short-circuits — no LLM call."""
         with patch(
             "osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage"
         ) as mock_judge:
-            predicted, meta = evaluate_response("some text", [], use_llm_judge=True)
+            predicted, meta = evaluate_response("some text", [], judge=_ROUTE)
 
         assert predicted == []
         assert meta["stage"] == 1

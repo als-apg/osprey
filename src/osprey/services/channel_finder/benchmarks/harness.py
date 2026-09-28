@@ -93,7 +93,6 @@ async def preflight_checks(model: str) -> None:
     Checks:
     1. Ollama reachability (if using an ``ollama/`` model).
     2. Tool-calling support for the remapped model name.
-    3. Availability of an API key for the LLM judge.
 
     Raises:
         RuntimeError: If Ollama is required but not reachable.
@@ -125,13 +124,6 @@ async def preflight_checks(model: str) -> None:
         logger.warning(
             "Could not determine supported params for model %r; proceeding anyway.",
             remapped,
-        )
-
-    # 3. Check for LLM judge API key
-    if "ANTHROPIC_API_KEY" not in os.environ and "CBORG_API_KEY" not in os.environ:
-        logger.warning(
-            "Neither ANTHROPIC_API_KEY nor CBORG_API_KEY found in environment — "
-            "LLM judge evaluation will not be available."
         )
 
 
