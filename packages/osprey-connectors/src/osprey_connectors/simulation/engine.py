@@ -56,6 +56,7 @@ from osprey_connectors.simulation.series import (
     string_series,
     wander,
 )
+from osprey_connectors.types import MOCK
 from osprey_connectors.workspace import (
     SIMULATION_STATE_DIR_CONFIG_KEY,
     SIMULATION_STATE_DIR_NAME,
@@ -887,6 +888,47 @@ def engine_from_connector_config(config: dict[str, Any]) -> SimulationEngine | N
     engine = SimulationEngine.from_file(path)
     logger.info(f"Simulation engine {engine.name!r} active (machine file: {path})")
     return engine
+
+
+def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:
+    """Resolve the simulation-model file for the active control-system type.
+
+    Looks up ``control_system.connector.<type>.simulation_file`` for the active
+    ``control_system.type`` (defaulting to ``mock`` when unset). Non-mock types
+    fall back to ``connector.mock.simulation_file`` when their own key is unset;
+    for the mock type itself this fallback is a no-op (it's the same key it
+    already tried), so mock resolution is unaffected by the fallback.
+
+    Shared by :mod:`osprey.simulation.apply`, the ``sim`` CLI, the archiver
+    seed and the mock archiver's derivation, so every consumer agrees on
+    exactly which config keys back a simulation-backed project. It lives in the
+    connectors package so the mock archiver resolves it without the osprey
+    framework installed.
+
+    Returns:
+        A 4-tuple ``(path, active_type, type_key, mock_key)``. ``path`` is the
+        resolved file path (made absolute against ``project_dir`` if relative),
+        or ``None`` if neither key had a value. ``type_key``/``mock_key`` are
+        the dotted config paths that were tried, for error messages.
+    """
+    control_system = config.get("control_system", {})
+    active_type = control_system.get("type", MOCK)
+    connector = control_system.get("connector", {})
+
+    type_key = f"control_system.connector.{active_type}.simulation_file"
+    mock_key = "control_system.connector.mock.simulation_file"
+
+    sim_file = connector.get(active_type, {}).get("simulation_file")
+    if not sim_file and active_type != MOCK:
+        sim_file = connector.get(MOCK, {}).get("simulation_file")
+
+    if not sim_file:
+        return None, active_type, type_key, mock_key
+
+    machine_path = Path(sim_file)
+    if not machine_path.is_absolute():
+        machine_path = Path(project_dir) / machine_path
+    return machine_path, active_type, type_key, mock_key
 
 
 def engine_serves(engine: SimulationEngine | None, channel: str) -> bool:
