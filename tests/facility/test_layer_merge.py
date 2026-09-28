@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.provenance import add_defaults, build_provenance, set_place_from
 from osprey.facility.sources import load_sources
 
 
@@ -162,3 +163,29 @@ class TestSourcesLoad:
             },
         )
         assert [e.record_id for e in errors] == ["X", "Q1"]
+
+
+class TestProvenance:
+    def test_sources_are_joined_and_sorted(self) -> None:
+        block = build_provenance(
+            sources=[
+                ("mml", "b.yaml", ["unit"]),
+                ("authored", "a.yaml", ["x"]),
+                ("mml", "b.yaml", ["on"]),
+            ]
+        )
+        assert block == {
+            "sources": [
+                {"layer": "authored", "file": "a.yaml", "fields": ["x"]},
+                {"layer": "mml", "file": "b.yaml", "fields": ["on", "unit"]},
+            ],
+            "fixes": [],
+            "defaults": [],
+        }
+
+    def test_defaults_and_place_from(self) -> None:
+        block = add_defaults(build_provenance(defaults=["role"]), ["on", "role"])
+        assert block["defaults"] == ["on", "role"]
+        assert set_place_from(block, "span")["place_from"] == "span"
+        with pytest.raises(ValueError, match="place_from"):
+            set_place_from(block, "guess")
