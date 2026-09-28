@@ -129,7 +129,7 @@ class _PvWatcher:
             "previous_value": prev,
             "threshold": self._threshold,
             "edge": self._edge,
-            "timestamp": datetime.now(tz=UTC).isoformat(),
+            "timestamp": datetime.now(tz=UTC),
         }
         asyncio.run_coroutine_threadsafe(self._dispatch(payload), self._loop)
 

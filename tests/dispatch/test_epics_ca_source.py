@@ -11,6 +11,7 @@ import asyncio
 import threading
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -235,6 +236,8 @@ class TestFirstReadSuppression:
         assert payload["pv"] == "SIM:SETPOINT"
         assert payload["value"] == 2.0
         assert payload["previous_value"] == 0.0
+        assert isinstance(payload["timestamp"], datetime)
+        assert payload["timestamp"].utcoffset() == timedelta(0)
 
 
 class TestCoolDown:

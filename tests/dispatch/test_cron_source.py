@@ -81,7 +81,8 @@ async def test_loop_fires_at_interval_then_stops(monkeypatch):
     assert fired_trigger is trigger
     assert payload["source"] == "cron"
     assert payload["trigger"] == "nightly"
-    assert "timestamp" in payload
+    assert isinstance(payload["timestamp"], datetime)
+    assert payload["timestamp"].utcoffset() == timedelta(0)
 
 
 @pytest.mark.asyncio

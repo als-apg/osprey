@@ -112,7 +112,7 @@ class CronSource:
         payload = {
             "source": "cron",
             "trigger": trigger.name,
-            "timestamp": self._now().isoformat(),
+            "timestamp": self._now(),
         }
         try:
             await fire_callback(trigger, payload)

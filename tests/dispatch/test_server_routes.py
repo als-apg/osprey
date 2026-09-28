@@ -1057,3 +1057,56 @@ async def test_dispatch_with_policy_folds_a_webhook_timestamp_as_it_came(monkeyp
     )
 
     assert _folded_payload(captured["prompt"])["timestamp"] == "2026-01-15T20:00:00+00:00"
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+@pytest.mark.asyncio
+async def test_a_cron_fire_reaches_the_agent_in_the_facility_zone(monkeypatch):
+    """The instant a cron tick stamps reaches the dispatched prompt in the facility zone."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["prompt"] = prompt
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    real_sleep = asyncio.sleep
+
+    async def instant_interval(_seconds):
+        await real_sleep(0)
+
+    monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", instant_interval)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(
+        name="t",
+        source="cron",
+        action={"prompt": "base prompt"},
+        source_config={"interval_sec": 5},
+    )
+    await reg.register(trig)
+    fired = asyncio.Event()
+
+    async def callback(trigger, payload):
+        if not fired.is_set():
+            await server._dispatch_with_policy(trigger, payload, reg, "http://w", "tok")
+            fired.set()
+        return "d-1"
+
+    source = CronSource()
+    await source.start([trig], callback)
+    try:
+        await asyncio.wait_for(fired.wait(), timeout=5)
+    finally:
+        await source.stop()
+
+    folded = _folded_payload(captured["prompt"])["timestamp"]
+    stored = (await reg.get_history("t"))[0]["event_data"]["timestamp"]
+    assert folded.endswith("+09:00")
+    assert isinstance(stored, datetime)
+    assert stored.utcoffset() == timedelta(0)
+    assert datetime.fromisoformat(folded) == stored
