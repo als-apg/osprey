@@ -1,7 +1,7 @@
 """The framework registry advertises exactly the connectors the factory ships.
 
-Two independent tables name the built-in connectors, and both are load-bearing
-because two *different* code paths populate the factory from them:
+Three independent tables name the built-in connectors, and each is load-bearing
+because a different consumer reads it:
 
 * ``register_builtin_connectors()`` walks the factory's own
   ``_BUILTIN_CONTROL_SYSTEMS`` / ``_BUILTIN_ARCHIVERS`` tuples. The MCP
@@ -13,6 +13,16 @@ because two *different* code paths populate the factory from them:
   python-executor sandbox runs before any agent code, so a connector missing
   from the provider is a connector no sandbox can build — the factory answers
   ``Unknown control system type`` with a list that simply lacks it.
+* :mod:`osprey_connectors.types` carries the choice lists
+  (``SET_CONTROL_SYSTEM_TYPES``, ``CLI_CONTROL_SYSTEM_TYPES``,
+  ``CLI_ARCHIVER_TYPES``) — a copy, because ``types`` is imported by the
+  factory and cannot import it back. The ``connector:`` shorthand validates
+  against them, ``osprey init --help`` prints them, and
+  ``tests/profiles/test_preset_connector_prose.py`` holds the preset comments
+  and the ``osprey config --defaults`` notes to them.
+
+Pinning those lists to the factory tuples is what carries a new built-in from
+the factory into every text that enumerates them.
 
 A name in one table and not the other is therefore not a tidiness problem: it
 is a connector that works on some entry points and not others. ``live_standin``
@@ -109,6 +119,33 @@ class TestBuiltinConnectorParity:
 
             register_builtin_connectors()
             assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is loaded
+
+
+class TestChoiceListsMatchTheFactoryBuiltins:
+    """The connector choice lists and the factory's built-in tuples agree.
+
+    The choice lists are what users are shown and what the shorthand accepts;
+    the factory tuples are what gets registered. A name in one and not the
+    other is a connector the text omits, or a name the shorthand accepts that
+    nothing can build.
+    """
+
+    def test_settable_control_systems_are_the_factory_builtins(self) -> None:
+        assert sorted(types.SET_CONTROL_SYSTEM_TYPES) == sorted(_BUILTIN_CONTROL_SYSTEMS)
+
+    def test_the_stand_in_is_the_only_builtin_init_does_not_offer(self) -> None:
+        """A new built-in that is initable must enter ``CLI_CONTROL_SYSTEM_TYPES``.
+
+        That is the list the presets' "every type ``osprey init`` will
+        materialize" and the manifest note are measured against; only the
+        stand-in is settable and not initable.
+        """
+        assert set(_BUILTIN_CONTROL_SYSTEMS) - set(types.CLI_CONTROL_SYSTEM_TYPES) == {
+            types.LIVE_STANDIN
+        }
+
+    def test_archiver_choices_are_the_factory_builtins(self) -> None:
+        assert sorted(types.CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
 
 
 class TestRegistryInitializationRegistersTheStandIn:
