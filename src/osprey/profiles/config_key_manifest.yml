@@ -2766,6 +2766,15 @@ keys:
   modules.web_terminals.landing.groups:
     evidence: 'groups_raw = \[\{"type": "users"\}\]'
     default: [{type: users}]
+  modules.web_terminals.landing.groups.names:
+    rendered: false
+    evidence: 'entry\.get\("names"\) == "hidden"'
+    note: >-
+      Per entry of the `groups` list, on a `type: users` entry only. `hidden`
+      replaces that section's name cards with one sign-in button; lint refuses
+      it unless auth.method is password or oidc. The dotted path elides the
+      list index, which no rendered config carries, so no source renders it.
+    default: shown
   modules.web_terminals.personas:
     data-map: true
     evidence: 'web_terminals\.get\("personas"\)'

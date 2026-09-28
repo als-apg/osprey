@@ -91,6 +91,9 @@ _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
 
+# The one button a `names: hidden` users section shows in place of its cards.
+_SIGN_IN_LABEL = "Log in to your terminal"
+
 # Per-container constant: every per-user app's service families (web + every
 # registry companion family) bind this host, never a routable interface —
 # nginx's reverse proxy is the only off-host path. Not
@@ -1532,10 +1535,16 @@ def render_web_terminals(
     # module-level import here would close that loop.
     from osprey.deployment.deploy_summary import token_login_users
 
+    # Imported function-locally: the route module loads the sidecar's web
+    # framework, which a render has no other use for.
+    from osprey.services.auth_sidecar.routes.entry import ENTRY_PATH
+
     token_login_names = frozenset(token_login_users(root))
     landing_ctx = {
         "facility_name": resolve_facility_name(root, ""),
-        "groups": _build_groups(landing_cfg, resolved_users, token_login_names),
+        "groups": _build_groups(
+            landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
+        ),
         "theme_blocks": _landing_theme_blocks(root),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),
@@ -2057,6 +2066,8 @@ def _build_groups(
     landing_cfg: dict[str, Any],
     resolved_users: list[dict[str, Any]],
     token_login_names: frozenset[str],
+    *,
+    sign_in_url: str,
 ) -> list[dict[str, Any]]:
     """Transform config ``landing.groups`` into the template's ``groups`` shape:
     plain dicts with a ``label`` and an ``items`` key, since landing.html.j2
@@ -2096,6 +2107,12 @@ def _build_groups(
     the default never carry ``variant``, so a config that declares no
     ``landing_group`` anywhere renders byte-identically to before.
 
+    ``names: hidden`` on a ``{type: "users"}`` entry replaces its default
+    section's cards with one sign-in item, so the page carries no roster name.
+    Tray sections lifted out of the same entry, and ``links`` entries, render
+    as they otherwise would. Any other value, including an absent key, renders
+    the cards; lint refuses a value that is neither ``shown`` nor ``hidden``.
+
     Args:
         landing_cfg: The already-dict-coerced ``modules.web_terminals.landing``
             section (only ``groups`` is read).
@@ -2109,6 +2126,8 @@ def _build_groups(
             this deployment, threaded down onto each user card as ``token_login``.
             ``links`` groups get no posture — a link is not a terminal — so this
             reaches ``users`` groups only.
+        sign_in_url: The site-relative path of the card-less sign-in route, the
+            href of the one item a ``names: hidden`` users section carries.
     """
     groups_raw = landing_cfg.get("groups")
     if not isinstance(groups_raw, list) or not groups_raw:
@@ -2119,7 +2138,16 @@ def _build_groups(
         entry = as_dict(entry)
         group_type = entry.get("type")
         if group_type == "users":
-            groups.extend(_user_groups(resolved_users, entry.get("label"), token_login_names))
+            names_hidden = entry.get("names") == "hidden"
+            groups.extend(
+                _user_groups(
+                    resolved_users,
+                    entry.get("label"),
+                    token_login_names,
+                    names_hidden=names_hidden,
+                    sign_in_url=sign_in_url,
+                )
+            )
         elif group_type == "links":
             links = entry.get("links")
             items = [as_dict(link) for link in links] if isinstance(links, list) else []
@@ -2131,6 +2159,9 @@ def _user_groups(
     resolved_users: list[dict[str, Any]],
     default_label: Any,
     token_login_names: frozenset[str],
+    *,
+    names_hidden: bool,
+    sign_in_url: str,
 ) -> list[dict[str, Any]]:
     """Split one ``{type: "users"}`` entry into its default section plus a tray
     section per distinct persona ``landing_group``.
@@ -2150,9 +2181,16 @@ def _user_groups(
         token_login_names: Passed straight to :func:`_user_card`, which turns
             membership into that card's ``token_login``. Sectioning is
             presentation; the posture is the same wherever a user's card lands.
+        names_hidden: When true and the default section has at least one card,
+            its cards are replaced by the single item
+            ``{label, url: sign_in_url, sign_in: True}``. An empty default section
+            stays empty, so no button appears that hides nobody. Trays are
+            untouched either way.
+        sign_in_url: The href of that sign-in item.
 
     Returns:
-        ``[{label, items}, {label, items, variant: "tray"}, ...]``.
+        ``[{label, items}, {label, items, variant: "tray"}, ...]``; under
+        ``names_hidden`` the first section's ``items`` is the one sign-in item.
     """
     label = default_label if isinstance(default_label, str) and default_label else "Terminals"
     default_items: list[dict[str, Any]] = []
@@ -2166,6 +2204,8 @@ def _user_groups(
             trays.setdefault(group, []).append(card)
         else:
             default_items.append(card)
+    if names_hidden and default_items:
+        default_items = [{"label": _SIGN_IN_LABEL, "url": sign_in_url, "sign_in": True}]
 
     groups: list[dict[str, Any]] = [{"label": label, "items": default_items}]
     groups.extend(
