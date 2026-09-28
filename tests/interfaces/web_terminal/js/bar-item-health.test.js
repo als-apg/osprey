@@ -24,6 +24,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../../_support/facility-zone.mjs';
+
 const HOST_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js';
 const ITEMS_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-items.js';
 const HEALTH_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-item-health.js';
@@ -263,27 +265,58 @@ describe('system-health item: one shared poll through the SYSTEM panel proxy', (
 
 describe('system-health item: the card', () => {
   test('one row per category, worst dot, passed/counted and the loudest message', async () => {
-    answer = MIXED;
-    seedDom('', shellMarkup());
-    host.hydrate();
-    await settle();
+    // A viewer on the facility clock reads the note unlabelled.
+    stampFacilityZone(VIEWER_ZONE);
+    try {
+      answer = MIXED;
+      seedDom('', shellMarkup());
+      host.hydrate();
+      await settle();
 
-    chip().click();
-    expect(pop().hidden).toBe(false);
-    expect(pop().querySelector('.bar-health-pop-title')?.textContent).toContain('1 warning');
-    expect(pop().querySelector('.bar-health-pop-summary')?.textContent).toBe(
-      '3/4 checks passed'
-    );
-    expect(rows()).toEqual([
-      { tone: 'ok', name: 'control system', count: '2/2', aside: '' },
-      { tone: 'warn', name: 'llm', count: '1/2', aside: 'provider cborg: 401' },
-      { tone: 'off', name: 'services', count: 'skipped', aside: 'no archiver' },
-    ]);
-    expect(pop().querySelector('.bar-health-note')?.textContent).toMatch(/^Read \d\d:\d\d:\d\d$/);
-    const open = Array.from(pop().querySelectorAll('button')).find(
-      (b) => b.textContent === 'Open SYSTEM'
-    );
-    expect(open).toBeDefined();
+      chip().click();
+      expect(pop().hidden).toBe(false);
+      expect(pop().querySelector('.bar-health-pop-title')?.textContent).toContain('1 warning');
+      expect(pop().querySelector('.bar-health-pop-summary')?.textContent).toBe(
+        '3/4 checks passed'
+      );
+      expect(rows()).toEqual([
+        { tone: 'ok', name: 'control system', count: '2/2', aside: '' },
+        { tone: 'warn', name: 'llm', count: '1/2', aside: 'provider cborg: 401' },
+        { tone: 'off', name: 'services', count: 'skipped', aside: 'no archiver' },
+      ]);
+      expect(pop().querySelector('.bar-health-note')?.textContent).toMatch(/^Read \d\d:\d\d:\d\d$/);
+      const open = Array.from(pop().querySelectorAll('button')).find(
+        (b) => b.textContent === 'Open SYSTEM'
+      );
+      expect(open).toBeDefined();
+    } finally {
+      stampFacilityZone(null);
+    }
+  });
+
+  test('the read time is on the facility clock, and names its zone when the viewer is elsewhere', async () => {
+    const at = Date.parse('2026-01-15T20:04:05Z');
+    const now = vi.spyOn(Date, 'now').mockReturnValue(at);
+    stampFacilityZone(FACILITY_ZONE);
+    try {
+      seedDom('', shellMarkup());
+      host.hydrate();
+      await settle();
+      chip().click();
+
+      const read = new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+        timeZone: FACILITY_ZONE,
+        timeZoneName: 'short',
+      }).format(at);
+      expect(pop().querySelector('.bar-health-note')?.textContent).toBe(`Read ${read}`);
+    } finally {
+      stampFacilityZone(null);
+      now.mockRestore();
+    }
   });
 
   // The severity order is the design system's, shared with the SYSTEM

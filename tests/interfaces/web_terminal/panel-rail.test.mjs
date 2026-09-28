@@ -34,6 +34,7 @@ import {
   setEntryAttention,
   setEntryStatus,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 const PANELS = [
   { id: 'artifacts', label: 'WORKSPACE' },
@@ -676,18 +677,39 @@ describe('setEntryAttention tooltip time', () => {
   let rail;
 
   // Two fixed server timestamps an hour apart. Rendering is asserted against
-  // the same computation rather than a literal so the suite is not hostage to
-  // the runner's timezone or locale; the FORMAT is pinned separately.
+  // an Intl computation in the stamped facility zone rather than a literal so
+  // the suite is not hostage to the runner's timezone or locale; the FORMAT is
+  // pinned separately. FACILITY_ZONE reads a different clock from the runner,
+  // so the time names its zone.
   const TS = 1_755_000_000;
   const TS_LATER = TS + 3600;
 
   /** @param {number} ts @returns {string} */
   const expectedTime = (ts) =>
-    new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: FACILITY_ZONE,
+      timeZoneName: 'short',
+    }).format(ts * 1000);
 
   beforeEach(() => {
+    stampFacilityZone(FACILITY_ZONE);
     rail = freshRail();
     createRail(rail, PANELS);
+  });
+
+  afterEach(() => stampFacilityZone(null));
+
+  test('a viewer already on the facility clock reads the time without a zone name', () => {
+    stampFacilityZone(VIEWER_ZONE);
+    setEntryAttention(rail, 'ariel', true, TS);
+    const plain = new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: VIEWER_ZONE,
+    }).format(TS * 1000);
+    expect(getEntry(rail, 'ariel')?.title).toBe(`ARIEL · agent touched ${plain}`);
   });
 
   test('a badge with a server ts appends the touch time to the tooltip', () => {
