@@ -1,0 +1,635 @@
+id: https://narad.example.org/schema/osprey.facility.core
+name: osprey.facility.core
+title: Facility file
+description: >-
+  One facility, described once: its places, devices, channels and groups, the
+  models that simulate it and how each model is wired to channels, the write
+  limits and the scenarios. `osprey build` combines the sources under
+  data/facility/ into one file of this shape. Every list whose order carries
+  meaning sets `list_elements_ordered`; a multivalued slot without it is a set,
+  compared and written sorted by its string form.
+
+prefixes:
+  osprey_facility: https://narad.example.org/schema/osprey.facility.core/
+  linkml: https://w3id.org/linkml/
+
+default_prefix: osprey_facility
+default_range: string
+
+imports:
+  - linkml:types
+  - vocabulary
+
+enums:
+  role_enum:
+    description: What a program does with a channel.
+    permissible_values:
+      setpoint:
+        description: Written by a program; read back through its `pair`.
+      readback:
+        description: Read only; the pair of at most one setpoint.
+      none:
+        description: Neither written nor paired.
+
+  value_type_enum:
+    description: The type of the value a channel carries.
+    permissible_values:
+      float:
+      int:
+      bool:
+      enum:
+      string:
+      waveform:
+
+  energy_scaling_enum:
+    description: How a calibration scales with the reference energy.
+    permissible_values:
+      none:
+      brho:
+
+  place_from_enum:
+    description: Where a device's `place` came from.
+    permissible_values:
+      span:
+        description: No source stated one; the deepest span containing the device's s.
+      authored:
+        description: Stated in an authored record.
+      fix:
+        description: Set by a fix.
+
+  fix_op_enum:
+    permissible_values:
+      set:
+      add:
+      drop:
+
+  measurement_kind_enum:
+    description: The measurements a model's measurement file allows.
+    permissible_values:
+      orm:
+      dispersion:
+      trm:
+      crm:
+      chromaticity_monitor:
+
+classes:
+  Facility:
+    tree_root: true
+    description: The whole facility file.
+    attributes:
+      schema:
+        required: true
+        pattern: "^osprey\\.facility\\.[a-z_]+/[0-9]+$"
+        description: The file header, `osprey.facility.<doc>/<version>`.
+      identity:
+        range: Identity
+        required: true
+        inlined: true
+      classes:
+        range: FacilityClass
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: The facility-added device classes, carried verbatim.
+      places:
+        range: Place
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      devices:
+        range: Device
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      channels:
+        range: Channel
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      groups:
+        range: Group
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      models:
+        range: Model
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      limits:
+        range: Limits
+        inlined: true
+      scenarios:
+        range: Scenario
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+
+  Identity:
+    description: Who the facility is.
+    attributes:
+      code:
+        required: true
+        pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+        description: Names IRIs, status channels and the graph token.
+      name:
+      description:
+
+  FacilityClass:
+    description: A device class a facility adds as the child of an existing class.
+    attributes:
+      class:
+        identifier: true
+        required: true
+      parent:
+        required: true
+        description: A vocabulary class or an earlier facility-added class.
+      aliases:
+        multivalued: true
+        list_elements_ordered: true
+      description:
+
+  Provenance:
+    description: Which sources, fixes and defaults produced a record.
+    attributes:
+      sources:
+        range: ProvenanceSource
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: One entry per layer that stated a field, sorted by layer.
+      fixes:
+        range: ProvenanceFix
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: The fixes applied to the record, in fixes.yaml order.
+      defaults:
+        multivalued: true
+        list_elements_ordered: true
+        description: The fields the build filled because no source stated them.
+      place_from:
+        range: place_from_enum
+
+  ProvenanceSource:
+    attributes:
+      layer:
+        required: true
+      file:
+        required: true
+        description: Relative to data/facility/.
+      fields:
+        multivalued: true
+        list_elements_ordered: true
+
+  ProvenanceFix:
+    attributes:
+      op:
+        range: fix_op_enum
+        required: true
+      why:
+        required: true
+
+  Place:
+    description: A node of the facility's own tree; its id is a `/`-separated path.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      level:
+        description: The facility's word for this depth of its tree.
+      description:
+      names:
+        multivalued: true
+        list_elements_ordered: true
+      attributes:
+        range: Any
+        description: A free string to scalar or list map, carried verbatim.
+      span:
+        range: Span
+        inlined: true
+      provenance:
+        range: Provenance
+        inlined: true
+
+  Span:
+    description: >-
+      The half-open stretch [from_marker, to_marker) of one model's deck that
+      places devices; no `to_marker` means the end of the deck.
+    attributes:
+      model:
+        required: true
+      from_marker:
+        required: true
+      to_marker:
+
+  Device:
+    description: One device; its channels point at it through `on`.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      class:
+        description: A vocabulary class or a facility-added class.
+      place:
+      description:
+      names:
+        multivalued: true
+        list_elements_ordered: true
+      properties:
+        multivalued: true
+        list_elements_ordered: true
+        description: Vocabulary property names.
+      attributes:
+        range: Any
+        description: A free string to scalar or list map, carried verbatim.
+      model:
+        description: Computed; the model whose deck gave `s` and `length`.
+      s:
+        range: float
+        description: Computed; the entrance of the device's wired elements, in metres.
+      length:
+        range: float
+        description: Computed; in metres.
+      ordinalInPlace:
+        range: integer
+        description: Computed; the device's ordinal among its class in its place.
+      ordinalInModel:
+        range: integer
+        description: Computed; the device's ordinal among its class in its model.
+      groups:
+        multivalued: true
+        description: Computed; the groups naming the device as a member.
+      provenance:
+        range: Provenance
+        inlined: true
+
+  OnTarget:
+    description: The one device or place a channel belongs to.
+    attributes:
+      device:
+      place:
+
+  Channel:
+    description: One control-system channel; its id is the full address.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      role:
+        range: role_enum
+        description: Absent means readback.
+      pair:
+        description: The readback address of a setpoint; absent means the setpoint itself.
+      "on":
+        range: OnTarget
+        inlined: true
+        description: Absent means the channel belongs to nothing.
+      endpoint_of:
+        multivalued: true
+        description: The devices sharing this channel as an endpoint.
+      signal:
+        description: A vocabulary signal role.
+      unit:
+        description: Free text.
+      description:
+      names:
+        multivalued: true
+        list_elements_ordered: true
+      former_addresses:
+        multivalued: true
+      tags:
+        multivalued: true
+      attributes:
+        range: Any
+        description: A free string to scalar or list map, carried verbatim.
+      value_type:
+        range: value_type_enum
+        description: Absent means float.
+      options:
+        multivalued: true
+        list_elements_ordered: true
+        description: The labels of a bool or enum channel.
+      shape:
+        range: integer
+        multivalued: true
+        list_elements_ordered: true
+        description: The dimensions of a waveform channel.
+      simulation:
+        range: Seed
+        inlined: true
+      provenance:
+        range: Provenance
+        inlined: true
+
+  Seed:
+    description: How an unwired channel behaves when simulated.
+    attributes:
+      nominal:
+        range: Any
+        description: The value at start, of the channel's value_type.
+      noise:
+        range: float
+        description: Additive Gaussian sigma in the channel's unit.
+      drift:
+        range: Drift
+        inlined: true
+      clamp:
+        range: Any
+        multivalued: true
+        list_elements_ordered: true
+        minimum_cardinality: 2
+        maximum_cardinality: 2
+        description: "[low, high]; either side may be null."
+      linear:
+        range: LinearTerm
+        multivalued: true
+        inlined: true
+        list_elements_ordered: true
+        description: "The value as a weighted sum of other channels, `{<address>: <coefficient>}`."
+
+  Drift:
+    attributes:
+      amplitude:
+        range: float
+        required: true
+      period_s:
+        range: float
+        required: true
+
+  LinearTerm:
+    attributes:
+      address:
+        key: true
+      coefficient:
+        range: float
+        required: true
+
+  Group:
+    description: A named set of devices.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      description:
+      names:
+        multivalued: true
+        list_elements_ordered: true
+      members:
+        multivalued: true
+        description: Device ids.
+      signals:
+        range: SignalSentence
+        multivalued: true
+        inlined: true
+        list_elements_ordered: true
+        description: >-
+          One sentence per kind of signal the members carry,
+          `{<field or field/subfield>: <sentence>}`, carried verbatim.
+      provenance:
+        range: Provenance
+        inlined: true
+
+  SignalSentence:
+    attributes:
+      key:
+        key: true
+      sentence:
+        required: true
+
+  Model:
+    description: One simulation model and how it is wired to channels.
+    attributes:
+      name:
+        identifier: true
+        required: true
+        pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+      engine:
+        required: true
+      deck:
+        description: Relative to data/facility/.
+      settings:
+        range: Any
+        description: "`{<engine>: {...}}`, the one key equal to `engine`."
+      wiring:
+        range: Wiring
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+      measurement:
+        range: Measurement
+        inlined: true
+      provenance:
+        range: Provenance
+        inlined: true
+
+  Wiring:
+    description: >-
+      One model variable: a channel's address driven by or read from `element`
+      or `slices`, never both.
+    attributes:
+      id:
+        identifier: true
+        required: true
+        description: "`<model>/<address>`, split at the first `/`."
+      address:
+        required: true
+      element:
+      slices:
+        range: Slice
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: The first slice is the element read from.
+      engine:
+        range: Any
+        description: The engine's own words for the variable.
+      calibration:
+        range: Calibration
+        inlined: true
+      direction:
+        description: Computed from the channel's role.
+      unit:
+        description: Computed from the channel.
+      default:
+        range: Any
+        description: Computed; the operating point from the deck.
+      value_range:
+        range: float
+        multivalued: true
+        list_elements_ordered: true
+        description: Computed from the channel's limits record.
+      provenance:
+        range: Provenance
+        inlined: true
+
+  Slice:
+    attributes:
+      element:
+        required: true
+      weight:
+        range: float
+        description: Absent means 1.
+      device:
+        description: Absent means the channel's device.
+
+  Calibration:
+    attributes:
+      curve:
+        range: Curve
+        required: true
+        inlined: true
+      inverse:
+        range: Curve
+        inlined: true
+      energy_scaling:
+        range: energy_scaling_enum
+
+  Curve:
+    description: Exactly one of `linear` or `table`.
+    attributes:
+      linear:
+        range: LinearCurve
+        inlined: true
+      table:
+        range: TableCurve
+        inlined: true
+
+  LinearCurve:
+    attributes:
+      gain:
+        range: float
+        required: true
+      offset:
+        range: float
+        required: true
+
+  TableCurve:
+    attributes:
+      grid:
+        range: float
+        multivalued: true
+        required: true
+        list_elements_ordered: true
+      values:
+        range: float
+        multivalued: true
+        required: true
+        list_elements_ordered: true
+
+  Measurement:
+    description: >-
+      The measurements a model allows and the groups and channels they use. The
+      step and settle keys are pyAML's own, carried verbatim.
+    attributes:
+      kinds:
+        range: measurement_kind_enum
+        multivalued: true
+      groups:
+        range: MeasurementGroups
+        inlined: true
+      instruments:
+        range: MeasurementInstruments
+        inlined: true
+      n_step:
+        range: integer
+      n_avg_meas:
+        range: integer
+      fit_order:
+        range: integer
+      singular_values:
+        range: integer
+      sleep_between_step:
+        range: float
+      sleep_between_meas:
+        range: float
+      corrector_delta:
+        range: float
+      quad_delta:
+        range: float
+      sextu_delta:
+        range: float
+      frequency_delta:
+        range: float
+
+  MeasurementGroups:
+    description: Group ids.
+    attributes:
+      bpm:
+      hcor:
+      vcor:
+      quad:
+      sext:
+
+  MeasurementInstruments:
+    description: Channel addresses.
+    attributes:
+      tune:
+      chromaticity:
+      rf:
+
+  Limits:
+    attributes:
+      defaults:
+        range: LimitDefaults
+        required: true
+        inlined: true
+      records:
+        range: LimitRecord
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+
+  LimitDefaults:
+    attributes:
+      writable:
+        range: boolean
+        required: true
+      confirm:
+        range: boolean
+        required: true
+
+  LimitRecord:
+    description: The write limits of one channel.
+    attributes:
+      address:
+        identifier: true
+        required: true
+      min_value:
+        range: float
+      max_value:
+        range: float
+      max_step:
+        range: float
+      writable:
+        range: boolean
+        description: Absent means `defaults.writable`.
+      confirm:
+        range: boolean
+
+  Scenario:
+    description: Values written into the models at start, and the narratives that go with them.
+    attributes:
+      name:
+        identifier: true
+        required: true
+      overrides:
+        range: Any
+        description: "`{<address>: <value>}`, each value of the channel's value_type."
+      faults:
+        range: Any
+        description: >-
+          `{<model>: {<address or engine variable>: <value>}}`, where a value is a
+          scalar, the word `stuck`, or a map `{<fault field>: <value>}`.
+      archiver:
+        range: Any
+        multivalued: true
+        list_elements_ordered: true
+      logbook:
+        range: Any
+        multivalued: true
+        list_elements_ordered: true
+
+  Any:
+    class_uri: linkml:Any
+    description: Any value, carried verbatim.

@@ -1,0 +1,496 @@
+id: https://narad.example.org/schema/osprey.facility.vocabulary
+name: osprey.facility.vocabulary
+title: Facility vocabulary
+description: >-
+  The shared device-class tree, signal roles and property names a facility file
+  refers to by name, with the aliases people use for them. A facility adds device
+  classes as children of these classes in data/facility/classes.yaml.
+
+prefixes:
+  narad_sem: https://narad.example.org/schema/shared_semantics/
+  linkml: https://w3id.org/linkml/
+
+default_prefix: narad_sem
+default_range: string
+
+imports:
+  - linkml:types
+
+enums:
+  signal_role_enum:
+    description: >-
+      Signal roles with a meaning shared across facilities; a channel's `signal`
+      names one of them.
+    permissible_values:
+      current_setpoint:
+        description: Commanded current value sent to a powered device.
+        aliases: [current setpoint, magnet setpoint, demand current, set current, current demand, setpoint current, commanded current]
+      current_readback:
+        description: Measured current value read back from a powered device.
+        aliases: [current readback, measured current, current measurement, current readout, readback current]
+      field_setpoint:
+        description: Commanded field (integrated or peak) for a magnetic device.
+        aliases: [field setpoint, BDL setpoint, integrated field setpoint, field demand, set field]
+      field_readback:
+        description: Measured field readback for a magnetic device.
+        aliases: [field readback, measured field, field measurement, field readout]
+      vacuum_readback:
+        description: Vacuum pressure readback from a vacuum gauge or pump.
+        aliases: [vacuum readback, pressure readback, vacuum pressure, pressure reading, vacuum reading, pressure measurement]
+      status:
+        description: Generic device status (on/off/fault/enabled/disabled).
+        aliases: [status, device status, state, fault status, enable status, on off status, open closed status]
+      position_x_readback:
+        description: Horizontal beam position readback from a beam position monitor.
+        aliases: [horizontal beam position, X position, XPOS, measured X, x readback, measured horizontal position, horizontal position readback, horizontal beam position readback, beam x position]
+      position_y_readback:
+        description: Vertical beam position readback from a beam position monitor.
+        aliases: [vertical beam position, Y position, YPOS, measured Y, y readback, measured vertical position, vertical position readback, vertical beam position readback, beam y position]
+      beam_intensity_readback:
+        description: Scalar beam intensity or charge readback (e.g. BPM .VAL).
+        aliases: [beam intensity, wire sum, beam current, charge readback, intensity readback, BPM sum]
+      profile_readback:
+        description: Beam profile readback from a wire scanner or harp.
+        aliases: [profile, beam profile, wire profile, harp profile, profile readback, transverse profile]
+      rf_forward_power_readback:
+        description: RF forward power readback at an accelerating cavity input.
+        aliases: [rf forward power, forward power, cavity forward power, CRFP]
+      rf_reflected_power_readback:
+        description: RF reflected power readback from an accelerating cavity.
+        aliases: [rf reflected power, reflected power, cavity reflected power, CRRP]
+      gradient_readback:
+        description: Measured accelerating gradient readback for an RF cavity.
+        aliases: [gradient readback, cavity gradient readback, measured gradient, GMES]
+      gradient_setpoint:
+        description: Commanded accelerating gradient setpoint for an RF cavity.
+        aliases: [gradient setpoint, cavity gradient setpoint, set gradient, GSET]
+      phase_readback:
+        description: Measured RF phase readback for an RF cavity.
+        aliases: [phase readback, cavity phase readback, measured phase, PMES]
+      phase_setpoint:
+        description: Commanded RF phase setpoint for an RF cavity.
+        aliases: [phase setpoint, cavity phase setpoint, set phase, PSET]
+      magnet_voltage_readback:
+        description: Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).
+        aliases: [voltage, voltages, magnet voltage, magnet voltages, voltage readback, magnet voltage readback, driver supply voltage, high voltage readback, HV readback, D.H]
+      valve_status:
+        description: Open/closed/fault status readback for a beamline gate valve or fast valve.
+      integrated_count:
+        description: Integrated beam-loss count readback from a beam loss monitor (BLM).
+      gun_voltage_setpoint:
+        description: High-voltage setpoint for an electron gun or its HVPS (preset demand, kV).
+      gun_voltage_readback:
+        description: High-voltage readback from an electron gun HVPS (measured kV).
+      gun_current_readback:
+        description: Beam current or supply current readback from an electron gun HVPS (mA).
+      sf6_pressure_readback:
+        description: SF6 insulating-gas pressure readback in an electron gun pressure vessel (PSI).
+      current_golden_readback:
+        description: Stored "golden" current setpoint reference for a powered device.
+      power_on_status:
+        description: Power-on (energised) state readback of a powered device.
+      power_on_command:
+        description: Commanded power on/off transition for a powered device.
+      ready_status:
+        description: Device-ready handshake readback (interlocks satisfied, supplies up).
+      fault_status:
+        description: Generic device fault flag readback.
+      reset_command:
+        description: Latching-fault reset command.
+      local_mode_status:
+        description: Local-vs-remote control-mode readback.
+      interlock_status:
+        description: Generic interlock readback (active / cleared).
+      ramp_rate_setpoint:
+        description: Commanded ramp-rate setpoint for a powered device's current loop.
+      ramping_status:
+        description: Ramping-in-progress readback.
+      leakage_current_readback:
+        description: Leakage-current readback for a magnet supply.
+      regulator_temperature_readback:
+        description: Regulator / power-stage temperature readback.
+      bulk_supply_command:
+        description: Bulk-supply control command (mode/enable).
+      bulk_supply_on_status:
+        description: Bulk-supply on/off state readback.
+      bulk_supply_voltage_readback:
+        description: Bulk-supply DC voltage readback.
+      controlled_power_mode_status:
+        description: Controlled-power-mode readback for a main dipole supply.
+      over_temperature_status:
+        description: Over-temperature fault flag readback.
+      shunt_status:
+        description: Dipole shunt-circuit state readback.
+      position_x_error_readback:
+        description: Horizontal-position error readback (delta from golden reference).
+      position_y_error_readback:
+        description: Vertical-position error readback (delta from golden reference).
+      position_x_golden_readback:
+        description: Golden-orbit horizontal-position reference readback.
+      position_y_golden_readback:
+        description: Golden-orbit vertical-position reference readback.
+      position_x_rms_10k_readback:
+        description: RMS horizontal position over a 10k-sample window.
+      position_y_rms_10k_readback:
+        description: RMS vertical position over a 10k-sample window.
+      position_x_rms_200_readback:
+        description: RMS horizontal position over a 200-sample window.
+      position_y_rms_200_readback:
+        description: RMS vertical position over a 200-sample window.
+      bpm_sum_readback:
+        description: BPM sum-signal readback (intensity proxy from button electrodes).
+      bpm_fofb_index:
+        description: Fast-orbit-feedback channel-index readback for a BPM.
+      bpm_sample_rate:
+        description: BPM acquisition sample-rate readback (configuration channel).
+      rf_hv_readback:
+        description: RF / klystron high-voltage readback.
+      rf_hv_setpoint:
+        description: RF / klystron high-voltage setpoint.
+      rf_hv_golden_readback:
+        description: Stored golden HV reference for an RF cavity.
+      rf_drive_amplitude_readback:
+        description: RF drive-amplitude readback.
+      phase_golden_readback:
+        description: Stored golden RF-phase reference.
+      local_phase_readback:
+        description: Locally-measured RF-phase readback.
+      remote_phase_readback:
+        description: Remotely-reported RF-phase readback.
+      thermal_status:
+        description: Thermal/over-temperature interlock flag readback.
+      filament_timeout_status:
+        description: Filament warm-up / runtime timeout readback.
+      computer_status:
+        description: Control-computer heartbeat / health readback.
+      pulse_amplitude_setpoint:
+        description: Modulator pulse-amplitude setpoint.
+      pulse_delay_setpoint:
+        description: Modulator pulse-delay setpoint.
+      pulse_width_setpoint:
+        description: Modulator pulse-width setpoint.
+      pulse_permit_status:
+        description: Pulsing-permit interlock readback.
+      pulsing_command:
+        description: Commanded pulsing on/off transition.
+      pulsing_on_status:
+        description: Pulsing-on state readback.
+      pulsing_ready_status:
+        description: Pulsing-ready handshake readback.
+      modulator_state_command:
+        description: Modulator state-machine command (StateCmd; MemberOf=Boolean Control).
+      screen_in_status:
+        description: Screen-inserted state readback.
+      screen_out_status:
+        description: Screen-extracted state readback.
+      screen_in_command:
+        description: Commanded screen-insert transition.
+      lamp_status:
+        description: Illumination-lamp on/off state readback.
+      lamp_command:
+        description: Commanded lamp on/off transition.
+      valve_open_command:
+        description: Commanded valve open/close transition.
+      valve_upstream_status:
+        description: Upstream-side limit-switch state readback for a vacuum valve.
+      valve_downstream_status:
+        description: Downstream-side limit-switch state readback for a vacuum valve.
+      valve_cathode_status:
+        description: Cathode-side interlock / status channel for a vacuum valve.
+      air_pressure_status:
+        description: Compressed-air-pressure (pneumatic actuator supply) readback.
+      ac_supply_ok_status:
+        description: AC-supply OK readback (120 V auxiliary supply healthy).
+      dc_supply_ok_status:
+        description: DC-supply OK readback (24 V auxiliary supply healthy).
+      plug_interlock_status:
+        description: Plug-interlock readback (mating-connector presence).
+      external_interlock_1_status:
+        description: External interlock channel 1 readback.
+      external_interlock_2_status:
+        description: External interlock channel 2 readback.
+      external_interlock_3_status:
+        description: External interlock channel 3 readback.
+      internal_interlock_1_status:
+        description: Internal interlock channel 1 readback.
+      internal_interlock_2_status:
+        description: Internal interlock channel 2 readback.
+      internal_interlock_3_status:
+        description: Internal interlock channel 3 readback.
+
+  property_name_enum:
+    description: >-
+      Property names a device record lists in `properties`, each with the unit
+      its value carries.
+    permissible_values:
+      betax:
+        description: Horizontal beta function from the accelerator optics model.
+        annotations:
+          unit: m
+        aliases: [betax, beta x, horizontal beta function, horizontal beta, beta horizontal]
+      betay:
+        description: Vertical beta function from the accelerator optics model.
+        annotations:
+          unit: m
+        aliases: [betay, beta y, vertical beta function, vertical beta, beta vertical]
+      alphax:
+        description: Horizontal alpha (Twiss parameter) from the optics model.
+        aliases: [alphax, alpha x, horizontal alpha, horizontal alpha function]
+      alphay:
+        description: Vertical alpha (Twiss parameter) from the optics model.
+        aliases: [alphay, alpha y, vertical alpha, vertical alpha function]
+      etax:
+        description: Horizontal dispersion function from the optics model.
+        annotations:
+          unit: m
+        aliases: [etax, eta x, horizontal dispersion, dispersion x]
+      etay:
+        description: Vertical dispersion function from the optics model.
+        annotations:
+          unit: m
+        aliases: [etay, eta y, vertical dispersion, dispersion y]
+      psix:
+        description: Horizontal betatron phase advance.
+        annotations:
+          unit: rad
+        aliases: [psix, psi x, horizontal phase advance]
+      psiy:
+        description: Vertical betatron phase advance.
+        annotations:
+          unit: rad
+        aliases: [psiy, psi y, vertical phase advance]
+      emitx:
+        description: Horizontal normalised emittance.
+        annotations:
+          unit: m*rad
+        aliases: [emitx, emit x, horizontal emittance, x emittance]
+      emity:
+        description: Vertical normalised emittance.
+        annotations:
+          unit: m*rad
+        aliases: [emity, emit y, vertical emittance, y emittance]
+      pCentral:
+        description: Central (design) beam momentum from the optics model.
+        annotations:
+          unit: MeV/c
+        aliases: [pCentral, central momentum, design momentum, reference momentum]
+      sigmax:
+        description: Horizontal beam-envelope RMS size from the optics model.
+        annotations:
+          unit: m
+        aliases: [sigmax, sigma x, horizontal beam size, rms beam size x]
+      sigmay:
+        description: Vertical beam-envelope RMS size from the optics model.
+        annotations:
+          unit: m
+        aliases: [sigmay, sigma y, vertical beam size, rms beam size y]
+      s_position:
+        description: Longitudinal position along the beamline (s-coordinate).
+        annotations:
+          unit: m
+        aliases: [s_position, s position, longitudinal position, s coord, beamline position, position along beamline]
+      length:
+        description: Physical length of the device element.
+        annotations:
+          unit: m
+        aliases: [length, element length, physical element length, device length, active length]
+
+classes:
+  AcceleratorDevice:
+    description: Abstract root for all accelerator devices.
+    abstract: true
+
+  Instrumentation:
+    is_a: AcceleratorDevice
+    description: Abstract root for instrumentation and diagnostic devices.
+    abstract: true
+    aliases: [instrumentation, diagnostics]
+
+  Actuated:
+    is_a: Instrumentation
+    description: Instrumentation devices with mechanically actuated or insertable elements.
+    abstract: true
+    aliases: [actuated, insertable]
+
+  Magnet:
+    is_a: AcceleratorDevice
+    description: A device whose primary function is magnetic beam steering or focusing.
+    abstract: true
+    aliases: [magnet, electromagnet]
+
+  Dipole:
+    is_a: Magnet
+    description: Dipole bending magnet.
+    aliases: [dipole, bending magnet, bend magnet, bend, dipole magnet]
+
+  Corrector:
+    is_a: Magnet
+    description: Orbit corrector magnet (horizontal or vertical).
+    abstract: true
+    aliases: [corrector, steerer, steering magnet, orbit corrector]
+
+  HCorrector:
+    is_a: Corrector
+    description: Horizontal orbit corrector.
+    aliases: [horizontal corrector, HCorrector, HCOR, horizontal orbit corrector, horizontal steering magnet]
+
+  VCorrector:
+    is_a: Corrector
+    description: Vertical orbit corrector.
+    aliases: [vertical corrector, VCorrector, VCOR, vertical orbit corrector, vertical steering magnet]
+
+  Solenoid:
+    is_a: Magnet
+    description: Solenoid focusing magnet.
+    aliases: [solenoid, solenoid magnet, axial focusing magnet]
+
+  Sextupole:
+    is_a: Magnet
+    description: Sextupole magnet used for chromatic correction and higher-order optics control.
+    aliases: [sextupole, sext]
+
+  Octupole:
+    is_a: Magnet
+    description: Octupole magnet used for nonlinear optics shaping and stability control.
+    aliases: [octupole]
+
+  WienFilter:
+    is_a: Magnet
+    description: Crossed-field Wien filter used for velocity and spin manipulation with minimal orbit distortion.
+    aliases: [wien filter, wien]
+
+  Vacuum:
+    is_a: AcceleratorDevice
+    description: Abstract root for vacuum systems and instrumentation.
+    abstract: true
+    aliases: [vacuum]
+
+  Pump:
+    is_a: Vacuum
+    description: Vacuum pump (ion pump, NEG pump, etc.).
+    aliases: [pump, ion pump, vacuum pump]
+
+  Valve:
+    is_a: Vacuum
+    description: Beamline gate valve or isolation valve.
+    aliases: [valve, beamline valve, gate valve, isolation valve, fast valve, BV, FV]
+
+  Quadrupole:
+    is_a: Magnet
+    description: Quadrupole focusing or defocusing magnet.
+    aliases: [quadrupole, quad, focusing magnet, defocusing magnet, quadrupole magnet]
+
+  RadioFrequency:
+    is_a: AcceleratorDevice
+    description: Abstract root for RF acceleration structures.
+    abstract: true
+    aliases: [radio frequency, radiofrequency, RF]
+
+  AcceleratingCavity:
+    is_a: RadioFrequency
+    description: RF accelerating cavity structure.
+    abstract: true
+    aliases: [accelerating cavity, RF cavity, cavity]
+
+  NormalConducting:
+    is_a: AcceleratingCavity
+    description: Normal-conducting (warm) accelerating RF cavity structure.
+    aliases: [normal conducting, warm RF, warm]
+
+  Superconducting:
+    is_a: AcceleratingCavity
+    description: Superconducting RF structures.
+    aliases: [superconducting, SRF, cold, cryo]
+
+  BeamPositionMonitor:
+    is_a: Instrumentation
+    description: Non-intercepting beam position monitor (stripline, cavity BPM, etc.).
+    aliases: [beam position monitor, position monitor, BPM, PM, position pickup]
+
+  ScreenDiagnostic:
+    is_a: Actuated
+    description: Intercepting screen diagnostic (YAG screen, OTR, etc.).
+    aliases: [screen, viewer, profile screen]
+
+  WireScanner:
+    is_a: Actuated
+    description: Beam profile wire scanner or harp.
+    aliases: [wire scanner, harp, wire harp, profile monitor, beam harp]
+
+  FaradayCup:
+    is_a: Actuated
+    description: Insertable Faraday cup used for beam current interception and measurement.
+    aliases: [faraday cup, cup, faraday]
+
+  Aperture:
+    is_a: Actuated
+    description: Insertable aperture/collimator element used to constrain beam envelope and scrape halo.
+    aliases: [aperture, collimator, scraper]
+
+  Dump:
+    is_a: Actuated
+    description: Beam dump element used to absorb beam under controlled operating conditions.
+    aliases: [dump, beam dump]
+
+  Target:
+    is_a: Instrumentation
+    description: Beam-intercepting target element used for dedicated measurement or interaction stations.
+    aliases: [target]
+
+  BunchLengthMonitor:
+    is_a: Instrumentation
+    description: Instrumentation for bunch-length related observation and monitoring.
+    aliases: [bunch length monitor, bunch monitor]
+
+  BeamLossMonitor:
+    is_a: Instrumentation
+    description: Beam loss monitor (BLM) for machine protection and tuning.
+    aliases: [beam loss monitor, loss monitor, BLM, LM]
+
+  BeamCurrentMonitor:
+    is_a: Instrumentation
+    description: Beam current monitor (BCM) for non-intercepting beam intensity readback.
+    aliases: [beam current monitor, current monitor, BCM, BC]
+
+  Gauge:
+    is_a: Vacuum
+    description: Vacuum pressure gauge (cold cathode, Pirani, ionisation gauge, etc.).
+    aliases: [gauge, vacuum gauge, pressure gauge]
+
+  ElectronGun:
+    is_a: AcceleratorDevice
+    description: DC electron gun with high-voltage power supply (HVPS). Produces the primary beam; includes the gun electrode, HVPS, and SF6-insulated pressure vessel.
+
+  AuxiliaryCoil:
+    is_a: Magnet
+    description: Abstract root for magnets whose purpose is field correction or cancellation rather than primary beam steering / focusing (e.g. bucking coils that null a solenoid's fringe field at the cathode).
+    abstract: true
+
+  BuckingCoil:
+    is_a: AuxiliaryCoil
+    description: Field-cancellation coil pair used to null a parent magnet's fringe field (typically at the gun cathode).
+
+  Modulator:
+    is_a: RadioFrequency
+    description: High-power klystron / RF-driver modulator providing pulsed DC to an RF amplifier chain.
+
+  BunchingCavity:
+    is_a: RadioFrequency
+    description: Abstract root for RF cavities whose primary function is longitudinal bunching rather than acceleration.
+    abstract: true
+
+  SubHarmonicBuncher:
+    is_a: BunchingCavity
+    description: Sub-harmonic buncher cavity operated below the linac fundamental frequency to compress bunches before injection.
+
+  TravellingWaveCavity:
+    is_a: AcceleratingCavity
+    description: Travelling-wave RF accelerating structure (sibling to NormalConducting / Superconducting standing-wave cavities).
+
+  TimingChannel:
+    is_a: Instrumentation
+    description: Programmable event-timing channel (trigger, delay) sourced from the event-distribution system.
+
+  TimingReference:
+    is_a: Instrumentation
+    description: Master phase / timing reference distributed to downstream timing channels.
