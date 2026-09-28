@@ -1093,6 +1093,67 @@ class TestLoginAndTrust:
         assert self._SECRET not in caplog.text
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("code", [401, 403])
+    async def test_a_refused_login_names_the_key_not_reachability(
+        self, appliance, monkeypatch, code
+    ):
+        appliance.https.routes[self._DATA] = Reply(status=code)
+        monkeypatch.setenv("ARCHIVER_TEST_TOKEN", self._SECRET)
+        connector = EPICSArchiverConnector()
+        await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
+
+        with pytest.raises(ConnectionError) as exc:
+            await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
+
+        message = str(exc.value)
+        assert "`archiver.settings.auth.token_env`" in message
+        assert f"HTTP {code}" in message
+        assert "ARCHIVER_TEST_TOKEN" in message
+        assert "Cannot connect" not in message
+        assert "Network connectivity issue" not in message
+        assert self._SECRET not in message
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_an_appliance_that_asks_for_a_login_names_the_keys(self, appliance):
+        appliance.https.routes[self._DATA] = Reply(status=401)
+        connector = EPICSArchiverConnector()
+        await connector.connect(self._config(appliance))
+
+        with pytest.raises(ConnectionError) as exc:
+            await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
+
+        message = str(exc.value)
+        assert "asks for a login (HTTP 401)" in message
+        assert "`archiver.settings.auth` names none" in message
+        assert "Network connectivity issue" not in message
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_an_untrusted_certificate_names_tls_ca_bundle(self, appliance):
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": appliance.https.url})
+
+        with pytest.raises(ConnectionError) as exc:
+            await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
+
+        message = str(exc.value)
+        assert "does not trust" in message
+        assert "`archiver.settings.tls.ca_bundle`" in message
+        assert "Network connectivity issue" not in message
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_other_http_errors_keep_their_wording(self, appliance):
+        appliance.https.routes.pop(self._DATA)
+        connector = EPICSArchiverConnector()
+        await connector.connect(self._config(appliance))
+
+        with pytest.raises(ConnectionError, match="Cannot connect to archiver at"):
+            await connector.get_data(channels=["SR:DCCT"], **self._WINDOW)
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
     async def test_a_flat_timeout_is_refused_naming_timeout_s(self):
         connector = EPICSArchiverConnector()
         with pytest.raises(ValueError, match=r"`archiver\.settings\.timeout_s`"):
