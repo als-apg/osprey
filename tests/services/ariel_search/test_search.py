@@ -15,8 +15,11 @@ from osprey.services.ariel_search.search import (
     parse_query,
 )
 from osprey.services.ariel_search.search.keyword import (
+    KeywordSearchInput,
     _balance_quotes,
     build_tsquery,
+    get_tool_descriptor,
+    has_boolean_operators,
 )
 
 
@@ -35,6 +38,22 @@ class TestSearchConstants:
         assert "author:" in ALLOWED_FIELD_PREFIXES
         assert "date:" in ALLOWED_FIELD_PREFIXES
         assert len(ALLOWED_FIELD_PREFIXES) == 2
+
+    @pytest.mark.parametrize("prefix", sorted(ALLOWED_FIELD_PREFIXES))
+    def test_every_field_prefix_is_a_lowercase_name_and_a_colon(self, prefix):
+        """Each prefix is a lower-case identifier followed by a colon."""
+        assert prefix == prefix.lower()
+        assert prefix.endswith(":")
+        assert prefix[:-1].isidentifier()
+
+    def test_agent_facing_text_names_every_operator(self):
+        """The tool description and the query field name every operator word."""
+        tool_description = get_tool_descriptor().description
+        query_description = KeywordSearchInput.model_fields["query"].description
+        assert query_description is not None
+        for word in ALLOWED_OPERATORS:
+            assert word in tool_description
+            assert word in query_description
 
 
 class TestParseQuery:
@@ -90,6 +109,18 @@ class TestParseQuery:
         assert filters == {}
         assert phrases == []
 
+    @pytest.mark.parametrize("spell", [str.lower, str.upper])
+    @pytest.mark.parametrize("prefix", sorted(ALLOWED_FIELD_PREFIXES))
+    def test_every_allowed_prefix_is_lifted(self, prefix, spell):
+        """Every prefix in the constant becomes a filter keyed by its name."""
+        search_text, filters, phrases = parse_query(f"beam {spell(prefix)}x1")
+        assert search_text == "beam"
+        assert filters == {prefix[:-1]: "x1"}
+
+    def test_a_prefix_outside_the_constant_stays_search_text(self):
+        """A prefix the constant does not name is ordinary search text."""
+        assert parse_query("beam source:x1") == ("beam source:x1", {}, [])
+
 
 class TestBuildTsquery:
     """Tests for tsquery building."""
@@ -114,6 +145,27 @@ class TestBuildTsquery:
         """Handles empty inputs."""
         result = build_tsquery("", [])
         assert "plainto_tsquery" in result
+
+    @pytest.mark.parametrize("spell", [str.upper, str.lower])
+    @pytest.mark.parametrize("word", sorted(ALLOWED_OPERATORS))
+    def test_every_operator_word_routes_to_websearch(self, word, spell):
+        """Every operator word, in either case, takes the websearch path."""
+        text = f"beam {spell(word)} loss"
+        assert build_tsquery(text, []) == "websearch_to_tsquery('english', %s)"
+        assert has_boolean_operators(text)
+
+    @pytest.mark.parametrize("symbol", ["&", "|", "!"])
+    def test_every_operator_symbol_routes_to_websearch(self, symbol):
+        """Both functions agree that an operator symbol takes the websearch path."""
+        text = f"beam {symbol} loss"
+        assert build_tsquery(text, []) == "websearch_to_tsquery('english', %s)"
+        assert has_boolean_operators(text)
+
+    def test_operator_word_inside_a_token_is_not_an_operator(self):
+        """An operator word inside a longer token is ordinary text."""
+        text = "ANDERSON ORBIT NOTE"
+        assert build_tsquery(text, []) == "plainto_tsquery('english', %s)"
+        assert not has_boolean_operators(text)
 
 
 class TestSearchModuleExports:

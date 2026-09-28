@@ -22,6 +22,7 @@ from osprey.services.ariel_search.search.base import (
     QueryExpansion,
 )
 from osprey.services.ariel_search.search.keyword import (
+    ALLOWED_FIELD_PREFIXES,
     get_tool_descriptor,
     keyword_search,
     parse_keyword_query,
@@ -390,6 +391,21 @@ class TestFuzzyFallback:
         await keyword_search("trip SR01C___BPM*", mock_repository, mock_config)
 
         mock_repository.fuzzy_search.assert_not_called()
+
+
+class TestFieldFilters:
+    """Every field prefix the parser lifts is applied as a predicate."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("prefix", sorted(ALLOWED_FIELD_PREFIXES))
+    async def test_every_prefix_reaches_a_predicate(self, prefix, mock_repository, mock_config):
+        """A prefix with no predicate would drop its token from the search unapplied."""
+        await keyword_search(f"beam {prefix}2024-01-15", mock_repository, mock_config)
+
+        kwargs = repo_call(mock_repository)
+        assert len(kwargs["where_clauses"]) == 2
+        assert kwargs["params"][0] == "beam"
+        assert any("2024-01-15" in str(param) for param in kwargs["params"][1:])
 
 
 class TestErrorPropagation:
