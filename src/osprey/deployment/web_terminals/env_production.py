@@ -634,7 +634,7 @@ def _claude_code_auth_secret_vars(
     :func:`verify_persona_renders` REFUSES a deploy whose persona projects are
     missing *before* :func:`ensure_env_production` runs, so on every deploy path
     that reaches generation the rendered configs are on disk. A provider name known
-    neither to ``CLAUDE_CODE_PROVIDERS`` nor to the config's own
+    neither to the provider registry nor to the config's own
     ``api.providers`` is likewise skipped here (the resolver raises its own
     actionable error for that at launch).
     """

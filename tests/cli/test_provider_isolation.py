@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+import sys
 
 import pytest
 from click.testing import CliRunner
 
+import osprey.models.provider_registry
 from osprey.build.claude_code_resolver import (
     MANAGED_ENV_VARS,
     TIER_MODEL_ENV_VARS,
@@ -19,7 +22,10 @@ from osprey.build.claude_code_resolver import (
     ClaudeCodeModelSpec,
     detect_managed_policy_conflicts,
     inject_provider_env,
+    provider_auth_secret_env,
 )
+from osprey.models.provider_registry import PROVIDER_API_KEYS, ProviderRegistry
+from osprey.models.providers.base import BaseProvider
 from tests.conftest import GATEWAY_BASE_URL, GATEWAY_ORIGIN
 
 #: ``als-apg`` ships no endpoint of its own, so every case that resolves it has
@@ -184,6 +190,29 @@ class TestBackendSelectorScrubbing:
 # ── Auth field passthrough ───────────────────────────────────────
 
 
+class _SiteGatewayAdapter(BaseProvider):
+    name = "site-gateway"
+    description = "A gateway a site registers for itself"
+    requires_api_key = True
+    api_key_env_var = "SITE_GATEWAY_TOKEN"
+
+
+class _SiteCborgAdapter(BaseProvider):
+    name = "cborg"
+    description = "A site's own class registered under a built-in name"
+    requires_api_key = True
+    api_key_env_var = "SITE_CBORG_TOKEN"
+    api_protocol = "anthropic"
+
+
+@pytest.fixture
+def a_site_registry(monkeypatch):
+    """A fresh provider registry installed as the singleton for one test."""
+    registry = ProviderRegistry()
+    monkeypatch.setattr(osprey.models.provider_registry, "_registry", registry)
+    return registry
+
+
 class TestAuthFieldPassthrough:
     """resolve() passes auth_env_var and auth_secret_env through to spec."""
 
@@ -216,6 +245,60 @@ class TestAuthFieldPassthrough:
         )
         assert spec.auth_env_var == "ANTHROPIC_AUTH_TOKEN"
         assert spec.auth_secret_env == "MY_LAB_API_KEY"
+
+    def test_a_registered_provider_names_its_own_key_variable(self, a_site_registry):
+        a_site_registry.register_provider("site-gateway", __name__, "_SiteGatewayAdapter")
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "site-gateway"},
+            api_providers={
+                "site-gateway": {
+                    "base_url": "https://gateway.example.com",
+                    "default_model": "site-opus",
+                    "models": ["site-haiku", "site-sonnet", "site-opus"],
+                }
+            },
+        )
+        assert spec.auth_secret_env == "SITE_GATEWAY_TOKEN"
+        assert '"$SITE_GATEWAY_TOKEN"' in spec.shell_exports[0]
+
+    def test_a_registration_that_replaces_a_builtin_names_its_key_variable(self, a_site_registry):
+        a_site_registry.register_provider("cborg", __name__, "_SiteCborgAdapter")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        assert spec.auth_secret_env == "SITE_CBORG_TOKEN"
+
+    @pytest.mark.parametrize(
+        ("name", "api_providers", "expected"),
+        [
+            ("openai", {"openai": {}}, "OPENAI_API_KEY"),
+            ("openai", None, "OPENAI_API_KEY"),
+            ("ollama", {"ollama": {}}, "OLLAMA_API_KEY"),
+            ("ollama", None, None),
+            ("my-lab", {"my-lab": {}}, "MY_LAB_API_KEY"),
+            ("frobnicator", None, None),
+        ],
+    )
+    def test_the_key_variable_for_every_shape_of_provider(self, name, api_providers, expected):
+        assert provider_auth_secret_env(name, api_providers) == expected
+
+    def test_resolving_a_builtin_imports_no_adapter(self):
+        code = (
+            "import sys\n"
+            "from osprey.build.claude_code_resolver import (\n"
+            "    ClaudeCodeModelResolver, provider_auth_secret_env)\n"
+            "for name in ('anthropic', 'cborg', 'als-apg'):\n"
+            "    ClaudeCodeModelResolver.resolve({'provider': name}, {})\n"
+            "ClaudeCodeModelResolver.resolve({'provider': 'openai'}, {'openai': {\n"
+            "    'base_url': 'https://api.openai.example', 'default_model': 'gpt-x',\n"
+            "    'models': ['gpt-x']}})\n"
+            f"for name in {sorted(PROVIDER_API_KEYS)!r}:\n"
+            "    provider_auth_secret_env(name, {name: {}})\n"
+            "print('litellm' in sys.modules,"
+            " [m for m in sys.modules if m.startswith('osprey.models.providers.')])\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+        assert result.stdout.strip() == "False []"
 
 
 # ── detect_env_conflicts ─────────────────────────────────────────

@@ -11,7 +11,8 @@ Design: model ids and endpoints are owned by the provider and live in
 ``api.providers`` in config.yml — each entry lists the ids its gateway serves
 and names its ``default_model``. ``CLAUDE_CODE_PROVIDERS`` defines the auth
 pattern and fallback base URLs for configs that name none — config always wins
-over the built-in table.
+over the built-in table. The variable holding each provider's secret comes from
+the provider registry.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from osprey.build.claude_code_telemetry import (
     resolve_openobserve_port,
 )
 from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candidates
+from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
 from osprey.models.spend_attribution import apply_attribution_env, gateway_for
 from osprey.utils.dotenv import chain_files
 from osprey_connectors import yaml_loader
@@ -45,17 +47,20 @@ logger = logging.getLogger("osprey.build.claude_code_resolver")
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "auth_env_var": "ANTHROPIC_API_KEY",  # Claude Code env var that receives the key
-        "auth_secret_env": "ANTHROPIC_API_KEY",  # Shell env var holding the actual secret
+        # Shell env var holding the secret, from the provider's registry entry
+        "auth_secret_env": PROVIDER_API_KEYS["anthropic"],
         "base_url": None,  # No base URL for direct Anthropic
     },
     "cborg": {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
-        "auth_secret_env": "CBORG_API_KEY",  # Shell env var holding the secret
+        # Shell env var holding the secret, from the provider's registry entry
+        "auth_secret_env": PROVIDER_API_KEYS["cborg"],
         "base_url": "https://api.cborg.lbl.gov",  # Well-known URL (no /v1)
     },
     "als-apg": {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
-        "auth_secret_env": "ALS_APG_API_KEY",  # Shell env var holding the secret
+        # Shell env var holding the secret, from the provider's registry entry
+        "auth_secret_env": PROVIDER_API_KEYS["als-apg"],
         # The gateway's own address, so a deployment that names none still
         # reaches it. Spelled without /v1 because this value becomes
         # ANTHROPIC_BASE_URL and Claude Code appends /v1/messages itself.
@@ -116,16 +121,29 @@ def provider_auth_secret_env(provider_name: str, api_providers: dict | None = No
     The single source of the secret-var naming rule, shared by
     :meth:`ClaudeCodeModelResolver.resolve` (which injects the secret at
     launch) and the web-terminal ``.env.users`` generator (which must
-    ship the same var into per-user containers): built-in providers declare
-    ``auth_secret_env`` in :data:`CLAUDE_CODE_PROVIDERS`; a custom proxy
-    defined under ``api.providers`` derives ``<NAME>_API_KEY``. Returns
-    ``None`` for a provider known to neither — the caller decides whether
-    that's an error (:meth:`~ClaudeCodeModelResolver.resolve` raises) or a
-    skip (the generator leaves unknown providers to the resolver's own
-    validation).
+    ship the same var into per-user containers). The answer comes from, in
+    order:
+
+    1. the provider registry — a built-in answers from its entry without
+       importing its adapter, and a registered provider from its class,
+       including a registration that replaces a built-in name;
+    2. the provider's :data:`CLAUDE_CODE_PROVIDERS` row, for a row the registry
+       does not describe;
+    3. ``<NAME>_API_KEY`` for a provider ``api.providers`` names — a
+       catalog-only entry, a registered class that declares no variable, or a
+       keyless built-in's optional key (``ollama`` → ``OLLAMA_API_KEY``).
+
+    Returns ``None`` for a provider known to none of these — the caller
+    decides whether that's an error (:meth:`~ClaudeCodeModelResolver.resolve`
+    raises) or a skip (the generator leaves unknown providers to the
+    resolver's own validation).
     """
+    declared = get_provider_registry().api_key_env_var(provider_name)
+    if declared is not None:
+        return declared
     if provider_name in CLAUDE_CODE_PROVIDERS:
-        return CLAUDE_CODE_PROVIDERS[provider_name]["auth_secret_env"]
+        row_secret: str | None = CLAUDE_CODE_PROVIDERS[provider_name]["auth_secret_env"]
+        return row_secret
     if api_providers and provider_name in api_providers:
         return f"{provider_name.upper().replace('-', '_')}_API_KEY"
     return None
@@ -980,12 +998,14 @@ class ClaudeCodeModelResolver:
                     f"in profile.yml and run `osprey build` (config.yml is generated "
                     f"from profile.yml)."
                 )
-            provider_def: dict[str, Any] = {
-                "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
-                "auth_secret_env": provider_auth_secret_env(provider_name, api_providers),
-            }
+            provider_def: dict[str, Any] = {"auth_env_var": "ANTHROPIC_AUTH_TOKEN"}
         else:
             provider_def = CLAUDE_CODE_PROVIDERS[provider_name]
+
+        auth_secret_env = provider_auth_secret_env(provider_name, api_providers)
+        # Every name that reaches here is in CLAUDE_CODE_PROVIDERS or in
+        # api_providers (the refusal above), so the lookup always answers.
+        assert auth_secret_env is not None, provider_name
 
         # ── Base URL ─────────────────────────────────────────────
         # A base_url under api.providers wins over the built-in
@@ -1084,7 +1104,6 @@ class ClaudeCodeModelResolver:
 
         # ── Shell exports (auth key — must be set in user's profile) ──
         auth_env_var = provider_def["auth_env_var"]
-        auth_secret_env = provider_def["auth_secret_env"]
         if auth_env_var == auth_secret_env:
             # Direct provider (e.g. anthropic): just needs the var set
             shell_exports = (f'export {auth_env_var}="<your-api-key>"',)

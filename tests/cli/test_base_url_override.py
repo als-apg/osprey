@@ -12,7 +12,11 @@ from __future__ import annotations
 import pytest
 
 from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS, ClaudeCodeModelResolver
-from osprey.models.provider_registry import get_provider_registry
+from osprey.models.provider_registry import (
+    _BUILTIN_PROVIDERS,
+    PROVIDER_API_KEYS,
+    get_provider_registry,
+)
 
 FACILITY_GATEWAY = "https://llm.facility.example.org"
 
@@ -344,6 +348,12 @@ class TestEnvVarParityWithProviderAdapters:
     def test_tables_agree_on_the_override_var(self, provider):
         adapter = get_provider_registry().get_provider(provider)
         assert CLAUDE_CODE_PROVIDERS[provider].get("base_url_env_var") == adapter.base_url_env_var
+
+    def test_the_launch_table_is_the_anthropic_native_builtins(self):
+        native = {n for n, e in _BUILTIN_PROVIDERS.items() if e.api_protocol == "anthropic"}
+        assert set(CLAUDE_CODE_PROVIDERS) == native
+        for name, row in CLAUDE_CODE_PROVIDERS.items():
+            assert row["auth_secret_env"] == PROVIDER_API_KEYS[name], name
 
 
 class TestResolveNeverReadsAmbientEnviron:
