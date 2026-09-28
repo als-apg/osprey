@@ -886,8 +886,10 @@ Options: ``--project PATH``, ``-v, --verbose``
    LiteLLM-form model id (e.g. ``anthropic/claude-haiku-4-5``). Saves per-run
    JSON results for accuracy/cost analysis.
 
-``osprey channel-finder web``
-   Launch the Channel Finder web interface.
+``osprey channel-finder web [--host ADDR] [--port N]``
+   Launch the Channel Finder web interface on the host and port
+   ``channel_finder.web`` names (default ``127.0.0.1`` and the layout's Channel
+   Finder port); ``--host`` and ``--port`` override them.
 
 A graph-mode project has no channel database file: ``validate`` and ``preview``
 say so and point at ``osprey knowledge seed-graph`` and the ``read_cypher`` tool,
