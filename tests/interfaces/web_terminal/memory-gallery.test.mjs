@@ -5,12 +5,9 @@
  * driven through the real DOM via `initMemoryGallery()`):
  *   npx vitest run tests/interfaces/web_terminal/memory-gallery.test.mjs
  *
- * Covers the raw PUT/DELETE/POST `fetch()` calls being prefix-aware via
- * `window.__OSPREY_PREFIX__` (multi-user deployments) -- `fetchJSON`
- * (api.js) already prefixes the GET list/detail loads, but these write
- * actions are raw `fetch()` calls with request options `fetchJSON` doesn't
- * support, so this module applies the shared `withPrefix` helper (imported
- * from api.js) to their paths directly.
+ * The three writes go through api.js's `apiRequest`. These tests pin each
+ * write's method and path, as the real DOM issues it, under a per-user URL
+ * prefix (`window.__OSPREY_PREFIX__`, multi-user deployments).
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';

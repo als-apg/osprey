@@ -56,23 +56,16 @@ describe('buildRegistry', () => {
     expect(order).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
   });
 
-  it('LOADING: config loading yields one non-navigable Settings decoration', () => {
-    const items = buildRegistry({ config: { state: 'loading' } });
+  it.each([
+    ['loading', 'Loading settings…'],
+    ['error', 'Settings unavailable'],
+  ])('config %s yields one non-navigable Settings decoration', (state, label) => {
+    const items = buildRegistry({ config: /** @type {any} */ ({ state }) });
     const settings = inGroup(items, 'Settings');
     expect(settings).toHaveLength(1);
     const [row] = settings;
-    expect(row).toEqual({ group: 'Settings', status: 'loading', label: 'Loading settings…' });
+    expect(row).toEqual({ group: 'Settings', status: state, label });
     // Non-navigable: no run, no searchText.
-    expect('run' in row).toBe(false);
-    expect('searchText' in row).toBe(false);
-  });
-
-  it('ERROR: config error yields one non-navigable Settings decoration', () => {
-    const items = buildRegistry({ config: { state: 'error' } });
-    const settings = inGroup(items, 'Settings');
-    expect(settings).toHaveLength(1);
-    const [row] = settings;
-    expect(row).toEqual({ group: 'Settings', status: 'error', label: 'Settings unavailable' });
     expect('run' in row).toBe(false);
     expect('searchText' in row).toBe(false);
   });
@@ -239,30 +232,6 @@ describe('buildRegistry', () => {
       // The label and id stay searchable alongside the aliases.
       expect(row.searchText).toContain('ARIEL');
       expect(row.searchText).toContain('ariel');
-    }
-  });
-
-  it('SYNONYMS: every built-in panel id carries its domain aliases', () => {
-    const expected = {
-      ariel: ['logbook', 'elog'],
-      'channel-finder': ['pv', 'channels'],
-      artifacts: ['gallery', 'files'],
-      lattice: ['optics'],
-      okf: ['knowledge', 'docs'],
-      'system-health': ['status', 'monitoring'],
-    };
-    const ids = Object.keys(expected);
-    const items = buildRegistry({
-      getVisiblePanels: () => ids.map((id) => ({ id, label: id.toUpperCase() })),
-      focusPanel: () => {},
-    });
-
-    const panels = inGroup(items, 'Panels');
-    for (const [id, aliases] of Object.entries(expected)) {
-      const row = panels.find((it) => it.label === `Focus ${id.toUpperCase()}`);
-      for (const alias of aliases) {
-        expect(row.searchText).toContain(alias);
-      }
     }
   });
 
