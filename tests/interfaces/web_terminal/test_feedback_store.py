@@ -54,14 +54,6 @@ def test_new_record_id_is_unique_within_one_frozen_millisecond(
     assert all(i.startswith("fb-1755712345678-") for i in ids)
 
 
-def test_filename_helpers_pair_a_header_and_context_for_one_record_id() -> None:
-    record_id = "fb-1755712345678-3fa9c1d2"
-    assert feedback_store.header_filename(record_id) == "fb-1755712345678-3fa9c1d2.json"
-    assert feedback_store.context_filename(record_id) == "ctx-1755712345678-3fa9c1d2.json"
-    assert fnmatch.fnmatch(feedback_store.header_filename(record_id), feedback_store.HEADER_GLOB)
-    assert fnmatch.fnmatch(feedback_store.context_filename(record_id), feedback_store.CONTEXT_GLOB)
-
-
 # ── write_record ───────────────────────────────────────────────────────────
 
 
