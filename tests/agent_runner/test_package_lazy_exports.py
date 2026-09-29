@@ -10,6 +10,7 @@ The import checks run in a fresh interpreter, not on the already-populated
 ``sys.modules`` of the test session.
 """
 
+import ast
 import importlib
 import json
 import os
@@ -18,6 +19,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+import osprey.agent_runner
 
 _SRC = str(Path(__file__).resolve().parents[2] / "src")
 
@@ -138,3 +141,32 @@ def test_an_unknown_name_is_an_attribute_error() -> None:
     from osprey.agent_runner import clean_env
 
     assert clean_env is importlib.import_module("osprey.agent_runner.clean_env")
+
+
+def test_importing_a_submodule_does_not_load_the_agent_sdk() -> None:
+    """A module of the package costs only itself: no agent SDK, no primitives."""
+    added = _modules_added_by_import("osprey.agent_runner.clean_env")
+
+    assert "claude_agent_sdk" not in added
+    assert "osprey.agent_runner.primitives" not in added
+
+
+def test_the_typed_imports_and_the_lazy_map_name_the_same_objects() -> None:
+    """The ``TYPE_CHECKING`` imports and the lazy map list the same names from the same modules."""
+    tree = ast.parse(Path(osprey.agent_runner.__file__).read_text(encoding="utf-8"))
+    typed: dict[str, str] = {}
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.If)
+            and isinstance(node.test, ast.Name)
+            and node.test.id == "TYPE_CHECKING"
+        ):
+            continue
+        for stmt in node.body:
+            assert isinstance(stmt, ast.ImportFrom) and stmt.module is not None
+            submodule = "." + stmt.module.removeprefix("osprey.agent_runner.")
+            for alias in stmt.names:
+                typed[alias.asname or alias.name] = submodule
+
+    assert typed == osprey.agent_runner._LAZY_EXPORTS
+    assert sorted(osprey.agent_runner.__all__) == sorted(osprey.agent_runner._LAZY_EXPORTS)
