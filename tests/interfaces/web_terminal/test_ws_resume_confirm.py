@@ -4,8 +4,8 @@
 the id actually attached, and refuses to resume an id whose transcript is not
 on disk. The outcomes covered here:
 
-- A reused warm session confirms synchronously with the requested id — with
-  or without a transcript, because a session that was opened and never
+- A reused warm session confirms synchronously with the requested id, even
+  without a transcript, because a session that was opened and never
   prompted has a live PTY and no ``.jsonl`` yet.
 - A cold resume whose transcript already exists on disk confirms
   synchronously with the requested id.
@@ -206,26 +206,6 @@ def _patch_spawn(app):
 # ---------------------------------------------------------------------------
 
 
-def test_reused_warm_session_confirms_immediately(app, sessions_dir):
-    """Reconnecting to an already-warm session confirms the requested id."""
-    sid = _uuid()
-    (sessions_dir / f"{sid}.jsonl").write_text("")
-    with TestClient(app) as client:
-        _, spawned = _patch_spawn(app)
-
-        # First connect: fresh spawn, keeps the session warm in the pool.
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
-
-        # Second connect: reuses the warm session from the pool.
-        with client.websocket_connect(_resume_url(sid)) as ws:
-            _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
-
-    assert len(spawned) == 1
-
-
 @pytest.mark.usefixtures("sessions_dir")
 def test_warm_session_without_transcript_is_reattached(app):
     """A session opened and never prompted has a PTY but no transcript yet.
@@ -236,7 +216,7 @@ def test_warm_session_without_transcript_is_reattached(app):
     as a missing transcript.
     """
     with TestClient(app) as client:
-        _, spawned = _patch_spawn(app)
+        reg, spawned = _patch_spawn(app)
         with client.websocket_connect("/ws/terminal") as ws:
             _send_resize(ws)
             sid = _recv_json(ws, "session_info")["session_id"]
@@ -244,6 +224,9 @@ def test_warm_session_without_transcript_is_reattached(app):
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
             assert _recv_json(ws, "session_info")["session_id"] == sid
+
+        # Warm reuse under the confirmed id: nothing new spawned or pooled.
+        assert list(reg._sessions) == [sid]
 
     assert len(spawned) == 1
 
