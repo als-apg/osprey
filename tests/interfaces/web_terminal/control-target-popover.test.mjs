@@ -1089,7 +1089,8 @@ describe('switching', () => {
         },
       })
     );
-    expect(outcomes('va')).toContain('✗ request_expired');
+    // The client mints this code itself, so it always has a phrase.
+    expect(outcomes('va')).toContain('✗ no answer');
     const line = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-outcome'));
     expect(line.dataset.status).toBe('expired');
   });

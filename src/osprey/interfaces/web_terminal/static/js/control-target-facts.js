@@ -216,6 +216,8 @@ export const REASON_PHRASES = {
   [REASON_STORE_UNAVAILABLE]: 'store unavailable',
   [REASON_CONTEXT_OWNED_ELSEWHERE]: 'held elsewhere',
   [REASON_SWITCH_FAILED]: 'not applied',
+  // Minted by the chip for a request nothing answered before its deadline.
+  request_expired: 'no answer',
 };
 
 /**
