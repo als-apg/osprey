@@ -96,14 +96,22 @@ class TestListMemoryFiles:
         assert resp.status_code == 200
         assert resp.json() == {"files": [], "count": 0}
 
-    def test_lists_md_files_only(self, client, memory_dir):
+    def test_lists_only_what_the_gallery_can_open(self, client, memory_dir):
+        """The listing and the per-file routes share one filename grammar.
+
+        A dot-prefixed ``.md`` matches a ``*.md`` glob but is refused by every
+        per-file route, so listing it would show an entry the operator can
+        neither open nor delete.
+        """
         (memory_dir / "MEMORY.md").write_text("# Main\n", encoding="utf-8")
         (memory_dir / "notes.md").write_text("# Notes\n", encoding="utf-8")
         (memory_dir / "data.json").write_text("{}", encoding="utf-8")
+        (memory_dir / ".hidden.md").write_text("hidden\n", encoding="utf-8")
 
         names = {f["filename"] for f in client.get("/api/claude-memory").json()["files"]}
 
         assert names == {"MEMORY.md", "notes.md"}
+        assert client.get("/api/claude-memory/.hidden.md").status_code == 422
 
     def test_primary_flag_and_line_count(self, client, memory_dir):
         (memory_dir / "MEMORY.md").write_text("x\n", encoding="utf-8")

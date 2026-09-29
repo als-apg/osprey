@@ -58,14 +58,18 @@ class ClaudeMemoryService:
     # ── List ──────────────────────────────────────────────────────────
 
     def list_files(self) -> list[dict]:
-        """Return metadata for all *.md files in the memory directory."""
+        """Return metadata for every memory file the per-file operations accept.
+
+        Filtered by the same filename grammar :meth:`read_file` enforces, so the
+        gallery never lists an entry it would then refuse to open or delete.
+        """
         memory_dir = self._resolve_memory_dir()
         if not memory_dir.is_dir():
             return []
 
         files = []
         for path in sorted(memory_dir.glob("*.md")):
-            if not path.is_file():
+            if not path.is_file() or not _VALID_FILENAME_RE.match(path.name):
                 continue
             content = path.read_text(encoding="utf-8")
             line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
