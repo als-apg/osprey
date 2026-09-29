@@ -1,7 +1,8 @@
-"""Operator Mode session management using Claude Agent SDK.
+"""Operator Mode session management on the shared agent runner.
 
-Provides OperatorSession (single SDK-backed conversation) and OperatorRegistry
-(multi-session manager with cleanup) for the OSPREY Web Terminal operator mode.
+Provides OperatorSession (one conversation held open on the shared agent
+runner) and OperatorRegistry (multi-session manager with cleanup) for the
+OSPREY Web Terminal operator mode.
 """
 
 from __future__ import annotations
@@ -12,10 +13,25 @@ import re
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner import (
+    HAS_SDK,
+    AgentEvent,
+    AgentRunError,
+    AgentSession,
+    ApiErrorEvent,
+    ResultEvent,
+    SystemEvent,
+    TextEvent,
+    ThinkingEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+    agent_session,
+)
 from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.sdk_context import build_system_prompt
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
@@ -25,36 +41,6 @@ from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.utils.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
-
-try:
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ClaudeSDKClient,
-        ClaudeSDKError,
-        CLIConnectionError,
-        ResultMessage,
-        SystemMessage,
-        TextBlock,
-        ThinkingBlock,
-        ToolResultBlock,
-        ToolUseBlock,
-    )
-
-    CLAUDE_SDK_AVAILABLE = True
-except ImportError:
-    CLAUDE_SDK_AVAILABLE = False
-    ClaudeAgentOptions = dict  # type: ignore[assignment,misc]
-    ClaudeSDKClient = object  # type: ignore[assignment,misc]
-    AssistantMessage = object  # type: ignore[assignment,misc]
-    ResultMessage = object  # type: ignore[assignment,misc]
-    SystemMessage = object  # type: ignore[assignment,misc]
-    TextBlock = object  # type: ignore[assignment,misc]
-    ThinkingBlock = object  # type: ignore[assignment,misc]
-    ToolResultBlock = object  # type: ignore[assignment,misc]
-    ToolUseBlock = object  # type: ignore[assignment,misc]
-    ClaudeSDKError = Exception  # type: ignore[assignment,misc]
-    CLIConnectionError = Exception  # type: ignore[assignment,misc]
 
 
 #: Env marker naming *where* the child's posture decision came from, and the
@@ -234,7 +220,7 @@ def build_operator_child_env(
             call site in this tree states its own, and a test pins that.
 
     Returns:
-        A fresh env dict for ``ClaudeAgentOptions.env``.
+        A fresh env dict for the agent child.
 
     Raises:
         ValueError: If *posture_source* is outside the envelope's closed set.
@@ -289,79 +275,58 @@ def _format_tool_name(raw: str) -> str:
     return name.replace("_", " ").title()
 
 
-def _message_to_events(message: Any) -> list[dict[str, Any]]:
-    """Convert a Claude SDK message to a list of structured events.
+def _event_to_wire(event: AgentEvent) -> dict[str, Any] | None:
+    """Convert one agent event record to the frame the operator stream carries.
 
     Args:
-        message: A message from ``client.receive_response()``.
+        event: A record from the agent runner's turn stream.
 
     Returns:
-        List of event dicts suitable for JSON serialisation over WebSocket.
+        An event dict suitable for JSON serialisation over WebSocket, or
+        ``None`` for a record the stream does not carry.
     """
-    events: list[dict[str, Any]] = []
-
-    if isinstance(message, AssistantMessage):
-        # Check for API-level errors on the message itself
-        if message.error is not None:
-            events.append(
-                {
-                    "type": "error",
-                    "message": f"API error: {message.error}",
-                    "error_type": "AssistantMessageError",
-                }
-            )
-
-        for block in message.content:
-            if isinstance(block, TextBlock):
-                events.append({"type": "text", "content": block.text})
-            elif isinstance(block, ThinkingBlock):
-                events.append({"type": "thinking", "content": block.thinking})
-            elif isinstance(block, ToolUseBlock):
-                events.append(
-                    {
-                        "type": "tool_use",
-                        "tool_name": _format_tool_name(block.name),
-                        "tool_name_raw": block.name,
-                        "tool_use_id": block.id,
-                        "input": block.input,
-                    }
-                )
-            elif isinstance(block, ToolResultBlock):
-                events.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.tool_use_id,
-                        "content": block.content,
-                        "is_error": bool(block.is_error),
-                    }
-                )
-
-    elif isinstance(message, ResultMessage):
-        events.append(
-            {
-                "type": "result",
-                "is_error": message.is_error,
-                "total_cost_usd": message.total_cost_usd,
-                "duration_ms": message.duration_ms,
-                "num_turns": message.num_turns,
-            }
-        )
-
-    elif isinstance(message, SystemMessage):
-        event: dict[str, Any] = {"type": "system", "subtype": message.subtype}
+    if isinstance(event, ApiErrorEvent):
+        return {
+            "type": "error",
+            "message": f"API error: {event.error}",
+            "error_type": "AssistantMessageError",
+        }
+    if isinstance(event, TextEvent):
+        return {"type": "text", "content": event.text}
+    if isinstance(event, ThinkingEvent):
+        return {"type": "thinking", "content": event.text}
+    if isinstance(event, ToolUseEvent):
+        return {
+            "type": "tool_use",
+            "tool_name": _format_tool_name(event.name),
+            "tool_name_raw": event.name,
+            "tool_use_id": event.tool_use_id,
+            "input": event.input,
+        }
+    if isinstance(event, ResultEvent):
+        return {
+            "type": "result",
+            "is_error": event.is_error,
+            "total_cost_usd": event.total_cost_usd,
+            "duration_ms": event.duration_ms,
+            "num_turns": event.num_turns,
+        }
+    if isinstance(event, SystemEvent):
+        frame: dict[str, Any] = {"type": "system", "subtype": event.subtype}
         # The init message carries the id of the transcript the child is
         # actually writing to, which is the only place a resume's real
         # transcript id can be read back from — a resume may be answered with a
         # different id than the one asked for. Carried only when the message
         # has one, so a system message that says nothing about identity does
         # not look like one reporting a missing id.
-        session_id = (getattr(message, "data", None) or {}).get("session_id")
+        session_id = event.data.get("session_id")
         if session_id:
-            event["session_id"] = session_id
-        events.append(event)
-
-    # StreamEvent and other unknown types are silently ignored.
-    return events
+            frame["session_id"] = session_id
+        return frame
+    if isinstance(event, ToolResultEvent):
+        # The operator stream carries what the agent says and which tool it calls, never tool output.
+        return None
+    return None
 
 
 def validate_project_directory(cwd: str) -> list[str]:
@@ -416,7 +381,7 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
 
 
 class OperatorSession:
-    """Wraps a ``ClaudeSDKClient`` for operator-mode conversation."""
+    """One operator-mode conversation, run on the shared agent runner."""
 
     def __init__(
         self,
@@ -442,15 +407,15 @@ class OperatorSession:
         self._cwd = cwd
         self._env = env
         self._session_key = session_key or str(uuid.uuid4())
-        self._client: ClaudeSDKClient | None = None
+        # The runner's handle, kept after close so the child stays observable
+        # (see :meth:`stop`, :attr:`pid` and :attr:`process_exited`).
+        self._agent: AgentSession | None = None
+        # Open exactly while the runner is connected; liveness keys on this.
+        self._agent_scope: AsyncExitStack | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
         self._response_task: asyncio.Task | None = None
         self._quiesce_task: asyncio.Task | None = None
         self._started = False
-        # The child process handle, kept from just before the client is closed
-        # so its death stays observable after teardown has dropped the client.
-        # See :meth:`stop` and :attr:`process_exited`.
-        self._last_process: Any = None
         # Per-turn one-in-flight guard. ``_turn_epoch`` only ever increments and
         # names each turn ever started; ``_active_token`` holds the current
         # turn's epoch or None when idle. Manipulated only by the synchronous,
@@ -515,7 +480,7 @@ class OperatorSession:
         return handler_running or quiesce_running
 
     async def start(self, *, resume_id: str | None = None) -> None:
-        """Create and connect the SDK client.
+        """Open the conversation on the shared agent runner.
 
         Args:
             resume_id: The transcript to continue. Given, the child resumes
@@ -529,7 +494,7 @@ class OperatorSession:
                 applies is the caller's decision, taken from the session's
                 transcript state; this seam only offers the shapes.
         """
-        if not CLAUDE_SDK_AVAILABLE:
+        if not HAS_SDK:
             raise RuntimeError("claude-agent-sdk is not installed")
 
         # Warn about missing OSPREY project files
@@ -552,22 +517,11 @@ class OperatorSession:
             # the agent which UI the operator is looking at (the PTY terminal
             # sets "expert" — see routes/websocket.py's _build_extra_env).
             session_env["OSPREY_WEB_UX"] = "simple"
-        # The SDK merges its env over the process environment, so an empty
-        # overlay is its spelling of "inherit"; it refuses None.
-        sdk_env: dict[str, str] = session_env if session_env is not None else {}
 
-        # The identity half is spelled out twice rather than assembled, because
-        # the two shapes are mutually exclusive and the SDK's options are a
-        # typed dataclass — an unpacked mapping would hide which of the two a
-        # launch chose behind a name the type checker cannot follow.
+        # The launch names exactly one identity keyword, or none: the two are
+        # mutually exclusive, and the runner refuses both together.
         if resume_id is not None:
-            options = ClaudeAgentOptions(
-                system_prompt=build_system_prompt(get_facility_timezone()),
-                cwd=self._cwd,
-                env=sdk_env,
-                setting_sources=["project"],
-                resume=resume_id,
-            )
+            session_id = None
         else:
             # The key names the conversation only where the CLI would accept it
             # as one. POST /api/chat takes any string for chat_id — an embedder
@@ -579,39 +533,57 @@ class OperatorSession:
             # child on its first prompt rather than at a seam anyone can see.
             # None omits the flag and the child mints its own id, which is what
             # this surface did before it could resume at all.
-            options = ClaudeAgentOptions(
-                system_prompt=build_system_prompt(get_facility_timezone()),
-                cwd=self._cwd,
-                env=sdk_env,
+            session_id = self._session_key if is_posture_key(self._session_key) else None
+
+        # The chat routes its own run through the env it hands over (an empty
+        # mapping inherits the process environment), sets no permission mode,
+        # turn cap or budget, and waits for no MCP server: the launch carries
+        # the system prompt, cwd, env, project settings and identity only.
+        scope = AsyncExitStack()
+        agent = await scope.enter_async_context(
+            agent_session(
+                Path(self._cwd),
+                disallowed_tools=[],
+                max_turns=None,
+                max_budget_usd=None,
+                permission_mode=None,
                 setting_sources=["project"],
-                session_id=(self._session_key if is_posture_key(self._session_key) else None),
+                system_prompt=build_system_prompt(get_facility_timezone()),
+                env=session_env if session_env is not None else {},
+                resume=resume_id,
+                session_id=session_id,
+                await_mcp_servers=(),
             )
-        self._client = ClaudeSDKClient(options=options)
-        await self._client.__aenter__()
+        )
+        self._agent = agent
+        self._agent_scope = scope
         self._started = True
         logger.info("OperatorSession started (cwd=%s)", self._cwd)
 
     async def send_prompt(self, prompt: str) -> None:
         """Send a prompt and start streaming the response into the queue."""
-        if self._client is None:
+        if self._agent_scope is None or self._agent is None:
             raise RuntimeError("Session not started")
 
-        client = self._client
-        await client.query(prompt)
-        self._response_task = asyncio.create_task(self._stream_response(client))
+        await self._agent.submit(prompt)
+        self._response_task = asyncio.create_task(self._stream_response())
 
-    async def _stream_response(self, client: ClaudeSDKClient) -> None:
-        """Iterate ``client.receive_response()`` and push events to the queue."""
+    async def _stream_response(self) -> None:
+        """Iterate the turn's event records and push their frames to the queue."""
+        agent = self._agent
         try:
-            async for message in client.receive_response():
-                for event in _message_to_events(message):
-                    await self._queue.put(event)
-        except (ClaudeSDKError, CLIConnectionError) as exc:
+            if agent is None:
+                raise RuntimeError("Session not started")
+            async for event in agent.events():
+                frame = _event_to_wire(event)
+                if frame is not None:
+                    await self._queue.put(frame)
+        except AgentRunError as exc:
             await self._queue.put(
                 {
                     "type": "error",
                     "message": str(exc),
-                    "error_type": type(exc).__name__,
+                    "error_type": exc.error_type,
                 }
             )
         except asyncio.CancelledError:
@@ -705,13 +677,13 @@ class OperatorSession:
                     self.release_turn(token)
 
     async def interrupt(self) -> None:
-        """Signal-only interrupt: forward ``client.interrupt()`` if connected.
+        """Signal-only interrupt: forward the runner's interrupt if connected.
 
         Never drains the reader and never touches the turn guard — the consumer
         running the turn owns quiesce and release.
         """
-        if self._client is not None:
-            await self._client.interrupt()
+        if self._agent_scope is not None and self._agent is not None:
+            await self._agent.interrupt()
 
     async def cancel(self) -> None:
         """Interrupt the in-flight turn and quiesce the reader.
@@ -719,9 +691,8 @@ class OperatorSession:
         No-op short-circuit when there is no in-flight turn — ``_response_task``
         is ``None`` or already done — so an idle cancel never hangs. Otherwise:
 
-        1. ``await self._client.interrupt()`` FIRST so the CLI stops generating
-           (the previous implementation discarded this coroutine, letting the
-           CLI keep running).
+        1. Await the runner's interrupt FIRST so the CLI stops generating:
+           a discarded interrupt coroutine would leave the CLI running.
         2. Drain toward the interrupt's terminal message, bounded at
            ``_QUIESCE_TIMEOUT_S`` seconds via ``asyncio.wait_for``.
         3. Hard-cancel the reader regardless of whether the drain completed.
@@ -730,10 +701,10 @@ class OperatorSession:
         if task is None or task.done():
             return
 
-        # 1. Interrupt the SDK client first so the CLI stops generating.
-        if self._client is not None:
+        # 1. Interrupt the runner first so the CLI stops generating.
+        if self._agent_scope is not None and self._agent is not None:
             try:
-                await self._client.interrupt()
+                await self._agent.interrupt()
             except Exception:
                 pass
 
@@ -786,61 +757,43 @@ class OperatorSession:
         await self.stop()
 
     async def stop(self) -> None:
-        """Disconnect the SDK client and cancel any in-flight response.
+        """Close the runner and cancel any in-flight response.
 
-        Keeps the child's process handle before the client goes away, so a
+        The runner keeps the child's process handle after it closes, so a
         caller that has to wait for the child to be *gone* — not merely asked
-        to leave — can still read :attr:`process_exited` afterwards. Closing
-        the client drops the transport, and with it the only route to that
-        handle. A handle already captured is never overwritten with nothing, so
-        a second ``stop()`` does not erase the first one's answer.
+        to leave — can still read :attr:`process_exited` afterwards. A second
+        ``stop()`` does not erase the first one's answer.
 
-        A child still running once the client is closed is sent SIGKILL
-        (:meth:`_kill_lingering_child`). Closing the client already escalates
-        from stdin EOF through SIGTERM to SIGKILL, each with a bounded wait, so
-        this only matters for a child that outlived that escalation — and it
-        is what makes a second ``stop()`` on a session whose client is already
-        gone kill the child again rather than merely re-read its status.
+        A child still running once the runner is closed is sent SIGKILL.
+        Closing the runner already escalates from stdin EOF through SIGTERM to
+        SIGKILL, each with a bounded wait, so this only matters for a child
+        that outlived that escalation — and it is what makes a second
+        ``stop()`` on a session whose runner is already closed kill the child
+        again rather than merely re-read its status.
         """
-        process = getattr(getattr(self._client, "_transport", None), "_process", None)
-        if process is not None:
-            self._last_process = process
-
         await self.cancel()
 
-        if self._client is not None:
+        scope = self._agent_scope
+        if scope is not None:
+            self._agent_scope = None
             try:
-                await self._client.__aexit__(None, None, None)
+                await scope.aclose()
             except Exception:
                 pass
-            self._client = None
 
-        self._kill_lingering_child()
+        if self._agent is not None:
+            try:
+                self._agent.kill_child()
+            except Exception:
+                logger.warning(
+                    "OperatorSession could not signal its lingering child", exc_info=True
+                )
         self._started = False
         logger.info("OperatorSession stopped")
 
-    def _kill_lingering_child(self) -> None:
-        """Send SIGKILL to the retained child when it has no return code yet.
-
-        Nothing is waited for: :attr:`process_exited` is how a caller sees the
-        signal land. A child that is already gone raises
-        ``ProcessLookupError``, which is the answer wanted.
-        """
-        process = self._last_process
-        if process is None or process.returncode is not None:
-            return
-        try:
-            process.kill()
-        except ProcessLookupError:
-            return
-        except Exception:
-            logger.warning("OperatorSession could not signal its lingering child", exc_info=True)
-            return
-        logger.warning("OperatorSession child outlived its client; sent SIGKILL")
-
     @property
     def is_active(self) -> bool:
-        return self._started and self._client is not None
+        return self._started and self._agent_scope is not None
 
     @property
     def pid(self) -> int | None:
@@ -849,22 +802,16 @@ class OperatorSession:
         The chat child is what holds a session on the Simple surface, the way
         a PTY holds one on the Expert surface, so a caller addressing
         something *to* the process behind a session key has to be able to ask
-        which process that is. The handle is reached through the transport
-        exactly as :meth:`stop` reaches it, falling back to one already
-        retained so a session whose client has been closed still answers
-        while its child is alive.
+        which process that is. The runner keeps the handle after it closes, so
+        a session whose runner has been closed still answers while its child
+        is alive.
 
         ``None`` once the child has a return code, and ``None`` for a session
-        that never started: a pid nothing is running under names no process,
-        and returning one would invite a caller to address it.
+        that never started or never captured a handle: a pid nothing is
+        running under names no process, and returning one would invite a
+        caller to address it.
         """
-        process = getattr(getattr(self._client, "_transport", None), "_process", None)
-        if process is None:
-            process = self._last_process
-        if process is None or process.returncode is not None:
-            return None
-        pid = getattr(process, "pid", None)
-        return pid if isinstance(pid, int) and pid > 0 else None
+        return self._agent.pid if self._agent is not None else None
 
     @property
     def process_exited(self) -> bool | None:
@@ -872,17 +819,14 @@ class OperatorSession:
 
         ``True`` once the child has a return code, ``False`` while it is still
         running, and ``None`` when no process handle was ever captured — the
-        session was never started, was closed before :meth:`stop` could reach
-        the transport, or runs against a client that exposes none.
+        session was never started, or runs against a client that exposes none.
 
         ``None`` is deliberately not ``False``: a caller sequencing a handover
         on "the outgoing child is gone" must be able to tell *not exited* from
         *nothing to observe*, and collapsing the two would make an unanswerable
         session look like a live one forever.
         """
-        if self._last_process is None:
-            return None
-        return self._last_process.returncode is not None
+        return self._agent.child_exited if self._agent is not None else None
 
 
 class OperatorRegistry:

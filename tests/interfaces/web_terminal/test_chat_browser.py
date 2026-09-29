@@ -25,11 +25,11 @@ markdown/sanitiser globals and the SSE transport against a live event stream:
 Harness: the panels-browser ``_live_server`` machinery (a real uvicorn server on
 a background thread, with ``_load_web_config``/``_load_panel_config``/
 ``_launch_artifact_server`` patched so no companion backends are needed), plus
-the Claude Agent SDK faked at the ``operator_session`` seam. The fake
-``ClaudeSDKClient`` replays a per-prompt *plan* of the same ``Fake*`` SDK message
-objects the ``operator_session`` unit tests use, so the real
-``_message_to_events`` converter and the real ``routes/chat.py`` SSE branch run
-end to end — only the SDK subprocess is replaced. A handful of ``/__test__/*``
+the Claude Agent SDK client faked where the agent runner constructs it. The
+fake ``ClaudeSDKClient`` replays a per-prompt *plan* of real SDK messages built
+by the helpers the ``operator_session`` unit tests use, so the agent runner's
+translation, the real ``_event_to_wire`` converter and the real
+``routes/chat.py`` SSE branch run end to end — only the SDK subprocess is replaced. A handful of ``/__test__/*``
 routes give each scenario a server-loop control channel (release a held turn,
 force an eviction, read turn-guard state and what each SDK client was launched
 with) without cross-thread event juggling.
@@ -63,6 +63,7 @@ from unittest.mock import patch
 
 import pytest
 import requests
+from claude_agent_sdk import TextBlock, ThinkingBlock, ToolUseBlock
 from fastapi import Request
 
 from osprey.agent_runner.project_paths import claude_project_dir
@@ -70,16 +71,12 @@ from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
-# The Fake* SDK-message doubles live with the operator_session unit tests; reuse
-# them so isinstance() inside _message_to_events matches what the fake yields.
+# The SDK-message builders live with the operator_session unit tests; reuse
+# them so the fake yields the real messages the agent runner translates.
 from tests.interfaces.web_terminal.test_operator_session import (
-    FakeAssistantMessage,
-    FakeResultMessage,
-    FakeSystemMessage,
-    FakeTextBlock,
-    FakeThinkingBlock,
-    FakeToolResultBlock,
-    FakeToolUseBlock,
+    assistant_message,
+    result_message,
+    system_message,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,6 +94,8 @@ except ImportError:  # pragma: no cover
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 _SEAM = "osprey.interfaces.web_terminal.operator_session"
+#: The name the agent runner constructs its client under.
+_CLIENT = "osprey.agent_runner.session.ClaudeSDKClient"
 _OP = "#operator-container"
 
 
@@ -131,6 +130,10 @@ _DEFAULT_PLAN: list[tuple] = [("text", "ok"), ("result",)]
 # decided by the door and spelled on the command line, nowhere else.
 _PTY_SPAWNS: list[list[str]] = []
 
+# Every fake client constructed on the current server, in order; each records
+# itself here so the options a chat session was launched with stay readable.
+_CLIENTS: list[_FakeSDKClient] = []
+
 
 def _reset_fake_state() -> None:
     """Clear per-server fake state; called at each server launch (test thread)."""
@@ -138,15 +141,16 @@ def _reset_fake_state() -> None:
     _PLANS.clear()
     _OBSERVED_PROMPTS.clear()
     _PTY_SPAWNS.clear()
+    _CLIENTS.clear()
     _RELEASE_GATE = asyncio.Event()
 
 
 class _FakeSDKClient:
-    """Stand-in for ``ClaudeSDKClient`` wired at the operator_session seam.
+    """Stand-in for ``ClaudeSDKClient``, patched where the agent runner builds it.
 
     ``receive_response`` replays the plan registered for the most recent prompt,
-    yielding the ``Fake*`` SDK message objects the real ``_message_to_events``
-    converts into chat events. Step vocabulary:
+    yielding the real SDK messages the agent runner translates into the records
+    ``_event_to_wire`` turns into chat events. Step vocabulary:
 
       ("text", md)      one text block (markdown) → a ``text`` event
       ("thinking",)     one thinking block        → drives the activity line
@@ -157,23 +161,26 @@ class _FakeSDKClient:
       ("await_interrupt") block until interrupt() (Stop → clean terminal)
       ("result",)       a terminal ResultMessage
 
-    The options the client was constructed with are kept as ``options``: with
-    ``ClaudeAgentOptions`` faked to a plain mapping, they are what
-    ``OperatorSession.start`` chose between ``resume=<transcript>`` and
-    ``session_id=<key>``, and the ``/__test__/chat-state`` route serves them
-    back per live chat session.
+    The real ``ClaudeAgentOptions`` the client was constructed with are kept as
+    ``options``: they are what ``OperatorSession.start`` chose between
+    ``resume=<transcript>`` and ``session_id=<key>``, and the
+    ``/__test__/chat-state`` route serves them back for every client still open.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         self._prompts: list[str] = []
         self.options = kwargs.get("options")
+        self.open = False
         # Bound to the server loop (constructed inside session.start()).
         self._interrupted = asyncio.Event()
+        _CLIENTS.append(self)
 
     async def __aenter__(self):
+        self.open = True
         return self
 
     async def __aexit__(self, *exc):
+        self.open = False
         return False
 
     async def query(self, prompt: str) -> None:
@@ -189,13 +196,14 @@ class _FakeSDKClient:
         for step in plan:
             kind = step[0]
             if kind == "text":
-                yield FakeAssistantMessage([FakeTextBlock(step[1])])
+                yield assistant_message([TextBlock(step[1])])
             elif kind == "thinking":
-                yield FakeAssistantMessage([FakeThinkingBlock(step[1] if len(step) > 1 else "…")])
+                thinking = step[1] if len(step) > 1 else "…"
+                yield assistant_message([ThinkingBlock(thinking, "sig")])
             elif kind == "tool_use":
-                yield FakeAssistantMessage([FakeToolUseBlock(step[1], "tu_1", {})])
+                yield assistant_message([ToolUseBlock("tu_1", step[1], {})])
             elif kind == "system":
-                yield FakeSystemMessage(step[1])
+                yield system_message(step[1])
             elif kind == "gate":
                 await _RELEASE_GATE.wait()
             elif kind == "hang":
@@ -203,7 +211,7 @@ class _FakeSDKClient:
             elif kind == "await_interrupt":
                 await self._interrupted.wait()
             elif kind == "result":
-                yield FakeResultMessage(is_error=(step[1] if len(step) > 1 else False))
+                yield result_message(is_error=(step[1] if len(step) > 1 else False))
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +245,13 @@ def _install_test_routes(app) -> None:
         return {
             "n": len(chats),
             "in_flight": any(s.in_flight for s in chats),
-            # What each live chat's SDK client was launched with — the identity
-            # half is the whole question a hand-off answers.
-            "options": [getattr(getattr(s, "_client", None), "options", None) for s in chats],
+            # The identity each open chat client was launched with — the
+            # question a hand-off answers.
+            "options": [
+                {"resume": c.options.resume, "session_id": c.options.session_id}
+                for c in _CLIENTS
+                if c.open and c.options is not None
+            ],
         }
 
     async def _pty_spawns(request: Request):  # noqa: ARG001 - Request required by FastAPI
@@ -372,9 +384,9 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
     """Launch a real web terminal with the SDK faked at the operator_session seam.
 
     Mirrors the panels-browser ``_live_server`` patch set (web/panel config +
-    artifact-server bypass) and adds the SDK seam: ``CLAUDE_SDK_AVAILABLE`` on
-    both the session and route modules, the fake client, and the ``Fake*`` type
-    globals so ``_message_to_events``'s isinstance checks match. ``ui_mode``
+    artifact-server bypass) and adds the SDK seam: ``HAS_SDK`` on both the
+    session and route modules, and the fake client where the agent runner
+    constructs it. ``ui_mode``
     is applied post-startup (root() re-reads it per request), the same
     app.state seam the ui-mode browser suite uses.
 
@@ -416,17 +428,9 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
             side_effect=publish_artifact_url(None),
         ),
         # ---- Claude Agent SDK seam ----
-        patch(f"{_SEAM}.CLAUDE_SDK_AVAILABLE", True),
-        patch("osprey.interfaces.web_terminal.routes.chat.CLAUDE_SDK_AVAILABLE", True),
-        patch(f"{_SEAM}.ClaudeSDKClient", _FakeSDKClient),
-        patch(f"{_SEAM}.ClaudeAgentOptions", lambda **kw: kw),
-        patch(f"{_SEAM}.AssistantMessage", FakeAssistantMessage),
-        patch(f"{_SEAM}.ResultMessage", FakeResultMessage),
-        patch(f"{_SEAM}.SystemMessage", FakeSystemMessage),
-        patch(f"{_SEAM}.TextBlock", FakeTextBlock),
-        patch(f"{_SEAM}.ThinkingBlock", FakeThinkingBlock),
-        patch(f"{_SEAM}.ToolUseBlock", FakeToolUseBlock),
-        patch(f"{_SEAM}.ToolResultBlock", FakeToolResultBlock),
+        patch(f"{_SEAM}.HAS_SDK", True),
+        patch("osprey.interfaces.web_terminal.routes.chat.HAS_SDK", True),
+        patch(_CLIENT, _FakeSDKClient),
         patch(
             f"{_SEAM}.build_system_prompt",
             return_value={"type": "preset", "preset": "claude_code"},

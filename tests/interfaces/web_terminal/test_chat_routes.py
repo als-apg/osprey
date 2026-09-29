@@ -7,8 +7,8 @@ cost/duration/turn metadata on `result`) while preserving each event's identity
 and light metadata.
 
 The table below is anchored to the real event shapes produced by
-`_message_to_events` in ``operator_session.py`` (text / thinking / tool_use /
-tool_result / result / system / error) plus the ``session_reset`` marker the
+`_event_to_wire` in ``operator_session.py`` (text / thinking / tool_use /
+result / system / error), a ``tool_result`` shape, plus the ``session_reset`` marker the
 control routes emit — so a change to those shapes that this filter should react
 to will surface here.
 
@@ -21,10 +21,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json as _json
+from contextlib import AsyncExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from claude_agent_sdk import TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -38,13 +40,9 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.chat import _strip_for_chat
 from tests.interfaces.web_terminal.test_operator_session import (
-    FakeAssistantMessage,
-    FakeResultMessage,
-    FakeSystemMessage,
-    FakeTextBlock,
-    FakeThinkingBlock,
-    FakeToolResultBlock,
-    FakeToolUseBlock,
+    assistant_message,
+    result_message,
+    user_message,
 )
 
 
@@ -236,8 +234,8 @@ class TestStripForChat:
 # chat-route-integration-tests.
 
 
-class _FakeSdkClient:
-    """Records signal-only `interrupt()` calls."""
+class _FakeAgent:
+    """Stands in for the runner's session; records signal-only `interrupt()` calls."""
 
     def __init__(self):
         self.interrupts = 0
@@ -247,7 +245,7 @@ class _FakeSdkClient:
 
 
 class _FakeChatSession(OperatorSession):
-    """OperatorSession with a preloaded queue instead of an SDK transport.
+    """OperatorSession with a preloaded queue instead of an agent runner.
 
     Inherits the real turn guard and ``run_turn`` machine; only the transport
     (``send_prompt``) and the quiesce side effect are replaced, with counters.
@@ -262,7 +260,10 @@ class _FakeChatSession(OperatorSession):
         self.quiesce_calls = 0
         self.release_calls = 0
         self.prompts: list[str] = []
-        self._client = _FakeSdkClient()
+        # An open runner scope over the stand-in: the session reads as live
+        # and forwards interrupts to it.
+        self._agent = _FakeAgent()
+        self._agent_scope = AsyncExitStack()
 
     def release_turn(self, token: int) -> bool:
         self.release_calls += 1
@@ -447,7 +448,7 @@ class TestChatStreamRoute:
         assert resp.status_code == 422
 
     def test_sdk_unavailable_returns_503(self, monkeypatch):
-        monkeypatch.setattr(chat_module, "CLAUDE_SDK_AVAILABLE", False)
+        monkeypatch.setattr(chat_module, "HAS_SDK", False)
         registry = _FakeRegistry(session=_FakeChatSession([]))
         client = TestClient(_make_chat_app(registry))
 
@@ -606,7 +607,7 @@ class TestInterruptEndpoint:
 
         resp = client.post("/api/chat/c1/interrupt")
         assert resp.status_code == 204
-        assert session._client.interrupts == 1
+        assert session._agent.interrupts == 1
         # Signal-only: the guard is NOT released here.
         assert session.in_flight is True
         assert session.release_calls == 0
@@ -618,7 +619,7 @@ class TestInterruptEndpoint:
 
         resp = client.post("/api/chat/c1/interrupt")
         assert resp.status_code == 204
-        assert session._client.interrupts == 0
+        assert session._agent.interrupts == 0
 
     def test_unknown_chat_is_noop_204(self):
         registry = _FakeRegistry(session=None)
@@ -668,22 +669,23 @@ class TestRouteRegistration:
 #
 # Unlike the smoke classes above (which fake the whole session/registry), these
 # tests run a REAL ``OperatorRegistry`` + ``OperatorSession`` and patch only the
-# SDK seam inside ``operator_session``: ``ClaudeSDKClient`` becomes a
-# controllable ``_ScriptedSdkClient`` and the SDK message/block types become the
-# ``Fake*`` doubles reused from ``test_operator_session`` so ``_message_to_events``
-# converts our fakes. That makes session reuse, the one-creation double-submit,
+# SDK client the agent runner constructs: ``ClaudeSDKClient`` becomes a
+# controllable ``_ScriptedSdkClient`` that yields real SDK messages, built by the
+# helpers reused from ``test_operator_session``. That makes session reuse, the one-creation double-submit,
 # the awaited interrupt, and guard release provable *at the fake seam* — the
 # same fake client instance is observed receiving both prompts, etc.
 
 _OS = "osprey.interfaces.web_terminal.operator_session."
+#: The name the agent runner constructs its client under.
+_CLIENT = "osprey.agent_runner.session.ClaudeSDKClient"
 
 
 class _ScriptedSdkClient:
-    """Controllable ``ClaudeSDKClient`` double, patched at the operator_session seam.
+    """Controllable ``ClaudeSDKClient`` double, patched where the agent runner builds it.
 
     A real :class:`OperatorSession` / :class:`OperatorRegistry` runs on top of
     this. Each turn's behaviour is supplied by ``responder`` — an async-generator
-    function ``responder(client, prompt)`` that yields SDK-message doubles. The
+    function ``responder(client, prompt)`` that yields SDK messages. The
     instance records prompts and interrupt/aenter/aexit counts so a route test
     can prove session reuse, the awaited interrupt, and client teardown.
 
@@ -740,8 +742,8 @@ def _clean_responder(text: str = "ok"):
     """One text block then a terminal result — a clean, prompt turn."""
 
     async def responder(_client, _prompt):
-        yield FakeAssistantMessage([FakeTextBlock(text)])
-        yield FakeResultMessage(is_error=False)
+        yield assistant_message([TextBlock(text)])
+        yield result_message(is_error=False)
 
     return responder
 
@@ -750,17 +752,18 @@ def _rich_responder():
     """A turn carrying every heavy/sensitive payload the strip filter must drop."""
 
     async def responder(_client, _prompt):
-        yield FakeAssistantMessage(
+        yield assistant_message(
             [
-                FakeThinkingBlock("secret chain of thought"),
-                FakeToolUseBlock(
-                    "mcp__osprey__channel_read", "tu_1", {"channel": "SR:BPM", "secret": "x"}
+                ThinkingBlock("secret chain of thought", "sig"),
+                ToolUseBlock(
+                    "tu_1", "mcp__osprey__channel_read", {"channel": "SR:BPM", "secret": "x"}
                 ),
-                FakeToolResultBlock("tu_1", "large result body", is_error=False),
-                FakeTextBlock("done"),
             ]
         )
-        yield FakeResultMessage(is_error=False, total_cost_usd=0.9, duration_ms=42, num_turns=3)
+        # The CLI sends a tool's result back in a user message.
+        yield user_message([ToolResultBlock("tu_1", "large result body", is_error=False)])
+        yield assistant_message([TextBlock("done")])
+        yield result_message(is_error=False, total_cost_usd=0.9, duration_ms=42, num_turns=3)
 
     return responder
 
@@ -786,7 +789,7 @@ def _partial_then_hold_responder(text: str = "partial"):
     """Emit one partial event, then park until interrupted (no terminal)."""
 
     async def responder(client, _prompt):
-        yield FakeAssistantMessage([FakeTextBlock(text)])
+        yield assistant_message([TextBlock(text)])
         client.reached_hold.set()
         await client.interrupted.wait()
 
@@ -795,7 +798,7 @@ def _partial_then_hold_responder(text: str = "partial"):
 
 @contextlib.contextmanager
 def _seam(responder, *, aenter_delay: float = 0.0):
-    """Patch the operator_session SDK seam; yield a client factory with ``.created``.
+    """Patch the runner's SDK client; yield a client factory with ``.created``.
 
     Every ``OperatorSession.start()`` builds a ``_ScriptedSdkClient(responder)`` via
     the factory; ``factory.created`` is the ordered list of every client made,
@@ -812,16 +815,9 @@ def _seam(responder, *, aenter_delay: float = 0.0):
     factory.created = created  # type: ignore[attr-defined]
 
     with contextlib.ExitStack() as stack:
-        stack.enter_context(patch.object(chat_module, "CLAUDE_SDK_AVAILABLE", True))
-        stack.enter_context(patch(_OS + "CLAUDE_SDK_AVAILABLE", True))
-        stack.enter_context(patch(_OS + "ClaudeSDKClient", factory))
-        stack.enter_context(patch(_OS + "AssistantMessage", FakeAssistantMessage))
-        stack.enter_context(patch(_OS + "ResultMessage", FakeResultMessage))
-        stack.enter_context(patch(_OS + "SystemMessage", FakeSystemMessage))
-        stack.enter_context(patch(_OS + "TextBlock", FakeTextBlock))
-        stack.enter_context(patch(_OS + "ThinkingBlock", FakeThinkingBlock))
-        stack.enter_context(patch(_OS + "ToolUseBlock", FakeToolUseBlock))
-        stack.enter_context(patch(_OS + "ToolResultBlock", FakeToolResultBlock))
+        stack.enter_context(patch.object(chat_module, "HAS_SDK", True))
+        stack.enter_context(patch(_OS + "HAS_SDK", True))
+        stack.enter_context(patch(_CLIENT, factory))
         stack.enter_context(patch(_OS + "validate_project_directory", lambda cwd: []))
         stack.enter_context(
             patch(
@@ -881,12 +877,13 @@ async def _settled(task, *, ticks: int = 60, tick: float = 0.05):
     return await task
 
 
-async def _inflight_session(req, chat_id: str):
+async def _inflight_session(req, chat_id: str, make):
     """Create a real chat session and park it mid-turn on the stall responder.
 
     Returns ``(session, token)`` with a genuinely in-flight turn: the guard is
     held and the reader is running (blocked in ``receive_response``), so the
-    registry reports the session busy.
+    registry reports the session busy. *make* is the :func:`_seam` factory the
+    session's client was built by.
 
     Built through the route's own ``_acquire_chat_turn`` rather than by handing
     the pool a bare ``{}``. The pool now compares the environment a live entry
@@ -897,7 +894,7 @@ async def _inflight_session(req, chat_id: str):
     """
     session, token, _reused = await chat_module._acquire_chat_turn(req, chat_id)
     await session.send_prompt("hold")
-    await asyncio.wait_for(session._client.reached_hold.wait(), timeout=1.0)
+    await asyncio.wait_for(make.created[-1].reached_hold.wait(), timeout=1.0)
     return session, token
 
 
@@ -967,7 +964,7 @@ class TestChatStatusMapIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, token = await _inflight_session(req, "c")
+            session, token = await _inflight_session(req, "c", make)
 
             second = asyncio.ensure_future(
                 chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
@@ -979,7 +976,7 @@ class TestChatStatusMapIntegration:
 
             # End the parked turn: the guard goes first, so the wait sees idle.
             session.release_turn(token)
-            session._client.interrupted.set()
+            make.created[0].interrupted.set()
 
             resp = await _settled(second)
             assert resp.media_type == "text/event-stream"
@@ -1001,7 +998,7 @@ class TestChatStatusMapIntegration:
             registry = OperatorRegistry()
             req = _req(registry)
             _fast_handoff_clock(req.app)
-            session, token = await _inflight_session(req, "c")
+            session, token = await _inflight_session(req, "c", make)
 
             waiting = asyncio.ensure_future(
                 chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
@@ -1021,14 +1018,14 @@ class TestChatStatusMapIntegration:
             with contextlib.suppress(asyncio.CancelledError):
                 await waiting
             session.release_turn(token)
-            session._client.interrupted.set()
+            make.created[0].interrupted.set()
             await registry.cleanup_all()
 
     async def test_all_busy_returns_429(self):
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry(chat_max_sessions=1)
             req = _req(registry)
-            a, token = await _inflight_session(req, "A")
+            a, token = await _inflight_session(req, "A", make)
 
             with pytest.raises(HTTPException) as ei:
                 await chat_module.chat(req, chat_module.ChatRequest(prompt="x", chat_id="B"))
@@ -1038,7 +1035,7 @@ class TestChatStatusMapIntegration:
             assert len(make.created) == 1  # 'B' was never created
 
             a.release_turn(token)
-            a._client.interrupted.set()
+            make.created[0].interrupted.set()
             await registry.cleanup_all()
 
 
@@ -1139,7 +1136,7 @@ class TestChatDeleteEndpointIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, _token = await _inflight_session(req, "c")
+            session, _token = await _inflight_session(req, "c", make)
 
             resp = await asyncio.wait_for(chat_module.delete_chat("c", req), timeout=3.0)
 
@@ -1156,7 +1153,7 @@ class TestChatInterruptEndpointIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, token = await _inflight_session(req, "c")
+            session, token = await _inflight_session(req, "c", make)
 
             resp = await chat_module.interrupt_chat("c", req)
 
@@ -1272,12 +1269,11 @@ class TestChatStripOnTheWire:
             )
 
         tool_use = [f for f in frames if f.get("type") == "tool_use"]
-        tool_result = [f for f in frames if f.get("type") == "tool_result"]
         thinking = [f for f in frames if f.get("type") == "thinking"]
         result = [f for f in frames if f.get("type") == "result"]
 
         assert tool_use and all("input" not in f for f in tool_use)
-        assert tool_result and all("content" not in f for f in tool_result)
+        assert not any(f.get("type") == "tool_result" for f in frames)
         assert thinking and all("content" not in f for f in thinking)
         assert result and all(set(f) == {"type", "is_error"} for f in result)
         # Cost/duration/turn metadata never reaches the wire on any frame.
@@ -1304,7 +1300,7 @@ class TestChatStripOnTheWire:
 
         events = payload["events"]
         assert any(e.get("type") == "tool_use" and "input" not in e for e in events)
-        assert any(e.get("type") == "tool_result" and "content" not in e for e in events)
+        assert not any(e.get("type") == "tool_result" for e in events)
         assert any(e.get("type") == "thinking" and "content" not in e for e in events)
         result = [e for e in events if e.get("type") == "result"]
         assert result and all(set(e) == {"type", "is_error"} for e in result)
