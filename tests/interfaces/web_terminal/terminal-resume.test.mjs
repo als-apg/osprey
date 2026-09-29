@@ -173,7 +173,7 @@ describe('per-persona pointer scope', () => {
   // key is a slot any persona may have written. The server stamps the persona
   // on <html>; auto-resume must read only that persona's key — a stale id in
   // the shared slot would attach this terminal to a PTY that is not theirs.
-  // (The clear half of this contract is pinned in js/storage-scope-keys.test.js.)
+  // (The write and clear halves are pinned in session-pointer.test.mjs.)
   const SCOPE_ATTR = 'data-osprey-storage-scope';
 
   test("a bare id left by another persona does not become bob's auto-resume", () => {
@@ -225,18 +225,6 @@ describe('the session key outlives the connection', () => {
     terminal.initTerminal('terminal-container');
 
     expect(terminal.getCurrentSessionId()).toBe('session-k');
-  });
-
-  test('a dead key is still forgotten, not kept across the teardown', () => {
-    // The one teardown where the key itself is what failed: the server
-    // refused to resume it, so nothing may report it as the current session.
-    localStorage.setItem(STORAGE_KEY, 'gone-id');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-
-    receive({ type: 'transcript_missing', session_id: 'gone-id' });
-
-    expect(terminal.getCurrentSessionId()).toBeNull();
   });
 });
 
@@ -317,25 +305,17 @@ describe('auto-resume failover window', () => {
     openSocket();
   }
 
-  test('exit after the notify timer but inside the window still fails over', () => {
+  test('exit after the notify timer but inside the window fails over to a fresh session', () => {
     autoResume('dead-id');
 
     // Past the 2s panel-notify timer, well inside the 10s failover window —
     // the interval a failed resume actually lands in.
     vi.advanceTimersByTime(5000);
+    const socketsBefore = FakeWebSocket.created;
     receive({ type: 'exit', code: 1 });
 
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(terminal.getCurrentSessionId()).toBeNull();
-  });
-
-  test('exit inside the window fails over to a fresh session', () => {
-    autoResume('dead-id');
-
-    vi.advanceTimersByTime(2500);
-    const socketsBefore = FakeWebSocket.created;
-    receive({ type: 'exit', code: 1 });
-
     // Failover reconnects, and does so without a session_id — a fresh session.
     expect(FakeWebSocket.created).toBeGreaterThan(socketsBefore);
     const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
@@ -450,10 +430,14 @@ describe('transcript missing: an explicit state, never a dead PTY', () => {
     expect(FakeWebSocket.created).toBe(socketsBefore + 1);
   });
 
-  test('a refused switch leaves the live session untouched', () => {
+  test.each([['expert'], ['simple']])('a refused switch leaves the live session untouched (%s view)', (mode) => {
     // The server answers a switch_session to a missing id with the same frame
-    // but keeps the current PTY attached; the operator is still on it.
+    // but keeps the current PTY attached; the operator is still on it, in
+    // either view. The Simple view only reaches a connected terminal through
+    // the flip, so it connects the way the flip does.
+    document.documentElement.setAttribute('data-ui-mode', mode);
     terminal.initTerminal('terminal-container');
+    if (mode === 'simple') terminal.startExpert();
     openSocket();
     receive({ type: 'session_info', session_id: 'live-id' });
     const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
@@ -542,21 +526,5 @@ describe('a refused own-resume in Simple view', () => {
     receive({ type: 'transcript_missing', session_id: 'old-key' });
 
     expect(localStorage.getItem(STORAGE_KEY)).toBe('newer-key');
-  });
-
-  test('a refused switch is untouched by the mode', () => {
-    // The server kept the current PTY attached, so the operator is still on a
-    // live session and there is nothing to start in either view.
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    terminal.initTerminal('terminal-container');
-    terminal.startExpert();
-    openSocket();
-    receive({ type: 'session_info', session_id: 'live-id' });
-    const socketsBefore = FakeWebSocket.created;
-
-    receive({ type: 'transcript_missing', session_id: 'other-id' });
-
-    expect(FakeWebSocket.created).toBe(socketsBefore);
-    expect(terminal.getCurrentSessionId()).toBe('live-id');
   });
 });

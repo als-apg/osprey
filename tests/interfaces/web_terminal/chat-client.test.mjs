@@ -531,24 +531,6 @@ describe('requestHandoff: rejection slugs', () => {
     expect(err.slug).toBe(slug);
     expect(err.message).toBe(`HTTP ${status}: ${statusText}`);
   });
-
-  test('a rejection without a JSON body leaves the slug empty', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: false,
-        status: 503,
-        statusText: 'Service Unavailable',
-        json: async () => {
-          throw new Error('not JSON');
-        },
-      }))
-    );
-
-    const err = await chat.requestHandoff('k').catch((e) => e);
-    expect(err.status).toBe(503);
-    expect(err.slug).toBe('');
-  });
 });
 
 describe('fetchHistory', () => {

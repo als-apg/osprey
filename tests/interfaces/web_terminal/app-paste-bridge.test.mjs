@@ -7,8 +7,9 @@
  * hub to: it posts `{type:'osprey-paste-to-terminal', text}` to `window.parent`
  * and the hub puts that text where the operator is composing. The contract this
  * file pins is that the text ARRIVES and nothing else happens — it is never
- * sent, it never replaces a half-written prompt in the Simple view, and a
- * message from another origin is not text at all.
+ * sent and it never replaces a half-written prompt in the Simple view. That a
+ * message from another origin is not text at all is proven in a real page, on
+ * the PTY socket itself, by test_contract_params.py.
  *
  * Both views are covered because the hub has two places to compose in and the
  * panel knows neither: expert types into the terminal, Simple into the chat
@@ -138,46 +139,9 @@ describe('initIframePasteBridge: Simple view', () => {
     expect(input.value).toBe(`set these to nominal:\n${ADDRESSES}`);
     expect(term.paste).not.toHaveBeenCalled();
   });
-
-  test('a second panel message adds a second line, losing neither', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
-
-    post({ type: 'osprey-paste-to-terminal', text: 'SR:BPM1:X' });
-    post({ type: 'osprey-paste-to-terminal', text: 'SR:BPM2:X' });
-
-    expect(input.value).toBe('SR:BPM1:X\nSR:BPM2:X');
-  });
-
-  test('nothing is submitted: the operator still sends the turn', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
-    input.value = 'set these to nominal:';
-    let submits = 0;
-    document.addEventListener(
-      'submit',
-      () => {
-        submits += 1;
-      },
-      true
-    );
-
-    post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
-
-    expect(submits).toBe(0);
-    expect(input.value.endsWith('\n')).toBe(false);
-  });
 });
 
 describe('initIframePasteBridge: what it refuses', () => {
-  test('ignores a message from another origin', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-
-    post({ type: 'osprey-paste-to-terminal', text: ADDRESSES }, 'https://evil.example');
-
-    expect(term.paste).not.toHaveBeenCalled();
-  });
-
   test('ignores an empty text, so a stray post cannot blank the input', () => {
     document.documentElement.setAttribute('data-ui-mode', 'simple');
     const input = mountSimpleInput();

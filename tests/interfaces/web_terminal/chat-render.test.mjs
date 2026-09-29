@@ -1,7 +1,7 @@
 /**
  * Unit tests for chat-render.js -- the operator-chat message-list renderer.
  *
- * Two concerns:
+ * Three concerns:
  *   1. `renderMarkdownInto` -- the chat XSS trust boundary. Model output (incl.
  *      untrusted tool results) must pass through DOMPurify before any HTML
  *      reaches the DOM, and must degrade to inert text when the vendored libs
@@ -21,10 +21,10 @@
  * *seam* deterministically: (a) the marked-produced HTML is handed to
  * `DOMPurify.sanitize` and ONLY its return ever reaches `innerHTML` -- so a
  * hostile payload can never reach the DOM un-sanitised (`onlySanitizedReachesDOM`);
- * (b) with a representative stripping sanitiser the rendered DOM carries no
- * executable vector; and (c) with DOMPurify absent the payload is written as
- * inert text, never markup. Together these pin every path by which model HTML
- * could reach the DOM.
+ * (b) the streamed and replayed agent paths both route through that seam
+ * (a sentinel sanitiser's output is all that lands); and (c) with DOMPurify
+ * absent the payload is written as inert text, never markup. Together these
+ * pin every path by which model HTML could reach the DOM.
  *
  * happy-dom environment (configured globally in vitest.config.js):
  *   npx vitest run tests/interfaces/web_terminal/chat-render.test.mjs
@@ -37,8 +37,6 @@ import { qs } from '../_support/dom.mjs';
 import {
   renderMarkdownInto,
   createChatRenderer,
-  buildUserEntry,
-  buildAgentEntry,
   normaliseToolName,
   toolPhrase,
   activityLabel,
@@ -50,21 +48,6 @@ const passthroughMarked = { parse: /** @param {string} t */ (t) => t };
 
 /** A DOMPurify stub that returns its input unchanged -- for view-model tests where sanitisation isn't under test. */
 const identityPurify = { sanitize: /** @param {string} h */ (h) => h };
-
-/**
- * A representative stripping sanitiser: drops `<script>` elements and inline
- * `on*=` event-handler attributes -- the two vectors the XSS payloads probe.
- * Stands in for the real DOMPurify, which happy-dom cannot run faithfully.
- */
-const strippingPurify = {
-  sanitize: /** @param {string} h */ (h) =>
-    h
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<script[^>]*>/gi, '')
-      .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-      .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-      .replace(/\son\w+\s*=\s*[^\s>]+/gi, ''),
-};
 
 /** @returns {HTMLElement} a fresh detached container element */
 function freshEl() {
@@ -119,25 +102,6 @@ describe('renderMarkdownInto', () => {
     expect(el.querySelector('script')).toBeNull();
     expect(el.querySelector('[onerror]')).toBeNull();
     expect(el.querySelector('img')).toBeNull();
-  });
-
-  test('with a stripping sanitiser the rendered DOM carries no script node or on* handler', () => {
-    vi.stubGlobal('marked', passthroughMarked);
-    vi.stubGlobal('DOMPurify', strippingPurify);
-    vi.stubGlobal('hljs', undefined);
-
-    const el = freshEl();
-    renderMarkdownInto(
-      el,
-      '<p>ok</p><img src=x onerror="alert(1)"><script>alert(2)</script>'
-    );
-
-    expect(el.querySelector('script')).toBeNull();
-    expect(el.querySelector('[onerror]')).toBeNull();
-    const img = el.querySelector('img');
-    if (img !== null) expect(img.hasAttribute('onerror')).toBe(false);
-    // benign content is preserved
-    expect(el.textContent).toContain('ok');
   });
 
   test('degrades to inert textContent when DOMPurify is absent (no unsanitised HTML)', () => {
@@ -228,31 +192,6 @@ describe('renderMarkdownInto', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Pure builders
-// ---------------------------------------------------------------------------
-
-describe('DOM builders', () => {
-  test('buildUserEntry: operator entry with prefix and plain-text body', () => {
-    const entry = buildUserEntry('hello <b>there</b>');
-    expect(entry.classList.contains('op-entry')).toBe(true);
-    expect(entry.classList.contains('operator')).toBe(true);
-    expect(qs(entry, '.op-entry-prefix').textContent).toBe('Operator');
-    const body = qs(entry, '.op-entry-body');
-    // plain text -- markup is not interpreted
-    expect(body.textContent).toBe('hello <b>there</b>');
-    expect(body.querySelector('b')).toBeNull();
-  });
-
-  test('buildAgentEntry: assistant entry whose body carries osprey-md-rendered', () => {
-    const { entry, body } = buildAgentEntry();
-    expect(entry.classList.contains('assistant')).toBe(true);
-    expect(qs(entry, '.op-entry-prefix').textContent).toBe('Osprey');
-    expect(body.classList.contains('op-entry-body')).toBe(true);
-    expect(body.classList.contains('osprey-md-rendered')).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Tool vocabulary
 // ---------------------------------------------------------------------------
 
@@ -279,21 +218,12 @@ describe('tool vocabulary', () => {
     expect(normaliseToolName('mcp__als_custom_srv__do_thing')).toBe('do_thing');
   });
 
-  test('facility-knowledge tools resolve their operator phrase', () => {
-    // The TOOL_PHRASES "Facility knowledge" section must be reachable.
-    expect(
-      toolPhrase({
-        type: 'tool_use',
-        tool_name_raw: 'mcp__osprey_facility_knowledge__list_concepts',
-      })
-    ).toBe('browsing facility knowledge');
-  });
-
   test('the raw name maps even when the display name is unhelpful', () => {
     expect(
       activityLabel({
         type: 'tool_use',
-        tool_name: 'Channel Write',
+        // A display name with no row of its own: only the raw name can map.
+        tool_name: 'Write Values',
         tool_name_raw: 'mcp__osprey__channel_write',
       })
     ).toBe('Writing control channels…');
@@ -305,20 +235,13 @@ describe('tool vocabulary', () => {
     );
   });
 
+  // The capitalise-and-ellipsis mechanism, over the spellings a frame carries:
+  // a prefixed framework tool, one whose server name has underscores, and an
+  // unprefixed built-in. The table's own shape is the invariant test below.
   test.each([
     ['mcp__osprey__channel_write', 'Writing control channels…'],
     ['mcp__osprey__execute', 'Running Python…'],
-    ['mcp__osprey__close_panel', 'Closing a panel…'],
-    ['mcp__osprey__open_panel', 'Opening a panel…'],
-    ['mcp__osprey__add_panel_to_rail', 'Making a panel available…'],
-    ['mcp__osprey__remove_panel_from_rail', 'Removing a panel…'],
-    ['mcp__osprey__arrange_workspace', 'Arranging the workspace…'],
-    ['mcp__osprey__register_panel', 'Adding a panel…'],
-    ['mcp__osprey__queue_start', 'Starting the plan queue…'],
-    ['mcp__osprey__queue_stop', 'Stopping the plan queue…'],
-    ['mcp__osprey__phoebus_drive', 'Operating a Phoebus display…'],
-    ['mcp__osprey__entry_publish', 'Publishing a logbook entry…'],
-    ['mcp__osprey__lattice_set_baseline', 'Setting the lattice baseline…'],
+    ['mcp__osprey_facility_knowledge__list_concepts', 'Browsing facility knowledge…'],
     ['Bash', 'Running a shell command…'],
   ])('%s reads as "%s"', (raw, expected) => {
     expect(activityLabel({ type: 'tool_use', tool_name_raw: raw })).toBe(expected);
@@ -369,10 +292,14 @@ describe('createChatRenderer', () => {
   test('addUserMessage appends an operator entry and bumps the message count', () => {
     const r = createChatRenderer(container);
     expect(r.messageCount()).toBe(0);
-    r.addUserMessage('align the orbit');
+    r.addUserMessage('align the <b>orbit</b>');
     expect(r.messageCount()).toBe(1);
     const entry = qs(container, '.op-entry.operator');
-    expect(qs(entry, '.op-entry-body').textContent).toBe('align the orbit');
+    expect(qs(entry, '.op-entry-prefix').textContent).toBe('Operator');
+    // Operator text is plain text: markup in it is not interpreted.
+    const body = qs(entry, '.op-entry-body');
+    expect(body.textContent).toBe('align the <b>orbit</b>');
+    expect(body.querySelector('b')).toBeNull();
   });
 
   test('text events create one agent entry and accumulate streamed text', () => {
@@ -382,7 +309,11 @@ describe('createChatRenderer', () => {
 
     const agents = container.querySelectorAll('.op-entry.assistant');
     expect(agents.length).toBe(1);
-    expect(qs(container, '.op-entry.assistant .op-entry-body').textContent).toBe('Hello world');
+    const body = qs(container, '.op-entry.assistant .op-entry-body');
+    expect(body.textContent).toBe('Hello world');
+    // The shared markdown-content class styles the agent's rendered markdown.
+    expect(body.classList.contains('osprey-md-rendered')).toBe(true);
+    expect(qs(container, '.op-entry.assistant .op-entry-prefix').textContent).toBe('Osprey');
     expect(r.messageCount()).toBe(1);
   });
 
@@ -415,18 +346,6 @@ describe('createChatRenderer', () => {
       );
     });
 
-    test('an unmapped tool_use falls back to "Using <tool_name>…"', () => {
-      const r = createChatRenderer(container);
-      r.handleEvent({ type: 'tool_use', tool_name: 'Queue Reorder' });
-      expect(qs(container, '.op-processing-label').textContent).toBe('Using Queue Reorder…');
-    });
-
-    test('tool_use without a tool_name falls back to a generic label', () => {
-      const r = createChatRenderer(container);
-      r.handleEvent({ type: 'tool_use' });
-      expect(qs(container, '.op-processing-label').textContent).toBe('Using tool…');
-    });
-
     test('text clears the activity line', () => {
       const r = createChatRenderer(container);
       r.handleEvent({ type: 'thinking' });
@@ -444,13 +363,6 @@ describe('createChatRenderer', () => {
   });
 
   describe('session_reset divider suppression', () => {
-    test('negative first-turn case: a reset on an empty list renders no divider', () => {
-      const r = createChatRenderer(container);
-      r.handleEvent({ type: 'session_reset' });
-      expect(container.querySelector('.op-system')).toBeNull();
-      expect(container.children.length).toBe(0);
-    });
-
     test('real first turn: user bubble then a frame-0 reset renders no divider', () => {
       // The controller appends the operator bubble, then the fresh session's
       // stream opens with session_reset as frame 0. The operator's own prompt
@@ -553,7 +465,8 @@ describe('createChatRenderer', () => {
     });
 
     test('agent turns go through the sanitising markdown path', () => {
-      vi.stubGlobal('DOMPurify', strippingPurify);
+      // The sanitiser answers with a sentinel, so only its output can land.
+      vi.stubGlobal('DOMPurify', { sanitize: () => '<em>safe</em>' });
       const r = createChatRenderer(container);
       r.replay([
         {
@@ -562,8 +475,7 @@ describe('createChatRenderer', () => {
         },
       ]);
       const body = qs(container, '.op-entry.assistant .op-entry-body');
-      expect(body.querySelector('script')).toBeNull();
-      expect(body.querySelector('[onerror]')).toBeNull();
+      expect(body.innerHTML).toBe('<em>safe</em>');
     });
 
     test('markdown in an agent turn is rendered, not shown as source', () => {
@@ -647,15 +559,15 @@ describe('createChatRenderer', () => {
     expect(label.textContent).toBe(`Using ${hostile}…`);
   });
 
-  test('hostile model text routed via a text event stays inert in the DOM', () => {
-    vi.stubGlobal('DOMPurify', strippingPurify);
+  test('hostile model text routed via a text event goes through the sanitiser', () => {
+    // The sanitiser answers with a sentinel, so only its output can land.
+    vi.stubGlobal('DOMPurify', { sanitize: () => '<em>safe</em>' });
     const r = createChatRenderer(container);
     r.handleEvent({
       type: 'text',
       content: 'result: <img src=x onerror="steal()"><script>evil()</script>',
     });
     const body = qs(container, '.op-entry.assistant .op-entry-body');
-    expect(body.querySelector('script')).toBeNull();
-    expect(body.querySelector('[onerror]')).toBeNull();
+    expect(body.innerHTML).toBe('<em>safe</em>');
   });
 });

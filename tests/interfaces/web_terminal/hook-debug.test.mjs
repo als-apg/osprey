@@ -199,8 +199,8 @@ describe('hostile payload inertness', () => {
   });
 });
 
-describe('debug toggle: prefix-aware PATCH', () => {
-  test('prepends window.__OSPREY_PREFIX__ to the /api/config PATCH (multi-user deployments)', async () => {
+describe('debug toggle: the config PATCH', () => {
+  test('turning the toggle on PATCHes hooks.debug through the multi-user prefix', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     stubFetch({ entries: [] });
     initHookDebug();
@@ -217,6 +217,10 @@ describe('debug toggle: prefix-aware PATCH', () => {
       ([url]) => typeof url === 'string' && url.includes('/api/config')
     );
     expect(patchCall?.[0]).toBe('/u/alice/api/config');
+    // The toggle's own contract: a PATCH of the one key that turns hook
+    // debug logging on.
+    expect(patchCall?.[1]?.method).toBe('PATCH');
+    expect(JSON.parse(patchCall?.[1]?.body)).toEqual({ updates: { 'hooks.debug': true } });
   });
 });
 

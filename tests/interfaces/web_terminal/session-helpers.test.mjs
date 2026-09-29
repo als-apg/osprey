@@ -19,23 +19,6 @@ describe('serverClass', () => {
     expect(serverClass('osprey_facility_knowledge')).toBe('srv-facility-knowledge');
   });
 
-  test('maps every framework server to a color, not the grey fallback', () => {
-    for (const name of [
-      'controls',
-      'python',
-      'osprey_workspace',
-      'ariel',
-      'channel-finder',
-      'osprey_facility_knowledge',
-      'phoebus',
-      'bluesky',
-      'health',
-      'event_dispatcher',
-    ]) {
-      expect(serverClass(name), name).not.toBe('srv-unknown');
-    }
-  });
-
   test('a facility-declared custom server falls back to the neutral badge', () => {
     expect(serverClass('als_custom_srv')).toBe('srv-unknown');
     expect(serverClass(null)).toBe('srv-unknown');

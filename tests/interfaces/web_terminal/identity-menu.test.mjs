@@ -3,9 +3,9 @@
  *
  * Operators reach for the name in the corner when they want to leave, so the
  * chip is a trigger and Log out lives behind it. These tests pin the open/close
- * contract and the one structural invariant the rest of the app depends on:
- * `#logout-btn` is in the DOM while the menu is CLOSED, because app.js and the
- * command palette both resolve it by id.
+ * contract. The markup is the server's (index.html): that `#logout-btn` is in
+ * the served page while the menu is closed, where app.js and the command
+ * palette resolve it by id, is pinned by test_terminal_user.py.
  */
 
 import { beforeEach, describe, expect, test } from 'vitest';
@@ -46,22 +46,6 @@ function mountAndInit() {
 describe('identity menu', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-  });
-
-  test('starts closed, with the trigger saying so', () => {
-    mountAndInit();
-    expect(isOpen()).toBe(false);
-    expect(qs('#header-identity-trigger').getAttribute('aria-expanded')).toBe('false');
-  });
-
-  test('the logout control exists while the menu is CLOSED', () => {
-    // app.js's initLogoutButton() and palette-boot.js's "Log out" command both
-    // resolve this by id at startup. Building the popover on demand would leave
-    // them binding nothing.
-    mountAndInit();
-    expect(isOpen()).toBe(false);
-    expect(qs('#logout-btn')).not.toBeNull();
-    expect(qs('#logout-btn').dataset.landingUrl).toBe('https://facility.example/portal');
   });
 
   test('clicking the chip opens it, and clicking again closes it', () => {
