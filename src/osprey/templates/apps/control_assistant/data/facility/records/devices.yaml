@@ -1,0 +1,4188 @@
+- id: BR/BPM01
+  class: BeamPositionMonitor
+  names:
+  - BPM01
+  - BPM 01
+  place: BR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BR/BPM02
+  class: BeamPositionMonitor
+  names:
+  - BPM02
+  - BPM 02
+  place: BR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BR/BPM03
+  class: BeamPositionMonitor
+  names:
+  - BPM03
+  - BPM 03
+  place: BR
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BR/BPM04
+  class: BeamPositionMonitor
+  names:
+  - BPM04
+  - BPM 04
+  place: BR
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BR/BPM05
+  class: BeamPositionMonitor
+  names:
+  - BPM05
+  - BPM 05
+  place: BR
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: BR/BPM06
+  class: BeamPositionMonitor
+  names:
+  - BPM06
+  - BPM 06
+  place: BR
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: BR/BPM07
+  class: BeamPositionMonitor
+  names:
+  - BPM07
+  - BPM 07
+  place: BR
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: BR/BPM08
+  class: BeamPositionMonitor
+  names:
+  - BPM08
+  - BPM 08
+  place: BR
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: BR/DCCT01
+  class: BeamCurrentMonitor
+  names:
+  - DCCT01
+  - DCCT 01
+  place: BR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BR/DIPOLE01
+  class: Dipole
+  names:
+  - DIPOLE01
+  - DIPOLE 01
+  place: BR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BR/DIPOLE02
+  class: Dipole
+  names:
+  - DIPOLE02
+  - DIPOLE 02
+  place: BR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BR/DIPOLE03
+  class: Dipole
+  names:
+  - DIPOLE03
+  - DIPOLE 03
+  place: BR
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BR/DIPOLE04
+  class: Dipole
+  names:
+  - DIPOLE04
+  - DIPOLE 04
+  place: BR
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BR/DIPOLE05
+  class: Dipole
+  names:
+  - DIPOLE05
+  - DIPOLE 05
+  place: BR
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: BR/DIPOLE06
+  class: Dipole
+  names:
+  - DIPOLE06
+  - DIPOLE 06
+  place: BR
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: BR/DIPOLE07
+  class: Dipole
+  names:
+  - DIPOLE07
+  - DIPOLE 07
+  place: BR
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: BR/DIPOLE08
+  class: Dipole
+  names:
+  - DIPOLE08
+  - DIPOLE 08
+  place: BR
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: BR/QD01
+  class: Quadrupole
+  names:
+  - QD01
+  - QD 01
+  place: BR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BR/QD02
+  class: Quadrupole
+  names:
+  - QD02
+  - QD 02
+  place: BR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BR/QD03
+  class: Quadrupole
+  names:
+  - QD03
+  - QD 03
+  place: BR
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BR/QD04
+  class: Quadrupole
+  names:
+  - QD04
+  - QD 04
+  place: BR
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BR/QF01
+  class: Quadrupole
+  names:
+  - QF01
+  - QF 01
+  place: BR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BR/QF02
+  class: Quadrupole
+  names:
+  - QF02
+  - QF 02
+  place: BR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BR/QF03
+  class: Quadrupole
+  names:
+  - QF03
+  - QF 03
+  place: BR
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BR/QF04
+  class: Quadrupole
+  names:
+  - QF04
+  - QF 04
+  place: BR
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BTS/BPM01
+  class: BeamPositionMonitor
+  names:
+  - BPM01
+  - BPM 01
+  place: BTS
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BTS/BPM02
+  class: BeamPositionMonitor
+  names:
+  - BPM02
+  - BPM 02
+  place: BTS
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BTS/BPM03
+  class: BeamPositionMonitor
+  names:
+  - BPM03
+  - BPM 03
+  place: BTS
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BTS/BPM04
+  class: BeamPositionMonitor
+  names:
+  - BPM04
+  - BPM 04
+  place: BTS
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BTS/BPM05
+  class: BeamPositionMonitor
+  names:
+  - BPM05
+  - BPM 05
+  place: BTS
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: BTS/BPM06
+  class: BeamPositionMonitor
+  names:
+  - BPM06
+  - BPM 06
+  place: BTS
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: BTS/HCM01
+  class: HCorrector
+  names:
+  - HCM01
+  - HCM 01
+  place: BTS
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BTS/HCM02
+  class: HCorrector
+  names:
+  - HCM02
+  - HCM 02
+  place: BTS
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BTS/HCM03
+  class: HCorrector
+  names:
+  - HCM03
+  - HCM 03
+  place: BTS
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BTS/HCM04
+  class: HCorrector
+  names:
+  - HCM04
+  - HCM 04
+  place: BTS
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BTS/HCM05
+  class: HCorrector
+  names:
+  - HCM05
+  - HCM 05
+  place: BTS
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: BTS/HCM06
+  class: HCorrector
+  names:
+  - HCM06
+  - HCM 06
+  place: BTS
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: BTS/QF01
+  class: Quadrupole
+  names:
+  - QF01
+  - QF 01
+  place: BTS
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BTS/QF02
+  class: Quadrupole
+  names:
+  - QF02
+  - QF 02
+  place: BTS
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BTS/QF03
+  class: Quadrupole
+  names:
+  - QF03
+  - QF 03
+  place: BTS
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BTS/QF04
+  class: Quadrupole
+  names:
+  - QF04
+  - QF 04
+  place: BTS
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BTS/QF05
+  class: Quadrupole
+  names:
+  - QF05
+  - QF 05
+  place: BTS
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: BTS/QF06
+  class: Quadrupole
+  names:
+  - QF06
+  - QF 06
+  place: BTS
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: BTS/VCM01
+  class: VCorrector
+  names:
+  - VCM01
+  - VCM 01
+  place: BTS
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: BTS/VCM02
+  class: VCorrector
+  names:
+  - VCM02
+  - VCM 02
+  place: BTS
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: BTS/VCM03
+  class: VCorrector
+  names:
+  - VCM03
+  - VCM 03
+  place: BTS
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: BTS/VCM04
+  class: VCorrector
+  names:
+  - VCM04
+  - VCM 04
+  place: BTS
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: BTS/VCM05
+  class: VCorrector
+  names:
+  - VCM05
+  - VCM 05
+  place: BTS
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: BTS/VCM06
+  class: VCorrector
+  names:
+  - VCM06
+  - VCM 06
+  place: BTS
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/BPM01
+  class: BeamPositionMonitor
+  names:
+  - BPM01
+  - BPM 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/BPM02
+  class: BeamPositionMonitor
+  names:
+  - BPM02
+  - BPM 02
+  attributes:
+    DeviceList: [1, 2]
+    ElementList: 2
+- id: SR/BPM03
+  class: BeamPositionMonitor
+  names:
+  - BPM03
+  - BPM 03
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 3
+- id: SR/BPM04
+  class: BeamPositionMonitor
+  names:
+  - BPM04
+  - BPM 04
+  attributes:
+    DeviceList: [2, 2]
+    ElementList: 4
+- id: SR/BPM05
+  class: BeamPositionMonitor
+  names:
+  - BPM05
+  - BPM 05
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 5
+- id: SR/BPM06
+  class: BeamPositionMonitor
+  names:
+  - BPM06
+  - BPM 06
+  attributes:
+    DeviceList: [3, 2]
+    ElementList: 6
+- id: SR/BPM07
+  class: BeamPositionMonitor
+  names:
+  - BPM07
+  - BPM 07
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 7
+- id: SR/BPM08
+  class: BeamPositionMonitor
+  names:
+  - BPM08
+  - BPM 08
+  attributes:
+    DeviceList: [4, 2]
+    ElementList: 8
+- id: SR/BPM09
+  class: BeamPositionMonitor
+  names:
+  - BPM09
+  - BPM 09
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 9
+- id: SR/BPM10
+  class: BeamPositionMonitor
+  names:
+  - BPM10
+  - BPM 10
+  attributes:
+    DeviceList: [5, 2]
+    ElementList: 10
+- id: SR/BPM11
+  class: BeamPositionMonitor
+  names:
+  - BPM11
+  - BPM 11
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 11
+- id: SR/BPM12
+  class: BeamPositionMonitor
+  names:
+  - BPM12
+  - BPM 12
+  attributes:
+    DeviceList: [6, 2]
+    ElementList: 12
+- id: SR/BPM13
+  class: BeamPositionMonitor
+  names:
+  - BPM13
+  - BPM 13
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 13
+- id: SR/BPM14
+  class: BeamPositionMonitor
+  names:
+  - BPM14
+  - BPM 14
+  attributes:
+    DeviceList: [7, 2]
+    ElementList: 14
+- id: SR/BPM15
+  class: BeamPositionMonitor
+  names:
+  - BPM15
+  - BPM 15
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 15
+- id: SR/BPM16
+  class: BeamPositionMonitor
+  names:
+  - BPM16
+  - BPM 16
+  attributes:
+    DeviceList: [8, 2]
+    ElementList: 16
+- id: SR/BPM17
+  class: BeamPositionMonitor
+  names:
+  - BPM17
+  - BPM 17
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 17
+- id: SR/BPM18
+  class: BeamPositionMonitor
+  names:
+  - BPM18
+  - BPM 18
+  attributes:
+    DeviceList: [9, 2]
+    ElementList: 18
+- id: SR/BPM19
+  class: BeamPositionMonitor
+  names:
+  - BPM19
+  - BPM 19
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 19
+- id: SR/BPM20
+  class: BeamPositionMonitor
+  names:
+  - BPM20
+  - BPM 20
+  attributes:
+    DeviceList: [10, 2]
+    ElementList: 20
+- id: SR/BPM21
+  class: BeamPositionMonitor
+  names:
+  - BPM21
+  - BPM 21
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 21
+- id: SR/BPM22
+  class: BeamPositionMonitor
+  names:
+  - BPM22
+  - BPM 22
+  attributes:
+    DeviceList: [11, 2]
+    ElementList: 22
+- id: SR/BPM23
+  class: BeamPositionMonitor
+  names:
+  - BPM23
+  - BPM 23
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 23
+- id: SR/BPM24
+  class: BeamPositionMonitor
+  names:
+  - BPM24
+  - BPM 24
+  attributes:
+    DeviceList: [12, 2]
+    ElementList: 24
+- id: SR/BPM25
+  class: BeamPositionMonitor
+  names:
+  - BPM25
+  - BPM 25
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 25
+- id: SR/BPM26
+  class: BeamPositionMonitor
+  names:
+  - BPM26
+  - BPM 26
+  attributes:
+    DeviceList: [13, 2]
+    ElementList: 26
+- id: SR/BPM27
+  class: BeamPositionMonitor
+  names:
+  - BPM27
+  - BPM 27
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 27
+- id: SR/BPM28
+  class: BeamPositionMonitor
+  names:
+  - BPM28
+  - BPM 28
+  attributes:
+    DeviceList: [14, 2]
+    ElementList: 28
+- id: SR/BPM29
+  class: BeamPositionMonitor
+  names:
+  - BPM29
+  - BPM 29
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 29
+- id: SR/BPM30
+  class: BeamPositionMonitor
+  names:
+  - BPM30
+  - BPM 30
+  attributes:
+    DeviceList: [15, 2]
+    ElementList: 30
+- id: SR/BPM31
+  class: BeamPositionMonitor
+  names:
+  - BPM31
+  - BPM 31
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 31
+- id: SR/BPM32
+  class: BeamPositionMonitor
+  names:
+  - BPM32
+  - BPM 32
+  attributes:
+    DeviceList: [16, 2]
+    ElementList: 32
+- id: SR/BPM33
+  class: BeamPositionMonitor
+  names:
+  - BPM33
+  - BPM 33
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 33
+- id: SR/BPM34
+  class: BeamPositionMonitor
+  names:
+  - BPM34
+  - BPM 34
+  attributes:
+    DeviceList: [17, 2]
+    ElementList: 34
+- id: SR/BPM35
+  class: BeamPositionMonitor
+  names:
+  - BPM35
+  - BPM 35
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 35
+- id: SR/BPM36
+  class: BeamPositionMonitor
+  names:
+  - BPM36
+  - BPM 36
+  attributes:
+    DeviceList: [18, 2]
+    ElementList: 36
+- id: SR/BPM37
+  class: BeamPositionMonitor
+  names:
+  - BPM37
+  - BPM 37
+  attributes:
+    DeviceList: [19, 1]
+    ElementList: 37
+- id: SR/BPM38
+  class: BeamPositionMonitor
+  names:
+  - BPM38
+  - BPM 38
+  attributes:
+    DeviceList: [19, 2]
+    ElementList: 38
+- id: SR/BPM39
+  class: BeamPositionMonitor
+  names:
+  - BPM39
+  - BPM 39
+  attributes:
+    DeviceList: [20, 1]
+    ElementList: 39
+- id: SR/BPM40
+  class: BeamPositionMonitor
+  names:
+  - BPM40
+  - BPM 40
+  attributes:
+    DeviceList: [20, 2]
+    ElementList: 40
+- id: SR/BPM41
+  class: BeamPositionMonitor
+  names:
+  - BPM41
+  - BPM 41
+  attributes:
+    DeviceList: [21, 1]
+    ElementList: 41
+- id: SR/BPM42
+  class: BeamPositionMonitor
+  names:
+  - BPM42
+  - BPM 42
+  attributes:
+    DeviceList: [21, 2]
+    ElementList: 42
+- id: SR/BPM43
+  class: BeamPositionMonitor
+  names:
+  - BPM43
+  - BPM 43
+  attributes:
+    DeviceList: [22, 1]
+    ElementList: 43
+- id: SR/BPM44
+  class: BeamPositionMonitor
+  names:
+  - BPM44
+  - BPM 44
+  attributes:
+    DeviceList: [22, 2]
+    ElementList: 44
+- id: SR/BPM45
+  class: BeamPositionMonitor
+  names:
+  - BPM45
+  - BPM 45
+  attributes:
+    DeviceList: [23, 1]
+    ElementList: 45
+- id: SR/BPM46
+  class: BeamPositionMonitor
+  names:
+  - BPM46
+  - BPM 46
+  attributes:
+    DeviceList: [23, 2]
+    ElementList: 46
+- id: SR/BPM47
+  class: BeamPositionMonitor
+  names:
+  - BPM47
+  - BPM 47
+  attributes:
+    DeviceList: [24, 1]
+    ElementList: 47
+- id: SR/BPM48
+  class: BeamPositionMonitor
+  names:
+  - BPM48
+  - BPM 48
+  attributes:
+    DeviceList: [24, 2]
+    ElementList: 48
+- id: SR/BPM49
+  class: BeamPositionMonitor
+  names:
+  - BPM49
+  - BPM 49
+  attributes:
+    DeviceList: [25, 1]
+    ElementList: 49
+- id: SR/BPM50
+  class: BeamPositionMonitor
+  names:
+  - BPM50
+  - BPM 50
+  attributes:
+    DeviceList: [25, 2]
+    ElementList: 50
+- id: SR/BPM51
+  class: BeamPositionMonitor
+  names:
+  - BPM51
+  - BPM 51
+  attributes:
+    DeviceList: [26, 1]
+    ElementList: 51
+- id: SR/BPM52
+  class: BeamPositionMonitor
+  names:
+  - BPM52
+  - BPM 52
+  attributes:
+    DeviceList: [26, 2]
+    ElementList: 52
+- id: SR/BPM53
+  class: BeamPositionMonitor
+  names:
+  - BPM53
+  - BPM 53
+  attributes:
+    DeviceList: [27, 1]
+    ElementList: 53
+- id: SR/BPM54
+  class: BeamPositionMonitor
+  names:
+  - BPM54
+  - BPM 54
+  attributes:
+    DeviceList: [27, 2]
+    ElementList: 54
+- id: SR/BPM55
+  class: BeamPositionMonitor
+  names:
+  - BPM55
+  - BPM 55
+  attributes:
+    DeviceList: [28, 1]
+    ElementList: 55
+- id: SR/BPM56
+  class: BeamPositionMonitor
+  names:
+  - BPM56
+  - BPM 56
+  attributes:
+    DeviceList: [28, 2]
+    ElementList: 56
+- id: SR/BPM57
+  class: BeamPositionMonitor
+  names:
+  - BPM57
+  - BPM 57
+  attributes:
+    DeviceList: [29, 1]
+    ElementList: 57
+- id: SR/BPM58
+  class: BeamPositionMonitor
+  names:
+  - BPM58
+  - BPM 58
+  attributes:
+    DeviceList: [29, 2]
+    ElementList: 58
+- id: SR/BPM59
+  class: BeamPositionMonitor
+  names:
+  - BPM59
+  - BPM 59
+  attributes:
+    DeviceList: [30, 1]
+    ElementList: 59
+- id: SR/BPM60
+  class: BeamPositionMonitor
+  names:
+  - BPM60
+  - BPM 60
+  attributes:
+    DeviceList: [30, 2]
+    ElementList: 60
+- id: SR/BPM61
+  class: BeamPositionMonitor
+  names:
+  - BPM61
+  - BPM 61
+  attributes:
+    DeviceList: [31, 1]
+    ElementList: 61
+- id: SR/BPM62
+  class: BeamPositionMonitor
+  names:
+  - BPM62
+  - BPM 62
+  attributes:
+    DeviceList: [31, 2]
+    ElementList: 62
+- id: SR/BPM63
+  class: BeamPositionMonitor
+  names:
+  - BPM63
+  - BPM 63
+  attributes:
+    DeviceList: [32, 1]
+    ElementList: 63
+- id: SR/BPM64
+  class: BeamPositionMonitor
+  names:
+  - BPM64
+  - BPM 64
+  attributes:
+    DeviceList: [32, 2]
+    ElementList: 64
+- id: SR/BPM65
+  class: BeamPositionMonitor
+  names:
+  - BPM65
+  - BPM 65
+  attributes:
+    DeviceList: [33, 1]
+    ElementList: 65
+- id: SR/BPM66
+  class: BeamPositionMonitor
+  names:
+  - BPM66
+  - BPM 66
+  attributes:
+    DeviceList: [33, 2]
+    ElementList: 66
+- id: SR/BPM67
+  class: BeamPositionMonitor
+  names:
+  - BPM67
+  - BPM 67
+  attributes:
+    DeviceList: [34, 1]
+    ElementList: 67
+- id: SR/BPM68
+  class: BeamPositionMonitor
+  names:
+  - BPM68
+  - BPM 68
+  attributes:
+    DeviceList: [34, 2]
+    ElementList: 68
+- id: SR/BPM69
+  class: BeamPositionMonitor
+  names:
+  - BPM69
+  - BPM 69
+  attributes:
+    DeviceList: [35, 1]
+    ElementList: 69
+- id: SR/BPM70
+  class: BeamPositionMonitor
+  names:
+  - BPM70
+  - BPM 70
+  attributes:
+    DeviceList: [35, 2]
+    ElementList: 70
+- id: SR/BPM71
+  class: BeamPositionMonitor
+  names:
+  - BPM71
+  - BPM 71
+  attributes:
+    DeviceList: [36, 1]
+    ElementList: 71
+- id: SR/BPM72
+  class: BeamPositionMonitor
+  names:
+  - BPM72
+  - BPM 72
+  attributes:
+    DeviceList: [36, 2]
+    ElementList: 72
+- id: SR/CAVITY01
+  class: AcceleratingCavity
+  names:
+  - CAVITY01
+  - CAVITY 01
+  place: SR/SECT11
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/CAVITY02
+  class: AcceleratingCavity
+  names:
+  - CAVITY02
+  - CAVITY 02
+  place: SR/SECT11
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/DCCT01
+  class: BeamCurrentMonitor
+  names:
+  - DCCT01
+  - DCCT 01
+  place: SR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/DIPOLE01
+  class: Dipole
+  names:
+  - DIPOLE01
+  - DIPOLE 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/DIPOLE02
+  class: Dipole
+  names:
+  - DIPOLE02
+  - DIPOLE 02
+  attributes:
+    DeviceList: [1, 2]
+    ElementList: 2
+- id: SR/DIPOLE03
+  class: Dipole
+  names:
+  - DIPOLE03
+  - DIPOLE 03
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 3
+- id: SR/DIPOLE04
+  class: Dipole
+  names:
+  - DIPOLE04
+  - DIPOLE 04
+  attributes:
+    DeviceList: [2, 2]
+    ElementList: 4
+- id: SR/DIPOLE05
+  class: Dipole
+  names:
+  - DIPOLE05
+  - DIPOLE 05
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 5
+- id: SR/DIPOLE06
+  class: Dipole
+  names:
+  - DIPOLE06
+  - DIPOLE 06
+  attributes:
+    DeviceList: [3, 2]
+    ElementList: 6
+- id: SR/DIPOLE07
+  class: Dipole
+  names:
+  - DIPOLE07
+  - DIPOLE 07
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 7
+- id: SR/DIPOLE08
+  class: Dipole
+  names:
+  - DIPOLE08
+  - DIPOLE 08
+  attributes:
+    DeviceList: [4, 2]
+    ElementList: 8
+- id: SR/DIPOLE09
+  class: Dipole
+  names:
+  - DIPOLE09
+  - DIPOLE 09
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 9
+- id: SR/DIPOLE10
+  class: Dipole
+  names:
+  - DIPOLE10
+  - DIPOLE 10
+  attributes:
+    DeviceList: [5, 2]
+    ElementList: 10
+- id: SR/DIPOLE11
+  class: Dipole
+  names:
+  - DIPOLE11
+  - DIPOLE 11
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 11
+- id: SR/DIPOLE12
+  class: Dipole
+  names:
+  - DIPOLE12
+  - DIPOLE 12
+  attributes:
+    DeviceList: [6, 2]
+    ElementList: 12
+- id: SR/DIPOLE13
+  class: Dipole
+  names:
+  - DIPOLE13
+  - DIPOLE 13
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 13
+- id: SR/DIPOLE14
+  class: Dipole
+  names:
+  - DIPOLE14
+  - DIPOLE 14
+  attributes:
+    DeviceList: [7, 2]
+    ElementList: 14
+- id: SR/DIPOLE15
+  class: Dipole
+  names:
+  - DIPOLE15
+  - DIPOLE 15
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 15
+- id: SR/DIPOLE16
+  class: Dipole
+  names:
+  - DIPOLE16
+  - DIPOLE 16
+  attributes:
+    DeviceList: [8, 2]
+    ElementList: 16
+- id: SR/DIPOLE17
+  class: Dipole
+  names:
+  - DIPOLE17
+  - DIPOLE 17
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 17
+- id: SR/DIPOLE18
+  class: Dipole
+  names:
+  - DIPOLE18
+  - DIPOLE 18
+  attributes:
+    DeviceList: [9, 2]
+    ElementList: 18
+- id: SR/DIPOLE19
+  class: Dipole
+  names:
+  - DIPOLE19
+  - DIPOLE 19
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 19
+- id: SR/DIPOLE20
+  class: Dipole
+  names:
+  - DIPOLE20
+  - DIPOLE 20
+  attributes:
+    DeviceList: [10, 2]
+    ElementList: 20
+- id: SR/DIPOLE21
+  class: Dipole
+  names:
+  - DIPOLE21
+  - DIPOLE 21
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 21
+- id: SR/DIPOLE22
+  class: Dipole
+  names:
+  - DIPOLE22
+  - DIPOLE 22
+  attributes:
+    DeviceList: [11, 2]
+    ElementList: 22
+- id: SR/DIPOLE23
+  class: Dipole
+  names:
+  - DIPOLE23
+  - DIPOLE 23
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 23
+- id: SR/DIPOLE24
+  class: Dipole
+  names:
+  - DIPOLE24
+  - DIPOLE 24
+  attributes:
+    DeviceList: [12, 2]
+    ElementList: 24
+- id: SR/DIPOLE25
+  class: Dipole
+  names:
+  - DIPOLE25
+  - DIPOLE 25
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 25
+- id: SR/DIPOLE26
+  class: Dipole
+  names:
+  - DIPOLE26
+  - DIPOLE 26
+  attributes:
+    DeviceList: [13, 2]
+    ElementList: 26
+- id: SR/DIPOLE27
+  class: Dipole
+  names:
+  - DIPOLE27
+  - DIPOLE 27
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 27
+- id: SR/DIPOLE28
+  class: Dipole
+  names:
+  - DIPOLE28
+  - DIPOLE 28
+  attributes:
+    DeviceList: [14, 2]
+    ElementList: 28
+- id: SR/DIPOLE29
+  class: Dipole
+  names:
+  - DIPOLE29
+  - DIPOLE 29
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 29
+- id: SR/DIPOLE30
+  class: Dipole
+  names:
+  - DIPOLE30
+  - DIPOLE 30
+  attributes:
+    DeviceList: [15, 2]
+    ElementList: 30
+- id: SR/DIPOLE31
+  class: Dipole
+  names:
+  - DIPOLE31
+  - DIPOLE 31
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 31
+- id: SR/DIPOLE32
+  class: Dipole
+  names:
+  - DIPOLE32
+  - DIPOLE 32
+  attributes:
+    DeviceList: [16, 2]
+    ElementList: 32
+- id: SR/DIPOLE33
+  class: Dipole
+  names:
+  - DIPOLE33
+  - DIPOLE 33
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 33
+- id: SR/DIPOLE34
+  class: Dipole
+  names:
+  - DIPOLE34
+  - DIPOLE 34
+  attributes:
+    DeviceList: [17, 2]
+    ElementList: 34
+- id: SR/DIPOLE35
+  class: Dipole
+  names:
+  - DIPOLE35
+  - DIPOLE 35
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 35
+- id: SR/DIPOLE36
+  class: Dipole
+  names:
+  - DIPOLE36
+  - DIPOLE 36
+  attributes:
+    DeviceList: [18, 2]
+    ElementList: 36
+- id: SR/GAMMA01
+  class: BeamLossMonitor
+  names:
+  - GAMMA01
+  - GAMMA 01
+  place: SR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/GAMMA02
+  class: BeamLossMonitor
+  names:
+  - GAMMA02
+  - GAMMA 02
+  place: SR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/GAMMA03
+  class: BeamLossMonitor
+  names:
+  - GAMMA03
+  - GAMMA 03
+  place: SR
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/GAMMA04
+  class: BeamLossMonitor
+  names:
+  - GAMMA04
+  - GAMMA 04
+  place: SR
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/GAUGESR01
+  class: Gauge
+  names:
+  - GAUGESR01
+  - GAUGE SR01
+  place: SR/SECT1
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/GAUGESR02
+  class: Gauge
+  names:
+  - GAUGESR02
+  - GAUGE SR02
+  place: SR/SECT2
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/GAUGESR03
+  class: Gauge
+  names:
+  - GAUGESR03
+  - GAUGE SR03
+  place: SR/SECT3
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/GAUGESR04
+  class: Gauge
+  names:
+  - GAUGESR04
+  - GAUGE SR04
+  place: SR/SECT4
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/GAUGESR05
+  class: Gauge
+  names:
+  - GAUGESR05
+  - GAUGE SR05
+  place: SR/SECT5
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: SR/GAUGESR06
+  class: Gauge
+  names:
+  - GAUGESR06
+  - GAUGE SR06
+  place: SR/SECT6
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/GAUGESR07
+  class: Gauge
+  names:
+  - GAUGESR07
+  - GAUGE SR07
+  place: SR/SECT7
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: SR/GAUGESR08
+  class: Gauge
+  names:
+  - GAUGESR08
+  - GAUGE SR08
+  place: SR/SECT8
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: SR/GAUGESR09
+  class: Gauge
+  names:
+  - GAUGESR09
+  - GAUGE SR09
+  place: SR/SECT9
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 9
+- id: SR/GAUGESR10
+  class: Gauge
+  names:
+  - GAUGESR10
+  - GAUGE SR10
+  place: SR/SECT10
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 10
+- id: SR/GAUGESR11
+  class: Gauge
+  names:
+  - GAUGESR11
+  - GAUGE SR11
+  place: SR/SECT11
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 11
+- id: SR/GAUGESR12
+  class: Gauge
+  names:
+  - GAUGESR12
+  - GAUGE SR12
+  place: SR/SECT12
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 12
+- id: SR/HCM01
+  class: HCorrector
+  names:
+  - HCM01
+  - HCM 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/HCM02
+  class: HCorrector
+  names:
+  - HCM02
+  - HCM 02
+  attributes:
+    DeviceList: [1, 2]
+    ElementList: 2
+- id: SR/HCM03
+  class: HCorrector
+  names:
+  - HCM03
+  - HCM 03
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 3
+- id: SR/HCM04
+  class: HCorrector
+  names:
+  - HCM04
+  - HCM 04
+  attributes:
+    DeviceList: [2, 2]
+    ElementList: 4
+- id: SR/HCM05
+  class: HCorrector
+  names:
+  - HCM05
+  - HCM 05
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 5
+- id: SR/HCM06
+  class: HCorrector
+  names:
+  - HCM06
+  - HCM 06
+  attributes:
+    DeviceList: [3, 2]
+    ElementList: 6
+- id: SR/HCM07
+  class: HCorrector
+  names:
+  - HCM07
+  - HCM 07
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 7
+- id: SR/HCM08
+  class: HCorrector
+  names:
+  - HCM08
+  - HCM 08
+  attributes:
+    DeviceList: [4, 2]
+    ElementList: 8
+- id: SR/HCM09
+  class: HCorrector
+  names:
+  - HCM09
+  - HCM 09
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 9
+- id: SR/HCM10
+  class: HCorrector
+  names:
+  - HCM10
+  - HCM 10
+  attributes:
+    DeviceList: [5, 2]
+    ElementList: 10
+- id: SR/HCM11
+  class: HCorrector
+  names:
+  - HCM11
+  - HCM 11
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 11
+- id: SR/HCM12
+  class: HCorrector
+  names:
+  - HCM12
+  - HCM 12
+  attributes:
+    DeviceList: [6, 2]
+    ElementList: 12
+- id: SR/HCM13
+  class: HCorrector
+  names:
+  - HCM13
+  - HCM 13
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 13
+- id: SR/HCM14
+  class: HCorrector
+  names:
+  - HCM14
+  - HCM 14
+  attributes:
+    DeviceList: [7, 2]
+    ElementList: 14
+- id: SR/HCM15
+  class: HCorrector
+  names:
+  - HCM15
+  - HCM 15
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 15
+- id: SR/HCM16
+  class: HCorrector
+  names:
+  - HCM16
+  - HCM 16
+  attributes:
+    DeviceList: [8, 2]
+    ElementList: 16
+- id: SR/HCM17
+  class: HCorrector
+  names:
+  - HCM17
+  - HCM 17
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 17
+- id: SR/HCM18
+  class: HCorrector
+  names:
+  - HCM18
+  - HCM 18
+  attributes:
+    DeviceList: [9, 2]
+    ElementList: 18
+- id: SR/HCM19
+  class: HCorrector
+  names:
+  - HCM19
+  - HCM 19
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 19
+- id: SR/HCM20
+  class: HCorrector
+  names:
+  - HCM20
+  - HCM 20
+  attributes:
+    DeviceList: [10, 2]
+    ElementList: 20
+- id: SR/HCM21
+  class: HCorrector
+  names:
+  - HCM21
+  - HCM 21
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 21
+- id: SR/HCM22
+  class: HCorrector
+  names:
+  - HCM22
+  - HCM 22
+  attributes:
+    DeviceList: [11, 2]
+    ElementList: 22
+- id: SR/HCM23
+  class: HCorrector
+  names:
+  - HCM23
+  - HCM 23
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 23
+- id: SR/HCM24
+  class: HCorrector
+  names:
+  - HCM24
+  - HCM 24
+  attributes:
+    DeviceList: [12, 2]
+    ElementList: 24
+- id: SR/HCM25
+  class: HCorrector
+  names:
+  - HCM25
+  - HCM 25
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 25
+- id: SR/HCM26
+  class: HCorrector
+  names:
+  - HCM26
+  - HCM 26
+  attributes:
+    DeviceList: [13, 2]
+    ElementList: 26
+- id: SR/HCM27
+  class: HCorrector
+  names:
+  - HCM27
+  - HCM 27
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 27
+- id: SR/HCM28
+  class: HCorrector
+  names:
+  - HCM28
+  - HCM 28
+  attributes:
+    DeviceList: [14, 2]
+    ElementList: 28
+- id: SR/HCM29
+  class: HCorrector
+  names:
+  - HCM29
+  - HCM 29
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 29
+- id: SR/HCM30
+  class: HCorrector
+  names:
+  - HCM30
+  - HCM 30
+  attributes:
+    DeviceList: [15, 2]
+    ElementList: 30
+- id: SR/HCM31
+  class: HCorrector
+  names:
+  - HCM31
+  - HCM 31
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 31
+- id: SR/HCM32
+  class: HCorrector
+  names:
+  - HCM32
+  - HCM 32
+  attributes:
+    DeviceList: [16, 2]
+    ElementList: 32
+- id: SR/HCM33
+  class: HCorrector
+  names:
+  - HCM33
+  - HCM 33
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 33
+- id: SR/HCM34
+  class: HCorrector
+  names:
+  - HCM34
+  - HCM 34
+  attributes:
+    DeviceList: [17, 2]
+    ElementList: 34
+- id: SR/HCM35
+  class: HCorrector
+  names:
+  - HCM35
+  - HCM 35
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 35
+- id: SR/HCM36
+  class: HCorrector
+  names:
+  - HCM36
+  - HCM 36
+  attributes:
+    DeviceList: [18, 2]
+    ElementList: 36
+- id: SR/HCM37
+  class: HCorrector
+  names:
+  - HCM37
+  - HCM 37
+  attributes:
+    DeviceList: [19, 1]
+    ElementList: 37
+- id: SR/HCM38
+  class: HCorrector
+  names:
+  - HCM38
+  - HCM 38
+  attributes:
+    DeviceList: [19, 2]
+    ElementList: 38
+- id: SR/HCM39
+  class: HCorrector
+  names:
+  - HCM39
+  - HCM 39
+  attributes:
+    DeviceList: [20, 1]
+    ElementList: 39
+- id: SR/HCM40
+  class: HCorrector
+  names:
+  - HCM40
+  - HCM 40
+  attributes:
+    DeviceList: [20, 2]
+    ElementList: 40
+- id: SR/HCM41
+  class: HCorrector
+  names:
+  - HCM41
+  - HCM 41
+  attributes:
+    DeviceList: [21, 1]
+    ElementList: 41
+- id: SR/HCM42
+  class: HCorrector
+  names:
+  - HCM42
+  - HCM 42
+  attributes:
+    DeviceList: [21, 2]
+    ElementList: 42
+- id: SR/HCM43
+  class: HCorrector
+  names:
+  - HCM43
+  - HCM 43
+  attributes:
+    DeviceList: [22, 1]
+    ElementList: 43
+- id: SR/HCM44
+  class: HCorrector
+  names:
+  - HCM44
+  - HCM 44
+  attributes:
+    DeviceList: [22, 2]
+    ElementList: 44
+- id: SR/HCM45
+  class: HCorrector
+  names:
+  - HCM45
+  - HCM 45
+  attributes:
+    DeviceList: [23, 1]
+    ElementList: 45
+- id: SR/HCM46
+  class: HCorrector
+  names:
+  - HCM46
+  - HCM 46
+  attributes:
+    DeviceList: [23, 2]
+    ElementList: 46
+- id: SR/HCM47
+  class: HCorrector
+  names:
+  - HCM47
+  - HCM 47
+  attributes:
+    DeviceList: [24, 1]
+    ElementList: 47
+- id: SR/HCM48
+  class: HCorrector
+  names:
+  - HCM48
+  - HCM 48
+  attributes:
+    DeviceList: [24, 2]
+    ElementList: 48
+- id: SR/HCM49
+  class: HCorrector
+  names:
+  - HCM49
+  - HCM 49
+  attributes:
+    DeviceList: [25, 1]
+    ElementList: 49
+- id: SR/HCM50
+  class: HCorrector
+  names:
+  - HCM50
+  - HCM 50
+  attributes:
+    DeviceList: [25, 2]
+    ElementList: 50
+- id: SR/HCM51
+  class: HCorrector
+  names:
+  - HCM51
+  - HCM 51
+  attributes:
+    DeviceList: [26, 1]
+    ElementList: 51
+- id: SR/HCM52
+  class: HCorrector
+  names:
+  - HCM52
+  - HCM 52
+  attributes:
+    DeviceList: [26, 2]
+    ElementList: 52
+- id: SR/HCM53
+  class: HCorrector
+  names:
+  - HCM53
+  - HCM 53
+  attributes:
+    DeviceList: [27, 1]
+    ElementList: 53
+- id: SR/HCM54
+  class: HCorrector
+  names:
+  - HCM54
+  - HCM 54
+  attributes:
+    DeviceList: [27, 2]
+    ElementList: 54
+- id: SR/HCM55
+  class: HCorrector
+  names:
+  - HCM55
+  - HCM 55
+  attributes:
+    DeviceList: [28, 1]
+    ElementList: 55
+- id: SR/HCM56
+  class: HCorrector
+  names:
+  - HCM56
+  - HCM 56
+  attributes:
+    DeviceList: [28, 2]
+    ElementList: 56
+- id: SR/HCM57
+  class: HCorrector
+  names:
+  - HCM57
+  - HCM 57
+  attributes:
+    DeviceList: [29, 1]
+    ElementList: 57
+- id: SR/HCM58
+  class: HCorrector
+  names:
+  - HCM58
+  - HCM 58
+  attributes:
+    DeviceList: [29, 2]
+    ElementList: 58
+- id: SR/HCM59
+  class: HCorrector
+  names:
+  - HCM59
+  - HCM 59
+  attributes:
+    DeviceList: [30, 1]
+    ElementList: 59
+- id: SR/HCM60
+  class: HCorrector
+  names:
+  - HCM60
+  - HCM 60
+  attributes:
+    DeviceList: [30, 2]
+    ElementList: 60
+- id: SR/HCM61
+  class: HCorrector
+  names:
+  - HCM61
+  - HCM 61
+  attributes:
+    DeviceList: [31, 1]
+    ElementList: 61
+- id: SR/HCM62
+  class: HCorrector
+  names:
+  - HCM62
+  - HCM 62
+  attributes:
+    DeviceList: [31, 2]
+    ElementList: 62
+- id: SR/HCM63
+  class: HCorrector
+  names:
+  - HCM63
+  - HCM 63
+  attributes:
+    DeviceList: [32, 1]
+    ElementList: 63
+- id: SR/HCM64
+  class: HCorrector
+  names:
+  - HCM64
+  - HCM 64
+  attributes:
+    DeviceList: [32, 2]
+    ElementList: 64
+- id: SR/HCM65
+  class: HCorrector
+  names:
+  - HCM65
+  - HCM 65
+  attributes:
+    DeviceList: [33, 1]
+    ElementList: 65
+- id: SR/HCM66
+  class: HCorrector
+  names:
+  - HCM66
+  - HCM 66
+  attributes:
+    DeviceList: [33, 2]
+    ElementList: 66
+- id: SR/HCM67
+  class: HCorrector
+  names:
+  - HCM67
+  - HCM 67
+  attributes:
+    DeviceList: [34, 1]
+    ElementList: 67
+- id: SR/HCM68
+  class: HCorrector
+  names:
+  - HCM68
+  - HCM 68
+  attributes:
+    DeviceList: [34, 2]
+    ElementList: 68
+- id: SR/HCM69
+  class: HCorrector
+  names:
+  - HCM69
+  - HCM 69
+  attributes:
+    DeviceList: [35, 1]
+    ElementList: 69
+- id: SR/HCM70
+  class: HCorrector
+  names:
+  - HCM70
+  - HCM 70
+  attributes:
+    DeviceList: [35, 2]
+    ElementList: 70
+- id: SR/HCM71
+  class: HCorrector
+  names:
+  - HCM71
+  - HCM 71
+  attributes:
+    DeviceList: [36, 1]
+    ElementList: 71
+- id: SR/HCM72
+  class: HCorrector
+  names:
+  - HCM72
+  - HCM 72
+  attributes:
+    DeviceList: [36, 2]
+    ElementList: 72
+- id: SR/ION-PUMP01
+  class: Pump
+  names:
+  - ION-PUMP01
+  - ION-PUMP 01
+  place: SR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/ION-PUMP02
+  class: Pump
+  names:
+  - ION-PUMP02
+  - ION-PUMP 02
+  place: SR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/ION-PUMP03
+  class: Pump
+  names:
+  - ION-PUMP03
+  - ION-PUMP 03
+  place: SR
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/ION-PUMP04
+  class: Pump
+  names:
+  - ION-PUMP04
+  - ION-PUMP 04
+  place: SR
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/ION-PUMP05
+  class: Pump
+  names:
+  - ION-PUMP05
+  - ION-PUMP 05
+  place: SR
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: SR/ION-PUMP06
+  class: Pump
+  names:
+  - ION-PUMP06
+  - ION-PUMP 06
+  place: SR
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/KLYSTRON01
+  class: Modulator
+  names:
+  - KLYSTRON01
+  - KLYSTRON 01
+  place: SR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/KLYSTRON02
+  class: Modulator
+  names:
+  - KLYSTRON02
+  - KLYSTRON 02
+  place: SR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/NEUTRON01
+  class: BeamLossMonitor
+  names:
+  - NEUTRON01
+  - NEUTRON 01
+  place: SR
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/NEUTRON02
+  class: BeamLossMonitor
+  names:
+  - NEUTRON02
+  - NEUTRON 02
+  place: SR
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/NEUTRON03
+  class: BeamLossMonitor
+  names:
+  - NEUTRON03
+  - NEUTRON 03
+  place: SR
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/NEUTRON04
+  class: BeamLossMonitor
+  names:
+  - NEUTRON04
+  - NEUTRON 04
+  place: SR
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/QD01
+  class: Quadrupole
+  names:
+  - QD01
+  - QD 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/QD02
+  class: Quadrupole
+  names:
+  - QD02
+  - QD 02
+  attributes:
+    DeviceList: [1, 2]
+    ElementList: 2
+- id: SR/QD03
+  class: Quadrupole
+  names:
+  - QD03
+  - QD 03
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 3
+- id: SR/QD04
+  class: Quadrupole
+  names:
+  - QD04
+  - QD 04
+  attributes:
+    DeviceList: [2, 2]
+    ElementList: 4
+- id: SR/QD05
+  class: Quadrupole
+  names:
+  - QD05
+  - QD 05
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 5
+- id: SR/QD06
+  class: Quadrupole
+  names:
+  - QD06
+  - QD 06
+  attributes:
+    DeviceList: [3, 2]
+    ElementList: 6
+- id: SR/QD07
+  class: Quadrupole
+  names:
+  - QD07
+  - QD 07
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 7
+- id: SR/QD08
+  class: Quadrupole
+  names:
+  - QD08
+  - QD 08
+  attributes:
+    DeviceList: [4, 2]
+    ElementList: 8
+- id: SR/QD09
+  class: Quadrupole
+  names:
+  - QD09
+  - QD 09
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 9
+- id: SR/QD10
+  class: Quadrupole
+  names:
+  - QD10
+  - QD 10
+  attributes:
+    DeviceList: [5, 2]
+    ElementList: 10
+- id: SR/QD11
+  class: Quadrupole
+  names:
+  - QD11
+  - QD 11
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 11
+- id: SR/QD12
+  class: Quadrupole
+  names:
+  - QD12
+  - QD 12
+  attributes:
+    DeviceList: [6, 2]
+    ElementList: 12
+- id: SR/QD13
+  class: Quadrupole
+  names:
+  - QD13
+  - QD 13
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 13
+- id: SR/QD14
+  class: Quadrupole
+  names:
+  - QD14
+  - QD 14
+  attributes:
+    DeviceList: [7, 2]
+    ElementList: 14
+- id: SR/QD15
+  class: Quadrupole
+  names:
+  - QD15
+  - QD 15
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 15
+- id: SR/QD16
+  class: Quadrupole
+  names:
+  - QD16
+  - QD 16
+  attributes:
+    DeviceList: [8, 2]
+    ElementList: 16
+- id: SR/QD17
+  class: Quadrupole
+  names:
+  - QD17
+  - QD 17
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 17
+- id: SR/QD18
+  class: Quadrupole
+  names:
+  - QD18
+  - QD 18
+  attributes:
+    DeviceList: [9, 2]
+    ElementList: 18
+- id: SR/QD19
+  class: Quadrupole
+  names:
+  - QD19
+  - QD 19
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 19
+- id: SR/QD20
+  class: Quadrupole
+  names:
+  - QD20
+  - QD 20
+  attributes:
+    DeviceList: [10, 2]
+    ElementList: 20
+- id: SR/QD21
+  class: Quadrupole
+  names:
+  - QD21
+  - QD 21
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 21
+- id: SR/QD22
+  class: Quadrupole
+  names:
+  - QD22
+  - QD 22
+  attributes:
+    DeviceList: [11, 2]
+    ElementList: 22
+- id: SR/QD23
+  class: Quadrupole
+  names:
+  - QD23
+  - QD 23
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 23
+- id: SR/QD24
+  class: Quadrupole
+  names:
+  - QD24
+  - QD 24
+  attributes:
+    DeviceList: [12, 2]
+    ElementList: 24
+- id: SR/QF01
+  class: Quadrupole
+  names:
+  - QF01
+  - QF 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/QF02
+  class: Quadrupole
+  names:
+  - QF02
+  - QF 02
+  attributes:
+    DeviceList: [1, 2]
+    ElementList: 2
+- id: SR/QF03
+  class: Quadrupole
+  names:
+  - QF03
+  - QF 03
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 3
+- id: SR/QF04
+  class: Quadrupole
+  names:
+  - QF04
+  - QF 04
+  attributes:
+    DeviceList: [2, 2]
+    ElementList: 4
+- id: SR/QF05
+  class: Quadrupole
+  names:
+  - QF05
+  - QF 05
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 5
+- id: SR/QF06
+  class: Quadrupole
+  names:
+  - QF06
+  - QF 06
+  attributes:
+    DeviceList: [3, 2]
+    ElementList: 6
+- id: SR/QF07
+  class: Quadrupole
+  names:
+  - QF07
+  - QF 07
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 7
+- id: SR/QF08
+  class: Quadrupole
+  names:
+  - QF08
+  - QF 08
+  attributes:
+    DeviceList: [4, 2]
+    ElementList: 8
+- id: SR/QF09
+  class: Quadrupole
+  names:
+  - QF09
+  - QF 09
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 9
+- id: SR/QF10
+  class: Quadrupole
+  names:
+  - QF10
+  - QF 10
+  attributes:
+    DeviceList: [5, 2]
+    ElementList: 10
+- id: SR/QF11
+  class: Quadrupole
+  names:
+  - QF11
+  - QF 11
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 11
+- id: SR/QF12
+  class: Quadrupole
+  names:
+  - QF12
+  - QF 12
+  attributes:
+    DeviceList: [6, 2]
+    ElementList: 12
+- id: SR/QF13
+  class: Quadrupole
+  names:
+  - QF13
+  - QF 13
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 13
+- id: SR/QF14
+  class: Quadrupole
+  names:
+  - QF14
+  - QF 14
+  attributes:
+    DeviceList: [7, 2]
+    ElementList: 14
+- id: SR/QF15
+  class: Quadrupole
+  names:
+  - QF15
+  - QF 15
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 15
+- id: SR/QF16
+  class: Quadrupole
+  names:
+  - QF16
+  - QF 16
+  attributes:
+    DeviceList: [8, 2]
+    ElementList: 16
+- id: SR/QF17
+  class: Quadrupole
+  names:
+  - QF17
+  - QF 17
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 17
+- id: SR/QF18
+  class: Quadrupole
+  names:
+  - QF18
+  - QF 18
+  attributes:
+    DeviceList: [9, 2]
+    ElementList: 18
+- id: SR/QF19
+  class: Quadrupole
+  names:
+  - QF19
+  - QF 19
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 19
+- id: SR/QF20
+  class: Quadrupole
+  names:
+  - QF20
+  - QF 20
+  attributes:
+    DeviceList: [10, 2]
+    ElementList: 20
+- id: SR/QF21
+  class: Quadrupole
+  names:
+  - QF21
+  - QF 21
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 21
+- id: SR/QF22
+  class: Quadrupole
+  names:
+  - QF22
+  - QF 22
+  attributes:
+    DeviceList: [11, 2]
+    ElementList: 22
+- id: SR/QF23
+  class: Quadrupole
+  names:
+  - QF23
+  - QF 23
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 23
+- id: SR/QF24
+  class: Quadrupole
+  names:
+  - QF24
+  - QF 24
+  attributes:
+    DeviceList: [12, 2]
+    ElementList: 24
+- id: SR/QFA01
+  class: Quadrupole
+  names:
+  - QFA01
+  - QFA 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/QFA02
+  class: Quadrupole
+  names:
+  - QFA02
+  - QFA 02
+  attributes:
+    DeviceList: [1, 2]
+    ElementList: 2
+- id: SR/QFA03
+  class: Quadrupole
+  names:
+  - QFA03
+  - QFA 03
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 3
+- id: SR/QFA04
+  class: Quadrupole
+  names:
+  - QFA04
+  - QFA 04
+  attributes:
+    DeviceList: [2, 2]
+    ElementList: 4
+- id: SR/QFA05
+  class: Quadrupole
+  names:
+  - QFA05
+  - QFA 05
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 5
+- id: SR/QFA06
+  class: Quadrupole
+  names:
+  - QFA06
+  - QFA 06
+  attributes:
+    DeviceList: [3, 2]
+    ElementList: 6
+- id: SR/QFA07
+  class: Quadrupole
+  names:
+  - QFA07
+  - QFA 07
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 7
+- id: SR/QFA08
+  class: Quadrupole
+  names:
+  - QFA08
+  - QFA 08
+  attributes:
+    DeviceList: [4, 2]
+    ElementList: 8
+- id: SR/QFA09
+  class: Quadrupole
+  names:
+  - QFA09
+  - QFA 09
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 9
+- id: SR/QFA10
+  class: Quadrupole
+  names:
+  - QFA10
+  - QFA 10
+  attributes:
+    DeviceList: [5, 2]
+    ElementList: 10
+- id: SR/QFA11
+  class: Quadrupole
+  names:
+  - QFA11
+  - QFA 11
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 11
+- id: SR/QFA12
+  class: Quadrupole
+  names:
+  - QFA12
+  - QFA 12
+  attributes:
+    DeviceList: [6, 2]
+    ElementList: 12
+- id: SR/QFA13
+  class: Quadrupole
+  names:
+  - QFA13
+  - QFA 13
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 13
+- id: SR/QFA14
+  class: Quadrupole
+  names:
+  - QFA14
+  - QFA 14
+  attributes:
+    DeviceList: [7, 2]
+    ElementList: 14
+- id: SR/QFA15
+  class: Quadrupole
+  names:
+  - QFA15
+  - QFA 15
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 15
+- id: SR/QFA16
+  class: Quadrupole
+  names:
+  - QFA16
+  - QFA 16
+  attributes:
+    DeviceList: [8, 2]
+    ElementList: 16
+- id: SR/QFA17
+  class: Quadrupole
+  names:
+  - QFA17
+  - QFA 17
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 17
+- id: SR/QFA18
+  class: Quadrupole
+  names:
+  - QFA18
+  - QFA 18
+  attributes:
+    DeviceList: [9, 2]
+    ElementList: 18
+- id: SR/QFA19
+  class: Quadrupole
+  names:
+  - QFA19
+  - QFA 19
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 19
+- id: SR/QFA20
+  class: Quadrupole
+  names:
+  - QFA20
+  - QFA 20
+  attributes:
+    DeviceList: [10, 2]
+    ElementList: 20
+- id: SR/QFA21
+  class: Quadrupole
+  names:
+  - QFA21
+  - QFA 21
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 21
+- id: SR/QFA22
+  class: Quadrupole
+  names:
+  - QFA22
+  - QFA 22
+  attributes:
+    DeviceList: [11, 2]
+    ElementList: 22
+- id: SR/QFA23
+  class: Quadrupole
+  names:
+  - QFA23
+  - QFA 23
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 23
+- id: SR/QFA24
+  class: Quadrupole
+  names:
+  - QFA24
+  - QFA 24
+  attributes:
+    DeviceList: [12, 2]
+    ElementList: 24
+- id: SR/SD01
+  class: Sextupole
+  names:
+  - SD01
+  - SD 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/SD02
+  class: Sextupole
+  names:
+  - SD02
+  - SD 02
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/SD03
+  class: Sextupole
+  names:
+  - SD03
+  - SD 03
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/SD04
+  class: Sextupole
+  names:
+  - SD04
+  - SD 04
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/SD05
+  class: Sextupole
+  names:
+  - SD05
+  - SD 05
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: SR/SD06
+  class: Sextupole
+  names:
+  - SD06
+  - SD 06
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/SD07
+  class: Sextupole
+  names:
+  - SD07
+  - SD 07
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: SR/SD08
+  class: Sextupole
+  names:
+  - SD08
+  - SD 08
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: SR/SD09
+  class: Sextupole
+  names:
+  - SD09
+  - SD 09
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 9
+- id: SR/SD10
+  class: Sextupole
+  names:
+  - SD10
+  - SD 10
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 10
+- id: SR/SD11
+  class: Sextupole
+  names:
+  - SD11
+  - SD 11
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 11
+- id: SR/SD12
+  class: Sextupole
+  names:
+  - SD12
+  - SD 12
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 12
+- id: SR/SD13
+  class: Sextupole
+  names:
+  - SD13
+  - SD 13
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 13
+- id: SR/SD14
+  class: Sextupole
+  names:
+  - SD14
+  - SD 14
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 14
+- id: SR/SD15
+  class: Sextupole
+  names:
+  - SD15
+  - SD 15
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 15
+- id: SR/SD16
+  class: Sextupole
+  names:
+  - SD16
+  - SD 16
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 16
+- id: SR/SD17
+  class: Sextupole
+  names:
+  - SD17
+  - SD 17
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 17
+- id: SR/SD18
+  class: Sextupole
+  names:
+  - SD18
+  - SD 18
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 18
+- id: SR/SD19
+  class: Sextupole
+  names:
+  - SD19
+  - SD 19
+  attributes:
+    DeviceList: [19, 1]
+    ElementList: 19
+- id: SR/SD20
+  class: Sextupole
+  names:
+  - SD20
+  - SD 20
+  attributes:
+    DeviceList: [20, 1]
+    ElementList: 20
+- id: SR/SD21
+  class: Sextupole
+  names:
+  - SD21
+  - SD 21
+  attributes:
+    DeviceList: [21, 1]
+    ElementList: 21
+- id: SR/SD22
+  class: Sextupole
+  names:
+  - SD22
+  - SD 22
+  attributes:
+    DeviceList: [22, 1]
+    ElementList: 22
+- id: SR/SD23
+  class: Sextupole
+  names:
+  - SD23
+  - SD 23
+  attributes:
+    DeviceList: [23, 1]
+    ElementList: 23
+- id: SR/SD24
+  class: Sextupole
+  names:
+  - SD24
+  - SD 24
+  attributes:
+    DeviceList: [24, 1]
+    ElementList: 24
+- id: SR/SF01
+  class: Sextupole
+  names:
+  - SF01
+  - SF 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/SF02
+  class: Sextupole
+  names:
+  - SF02
+  - SF 02
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/SF03
+  class: Sextupole
+  names:
+  - SF03
+  - SF 03
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/SF04
+  class: Sextupole
+  names:
+  - SF04
+  - SF 04
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/SF05
+  class: Sextupole
+  names:
+  - SF05
+  - SF 05
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: SR/SF06
+  class: Sextupole
+  names:
+  - SF06
+  - SF 06
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/SF07
+  class: Sextupole
+  names:
+  - SF07
+  - SF 07
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: SR/SF08
+  class: Sextupole
+  names:
+  - SF08
+  - SF 08
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: SR/SF09
+  class: Sextupole
+  names:
+  - SF09
+  - SF 09
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 9
+- id: SR/SF10
+  class: Sextupole
+  names:
+  - SF10
+  - SF 10
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 10
+- id: SR/SF11
+  class: Sextupole
+  names:
+  - SF11
+  - SF 11
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 11
+- id: SR/SF12
+  class: Sextupole
+  names:
+  - SF12
+  - SF 12
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 12
+- id: SR/SF13
+  class: Sextupole
+  names:
+  - SF13
+  - SF 13
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 13
+- id: SR/SF14
+  class: Sextupole
+  names:
+  - SF14
+  - SF 14
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 14
+- id: SR/SF15
+  class: Sextupole
+  names:
+  - SF15
+  - SF 15
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 15
+- id: SR/SF16
+  class: Sextupole
+  names:
+  - SF16
+  - SF 16
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 16
+- id: SR/SF17
+  class: Sextupole
+  names:
+  - SF17
+  - SF 17
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 17
+- id: SR/SF18
+  class: Sextupole
+  names:
+  - SF18
+  - SF 18
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 18
+- id: SR/SF19
+  class: Sextupole
+  names:
+  - SF19
+  - SF 19
+  attributes:
+    DeviceList: [19, 1]
+    ElementList: 19
+- id: SR/SF20
+  class: Sextupole
+  names:
+  - SF20
+  - SF 20
+  attributes:
+    DeviceList: [20, 1]
+    ElementList: 20
+- id: SR/SF21
+  class: Sextupole
+  names:
+  - SF21
+  - SF 21
+  attributes:
+    DeviceList: [21, 1]
+    ElementList: 21
+- id: SR/SF22
+  class: Sextupole
+  names:
+  - SF22
+  - SF 22
+  attributes:
+    DeviceList: [22, 1]
+    ElementList: 22
+- id: SR/SF23
+  class: Sextupole
+  names:
+  - SF23
+  - SF 23
+  attributes:
+    DeviceList: [23, 1]
+    ElementList: 23
+- id: SR/SF24
+  class: Sextupole
+  names:
+  - SF24
+  - SF 24
+  attributes:
+    DeviceList: [24, 1]
+    ElementList: 24
+- id: SR/SHD01
+  class: Sextupole
+  names:
+  - SHD01
+  - SHD 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/SHD02
+  class: Sextupole
+  names:
+  - SHD02
+  - SHD 02
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/SHD03
+  class: Sextupole
+  names:
+  - SHD03
+  - SHD 03
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/SHD04
+  class: Sextupole
+  names:
+  - SHD04
+  - SHD 04
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/SHD05
+  class: Sextupole
+  names:
+  - SHD05
+  - SHD 05
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: SR/SHD06
+  class: Sextupole
+  names:
+  - SHD06
+  - SHD 06
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/SHD07
+  class: Sextupole
+  names:
+  - SHD07
+  - SHD 07
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: SR/SHD08
+  class: Sextupole
+  names:
+  - SHD08
+  - SHD 08
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: SR/SHD09
+  class: Sextupole
+  names:
+  - SHD09
+  - SHD 09
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 9
+- id: SR/SHD10
+  class: Sextupole
+  names:
+  - SHD10
+  - SHD 10
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 10
+- id: SR/SHD11
+  class: Sextupole
+  names:
+  - SHD11
+  - SHD 11
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 11
+- id: SR/SHD12
+  class: Sextupole
+  names:
+  - SHD12
+  - SHD 12
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 12
+- id: SR/SHD13
+  class: Sextupole
+  names:
+  - SHD13
+  - SHD 13
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 13
+- id: SR/SHD14
+  class: Sextupole
+  names:
+  - SHD14
+  - SHD 14
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 14
+- id: SR/SHD15
+  class: Sextupole
+  names:
+  - SHD15
+  - SHD 15
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 15
+- id: SR/SHD16
+  class: Sextupole
+  names:
+  - SHD16
+  - SHD 16
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 16
+- id: SR/SHD17
+  class: Sextupole
+  names:
+  - SHD17
+  - SHD 17
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 17
+- id: SR/SHD18
+  class: Sextupole
+  names:
+  - SHD18
+  - SHD 18
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 18
+- id: SR/SHD19
+  class: Sextupole
+  names:
+  - SHD19
+  - SHD 19
+  attributes:
+    DeviceList: [19, 1]
+    ElementList: 19
+- id: SR/SHD20
+  class: Sextupole
+  names:
+  - SHD20
+  - SHD 20
+  attributes:
+    DeviceList: [20, 1]
+    ElementList: 20
+- id: SR/SHD21
+  class: Sextupole
+  names:
+  - SHD21
+  - SHD 21
+  attributes:
+    DeviceList: [21, 1]
+    ElementList: 21
+- id: SR/SHD22
+  class: Sextupole
+  names:
+  - SHD22
+  - SHD 22
+  attributes:
+    DeviceList: [22, 1]
+    ElementList: 22
+- id: SR/SHD23
+  class: Sextupole
+  names:
+  - SHD23
+  - SHD 23
+  attributes:
+    DeviceList: [23, 1]
+    ElementList: 23
+- id: SR/SHD24
+  class: Sextupole
+  names:
+  - SHD24
+  - SHD 24
+  attributes:
+    DeviceList: [24, 1]
+    ElementList: 24
+- id: SR/SHF01
+  class: Sextupole
+  names:
+  - SHF01
+  - SHF 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/SHF02
+  class: Sextupole
+  names:
+  - SHF02
+  - SHF 02
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/SHF03
+  class: Sextupole
+  names:
+  - SHF03
+  - SHF 03
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/SHF04
+  class: Sextupole
+  names:
+  - SHF04
+  - SHF 04
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/SHF05
+  class: Sextupole
+  names:
+  - SHF05
+  - SHF 05
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: SR/SHF06
+  class: Sextupole
+  names:
+  - SHF06
+  - SHF 06
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/SHF07
+  class: Sextupole
+  names:
+  - SHF07
+  - SHF 07
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: SR/SHF08
+  class: Sextupole
+  names:
+  - SHF08
+  - SHF 08
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: SR/SHF09
+  class: Sextupole
+  names:
+  - SHF09
+  - SHF 09
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 9
+- id: SR/SHF10
+  class: Sextupole
+  names:
+  - SHF10
+  - SHF 10
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 10
+- id: SR/SHF11
+  class: Sextupole
+  names:
+  - SHF11
+  - SHF 11
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 11
+- id: SR/SHF12
+  class: Sextupole
+  names:
+  - SHF12
+  - SHF 12
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 12
+- id: SR/SHF13
+  class: Sextupole
+  names:
+  - SHF13
+  - SHF 13
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 13
+- id: SR/SHF14
+  class: Sextupole
+  names:
+  - SHF14
+  - SHF 14
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 14
+- id: SR/SHF15
+  class: Sextupole
+  names:
+  - SHF15
+  - SHF 15
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 15
+- id: SR/SHF16
+  class: Sextupole
+  names:
+  - SHF16
+  - SHF 16
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 16
+- id: SR/SHF17
+  class: Sextupole
+  names:
+  - SHF17
+  - SHF 17
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 17
+- id: SR/SHF18
+  class: Sextupole
+  names:
+  - SHF18
+  - SHF 18
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 18
+- id: SR/SHF19
+  class: Sextupole
+  names:
+  - SHF19
+  - SHF 19
+  attributes:
+    DeviceList: [19, 1]
+    ElementList: 19
+- id: SR/SHF20
+  class: Sextupole
+  names:
+  - SHF20
+  - SHF 20
+  attributes:
+    DeviceList: [20, 1]
+    ElementList: 20
+- id: SR/SHF21
+  class: Sextupole
+  names:
+  - SHF21
+  - SHF 21
+  attributes:
+    DeviceList: [21, 1]
+    ElementList: 21
+- id: SR/SHF22
+  class: Sextupole
+  names:
+  - SHF22
+  - SHF 22
+  attributes:
+    DeviceList: [22, 1]
+    ElementList: 22
+- id: SR/SHF23
+  class: Sextupole
+  names:
+  - SHF23
+  - SHF 23
+  attributes:
+    DeviceList: [23, 1]
+    ElementList: 23
+- id: SR/SHF24
+  class: Sextupole
+  names:
+  - SHF24
+  - SHF 24
+  attributes:
+    DeviceList: [24, 1]
+    ElementList: 24
+- id: SR/VALVE01
+  class: Valve
+  names:
+  - VALVE01
+  - VALVE 01
+  place: SR/SECT1
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/VALVE02
+  class: Valve
+  names:
+  - VALVE02
+  - VALVE 02
+  place: SR/SECT2
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 2
+- id: SR/VALVE03
+  class: Valve
+  names:
+  - VALVE03
+  - VALVE 03
+  place: SR/SECT3
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 3
+- id: SR/VALVE04
+  class: Valve
+  names:
+  - VALVE04
+  - VALVE 04
+  place: SR/SECT4
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 4
+- id: SR/VALVE05
+  class: Valve
+  names:
+  - VALVE05
+  - VALVE 05
+  place: SR/SECT5
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 5
+- id: SR/VALVE06
+  class: Valve
+  names:
+  - VALVE06
+  - VALVE 06
+  place: SR/SECT6
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 6
+- id: SR/VALVE07
+  class: Valve
+  names:
+  - VALVE07
+  - VALVE 07
+  place: SR/SECT7
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 7
+- id: SR/VALVE08
+  class: Valve
+  names:
+  - VALVE08
+  - VALVE 08
+  place: SR/SECT8
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 8
+- id: SR/VALVE09
+  class: Valve
+  names:
+  - VALVE09
+  - VALVE 09
+  place: SR/SECT9
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 9
+- id: SR/VALVE10
+  class: Valve
+  names:
+  - VALVE10
+  - VALVE 10
+  place: SR/SECT10
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 10
+- id: SR/VALVE11
+  class: Valve
+  names:
+  - VALVE11
+  - VALVE 11
+  place: SR/SECT11
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 11
+- id: SR/VALVE12
+  class: Valve
+  names:
+  - VALVE12
+  - VALVE 12
+  place: SR/SECT12
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 12
+- id: SR/VCM01
+  class: VCorrector
+  names:
+  - VCM01
+  - VCM 01
+  attributes:
+    DeviceList: [1, 1]
+    ElementList: 1
+- id: SR/VCM02
+  class: VCorrector
+  names:
+  - VCM02
+  - VCM 02
+  attributes:
+    DeviceList: [1, 2]
+    ElementList: 2
+- id: SR/VCM03
+  class: VCorrector
+  names:
+  - VCM03
+  - VCM 03
+  attributes:
+    DeviceList: [2, 1]
+    ElementList: 3
+- id: SR/VCM04
+  class: VCorrector
+  names:
+  - VCM04
+  - VCM 04
+  attributes:
+    DeviceList: [2, 2]
+    ElementList: 4
+- id: SR/VCM05
+  class: VCorrector
+  names:
+  - VCM05
+  - VCM 05
+  attributes:
+    DeviceList: [3, 1]
+    ElementList: 5
+- id: SR/VCM06
+  class: VCorrector
+  names:
+  - VCM06
+  - VCM 06
+  attributes:
+    DeviceList: [3, 2]
+    ElementList: 6
+- id: SR/VCM07
+  class: VCorrector
+  names:
+  - VCM07
+  - VCM 07
+  attributes:
+    DeviceList: [4, 1]
+    ElementList: 7
+- id: SR/VCM08
+  class: VCorrector
+  names:
+  - VCM08
+  - VCM 08
+  attributes:
+    DeviceList: [4, 2]
+    ElementList: 8
+- id: SR/VCM09
+  class: VCorrector
+  names:
+  - VCM09
+  - VCM 09
+  attributes:
+    DeviceList: [5, 1]
+    ElementList: 9
+- id: SR/VCM10
+  class: VCorrector
+  names:
+  - VCM10
+  - VCM 10
+  attributes:
+    DeviceList: [5, 2]
+    ElementList: 10
+- id: SR/VCM11
+  class: VCorrector
+  names:
+  - VCM11
+  - VCM 11
+  attributes:
+    DeviceList: [6, 1]
+    ElementList: 11
+- id: SR/VCM12
+  class: VCorrector
+  names:
+  - VCM12
+  - VCM 12
+  attributes:
+    DeviceList: [6, 2]
+    ElementList: 12
+- id: SR/VCM13
+  class: VCorrector
+  names:
+  - VCM13
+  - VCM 13
+  attributes:
+    DeviceList: [7, 1]
+    ElementList: 13
+- id: SR/VCM14
+  class: VCorrector
+  names:
+  - VCM14
+  - VCM 14
+  attributes:
+    DeviceList: [7, 2]
+    ElementList: 14
+- id: SR/VCM15
+  class: VCorrector
+  names:
+  - VCM15
+  - VCM 15
+  attributes:
+    DeviceList: [8, 1]
+    ElementList: 15
+- id: SR/VCM16
+  class: VCorrector
+  names:
+  - VCM16
+  - VCM 16
+  attributes:
+    DeviceList: [8, 2]
+    ElementList: 16
+- id: SR/VCM17
+  class: VCorrector
+  names:
+  - VCM17
+  - VCM 17
+  attributes:
+    DeviceList: [9, 1]
+    ElementList: 17
+- id: SR/VCM18
+  class: VCorrector
+  names:
+  - VCM18
+  - VCM 18
+  attributes:
+    DeviceList: [9, 2]
+    ElementList: 18
+- id: SR/VCM19
+  class: VCorrector
+  names:
+  - VCM19
+  - VCM 19
+  attributes:
+    DeviceList: [10, 1]
+    ElementList: 19
+- id: SR/VCM20
+  class: VCorrector
+  names:
+  - VCM20
+  - VCM 20
+  attributes:
+    DeviceList: [10, 2]
+    ElementList: 20
+- id: SR/VCM21
+  class: VCorrector
+  names:
+  - VCM21
+  - VCM 21
+  attributes:
+    DeviceList: [11, 1]
+    ElementList: 21
+- id: SR/VCM22
+  class: VCorrector
+  names:
+  - VCM22
+  - VCM 22
+  attributes:
+    DeviceList: [11, 2]
+    ElementList: 22
+- id: SR/VCM23
+  class: VCorrector
+  names:
+  - VCM23
+  - VCM 23
+  attributes:
+    DeviceList: [12, 1]
+    ElementList: 23
+- id: SR/VCM24
+  class: VCorrector
+  names:
+  - VCM24
+  - VCM 24
+  attributes:
+    DeviceList: [12, 2]
+    ElementList: 24
+- id: SR/VCM25
+  class: VCorrector
+  names:
+  - VCM25
+  - VCM 25
+  attributes:
+    DeviceList: [13, 1]
+    ElementList: 25
+- id: SR/VCM26
+  class: VCorrector
+  names:
+  - VCM26
+  - VCM 26
+  attributes:
+    DeviceList: [13, 2]
+    ElementList: 26
+- id: SR/VCM27
+  class: VCorrector
+  names:
+  - VCM27
+  - VCM 27
+  attributes:
+    DeviceList: [14, 1]
+    ElementList: 27
+- id: SR/VCM28
+  class: VCorrector
+  names:
+  - VCM28
+  - VCM 28
+  attributes:
+    DeviceList: [14, 2]
+    ElementList: 28
+- id: SR/VCM29
+  class: VCorrector
+  names:
+  - VCM29
+  - VCM 29
+  attributes:
+    DeviceList: [15, 1]
+    ElementList: 29
+- id: SR/VCM30
+  class: VCorrector
+  names:
+  - VCM30
+  - VCM 30
+  attributes:
+    DeviceList: [15, 2]
+    ElementList: 30
+- id: SR/VCM31
+  class: VCorrector
+  names:
+  - VCM31
+  - VCM 31
+  attributes:
+    DeviceList: [16, 1]
+    ElementList: 31
+- id: SR/VCM32
+  class: VCorrector
+  names:
+  - VCM32
+  - VCM 32
+  attributes:
+    DeviceList: [16, 2]
+    ElementList: 32
+- id: SR/VCM33
+  class: VCorrector
+  names:
+  - VCM33
+  - VCM 33
+  attributes:
+    DeviceList: [17, 1]
+    ElementList: 33
+- id: SR/VCM34
+  class: VCorrector
+  names:
+  - VCM34
+  - VCM 34
+  attributes:
+    DeviceList: [17, 2]
+    ElementList: 34
+- id: SR/VCM35
+  class: VCorrector
+  names:
+  - VCM35
+  - VCM 35
+  attributes:
+    DeviceList: [18, 1]
+    ElementList: 35
+- id: SR/VCM36
+  class: VCorrector
+  names:
+  - VCM36
+  - VCM 36
+  attributes:
+    DeviceList: [18, 2]
+    ElementList: 36
+- id: SR/VCM37
+  class: VCorrector
+  names:
+  - VCM37
+  - VCM 37
+  attributes:
+    DeviceList: [19, 1]
+    ElementList: 37
+- id: SR/VCM38
+  class: VCorrector
+  names:
+  - VCM38
+  - VCM 38
+  attributes:
+    DeviceList: [19, 2]
+    ElementList: 38
+- id: SR/VCM39
+  class: VCorrector
+  names:
+  - VCM39
+  - VCM 39
+  attributes:
+    DeviceList: [20, 1]
+    ElementList: 39
+- id: SR/VCM40
+  class: VCorrector
+  names:
+  - VCM40
+  - VCM 40
+  attributes:
+    DeviceList: [20, 2]
+    ElementList: 40
+- id: SR/VCM41
+  class: VCorrector
+  names:
+  - VCM41
+  - VCM 41
+  attributes:
+    DeviceList: [21, 1]
+    ElementList: 41
+- id: SR/VCM42
+  class: VCorrector
+  names:
+  - VCM42
+  - VCM 42
+  attributes:
+    DeviceList: [21, 2]
+    ElementList: 42
+- id: SR/VCM43
+  class: VCorrector
+  names:
+  - VCM43
+  - VCM 43
+  attributes:
+    DeviceList: [22, 1]
+    ElementList: 43
+- id: SR/VCM44
+  class: VCorrector
+  names:
+  - VCM44
+  - VCM 44
+  attributes:
+    DeviceList: [22, 2]
+    ElementList: 44
+- id: SR/VCM45
+  class: VCorrector
+  names:
+  - VCM45
+  - VCM 45
+  attributes:
+    DeviceList: [23, 1]
+    ElementList: 45
+- id: SR/VCM46
+  class: VCorrector
+  names:
+  - VCM46
+  - VCM 46
+  attributes:
+    DeviceList: [23, 2]
+    ElementList: 46
+- id: SR/VCM47
+  class: VCorrector
+  names:
+  - VCM47
+  - VCM 47
+  attributes:
+    DeviceList: [24, 1]
+    ElementList: 47
+- id: SR/VCM48
+  class: VCorrector
+  names:
+  - VCM48
+  - VCM 48
+  attributes:
+    DeviceList: [24, 2]
+    ElementList: 48
+- id: SR/VCM49
+  class: VCorrector
+  names:
+  - VCM49
+  - VCM 49
+  attributes:
+    DeviceList: [25, 1]
+    ElementList: 49
+- id: SR/VCM50
+  class: VCorrector
+  names:
+  - VCM50
+  - VCM 50
+  attributes:
+    DeviceList: [25, 2]
+    ElementList: 50
+- id: SR/VCM51
+  class: VCorrector
+  names:
+  - VCM51
+  - VCM 51
+  attributes:
+    DeviceList: [26, 1]
+    ElementList: 51
+- id: SR/VCM52
+  class: VCorrector
+  names:
+  - VCM52
+  - VCM 52
+  attributes:
+    DeviceList: [26, 2]
+    ElementList: 52
+- id: SR/VCM53
+  class: VCorrector
+  names:
+  - VCM53
+  - VCM 53
+  attributes:
+    DeviceList: [27, 1]
+    ElementList: 53
+- id: SR/VCM54
+  class: VCorrector
+  names:
+  - VCM54
+  - VCM 54
+  attributes:
+    DeviceList: [27, 2]
+    ElementList: 54
+- id: SR/VCM55
+  class: VCorrector
+  names:
+  - VCM55
+  - VCM 55
+  attributes:
+    DeviceList: [28, 1]
+    ElementList: 55
+- id: SR/VCM56
+  class: VCorrector
+  names:
+  - VCM56
+  - VCM 56
+  attributes:
+    DeviceList: [28, 2]
+    ElementList: 56
+- id: SR/VCM57
+  class: VCorrector
+  names:
+  - VCM57
+  - VCM 57
+  attributes:
+    DeviceList: [29, 1]
+    ElementList: 57
+- id: SR/VCM58
+  class: VCorrector
+  names:
+  - VCM58
+  - VCM 58
+  attributes:
+    DeviceList: [29, 2]
+    ElementList: 58
+- id: SR/VCM59
+  class: VCorrector
+  names:
+  - VCM59
+  - VCM 59
+  attributes:
+    DeviceList: [30, 1]
+    ElementList: 59
+- id: SR/VCM60
+  class: VCorrector
+  names:
+  - VCM60
+  - VCM 60
+  attributes:
+    DeviceList: [30, 2]
+    ElementList: 60
+- id: SR/VCM61
+  class: VCorrector
+  names:
+  - VCM61
+  - VCM 61
+  attributes:
+    DeviceList: [31, 1]
+    ElementList: 61
+- id: SR/VCM62
+  class: VCorrector
+  names:
+  - VCM62
+  - VCM 62
+  attributes:
+    DeviceList: [31, 2]
+    ElementList: 62
+- id: SR/VCM63
+  class: VCorrector
+  names:
+  - VCM63
+  - VCM 63
+  attributes:
+    DeviceList: [32, 1]
+    ElementList: 63
+- id: SR/VCM64
+  class: VCorrector
+  names:
+  - VCM64
+  - VCM 64
+  attributes:
+    DeviceList: [32, 2]
+    ElementList: 64
+- id: SR/VCM65
+  class: VCorrector
+  names:
+  - VCM65
+  - VCM 65
+  attributes:
+    DeviceList: [33, 1]
+    ElementList: 65
+- id: SR/VCM66
+  class: VCorrector
+  names:
+  - VCM66
+  - VCM 66
+  attributes:
+    DeviceList: [33, 2]
+    ElementList: 66
+- id: SR/VCM67
+  class: VCorrector
+  names:
+  - VCM67
+  - VCM 67
+  attributes:
+    DeviceList: [34, 1]
+    ElementList: 67
+- id: SR/VCM68
+  class: VCorrector
+  names:
+  - VCM68
+  - VCM 68
+  attributes:
+    DeviceList: [34, 2]
+    ElementList: 68
+- id: SR/VCM69
+  class: VCorrector
+  names:
+  - VCM69
+  - VCM 69
+  attributes:
+    DeviceList: [35, 1]
+    ElementList: 69
+- id: SR/VCM70
+  class: VCorrector
+  names:
+  - VCM70
+  - VCM 70
+  attributes:
+    DeviceList: [35, 2]
+    ElementList: 70
+- id: SR/VCM71
+  class: VCorrector
+  names:
+  - VCM71
+  - VCM 71
+  attributes:
+    DeviceList: [36, 1]
+    ElementList: 71
+- id: SR/VCM72
+  class: VCorrector
+  names:
+  - VCM72
+  - VCM 72
+  attributes:
+    DeviceList: [36, 2]
+    ElementList: 72
