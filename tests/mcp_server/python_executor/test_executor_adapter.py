@@ -7,8 +7,10 @@ Pattern: monkeypatch.chdir(tmp_path) -> write config.yml -> mock deps -> call ad
 import asyncio
 import json
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
@@ -221,6 +223,33 @@ def test_execution_folder_created(tmp_path, monkeypatch):
     assert folder.exists()
     assert folder.parent.name == "python_executions"
     assert (folder / "figures").exists()
+
+
+def _zone_away_from_host() -> ZoneInfo:
+    """Return a zone whose wall-clock differs from the host clock by hours.
+
+    The folder stamp must be shown to follow the facility zone and not the host clock, so the
+    two must differ by more than the test tolerance on any host (the closest real host offset
+    to +14 h is +13:45, fifteen minutes away).
+    """
+    if datetime.now().astimezone().utcoffset() == timedelta(hours=14):
+        return ZoneInfo("Etc/GMT+12")
+    return ZoneInfo("Etc/GMT-14")
+
+
+def test_execution_folder_is_stamped_in_the_facility_zone(tmp_path, monkeypatch):
+    """The folder name carries the start time in the facility zone, not the host clock."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path)
+    zone = _zone_away_from_host()
+    monkeypatch.setattr(
+        "osprey.mcp_server.python_executor.executor.get_facility_timezone", lambda: zone
+    )
+    folder = _create_execution_folder()
+
+    stamp = datetime.strptime(folder.name[:15], "%Y%m%d_%H%M%S")
+    expected = datetime.now(zone).replace(tzinfo=None)
+    assert abs((stamp - expected).total_seconds()) < 120
 
 
 # ---------------------------------------------------------------------------
