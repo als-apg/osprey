@@ -48,7 +48,7 @@ try:
 except ImportError:
     HAS_SDK = False
 
-from osprey.agent_runner.errors import AgentRunError
+from osprey.agent_runner.errors import from_sdk_error
 from osprey.agent_runner.events import (
     AgentEvent,
     ResultEvent,
@@ -179,7 +179,7 @@ class AgentSession:
         try:
             await _send_turn(self._client, message)
         except ClaudeSDKError as exc:
-            raise AgentRunError(str(exc), error_type=type(exc).__name__) from exc
+            raise from_sdk_error(exc) from exc
 
     async def events(self) -> AsyncIterator[AgentEvent]:
         """Yield the submitted turn's event records, up to and including its result.
@@ -211,7 +211,7 @@ class AgentSession:
                         self._record_turn(text_blocks, tool_traces, system_messages, event)
                     yield event
         except ClaudeSDKError as exc:
-            raise AgentRunError(str(exc), error_type=type(exc).__name__) from exc
+            raise from_sdk_error(exc) from exc
 
     def _record_turn(
         self,
@@ -281,7 +281,7 @@ class AgentSession:
         try:
             await self._client.interrupt()
         except ClaudeSDKError as exc:
-            raise AgentRunError(str(exc), error_type=type(exc).__name__) from exc
+            raise from_sdk_error(exc) from exc
 
     def _transport_process(self) -> Any:
         """The child process handle the client's transport holds, if any.
