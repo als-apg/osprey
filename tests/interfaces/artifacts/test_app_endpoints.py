@@ -491,6 +491,20 @@ class TestAppLifecycle:
         (bad / "config.yml").write_text(":\n  - not valid yaml: [unclosed\n")
         assert TestClient(create_app(workspace_root=bad)).get("/health").status_code == 200
 
+    def test_create_app_without_a_root_serves_the_shared_data_root(self, tmp_path, monkeypatch):
+        """With no root passed, the gallery, its store and the focus file all use
+        the deployment's shared agent-data root."""
+        import osprey_connectors.workspace as workspace_module
+
+        shared = tmp_path / "shared"
+        monkeypatch.setattr(workspace_module, "resolve_shared_data_root", lambda: shared)
+
+        client = TestClient(create_app())
+        entry = _save_text_artifact(client.app.state.artifact_store)
+
+        assert client.post("/api/focus", json={"artifact_id": entry.id}).status_code == 200
+        assert (shared / "focus_state.txt").is_file()
+
     def test_run_server_builds_app_and_hands_it_to_uvicorn(self, tmp_path, monkeypatch):
         import uvicorn
 
