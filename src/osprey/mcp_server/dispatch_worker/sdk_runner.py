@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner import build_agent_options
 from osprey.agent_runner.artifact_resolve import (
     deployed_config_path,
     deployed_render_dir,
@@ -72,9 +73,7 @@ logger.addFilter(_Base64RedactingFilter())
 try:
     from claude_agent_sdk import (
         AssistantMessage,
-        ClaudeAgentOptions,
         ClaudeSDKClient,
-        HookMatcher,
         ResultMessage,
         SystemMessage,
         TextBlock,
@@ -635,11 +634,11 @@ async def run_dispatch(
         {name: (len(s) if s is not None else None) for name, s in agent_surfaces.items()},
     )
 
-    # NOTE: do NOT use permission_mode="bypassPermissions" — the CLI short-circuits
-    # can_use_tool under bypass, so the allowlist would not be enforced. With the
-    # default mode and can_use_tool set, the SDK auto-configures
-    # permission_prompt_tool_name="stdio" (see client.py:122) which routes
-    # unresolved permission checks to our backstop callback.
+    # ``permission_mode=None`` leaves the mode out of the options. The runner's
+    # default is ``bypassPermissions``, under which the agent CLI never consults
+    # ``can_use_tool``, so the allowlist would go unenforced. With the mode left
+    # out and ``can_use_tool`` set, the agent SDK routes unresolved permission
+    # checks to the backstop callback.
     #
     # The PreToolUse hook is the single authority: unlike can_use_tool — which
     # the CLI never consults for calls already permitted by settings.json
@@ -648,32 +647,37 @@ async def run_dispatch(
     # Exact-name denied tools additionally go to disallowed_tools, which strips
     # them from the model's context entirely; prefix entries (``server__*``)
     # become server-level rules (``server``).
+    #
+    # ``max_budget_usd=None``: a dispatch run is bounded by ``max_turns``, the
+    # inactivity watchdog and the worker's own timeout, never by a spend ceiling.
     disallowed = [t for t in denied_tools if not t.endswith("*")] + [
         t[: -len("__*")] for t in denied_tools if t.endswith("__*")
     ]
-    # Any-typed so the SDK's HookCallback union (typed against its own
-    # TypedDict inputs) accepts our dict-based callback.
+    # Any-typed: the runner's hook parameter is typed against the agent SDK's
+    # own hook signature, which the dict-based callback does not declare.
     policy_hook: Any = make_pretooluse_hook(effective_tools, agent_surfaces, denied_tools)
-    options = ClaudeAgentOptions(
-        allowed_tools=effective_tools,
-        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
-        can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
-        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[policy_hook])]},
-        disallowed_tools=sorted(disallowed),
+    options = build_agent_options(
         # The render, not the repo root: the agent CLI takes its working
         # directory as its project root, which is how it finds this deployment's
         # ``.mcp.json``, ``.claude/`` tree (settings, hooks, skills, agents) and
         # ``CLAUDE.md``. Same choice ``osprey chat`` makes when it chdirs into
         # the render before launching, so headless dispatch and an interactive
         # session see one project.
-        cwd=render_dir,
-        env=sdk_env,
+        Path(render_dir),
+        allowed_tools=effective_tools,
+        disallowed_tools=sorted(disallowed),
+        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
+        can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
+        pre_tool_use_hooks=[policy_hook],
+        permission_mode=None,
         max_turns=max_turns,
-        stderr=lambda line: stderr_lines.append(line),
+        max_budget_usd=None,
         setting_sources=["project"],
+        env=sdk_env,
         # Force the session id = the value injected above so the OTEL emitter's
         # session.id matches what provenance_locator returns for this run.
         session_id=telemetry_session_id,
+        stderr=stderr_lines.append,
     )
 
     text_parts: list[str] = []
