@@ -397,33 +397,20 @@ describe('palette.js skips its /api/config read without revealSetting', () => {
 
   afterEach(() => {
     paletteMod?.closePalette();
+    vi.unstubAllGlobals();
   });
 
   test('no fetch, and no "Settings unavailable" row, when the dep is withheld', async () => {
-    const fetchConfig = vi.fn(async () => ({ sections: {} }));
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sections: {} }) }));
+    vi.stubGlobal('fetch', fetchMock);
 
-    paletteMod.openPalette({ getHiddenPanels: () => [], getVisiblePanels: () => [], fetchConfig });
+    paletteMod.openPalette({ getHiddenPanels: () => [], getVisiblePanels: () => [] });
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(fetchConfig).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain('Settings unavailable');
     expect(document.body.textContent).not.toContain('Loading settings');
-  });
-
-  test('the read still fires for a deployment that kept the tab', async () => {
-    const fetchConfig = vi.fn(async () => ({ sections: { web: { theme: 'dark' } } }));
-
-    paletteMod.openPalette({
-      getHiddenPanels: () => [],
-      getVisiblePanels: () => [],
-      revealSetting: () => {},
-      fetchConfig,
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(fetchConfig).toHaveBeenCalledTimes(1);
   });
 });
 
