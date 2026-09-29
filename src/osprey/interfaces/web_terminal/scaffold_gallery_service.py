@@ -21,6 +21,14 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import (
+    get_user_owned,
+    update_config_add_user_owned,
+    update_config_remove_user_owned,
+    update_manifest_add_user_owned,
+    update_manifest_remove_user_owned,
+)
 from osprey.audit.envelope import POSTURE_SOURCE_APP
 from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, record_protected_refusal
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
@@ -37,14 +45,6 @@ from osprey.interfaces.web_terminal.ownership import (
     rehydrate,
     reserved_write_channel,
     resolve_ownership,
-)
-from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import (
-    get_user_owned,
-    update_config_add_user_owned,
-    update_config_remove_user_owned,
-    update_manifest_add_user_owned,
-    update_manifest_remove_user_owned,
 )
 from osprey.utils.config import resolve_env_vars
 

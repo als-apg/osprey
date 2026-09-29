@@ -17,8 +17,8 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import update_config_add_user_owned
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import update_config_add_user_owned
 
 _SERVICE_ARTIFACTS = [
     "services/postgresql",
@@ -417,8 +417,8 @@ class TestClaimedServiceDrift:
 
         import jinja2
 
+        from osprey.agent_runner.build_artifacts.ownership import update_manifest_add_user_owned
         from osprey.build.manifest import MANIFEST_FILENAME
-        from osprey.services.build_artifacts.ownership import update_manifest_add_user_owned
 
         templates = tmp_path / "templates"
         copy = templates / relative

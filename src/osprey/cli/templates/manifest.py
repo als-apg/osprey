@@ -12,10 +12,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
 from osprey.errors import BuildProfileError
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import framework_template_hash
 
 logger = logging.getLogger("osprey.cli.templates")
 

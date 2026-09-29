@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
 
 
 class TestBuildArtifact:

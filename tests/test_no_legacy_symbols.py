@@ -4,17 +4,18 @@ Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
 of the following substrings appear anywhere. Intentionally has no per-file
 exclusions — if a legitimate match shows up later, the rename surfaced it.
 
-Six rename generations are guarded: the ``prompts``-era rename; the
+Seven rename generations are guarded: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
 (a plan is an arbitrary generator, not only a scan); the
 ``motor``/``detector`` -> ``setpoint``/``readback`` rename that put the bridge
 in the control room's vocabulary; that same generalization carried through
 the *prose*, which the second generation renamed the symbols for and then left
 behind; the substrate-env -> devices-file move, which deleted the three
-passthrough variables and the helpers that produced and read them; and the
+passthrough variables and the helpers that produced and read them; the
 control-context rename, which made the control target and the write posture one
 record per *deployment* and retired every name that called that deployment-wide
-thing a session's. The genuine
+thing a session's; and the build-artifact catalog's move into the harness
+adapter. The genuine
 tokens that legitimately survive — the ``scan``/``grid_scan``
 *plan names*, their ``Scan*Params`` schemas, physics scan docs, the many
 unrelated senses of "scan" (a directory scan, a pattern scan, a CRT scanline),
@@ -138,6 +139,9 @@ LEGACY_SUBSTRINGS = (
     # except the payload key, which the contract test guards by name.
     "situation.session_target",
     "session_target=",
+    # build-artifact catalog moved inside the harness adapter
+    "services.build_artifacts",
+    "services/build_artifacts",
 )
 
 ROOTS = ("src", "tests", "docs/source")
@@ -160,7 +164,7 @@ SCAN_SUFFIXES = (
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 SELF_ALLOWLIST = {
     Path(__file__).resolve(),
-    (_REPO_ROOT / "tests/services/test_build_artifacts_imports.py").resolve(),
+    (_REPO_ROOT / "tests/agent_runner/test_build_artifacts_imports.py").resolve(),
     (_REPO_ROOT / "tests/interfaces/web_terminal/test_scaffold_routes_registration.py").resolve(),
 }
 

@@ -1,4 +1,4 @@
-"""Verify the build_artifacts package public API and that the legacy package is gone."""
+"""Verify the build-artifact package's public API, and that no copy of it remains at a former path."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 
 
 def test_public_api_surface() -> None:
-    from osprey.services.build_artifacts import BuildArtifact, BuildArtifactCatalog
+    from osprey.agent_runner.build_artifacts import BuildArtifact, BuildArtifactCatalog
 
     catalog = BuildArtifactCatalog.default()
     names = catalog.all_names()
@@ -22,3 +22,8 @@ def test_public_api_surface() -> None:
 def test_legacy_package_removed() -> None:
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("osprey.services.prompts")
+
+
+def test_the_catalog_has_no_home_outside_the_harness_adapter() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("osprey.services.build_artifacts")

@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
@@ -21,8 +23,6 @@ from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
 from osprey.errors import BuildProfileError
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import framework_template_hash
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader

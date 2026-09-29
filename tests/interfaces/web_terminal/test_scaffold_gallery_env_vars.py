@@ -49,7 +49,7 @@ class TestGetContentReadsDisk:
         re-renders the template, it won't have the marker. If it reads from
         disk, it will.
         """
-        from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+        from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 
         registry = BuildArtifactCatalog.default()
         art = registry.get(SAFE_ARTIFACT)
@@ -73,7 +73,7 @@ class TestGetContentReadsDisk:
     @pytest.mark.usefixtures("service")
     def test_get_content_falls_back_to_render_when_file_missing(self, project_dir):
         """When the on-disk file is missing, get_content falls back to _render_framework."""
-        from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+        from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 
         registry = BuildArtifactCatalog.default()
         art = registry.get(SAFE_ARTIFACT)

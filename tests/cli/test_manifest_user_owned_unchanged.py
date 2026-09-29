@@ -46,12 +46,12 @@ def test_rebuild_records_the_claim_time_hash_for_every_class(tmp_path: Path) -> 
     import json
     from types import SimpleNamespace
 
-    from osprey.build.manifest import MANIFEST_FILENAME
-    from osprey.cli.templates.manager import TemplateManager
-    from osprey.services.build_artifacts.ownership import (
+    from osprey.agent_runner.build_artifacts.ownership import (
         sha256_directory,
         update_manifest_add_user_owned,
     )
+    from osprey.build.manifest import MANIFEST_FILENAME
+    from osprey.cli.templates.manager import TemplateManager
 
     manager = TemplateManager()
     template_root = manager.template_root

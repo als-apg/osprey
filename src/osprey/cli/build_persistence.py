@@ -448,7 +448,7 @@ def _register_convention_artifacts(project_path: Path, applied: ConventionApplic
     project holds the durable edit. ``check_user_owned_drift`` therefore stays
     silent for convention-derived ownership by design.
     """
-    from osprey.services.build_artifacts.ownership import update_config_add_user_owned
+    from osprey.agent_runner.build_artifacts.ownership import update_config_add_user_owned
 
     if not (project_path / "config.yml").exists():
         return 0

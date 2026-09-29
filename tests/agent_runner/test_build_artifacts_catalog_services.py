@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 
 
 def _service_dirs_with_compose_template(services_root: Path) -> set[str]:

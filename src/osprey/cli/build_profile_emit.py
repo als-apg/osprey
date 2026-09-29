@@ -571,10 +571,10 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
     panels — so this menu can never disagree with what a profile may name.
     Universal panels (always served) are excluded: they are not opt-ins.
     """
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
     from osprey.cli.templates.artifact_library import _TYPE_TO_SUBDIR, list_artifacts
     from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS, UNIVERSAL_PANELS
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
-    from osprey.services.build_artifacts import BuildArtifactCatalog
 
     catalog = BuildArtifactCatalog.default()
     menu: dict[str, list[tuple[str, str]]] = {}
