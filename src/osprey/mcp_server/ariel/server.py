@@ -8,7 +8,9 @@ Usage:
 """
 
 import logging
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 
 from fastmcp import FastMCP
 
@@ -107,6 +109,8 @@ def build_entry_url(entry_id: str | None, source_system: str | None = None) -> "
         return None
 
     try:
+        if not isinstance(template, str):
+            raise TypeError(f"expected a string, got {type(template).__name__}")
         return template.format(entry_id=quote(str(entry_id), safe=""))
     except Exception:
         global _entry_url_template_warned
@@ -120,7 +124,7 @@ def build_entry_url(entry_id: str | None, source_system: str | None = None) -> "
         return None
 
 
-def serialize_entry(entry: dict, *, text_limit: int) -> dict:
+def serialize_entry(entry: Mapping[str, Any], *, text_limit: int) -> dict[str, Any]:
     """Serialize an EnhancedLogbookEntry dict into a compact response dict.
 
     Timestamps are converted to the facility timezone for agent consumption.

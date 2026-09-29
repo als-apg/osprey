@@ -12,6 +12,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastmcp.exceptions import ToolError
 
@@ -24,6 +25,9 @@ from osprey.mcp_server.ariel.server import (
 )
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.http import notify_agent_activity_async
+
+if TYPE_CHECKING:
+    from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
 
@@ -364,7 +368,7 @@ async def entry_create(
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
-        entry = {
+        entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
             "source_system": ARIEL_NATIVE_SOURCE_SYSTEM,
             "timestamp": now,
