@@ -29,6 +29,7 @@ from osprey.cli.scaffold_cmd import (
     scaffold,
 )
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
+from osprey.docs_links import INSTALL_DOCS_URL
 
 
 @pytest.fixture()
@@ -904,7 +905,8 @@ class TestWebTerminalsRetiredConfigOption:
         assert "--config is no longer supported" in reported
         assert "osprey scaffold ci" in reported
         assert "`deploy:` block" in reported
-        assert "/osprey:install" in reported
+        assert INSTALL_DOCS_URL in reported
+        assert "/osprey:install" not in reported
 
     def test_refusal_is_unconditional_for_a_readable_config(self, tmp_path, caplog):
         """A file that parses cleanly is refused just the same — no fallback read."""

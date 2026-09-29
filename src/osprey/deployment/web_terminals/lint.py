@@ -78,6 +78,7 @@ from osprey.deployment.web_terminals.render import (
     _scope_list,
     deployment_origin,
 )
+from osprey.docs_links import INSTALL_DOCS_URL
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
@@ -2601,7 +2602,8 @@ def _check_one_persona_project_path(
                         "delta `osprey init` writes in this repo's personas/ directory, "
                         "which is what `osprey build` renders the persona project from. "
                         "A variant build that predates the delta layout has no such file "
-                        "to point at yet; run /osprey:install to convert it into one"
+                        "to point at yet; follow the installer guide at "
+                        f"{INSTALL_DOCS_URL} to convert it into one"
                     ),
                 )
             ]

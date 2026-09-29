@@ -34,6 +34,7 @@ from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.env_production import deploy_issued_credential_vars
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
+from osprey.docs_links import INSTALL_DOCS_URL
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME
 from osprey.utils.log_filter import quiet_logger
@@ -399,8 +400,8 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
 
     Names both spellings the operator needs — the catalog value to write and the
     file it has to resolve to — from one place, so the several ways an entry can
-    be wrong cannot end up recommending different fixes. Ends by naming
-    ``/osprey:install``, because the operator most likely to read this is
+    be wrong cannot end up recommending different fixes. Ends by linking the
+    installer's page (``INSTALL_DOCS_URL``), because the operator most likely to read this is
     one whose project predates the persona-delta layout: they have a variant
     build in some older shape and need it converted, which is a bigger job than
     editing one catalog value.
@@ -412,8 +413,9 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
         f"'{reference}' — the delta at {delta} — which is what "
         "`osprey init` writes for every persona in the catalog. If this "
         "deployment has no such delta because its variant build predates the layout, "
-        "run /osprey:install: it converts an existing variant into a persona "
-        "delta over the profile this project is built from."
+        f"follow the installer guide at {INSTALL_DOCS_URL}: the installer converts "
+        "an existing variant into a persona delta over the profile this project is "
+        "built from."
     )
 
 
@@ -478,9 +480,10 @@ def _resolve_persona_profile(build_profile: str, persona_name: str, profile_root
                 f"written. Restore {candidate}, or drop "
                 f"modules.web_terminals.personas.{persona_name} from the catalog and the "
                 "roster entries that reference it. If the delta was never written because "
-                "this deployment's variant build predates the layout, run "
-                "/osprey:install: it converts an existing variant into a persona "
-                "delta over the profile this repo is built from."
+                "this deployment's variant build predates the layout, follow the "
+                f"installer guide at {INSTALL_DOCS_URL}: the installer converts an "
+                "existing variant into a persona delta over the profile this repo is "
+                "built from."
             )
         raise ValueError(
             f"Persona {persona_name!r} names the build_profile {build_profile!r}, but no "
