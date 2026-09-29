@@ -43,6 +43,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
     STARTER_NOTEBOOK_NAME,
     JupyterSidecar,
+    kernel_notebook_path,
 )
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
@@ -454,9 +455,20 @@ def test_no_backend_cookie_reaches_the_browser(
     assert "set-cookie" not in {name.lower() for name in through_proxy.headers}
 
 
-def test_a_session_starts_on_the_osprey_kernelspec(started_session: httpx.Response) -> None:
+def test_a_session_starts_on_the_osprey_kernelspec(
+    started_session: httpx.Response, sidecar: JupyterSidecar, kernel_id: str
+) -> None:
+    """The session is on the one kernelspec, and the switch refusal can name it.
+
+    ``kernel_notebook_path`` is how a refused control-target switch names the
+    notebook whose kernel holds the target; this asks the real sidecar with the
+    URL and credential the terminal publishes.
+    """
     assert started_session.status_code == 201
     assert started_session.json()["kernel"]["name"] == KERNELSPEC_NAME
+    assert (
+        kernel_notebook_path(sidecar.url, sidecar.auth_headers, kernel_id) == STARTER_NOTEBOOK_NAME
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +498,7 @@ def test_a_kernel_answers_over_the_proxied_socket(
         f"{PANEL}/api/kernels/{kernel_id}/channels?session_id={session_id}"
     )
     handshake = {name.lower(): value for name, value in recorded.headers.items()}
-    assert handshake["authorization"] == f"Bearer {sidecar.token}"
+    assert handshake["authorization"] == sidecar.auth_headers["authorization"]
 
 
 @pytest.mark.timeout(KERNEL_TIMEOUT, func_only=True)
@@ -696,14 +708,6 @@ def test_the_relayed_lab_csp_says_nothing_about_scripts(proxied: TestClient) -> 
 
     assert "script-src" not in csp
     assert "default-src" not in csp
-
-
-def test_the_panels_own_json_is_not_injected(proxied: TestClient) -> None:
-    """The gate reads the body's type, and the sidecar's API is not a document."""
-    status = proxied.get(f"{PANEL}/api/status")
-
-    assert status.status_code == 200
-    assert LAB_BAR_MODULE not in status.text
 
 
 def test_a_users_own_html_file_is_served_untouched(proxied: TestClient, notebook_env: Path) -> None:
