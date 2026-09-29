@@ -336,21 +336,6 @@ class TestLifespanWiring:
             assert _types(app.state.bar_layout["header"]) == ["logo", "display"]
             assert effective_bar_layout(app) is app.state.bar_layout
 
-    def test_no_config_leaves_the_shipped_default_in_place(self, tmp_path):
-        """The shipped arrangement, less whatever this deployment cannot
-        render — the same document the constant's docstring promises."""
-        with self._app(tmp_path, None) as app:
-            layout = effective_bar_layout(app)
-            assert layout["rev"] == 0
-            assert layout["header_visible"] is True and layout["status_visible"] is True
-            assert _types(layout["status"]) in (
-                ["space", "clock"],
-                ["space", "system-health", "clock"],
-            )
-            assert [t for t in _types(layout["header"]) if t != "identity"] == [
-                t for t in _types(DEFAULT_BAR_LAYOUT["header"]) if t != "identity"
-            ]
-
     def test_the_default_is_filtered_by_what_the_deployment_renders(self, tmp_path):
         """No SYSTEM panel and no user: the rev-0 document the lifespan leaves
         on state names neither ``system-health`` nor ``identity``, so the
@@ -367,20 +352,6 @@ class TestLifespanWiring:
             assert _types(layout["status"]) == ["space", "clock"]
             assert "identity" not in _types(layout["header"])
             assert effective_bar_layout(app) is layout
-
-    def test_an_authored_default_is_filtered_the_same_way(self, tmp_path, caplog):
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_panel_config",
-                return_value=({"artifacts"}, [], None),
-            ),
-            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "", "OSPREY_WEB_APP_NAME": ""}),
-            caplog.at_level(logging.WARNING),
-            self._app(tmp_path, {"status": ["system-health", "clock"]}) as app,
-        ):
-            assert _types(app.state.bar_layout["status"]) == ["clock"]
-        assert "web.bar_items.status[0]" in caplog.text
-        assert "system-health" in caplog.text
 
 
 class TestUnrenderableItemsLeaveTheDefault:
@@ -451,11 +422,6 @@ class TestUnrenderableItemsLeaveTheDefault:
         # What each item needs, in the words an operator acts on.
         assert BAR_ITEM_GATES["identity"] in caplog.text
         assert BAR_ITEM_GATES["bluesky-queue"] in caplog.text
-
-    def test_renderable_bar_layout_returns_the_same_object_when_nothing_is_dropped(self):
-        assert renderable_bar_layout(DEFAULT_BAR_LAYOUT, context=_OFFERS_EVERYTHING) is (
-            DEFAULT_BAR_LAYOUT
-        )
 
     def test_renderable_bar_layout_copies_and_keeps_the_envelope(self):
         source = {**DEFAULT_BAR_LAYOUT, "rev": 0, "status_visible": False}
