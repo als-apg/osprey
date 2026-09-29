@@ -333,14 +333,24 @@ def test_save_accepts_a_number_option_at_its_bounds(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
-    [("version", 2), ("version", None), ("header", "logo"), ("status", None)],
+    ("field", "value", "reason"),
+    [
+        ("version", 2, "version"),
+        ("version", None, "version"),
+        ("header", "logo", "malformed"),
+        ("status", None, "malformed"),
+        ("header_visible", "yes", "malformed"),
+        # ``0`` is falsy but not a boolean; the flag must be one.
+        ("status_visible", 0, "malformed"),
+    ],
 )
 def test_save_refuses_a_document_this_build_cannot_read(
-    tmp_path: Path, field: str, value: Any
+    tmp_path: Path, field: str, value: Any, reason: str
 ) -> None:
-    with pytest.raises(BarLayoutInvalid):
+    with pytest.raises(BarLayoutInvalid) as excinfo:
         save(tmp_path, document(**{field: value}))
+
+    assert excinfo.value.reason == reason
 
 
 def test_save_refuses_a_layout_that_is_not_a_document(tmp_path: Path) -> None:
