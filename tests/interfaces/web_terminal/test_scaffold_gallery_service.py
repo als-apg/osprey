@@ -1006,6 +1006,61 @@ class TestDeleteUntracked:
             service.delete_untracked("rules/safety")
 
 
+class TestDeleteUntrackedRefusesAnOwnedArtifact:
+    """The orphan delete is for orphans; an owned file is released, not swept.
+
+    Unlinking an owned artifact through the untracked route would leave its
+    ownership record behind, and on a volume the stored body that the next
+    start restores. The refusal names the route that does both halves.
+    """
+
+    def _owned(self, project_dir: Path) -> Path:
+        path = project_dir / ".claude" / "agents" / "owned.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Owned\n", encoding="utf-8")
+        ScaffoldGalleryService(project_dir).register_untracked("agents/owned")
+        return path
+
+    def test_an_owned_artifact_is_refused_and_left_alone(self, detached_project_dir):
+        owned = self._owned(detached_project_dir)
+
+        with pytest.raises(FileExistsError, match="owned — use unoverride with delete_file"):
+            ScaffoldGalleryService(detached_project_dir).delete_untracked("agents/owned")
+
+        assert owned.read_text(encoding="utf-8") == "# Owned\n"
+        assert "agents/owned" in _get_user_owned(detached_project_dir)
+
+    def test_the_route_answers_409(self, detached_project_dir):
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
+        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
+
+        owned = self._owned(detached_project_dir)
+        app = bare_route_app(
+            scaffold_routes.router,
+            project_cwd=str(detached_project_dir),
+            scaffold_write_enabled=True,
+        )
+        register_scaffold_conflict_handlers(app)
+
+        response = TestClient(app).delete("/api/scaffold/untracked/agents/owned")
+
+        assert response.status_code == 409, response.text
+        assert "use unoverride with delete_file" in response.json()["detail"]
+        assert owned.exists()
+
+    def test_an_unowned_orphan_is_still_deleted(self, detached_project_dir):
+        """Control: the refusal is about ownership, not about the route."""
+        orphan = detached_project_dir / ".claude" / "agents" / "stray.md"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("# Stray\n", encoding="utf-8")
+
+        ScaffoldGalleryService(detached_project_dir).delete_untracked("agents/stray")
+
+        assert not orphan.exists()
+
+
 class TestDeleteUntrackedProtectedSet:
     """The delete path consults the protected set before it unlinks anything."""
 

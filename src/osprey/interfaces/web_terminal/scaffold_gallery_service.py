@@ -1215,11 +1215,21 @@ class ScaffoldGalleryService:
         before it looks at the filesystem at all: the check is about which
         channel owns the path, and running it after the existence test would
         make a refusal double as an answer to "does this file exist".
+
+        Refuses an owned artifact too. This route is for orphans; unlinking an
+        owned file here would leave its ownership record, and on a volume its
+        stored body, to bring it back. Releasing with ``delete_file`` is the
+        operation that does both halves.
         """
         if self._registry.get(canonical_name) is not None:
             raise ValueError(f"'{canonical_name}' is a framework artifact — use unoverride instead")
         output_path = self._canonical_to_path(canonical_name)
         self._require_writable(canonical_name, output_path, outcome="NOTHING WAS DELETED")
+        if canonical_name in self._user_owned:
+            raise FileExistsError(
+                f"'{canonical_name}' is owned — use unoverride with delete_file. "
+                "Nothing was deleted."
+            )
         full_path = self.project_dir / output_path
         if not full_path.exists():
             raise FileNotFoundError(f"File not found on disk: {output_path}")

@@ -174,6 +174,9 @@ async def delete_untracked_scaffold(name: str, request: Request):
         raise _refuse_protected(request, "delete_untracked", name, e) from e
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except FileExistsError as e:
+        # An owned artifact: releasing it is the route that removes the file.
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
