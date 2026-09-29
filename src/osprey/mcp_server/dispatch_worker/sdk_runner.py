@@ -853,7 +853,8 @@ async def run_dispatch(
                                 ]
                                 result_text = "\n".join(texts) if texts else str(content)
                             else:
-                                result_text = str(content)
+                                # No content is an empty result, not an absent one: the call returned.
+                                result_text = ""
                             if result_text is not None and len(result_text) > _MAX_TOOL_RESULT:
                                 dropped = len(result_text) - _MAX_TOOL_RESULT
                                 result_text = (
