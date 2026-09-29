@@ -204,20 +204,20 @@ describe('clock item: renders per the option spec', () => {
   // UTC clock keeps its label at compact density: an unmarked UTC readout is
   // not terse, it is wrong.
   test.each([
-    ['the default is the local wall clock, to the minute', {}, () => localTimeText(AT, false), null],
-    ['the seconds option adds the seconds field', { seconds: true }, () => localTimeText(AT, true), null],
-    ['zone utc reads UTC rather than the browser zone', { zone: 'utc' }, () => '14:32', 'UTC'],
-    ['zone utc with seconds carries the whole UTC field', { zone: 'utc', seconds: true }, () => '14:32:07', 'UTC'],
+    ['the default is the local wall clock, to the minute', {}, localTimeText(AT, false), null],
+    ['the seconds option adds the seconds field', { seconds: true }, localTimeText(AT, true), null],
+    ['zone utc reads UTC rather than the browser zone', { zone: 'utc' }, '14:32', 'UTC'],
+    ['zone utc with seconds carries the whole UTC field', { zone: 'utc', seconds: true }, '14:32:07', 'UTC'],
     [
       'zone both shows local beside UTC, and marks which half is which',
       { zone: 'both' },
-      () => `${localTimeText(AT, false)} · 14:32`,
+      `${localTimeText(AT, false)} · 14:32`,
       'UTC',
     ],
     [
       'an unknown zone falls back to the plain clock rather than rendering nothing',
       { zone: 'mars' },
-      () => localTimeText(AT, false),
+      localTimeText(AT, false),
       null,
     ],
   ])('%s', (_name, options, expected, label) => {
@@ -226,7 +226,7 @@ describe('clock item: renders per the option spec', () => {
     host.hydrate();
 
     expect(shellOf('clock').dataset.barDensity).toBe('compact');
-    expect(clockTime().textContent).toBe(expected());
+    expect(clockTime().textContent).toBe(expected);
     expect(clockZoneLabel()?.textContent ?? null).toBe(label);
   });
 
