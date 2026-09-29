@@ -254,6 +254,24 @@ def test_the_helper_refuses_a_symlink_out_of_the_tree(tmp_path: Path) -> None:
     assert _contained_asset(root, "js/real.js") == (root / "js" / "real.js").resolve()
 
 
+def test_the_helper_refuses_traversal_and_absolute_paths(tmp_path: Path) -> None:
+    """The three shapes the route depends on it refusing, at the unit.
+
+    The route-level refusals above also pass on the suffix allow-list, which
+    turns away ``.py`` and suffix-less paths before containment matters; this
+    is the check that fails when containment itself goes.
+    """
+    root = tmp_path / "static"
+    root.mkdir()
+    (root / "ok.js").write_text("// yours\n")
+    (tmp_path / "secret.js").write_text("// not yours\n")
+
+    assert _contained_asset(root, "../secret.js") is None
+    assert _contained_asset(root, str(tmp_path / "secret.js")) is None
+    assert _contained_asset(root, "") is None
+    assert _contained_asset(root, "ok.js") == (root / "ok.js").resolve()
+
+
 # ---- the tier ---- #
 
 

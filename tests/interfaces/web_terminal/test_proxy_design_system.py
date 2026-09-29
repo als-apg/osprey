@@ -115,17 +115,34 @@ class TestDesignSystemIntercept:
         assert resp.headers["content-type"].startswith("image/png")
 
     @pytest.mark.parametrize(
-        "attack",
+        ("attack", "target"),
         [
-            "../../web_terminal/app.py",
-            "../../../../../../etc/passwd",
-            "css/../../../__init__.py",
+            pytest.param(
+                "%2e%2e/%2e%2e/web_terminal/app.py",
+                "../../web_terminal/app.py",
+                id="encoded-traversal",
+            ),
+            pytest.param(
+                "css/%2e%2e/%2e%2e/%2e%2e/__init__.py",
+                "../../__init__.py",
+                id="encoded-traversal-mid-path",
+            ),
+            pytest.param("%2Fetc%2Fpasswd", "/etc/passwd", id="absolute"),
         ],
     )
-    def test_path_traversal_is_contained(self, app_and_client, attack):
-        """A traversal out of the static root 404s instead of leaking a file."""
+    def test_path_traversal_is_contained(self, app_and_client, attack, target):
+        """A path out of the static root 404s instead of leaking a file.
+
+        Percent-encoded, because a client normalises literal dot segments
+        before sending and the request would never reach this route; ASGI
+        hands the route the decoded path. Each target is asserted to exist, so
+        the refusal cannot pass on a missing file.
+        """
         _, client = app_and_client
+        assert (DESIGN_SYSTEM_DIR / target).resolve().is_file(), f"{target} moved; repoint"
+
         resp = client.get(f"/panel/my-dash/design-system/{attack}")
+
         assert resp.status_code == 404
 
     def test_missing_asset_404s(self, app_and_client):
