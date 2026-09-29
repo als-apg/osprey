@@ -230,7 +230,9 @@ def test_an_expired_session_sends_a_reload_back_to_the_prompt(stack: Stack, page
     codec = stack.codec()
     lapsed = codec.new_state().with_user(
         "alice",
-        expires_at=codec.now() - 1,
+        # An hour in the past: the sidecar judges expiry on the container's
+        # clock, which can lag the host's by more than a second.
+        expires_at=codec.now() - 3600,
         generation_tag=generation_tag(stack.stored_hashes["alice"]),
     )
     page.context.clear_cookies()
