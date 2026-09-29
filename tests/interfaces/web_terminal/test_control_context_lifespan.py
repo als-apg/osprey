@@ -124,12 +124,14 @@ def read(root: Path) -> ControlContext | None:
 @pytest.mark.usefixtures("liveness")
 async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_root):
     app = make_app()
-    await make_task(app).tick_once()
+    task = make_task(app)
+    await task.tick_once()
 
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation, stored.posture) == (BASELINE, 0, {})
     assert stored.owner == terminal_identity()
+    assert app.state.control_context_owner is task.owner
     assert app.state.control_context_follows is None
 
 
@@ -137,12 +139,16 @@ async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_ro
 async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     control_context_root, write_control_context
 ):
-    """SC-79: the record says what the deployment is pointed at, not who is running."""
+    """The record says what the deployment is pointed at, not who is running.
+
+    This is also the restart case as an operator meets it: a narrowing made
+    under the terminal that died is still in force under the one that claims.
+    """
     write_control_context(
         control_context_root,
         target="va",
         generation=7,
-        posture={"va": "sandbox"},
+        posture={"va": "sandbox", "standin": "sandbox"},
         owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID, port=8090),
     )
 
@@ -151,30 +157,8 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 7)
-    assert stored.posture == {"va": "sandbox"}
-    assert stored.owner == terminal_identity()
-
-
-@pytest.mark.usefixtures("liveness")
-async def test_an_operator_s_narrowing_survives_a_terminal_restart(
-    control_context_root, write_control_context
-):
-    """The restart case of the merge, stated as the operator experiences it."""
-    write_control_context(
-        control_context_root,
-        target="va",
-        generation=4,
-        posture={"va": "sandbox", "standin": "sandbox"},
-        owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID),
-    )
-
-    await make_task(make_app()).tick_once()
-    # ... and again, as the next terminal would.
-    await make_task(make_app()).tick_once()
-
-    stored = read(control_context_root)
-    assert stored is not None
     assert stored.posture == {"va": "sandbox", "standin": "sandbox"}
+    assert stored.owner == terminal_identity()
 
 
 async def test_a_terminal_claims_over_a_live_controls_server(
@@ -268,17 +252,6 @@ async def test_a_follower_takes_the_record_the_moment_the_other_terminal_goes(
 
 
 # -- what the routes read off app.state -------------------------------------
-
-
-@pytest.mark.usefixtures("control_context_root", "liveness")
-async def test_an_owning_terminal_publishes_a_writable_owner():
-    app = make_app()
-    task = make_task(app)
-
-    await task.tick_once()
-
-    assert app.state.control_context_owner is task.owner
-    assert app.state.control_context_follows is None
 
 
 async def test_a_claim_that_cannot_be_made_leaves_app_state_without_an_owner(monkeypatch):
