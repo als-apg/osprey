@@ -65,7 +65,7 @@ import asyncio
 import inspect
 import logging
 import os
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -358,7 +358,9 @@ def _declared_devices(schema: Any, params: Any, devices: Mapping[str, Any]) -> d
     return {name: devices[name] for name in declared_channels(schema, params) if name in devices}
 
 
-def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., Iterator[Any]]:
+def _make_plan_function(
+    spec: Any, devices: Mapping[str, Any]
+) -> Callable[..., Generator[Any, Any, Any]]:
     """Wrap one catalog ``PlanSpec`` as a qserver-executable plan function.
 
     The wrapper is a *generator function* by necessity, not by style:
@@ -429,7 +431,7 @@ def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., 
     )
     from osprey_connectors.posture_store import bind_owner, current_owner
 
-    def plan_function(**kwargs: Any) -> Iterator[Any]:
+    def plan_function(**kwargs: Any) -> Generator[Any, Any, Any]:
         with bind_owner(kwargs) as clean:
             params = spec.schema.model_validate(clean)
             declared = _declared_devices(spec.schema, params, devices)
@@ -476,13 +478,13 @@ def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., 
     # looks like a plan problem and is really an annotation-representation
     # problem. Rebinding here keeps the future-import (which the rest of the
     # file wants) without making this one wrapper uninspectable.
-    plan_function.__annotations__ = {"kwargs": Any, "return": Iterator[Any]}
+    plan_function.__annotations__ = {"kwargs": Any, "return": Generator[Any, Any, Any]}
     return plan_function
 
 
 def build_plan_functions(
     devices: Mapping[str, Any], plans: Mapping[str, Any] | None = None
-) -> dict[str, Callable[..., Iterator[Any]]]:
+) -> dict[str, Callable[..., Generator[Any, Any, Any]]]:
     """Expose every catalog plan as a named, queueserver-executable plan function.
 
     Args:
@@ -505,7 +507,7 @@ def build_plan_functions(
 
         plans = get_facility_plans().plans
 
-    functions: dict[str, Callable[..., Iterator[Any]]] = {}
+    functions: dict[str, Callable[..., Generator[Any, Any, Any]]] = {}
     for name, spec in plans.items():
         if not name.isidentifier():
             logger.warning(
@@ -817,7 +819,9 @@ def build_zmq_publisher(env: Mapping[str, str] | None = None) -> Any | None:
 
     curve_config = None
     if secret_key and server_public_key:
-        curve_config = ClientCurve(secret_path=secret_key, server_public_key=server_public_key)
+        curve_config = ClientCurve(
+            secret_path=Path(secret_key), server_public_key=Path(server_public_key)
+        )
     return Publisher(address, curve_config=curve_config)
 
 

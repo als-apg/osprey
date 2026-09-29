@@ -27,7 +27,7 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -777,7 +777,7 @@ def test_filtering_leaves_the_wrapper_annotations_untouched(
 
     plan_function = qserver_startup.build_plan_functions({"bpm_01": object()}, plans)["sample_scan"]
 
-    assert plan_function.__annotations__ == {"kwargs": Any, "return": Iterator[Any]}
+    assert plan_function.__annotations__ == {"kwargs": Any, "return": Generator[Any, Any, Any]}
     assert inspect.signature(plan_function).parameters["kwargs"].kind is (
         inspect.Parameter.VAR_KEYWORD
     )
@@ -1294,8 +1294,8 @@ def test_publisher_carries_the_client_curve_config(monkeypatch: pytest.MonkeyPat
     )
 
     assert captured["address"] == "tcp://bridge:5567"
-    assert captured["curve_config"].secret_path == "/keys/worker.key_secret"
-    assert captured["curve_config"].server_public_key == "/keys/bridge.key"
+    assert captured["curve_config"].secret_path == Path("/keys/worker.key_secret")
+    assert captured["curve_config"].server_public_key == Path("/keys/bridge.key")
 
 
 @pytest.mark.parametrize(
