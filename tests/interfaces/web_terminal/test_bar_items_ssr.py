@@ -27,10 +27,8 @@ from __future__ import annotations
 import json
 import re
 from html.parser import HTMLParser
-from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
     ADOPTED_BAR_ITEM_TYPES,
@@ -48,7 +46,6 @@ from osprey.interfaces.web_terminal.app import (
     bar_item_available,
     bar_item_vocabulary,
     bar_render_plan,
-    create_app,
 )
 
 #: Ids the terminal renders on every deployment, whatever the layout says.
@@ -79,65 +76,23 @@ _LAYOUT_WITHOUT_ADOPTED_ITEMS = {
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    """A temporary workspace directory for the app to watch."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    (ws / "README.md").write_text("# Test workspace\n")
-    return ws
-
-
-def _build_app(workspace_dir, *, enabled_panels=None, custom_panels=None, env=None):
-    """Boot an app the way the other route tests do, and return (app, client).
-
-    Args:
-        workspace_dir: The watched directory.
-        enabled_panels: Enabled built-in panel ids, or None for the universal set.
-        custom_panels: Config-declared panel dicts, or None for none.
-        env: Environment overrides applied across ``create_app`` and lifespan.
-    """
-    panels = {"artifacts"} if enabled_panels is None else set(enabled_panels)
-    return (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(panels, list(custom_panels or []), None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-        ),
-        patch.dict("os.environ", env or {}, clear=False),
-    )
-
-
-@pytest.fixture
-def plain_app(workspace_dir):
+def plain_app(bar_items_app):
     """A single-user deployment: no terminal user, no landing page, no SYSTEM panel."""
-    cfg, panels, launch, env = _build_app(workspace_dir)
-    with cfg, panels, launch, env:
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            yield app, client
+    with bar_items_app() as client:
+        yield client.app, client
 
 
 @pytest.fixture
-def configured_app(workspace_dir):
+def configured_app(bar_items_app):
     """A multi-user deployment with an identity, a way out and the SYSTEM panel."""
-    cfg, panels, launch, env = _build_app(
-        workspace_dir,
+    with bar_items_app(
         enabled_panels={"artifacts", "system-health"},
         env={
             "OSPREY_TERMINAL_USER": "alice",
             "OSPREY_TERMINAL_LANDING_URL": "https://facility.example/portal",
         },
-    )
-    with cfg, panels, launch, env:
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            yield app, client
+    ) as client:
+        yield client.app, client
 
 
 def _body(client) -> str:
@@ -694,14 +649,11 @@ class TestNothingIsAddedThatTheDeploymentWouldNotRender:
         for element_id in _IDENTITY_IDS:
             assert not _has_id(body, element_id), element_id
 
-    def test_no_logout_without_a_landing_url(self, workspace_dir):
+    def test_no_logout_without_a_landing_url(self, bar_items_app):
         """A user with nowhere to return to is still identified — but the two
         logout controls are the ACTION, and the action needs a destination."""
-        cfg, panels, launch, env = _build_app(workspace_dir, env={"OSPREY_TERMINAL_USER": "alice"})
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                body = _body(client)
+        with bar_items_app(env={"OSPREY_TERMINAL_USER": "alice"}) as client:
+            body = _body(client)
         assert _has_id(body, "header-identity-trigger")
         assert not _has_id(body, "logout-btn")
         assert not _has_id(body, "display-menu-logout-btn")
@@ -876,22 +828,18 @@ class TestDeploymentContextIsServerSupplied:
         assert _shell_types(body, "status") == ["separator", "clock"]
         assert body.count('data-bar-item="docs"') == 1
 
-    def test_the_bluesky_fact_is_the_declared_panel(self, workspace_dir):
+    def test_the_bluesky_fact_is_the_declared_panel(self, bar_items_app):
         """The plan-queue item reads the queue through the Bluesky panel's
         proxy, so the panel's declaration (``web.panels.bluesky``) is the one
         fact it is offered on — the same declaration that is the bridge
         entitlement, so no second key for the same fact."""
-        cfg, panels, launch, env = _build_app(
-            workspace_dir,
+        with bar_items_app(
             custom_panels=[{"id": "bluesky", "label": "BLUESKY", "url": "http://bluesky-web:8080"}],
-        )
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                assert app.state.bluesky_available is True
-                assert _context(_body(client))["blueskyAvailable"] is True
+        ) as client:
+            assert client.app.state.bluesky_available is True
+            assert _context(_body(client))["blueskyAvailable"] is True
 
-    def test_the_plan_queue_renders_where_the_panel_is_declared(self, workspace_dir):
+    def test_the_plan_queue_renders_where_the_panel_is_declared(self, bar_items_app):
         """An available, JS-built item gets its shell on first paint; the
         same layout on a deployment without the panel paints no shell."""
         layout = {
@@ -901,20 +849,14 @@ class TestDeploymentContextIsServerSupplied:
             "status": [{"type": "bluesky-queue"}, {"type": "clock"}],
             "status_visible": True,
         }
-        cfg, panels, launch, env = _build_app(
-            workspace_dir, custom_panels=[{"id": "bluesky", "url": "http://bluesky-web:8080"}]
-        )
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                app.state.bar_layout = layout
-                assert _shell_types(_body(client), "status") == ["bluesky-queue", "clock"]
-        cfg, panels, launch, env = _build_app(workspace_dir)
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                app.state.bar_layout = layout
-                assert _shell_types(_body(client), "status") == ["clock"]
+        with bar_items_app(
+            custom_panels=[{"id": "bluesky", "url": "http://bluesky-web:8080"}]
+        ) as client:
+            client.app.state.bar_layout = layout
+            assert _shell_types(_body(client), "status") == ["bluesky-queue", "clock"]
+        with bar_items_app() as client:
+            client.app.state.bar_layout = layout
+            assert _shell_types(_body(client), "status") == ["clock"]
 
     def test_the_availability_table_mirrors_the_js_catalog(self):
         """The server's copy of ``available()`` exists because it renders
