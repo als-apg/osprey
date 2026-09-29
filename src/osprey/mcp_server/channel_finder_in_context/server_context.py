@@ -67,16 +67,17 @@ class ChannelFinderICContext:
         if db_path:
             db_path = resolve_cf_path(db_path)
 
-            if db_type == "template":
-                from osprey.services.channel_finder.databases.template import (
-                    ChannelDatabase,
-                )
-            else:
-                from osprey.services.channel_finder.databases.flat import (
-                    ChannelDatabase,
-                )
+            from osprey.services.channel_finder.databases.flat import (
+                ChannelDatabase as FlatChannelDatabase,
+            )
+            from osprey.services.channel_finder.databases.template import (
+                ChannelDatabase as TemplateChannelDatabase,
+            )
 
-            self._database = ChannelDatabase(db_path)
+            database_class: type[FlatChannelDatabase] = (
+                TemplateChannelDatabase if db_type == "template" else FlatChannelDatabase
+            )
+            self._database = database_class(db_path)
             logger.info(
                 "ChannelFinderICContext: loaded %s database from %s (%d channels)",
                 db_type,

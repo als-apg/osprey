@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -24,6 +24,16 @@ if TYPE_CHECKING:
     from typing import Any
 
     from osprey.channel_roster import RosterResult
+    from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+        ChannelFinderHierContext,
+    )
+    from osprey.mcp_server.channel_finder_in_context.server_context import (
+        ChannelFinderICContext,
+    )
+    from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+        ChannelFinderMLContext,
+    )
+    from osprey.services.channel_finder.core.base_database import BaseDatabase
     from osprey.services.channel_finder.graph_index.reader import (
         GraphIndex,
         GraphIndexAbsence,
@@ -53,7 +63,17 @@ def feedback_dir(config: Mapping[str, Any] | None) -> str:
     return f"{agent_data_base_dir(config)}/feedback"
 
 
-def _init_hierarchical_registry():
+class _PipelineRegistry(Protocol):
+    """What the app reads from a file-backed paradigm's registry."""
+
+    @property
+    def database(self) -> BaseDatabase: ...
+
+    @property
+    def facility_name(self) -> str: ...
+
+
+def _init_hierarchical_registry() -> ChannelFinderHierContext:
     """Build the hierarchical channel-finder registry."""
     from osprey.mcp_server.channel_finder_hierarchical.server_context import (
         initialize_cf_hier_context,
@@ -62,7 +82,7 @@ def _init_hierarchical_registry():
     return initialize_cf_hier_context()
 
 
-def _init_middle_layer_registry():
+def _init_middle_layer_registry() -> ChannelFinderMLContext:
     """Build the middle-layer channel-finder registry."""
     from osprey.mcp_server.channel_finder_middle_layer.server_context import (
         initialize_cf_ml_context,
@@ -71,7 +91,7 @@ def _init_middle_layer_registry():
     return initialize_cf_ml_context()
 
 
-def _init_in_context_registry():
+def _init_in_context_registry() -> ChannelFinderICContext:
     """Build the in-context channel-finder registry."""
     from osprey.mcp_server.channel_finder_in_context.server_context import (
         initialize_cf_ic_context,
@@ -236,7 +256,7 @@ def _read_channel_roster(config) -> RosterResult | None:
             "enumeration routes report this.",
             roster.absence.message(),
         )
-    else:
+    elif roster.source is not None:
         logger.info(
             "Channel roster read: %d channels from %s",
             len(roster.records),
@@ -272,7 +292,7 @@ def _roster_addresses(roster: RosterResult | None) -> tuple[str, ...]:
 #: The graph paradigm is deliberately absent: it opens no database file, so
 #: there is no registry to build and nothing here to name. The lifespan serves
 #: it from the resolved mode instead.
-_PIPELINE_REGISTRY_INITIALIZERS: tuple[tuple[str, Callable[[], object]], ...] = (
+_PIPELINE_REGISTRY_INITIALIZERS: tuple[tuple[str, Callable[[], _PipelineRegistry]], ...] = (
     ("hierarchical", _init_hierarchical_registry),
     ("middle_layer", _init_middle_layer_registry),
     ("in_context", _init_in_context_registry),
@@ -312,7 +332,7 @@ def _create_lifespan(project_cwd: str | None = None):
 
         # Initialize all available pipeline registries so the UI can switch
         available: list[str] = []
-        databases: dict[str, object] = {}
+        databases: dict[str, BaseDatabase] = {}
         facility_names: dict[str, str] = {}
 
         # The graph paradigm is store-backed rather than file-backed: its

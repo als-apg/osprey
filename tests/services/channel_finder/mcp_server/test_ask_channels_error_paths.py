@@ -67,6 +67,21 @@ async def test_unrelated_bad_request_is_reraised(mock_ctx):
 
 
 @pytest.mark.asyncio
+async def test_non_text_reply_is_refused_by_name(mock_ctx):
+    """A completion that is not text is refused, naming the type it got."""
+    mock_aget = AsyncMock(return_value=["tool-call"])
+    with (
+        patch(f"{_MOD}.get_cf_ic_context", return_value=mock_ctx),
+        patch(f"{_MOD}.get_rate_limiter", return_value=None),
+        patch(f"{_MOD}.aget_chat_completion", mock_aget),
+    ):
+        from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import ask_channels
+
+        with pytest.raises(TypeError, match="got list"):
+            await ask_channels("find BPMs")
+
+
+@pytest.mark.asyncio
 async def test_rate_limiter_is_acquired_when_present(mock_ctx):
     """When a limiter is configured, the tool awaits acquire() before the call."""
     limiter = MagicMock()

@@ -56,7 +56,8 @@ def _read_pipeline_mode(project_dir: Path) -> str | None:
         import yaml
 
         config = yaml.safe_load(config_path.read_text()) or {}
-        return config.get("channel_finder", {}).get("pipeline_mode")
+        mode = config.get("channel_finder", {}).get("pipeline_mode")
+        return mode if isinstance(mode, str) else None
     except Exception:
         return None
 
