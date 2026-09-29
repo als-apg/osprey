@@ -619,7 +619,8 @@ async function initPersistence(api) {
 
 /**
  * Clear the current view's stored layout and restore its default arrangement
- * live — the "Reset layout" row of the terminal tile's menu.
+ * live. Bound to the command palette's "Reset layout" row and the terminal
+ * tile's context menu.
  */
 export function resetDockLayout() {
   const mode = currentUiMode();
