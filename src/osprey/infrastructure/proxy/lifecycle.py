@@ -15,10 +15,6 @@ from osprey.profiles.providers import VALID_API_PROTOCOLS
 
 logger = logging.getLogger("osprey.infrastructure.proxy")
 
-# Providers known to speak Anthropic Messages API natively.
-# Everything else is assumed to be OpenAI-compatible and needs the proxy.
-_ANTHROPIC_NATIVE_PROVIDERS = frozenset({"anthropic", "cborg", "als-apg"})
-
 _state: dict[str, Any] = {
     "server": None,
     "thread": None,
@@ -36,12 +32,14 @@ def is_proxy_needed(
     Returns True when the provider speaks OpenAI protocol but not Anthropic.
 
     Logic:
-    1. Built-in Anthropic-native providers → False
-    2. Explicit ``api_protocol: anthropic`` in config → False
-    3. Everything else → True
+    1. The provider's ``api_protocol`` in config, when present, decides in
+       either direction.
+    2. Otherwise the ``api_protocol`` its adapter class declares, read from the
+       registry without importing a built-in's class.
+    3. Otherwise OpenAI.
 
-    An absent ``api_protocol`` means OpenAI, which is right for nine of the
-    twelve proxied built-ins. A PRESENT one is checked against
+    An absent ``api_protocol`` defers to the adapter's declaration. A PRESENT
+    one is checked against
     :data:`~osprey.profiles.providers.VALID_API_PROTOCOLS`: the old exact
     comparison meant a typo took the step-3 branch, so a provider written
     ``api_protocol: Anthropic`` was routed through the translation proxy the
@@ -73,7 +71,12 @@ def is_proxy_needed(
             f"expected one of {', '.join(sorted(VALID_API_PROTOCOLS))}."
         )
 
-    if provider_name in _ANTHROPIC_NATIVE_PROVIDERS or declared == "anthropic":
+    if declared is None:
+        from osprey.models.provider_registry import get_provider_registry
+
+        declared = get_provider_registry().api_protocol(provider_name)
+
+    if declared == "anthropic":
         logger.info("Provider %r speaks Anthropic natively; no proxy", provider_name)
         return False
 

@@ -212,6 +212,25 @@ class ProviderRegistry:
             return None
         return cls.api_key_env_var
 
+    def api_protocol(self, name: str) -> Literal["anthropic", "openai"] | None:
+        """Return the protocol a launch speaks to *name*, as its provider declares it.
+
+        A built-in provider that has not been replaced answers from its entry,
+        without importing its adapter; a registered provider answers from its
+        class, including one registered under a built-in name. Returns ``None``
+        for a name no entry describes, or one registered with a class that does
+        not load.
+        """
+        entry = self._entries.get(name)
+        if entry is None:
+            return None
+        if entry.api_protocol is not None:
+            return entry.api_protocol
+        cls = self.get_provider(name)
+        if cls is None:
+            return None
+        return cls.api_protocol
+
     def api_key_env_vars(self) -> dict[str, str | None]:
         """Map every provider the registry holds to its API-key variable.
 

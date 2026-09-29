@@ -1,8 +1,9 @@
 """An adapter states its provider's facts; every table that restates one agrees.
 
-The key table, the Claude Code launch table, the Anthropic-native set and the
-packaged catalog each restate some of those facts by provider name. These tests
-hold every restatement to the declaration on the adapter class.
+The Claude Code launch table and the packaged catalog each restate some of those
+facts by provider name, and the provider key table is derived from the registry's
+entry per provider. These tests hold every restatement, and the derived table, to
+the declaration on the adapter class.
 """
 
 from __future__ import annotations
@@ -13,8 +14,7 @@ from typing import Any, get_args, get_type_hints
 import pytest
 import yaml
 
-from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS, provider_auth_secret_env
-from osprey.infrastructure.proxy.lifecycle import _ANTHROPIC_NATIVE_PROVIDERS
+from osprey.build.claude_code_resolver import provider_auth_secret_env
 from osprey.models.provider_registry import (
     _BUILTIN_PROVIDERS,
     ProviderRegistry,
@@ -105,15 +105,6 @@ class TestTablesAgreeWithTheDeclarations:
             assert cls is not None, name
             assert entry.key_env_var == cls.api_key_env_var, name
             assert entry.api_protocol == cls.api_protocol, name
-
-    def test_the_native_set_is_the_adapters_that_speak_anthropic(self):
-        speaks_anthropic = {
-            name for name, cls in _adapters().items() if cls.api_protocol == "anthropic"
-        }
-        assert speaks_anthropic == set(_ANTHROPIC_NATIVE_PROVIDERS)
-
-    def test_the_launch_table_holds_exactly_the_native_providers(self):
-        assert set(CLAUDE_CODE_PROVIDERS) == set(_ANTHROPIC_NATIVE_PROVIDERS)
 
     def test_the_derived_secret_variable_is_the_adapters_for_every_keyed_provider(self):
         for name, cls in _adapters().items():
