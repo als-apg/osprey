@@ -938,6 +938,112 @@ class TestOperatorSessionStopKillsALingeringChild:
         assert session.process_exited is None
 
 
+# ---------------------------------------------------------------------------
+# OperatorSession.process_exited through a real start()
+# ---------------------------------------------------------------------------
+
+
+class _FakeProcess:
+    """The child handle the SDK transport holds (``returncode`` is the signal)."""
+
+    def __init__(self, returncode: int | None = None):
+        self.returncode = returncode
+
+
+class _FakeTransport:
+    def __init__(self, process: _FakeProcess):
+        self._process = process
+
+
+class _FakeSDKClient:
+    """Stand-in for ``ClaudeSDKClient`` with a controllable transport.
+
+    ``transport=None`` models a client that never exposed one — the shape the
+    property must answer ``None`` for rather than ``False``.
+    """
+
+    def __init__(self, transport: _FakeTransport | None = None):
+        if transport is not None:
+            self._transport = transport
+        self.exited = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        self.exited = True
+        return False
+
+
+async def _exit_seam_session(client) -> OperatorSession:
+    session = OperatorSession(cwd="/tmp")
+    with sdk_seam(client):
+        await session.start()
+    return session
+
+
+class TestProcessExited:
+    """Three answers, and the difference between two of them matters."""
+
+    @pytest.mark.asyncio
+    async def test_a_child_still_running_after_the_close_reads_false(self):
+        """Closing the client is a request, not a death certificate.
+
+        The transport is gone but the process it held has no return code, so
+        the child is still there — the case a handover must keep waiting on.
+        """
+        client = _FakeSDKClient(_FakeTransport(_FakeProcess(returncode=None)))
+        session = await _exit_seam_session(client)
+
+        await session.stop()
+
+        assert client.exited is True
+        assert session.process_exited is False
+
+    @pytest.mark.parametrize("returncode", [0, 137])
+    @pytest.mark.asyncio
+    async def test_a_child_that_exited_reads_true(self, returncode):
+        """The question is whether the child is gone, not how it went."""
+        client = _FakeSDKClient(_FakeTransport(_FakeProcess(returncode=returncode)))
+        session = await _exit_seam_session(client)
+
+        await session.stop()
+
+        assert session.process_exited is True
+
+    @pytest.mark.asyncio
+    async def test_a_client_with_no_transport_reads_none(self):
+        """Nothing to observe is not the same as *not exited*."""
+        client = _FakeSDKClient(transport=None)
+        session = await _exit_seam_session(client)
+
+        await session.stop()
+
+        assert session.process_exited is None
+
+    @pytest.mark.asyncio
+    async def test_the_handle_is_read_before_the_client_is_closed(self):
+        """Captured from the live transport, not from whatever survives close.
+
+        The real client drops ``_transport`` on ``__aexit__``; a fake that does
+        the same would answer ``None`` if the capture happened after.
+        """
+        process = _FakeProcess(returncode=None)
+        client = _FakeSDKClient(_FakeTransport(process))
+
+        async def _drop_transport(*exc):
+            client._transport = None
+            return False
+
+        client.__aexit__ = _drop_transport  # type: ignore[method-assign]
+        session = await _exit_seam_session(client)
+
+        await session.stop()
+
+        process.returncode = 0
+        assert session.process_exited is True
+
+
 def test_the_pid_names_the_running_child_and_nothing_else():
     """``pid`` is the chat child's pid while it runs, and ``None`` when it is not.
 
