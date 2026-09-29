@@ -22,7 +22,7 @@ import json
 import logging
 import os
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -358,7 +358,7 @@ _PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 _C0_AND_SPACE = "".join(map(chr, range(0x21)))
 
 
-def _warn_on_invalid_proxy_env(environ: dict[str, str]) -> None:
+def _warn_on_invalid_proxy_env(environ: Mapping[str, str]) -> None:
     """Warn (never rewrite) when a proxy env var cannot be parsed as a URL.
 
     Claude Code's runtime rejects any ``*_PROXY`` value its WHATWG URL parser
@@ -414,7 +414,7 @@ def _warn_on_invalid_proxy_env(environ: dict[str, str]) -> None:
 
 
 def inject_provider_env(
-    environ: dict[str, str],
+    environ: MutableMapping[str, str],
     spec: ClaudeCodeModelSpec,
     project_dir: Path | None = None,
 ) -> list[str]:
