@@ -1181,15 +1181,78 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
         page.close()
 
 
+# Hold an HTML5 drag of one service tab over three targets and report what
+# dockview painted. The drag starts on the source tab's real dragstart handler
+# (dockview records the panel being dragged there). The first target is the
+# terminal group's right-edge band: an accepted split, so dockview paints its
+# `.dv-drop-target-selection` overlay — the proof that the synthetic drag is
+# one dockview recognises at all. The other two are the stacking geometries
+# on the target service tile: its tab title (the old restack gesture) and the
+# centre of its content. The stacking veto (dock-workspace.js
+# wireStackingVeto) must keep the overlay from painting on either, and the
+# drop dispatched on the title must not move anything. Each target is held
+# with repeated dragovers for a fixed budget, because dockview resolves its
+# overlay only after a dragover has been processed. Events go to the element
+# under the pointer, as a real drag would deliver them: dockview's tab drop
+# target does not answer events dispatched on the outer `.dv-tab`.
+_TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
+    const tabOf = (label) => [...document.querySelectorAll('.dv-tab')].find(t =>
+        t.querySelector(`.tile-tab[aria-label="${label}"]`));
+    const src = tabOf(source);
+    const dst = tabOf(target);
+    const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
+        g.querySelector('.terminal-header'));
+    if (!src || !dst || !term) return { error: 'missing tab or terminal group' };
+    const dt = new DataTransfer();
+    src.dispatchEvent(new DragEvent('dragstart',
+        { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const overlay = () => !!document.querySelector('.dv-drop-target-selection');
+    const hold = async (el, x, y) => {
+        const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
+                       clientX: x, clientY: y };
+        el.dispatchEvent(new DragEvent('dragenter', opts));
+        let painted = false;
+        const deadline = performance.now() + 600;
+        while (performance.now() < deadline) {
+            el.dispatchEvent(new DragEvent('dragover', opts));
+            await new Promise((res) => setTimeout(res, 50));
+            painted = painted || overlay();
+        }
+        return { painted, opts };
+    };
+    const content = term.querySelector('.dv-content-container');
+    const c = content.getBoundingClientRect();
+    const ex = c.right - 5, ey = c.top + c.height / 2;
+    const edgeEl = document.elementFromPoint(ex, ey) ?? content;
+    const edge = await hold(edgeEl, ex, ey);
+    edgeEl.dispatchEvent(new DragEvent('dragleave', edge.opts));
+    await new Promise((res) => setTimeout(res, 100));
+    const clearedAfterEdge = !overlay();
+    const at = async (el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const hit = document.elementFromPoint(x, y) ?? el;
+        return { hit, ...(await hold(hit, x, y)) };
+    };
+    const centre = await at(dst.closest('.dv-groupview').querySelector('.dv-content-container'));
+    centre.hit.dispatchEvent(new DragEvent('dragleave', centre.opts));
+    await new Promise((res) => setTimeout(res, 100));
+    const title = await at(dst.querySelector('.tile-tab-title'));
+    title.hit.dispatchEvent(new DragEvent('drop', title.opts));
+    src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+    return { edgePainted: edge.painted, clearedAfterEdge,
+             centrePainted: centre.painted, titlePainted: title.painted };
+}"""
+
+
 def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
     """A drop that would stack two panels into one tile is vetoed.
 
-    One panel per tile: dropping the data-viz tab onto the artifacts tile's tab
-    bar (the old restack gesture) is rejected by the onWillShowOverlay veto —
-    the arrangement is unchanged, every tile still holds exactly one panel.
-    A missed synthetic drop would also leave the arrangement unchanged, so this
-    can pass trivially on a contended runner — the veto wiring itself is a
-    one-line dockview event handler, and the unit suites pin the rest.
+    One panel per tile: dragging the data-viz tab onto the artifacts tile's tab
+    (the old restack gesture) or its centre never paints a drop target, and
+    the drop leaves every tile holding exactly one panel. The same drag held
+    over the terminal's right edge DOES paint one, so a drag dockview never
+    recognised cannot pass as a veto.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1206,19 +1269,23 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
         before = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in before), before
 
-        # Act — try to restack: drag the data-viz tab onto the artifacts tab.
-        _drag_with_dock_shield(
-            page, _service_tab(page, "DATA VIZ"), _service_tab(page, "WORKSPACE")
-        )
-        page.wait_for_timeout(700)
+        # Act — the restack gesture, with an accepted edge target as contrast.
+        probe = page.evaluate(_TAB_DRAG_PROBE_JS, {"source": "DATA VIZ", "target": "WORKSPACE"})
+        assert "error" not in probe, probe
+        assert probe["edgePainted"] is True, f"dockview never recognised the drag: {probe}"
+        assert probe["clearedAfterEdge"] is True, probe
+        assert probe["centrePainted"] is False, f"a tile centre painted a drop overlay: {probe}"
+        assert probe["titlePainted"] is False, f"a tab title painted a drop overlay: {probe}"
+        page.wait_for_timeout(500)
 
         # Assert — vetoed: no group holds two tabs, arrangement unchanged.
         after = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in after), (
             f"a drop stacked two panels into one tile: {after}"
         )
-        shared = [g for g in after if "DATA VIZ" in g["tabs"] and "WORKSPACE" in g["tabs"]]
-        assert not shared, after
+        assert sorted(t for g in after for t in g["tabs"]) == sorted(
+            t for g in before for t in g["tabs"]
+        ), (before, after)
 
         page.close()
 
