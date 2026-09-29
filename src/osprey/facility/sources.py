@@ -5,7 +5,7 @@ The tree the loader reads::
     identity.yaml             {code, name?, description?}
     classes.yaml              [{class, parent, aliases?, description?}]
     models.yaml               [{name, engine, deck?, settings?, wiring: [...]}]
-    limits.yaml               {defaults, records}
+    limits.yaml               {records}
     seeds.yaml                {<address>: {nominal?, noise?, drift?, clamp?, linear?}}
     fixes.yaml                {schema: osprey.facility.fixes/1, fixes: [...]}
     records/<kind>s.yaml      [{id, ...}] for places, devices, channels, groups
