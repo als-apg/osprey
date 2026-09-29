@@ -379,42 +379,27 @@ def test_creds_default_still_fails_loud_for_runtime():
         )
 
 
-def test_config_headers_merge_auth_wins():
-    """Config headers are merged; computed auth wins on key collision."""
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p"},
-            "headers": {"X-Trace": "abc", "Authorization": "Basic stale"},
-        },
-        in_container=False,
-    )
-    headers = env["OTEL_EXPORTER_OTLP_HEADERS"]
-    assert "X-Trace=abc" in headers
-    expected = base64.b64encode(b"u:p").decode()
-    assert f"Authorization=Basic {expected}" in headers
-    assert "Basic stale" not in headers
-
-
-def test_config_headers_string_form():
-    """A pre-formatted comma-separated header string is accepted."""
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "endpoint": "http://c:4318",
-            "headers": "X-Trace=abc,X-Env=prod",
-        }
-    )
-    headers = env["OTEL_EXPORTER_OTLP_HEADERS"]
-    assert "X-Trace=abc" in headers
-    assert "X-Env=prod" in headers
-
-
 def test_no_headers_when_none_configured():
     """Non-openobserve backend with no headers emits no HEADERS var."""
     env = _build_telemetry_env({"enabled": True, "endpoint": "http://c:4318"})
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
+
+
+def test_headers_key_is_refused_naming_auth_token_env():
+    """The free-form header map is gone; the refusal names its replacement."""
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.auth.token_env"):
+        _build_telemetry_env(
+            {
+                "enabled": True,
+                "endpoint": "http://c:4318",
+                "headers": {"Authorization": "Bearer t"},
+            }
+        )
+
+
+def test_headers_on_a_disabled_block_is_inert():
+    """A disabled block exports nothing, whatever keys it carries."""
+    assert _build_telemetry_env({"enabled": False, "headers": {"X-Trace": "abc"}}) == {}
 
 
 # ── collector bearer token (auth.token_env) ─────────────────────
