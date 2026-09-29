@@ -166,10 +166,7 @@ def _browser_panel_url(cp: dict) -> str:
     """
     prefix = compute_url_prefix()
     if cp.get("discovered"):
-        url = cp.get("url")
-        if isinstance(url, str) and url:
-            return f"{prefix}{url}"
-        return f"{prefix}/panel-static/{cp['id']}/"
+        return f"{prefix}{cp['url']}"
     return f"{prefix}/panel/{cp['id']}"
 
 
@@ -702,10 +699,10 @@ class PanelArrangeRequest(BaseModel):
 def _resolve_preset_tiles(request: Request, name: str, known: set[str]) -> list[str]:
     """Resolve a preset name to its member panel ids, fail-safe filtered.
 
-    Mirrors ``computePresetDiff`` in ``panel-presets.js``: members are filtered
-    to the known ids (and the terminal id is dropped) so a typo'd or disabled
-    member in config is skipped rather than breaking the whole layout. Config
-    order is preserved — it is the left-to-right tile order clients apply.
+    Members are filtered to the known ids (and the terminal id is dropped) so a
+    typo'd or disabled member in config is skipped rather than breaking the
+    whole layout. Config order is preserved — it is the left-to-right tile order
+    clients apply.
 
     Args:
         request: Incoming request carrying ``app.state.panel_presets``.
@@ -1100,12 +1097,11 @@ def _host_interface_addresses() -> frozenset[ipaddress.IPv4Address | ipaddress.I
     name resolution with no timeout of its own — on a host whose resolver is
     slow or unreachable it blocks for however long the system resolver takes —
     and running that unconditionally on every registration would put an
-    unbounded stall in the request path. The cache lives INSIDE this function
-    rather than around it so that tests, which patch this module attribute
-    wholesale, replace the caching along with the probing.
+    unbounded stall in the request path. :func:`reset_host_addrs_cache` forgets
+    the memo.
 
     Blocking (it resolves and opens sockets), so callers on the event loop run
-    it in a thread pool. It is a module attribute so tests patch it directly.
+    it in a thread pool.
 
     Returns:
         The discovered addresses, normalized by :func:`_normalize_ip`.
