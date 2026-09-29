@@ -15,7 +15,10 @@ A wiring record is read by key or by attribute: ``id``, ``address``,
 ``element`` or ``slices`` (each ``element``, ``weight``), the ``engine`` block
 in pyAT's words (``attribute``, ``index``, ``axis``) and ``calibration``
 (``curve``, ``inverse``). Every refusal is a ``FacilityBuildError`` of kind
-``engine-invalid``. pyAT and numpy are imported on first use.
+``engine-invalid``. A refusal of an element the deck does not hold exactly
+once is an :class:`ElementStop`, whose ``element`` and ``count`` let the build
+name the wiring record that asked for it. pyAT and numpy are imported on first
+use.
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ from osprey.simulation.engines.calibration import Linear, Table, curve_from_reco
 if TYPE_CHECKING:
     import numpy as np
 
-__all__ = ["Prepared", "locate", "plane", "prepare", "start_values"]
+__all__ = ["ElementStop", "Prepared", "locate", "plane", "prepare", "start_values"]
 
 #: The keys the ``pyat`` settings block may carry.
 SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev"})
@@ -112,6 +115,36 @@ def _load_cached(path: str, mtime_ns: int, size: int) -> _Loaded:
     )
 
 
+class ElementStop(FacilityBuildError):
+    """An element the deck does not hold exactly once.
+
+    Attributes:
+        element: The element's name.
+        count: How often the deck holds it: 0 when absent, above 1 when
+            repeated.
+    """
+
+    def __init__(
+        self, deck: Deck, element: str, count: int, record_id: str, record_kind: str
+    ) -> None:
+        if count == 0:
+            detail = f"element {element} is not in the deck"
+            remedy = "name an element the deck holds"
+        else:
+            detail = f"element {element} appears {count} times in the deck"
+            remedy = "give the element a unique name in the deck"
+        super().__init__(
+            "engine-invalid",
+            record_id,
+            [str(deck)],
+            remedy,
+            record_kind=record_kind,
+            detail=detail,
+        )
+        self.element = element
+        self.count = count
+
+
 def _model_id(deck: Deck, model: str | None) -> str:
     return model if model is not None else Path(deck).stem
 
@@ -128,22 +161,8 @@ def _element_index(
     loaded: _Loaded, deck: Deck, element: str, record_id: str, record_kind: str
 ) -> int:
     found = loaded.indices.get(element, ())
-    if not found:
-        raise _stop(
-            deck,
-            record_id,
-            record_kind,
-            f"element {element} is not in the deck",
-            "name an element the deck holds",
-        )
-    if len(found) > 1:
-        raise _stop(
-            deck,
-            record_id,
-            record_kind,
-            f"element {element} appears {len(found)} times in the deck",
-            "give the element a unique name in the deck",
-        )
+    if len(found) != 1:
+        raise ElementStop(deck, element, len(found), record_id, record_kind)
     return found[0]
 
 
@@ -160,8 +179,8 @@ def locate(deck: Deck, element: str, *, model: str | None = None) -> tuple[float
         ``(s_entrance_m, length_m)``.
 
     Raises:
-        FacilityBuildError: ``engine-invalid`` when the element is absent
-            from the deck or named more than once.
+        ElementStop: ``engine-invalid`` when the element is absent from the
+            deck or named more than once.
     """
     loaded = _load(deck)
     index = _element_index(loaded, deck, element, _model_id(deck, model), "model")
@@ -446,9 +465,9 @@ def start_values(
 
     Raises:
         FacilityBuildError: ``engine-invalid`` naming the wiring id for an
-            element absent from or repeated in the deck, an unreadable
-            attribute, a table calibration without an inverse, or a linear
-            gain of 0.
+            element absent from or repeated in the deck (an ``ElementStop``),
+            an unreadable attribute, a table calibration without an inverse,
+            or a linear gain of 0.
     """
     del settings
     readbacks = readbacks or {}

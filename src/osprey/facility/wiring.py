@@ -5,6 +5,13 @@ no author states: ``direction``, ``unit``, ``default`` and ``value_range``. This
 module is their one writer. It runs after S5, so every id a record names
 resolves and the record rules hold, and before S6, whose checks compare against
 the ``default`` it writes.
+
+A wired element the deck does not hold exactly once stops with one line naming
+the wiring record, whichever slice or role it sits on: ``wiring-conflict`` when
+the deck repeats it, ``engine-invalid`` when the deck lacks it
+(``element_stop``). An engine signals such a stop by raising a
+``FacilityBuildError`` that carries ``element`` and ``count`` (0 absent, above 1
+repeated).
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults
 from osprey.facility.validate import Validated
 
-__all__ = ["fill_wiring_slots"]
+__all__ = ["element_stop", "fill_wiring_slots"]
 
 #: The entry-point group every simulation engine registers under.
 _ENGINE_GROUP = "osprey.simulation.engines"
@@ -111,7 +118,9 @@ def _fill_model(
             readbacks=readbacks,
         )
     except FacilityBuildError as stop:
-        return [stop]
+        record = next((r for r in model.get("wiring", []) if r["id"] == stop.record_id), None)
+        translated = element_stop(stop, record, model["name"]) if record is not None else None
+        return [translated or stop]
     errors: list[FacilityBuildError] = []
     for record in records:
         address = record["address"]
@@ -129,6 +138,34 @@ def _fill_model(
             continue
         _fill_record(record, values[address], channels[address], limits.get(address))
     return errors
+
+
+def element_stop(
+    stop: FacilityBuildError, record: Mapping[str, Any], model: str
+) -> FacilityBuildError | None:
+    """The build's line for an engine stop on a wired element, if it is one.
+
+    Args:
+        stop: What the engine raised while reading the record's deck.
+        record: The wiring record that names the element.
+        model: The model whose deck was read.
+
+    Returns:
+        ``wiring-conflict`` for an element the deck repeats, ``engine-invalid``
+        for one it lacks, each naming the wiring record and the model; ``None``
+        when the stop carries no element count.
+    """
+    count = getattr(stop, "count", None)
+    if getattr(stop, "element", None) is None or not isinstance(count, int):
+        return None
+    return FacilityBuildError(
+        "wiring-conflict" if count > 1 else "engine-invalid",
+        str(record["id"]),
+        _sources(record),
+        stop.remedy,
+        record_kind="wiring",
+        detail=f"{stop.detail} of model {model}",
+    )
 
 
 def _fill_record(

@@ -381,8 +381,49 @@ class TestWiringConflicts:
         assert _stops(tmp_path, files) == [("wiring-conflict", "wiring", "SR/QF:SP")]
 
 
+def _wire_element(files: dict[str, Any], where: str, element: str) -> str:
+    """Point one wiring record's element at ``element``; return the record's id."""
+    wiring = _model(files, "SR")["wiring"]
+    if where == "element":
+        wiring[1]["element"] = element
+        return "SR/QD:SP"
+    if where == "first slice":
+        wiring[0]["slices"][0]["element"] = element
+        return "SR/QF:SP"
+    if where == "later slice":
+        wiring[0]["slices"].append({"element": element})
+        return "SR/QF:SP"
+    wiring[2]["element"] = element
+    return "SR/BPM1:X"
+
+
+_PLACES = ("element", "first slice", "later slice", "readback")
+
+
+class TestWiredElementStops:
+    """One line for a wired element, whatever slice or role it sits on."""
+
+    @pytest.mark.parametrize("where", _PLACES)
+    def test_a_repeated_element_is_a_wiring_conflict(self, tmp_path, where):
+        files = _tree()
+        record = _wire_element(files, where, "D")
+        assert _lines(_run(tmp_path, files)) == [
+            f"facility: wiring-conflict: wiring {record} — element D appears 3 times in the "
+            "deck of model SR; fix: give the element a unique name in the deck"
+        ]
+
+    @pytest.mark.parametrize("where", _PLACES)
+    def test_a_missing_element_names_the_wiring_record(self, tmp_path, where):
+        files = _tree()
+        record = _wire_element(files, where, "GHOST")
+        assert _lines(_run(tmp_path, files)) == [
+            f"facility: engine-invalid: wiring {record} — element GHOST is not in the deck "
+            "of model SR; fix: name an element the deck holds"
+        ]
+
+
 class TestEngineStops:
-    def test_the_locate_stop_names_the_model_not_the_deck(self, tmp_path):
+    def test_the_locate_stop_names_the_wiring_record_not_the_deck(self, tmp_path):
         files = _tree()
         sr = _model(files, "SR")
         sr["deck"] = "decks/lattice_v2.json"
@@ -391,8 +432,8 @@ class TestEngineStops:
         _sr_deck(root / "decks" / "lattice_v2.json")
         result = run_stages(root, project_name="p", later=LATER_STAGES)
         assert _lines(result) == [
-            "facility: engine-invalid: model SR — element GHOST is not in the deck; "
-            "fix: name an element the deck holds"
+            "facility: engine-invalid: wiring SR/QF:SP — element GHOST is not in the deck "
+            "of model SR; fix: name an element the deck holds"
         ]
 
     def test_prepare_runs_for_every_deck(self, tmp_path):
