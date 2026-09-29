@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
@@ -59,17 +60,16 @@ def tmp_project(tmp_path):
 
 
 @pytest.fixture
-def stub_reviewer_options(monkeypatch):
-    """Stand in for the reviewer's options builder.
+def stub_provider_check(monkeypatch):
+    """Stand in for the reviewer's provider check.
 
-    The command builds them in its own body, so a test that drives it with a
-    faked agent loop reaches the real builder — which refuses these fixture
-    projects, none of which names a provider. What the options are does not
-    matter to those tests: the loop they run is a stub.
+    The command checks the audited project's provider in its own body, and
+    these fixture projects name none, so the real check refuses them. The tests
+    that use this fixture drive a faked agent loop, which needs no provider.
     """
     monkeypatch.setattr(
-        "osprey.cli.audit_cmd._reviewer_options",
-        lambda project_dir, model, budget: object(),
+        "osprey.cli.audit_cmd._check_reviewer_provider",
+        lambda project_dir: None,
         raising=True,
     )
 
@@ -189,27 +189,12 @@ class TestAuditModels:
 
 
 # ---------------------------------------------------------------------------
-# CLI invocation tests (mock SDK)
+# CLI invocation tests (agent run faked)
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_query(report_json: str):
-    """Create a mock async generator that yields an AssistantMessage with report JSON."""
-
-    async def mock_query(prompt, options):  # noqa: ARG001 - the SDK query signature this stands in for
-        msg = MagicMock()
-        msg.__class__.__name__ = "AssistantMessage"
-        # Make isinstance check work
-        text_block = MagicMock()
-        text_block.text = report_json
-        msg.content = [text_block]
-        yield msg
-
-    return mock_query
-
-
 class TestAuditCLI:
-    """Test CLI invocation with mocked SDK."""
+    """Test CLI invocation with the agent run faked."""
 
     def _get_audit_cmd(self):
         from osprey.cli.audit_cmd import audit
@@ -218,7 +203,7 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_audit_project_success(self, mock_asyncio, runner, tmp_project, sample_report):
         report_json = sample_report.model_dump_json()
         mock_asyncio.run.return_value = (report_json, 0.01, 5)
@@ -228,7 +213,7 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_audit_json_output(self, mock_asyncio, runner, tmp_project, sample_report):
         report_json = sample_report.model_dump_json()
         mock_asyncio.run.return_value = (report_json, 0.01, 5)
@@ -240,7 +225,7 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_audit_verbose(self, mock_asyncio, runner, tmp_project, sample_report):
         report_json = sample_report.model_dump_json()
         mock_asyncio.run.return_value = (report_json, 0.05, 10)
@@ -260,7 +245,7 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_audit_invalid_json_output(self, mock_asyncio, runner, tmp_project):
         mock_asyncio.run.return_value = ("Not valid JSON at all", None, None)
 
@@ -269,7 +254,7 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_audit_markdown_fenced_json(self, mock_asyncio, runner, tmp_project, sample_report):
         report_json = sample_report.model_dump_json()
         fenced = f"```json\n{report_json}\n```"
@@ -300,7 +285,7 @@ class TestBuildFlag:
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
     @patch("osprey.cli.audit_cmd.click.get_current_context")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_build_flag_invokes_build_cmd(
         self, mock_ctx, mock_asyncio, runner, tmp_profile, sample_report
     ):
@@ -328,31 +313,41 @@ class TestReviewerProvider:
 
         return audit
 
-    def test_options_come_from_the_projects_provider(self, tmp_project, monkeypatch):
-        """Hand-built options carried no provider env, so the SDK fell through
-        to ambient ``ANTHROPIC_*``. They now come from the shared builder, which
-        resolves the project's endpoint, auth and models."""
+    def test_the_reviewer_runs_through_the_runner_on_the_projects_provider(
+        self, tmp_project, monkeypatch
+    ):
+        """The reviewer runs through the shared runner, which routes it on the
+        audited project's own provider: no env, provider or server set is
+        handed in, so nothing overrides the project's endpoint, auth and models.
+        """
         from osprey.cli import audit_cmd
 
         captured: dict = {}
-        sentinel = object()
 
-        def fake_build(project_dir, **kwargs):
-            captured["project_dir"] = project_dir
-            captured.update(kwargs)
-            return sentinel
+        async def fake_stream(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return
+            yield  # pragma: no cover - makes this an async generator
 
-        monkeypatch.setattr(
-            "osprey.agent_runner.primitives.build_agent_options", fake_build, raising=True
+        monkeypatch.setattr("osprey.cli.audit_cmd.stream_query", fake_stream, raising=True)
+
+        asyncio.run(
+            audit_cmd._run_audit(tmp_project, "p", model="some-model", budget=5.0, verbose=False)
         )
 
-        assert audit_cmd._reviewer_options(tmp_project, "some-model", 5.0) is sentinel
-        assert captured["project_dir"] == tmp_project
-        assert captured["model"] == "some-model"
-        assert captured["max_budget_usd"] == 5.0
-        assert captured["max_turns"] == 30
+        kwargs = captured["kwargs"]
+        assert captured["args"][0] == tmp_project
+        assert kwargs["model"] == "some-model"
+        assert kwargs["max_budget_usd"] == 5.0
+        assert kwargs["max_turns"] == 30
+        assert kwargs["permission_mode"] == "bypassPermissions"
+        assert kwargs["disallowed_tools"] == []
         # The reviewer reads the target; it must not run as it.
-        assert captured["setting_sources"] == []
+        assert kwargs["setting_sources"] == []
+        assert kwargs["await_mcp_servers"] == ()
+        for key in ("env", "provider", "mcp_servers"):
+            assert key not in kwargs
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     def test_a_project_that_names_no_provider_is_refused(self, runner, tmp_project):
@@ -371,7 +366,7 @@ class TestReviewerProvider:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_default_model_is_the_projects_main_model(
         self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch
     ):
@@ -394,7 +389,7 @@ class TestReviewerProvider:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_an_explicit_model_still_wins(
         self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch
     ):
@@ -421,7 +416,7 @@ class TestReviewerProvider:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    @pytest.mark.usefixtures("stub_reviewer_options")
+    @pytest.mark.usefixtures("stub_provider_check")
     def test_a_bare_profile_in_a_repo_runs_from_the_repos_build(
         self, mock_asyncio, runner, tmp_path, sample_report, monkeypatch
     ):
