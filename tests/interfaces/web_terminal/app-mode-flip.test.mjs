@@ -90,7 +90,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat.js', () => ({
   initChat: vi.fn(),
   enterFromExpert: surfaces.enterFromExpert,
-  handoffRefusal: vi.fn(() => null),
   transportNotice: vi.fn(() => ''),
 }));
 
@@ -189,12 +188,7 @@ describe('flip to Simple', () => {
       'enterFromExpert',
     ]);
     expect(surfaces.startExpert).not.toHaveBeenCalled();
-  });
-
-  test('asks for the key with no interrupt: the flip never cuts a running turn', async () => {
-    flipTo('simple');
-    await settle();
-
+    // No interrupt: the flip never cuts a running turn.
     expect(surfaces.enterFromExpert).toHaveBeenCalledTimes(1);
     expect(surfaces.enterFromExpert).toHaveBeenCalledWith();
   });
