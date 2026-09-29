@@ -6,9 +6,10 @@ Claude Code internal session variables while preserving the telemetry switches
 variables (including ``OTEL_*``, which does not carry the stripped prefix).
 
 Also verifies the second deny step in the same shared helper: the sensitive
-credential names owned by ``osprey.utils.sensitive_env`` are removed from every
-child environment, while operational keys (``PATH``, ``OSPREY_WEB_PORT``)
-survive.
+credential names owned by ``osprey.utils.sensitive_env`` are removed by
+``build_base_child_env``, while operational keys (``PATH``, ``OSPREY_WEB_PORT``)
+survive. That every child path inherits the deny step is proved in
+``tests/mcp_server/test_d2_web_secret_scrub.py``, over the whole canonical list.
 
 The last section verifies the deliberate exception to that deny step: the
 **panel token** is put back on both web-terminal child paths, because the
@@ -51,18 +52,6 @@ def test_strips_internal_session_markers():
     assert "CLAUDE_CODE_ENTRYPOINT" not in result
     assert "CLAUDECODE" not in result
     assert result["PATH"] == "/usr/bin"
-
-
-def test_preserves_telemetry_master_switch():
-    """The telemetry master switch survives the strip on both paths."""
-    result = strip_claude_code_env(
-        {
-            "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-            "CLAUDE_CODE_FOO": "1",
-        }
-    )
-    assert result["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
-    assert "CLAUDE_CODE_FOO" not in result
 
 
 def test_preserves_every_telemetry_switch():
@@ -191,28 +180,6 @@ def test_sensitive_strip_preserves_operational_keys(monkeypatch):
     assert "OSPREY_TERMINAL_SECRET" not in env
 
 
-def test_build_clean_env_drops_sensitive_credentials(monkeypatch):
-    """The SDK/dispatch consumer inherits the base helper's deny step."""
-    monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "operator-secret")
-    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
-
-    env = build_clean_env()
-
-    assert "OSPREY_TERMINAL_SECRET" not in env
-    assert "EVENT_DISPATCHER_TOKEN" not in env
-
-
-def test_build_pty_env_drops_sensitive_credentials(monkeypatch):
-    """The interactive PTY path inherits the same deny step."""
-    monkeypatch.setenv("OSPREY_PANEL_TOKEN", "panel-token")
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "launch-token")
-
-    env = build_pty_env()
-
-    assert "OSPREY_PANEL_TOKEN" not in env
-    assert "BLUESKY_LAUNCH_TOKEN" not in env
-
-
 def test_sensitive_strip_does_not_mutate_process_environment(monkeypatch):
     """Building a child env leaves this process's own environment intact."""
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
@@ -249,8 +216,17 @@ def single_user_launch(monkeypatch):
     reset_web_credentials()
 
 
+#: Whether a launcher published the carrier before the app was built. With it,
+#: the app closes the carrier it read; without it, the app mints its own holder.
+#: Both web-terminal child paths must hand the child the holder's token either way.
+_CARRIER = pytest.mark.parametrize(
+    "announced", [True, False], ids=["launcher-carrier", "no-carrier"]
+)
+
+
+@_CARRIER
 @pytest.mark.usefixtures("single_user_launch")
-def test_pty_child_gets_the_panel_token_and_never_the_operator_secret():
+def test_pty_child_gets_the_panel_token_and_never_the_operator_secret(announced):
     """The interactive terminal's child holds the weak credential, not the strong one.
 
     ``build_pty_env`` hands its result to ``Popen(env=...)`` as the child's
@@ -269,7 +245,8 @@ def test_pty_child_gets_the_panel_token_and_never_the_operator_secret():
     from osprey.interfaces.web_terminal.app import create_app
     from osprey.interfaces.web_terminal.routes.websocket import _build_extra_env
 
-    mint_and_announce("127.0.0.1", default_port("web"))  # the launcher, publishing the carrier
+    if announced:
+        mint_and_announce("127.0.0.1", default_port("web"))  # the launcher publishes the carrier
     app = create_app()  # ... which becomes the server, closing it again
     credentials = get_web_credentials(app)
 
@@ -285,8 +262,9 @@ def test_pty_child_gets_the_panel_token_and_never_the_operator_secret():
     assert env["TERM"] == "xterm-256color"
 
 
+@_CARRIER
 @pytest.mark.usefixtures("single_user_launch")
-def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(tmp_path):
+def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(tmp_path, announced):
     """The chat/operator SDK session's env carries the same weak credential.
 
     The SDK overlays this dict onto ``os.environ`` rather than replacing it, so
@@ -302,7 +280,8 @@ def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(t
     from osprey.interfaces.web_terminal.app import create_app
     from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
 
-    mint_and_announce("127.0.0.1", default_port("web"))
+    if announced:
+        mint_and_announce("127.0.0.1", default_port("web"))
     app = create_app()
     credentials = get_web_credentials(app)
 
@@ -313,26 +292,3 @@ def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(t
     assert OPERATOR_SECRET_ENV not in sdk_child_env
     assert credentials.operator_secret not in sdk_child_env.values()
     assert "PATH" in sdk_child_env
-
-
-@pytest.mark.usefixtures("single_user_launch")
-def test_both_web_terminal_child_paths_agree_on_the_panel_token(tmp_path):
-    """PTY and SDK hand the child the SAME token — the one the server verifies.
-
-    Two seams re-introducing the credential independently is exactly the shape
-    that drifts. Pinning them equal to each other *and* to the holder means a
-    change to either one that invents its own value fails here.
-    """
-    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
-    from osprey.interfaces.web_terminal.app import create_app
-    from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
-    from osprey.interfaces.web_terminal.routes.websocket import _build_extra_env
-
-    app = create_app()
-    expected = get_web_credentials(app).panel_token
-
-    pty = build_pty_env(_build_extra_env(SimpleNamespace(app=app), None, None))
-    sdk = build_operator_child_env(str(tmp_path))
-
-    assert pty[PANEL_TOKEN_ENV] == expected
-    assert sdk[PANEL_TOKEN_ENV] == expected

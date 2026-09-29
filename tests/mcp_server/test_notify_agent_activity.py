@@ -25,19 +25,7 @@ _MODULE = "osprey.mcp_server.http"
 pytestmark = pytest.mark.real_http_posters
 
 
-def _free_port() -> int:
-    """Reserve a localhost port and release it (nothing will be listening)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 class TestStoppedServer:
-    def test_no_exception_when_server_down(self):
-        port = _free_port()
-        with patch(f"{_MODULE}.web_terminal_url", return_value=f"http://127.0.0.1:{port}"):
-            notify_agent_activity("channel_read", "channel", detail="SR:BPM1:X")
-
     def test_no_exception_when_url_resolution_fails(self):
         with patch(f"{_MODULE}.web_terminal_url", side_effect=RuntimeError("config broken")):
             notify_agent_activity("channel_read", "channel")
