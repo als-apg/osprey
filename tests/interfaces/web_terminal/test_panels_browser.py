@@ -64,6 +64,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
+import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import AsyncMock, patch
@@ -110,12 +111,16 @@ _CUSTOM_DATA_VIZ: dict = {
 
 
 @contextmanager
-def _stub_backend():
+def _stub_backend(hits: list[str] | None = None):
     """Serve 200 on every path, for a custom panel that must become healthy.
 
     Panels with a ``healthEndpoint`` are the only ones that reach the
     auto-activate branch in ``pollHealth``, and that branch needs a real
     unhealthy→healthy transition — so it needs a real backend to poll.
+
+    Args:
+        hits: When given, every request path the stub answers is appended to
+            it, so a caller can prove a health poll really reached the stub.
 
     Yields:
         base URL of the stub, e.g. ``"http://127.0.0.1:54321"``.
@@ -123,6 +128,8 @@ def _stub_backend():
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if hits is not None:
+                hits.append(self.path)
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -1886,7 +1893,8 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _stub_backend() as backend_url:
+    hits: list[str] = []
+    with _stub_backend(hits) as backend_url:
         hidden_panel = {
             "id": "data-viz",
             "label": "DATA VIZ",
@@ -1906,10 +1914,15 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
 
-            # Give the async init + health poll time to (wrongly) surface it —
-            # data-viz's poll against the live stub goes healthy in this window,
-            # which is exactly the transition the buggy fallback keyed on.
-            page.wait_for_timeout(3_000)
+            # The premise: data-viz's health poll really reaches the live stub
+            # and goes healthy, which is the transition the buggy fallback
+            # keyed on. Without a hit the negatives below could not fail.
+            deadline = time.monotonic() + 10.0
+            while not any(h.endswith("/health") for h in hits):
+                assert time.monotonic() < deadline, f"no health poll reached the stub: {hits}"
+                page.wait_for_timeout(100)
+            # One settle after the healthy answer for a wrong surface to land.
+            page.wait_for_timeout(1_000)
 
             # A non-member has NO rail entry at all (no dimmed placeholder),
             # and its healthy transition must not have docked or activated it.
