@@ -18,6 +18,7 @@ import pytest
 from osprey.services.facility_knowledge.okf.index import (
     OKFIndexError,
     _synthesize_description,
+    check_indexes,
     regenerate_indexes,
     render_indexes,
     validate_index,
@@ -377,6 +378,100 @@ class TestRenderIndexes:
 
         assert rendered.texts == {}
         assert rendered.stale == ()
+
+
+# ---------------------------------------------------------------------------
+# check_indexes
+# ---------------------------------------------------------------------------
+
+
+class TestCheckIndexes:
+    """check_indexes reports every index regenerate_indexes would change."""
+
+    def _bundle(self, tmp_path: Path) -> Path:
+        _concept(tmp_path, "facility.md", type_="Facility", title="Quokka", desc="Facility.")
+        _concept(tmp_path, "devices/bpm.md", type_="Device", title="BPM", desc="Monitor.")
+        _concept(tmp_path, "devices/hcm.md", type_="Device", title="HCM", desc="Corrector.")
+        regenerate_indexes(tmp_path)
+        return tmp_path
+
+    def test_regenerated_bundle_has_no_drift(self, tmp_path: Path) -> None:
+        root = self._bundle(tmp_path)
+
+        assert check_indexes(root) == []
+
+    def test_retitled_page_is_reported_with_its_line(self, tmp_path: Path) -> None:
+        root = self._bundle(tmp_path)
+        page = root / "facility.md"
+        page.write_text(
+            page.read_text(encoding="utf-8").replace("title: Quokka", "title: Wombat"),
+            encoding="utf-8",
+        )
+
+        drifts = check_indexes(root)
+
+        assert [drift.path for drift in drifts] == [root / "index.md"]
+        assert "line " in drifts[0].message
+        assert "Wombat" in drifts[0].message
+
+    def test_added_page_is_reported(self, tmp_path: Path) -> None:
+        root = self._bundle(tmp_path)
+        _concept(root, "devices/qf.md", type_="Device", title="QF", desc="Quadrupole.")
+
+        drifted = {drift.path for drift in check_indexes(root)}
+
+        assert drifted == {root / "devices" / "index.md", root / "index.md"}
+
+    def test_removed_page_is_reported(self, tmp_path: Path) -> None:
+        root = self._bundle(tmp_path)
+        (root / "devices" / "hcm.md").unlink()
+
+        drifted = {drift.path for drift in check_indexes(root)}
+
+        assert root / "devices" / "index.md" in drifted
+
+    def test_missing_index_is_reported(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "facility.md", type_="Facility", title="Quokka", desc="Facility.")
+        _concept(tmp_path, "devices/bpm.md", type_="Device", title="BPM", desc="Monitor.")
+
+        drifts = check_indexes(tmp_path)
+
+        assert {drift.path for drift in drifts} == {
+            tmp_path / "index.md",
+            tmp_path / "devices" / "index.md",
+        }
+        assert all("missing" in drift.message for drift in drifts)
+
+    def test_stale_index_is_reported(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        regenerate_indexes(tmp_path)
+        _write(tmp_path / "gone" / "index.md", "# Device\n\n* [Gone](/gone/x.md)\n")
+
+        drifts = check_indexes(tmp_path)
+
+        assert [drift.path for drift in drifts] == [tmp_path / "gone" / "index.md"]
+        assert "no longer holds" in drifts[0].message
+
+    def test_blank_placeholder_is_not_reported(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "devices").mkdir()
+        (tmp_path / "devices" / "index.md").write_text("", encoding="utf-8")
+        regenerate_indexes(tmp_path)
+
+        assert check_indexes(tmp_path) == []
+
+    def test_nonexistent_root_has_no_drift(self, tmp_path: Path) -> None:
+        assert check_indexes(tmp_path / "missing") == []
+
+    def test_check_writes_nothing(self, tmp_path: Path) -> None:
+        root = self._bundle(tmp_path)
+        (root / "devices" / "hcm.md").unlink()
+        _write(root / "gone" / "index.md", "# Device\n\n* [Gone](/gone/x.md)\n")
+        before = _snapshot(root)
+
+        assert check_indexes(root)
+
+        assert _snapshot(root) == before
 
 
 # ---------------------------------------------------------------------------
