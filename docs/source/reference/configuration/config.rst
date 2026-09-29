@@ -922,6 +922,29 @@ web terminals, the dispatch worker, ``osprey chat`` and SDK agent runs. The
 rest of the block is covered in
 :doc:`/how-to/health-and-monitoring/monitor-agent`.
 
+.. _config-telemetry-auth:
+
+``claude_code.telemetry.auth.token_env`` — the collector's token
+----------------------------------------------------------------
+
+``claude_code.telemetry.auth.token_env`` names the environment variable that
+holds the bearer token of an OTLP collector this deployment does not run. The
+agent sends it as ``Authorization: Bearer <value>``. The key holds the
+variable's name; the token goes in the project's ``.env``.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.telemetry.backend: generic
+     claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
+     claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
+
+Every web terminal that exports telemetry receives the variable from the deploy
+``.env`` through its own compose environment, never ``.env.users``, and
+``osprey up`` refuses the deploy when it is unset. The ``openobserve`` backend
+authenticates with its own account and refuses the key. See
+:doc:`/how-to/health-and-monitoring/monitor-agent`.
+
 .. _config-phoebus:
 
 ``phoebus:`` — the Phoebus display bridge

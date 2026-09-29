@@ -63,6 +63,8 @@ pointed at an endpoint:
        enabled: true
        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}   # your OTLP collector
        protocol: http/protobuf                    # default; or grpc
+       auth:
+         token_env: OTLP_COLLECTOR_TOKEN          # variable holding the bearer token
        resource_attributes:                       # attached to every record
          service.name: osprey-agent
          deployment.environment: dev
@@ -90,9 +92,10 @@ Keys:
    * - ``signals``
      - Which of ``metrics``, ``logs`` and ``traces`` to export. Defaults to all
        three; see :ref:`monitor-agent-signals`.
-   * - ``headers``
-     - Extra OTLP headers (for example, routing or auth headers your backend
-       requires).
+   * - ``auth.token_env``
+     - The environment variable holding the collector's bearer token; the agent
+       sends ``Authorization: Bearer <value>``. Holds the variable's name, never
+       the token.
    * - ``resource_attributes``
      - Attributes stamped onto every emitted record — useful for separating
        environments or agent instances in your backend.
@@ -104,6 +107,7 @@ from it — then run the agent as usual:
 
    # .env
    OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com
+   OTLP_COLLECTOR_TOKEN=<the collector's token>
 
 That is all Phase 1 requires — the agent begins emitting on its next run.
 
@@ -113,6 +117,13 @@ the deploy and names the key and the variable. None of these values is copied
 into ``.env.users``, the one file every web terminal shares — the only
 exception is the store account name ``ZO_INGEST_USER_EMAIL`` (Phase 2) — so a
 value the terminals need from this block does not reach them from there.
+
+The web terminals receive the variable ``auth.token_env`` names from the
+deploy ``.env`` through their own compose environment, never ``.env.users``,
+and ``osprey up`` refuses the deploy when it is unset. Every other ``${VAR}``
+the block references reaches the terminals the same way. A collector that needs
+another header or another auth scheme sits behind an OpenTelemetry Collector
+that adds it.
 
 .. _monitor-agent-signals:
 
