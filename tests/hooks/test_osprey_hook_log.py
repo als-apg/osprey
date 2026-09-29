@@ -4,8 +4,9 @@ This module is imported by other hooks rather than invoked as a script, so it is
 tested by direct import. It carries module-level caches
 (``_hook_config_cache``, ``_osprey_config_cache``, ``_debug_from_config``) that
 must be reset between tests to keep the unit lane serial-safe. Coverage here
-targets the config loaders, stdin/project-dir resolution, and the dual-sink
-``log_hook`` gate; ``_is_debug_enabled`` is exercised elsewhere.
+targets the config loaders, stdin/project-dir resolution, the dual-sink
+``log_hook`` gate, and ``_is_debug_enabled``, which reads ``config.yml`` on
+every hook run so the Hook Debug toggle takes effect without a respawn.
 """
 
 from __future__ import annotations
@@ -226,3 +227,46 @@ def test_log_hook_survives_missing_log_dir(tmp_path, capsys, monkeypatch):
 
     assert "[h]" in capsys.readouterr().err
     assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# _is_debug_enabled
+# ---------------------------------------------------------------------------
+
+
+class TestIsDebugEnabled:
+    def test_env_var_returns_true(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+        assert hook_log._is_debug_enabled({"cwd": "/tmp"}) is True
+
+    def test_no_env_no_config_returns_false(self):
+        assert hook_log._is_debug_enabled({"cwd": "/nonexistent"}) is False
+
+    def test_config_fallback_returns_true(self, tmp_path):
+        (tmp_path / "config.yml").write_text(yaml.dump({"hooks": {"debug": True}}))
+        assert hook_log._is_debug_enabled({"cwd": str(tmp_path)}) is True
+
+    def test_config_fallback_false(self, tmp_path):
+        (tmp_path / "config.yml").write_text(yaml.dump({"hooks": {"debug": False}}))
+        assert hook_log._is_debug_enabled({"cwd": str(tmp_path)}) is False
+
+    def test_caches_result(self, tmp_path):
+        """A second call answers from the first read, not from the file."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(yaml.dump({"hooks": {"debug": True}}))
+        hook_input = {"cwd": str(tmp_path)}
+
+        assert hook_log._is_debug_enabled(hook_input) is True
+        config_file.unlink()
+        assert hook_log._is_debug_enabled(hook_input) is True
+
+    def test_uses_osprey_config_env_var(self, tmp_path, monkeypatch):
+        """``OSPREY_CONFIG`` outranks the cwd's ``config.yml``."""
+        custom_config = tmp_path / "custom_config.yml"
+        custom_config.write_text(yaml.dump({"hooks": {"debug": True}}))
+        monkeypatch.setenv("OSPREY_CONFIG", str(custom_config))
+
+        assert hook_log._is_debug_enabled({"cwd": "/nonexistent"}) is True
+
+    def test_empty_cwd_returns_false(self):
+        assert hook_log._is_debug_enabled({}) is False

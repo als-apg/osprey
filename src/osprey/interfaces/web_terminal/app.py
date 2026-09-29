@@ -798,45 +798,33 @@ class BarRenderPlan(NamedTuple):
 def effective_bar_layout(app: FastAPI) -> dict:
     """The layout document this request renders.
 
-    THE seam, and now with both its sources wired: the operator's own saved
-    arrangement (``app.state.bar_items_effective``) is read ahead of the
-    deployment default (``app.state.bar_layout``), and neither ``root()`` nor
-    the template learns that anything changed.
+    The operator's own saved arrangement (``app.state.bar_items_effective``)
+    when there is one, else the deployment default (``app.state.bar_layout``).
+    The lifespan sets both. The saved document is read once at startup and
+    refreshed by the layout routes after every accepted save, so a render
+    never touches the disk; ``None`` there is the honest reading of "this
+    operator has saved nothing" — a reset puts it back — and the deployment
+    default then renders.
 
-    The cache is populated once at startup and refreshed by the layout routes
-    after every accepted save, so a render never touches the disk. ``None``
-    there is the honest reading of "this operator has saved nothing" — a reset
-    puts it back — and the deployment default is then what renders.
-
-    ``app.state.bar_layout`` is honoured when present, which is what lets a
-    test hand a document in without reaching into the renderer.
-
-    A document whose ``version`` this build cannot read is refused here, for
-    the same reason ``bar-layout.js`` refuses it on the client: a document
-    written by a newer build that the server rendered and the client discarded
-    would paint one arrangement and hydrate into another — and the server's
-    pool membership would have been computed from a layout the client no
-    longer holds, so an adopted node could be parked on the page while the
-    client believes it is placed. Refusing in both halves keeps first paint and
-    hydration talking about the same document.
+    Both documents are at this build's schema version by construction: the
+    store refuses any other on load and on save, and :func:`_load_bar_items`
+    writes the version itself. First paint and the browser's hydration
+    therefore always talk about the same document.
 
     Args:
-        app: The application whose state may carry a stored document.
+        app: The application, its lifespan run.
 
     Returns:
-        A readable layout document. Never None; falls back to
-        :data:`DEFAULT_BAR_LAYOUT`. It is the shared cache itself, not a copy,
-        so callers must treat it as immutable — a route that normalized or
-        annotated it in place would corrupt every later render in the process.
-        The writers are already safe: ``save_layout`` returns its own copy.
+        The shared cache itself, not a copy, so callers must treat it as
+        immutable — a route that normalized or annotated it in place would
+        corrupt every later render in the process. The writers are already
+        safe: ``save_layout`` returns its own copy.
     """
-    for candidate in (
-        getattr(app.state, "bar_items_effective", None),
-        getattr(app.state, "bar_layout", None),
-    ):
-        if isinstance(candidate, dict) and candidate.get("version") == BAR_LAYOUT_VERSION:
-            return candidate
-    return DEFAULT_BAR_LAYOUT
+    saved: dict | None = app.state.bar_items_effective
+    if saved is not None:
+        return saved
+    default: dict = app.state.bar_layout
+    return default
 
 
 def _load_stored_bar_layout(
@@ -1503,7 +1491,7 @@ def _coerce_bar_item(host: str, index: int, raw: object) -> dict | None:
     return item
 
 
-def _load_bar_items(config_path: str | Path | None = None, *, context: dict | None = None) -> dict:
+def _load_bar_items(config_path: str | Path | None = None, *, context: dict) -> dict:
     """Read ``web.bar_items`` into this deployment's default bar layout.
 
     The deployment's half of the bar-items contract: an operator's saved
@@ -1512,14 +1500,12 @@ def _load_bar_items(config_path: str | Path | None = None, *, context: dict | No
     ``web.presets``, and for the same reason — there is no config schema
     anywhere, so a typo must cost the operator one item and never the boot.
 
-    With a *context* the result is also renderable by construction: an item
-    this deployment cannot show leaves the document here, so the rev-0 answer
-    of ``GET /api/bar-items`` never names one and the browser has nothing to
-    drop (#863). An AUTHORED item that goes is warned about by position and
-    gate, because an operator wrote it and will look for it; an item the
-    shipped order supplied is dropped quietly, because nobody did. Without a
-    *context* nothing is filtered — that is the coercion alone, which is what
-    the config tests exercise.
+    The result is also renderable by construction: an item this deployment
+    cannot show leaves the document here, so the rev-0 answer of
+    ``GET /api/bar-items`` never names one and the browser has nothing to drop.
+    An AUTHORED item that goes is warned about by position and gate, because
+    an operator wrote it and will look for it; an item the shipped order
+    supplied is dropped quietly, because nobody did.
 
     Four keys, each degrading on its own:
 
@@ -1536,19 +1522,16 @@ def _load_bar_items(config_path: str | Path | None = None, *, context: dict | No
     Args:
         config_path: Explicit ``config.yml`` to read; falls back to the
             ``CONFIG_FILE`` environment variable and then ``./config.yml``.
-        context: The deployment facts from :func:`bar_availability_context`,
-            or None to skip the availability filter.
+        context: The deployment facts from :func:`bar_availability_context`.
 
     Returns:
         The resolved layout document. Falls open to :data:`DEFAULT_BAR_LAYOUT`
-        on any read error or when the key is absent — filtered through
-        :func:`renderable_bar_layout` when a *context* is given, and the
-        constant itself when nothing needs to leave it.
+        on any read error or when the key is absent, filtered through
+        :func:`renderable_bar_layout` — the constant itself when nothing needs
+        to leave it.
     """
 
     def _default() -> dict:
-        if context is None:
-            return DEFAULT_BAR_LAYOUT
         return renderable_bar_layout(DEFAULT_BAR_LAYOUT, context=context)
 
     def _shipped_host(host: str) -> list[dict]:
@@ -1588,7 +1571,7 @@ def _load_bar_items(config_path: str | Path | None = None, *, context: dict | No
             item = _coerce_bar_item(host, index, entry)
             if item is None:
                 continue
-            if context is not None and not bar_item_available(item["type"], context):
+            if not bar_item_available(item["type"], context):
                 logger.warning(
                     "web.bar_items.%s[%d] places %r, which this deployment cannot show "
                     "(it needs %s); dropping it.",
@@ -2080,12 +2063,12 @@ def _create_lifespan(
         # permission surface is rendered from.
         #
         # Resolved once here and read back as
-        # ``getattr(app.state, "config_panel_enabled", True)``, so an app built
-        # without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. Fails OPEN, deliberately:
-        # the default posture is the panel every single-user deployment has
-        # always had, and an unreadable config must not silently take an
-        # operator's own config editor away.
+        # ``getattr(app.state, "config_panel_enabled", False)``: an app that
+        # skipped this lifespan has made no tier decision, and the routes
+        # refuse it. The config read itself fails OPEN, deliberately: an
+        # absent key is the panel every single-user deployment has always had,
+        # and an unreadable config must not silently take an operator's own
+        # config editor away.
         app.state.config_panel_enabled = resolve_config_flag(
             "web.config_panel.enabled",
             True,
@@ -2103,11 +2086,11 @@ def _create_lifespan(
         # `ui_mode: simple` was: a client-only guard is undone by curl.
         #
         # Resolved once here and read back as
-        # ``getattr(app.state, "scaffold_write_enabled", True)``, so an app
-        # built without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. Fails OPEN, deliberately:
-        # the default posture is the gallery every single-user deployment has
-        # always had, and a config-read error must not silently revoke it.
+        # ``getattr(app.state, "scaffold_write_enabled", False)``: an app that
+        # skipped this lifespan has made no tier decision, and the write routes
+        # refuse it. The config read itself fails OPEN, deliberately: an absent
+        # key is the gallery every single-user deployment has always had, and a
+        # config-read error must not silently revoke it.
         app.state.scaffold_write_enabled = resolve_config_flag(
             "web.scaffold_gallery.write_enabled",
             True,
@@ -2520,10 +2503,6 @@ def _create_lifespan(
 
         _launch_enabled_panel_servers(app, enabled_panels)
         await _launch_enabled_sidecars(app, enabled_panels)
-
-        # Hook env placeholder — hooks read config.yml directly for
-        # hot-reloadable settings (no env var propagation needed).
-        app.state.hooks_env = {}
 
         # Shared httpx client for the panel reverse proxy.
         # trust_env=False prevents routing through the corporate HTTP proxy
