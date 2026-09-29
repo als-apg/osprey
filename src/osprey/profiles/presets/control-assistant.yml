@@ -1056,6 +1056,11 @@ config:
   # applies from the "+" popover are the `panel_presets:` field, not a key.
   # web.allow_runtime_panels: true
   # web.runtime_panel_allowlist: ["grafana.local:3000"]
+  # How long the terminal waits, at startup, for a panel that runs its own
+  # server (the JUPYTER tab) to answer before it greys that tab. The terminal
+  # starts serving once the panel answers or the wait passes. Raise it on a
+  # host where the first start is slow.
+  # web.sidecar_ready_timeout_s: 60
 
   # ── Multi-user web terminals ───────────────────────────────────────────────
   # `osprey up` runs a landing page and one terminal per user listed below.

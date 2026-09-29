@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import math
 import os
 import shlex
 from collections import deque
@@ -137,9 +138,49 @@ def _launch_enabled_panel_servers(app: FastAPI, enabled_panels: set[str]) -> Non
         _launch_panel_server(app, PANEL_ID_TO_REGISTRY_KEY[panel_id])
 
 
-#: How long a sidecar gets to answer its own status endpoint after it is spawned.
-#: Generous: the first launch on a cold deployment builds the panel's assets.
-SIDECAR_READY_TIMEOUT = 60.0
+#: The config key that sets how long a sidecar gets to answer its own status
+#: endpoint after it is spawned.
+SIDECAR_READY_TIMEOUT_KEY = "web.sidecar_ready_timeout_s"
+
+#: The wait in seconds when the key is unset or unusable. Generous: the first
+#: launch on a cold deployment builds the panel's assets.
+DEFAULT_SIDECAR_READY_TIMEOUT_S = 60.0
+
+
+def resolve_sidecar_ready_timeout(value: object) -> float:
+    """Return the sidecar startup wait in seconds that *value* configures.
+
+    ``None`` (the key unset or set to null) gives the default. A usable value is
+    a finite number greater than zero, or a string that parses as one, since
+    ``${VAR}`` interpolation hands the reader strings. A ``bool`` is refused
+    although ``float(True)`` is ``1.0``: a one-second wait is never what
+    ``true`` meant. Anything unusable logs one warning naming the key and the
+    value, and the default applies; the reader never raises, because one tab's
+    wait must not block the terminal's start.
+
+    Args:
+        value: The raw value of ``web.sidecar_ready_timeout_s``.
+
+    Returns:
+        The wait in seconds.
+    """
+    if value is None:
+        return DEFAULT_SIDECAR_READY_TIMEOUT_S
+    if not isinstance(value, bool):
+        try:
+            seconds = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError, OverflowError):
+            pass
+        else:
+            if math.isfinite(seconds) and seconds > 0:
+                return seconds
+    logger.warning(
+        "%s is %r, not a positive number of seconds; using %s s",
+        SIDECAR_READY_TIMEOUT_KEY,
+        value,
+        DEFAULT_SIDECAR_READY_TIMEOUT_S,
+    )
+    return DEFAULT_SIDECAR_READY_TIMEOUT_S
 
 
 async def _launch_enabled_sidecars(app: FastAPI, enabled_panels: set[str]) -> None:
@@ -173,7 +214,9 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     anywhere leaves the URL unset, which is what a switched-off panel looks like.
 
     The blocking halves run in a worker thread. ``spawn()`` blocks only for the
-    fork, so it stays on the loop.
+    fork, so it stays on the loop. The readiness wait is
+    ``app.state.sidecar_ready_timeout_s``, which the lifespan resolves from
+    ``web.sidecar_ready_timeout_s``; every launch of a sidecar reads it there.
 
     Every outcome is recorded (:func:`_record_sidecar_status`): ``starting``
     before the sidecar is built, then ``running`` or ``failed`` with a one-line
@@ -213,7 +256,8 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
         if app.state.sidecars_closing:
             raise RuntimeError("the terminal is shutting down")
         sidecar.spawn()
-        await asyncio.to_thread(sidecar.wait_ready, SIDECAR_READY_TIMEOUT)
+        timeout = getattr(app.state, "sidecar_ready_timeout_s", DEFAULT_SIDECAR_READY_TIMEOUT_S)
+        await asyncio.to_thread(sidecar.wait_ready, timeout)
     except Exception as exc:  # a dead panel must not block startup
         # The readiness failures already quote the tail in their own message;
         # the preflight ones carry none, so it is appended only when it is new.
@@ -2621,6 +2665,23 @@ def _create_lifespan(
             apply_discovered_panels(app)
         except Exception:
             logger.warning("Local panel discovery failed; continuing.", exc_info=True)
+
+        # The sidecar startup wait, resolved once here after the config cache
+        # reset; every sidecar launch, startup or retry, reads it from app.state.
+        try:
+            from osprey.utils.config import get_config_value
+
+            app.state.sidecar_ready_timeout_s = resolve_sidecar_ready_timeout(
+                get_config_value(SIDECAR_READY_TIMEOUT_KEY, DEFAULT_SIDECAR_READY_TIMEOUT_S)
+            )
+        except Exception:  # never let config load block startup
+            logger.warning(
+                "Could not resolve %s; using %s s",
+                SIDECAR_READY_TIMEOUT_KEY,
+                DEFAULT_SIDECAR_READY_TIMEOUT_S,
+                exc_info=True,
+            )
+            app.state.sidecar_ready_timeout_s = DEFAULT_SIDECAR_READY_TIMEOUT_S
 
         # A sidecar's running process and the credential the proxy re-issues for
         # it, keyed by panel id. Both stay empty when no sidecar panel is
