@@ -50,15 +50,26 @@ DENY_DEFAULTS: tuple[str, ...] = (
 #: (a hardware write) or ``rm`` files, entirely bypassing the MCP write guard.
 #: This is a superset of the built-in (non-``mcp__``) entries in
 #: :data:`DENY_DEFAULTS`; test_write_tools.py guards that the
-#: headless floor never drifts below the interactive deny policy.
+#: headless floor never drifts below the interactive deny policy. Every name is
+#: a tool the pinned CLI builds list, checked by
+#: tests/agent_runner/test_tool_name_conformance.py.
 READ_ONLY_DENIED_BUILTINS: tuple[str, ...] = (
     "Bash",
     "Edit",
     "Write",
-    "MultiEdit",
     "NotebookEdit",
     "WebFetch",
     "WebSearch",
+    # Runs shell commands in the background.
+    "Monitor",
+    # A job may not fire or schedule jobs.
+    "Workflow",
+    "CronCreate",
+    "ScheduleWakeup",
+    # Sends messages to other sessions, out of this run.
+    "SendMessage",
+    # Creates a git worktree on disk.
+    "EnterWorktree",
 )
 
 #: Server-side tool denylist — tools that must NEVER be used by headless dispatch.
@@ -71,13 +82,22 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
         "mcp__plugin_playwright_playwright__*",
         # Arbitrary shell access from a headless, unattended run is never warranted —
         # the safety story is the per-trigger allowlist + MCP tools, not a raw shell.
-        # ``Bash`` runs commands; ``BashOutput`` reads a background shell's output;
-        # ``KillShell`` (the current CLI name; older builds used ``KillBash``) kills
-        # one. Deny all three.
+        # ``Bash`` runs commands; ``TaskOutput`` reads a background command's output;
+        # ``TaskStop`` stops one. Deny all three. Every name here is a tool the pinned
+        # CLI builds list, which tests/agent_runner/test_tool_name_conformance.py checks.
         "Bash",
-        "BashOutput",
-        "KillShell",
-        "KillBash",
+        "TaskOutput",
+        "TaskStop",
+        # Runs shell commands in the background.
+        "Monitor",
+        # A job may not fire or schedule jobs.
+        "Workflow",
+        "CronCreate",
+        "ScheduleWakeup",
+        # Sends messages to other sessions, out of this run.
+        "SendMessage",
+        # Creates a git worktree on disk.
+        "EnterWorktree",
         # A job may not fire jobs. ``trigger_config`` already refuses the whole
         # ``mcp__event_dispatcher__`` prefix when the triggers file is loaded; this
         # entry is the run-time floor, which holds whatever a dispatch request asks
