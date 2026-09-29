@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -64,9 +64,8 @@ class _FakeSDKClient:
 def _sdk_seam(client):
     """Patch the SDK seam so ``start()`` connects *client* and nothing else."""
     with (
-        patch(f"{_SEAM}.CLAUDE_SDK_AVAILABLE", True),
-        patch(f"{_SEAM}.ClaudeAgentOptions", side_effect=lambda **kw: MagicMock()),
-        patch(f"{_SEAM}.ClaudeSDKClient", return_value=client),
+        patch(f"{_SEAM}.HAS_SDK", True),
+        patch("osprey.agent_runner.session.ClaudeSDKClient", return_value=client),
         patch(f"{_SEAM}.validate_project_directory", return_value=[]),
         patch(f"{_SEAM}.build_system_prompt", return_value={"type": "preset"}),
         patch(f"{_SEAM}.get_facility_timezone", return_value=None),
