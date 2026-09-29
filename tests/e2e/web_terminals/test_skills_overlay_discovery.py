@@ -2,7 +2,7 @@
 web terminal launches with?
 
 The multi-user web terminal launches Claude Code with ``--setting-sources
-project`` unconditionally appended (``osprey.utils.claude_launcher``). This test
+project`` unconditionally appended (``osprey.agent_runner.launcher``). This test
 answers the gating question for the per-user *skills overlay*: when a skill is
 dropped into a filesystem location and ``claude`` starts with
 ``--setting-sources project``, does the harness DISCOVER that skill?
@@ -74,7 +74,7 @@ from tests.e2e.sdk_helpers import is_claude_code_available
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 # Mirror the flag the web terminal appends unconditionally
-# (osprey.utils.claude_launcher._SETTING_SOURCES_ARGS).
+# (osprey.agent_runner.launcher._SETTING_SOURCES_ARGS).
 _SETTING_SOURCES_PROJECT = ["--setting-sources", "project"]
 _SETTING_SOURCES_USER_PROJECT = ["--setting-sources", "user,project"]
 

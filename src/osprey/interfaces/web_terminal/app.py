@@ -1762,7 +1762,7 @@ def _log_claude_cli_versions(argv: list[str]) -> None:
     Args:
         argv: The argv prefix the PTY will spawn.
     """
-    from osprey.utils.claude_launcher import argv_cli_version, bundled_cli_version
+    from osprey.agent_runner.launcher import argv_cli_version, bundled_cli_version
 
     bundled = bundled_cli_version()
     logger.info(
@@ -1901,7 +1901,7 @@ def _create_lifespan(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        from osprey.utils.claude_launcher import build_claude_launch_argv
+        from osprey.agent_runner.launcher import build_claude_launch_argv
         from osprey.utils.shell_resolver import normalize_shell_command
 
         config = _load_web_config(config_path)

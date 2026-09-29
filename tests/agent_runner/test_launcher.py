@@ -7,7 +7,7 @@ argv prefix for both the unpinned and pinned cases, and that
 
 import pytest
 
-from osprey.utils.claude_launcher import build_claude_launch_argv, parse_claude_version
+from osprey.agent_runner.launcher import build_claude_launch_argv, parse_claude_version
 
 
 class TestBuildClaudeLaunchArgv:
@@ -16,7 +16,7 @@ class TestBuildClaudeLaunchArgv:
     Every launch path emits ``--setting-sources project`` so a user's global
     ``~/.claude/settings.json`` (or a gitignored ``.claude/settings.local.json``)
     cannot override the project's provider ``env`` via the settings-file scope
-    that outranks the process environment (issue #355). This mirrors the SDK
+    that outranks the process environment. This mirrors the SDK
     launch paths (``agent_runner.primitives``, ``dispatch_worker.sdk_runner``),
     which set ``setting_sources=["project"]``.
     """

@@ -38,7 +38,7 @@ CONFIG_TEMPLATE = "config.yml.j2"
 def _default_cli_version(ctx: dict) -> None:
     """Expose ``claude_code.cli_version`` to Dockerfile.j2's CLAUDE_CLI_VERSION
     ARG default, so the same version pin that ``osprey chat``/``osprey web``
-    honor at runtime (osprey.utils.claude_launcher) also pins the image's
+    honor at runtime (osprey.agent_runner.launcher) also pins the image's
     build-time CLI install. Callers may pre-populate
     ``ctx["claude_code_cli_version"]`` (flat) or ``ctx["claude_code"]["cli_version"]``
     (nested, mirroring config.yml's shape); absent either, fall back to the

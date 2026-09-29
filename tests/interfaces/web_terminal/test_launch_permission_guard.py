@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.claude_launcher import build_claude_launch_argv
+from osprey.agent_runner.launcher import build_claude_launch_argv
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -36,7 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # the argv builder itself, the deployment renderers that materialise a project,
 # the templates they render from, and the two callers that hand the argv to a PTY.
 LAUNCH_PATH = (
-    "src/osprey/utils/claude_launcher.py",
+    "src/osprey/agent_runner/launcher.py",
     "src/osprey/deployment/web_terminals",
     "src/osprey/templates/modules/web_terminals",
     "src/osprey/templates/claude_code",
