@@ -31,16 +31,25 @@ FROM --platform=${BASE_PLATFORM} ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 # Only the dependency closure is installed (--no-install-project). The osprey
 # source is bind-mounted at /work and put on PYTHONPATH at run time, so editing
 # a test or a module never invalidates this layer -- it is rebuilt only when
-# pyproject.toml or uv.lock changes.
+# pyproject.toml, uv.lock or a workspace member changes.
 #
-# The build context is therefore just those three files, staged by
-# run_live_ca.sh -- NOT the repo root, which also holds .git/, .venv/ and the
-# worktrees and would make every build re-tar gigabytes the image never reads.
+# The workspace members under packages/ are the exception to the bind mount:
+# the root project depends on them by source, so uv installs them here and
+# needs them on disk before the sync. They take their version from git, and
+# the context has no .git, so the sync is handed a fixed one; nothing in this
+# venue reads it.
+#
+# The build context is therefore pyproject.toml, uv.lock, README.md and
+# packages/, staged by run_live_ca.sh -- NOT the repo root, which also holds
+# .git/, .venv/ and the worktrees and would make every build re-tar gigabytes
+# the image never reads.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy
 WORKDIR /opt/osprey
 COPY pyproject.toml uv.lock README.md /opt/osprey/
-RUN uv sync --frozen --no-install-project --extra dev --extra virtual-accelerator
+COPY packages/ /opt/osprey/packages/
+RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev0+unknown \
+    uv sync --frozen --no-install-project --extra dev --extra virtual-accelerator
 
 # Channel Access stays inside this container: the server and the client share
 # this process and this network namespace, so nothing is published and no host
