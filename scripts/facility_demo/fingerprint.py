@@ -17,8 +17,6 @@ Modes:
   sha256 is pinned in the golden.
 * ``--standalone-addresses`` -- the expanded address set of the
   channel-finder-standalone preset's hierarchical database.
-* ``--limits`` -- the limits database as the connector loads it: each
-  channel's resolved limits record plus its resolved ``confirm``.
 * ``--in-context-size`` -- the tier-1 in_context database's size and its
   (channel, address) rows.
 * ``--cf-index-pre-line`` -- PATH is a directory: byte copies of the three
@@ -49,7 +47,6 @@ TIER3_DIR = f"{_CA_DATA}/channel_databases/tiers/tier3"
 TIER3_IN_CONTEXT = f"{TIER3_DIR}/in_context.json"
 TIER3_HIERARCHICAL = f"{TIER3_DIR}/hierarchical.json"
 TIER1_IN_CONTEXT = f"{_CA_DATA}/channel_databases/tiers/tier1/in_context.json"
-CHANNEL_LIMITS = f"{_CA_DATA}/channel_limits.json"
 #: The channel-finder pipelines that read a tier file; ``graph`` has none.
 CF_INDEX_FILES = ("hierarchical.json", "in_context.json", "middle_layer.json")
 STANDALONE_HIERARCHICAL = (
@@ -201,33 +198,6 @@ def standalone_addresses() -> bytes:
     )
 
 
-def limits() -> bytes:
-    """The limits golden: resolved limits records and confirm policy per channel."""
-    from dataclasses import asdict
-
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
-
-    records, raw = LimitsValidator._load_limits_database(str(_rel(CHANNEL_LIMITS)))
-    validator = LimitsValidator(records, {}, raw_db=raw)
-    channels: dict[str, dict[str, Any]] = {}
-    for address in sorted(records):
-        record = asdict(records[address])
-        del record["channel_address"]
-        record["confirm"] = validator.resolve_confirm(address)
-        channels[address] = record
-    defaults = {key: value for key, value in raw.get("defaults", {}).items() if key[:1] != "_"}
-    return _dump(
-        {
-            "_reproduce": _reproduce("--limits", f"{GOLDEN_DIR}/limits.json"),
-            "_sources": [CHANNEL_LIMITS],
-            "_version": raw.get("_version"),
-            "defaults": dict(sorted(defaults.items())),
-            "count": len(channels),
-            "channels": channels,
-        }
-    )
-
-
 def in_context_size() -> bytes:
     """The in_context size golden over the tier-1 database."""
     document = json.loads(_rel(TIER1_IN_CONTEXT).read_text(encoding="utf-8"))
@@ -272,7 +242,6 @@ def cf_index_pre_line() -> dict[str, bytes]:
 _MODES: dict[str, Callable[[], bytes]] = {
     "fingerprint": demo_fingerprint,
     "standalone_addresses": standalone_addresses,
-    "limits": limits,
     "in_context_size": in_context_size,
 }
 
@@ -291,13 +260,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_const",
         const="standalone_addresses",
         help="the channel-finder-standalone address set",
-    )
-    mode.add_argument(
-        "--limits",
-        dest="mode",
-        action="store_const",
-        const="limits",
-        help="the resolved limits and confirm policy",
     )
     mode.add_argument(
         "--in-context-size",
