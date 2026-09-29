@@ -46,6 +46,22 @@ def _load_records() -> Any:
 _records = _load_records()
 
 
+def _load_models() -> Any:
+    """``_models.py`` beside this file, under a name no other module takes."""
+    name = "facility_demo__models"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name("_models.py"))
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_models = _load_models()
+
+
 class _Dumper(yaml.SafeDumper):
     """A safe dumper that never writes anchors and writes scalar lists inline."""
 
@@ -78,6 +94,7 @@ def files(records: _records.Records) -> dict[str, str]:
     return {
         "identity.yaml": dump(records.identity),
         "classes.yaml": dump(records.classes),
+        "models.yaml": dump(_models.build_models()),
         "records/places.yaml": dump(records.places),
         "records/devices.yaml": dump(records.devices),
         "records/channels.yaml": dump(records.channels),
