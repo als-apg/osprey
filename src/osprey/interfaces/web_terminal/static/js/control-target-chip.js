@@ -268,9 +268,6 @@ let sse = null;
 /** @type {((state: PostureView|null) => void)[]} */
 let listeners = [];
 
-/** False after teardown, so a late frame cannot revive a dead chip. */
-let mounted = false;
-
 /* ---- mount ---- */
 
 /**
@@ -306,8 +303,6 @@ export function initControlTargetChip({ host } = {}) {
   );
   if (!mountPoint) return;
 
-  mounted = true;
-
   if (!chip || !anchor || !anchor.isConnected) {
     anchor = document.createElement('div');
     anchor.className = 'ctc-anchor';
@@ -333,7 +328,6 @@ export function initControlTargetChip({ host } = {}) {
  * subscription, the render subscribers and the DOM node.
  */
 export function teardownControlTargetChip() {
-  mounted = false;
   stopIdlePolling();
   stopFastPolling();
   if (sse) {
@@ -438,7 +432,7 @@ export async function targetRequest(path, { method = 'GET', json } = {}) {
  * neither — where the status code is all there is to say.
  * @param {any} body @param {number} status @returns {string}
  */
-export function refusalMessage(body, status) {
+function refusalMessage(body, status) {
   const detail = body && typeof body === 'object' ? body.detail : null;
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
@@ -691,7 +685,7 @@ function subscribeRefetchHints() {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
       if (!isRefetchHint(data)) return;
-      if (mounted) void refetch();
+      void refetch();
     },
   });
 }
@@ -779,11 +773,6 @@ export function getChipElement() {
  */
 export function getAnchorElement() {
   return anchor;
-}
-
-/** Whether the chip is currently showing itself as open. */
-export function isExpanded() {
-  return chip?.getAttribute('aria-expanded') === 'true';
 }
 
 /**

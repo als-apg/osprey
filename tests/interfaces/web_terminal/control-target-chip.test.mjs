@@ -1138,7 +1138,6 @@ describe('popover API', () => {
     const before = getCount();
     chip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(chip.getAttribute('aria-expanded')).toBe('true');
-    expect(chipModule.isExpanded()).toBe(true);
     chip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(chip.getAttribute('aria-expanded')).toBe('false');
     expect(seen).toEqual([true, false]);
@@ -1161,14 +1160,25 @@ describe('popover API', () => {
     expect(chipModule.getChipElement()).toBe(chipEl());
   });
 
-  test('refusalMessage unwraps all three refusal body shapes', async () => {
-    expect(chipModule.refusalMessage({ detail: { error: 'x', message: 'dict detail' } }, 409)).toBe(
-      'dict detail'
+  test('a refused request carries the sentence from all three refusal body shapes', async () => {
+    /** @param {number} status @param {() => Promise<any>} json */
+    const refuse = (status, json) =>
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status, json })));
+
+    refuse(409, async () => ({ detail: { error: 'x', message: 'dict detail' } }));
+    await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow('dict detail');
+
+    refuse(400, async () => ({ detail: 'string detail' }));
+    await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow(
+      'string detail'
     );
-    expect(chipModule.refusalMessage({ detail: 'string detail' }, 400)).toBe('string detail');
-    // The fallback names no session: there is one control target per
-    // deployment, and a body with nothing in it says only what the status does.
-    expect(chipModule.refusalMessage(null, 503)).toBe(
+
+    // A body that is not JSON at all: the status is all there is to say, and
+    // the fallback names no session — one control target per deployment.
+    refuse(503, async () => {
+      throw new SyntaxError('not json');
+    });
+    await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow(
       'Could not read the control target (HTTP 503).'
     );
   });
@@ -1219,18 +1229,5 @@ describe('activeKind', () => {
     expect(seen).toEqual(['live']);
     expect(chipModule.activeKind()).toBe('live');
     off();
-  });
-});
-
-/* ---- a torn-down chip stays down ---------------------------------------- */
-
-describe('teardown', () => {
-  test('a late frame does not revive a torn-down chip', async () => {
-    await boot();
-    const settled = getCount();
-    chipModule.teardownControlTargetChip();
-    pushFrame({ type: 'control_context' });
-    await flush();
-    expect(getCount()).toBe(settled);
   });
 });
