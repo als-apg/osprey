@@ -370,12 +370,6 @@ class TestListArtifacts:
             fpath = project_dir / art["output_path"]
             assert fpath.exists(), f"{art['output_path']} listed but not on disk"
 
-    def test_list_artifacts_bounded_by_registry(self, service):
-        """Returned count is at most the registry size (no phantom artifacts)."""
-        registry = BuildArtifactCatalog.default()
-        result = service.list_artifacts()
-        assert len(result) <= len(registry.all_artifacts())
-
     def test_list_artifacts_status_framework(self, service):
         """An artifact without user-ownership has status 'framework'."""
         result = service.list_artifacts()
@@ -424,12 +418,10 @@ class TestListArtifacts:
         # "claude-md" (no slash) -> category "config"
         assert by_name["claude-md"]["category"] == "config"
 
-    def test_list_artifacts_summary_counts(self, service):
-        """Sum of framework + overridden equals total."""
-        result = service.list_artifacts()
-        framework = sum(1 for a in result if a["status"] == "framework")
-        owned = sum(1 for a in result if a["status"] == "user-owned")
-        assert framework + owned == len(result)
+    def test_list_artifacts_status_vocabulary(self, service):
+        """Every status is one of the two the route's summary counts."""
+        statuses = {a["status"] for a in service.list_artifacts()}
+        assert statuses <= {"framework", "user-owned"}
 
     def test_list_artifacts_reads_disk_metadata(self, service, project_dir):
         """Modifying front-matter on disk is reflected in list_artifacts()."""
@@ -452,8 +444,8 @@ class TestListArtifacts:
         """Artifacts not on disk are not returned (filesystem-first)."""
         # Delete a known artifact file from the initialized project
         safety_file = project_dir / ".claude" / "rules" / "safety.md"
-        if safety_file.exists():
-            safety_file.unlink()
+        assert safety_file.exists(), "the render is expected to carry the safety rule"
+        safety_file.unlink()
 
         svc = ScaffoldGalleryService(project_dir)
         result = svc.list_artifacts()
@@ -802,14 +794,36 @@ class TestUnoverride:
 class TestDescriptionExtraction:
     """Tests for two-tier summary/description extraction from front matter."""
 
-    def test_agent_has_summary_from_front_matter(self, service):
-        """Agent artifact summary comes from template front matter, not registry."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["agents/data-visualizer"]
-        assert art["summary"] == ("Creates plots, charts, dashboards, and compiles LaTeX reports")
-        # Summary should differ from the full description
-        assert art["summary"] != art["description"]
+    @pytest.mark.parametrize(
+        ("name", "summary", "description_fragment"),
+        [
+            (
+                "agents/data-visualizer",
+                "Creates plots, charts, dashboards, and compiles LaTeX reports",
+                "Creates data visualizations",
+            ),
+            (
+                "rules/safety",
+                "Safety boundaries, channel write safety, and data integrity",
+                "tool confinement",
+            ),
+            # A skill is a directory; its card reads the front matter of SKILL.md.
+            (
+                "skills/diagnose",
+                "Investigate OSPREY infrastructure and agent failures",
+                None,
+            ),
+        ],
+    )
+    def test_front_matter_summary_and_description(
+        self, service, name, summary, description_fragment
+    ):
+        """Markdown front matter supplies both card fields, not the registry."""
+        art = {a["name"]: a for a in service.list_artifacts()}[name]
+        assert art["summary"] == summary
+        if description_fragment is not None:
+            assert description_fragment in art["description"]
+            assert art["summary"] != art["description"]
 
     def test_hook_has_summary_from_front_matter(self, service):
         """Hook artifact summary comes from docstring YAML front matter."""
@@ -827,28 +841,6 @@ class TestDescriptionExtraction:
         art = by_name["claude-md"]
         # No front matter in JSON templates -> falls back to registry
         assert art["summary"] == reg_art.description
-
-    def test_description_is_full_from_front_matter(self, service):
-        """Agent description field comes from full front matter description."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["agents/data-visualizer"]
-        assert "Creates data visualizations" in art["description"]
-
-    def test_rule_has_summary_and_description(self, service):
-        """Rule artifacts get both summary and description from front matter."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["rules/safety"]
-        assert art["summary"] == "Safety boundaries, channel write safety, and data integrity"
-        assert "tool confinement" in art["description"]
-
-    def test_skill_diagnose_has_summary_from_front_matter(self, service):
-        """Diagnose skill gets summary from skill front matter."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["skills/diagnose"]
-        assert art["summary"] == "Investigate OSPREY infrastructure and agent failures"
 
 
 # ===========================================================================
@@ -870,19 +862,10 @@ class TestScanUntracked:
         orphan.parent.mkdir(parents=True, exist_ok=True)
         orphan.write_text("# My Custom Agent\nDo something special.\n", encoding="utf-8")
 
-        result = service.scan_untracked()
-        names = [u["canonical_name"] for u in result]
-        assert "agents/my-custom-agent" in names
-
-    def test_scan_untracked_excludes_registered(self, service, project_dir):
-        """Registry artifacts that exist on disk are NOT reported as untracked."""
-        safety_file = project_dir / ".claude" / "rules" / "safety.md"
-        safety_file.parent.mkdir(parents=True, exist_ok=True)
-        safety_file.write_text("# Safety\nExisting framework content.\n", encoding="utf-8")
-
-        result = service.scan_untracked()
-        names = [u["canonical_name"] for u in result]
-        assert "rules/safety" not in names
+        by_name = {u["canonical_name"]: u for u in service.scan_untracked()}
+        entry = by_name["agents/my-custom-agent"]
+        assert entry["category"] == "agents"
+        assert entry["preview"] == "# My Custom Agent\nDo something special.\n"
 
     def test_scan_untracked_excludes_user_owned(self, service, project_dir):
         """Custom files already in user_owned are NOT reported as untracked."""
@@ -896,27 +879,6 @@ class TestScanUntracked:
         result = svc.scan_untracked()
         names = [u["canonical_name"] for u in result]
         assert "agents/already-claimed" not in names
-
-    def test_scan_untracked_returns_correct_category(self, service, project_dir):
-        """Category is derived from the first path component."""
-        orphan = project_dir / ".claude" / "agents" / "rogue-agent.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Rogue Agent\n", encoding="utf-8")
-
-        result = service.scan_untracked()
-        by_name = {u["canonical_name"]: u for u in result}
-        assert by_name["agents/rogue-agent"]["category"] == "agents"
-
-    def test_scan_untracked_returns_preview(self, service, project_dir):
-        """Untracked files include a text preview."""
-        orphan = project_dir / ".claude" / "agents" / "preview-test.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        content = "# Preview Test\nSome content here.\n"
-        orphan.write_text(content, encoding="utf-8")
-
-        result = service.scan_untracked()
-        by_name = {u["canonical_name"]: u for u in result}
-        assert by_name["agents/preview-test"]["preview"] == content
 
     def test_scan_untracked_empty_when_no_orphans(self, service):
         """Returns empty list when all files are tracked."""
@@ -3349,16 +3311,6 @@ class TestScanUntrackedJudgesTheResolvedFile:
         assert "agents/linked" not in listed, (
             "both actions this list offers would refuse it — listing it advertises a dead end"
         )
-
-    def test_an_ordinary_orphan_is_still_listed(self, service, project_dir):
-        """The filter must stay narrow: an unlinked orphan is the point of the list."""
-        orphan = project_dir / ".claude" / "agents" / "orphan.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Orphan\n", encoding="utf-8")
-
-        listed = {entry["canonical_name"] for entry in service.scan_untracked()}
-
-        assert "agents/orphan" in listed
 
     def test_a_link_onto_an_ordinary_file_is_still_listed(self, service, project_dir):
         """A link is not itself the problem — only where it lands."""
