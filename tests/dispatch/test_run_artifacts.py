@@ -642,7 +642,7 @@ class TestDeniedToolsInvariant:
     def test_shell_tools_denied(self):
         from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 
-        assert {"Bash", "BashOutput", "KillShell"} <= set(DISPATCH_DENIED_TOOLS)
+        assert {"Bash", "TaskOutput", "TaskStop"} <= set(DISPATCH_DENIED_TOOLS)
 
 
 # ---------------------------------------------------------------------------
