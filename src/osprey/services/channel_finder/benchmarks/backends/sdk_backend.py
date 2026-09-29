@@ -1,4 +1,4 @@
-"""SDK backend — wraps the Claude Agent SDK ``query()`` runner."""
+"""SDK backend — runs each query through the agent runner as the channel-finder agent."""
 
 from __future__ import annotations
 
@@ -10,7 +10,10 @@ from .base import Backend, WorkflowOutput
 
 
 class SdkBackend(Backend):
-    """Run queries via ``claude_agent_sdk.query()`` with Anthropic-native tool-use."""
+    """Run each query through ``osprey.agent_runner.run_query`` as the channel-finder agent.
+
+    The agent drives the Anthropic-native tool-use loop.
+    """
 
     name = "sdk"
 
