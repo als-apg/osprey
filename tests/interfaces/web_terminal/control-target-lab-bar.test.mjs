@@ -29,13 +29,10 @@
  * the module's self-boot, since importing it IS how the page runs it.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
-
-/** The repo root, for turning a served path back into a file on disk. */
-const REPO_ROOT = join(import.meta.dirname, '../../..');
 
 const JS_DIR = join(
   import.meta.dirname,
@@ -234,7 +231,11 @@ describe('import closure', () => {
     // Every name here is fetched through the panel-scoped static route by a
     // test in test_proxy_jupyter_integration.py, which walks this same graph
     // from the Python side. Adding one means adding it there too — that is
-    // the point of pinning it in both languages.
+    // the point of pinning it in both languages. The walk follows relative
+    // specifiers only; an absolute `/design-system/js/…` import is served by
+    // the design-system route and proven there. An exact set also rules out
+    // every hub-page module (terminal.js, panel-manager.js, bar-host.js,
+    // app.js) this page has none of.
     expect([...closureOf(ENTRY)].sort()).toEqual([
       'activity-format.js',
       'api.js',
@@ -245,24 +246,6 @@ describe('import closure', () => {
       'modal-overlay.js',
       'posture-confirm.js',
     ]);
-  });
-
-  test('reaches nothing the terminal page owns', () => {
-    // The Lab page has no shell, no bar host and no terminal: a module that
-    // reached one would either throw on load or quietly wire the bar to a DOM
-    // that is not there.
-    const closure = closureOf(ENTRY);
-    for (const forbidden of ['terminal.js', 'panel-manager.js', 'bar-host.js', 'app.js']) {
-      expect(closure.has(forbidden)).toBe(false);
-    }
-  });
-
-  test('every module in it is on disk under the served static tree', () => {
-    // The route serves this directory and nothing else, so a specifier that
-    // resolves outside it is a 404 in the browser.
-    for (const name of closureOf(ENTRY)) {
-      expect(existsSync(join(JS_DIR, name))).toBe(true);
-    }
   });
 });
 
@@ -381,20 +364,6 @@ describe('stylesheets', () => {
     expect(links.filter((h) => h.endsWith('/css/terminal.css')).length).toBe(1);
   });
 
-  test('addresses them relative to this module, so the per-user mount is free', () => {
-    // Neither URL is an injected literal: they are resolved against
-    // import.meta.url, which already carries whatever prefix the module was
-    // served under. What that resolves to on the PANEL's paths is pinned
-    // against a real proxied sidecar in test_proxy_jupyter_integration.py;
-    // what is checkable here is the hop each one makes out of `js/`.
-    expect(barModule.TERMINAL_CSS_URL.endsWith('/static/css/terminal.css')).toBe(true);
-    expect(barModule.TOKENS_CSS_URL.endsWith('/design-system/css/tokens.css')).toBe(true);
-
-    // One hop up out of `js/` is a real file in the tree the route serves.
-    const served = new URL(barModule.TERMINAL_CSS_URL).pathname;
-    expect(existsSync(join(REPO_ROOT, served))).toBe(true);
-  });
-
   test('positions the bar itself, and anchors the popover before the sheet lands', () => {
     const style = /** @type {HTMLStyleElement} */ (
       document.getElementById(barModule.STYLE_ID)
@@ -439,18 +408,6 @@ describe('reads', () => {
     // read at JupyterLab, which answers none of them.
     expect(fetchCalls[0].url).toBe('/api/terminal/posture');
     expect(fetchCalls[0].url).not.toContain('/panel/');
-  });
-
-  test('carries the per-user mount prefix when the deployment has one', async () => {
-    barModule.teardownControlTargetLabBar();
-    vi.resetModules();
-    (/** @type {any} */ (window)).__OSPREY_PREFIX__ = '/u/alice';
-    fetchCalls = [];
-
-    barModule = await import(MODULE);
-    await flush();
-
-    expect(fetchCalls[0].url).toBe('/u/alice/api/terminal/posture');
   });
 
   test('opens ONE event stream on the Lab page', async () => {

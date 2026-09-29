@@ -21,8 +21,8 @@
  * so the read carries no session id and nothing here subscribes to a session
  * change. That is also what lets this module load on a page that has no
  * terminal at all: THIS module imports only `control-target-facts.js`,
- * `api.js` and `activity-format.js` — a list the suite pins by reading this
- * file — and the JupyterLab bar mounts it by handing
+ * `api.js` and `activity-format.js` — the JupyterLab bar suite pins the
+ * closure this module belongs to — and the JupyterLab bar mounts it by handing
  * {@link initControlTargetChip} a `host` of its own. (The bar's own closure is
  * wider: it adds the popover, `confirm-skip.js` and `posture-confirm.js`.)
  *

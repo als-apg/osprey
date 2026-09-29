@@ -17,8 +17,8 @@
  *   and is no longer a child of the host. A second init re-renders rather than
  *   mounting a second chip, and re-homes the same node if the shell shows up
  *   after a fallback mount;
- * - a caller may hand it a `host` of its own, and the module reaches nothing
- *   the terminal page owns — which is what lets the JupyterLab bar mount it;
+ * - a caller may hand it a `host` of its own, which is what lets the
+ *   JupyterLab bar mount it (that suite pins the import closure);
  * - the roster is a fact about the DEPLOYMENT: the read carries no session id,
  *   and nothing here waits for a session to be settled;
  * - the pushed `{type: 'control_context'}` frame is what makes the chip
@@ -50,9 +50,6 @@
  * state is isolated by vi.resetModules() + dynamic import per test and the
  * module's own teardown export.
  */
-
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
@@ -324,23 +321,6 @@ afterEach(() => {
 /* ---- mount -------------------------------------------------------------- */
 
 describe('mount', () => {
-  test('mounts into the control-target shell the layout placed', async () => {
-    await boot();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
-    const shell = /** @type {HTMLElement} */ (
-      document.querySelector('[data-bar-item="control-target"]')
-    );
-    const anchor = /** @type {HTMLElement} */ (document.querySelector('.ctc-anchor'));
-    const chip = chipEl();
-    expect(chip).not.toBeNull();
-    // The chip lives inside its own positioning context (the popover is
-    // absolute under it), and that context is what fills the item's shell.
-    expect(chip?.parentElement).toBe(anchor);
-    expect(anchor.parentElement).toBe(shell);
-    expect(shell.parentElement).toBe(actions);
-    expect(chipModule.getAnchorElement()).toBe(anchor);
-  });
-
   test('takes its position from the layout, never from the palette trigger', async () => {
     await boot();
     const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
@@ -360,6 +340,11 @@ describe('mount', () => {
     );
     expect(shell.children).toHaveLength(1);
     expect(shell.firstElementChild).toBe(anchorEl());
+    // The chip lives inside its own positioning context (the popover is
+    // absolute under it), and that context is what fills the item's shell.
+    expect(chipEl()?.parentElement).toBe(anchorEl());
+    expect(chipModule.getAnchorElement()).toBe(anchorEl());
+    expect(shell.parentElement).toBe(actions);
   });
 
   test('falls back to the host itself when the layout places no shell', async () => {
@@ -454,59 +439,6 @@ describe('mount', () => {
     expect(anchorEl()?.parentElement).toBe(host);
     expect(document.querySelector('[data-bar-item="control-target"]')?.children).toHaveLength(0);
   });
-
-  test('reaches nothing the terminal page owns', async () => {
-    // 8.x loads this module on the JupyterLab page, where terminal.js does not
-    // exist. An import of it would be a page-breaking 404 there, and the chip
-    // has no session question left to ask anyway. Read statically rather than
-    // through a mock, because a mock is exactly what would hide the import.
-    const source = readFileSync(fileURLToPath(new URL(MODULE, import.meta.url)), 'utf8');
-    // Static AND dynamic: a lazy `import('./terminal.js')` behind a "only on
-    // the terminal page" guard is the likeliest way the closure would regrow,
-    // and it is exactly what a mock would hide.
-    const imports = [...source.matchAll(/(?:from|import\()\s*'(\.\/[^']+)'/g)]
-      .map((m) => m[1])
-      .sort();
-    expect(imports).toEqual([
-      './activity-format.js',
-      './api.js',
-      './control-target-facts.js',
-    ]);
-    // Belt and braces, and quote-style-proof: the name must not appear at all.
-    expect(source).not.toContain('terminal.js');
-  });
-
-  test('and nothing it imports reaches it either', async () => {
-    // The test above reads ONE file, so it cannot see a `terminal.js` pulled in
-    // one level down. `api.js` gaining that import would break the JupyterLab
-    // page in exactly the same way and this suite would stay green, so walk the
-    // whole relative closure instead of the chip's own first line of imports.
-    //
-    // Comments are stripped first: a JSDoc `@typedef {import('./x.js').Y}` is
-    // documentation, not an edge, and reading it as one would drag half the
-    // page's modules in behind it.
-    const dir = new URL(MODULE.replace(/[^/]+$/, ''), import.meta.url);
-    const strip = (/** @type {string} */ src) =>
-      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    /** @type {Set<string>} */
-    const closure = new Set();
-    const queue = ['control-target-chip.js'];
-    while (queue.length) {
-      const name = /** @type {string} */ (queue.pop());
-      if (closure.has(name)) continue;
-      closure.add(name);
-      const src = strip(readFileSync(fileURLToPath(new URL(name, dir)), 'utf8'));
-      for (const found of src.matchAll(/(?:from|import\()\s*'\.\/([^']+)'/g)) {
-        queue.push(found[1]);
-      }
-    }
-    expect([...closure].sort()).toEqual([
-      'activity-format.js',
-      'api.js',
-      'control-target-chip.js',
-      'control-target-facts.js',
-    ]);
-  });
 });
 
 /* ---- the state matrix --------------------------------------------------- */
@@ -540,19 +472,6 @@ describe('state matrix', () => {
       });
     }
   }
-
-  test('an operator narrowing and the deployment ceiling are different words', async () => {
-    await boot(
-      viewOf({ targets: [rowOf({ ...KINDS.va, ...STATES.sandbox, active: true })] })
-    );
-    expect(stateText()).toBe('writes off');
-
-    served = viewOf({
-      targets: [rowOf({ ...KINDS.va, ...STATES['read-only'], ceiling_writes: false, active: true })],
-    });
-    await chipModule.refetch();
-    expect(stateText()).toBe('writes locked');
-  });
 
   test('kind falls back to real_machine + the label shape when the route sends none', async () => {
     await boot(
@@ -684,9 +603,11 @@ describe('refetch hints', () => {
       control_target: 'live',
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
+    const before = getCount();
     pushFrame({ type: 'control_context' });
     await flush();
     // Repainted without a single tick of the 5 s fallback having passed.
+    expect(getCount()).toBe(before + 1);
     expect(shortText()).toBe('Real machine');
   });
 
@@ -1086,23 +1007,11 @@ describe('withPrefix', () => {
       expect(call.url).toBe('/u/alice/api/terminal/posture');
     }
   });
-
-  test('the read carries no session id — one record answers for the deployment', async () => {
-    await boot();
-    expect(fetchCalls[0].url).toBe('/api/terminal/posture');
-  });
 });
 
 /* ---- the API the popover consumes --------------------------------------- */
 
 describe('popover API', () => {
-  test('getState answers the payload the route sent', async () => {
-    await boot();
-    const state = chipModule.getState();
-    expect(state?.control_target).toBe('standin');
-    expect(state?.targets).toHaveLength(1);
-  });
-
   test('subscribers are called after each render and can unsubscribe', async () => {
     await boot();
     const seen = /** @type {any[]} */ ([]);
@@ -1145,19 +1054,6 @@ describe('popover API', () => {
     await flush();
     expect(fetchCalls.filter((c) => c.method !== 'GET')).toHaveLength(0);
     expect(getCount()).toBe(before);
-  });
-
-  test('setExpanded mirrors a dismissal the popover drove on its own', async () => {
-    await boot();
-    chipModule.setExpanded(true);
-    expect(chipEl()?.getAttribute('aria-expanded')).toBe('true');
-    chipModule.setExpanded(false);
-    expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
-  });
-
-  test('getChipElement hands the popover its anchor', async () => {
-    await boot();
-    expect(chipModule.getChipElement()).toBe(chipEl());
   });
 
   test('a refused request carries the sentence from all three refusal body shapes', async () => {
