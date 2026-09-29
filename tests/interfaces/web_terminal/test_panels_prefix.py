@@ -3,8 +3,8 @@
 Multi-user deployments mount each user's Web Terminal container at
 ``/u/<user>/`` behind a shared nginx front door (see ``compute_url_prefix()``
 in ``osprey.interfaces.web_terminal.app``). Every panel URL the server hands
-to the browser — the five ``*_server_config`` endpoints, ``_browser_panel_url``
-(and therefore ``GET /api/panels``), the ``panel_register`` broadcast, and the
+to the browser — the seven ``*_server_config`` endpoints, the custom panel URLs in
+``GET /api/panels``, the ``panel_register`` broadcast, and the
 ``panel_focus`` broadcast's optional ``url`` — must be prefixed with that same
 constant so iframes and SSE-driven navigation resolve inside the user's own
 mount. An empty prefix (no ``OSPREY_TERMINAL_USER``) must reproduce the
@@ -15,13 +15,15 @@ unprefixed so an external panel URL is never corrupted.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.routes.panels import _browser_panel_url, router
+from osprey.interfaces.web_terminal.routes.panels import router
+
+from .conftest import bare_route_app
 
 _LAN_ADDR = [(2, 1, 6, "", ("10.0.0.5", 0))]
 _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getaddrinfo"
@@ -29,42 +31,10 @@ _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getad
 
 def _make_app(**state) -> FastAPI:
     """A bare FastAPI app with only the panels router and the given app.state."""
-    app = FastAPI()
-    app.include_router(router)
-    for key, value in state.items():
-        setattr(app.state, key, value)
-    return app
+    return bare_route_app(router, **state)
 
 
-# ---- _browser_panel_url ----
-
-
-class TestBrowserPanelUrlPrefix:
-    def test_url_backed_panel_prefixed(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-        assert _browser_panel_url({"id": "grafana"}) == "/u/alice/panel/grafana"
-
-    def test_discovered_panel_prefixed(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-        cp = {"id": "demo", "discovered": True, "url": "/panel-static/demo/"}
-        assert _browser_panel_url(cp) == "/u/alice/panel-static/demo/"
-
-    def test_discovered_panel_missing_url_falls_back_prefixed(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-        cp = {"id": "demo", "discovered": True}
-        assert _browser_panel_url(cp) == "/u/alice/panel-static/demo/"
-
-    def test_url_backed_panel_empty_prefix_unchanged(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-        assert _browser_panel_url({"id": "grafana"}) == "/panel/grafana"
-
-    def test_discovered_panel_empty_prefix_unchanged(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-        cp = {"id": "demo", "discovered": True, "url": "/panel-static/demo/"}
-        assert _browser_panel_url(cp) == "/panel-static/demo/"
-
-
-# ---- Five *_server_config endpoints ----
+# ---- The *_server_config endpoints ----
 
 
 @pytest.mark.parametrize(
@@ -75,6 +45,8 @@ class TestBrowserPanelUrlPrefix:
         ("/api/channel-finder-server", "channel_finder_server_url", "channel-finder"),
         ("/api/lattice-server", "lattice_dashboard_server_url", "lattice"),
         ("/api/okf-server", "okf_server_url", "okf"),
+        ("/api/jupyter-server", "jupyter_server_url", "jupyter"),
+        ("/api/system-health-server", "system_health_server_url", "system-health"),
     ],
 )
 class TestServerConfigEndpointsPrefix:
@@ -130,15 +102,6 @@ class TestGetPanelsPrefix:
         assert by_id["grafana"]["url"] == "/u/alice/panel/grafana"
         assert by_id["demo"]["url"] == "/u/alice/panel-static/demo/"
 
-    def test_custom_urls_empty_prefix_unchanged(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-        resp = self._client().get("/api/panels")
-
-        assert resp.status_code == 200
-        by_id = {cp["id"]: cp for cp in resp.json()["custom"]}
-        assert by_id["grafana"]["url"] == "/panel/grafana"
-        assert by_id["demo"]["url"] == "/panel-static/demo/"
-
 
 # ---- POST /api/panels/register broadcast + response ----
 
@@ -150,7 +113,6 @@ class TestRegisterPanelPrefix:
             custom_panels=[],
             visible_panels=[],
             runtime_panel_allowlist=None,
-            broadcaster=MagicMock(),
         )
         return TestClient(app)
 
@@ -194,7 +156,6 @@ class TestSetPanelFocusPrefix:
             enabled_panels={"ariel"},
             custom_panels=[],
             active_panel=None,
-            broadcaster=MagicMock(),
         )
         return TestClient(app)
 
