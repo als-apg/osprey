@@ -702,6 +702,44 @@ class TestAStoredDocumentThisBuildCannotRead:
         assert types(unreadable_client.get("/api/bar-items").json(), "header") == ["identity"]
 
 
+class TestAStoredDocumentIsLoadedAtBoot:
+    """A readable document on disk is the operator's arrangement from the first request.
+
+    The store is read once, by the lifespan, into the cache every render and
+    every GET answers from — so a restart must bring back what was saved, and
+    the revision a client reads must be the one a save is compared against.
+    """
+
+    def test_a_saved_layout_is_served_and_painted_after_a_restart(
+        self, agent_data_root, workspace_dir, config_path
+    ):
+        stored = {
+            "version": BAR_LAYOUT_VERSION,
+            "rev": 3,
+            "header": [{"type": "logo"}, {"type": "separator"}],
+            "status": [],
+            "status_visible": False,
+        }
+        with _app_over(
+            json.dumps(stored).encode("utf-8"),
+            agent_data_root=agent_data_root,
+            workspace_dir=workspace_dir,
+            config_path=config_path,
+        ) as client:
+            layout = client.get("/api/bar-items").json()
+            page = client.get("/").text
+            saved = client.put("/api/bar-items", json=document(3, header=[{"type": "logo"}]))
+
+        assert layout["rev"] == 3
+        assert types(layout, "header") == ["logo", "separator"]
+        assert layout["status_visible"] is False
+        assert 'data-bar-item="separator"' in page
+        html_tag = page[page.index("<html ") : page.index(">", page.index("<html "))]
+        assert 'data-status-bar="hidden"' in html_tag
+        assert saved.status_code == 200, "the boot read primes the revision a save compares"
+        assert saved.json()["rev"] == 4
+
+
 # ── the watcher does not announce a save ───────────────────────────────────
 
 
