@@ -44,6 +44,7 @@ import shutil
 from collections.abc import Callable, Collection, Container, Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from osprey.errors import BuildProfileError
 
@@ -51,6 +52,9 @@ from ..bindings import BindingsDocument, load_bindings
 from . import classify, loaders
 from .classify import READBACK_SUBFIELD, SETPOINT_SUBFIELD
 from .paths import MANIFEST_OUTPUT, PACKAGE_PATHS, ManifestPaths
+
+if TYPE_CHECKING:
+    from osprey.channel_roster.records import RosterResult
 
 logger = logging.getLogger(__name__)
 
@@ -855,7 +859,7 @@ def _finish_manifest(
     return {"_metadata": metadata, "channels": [asdict(e) for e in entries]}
 
 
-def _graph_roster(config: dict):
+def _graph_roster(config: dict) -> RosterResult | None:
     """The channel roster, when this project's roster source is the knowledge graph.
 
     Answered through :mod:`osprey.channel_roster` -- the one membership
