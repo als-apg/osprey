@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import MagicMock, patch
+import subprocess
+import sys
+import textwrap
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import click
 import pytest
@@ -457,6 +460,224 @@ class TestReviewerProvider:
 
         assert result.exit_code == 1
         assert "--build" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Reviewer run tests (through the shared runner)
+# ---------------------------------------------------------------------------
+
+
+def _fake_stream(*events, log: list[str] | None = None, between: str | None = None):
+    """Return a stand-in for ``stream_query`` that yields *events* in order.
+
+    When *log* and *between* are given, *between* is appended to *log* after
+    the first event is pulled and before the second is yielded.
+    """
+
+    async def _stream(*args, **kwargs):
+        for index, event in enumerate(events):
+            if index == 1 and log is not None and between is not None:
+                log.append(between)
+            yield event
+
+    return _stream
+
+
+def _result_event(*, total_cost_usd: float = 0.01, num_turns: int = 1):
+    from osprey.agent_runner import ResultEvent
+
+    return ResultEvent(
+        subtype="success",
+        is_error=False,
+        num_turns=num_turns,
+        duration_ms=1,
+        session_id="stub",
+        total_cost_usd=total_cost_usd,
+        usage=None,
+        result=None,
+        api_error_status=None,
+    )
+
+
+class TestReviewerRun:
+    """``_run_audit`` drives the shared runner and collects the reviewer's text."""
+
+    def test_the_reviewer_loads_no_project_settings_or_mcp_servers(self, tmp_project, monkeypatch):
+        """The reviewer reads the audited project; it must not run as it.
+
+        The project declares an MCP server and a hook, and neither reaches the
+        reviewing agent, nor does the run wait for a server it never loads.
+        """
+        pytest.importorskip("claude_agent_sdk")
+        from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
+        from osprey.cli import audit_cmd
+
+        (tmp_project / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"controls": {"command": "true"}}})
+        )
+        (tmp_project / ".claude").mkdir()
+        (tmp_project / ".claude" / "settings.json").write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "PreToolUse": [
+                            {
+                                "matcher": "*",
+                                "hooks": [{"type": "command", "command": "true"}],
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+
+        async def _response():
+            yield AssistantMessage(content=[TextBlock(text="report")], model="m")
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id="s",
+                total_cost_usd=0.01,
+            )
+
+        client = MagicMock()
+        client.query = AsyncMock(return_value=None)
+        client.receive_response = MagicMock(return_value=_response())
+        async_cm = MagicMock()
+        async_cm.__aenter__ = AsyncMock(return_value=client)
+        async_cm.__aexit__ = AsyncMock(return_value=False)
+        captured: dict = {}
+
+        def _client(*, options):
+            captured["options"] = options
+            return async_cm
+
+        await_ready = AsyncMock(return_value=[])
+        expected = Mock(return_value={"controls"})
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives.sdk_env", lambda *a, **k: {"CLAUDECODE": ""}
+        )
+        monkeypatch.setattr(
+            "osprey.agent_runner.primitives._resolve_project_spec", lambda *a, **k: None
+        )
+        monkeypatch.setattr("osprey.agent_runner.primitives.await_mcp_ready", await_ready)
+        monkeypatch.setattr("osprey.agent_runner.primitives.expected_mcp_servers", expected)
+        monkeypatch.setattr("osprey.agent_runner.runner.ClaudeSDKClient", _client)
+
+        result = asyncio.run(
+            audit_cmd._run_audit(tmp_project, "p", model="m", budget=5.0, verbose=False)
+        )
+
+        options = captured["options"]
+        assert options.setting_sources == []
+        assert options.mcp_servers == {}
+        assert options.hooks is None
+        assert options.max_turns == 30
+        assert options.max_budget_usd == 5.0
+        assert options.permission_mode == "bypassPermissions"
+        assert options.model == "m"
+        assert options.cwd == str(tmp_project)
+        assert await_ready.await_count == 0
+        assert expected.called is False
+        assert result == ("report", 0.01, 1)
+
+    def test_verbose_echoes_each_text_block_as_it_arrives(self, tmp_project, monkeypatch):
+        from osprey.agent_runner import TextEvent
+        from osprey.cli import audit_cmd
+
+        log: list[str] = []
+        monkeypatch.setattr(
+            "osprey.cli.audit_cmd.stream_query",
+            _fake_stream(
+                TextEvent(text="a" * 250, parent_tool_use_id=None),
+                TextEvent(text="b", parent_tool_use_id=None),
+                _result_event(),
+                log=log,
+                between="pulled second",
+            ),
+        )
+        monkeypatch.setattr(
+            "osprey.cli.audit_cmd.output.note", lambda msg: log.append("note:" + msg)
+        )
+
+        asyncio.run(audit_cmd._run_audit(tmp_project, "p", model="m", budget=5.0, verbose=True))
+
+        assert log == ["note:" + "a" * 200 + "...", "pulled second", "note:b..."]
+
+    def test_a_quiet_run_echoes_nothing_and_returns_text_cost_and_turns(
+        self, tmp_project, monkeypatch
+    ):
+        """Only text is collected, a subagent's text included."""
+        from osprey.agent_runner import SystemEvent, TextEvent, ThinkingEvent, ToolUseEvent
+        from osprey.cli import audit_cmd
+
+        monkeypatch.setattr(
+            "osprey.cli.audit_cmd.stream_query",
+            _fake_stream(
+                ThinkingEvent(text="hmm"),
+                ToolUseEvent(tool_use_id="toolu_1", name="Read", input={}, parent_tool_use_id=None),
+                TextEvent(text="one", parent_tool_use_id=None),
+                SystemEvent(subtype="init", data={}),
+                TextEvent(text="two", parent_tool_use_id="toolu_1"),
+                _result_event(total_cost_usd=0.02, num_turns=3),
+            ),
+        )
+        note = Mock()
+        monkeypatch.setattr("osprey.cli.audit_cmd.output.note", note)
+
+        result = asyncio.run(
+            audit_cmd._run_audit(tmp_project, "p", model="m", budget=5.0, verbose=False)
+        )
+
+        note.assert_not_called()
+        assert result == ("onetwo", 0.02, 3)
+
+    def test_a_run_without_a_result_leaves_cost_and_turns_unknown(self, tmp_project, monkeypatch):
+        from osprey.agent_runner import TextEvent
+        from osprey.cli import audit_cmd
+
+        monkeypatch.setattr(
+            "osprey.cli.audit_cmd.stream_query",
+            _fake_stream(TextEvent(text="x", parent_tool_use_id=None)),
+        )
+
+        result = asyncio.run(
+            audit_cmd._run_audit(tmp_project, "p", model="m", budget=5.0, verbose=False)
+        )
+
+        assert result == ("x", None, None)
+
+    def test_the_verb_refuses_cleanly_without_the_agent_sdk(self, tmp_path):
+        """The module loads without the SDK and the verb says what is missing."""
+        script = textwrap.dedent(
+            """
+            import sys
+
+            sys.modules["claude_agent_sdk"] = None
+
+            from click.testing import CliRunner
+
+            from osprey.cli import audit_cmd
+
+            assert audit_cmd._SDK_AVAILABLE is False
+            result = CliRunner().invoke(audit_cmd.audit, [sys.argv[1]])
+            assert result.exit_code == 1, result.output
+            assert "claude-agent-sdk is not installed" in result.stderr, result.stderr
+            """
+        )
+
+        proc = subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        assert proc.returncode == 0, proc.stderr
 
 
 # ---------------------------------------------------------------------------
