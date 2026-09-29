@@ -23,7 +23,7 @@ from typing import Any
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults
-from osprey.facility.validate import Validated
+from osprey.facility.validate import Validated, need
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
@@ -60,9 +60,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     Raises:
         RuntimeError: The stage ran before S2 produced the document.
     """
-    document = validated.document
-    if document is None:
-        raise RuntimeError("a stage ran before the stage that produces its input")
+    document: dict[str, Any] = need(validated.document)
     channels: dict[str, dict[str, Any]] = {c["id"]: c for c in document.get("channels", [])}
     limits: dict[str, dict[str, Any]] = {
         r["address"]: r for r in (document.get("limits") or {}).get("records", [])

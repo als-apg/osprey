@@ -10,13 +10,13 @@ as the id. The exit code is 1; click keeps 2 for usage errors.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import IO, Any
 
 import click
 
-__all__ = ["KINDS", "FacilityBuildError"]
+__all__ = ["KINDS", "FacilityBuildError", "quoted_slots"]
 
 #: Every error kind, each ``<thing>-<problem>``.
 KINDS: tuple[str, ...] = (
@@ -42,6 +42,19 @@ KINDS: tuple[str, ...] = (
     "engine-invalid",
     "model-conflict",
 )
+
+
+def quoted_slots(slots: Iterable[str]) -> str:
+    """Name slots in an error line: each in backticks, comma-separated.
+
+    Args:
+        slots: The slot names, in the order they are named.
+
+    Returns:
+        The names, such as ```noise`, `drift``` for ``noise`` and
+        ``drift``.
+    """
+    return ", ".join(f"`{slot}`" for slot in slots)
 
 
 class FacilityBuildError(click.ClickException):

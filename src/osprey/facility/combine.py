@@ -43,7 +43,8 @@ from typing import Any
 
 import yaml
 
-from osprey.facility.errors import FacilityBuildError
+from osprey.facility import TEXTURE
+from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.provenance import build_provenance
 from osprey.facility.sources import AUTHORED, COMPUTED_SLOTS, Sources
 
@@ -433,8 +434,8 @@ class _Combiner:
                     "fix-computed",
                     fix,
                     [FIXES_FILE],
-                    f"`add` writes {_names(computed)}, which the build computes",
-                    f"remove {_names(computed)} from the fix",
+                    f"`add` writes {quoted_slots(computed)}, which the build computes",
+                    f"remove {quoted_slots(computed)} from the fix",
                 )
                 return
             if (kind, rid) in self.records:
@@ -510,8 +511,8 @@ class _Combiner:
                 "fix-computed",
                 fix,
                 [FIXES_FILE],
-                f"`set` names {_names(computed)}, which the build computes",
-                f"remove {_names(computed)} from the fix",
+                f"`set` names {quoted_slots(computed)}, which the build computes",
+                f"remove {quoted_slots(computed)} from the fix",
             )
             return
         current: dict[str, dict[str, Any]] = {}
@@ -709,7 +710,7 @@ class _Combiner:
             ]
             provenance = model.pop("provenance")
             models.append({**model, "wiring": wiring, "provenance": provenance})
-        document["models"] = sorted(models, key=lambda m: (m["name"] == "texture", m["name"]))
+        document["models"] = sorted(models, key=lambda m: (m["name"] == TEXTURE, m["name"]))
         if self.sources.limits is not None:
             document["limits"] = copy.deepcopy(self.sources.limits)
         document["scenarios"] = copy.deepcopy(self.sources.scenarios)
@@ -728,10 +729,6 @@ class _Combiner:
         self.errors.append(
             FacilityBuildError(kind, fix.id, files, remedy, record_kind=fix.kind, detail=detail)
         )
-
-
-def _names(fields: Iterable[str]) -> str:
-    return ", ".join(f"`{name}`" for name in fields)
 
 
 def _channel_defaults(address: str, fields: dict[str, Any], defaults: set[str]) -> None:
