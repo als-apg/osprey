@@ -34,6 +34,7 @@ from osprey.build.claude_code_telemetry import (
     _openobserve_host_override,
     _running_in_container,
     resolve_openobserve_port,
+    telemetry_auth_token_env,
 )
 from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candidates
 from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
@@ -1136,6 +1137,14 @@ class ClaudeCodeModelResolver:
         # poison the rest of the spec.
         if include_telemetry:
             telemetry_cfg = claude_code_config.get("telemetry")
+            # The collector's token comes from the supplied environ only, the
+            # same rule as the base_url override above: a build-time render
+            # passes none, so the secret never lands in a rendered artifact.
+            token_env = (
+                telemetry_auth_token_env(telemetry_cfg)
+                if isinstance(telemetry_cfg, dict) and telemetry_cfg.get("enabled")
+                else None
+            )
             env_block.update(
                 _build_telemetry_env(
                     telemetry_cfg,
@@ -1143,6 +1152,7 @@ class ClaudeCodeModelResolver:
                     openobserve_host=_openobserve_host_override(),
                     openobserve_port=openobserve_port,
                     defer_unresolved_creds=defer_unresolved_telemetry_creds,
+                    auth_token=env_lookup.get(token_env) if token_env else None,
                 )
             )
 

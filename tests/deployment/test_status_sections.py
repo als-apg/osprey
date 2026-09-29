@@ -637,6 +637,34 @@ def test_the_observability_authorization_header_is_never_printed(lifecycle_repo,
 
 
 @pytest.mark.usefixtures("runtime")
+def test_the_collector_bearer_token_is_never_printed(lifecycle_repo, monkeypatch):
+    """A collector's bearer token is read from the repo ``.env`` and never shown."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
+    env_file = lifecycle_repo / ".env"
+    existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
+    env_file.write_text(existing + "OTLP_COLLECTOR_TOKEN=not-a-real-bearer-token\n")
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry(
+            "  telemetry:\n"
+            "    enabled: true\n"
+            "    backend: generic\n"
+            "    endpoint: https://collector.example.org:4318\n"
+            "    auth:\n"
+            "      token_env: OTLP_COLLECTOR_TOKEN\n"
+        ),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "OTEL_EXPORTER_OTLP_HEADERS" in text
+    assert "not-a-real-bearer-token" not in text
+    assert "Bearer " not in text
+
+
+@pytest.mark.usefixtures("runtime")
 def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, monkeypatch):
     """Masking the value must not delete the row.
 

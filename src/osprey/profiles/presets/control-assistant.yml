@@ -769,6 +769,11 @@ config:
   # context (the host's OpenObserve slot, or the store's own listen port
   # inside the deploy network), so the in-container dispatch worker does not
   # emit to its own loopback.
+  # For a collector this deployment does not run, name it and the variable
+  # holding its bearer token; the variable goes in this repo's .env.
+  # claude_code.telemetry.backend: generic
+  # claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
+  # claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
   # The store's INGEST account: `osprey up` creates a service account named by
   # ZO_INGEST_USER_EMAIL and writes the token it issues to this repo's .env as
   # ZO_INGEST_SA_TOKEN. No default for the token on purpose: a literal default

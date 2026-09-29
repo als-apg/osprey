@@ -244,6 +244,15 @@ def telemetry_creds_are_store_issued(exc: ObservabilityCredentialError) -> bool:
 #: names it yields are exactly the ones the config asked for.
 _CREDENTIAL_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}")
 
+#: The spelling ``claude_code.telemetry.auth.token_env`` must have: the NAME of
+#: the variable holding the collector's bearer token, never a value.
+_ENV_VAR_NAME_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
+
+#: Characters a bearer token may not carry: each would split or corrupt the
+#: comma-joined ``OTEL_EXPORTER_OTLP_HEADERS`` list the exporter and the
+#: tool-call record poster both parse.
+_HEADER_LIST_BREAKERS = frozenset(",\r\n")
+
 
 def _running_in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
@@ -423,6 +432,89 @@ def resolve_runtime_telemetry_endpoint(config: Mapping[str, Any] | None) -> str 
         )
     except (TelemetryConfigError, ValueError):
         return None
+
+
+def telemetry_auth_token_env(telemetry_cfg: Mapping[str, Any]) -> str | None:
+    """The variable ``claude_code.telemetry.auth.token_env`` names, or ``None``.
+
+    The one reader of the key: the launch builder, the web-terminal render and
+    the deploy gate all ask it, so they agree on which variable carries the
+    collector's bearer token. The value is a variable NAME, like
+    ``archiver.settings.password_env``; a refusal never echoes what was written
+    there, because a ``${VAR}`` in this key has already been expanded by the
+    config loader into the secret itself.
+
+    Args:
+        telemetry_cfg: The ``claude_code.telemetry`` config section.
+
+    Returns:
+        The variable name, or ``None`` when the block has no ``auth``.
+
+    Raises:
+        TelemetryConfigError: When ``auth`` is set on the ``openobserve``
+            backend (the bundled store authenticates with
+            ``openobserve.user`` / ``openobserve.password``), is not a mapping
+            whose only member is ``token_env``, or ``token_env`` is not a
+            variable name.
+    """
+    auth = telemetry_cfg.get("auth")
+    if auth is None:
+        return None
+    if telemetry_cfg.get("backend") == "openobserve":
+        raise TelemetryConfigError(
+            "claude_code.telemetry.auth is set on the openobserve backend, which "
+            "authenticates with claude_code.telemetry.openobserve.user and "
+            "openobserve.password. Remove claude_code.telemetry.auth."
+        )
+    if not isinstance(auth, Mapping) or set(auth) != {"token_env"}:
+        raise TelemetryConfigError(
+            "claude_code.telemetry.auth takes one member: the collector takes a "
+            "bearer token named by claude_code.telemetry.auth.token_env."
+        )
+    token_env = auth["token_env"]
+    if not isinstance(token_env, str) or not _ENV_VAR_NAME_RE.match(token_env):
+        raise TelemetryConfigError(
+            "claude_code.telemetry.auth.token_env names the environment variable "
+            "that holds the collector's bearer token; it holds a name, not a "
+            "value or a ${VAR} reference."
+        )
+    return token_env
+
+
+def _bearer_header(
+    token_env: str, auth_token: str | None, *, defer_unresolved: bool
+) -> tuple[str, str] | None:
+    """``("Authorization", "Bearer <token>")`` for a collector's token.
+
+    Args:
+        token_env: The variable :func:`telemetry_auth_token_env` read.
+        auth_token: That variable's value from the launch environment, handed
+            in by the caller.
+        defer_unresolved: When True, an absent token returns ``None`` without a
+            warning: a build never carries the secret, so its absence there is
+            the correct state, not a fault.
+
+    Raises:
+        ObservabilityCredentialError: When the token is unset or blank and
+            ``defer_unresolved`` is False (compose's ``${VAR:-}`` makes an
+            unset host variable a blank one, so the two are one fault), or when
+            it carries a comma or a line break.
+    """
+    if auth_token is None or not auth_token.strip():
+        if defer_unresolved:
+            return None
+        raise ObservabilityCredentialError(
+            f"claude_code.telemetry.auth.token_env names {token_env}, which is "
+            "unset or blank; set it in the deployment's .env.",
+            (token_env,),
+        )
+    if _HEADER_LIST_BREAKERS & set(auth_token):
+        raise ObservabilityCredentialError(
+            f"{token_env} (claude_code.telemetry.auth.token_env) contains a comma "
+            "or a line break, which a bearer token in the OTLP header list "
+            "cannot carry."
+        )
+    return "Authorization", f"Bearer {auth_token}"
 
 
 def _parse_header_map(value: dict | str) -> dict[str, str]:
@@ -613,6 +705,7 @@ def _build_telemetry_env(
     openobserve_host: str | None = None,
     openobserve_port: int | None = None,
     defer_unresolved_creds: bool = False,
+    auth_token: str | None = None,
 ) -> dict[str, str]:
     """Build the OTEL/telemetry env block from the ``claude_code.telemetry`` config.
 
@@ -632,6 +725,11 @@ def _build_telemetry_env(
             knows the network topology).
         openobserve_port: The port the store is reached on from where this
             launch runs (see :func:`_resolve_telemetry_endpoint`).
+        defer_unresolved_creds: When True, a credential that is not resolvable
+            yet is omitted instead of refused (build-time renders).
+        auth_token: The value of the variable
+            ``claude_code.telemetry.auth.token_env`` names, read by the caller
+            from the launch environment it was handed.
 
     Returns:
         A ``{VAR: "value"}`` dict; every value is a string (never bool). Keys
@@ -644,8 +742,12 @@ def _build_telemetry_env(
             that is not a positive integer, or a ``signals`` value that is
             empty, not a list, or names anything but ``metrics``, ``logs`` and
             ``traces``.
+            Also on an ``auth`` block the collector cannot use (see
+            :func:`telemetry_auth_token_env`).
         ObservabilityCredentialError: On an ``openobserve`` backend whose
-            credentials are missing, blank, or an unresolved ``${VAR}``.
+            credentials are missing, blank, or an unresolved ``${VAR}``, or on
+            a collector token that is unset, blank, or carries a comma or a
+            line break.
     """
     if not telemetry_cfg or not telemetry_cfg.get("enabled"):
         return {}
@@ -673,12 +775,18 @@ def _build_telemetry_env(
         ),
     }
 
-    # Headers: config headers first, then the computed OpenObserve Basic auth,
-    # which wins on key collision. OTLP wire format is comma-separated k=v.
+    # Headers: config headers first, then the collector's bearer token or the
+    # computed OpenObserve Basic auth (never both), which wins on key
+    # collision. OTLP wire format is comma-separated k=v.
     headers: dict[str, str] = {}
     configured = telemetry_cfg.get("headers")
     if configured:
         headers.update(_parse_header_map(configured))
+    token_env = telemetry_auth_token_env(telemetry_cfg)
+    if token_env is not None:
+        bearer = _bearer_header(token_env, auth_token, defer_unresolved=defer_unresolved_creds)
+        if bearer is not None:
+            headers[bearer[0]] = bearer[1]
     if telemetry_cfg.get("backend") == "openobserve":
         auth = _openobserve_auth_header(telemetry_cfg, defer_unresolved=defer_unresolved_creds)
         if auth is not None:

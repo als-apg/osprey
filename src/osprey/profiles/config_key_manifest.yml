@@ -1781,6 +1781,19 @@ keys:
   claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve, default: default}
+  claude_code.telemetry.auth:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("auth"\)'
+    note: Documented as a commented example in the control-assistant preset.
+    default: {}
+  claude_code.telemetry.auth.token_env:
+    rendered: false
+    covered-by: claude_code.telemetry.auth
+    default: null
+    note: >-
+      The environment variable holding the collector's bearer token; the agent
+      sends `Authorization: Bearer <value>`. Web terminals receive it through
+      their own compose environment, never `.env.users`.
   claude_code.telemetry.signals:
     rendered: false
     evidence: 'telemetry_cfg\.get\("signals"\)'
