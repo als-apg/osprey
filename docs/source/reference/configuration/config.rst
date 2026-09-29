@@ -1026,6 +1026,28 @@ These keys configure the ``phoebus`` MCP server, which is off until
 ``PHOEBUS_BRIDGE_URL``, ``PHOEBUS_REQUIRE_HANDLE`` and ``PHOEBUS_ARCHIVER_URL``
 outrank their keys; see :doc:`environment-variables`.
 
+.. _config-screen-capture:
+
+``screen_capture:`` — where screenshots are written
+---------------------------------------------------
+
+The workspace server's ``screenshot_capture`` tool saves every capture as a
+PNG file and records the file's path in the artifact gallery.
+``screen_capture.output_dir`` names the directory those files go to:
+
+.. code-block:: yaml
+
+   config:
+     screen_capture.output_dir: /srv/operator-captures
+
+Unset, it is ``screenshots`` under the agent-data root (``agent_data.base_dir``,
+``var/agent_data`` by default), which is correct for most deployments and is
+why no preset ships the key. A relative path is anchored on the project root,
+the directory holding ``profile.yml``, never on the working directory of the
+process that started the server; ``~`` expands to the home directory. The
+directory is created on the first capture. The key is read once per MCP
+server process, so a change lands after ``osprey build`` and a restart.
+
 .. _config-deployment:
 
 Deployment — service images and ``${VAR}`` interpolation

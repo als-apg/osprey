@@ -1670,6 +1670,20 @@ keys:
     default: derived
     default_note: >-
       the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
+  screen_capture.output_dir:
+    rendered: false
+    evidence: 'get\("screen_capture", \{\}\) or \{\}\)\.get\("output_dir"\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets. The
+      directory the workspace server's screenshot_capture tool writes its PNG
+      files to, read in one place (mcp_server/workspace/tools/screen_capture
+      `_get_output_dir`). A relative value is anchored on the project root,
+      never on the working directory of whatever launched the server. Unset
+      means `screenshots` under agent_data.base_dir, which is why nothing
+      ships the key: a rendered value would be a second place that path lives.
+    default: derived
+    default_note: >-
+      screenshots under agent_data.base_dir, anchored on the project root
 
   # ── API providers ───────────────────────────────────────────────────
   api:
