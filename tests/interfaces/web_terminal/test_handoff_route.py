@@ -52,8 +52,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
 from osprey.interfaces.web_terminal.turn_state import BUSY, IDLE
 from osprey_connectors import posture_store
 from tests.interfaces.web_terminal._fakes import FakeChatPool, FakeChatSession, FakeClock
-from tests.interfaces.web_terminal.test_handoff_phase_a import KEY
-from tests.interfaces.web_terminal.test_handoff_phase_b import RecordingPty, pool_pty, set_store
+from tests.interfaces.web_terminal._handoff_harness import KEY, RecordingPty, pool_pty, set_store
 
 HANDOFF_PATH = f"/api/session/{KEY}/handoff"
 
