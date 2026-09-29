@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -25,6 +26,7 @@ from pathlib import Path
 import nbformat
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal import jupyter_sidecar
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
@@ -669,10 +671,15 @@ def test_stop_reports_no_exit_and_fires_no_callback(
 
     with caplog.at_level("WARNING", logger=jupyter_sidecar.__name__):
         sidecar.stop()
-        time.sleep(0.2)
 
+    # ``stop()`` joins the exit watcher before it returns, so a report or a
+    # callback it was going to make has already happened by now.
     assert not fired.is_set()
-    assert _exit_records(caplog) == []
+    assert [
+        record
+        for record in caplog.records
+        if record.name == jupyter_sidecar.__name__ and record.levelno >= logging.WARNING
+    ] == []
 
 
 #: A stand-in sidecar: hands its stderr to a child in its own session, the way a
@@ -1012,7 +1019,7 @@ class _Sessions(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def sessions_server() -> Iterator[str]:
     """A server answering one canned ``api/sessions`` body; yields its base URL."""
-    _Sessions.seen = []
+    _Sessions.body, _Sessions.status, _Sessions.seen = b"[]", 200, []
     server = http.server.HTTPServer(("127.0.0.1", 0), _Sessions)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1022,6 +1029,7 @@ def sessions_server() -> Iterator[str]:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+        _Sessions.body, _Sessions.status, _Sessions.seen = b"[]", 200, []
 
 
 def _rows(*sessions: dict[str, object]) -> bytes:
@@ -1042,12 +1050,6 @@ def test_a_kernel_resolves_to_the_notebook_it_was_started_for(sessions_server: s
     assert _Sessions.seen == [("/panel/jupyter/api/sessions", "Bearer secret")]
 
 
-def test_a_kernel_the_sidecar_does_not_know_resolves_to_nothing(sessions_server: str) -> None:
-    _Sessions.body = _rows({"id": "s1", "path": "other.ipynb", "kernel": {"id": "other"}})
-
-    assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
-
-
 @pytest.mark.parametrize(
     "body",
     [
@@ -1057,6 +1059,16 @@ def test_a_kernel_the_sidecar_does_not_know_resolves_to_nothing(sessions_server:
         b'[{"kernel": {"id": "wanted"}}]',
         b'[{"kernel": {"id": "wanted"}, "path": "   "}]',
         b'[null, {"kernel": null}]',
+        b'[{"id": "s1", "path": "other.ipynb", "kernel": {"id": "other"}}]',
+    ],
+    ids=[
+        "not-json",
+        "not-a-list",
+        "no-kernel",
+        "no-path",
+        "blank-path",
+        "null-rows",
+        "unknown-kernel",
     ],
 )
 def test_an_unexpected_body_resolves_to_nothing_rather_than_raising(
@@ -1071,15 +1083,13 @@ def test_a_refused_request_resolves_to_nothing(sessions_server: str) -> None:
     """A 403 from a missing credential is an unanswered question, not a failure."""
     _Sessions.status = 403
     _Sessions.body = b'{"message": "Forbidden"}'
-    try:
-        assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
-    finally:
-        _Sessions.status = 200
+
+    assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
 
 
-def test_no_sidecar_at_that_url_resolves_to_nothing(sessions_server: str) -> None:
+def test_no_sidecar_at_that_url_resolves_to_nothing() -> None:
     """The panel can die between the marker being written and the switch."""
-    dead = sessions_server.replace("http://127.0.0.1:", "http://127.0.0.1:1", 1)
+    dead = f"http://127.0.0.1:{free_port()}/panel/jupyter"
 
     assert jupyter_sidecar.kernel_notebook_path(dead, {}, "wanted") is None
 
