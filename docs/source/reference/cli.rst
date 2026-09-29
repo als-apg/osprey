@@ -920,7 +920,8 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    the second run changes nothing.
 
 ``osprey knowledge validate [BUNDLE]``
-   Check every document in a bundle against the OKF format.
+   Check every document in a bundle against the OKF format, including each
+   ``index.md`` against its directory.
 
 ``osprey knowledge seed-from-ttl TTL BUNDLE [--force]``
    Write stub concept documents into a bundle from a TTL corpus, one per class,

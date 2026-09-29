@@ -247,6 +247,67 @@ def regenerate_indexes(bundle_root: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class IndexDrift:
+    """One ``index.md`` that differs from what the regenerator would leave there.
+
+    Attributes:
+        path: The ``index.md`` path, present on disk or not.
+        message: What differs, phrased to follow ``index.md``.
+    """
+
+    path: Path
+    message: str
+
+
+def _first_difference(expected: str, found: str) -> str:
+    """Describe the first line where *found* differs from *expected*."""
+    exp_lines = expected.splitlines(keepends=True)
+    got_lines = found.splitlines(keepends=True)
+
+    def _line(lines: list[str], i: int) -> str:
+        if i >= len(lines):
+            return "<end of file>"
+        line = lines[i]
+        return line[:-1] if line.endswith("\n") else line
+
+    i = 0
+    while i < len(exp_lines) and i < len(got_lines) and exp_lines[i] == got_lines[i]:
+        i += 1
+    exp, got = _line(exp_lines, i), _line(got_lines, i)
+    return f"does not match its directory at line {i + 1}: expected {exp!r}, found {got!r}"
+
+
+def check_indexes(bundle_root: Path) -> list[IndexDrift]:
+    """Compare every ``index.md`` in *bundle_root* with what :func:`render_indexes` renders.
+
+    The check is exact because the regenerator is the one producer of index
+    files: a bundle passes when :func:`regenerate_indexes` would change nothing
+    in it.  Nothing is written.
+
+    Args:
+        bundle_root: Path to the root directory of an OKF bundle.
+
+    Returns:
+        Missing indexes first, then indexes whose text differs, then stale
+        indexes the regenerator would delete.  Empty when the bundle passes.
+    """
+    rendered = render_indexes(Path(bundle_root))
+    drifts: list[IndexDrift] = []
+    for path in rendered.texts:
+        if not path.is_file():
+            drifts.append(IndexDrift(path, "missing; this directory holds pages"))
+    for path, text in rendered.texts.items():
+        if not path.is_file():
+            continue
+        found = path.read_text(encoding="utf-8")
+        if found != text:
+            drifts.append(IndexDrift(path, _first_difference(text, found)))
+    for path in rendered.stale:
+        drifts.append(IndexDrift(path, "lists pages this directory no longer holds"))
+    return drifts
+
+
 class OKFIndexError(ValueError):
     """Raised when an ``index.md`` violates OKF index-file rules."""
 

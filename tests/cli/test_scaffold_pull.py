@@ -29,6 +29,7 @@ from osprey.cli.scaffold_pull import (
 )
 from osprey.cli.templates.manager import TemplateManager
 from osprey.errors import BuildProfileError
+from osprey.services.facility_knowledge.okf.index import check_indexes
 
 # The forward check the emitted CI files already get, borrowed rather than
 # rewritten: one extraction and one resolver, so a verb named in help text and a
@@ -682,6 +683,23 @@ def test_apply_pull_leaves_no_demo_document_title_in_a_pulled_index(
     assert "okf_version" in root_index
     for subdirectory in ("devices", "physics", "procedures", "references", "subsystems"):
         assert f"[{subdirectory}](/{subdirectory}/)" in root_index
+
+
+def test_a_skeleton_pull_leaves_indexes_that_validate(
+    control_assistant_root: Path, tmp_path: Path
+) -> None:
+    """A skeleton pull leaves every index as regen-index would write it."""
+    plan = plan_pull(
+        control_assistant_root,
+        tmp_path,
+        "data/facility_knowledge",
+        force=False,
+        with_content=False,
+    )
+    apply_pull(plan, repo_root=tmp_path, with_content=False)
+
+    knowledge_target = tmp_path / "data" / "facility_knowledge"
+    assert check_indexes(knowledge_target) == []
 
 
 def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
