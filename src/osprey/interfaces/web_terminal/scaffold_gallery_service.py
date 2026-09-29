@@ -166,7 +166,8 @@ class ScaffoldGalleryService:
         if not config_file.exists():
             return {}
         with open(config_file, encoding="utf-8") as f:
-            return resolve_env_vars(yaml.safe_load(f) or {})
+            config = resolve_env_vars(yaml.safe_load(f) or {})
+        return config if isinstance(config, dict) else {}
 
     # ── Ownership ─────────────────────────────────────────────────────
 
@@ -956,7 +957,8 @@ class ScaffoldGalleryService:
                 "message": still_supplied_by_profile_message(str(held.path)),
             }
 
-        is_custom = self._registry.get(name) is None
+        framework_art = self._registry.get(name)
+        is_custom = framework_art is None
 
         if delete_file and is_custom:
             # The one branch below that removes a file from disk. Refused here
@@ -978,12 +980,11 @@ class ScaffoldGalleryService:
             if out.exists():
                 out.unlink()
                 deleted = True
-        elif delete_file and not is_custom:
+        elif delete_file and framework_art is not None:
             # Framework artifact — restore file to rendered template
-            art = self._registry.get(name)
             try:
-                content = self._render_framework(art)
-                out = self.project_dir / art.output_path
+                content = self._render_framework(framework_art)
+                out = self.project_dir / framework_art.output_path
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(content, encoding="utf-8")
                 restored = True
@@ -1379,9 +1380,11 @@ class ScaffoldGalleryService:
         if template_file.suffix == ".j2":
             template_rel = f"claude_code/{art.template_path}"
             template = manager.jinja_env.get_template(template_rel)
-            return template.render(**ctx)
+            rendered: str = template.render(**ctx)
+            return rendered
         else:
-            return template_file.read_text(encoding="utf-8")
+            text: str = template_file.read_text(encoding="utf-8")
+            return text
 
     def _read_user_file(self, art: BuildArtifact) -> str | None:
         """Read the user's copy of an artifact from the surface that holds it."""

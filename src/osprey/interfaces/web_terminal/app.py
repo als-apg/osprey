@@ -2100,14 +2100,14 @@ def _create_lifespan(
                 logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
 
         # Resolve and store config_path for the settings API
-        resolved_config_path = None
-        for candidate in [
+        resolved_config_path: Path | None = None
+        for config_candidate in [
             Path(config_path) if config_path else None,
             Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
             Path("config.yml"),
         ]:
-            if candidate and candidate.exists() and candidate.is_file():
-                resolved_config_path = candidate.resolve()
+            if config_candidate and config_candidate.exists() and config_candidate.is_file():
+                resolved_config_path = config_candidate.resolve()
                 break
         app.state.config_path = resolved_config_path
 

@@ -724,7 +724,7 @@ class JupyterSidecar:
             # open until the reap below collects it.
             logger.info("%s stopped (pid %s)", _NAME, process.pid)
         if runtime_dir is not None:
-            _reap_stragglers(runtime_dir)
+            _reap_stragglers(str(runtime_dir))
         if self._watcher is not None:
             self._watcher.join(timeout=1)
             self._watcher = None
