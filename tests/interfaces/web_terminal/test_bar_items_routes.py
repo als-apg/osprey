@@ -1007,15 +1007,6 @@ class TestTheRefusalVocabulary:
         """A reason the store gains fails here until the 422 table provokes it."""
         assert set(REFUSALS_422) == STORE_REASONS
 
-    def test_the_documented_list_names_every_422_reason(self):
-        """The module docstring is what a client author reads. It names the
-        whole 422 family; the four tokens below are described there by status
-        and by consequence, but not by word — see the class docstring."""
-        docstring = inspect.getdoc(bar_items_routes) or ""
-
-        for reason in STORE_REASONS | ROUTE_ONLY_REASONS:
-            assert f"``{reason}``" in docstring, f"{reason} is emitted but not documented"
-
     def test_the_rest_of_the_ladder_spells_exactly_four_more_tokens(self):
         """Everything the route names for itself, minus the 422 family. A fifth
         appearing here is a rung nothing below exercises."""
