@@ -10,6 +10,7 @@ The import checks run in a fresh interpreter, not on the already-populated
 ``sys.modules`` of the test session.
 """
 
+import importlib
 import json
 import os
 import subprocess
@@ -73,3 +74,37 @@ def test_the_build_artifact_catalog_costs_no_agent_sdk(module: str) -> None:
     added = _modules_added_by_import(module)
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["osprey.agent_runner.claude_state", "osprey.agent_runner.artifact_resolve"],
+)
+def test_an_sdk_free_submodule_imports_without_the_sdk(module: str) -> None:
+    """Deployment code and the container entrypoint read these modules without driving an agent."""
+    added = _modules_added_by_import(module)
+
+    assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
+    assert "osprey.agent_runner.primitives" not in added
+
+
+def test_every_public_name_is_its_defining_modules_object() -> None:
+    """Each public name resolves to the very object its defining module holds."""
+    import osprey.agent_runner as package
+
+    assert set(package.__all__) == set(package._LAZY_EXPORTS)
+    for name, leaf in package._LAZY_EXPORTS.items():
+        defining = importlib.import_module(leaf, package.__name__)
+        assert getattr(package, name) is getattr(defining, name), name
+
+
+def test_an_unknown_name_is_an_attribute_error() -> None:
+    """An unknown name raises, so ``from package import submodule`` falls back to the submodule."""
+    import osprey.agent_runner as package
+
+    with pytest.raises(AttributeError):
+        package.no_such_name
+
+    from osprey.agent_runner import clean_env
+
+    assert clean_env is importlib.import_module("osprey.agent_runner.clean_env")

@@ -10,7 +10,7 @@ trust dialog is not cosmetic: the rendered ``permissions.allow`` list does not
 apply until the folder is trusted, so an unseeded first session runs with a
 degraded permission surface.
 
-:func:`osprey.deployment.claude_state_seed.seed_claude_state` writes the state
+:func:`osprey.agent_runner.claude_state.seed_claude_state` writes the state
 Claude Code would have recorded had the operator answered, into the
 ``.claude.json`` the container's ``CLAUDE_CONFIG_DIR``/``HOME`` names. The
 properties asserted here:
@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.deployment.claude_state_seed import CLAUDE_STATE_FILENAME, seed_claude_state
+from osprey.agent_runner.claude_state import CLAUDE_STATE_FILENAME, seed_claude_state
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
