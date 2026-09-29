@@ -34,15 +34,19 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
     ADOPTED_BAR_ITEM_TYPES,
+    BAR_HOSTS,
     BAR_ITEM_AVAILABILITY,
     BAR_ITEM_GATES,
+    BAR_ITEM_MULTI,
     BAR_ITEM_OPTIONS,
     BAR_ITEM_TYPES,
     BAR_LAYOUT_VERSION,
     DEFAULT_BAR_LAYOUT,
+    MAX_BAR_ITEMS_PER_HOST,
     STATIC_DIR,
     SYSTEM_HEALTH_PANEL_ID,
     bar_item_available,
+    bar_item_vocabulary,
     bar_render_plan,
     create_app,
 )
@@ -455,6 +459,38 @@ class TestKnownTypes:
         declared = re.findall(r"^  '?([a-z-]+)'?: \{\n    type: '", source, re.MULTILINE)
         assert declared, "could not read the catalog's type declarations"
         assert list(BAR_ITEM_TYPES) == declared
+
+    def test_the_multi_set_mirrors_the_js_catalog(self):
+        """Which types may repeat decides a duplicate's fate on the server, in
+        the store and in the browser alike, so the server's set is pinned
+        against every entry's ``multi`` in the catalog."""
+        source = (STATIC_DIR / "js" / "bar-catalog.js").read_text()
+        declared = {}
+        for item_type in BAR_ITEM_TYPES:
+            match = re.search(r"^    multi: (true|false),", _catalog_entry(source, item_type), re.M)
+            assert match, f"{item_type} declares no multi"
+            declared[item_type] = match.group(1) == "true"
+
+        assert {item_type for item_type, multi in declared.items() if multi} == BAR_ITEM_MULTI
+
+    def test_the_store_vocabulary_is_built_from_the_mirrored_tables(self):
+        """The store validates a saved layout against this vocabulary, so it
+        must be exactly the tables the mirrors above pin to the catalog, and
+        the store can never hold item knowledge of its own."""
+        vocabulary = bar_item_vocabulary()
+
+        assert vocabulary.items == {
+            item_type: {
+                "options": BAR_ITEM_OPTIONS.get(item_type, {}),
+                "multi": item_type in BAR_ITEM_MULTI,
+            }
+            for item_type in BAR_ITEM_TYPES
+        }
+        assert (vocabulary.version, vocabulary.max_items_per_host, vocabulary.hosts) == (
+            BAR_LAYOUT_VERSION,
+            MAX_BAR_ITEMS_PER_HOST,
+            BAR_HOSTS,
+        )
 
 
 #: One catalog entry's ``options:`` declaration — either ``NO_OPTIONS`` or an
