@@ -1,4 +1,4 @@
-"""Unit tests for the dispatch permission policy (dispatch_worker.tool_policy).
+"""Unit tests for the dispatch permission policy (osprey.agent_runner.tool_policy).
 
 Covers the two enforcement layers built per run:
 
@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from osprey.mcp_server.dispatch_worker.tool_policy import (
+from osprey.agent_runner.tool_policy import (
     DELEGATION_TOOLS,
     PASSTHROUGH_TOOLS,
     make_backstop,

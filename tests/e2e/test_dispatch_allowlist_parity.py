@@ -71,7 +71,7 @@ pytestmark = [
     pytest.mark.flaky(reruns=2, reruns_delay=5),  # agentic-e2e convention
 ]
 
-# Deny messages emitted by the worker's tool policy (tool_policy.py).
+# Deny messages emitted by the dispatch tool policy (osprey.agent_runner.tool_policy).
 HOOK_DENY_MARKERS = (
     "is not in this trigger's allowed_tools list",
     "is not in subagent",
