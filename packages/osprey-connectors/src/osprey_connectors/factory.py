@@ -220,7 +220,9 @@ class ConnectorFactory:
         return connector
 
     @classmethod
-    async def create_archiver_connector(cls, config: dict[str, Any] = None) -> ArchiverConnector:
+    async def create_archiver_connector(
+        cls, config: dict[str, Any] | None = None
+    ) -> ArchiverConnector:
         """
         Create and configure an archiver connector.
 

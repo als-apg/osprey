@@ -30,7 +30,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypeGuard
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -931,7 +931,7 @@ def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | Non
     return machine_path, active_type, type_key, mock_key
 
 
-def engine_serves(engine: SimulationEngine | None, channel: str) -> bool:
+def engine_serves(engine: SimulationEngine | None, channel: str) -> TypeGuard[SimulationEngine]:
     """Return True if an engine is present and serves this channel.
 
     Centralises the optional-engine guard used by the mock connectors: the

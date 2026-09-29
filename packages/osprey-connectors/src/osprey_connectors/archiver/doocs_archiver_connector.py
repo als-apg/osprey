@@ -171,7 +171,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 if hist_data_dict is None:
                     raise RuntimeError(f"DOOCS archiver connector: Cannot read history for {add}")
                 timestamps = pd.to_datetime(hist_data_dict.get("time", []), unit="s", utc=True)
-                values = hist_data_dict.get("data", [])
+                values: np.ndarray | list[float] = hist_data_dict.get("data", [])
                 data[add] = pd.Series(values, index=timestamps, name=add)
             return data
 
