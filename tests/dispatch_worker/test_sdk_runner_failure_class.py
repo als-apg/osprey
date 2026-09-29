@@ -1,7 +1,7 @@
 """Failure-class stamping and error-flip behavior of ``sdk_runner.run_dispatch``.
 
-The runner translates the Claude Agent SDK message stream into a result dict.
-These tests exercise the four error exits — a terminal error ``ResultMessage``
+The runner translates the agent runner's event records into a result dict.
+These tests exercise the four error exits — a terminal error result record
 (the "completed" branch flipping to status ``error``), the inactivity watchdog,
 the generic ``except``, and the SDK-missing guard — asserting each stamps the
 right ``failure_class`` and a truthful ``num_tool_calls`` (from the run-stats
@@ -11,16 +11,11 @@ map), and that a successful run is left untouched.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from typing import Any
 
 import pytest
-from claude_agent_sdk import (
-    AssistantMessage,
-    ResultMessage,
-    TextBlock,
-    ToolUseBlock,
-)
 
+from osprey.agent_runner import AgentRunError, ResultEvent, TextEvent, ToolUseEvent
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats, sdk_runner
 
 
@@ -51,29 +46,25 @@ def _stub_osprey_helpers(monkeypatch):
     )
 
 
-def _result_message(
-    *,
-    is_error: bool = False,
-    subtype: str = "success",
-    result: str | None = None,
-    api_error_status: object | None = None,
-    cost_usd: float = 0.1,
-    num_turns: int = 1,
-) -> ResultMessage:
-    """A ResultMessage stand-in with all fields the runner reads set explicitly.
+def _result(**overrides: Any) -> ResultEvent:
+    """A successful result record; any field can be overridden."""
+    fields: dict[str, Any] = {
+        "subtype": "success",
+        "is_error": False,
+        "num_turns": 1,
+        "duration_ms": 0,
+        "session_id": "s",
+        "total_cost_usd": 0.1,
+        "usage": None,
+        "result": None,
+        "api_error_status": None,
+    }
+    fields.update(overrides)
+    return ResultEvent(**fields)
 
-    ``MagicMock(spec=ResultMessage)`` returns truthy mocks for unset attributes,
-    so every field the runner inspects must be assigned (``is_error`` in
-    particular, else a success case would read as an error).
-    """
-    rm = MagicMock(spec=ResultMessage)
-    rm.is_error = is_error
-    rm.subtype = subtype
-    rm.result = result
-    rm.api_error_status = api_error_status
-    rm.total_cost_usd = cost_usd
-    rm.num_turns = num_turns
-    return rm
+
+def _tool_use(tool_use_id: str) -> ToolUseEvent:
+    return ToolUseEvent(tool_use_id=tool_use_id, name="Read", input={}, parent_tool_use_id=None)
 
 
 async def _drain(queue: asyncio.Queue) -> list[dict]:
@@ -90,11 +81,11 @@ async def _drain(queue: asyncio.Queue) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_success_is_unchanged(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text="hi")], model="m")
-        yield _result_message(is_error=False, subtype="success")
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield TextEvent(text="hi", parent_tool_use_id=None)
+        yield _result(is_error=False, subtype="success")
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=queue, run_id="ok")
@@ -109,19 +100,17 @@ async def test_success_is_unchanged(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Terminal error ResultMessage — completed branch flips to error
+# Terminal error result record — completed branch flips to error
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_budget_cap_subtype_flips_to_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
-        yield _result_message(
-            is_error=True, subtype="error_max_budget_usd", result="Budget exceeded"
-        )
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("t1")
+        yield _result(is_error=True, subtype="error_max_budget_usd", result="Budget exceeded")
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=queue, run_id="r")
@@ -138,10 +127,10 @@ async def test_budget_cap_subtype_flips_to_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_max_turns_subtype_flips_to_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield _result_message(is_error=True, subtype="error_max_turns", result="Max turns")
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _result(is_error=True, subtype="error_max_turns", result="Max turns")
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -153,14 +142,14 @@ async def test_max_turns_subtype_flips_to_run(monkeypatch):
 async def test_error_result_with_provider_text_is_provider(monkeypatch):
     """A non-budget error whose text reads as a provider fault stays retryable."""
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield _result_message(
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _result(
             is_error=True,
             subtype="error_during_execution",
             result="upstream 429 rate limit exceeded",
         )
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -172,15 +161,15 @@ async def test_error_result_with_provider_text_is_provider(monkeypatch):
 async def test_error_result_api_status_folds_into_classification(monkeypatch):
     """api_error_status is appended to the error text and drives classification."""
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield _result_message(
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _result(
             is_error=True,
             subtype="error_during_execution",
             result="request failed",
             api_error_status=429,
         )
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -190,12 +179,12 @@ async def test_error_result_api_status_folds_into_classification(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_error_result_generic_is_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield _result_message(
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _result(
             is_error=True, subtype="error_during_execution", result="a tool crashed mid-run"
         )
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -204,10 +193,10 @@ async def test_error_result_generic_is_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_error_result_without_text_gets_synthesized_message(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield _result_message(is_error=True, subtype="error_during_execution", result=None)
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _result(is_error=True, subtype="error_during_execution", result=None)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -224,12 +213,12 @@ async def test_error_result_without_text_gets_synthesized_message(monkeypatch):
 async def test_inactivity_timeout_is_provider(monkeypatch):
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.05)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("t1")
         await asyncio.sleep(10)  # provider goes silent -> watchdog trips
-        yield _result_message()
+        yield _result()
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -246,11 +235,11 @@ async def test_inactivity_timeout_is_provider(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generic_exception_run(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("t1")
         raise RuntimeError("something broke")
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -261,11 +250,11 @@ async def test_generic_exception_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generic_exception_provider_message(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         raise RuntimeError("401 unauthorized: invalid api key")
-        yield  # unreachable — makes this an async generator, like the real query
+        yield  # unreachable — makes this an async generator, like the real stream
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
@@ -299,11 +288,37 @@ async def test_counter_hook_bumped_on_error(monkeypatch):
     seen: list[str] = []
     failure_class.register_counter_hook(seen.append)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield _result_message(is_error=True, subtype="error_during_execution", result="crash")
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _result(is_error=True, subtype="error_during_execution", result="crash")
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
     assert seen == [failure_class.FAILURE_RUN]
+
+
+@pytest.mark.asyncio
+async def test_an_agent_run_error_is_classified_like_the_error_it_wraps(monkeypatch):
+    """The runner wraps an agent SDK error; its text and cause chain classify it."""
+
+    async def provider_failure(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        raise AgentRunError("401 unauthorized", error_type="ProcessError") from RuntimeError(
+            "401 unauthorized"
+        )
+        yield  # unreachable — makes this an async generator, like the real stream
+
+    monkeypatch.setattr(sdk_runner, "stream_query", provider_failure)
+    result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
+
+    assert result["failure_class"] == failure_class.FAILURE_PROVIDER
+    assert result["error"] == "401 unauthorized"
+
+    async def run_failure(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        raise AgentRunError("exit 1", error_type="ProcessError")
+        yield  # unreachable — makes this an async generator, like the real stream
+
+    monkeypatch.setattr(sdk_runner, "stream_query", run_failure)
+    result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r2")
+
+    assert result["failure_class"] == failure_class.FAILURE_RUN

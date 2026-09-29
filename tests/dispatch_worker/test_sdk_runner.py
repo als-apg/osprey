@@ -1,33 +1,38 @@
-"""Unit tests for the dispatch-worker SDK runner.
+"""Unit tests for the dispatch-worker run loop.
 
 ``run_dispatch`` does *deferred* imports of OSPREY helpers and iterates the
-Claude Agent SDK ``query()`` async generator, translating SDK messages into a
-result dict and onto an event queue. These tests:
+agent runner's ``stream_query`` event records, translating them into a result
+dict and onto an event queue. These tests:
 
   * monkeypatch the deferred OSPREY helpers on their *source* modules so the
     in-function imports pick up the stubs,
-  * monkeypatch ``query`` on the sdk_runner module with a fake async generator,
-  * yield real ``AssistantMessage``/``TextBlock`` instances (so the runner's
-    ``isinstance`` checks hold) and a ``MagicMock(spec=ResultMessage)`` for the
-    result message — ``MagicMock(spec=X)`` passes ``isinstance(..., X)`` and lets
-    us set the ``total_cost_usd``/``num_turns`` attributes the runner reads via getattr.
+  * monkeypatch ``stream_query`` on the sdk_runner module with a fake async
+    generator that yields event records and captures the keywords it was
+    called with.
 """
 
 from __future__ import annotations
 
+import ast
 import asyncio
-from unittest.mock import MagicMock
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
 
 import pytest
-from claude_agent_sdk import (
-    AssistantMessage,
-    ResultMessage,
-    TextBlock,
-    ToolResultBlock,
-    ToolUseBlock,
-    UserMessage,
-)
 
+from osprey.agent_runner import (
+    ApiErrorEvent,
+    McpNotReadyError,
+    ResultEvent,
+    SystemEvent,
+    TextEvent,
+    ThinkingEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+    mcp_snapshot_summary,
+)
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import sdk_runner
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
@@ -60,12 +65,37 @@ def _stub_osprey_helpers(monkeypatch, tmp_path):
     )
 
 
-def _result_message(cost_usd: float, num_turns: int) -> ResultMessage:
-    """A ResultMessage stand-in that passes isinstance and exposes total_cost_usd."""
-    rm = MagicMock(spec=ResultMessage)
-    rm.total_cost_usd = cost_usd
-    rm.num_turns = num_turns
-    return rm
+def _result(**overrides: Any) -> ResultEvent:
+    """A successful result record; any field can be overridden."""
+    fields: dict[str, Any] = {
+        "subtype": "success",
+        "is_error": False,
+        "num_turns": 1,
+        "duration_ms": 0,
+        "session_id": "s",
+        "total_cost_usd": 0.1,
+        "usage": None,
+        "result": None,
+        "api_error_status": None,
+    }
+    fields.update(overrides)
+    return ResultEvent(**fields)
+
+
+def _text(text: str) -> TextEvent:
+    return TextEvent(text=text, parent_tool_use_id=None)
+
+
+def _tool_use(tool_use_id: str, name: str, tool_input: dict[str, Any]) -> ToolUseEvent:
+    return ToolUseEvent(
+        tool_use_id=tool_use_id, name=name, input=tool_input, parent_tool_use_id=None
+    )
+
+
+def _tool_result(tool_use_id: str, content: Any) -> ToolResultEvent:
+    return ToolResultEvent(
+        tool_use_id=tool_use_id, content=content, is_error=False, parent_tool_use_id=None
+    )
 
 
 async def _drain(queue: asyncio.Queue) -> list[dict]:
@@ -77,11 +107,11 @@ async def _drain(queue: asyncio.Queue) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_happy_path(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text="hello world")], model="m")
-        yield _result_message(cost_usd=0.5, num_turns=4)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text("hello world")
+        yield _result(total_cost_usd=0.5, num_turns=4)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
@@ -104,19 +134,11 @@ async def test_happy_path(monkeypatch):
 async def test_the_record_carries_the_cost_the_agent_reports(monkeypatch):
     """The cost is read from the field the agent SDK's result message defines."""
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield ResultMessage(
-            subtype="success",
-            duration_ms=1,
-            duration_api_ms=1,
-            is_error=False,
-            num_turns=2,
-            session_id="s",
-            total_cost_usd=0.25,
-        )
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text("ok")
+        yield _result(total_cost_usd=0.25, num_turns=2)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
@@ -128,25 +150,15 @@ async def test_the_record_carries_the_cost_the_agent_reports(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tool_result_in_user_message_is_captured(monkeypatch):
-    """Tool results arrive as ToolResultBlock inside UserMessage — the runner
-    must pair them with the originating ToolUseBlock (permission-denial
+    """A tool result is paired with the call it answers (permission-denial
     messages surface this way; the parity e2e depends on seeing them)."""
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(
-            content=[ToolUseBlock(id="tu1", name="mcp__x__y", input={})], model="m"
-        )
-        yield UserMessage(
-            content=[
-                ToolResultBlock(
-                    tool_use_id="tu1",
-                    content="Tool 'mcp__x__y' is not in this trigger's allowed_tools list",
-                )
-            ]
-        )
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("tu1", "mcp__x__y", {})
+        yield _tool_result("tu1", "Tool 'mcp__x__y' is not in this trigger's allowed_tools list")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue())
 
@@ -163,14 +175,12 @@ async def test_tool_result_in_user_message_is_captured(monkeypatch):
 async def test_a_tool_result_with_no_content_is_recorded_as_empty(monkeypatch):
     """A call that returned nothing is recorded as returned, with an empty result."""
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(
-            content=[ToolUseBlock(id="tu1", name="mcp__x__y", input={})], model="m"
-        )
-        yield UserMessage(content=[ToolResultBlock(tool_use_id="tu1", content=None)])
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("tu1", "mcp__x__y", {})
+        yield _tool_result("tu1", None)
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=queue)
@@ -182,7 +192,7 @@ async def test_a_tool_result_with_no_content_is_recorded_as_empty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tool_policy_wiring(monkeypatch, tmp_path):
-    """run_dispatch wires the dispatch tool policy into ClaudeAgentOptions.
+    """run_dispatch wires the dispatch tool policy into the agent runner call.
 
     The PreToolUse hook is the single authority (fires even for
     settings-allowed calls); allowed_tools stays trigger-only (no subagent
@@ -205,12 +215,12 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["options"] = options
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["kw"] = kw
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     # Act
     await sdk_runner.run_dispatch(
@@ -219,25 +229,23 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
         event_queue=asyncio.Queue(),
         denied_tools=["Bash", "WebFetch", "mcp__plugin_playwright_playwright__*"],
     )
-    options = captured["options"]
+    kw = captured["kw"]
 
     # Assert — trigger-only allowed_tools, unchanged setting sources
-    assert options.allowed_tools == ["mcp__controls__channel_read"]
-    assert options.setting_sources == ["project"]
-    assert options.env["OSPREY_DISPATCH_RUN"] == "1"
+    assert kw["allowed_tools"] == ["mcp__controls__channel_read"]
+    assert kw["setting_sources"] == ["project"]
+    assert kw["env"]["OSPREY_DISPATCH_RUN"] == "1"
 
     # Assert — exact denies + server rule for the prefix entry, model-context strip
-    assert options.disallowed_tools == [
+    assert kw["disallowed_tools"] == [
         "Bash",
         "WebFetch",
         "mcp__plugin_playwright_playwright",
     ]
 
-    # Assert — hook registered as catch-all PreToolUse matcher and enforcing
-    matchers = options.hooks["PreToolUse"]
-    assert len(matchers) == 1
-    assert matchers[0].matcher is None
-    (hook,) = matchers[0].hooks
+    # Assert — one PreToolUse hook (the runner registers it as the catch-all
+    # matcher) and it enforces
+    (hook,) = kw["pre_tool_use_hooks"]
     denied = await hook({"tool_name": "mcp__osprey_workspace__artifact_list"}, "t", None)
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     allowed = await hook({"tool_name": "mcp__controls__channel_read"}, "t", None)
@@ -254,7 +262,7 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     assert sub_ok == {}
 
     # Assert — backstop is context-aware, not the flat allowlist
-    backstop = options.can_use_tool
+    backstop = kw["can_use_tool"]
     main_deny = await backstop("mcp__channel-finder__search", {}, SimpleNamespace(agent_id=None))
     assert type(main_deny).__name__ == "PermissionResultDeny"
     sub_allow = await backstop("mcp__channel-finder__search", {}, SimpleNamespace(agent_id="a1"))
@@ -277,16 +285,16 @@ async def test_config_file_env_points_at_the_render(monkeypatch):
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["options"] = options
-        captured["render_dir"] = render_dir
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["kw"] = kw
+        captured["project_dir"] = project_dir
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
-    assert captured["options"].env["CONFIG_FILE"] == "/srv/myproj/build/config.yml"
+    assert captured["kw"]["env"]["CONFIG_FILE"] == "/srv/myproj/build/config.yml"
 
 
 @pytest.mark.asyncio
@@ -301,20 +309,19 @@ async def test_worker_trusts_the_config_file_its_service_sets(monkeypatch):
     monkeypatch.setenv("CONFIG_FILE", "/srv/staged/config.yml")
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["options"] = options
-        captured["render_dir"] = render_dir
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["kw"] = kw
+        captured["project_dir"] = project_dir
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
-    assert captured["options"].env["CONFIG_FILE"] == "/srv/staged/config.yml"
+    assert captured["kw"]["env"]["CONFIG_FILE"] == "/srv/staged/config.yml"
     # ...and the agent runs beside that config, so it discovers the .claude/
     # tree and .mcp.json that were rendered with it.
-    assert captured["options"].cwd == "/srv/staged"
-    assert captured["render_dir"] == "/srv/staged"
+    assert captured["project_dir"] == Path("/srv/staged")
 
 
 @pytest.mark.asyncio
@@ -341,15 +348,15 @@ async def test_subagent_surfaces_are_discovered_from_the_render(tmp_path, monkey
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["options"] = options
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["kw"] = kw
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
-    (hook,) = captured["options"].hooks["PreToolUse"][0].hooks
+    (hook,) = captured["kw"]["pre_tool_use_hooks"]
     delegate = {"tool_name": "Task", "tool_input": {"subagent_type": "channel-finder"}}
     assert await hook(delegate, "t", None) == {}
     # The repo-root file is not the agent surface — delegating to it is denied.
@@ -368,15 +375,15 @@ async def test_no_discoverable_agents_denies_every_delegation(tmp_path, monkeypa
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["options"] = options
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["kw"] = kw
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
-    (hook,) = captured["options"].hooks["PreToolUse"][0].hooks
+    (hook,) = captured["kw"]["pre_tool_use_hooks"]
     delegate = {"tool_name": "Task", "tool_input": {"subagent_type": "channel-finder"}}
     assert (await hook(delegate, "t", None))["hookSpecificOutput"]["permissionDecision"] == "deny"
     in_subagent = {"tool_name": "Read", "agent_id": "a1", "agent_type": "channel-finder"}
@@ -392,7 +399,7 @@ async def test_subagent_delegation_runs_in_the_foreground(monkeypatch):
     Since Claude Code CLI 2.1.x the Agent tool auto-backgrounds delegated
     subagents: the turn ends immediately and the subagent's results arrive on a
     *later* turn as a task notification. ``_drain_response`` stops at the first
-    ResultMessage, so the worker would answer "the agent is searching, I'll
+    result, so the worker would answer "the agent is searching, I'll
     notify you when it completes" and never deliver the delegated work.
 
     ``build_clean_env()`` strips every ``CLAUDE_CODE_*`` key, so this guard
@@ -401,15 +408,15 @@ async def test_subagent_delegation_runs_in_the_foreground(monkeypatch):
     """
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["options"] = options
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["kw"] = kw
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
-    assert captured["options"].env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
+    assert captured["kw"]["env"]["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
 
 
 @pytest.mark.asyncio
@@ -420,7 +427,7 @@ async def test_sdk_missing(monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("query should not be called when HAS_SDK is False")
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", _boom)
+    monkeypatch.setattr(sdk_runner, "stream_query", _boom)
 
     result = await sdk_runner.run_dispatch("do it", ["Read"])
     assert result["status"] == "error"
@@ -429,11 +436,11 @@ async def test_sdk_missing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancellation_propagates(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text="partial")], model="m")
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text("partial")
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     with pytest.raises(asyncio.CancelledError):
         await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -441,11 +448,11 @@ async def test_cancellation_propagates(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_error_path_does_not_raise(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         raise Exception("boom")
         yield  # pragma: no cover - makes this an async generator
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
@@ -470,11 +477,11 @@ async def test_inactivity_timeout_aborts_with_clear_error(monkeypatch):
     stalling silently to the outer dispatch timeout."""
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         await asyncio.sleep(30)  # hang — never yields a message
         yield  # pragma: no cover - never reached
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     # Outer guard so a regression (no watchdog) fails fast instead of hanging
@@ -500,12 +507,12 @@ async def test_inactivity_timeout_after_partial_progress(monkeypatch):
     then stalls is still aborted, with the partial text preserved."""
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text="working...")], model="m")
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text("working...")
         await asyncio.sleep(30)  # then hang
         yield  # pragma: no cover - never reached
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await asyncio.wait_for(
         sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue()),
         timeout=5,
@@ -539,11 +546,11 @@ def test_scrub_replaces_secret_values():
 async def test_oversized_text_output_is_truncated(monkeypatch):
     huge = "y" * (sdk_runner._MAX_TEXT_OUTPUT + 10000)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text=huge)], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text(huge)
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert len(result["text_output"]) <= sdk_runner._MAX_TEXT_OUTPUT + 100
@@ -555,11 +562,11 @@ async def test_secret_scrubbed_from_text_output(monkeypatch):
     secret = "tok-abcdef-1234567890"  # len >= 12
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", secret)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text=f"leaked {secret} here")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text(f"leaked {secret} here")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert secret not in result["text_output"]
@@ -568,19 +575,14 @@ async def test_secret_scrubbed_from_text_output(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tool_use_and_result_are_captured(monkeypatch):
-    """A ToolUseBlock + matching ToolResultBlock land in tool_calls with the result."""
-    from claude_agent_sdk import ToolResultBlock, ToolUseBlock
+    """A tool call and its matching result land in tool_calls with the result."""
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(
-            content=[ToolUseBlock(id="tu1", name="Read", input={"path": "f"})], model="m"
-        )
-        yield AssistantMessage(
-            content=[ToolResultBlock(tool_use_id="tu1", content="file contents")], model="m"
-        )
-        yield _result_message(cost_usd=0.2, num_turns=2)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("tu1", "Read", {"path": "f"})
+        yield _tool_result("tu1", "file contents")
+        yield _result(total_cost_usd=0.2, num_turns=2)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
 
@@ -616,11 +618,11 @@ async def test_surface_prompt_forwarded_to_build_system_prompt(monkeypatch):
         _spy_build_system_prompt,
     )
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch(
         "do it", ["Read"], event_queue=asyncio.Queue(), surface_prompt="triggered from Slack"
     )
@@ -645,11 +647,11 @@ async def test_surface_prompt_omitted_leaves_system_prompt_unchanged(monkeypatch
         _spy_build_system_prompt,
     )
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert len(calls) == 1
@@ -659,18 +661,14 @@ async def test_surface_prompt_omitted_leaves_system_prompt_unchanged(monkeypatch
 
 @pytest.mark.asyncio
 async def test_oversized_tool_result_is_truncated(monkeypatch):
-    from claude_agent_sdk import ToolResultBlock, ToolUseBlock
-
     huge = "z" * (sdk_runner._MAX_TOOL_RESULT + 5000)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[ToolUseBlock(id="tu1", name="Read", input={})], model="m")
-        yield AssistantMessage(
-            content=[ToolResultBlock(tool_use_id="tu1", content=huge)], model="m"
-        )
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("tu1", "Read", {})
+        yield _tool_result("tu1", huge)
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     body = result["tool_calls"][0]["result"]
@@ -689,17 +687,21 @@ async def test_mcp_not_ready_is_an_infrastructure_error(monkeypatch):
     """The worker's own machinery (the CLI's MCP servers) was not ready before
     the run: stamped infrastructure (retryable once the host catches up), never
     a "completed" run that quietly lacked the tool it was dispatched to use."""
-    snapshot = [
-        {"name": "controls", "status": "connected", "tools": 6, "error": None},
-        {"name": "osprey_workspace", "status": "pending", "tools": 0, "error": None},
+    raw = [
+        {"name": "controls", "status": "connected", "tools": [{"name": "t"}] * 6},
+        {"name": "osprey_workspace", "status": "pending", "tools": []},
     ]
 
-    async def fake_query(options, project_dir, prompt, **kw):  # noqa: ARG001 - matches the SDK query signature
-        kw["mcp_snapshot"][:] = snapshot
-        raise sdk_runner.McpNotReadyError("MCP server 'osprey_workspace' not connected (pending)")
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        kw["on_mcp_status"](raw)
+        raise McpNotReadyError(
+            "MCP server(s) this run requires were not connected: osprey_workspace (pending)",
+            servers=raw,
+            missing=["osprey_workspace"],
+        )
         yield  # pragma: no cover - makes this an async generator
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch(
@@ -709,7 +711,7 @@ async def test_mcp_not_ready_is_an_infrastructure_error(monkeypatch):
     assert result["status"] == "error"
     assert result["failure_class"] == "infrastructure"
     assert "osprey_workspace" in result["error"]
-    assert result["mcp_servers"] == snapshot
+    assert result["mcp_servers"] == mcp_snapshot_summary(raw)
     events = await _drain(queue)
     assert any(e["type"] == "error" and "osprey_workspace" in e["message"] for e in events)
 
@@ -718,37 +720,39 @@ async def test_mcp_not_ready_is_an_infrastructure_error(monkeypatch):
 async def test_run_record_carries_the_mcp_snapshot(monkeypatch):
     """Persisted with the run so a missing tool can be read off the record as
     INFRA (server not connected) or MODEL (tool registered, agent ignored it)."""
-    snapshot = [{"name": "controls", "status": "connected", "tools": 6, "error": None}]
+    raw = [{"name": "controls", "status": "connected", "tools": [{"name": "t"}] * 6}]
 
-    async def fake_query(options, project_dir, prompt, **kw):  # noqa: ARG001 - matches the SDK query signature
-        kw["mcp_snapshot"][:] = snapshot
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        kw["on_mcp_status"](raw)
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert result["status"] == "completed"
-    assert result["mcp_servers"] == snapshot
+    assert result["mcp_servers"] == mcp_snapshot_summary(raw)
 
 
 @pytest.mark.asyncio
 async def test_required_servers_are_the_allow_listed_ones(monkeypatch):
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **kw):  # noqa: ARG001 - matches the SDK query signature
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
         captured.update(kw)
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch(
         "do it",
         ["Glob", "mcp__osprey_workspace__artifact_register", "mcp__controls__channel_read"],
         event_queue=asyncio.Queue(),
     )
 
-    assert captured["required_servers"] == {"osprey_workspace", "controls"}
+    assert captured["require_mcp_servers"] == {"osprey_workspace", "controls"}
+    # The declared set is the one awaited: the runner's default.
+    assert "await_mcp_servers" not in captured
 
 
 @pytest.mark.asyncio
@@ -759,12 +763,12 @@ async def test_cli_mcp_startup_limit_matches_the_barrier(monkeypatch):
     ``MCP_TIMEOUT`` wins."""
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["env"] = options.env
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["env"] = kw["env"]
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
     assert captured["env"]["MCP_TIMEOUT"] == str(int(sdk_runner.MCP_READY_TIMEOUT_S * 1000))
 
@@ -784,12 +788,12 @@ async def _env_of_run(monkeypatch, **kwargs) -> dict[str, str]:
     """Run a dispatch through a stub stream and return the agent's environment."""
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        captured["env"] = options.env
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["env"] = kw["env"]
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue(), **kwargs)
     return captured["env"]
 
@@ -936,3 +940,105 @@ async def test_a_stray_worker_value_never_reaches_a_run_that_names_no_prior_answ
     env = await _env_of_run(monkeypatch)
 
     assert "OSPREY_DISPATCH_PRIOR_ANSWER_RUNS" not in env
+
+
+# ---------------------------------------------------------------------------
+# The agent runner call and the records outside the run record
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_run_goes_to_the_agent_runner_with_no_permission_mode_and_no_budget(
+    monkeypatch,
+):
+    """The runner's defaults are a bypass permission mode and a spend ceiling;
+    dispatch overrides both, so the backstop stays consulted and no run stops
+    on spend."""
+    captured: dict = {}
+
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured.update(kw)
+        yield _text("ok")
+        yield _result()
+
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
+    await sdk_runner.run_dispatch("do it", ["Read"], max_turns=7, event_queue=asyncio.Queue())
+
+    assert captured["permission_mode"] is None
+    assert captured["max_budget_usd"] is None
+    assert captured["max_turns"] == 7
+    assert captured["setting_sources"] == ["project"]
+    for key in ("model", "provider", "mcp_servers", "resume"):
+        assert key not in captured
+    assert captured["session_id"] == captured["env"]["OSPREY_TELEMETRY_SESSION_ID"]
+
+
+@pytest.mark.asyncio
+async def test_events_outside_the_record_leave_it_unchanged(monkeypatch):
+    """Thinking, API-error and system records add nothing to the record or the
+    live events."""
+
+    async def run_with(events: list) -> tuple[dict, list[dict]]:
+        async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+            for event in events:
+                yield event
+
+        monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
+        queue: asyncio.Queue = asyncio.Queue()
+        result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
+        result.pop("duration_sec")
+        result.pop("session_id")
+        return result, await _drain(queue)
+
+    alone = await run_with([_text("hello"), _result()])
+    surrounded = await run_with(
+        [
+            SystemEvent(subtype="init", data={"subtype": "init"}),
+            ThinkingEvent(text="hm"),
+            _text("hello"),
+            ApiErrorEvent(error="rate_limit"),
+            _result(),
+        ]
+    )
+
+    assert surrounded == alone
+
+
+@pytest.mark.asyncio
+async def test_a_result_for_an_unknown_call_streams_without_a_name(monkeypatch):
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_result("never-issued", "orphan")
+        yield _result()
+
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
+    queue: asyncio.Queue = asyncio.Queue()
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
+
+    assert result["tool_calls"] == []
+    assert {"type": "tool_result", "name": None, "result": None} in await _drain(queue)
+
+
+def test_the_worker_module_imports_without_the_agent_sdk():
+    """The worker module loads, and reports the SDK absent, when the agent SDK
+    cannot be imported; its source names no agent SDK import."""
+    code = (
+        "import sys\n"
+        "sys.modules['claude_agent_sdk'] = None\n"
+        "from osprey.mcp_server.dispatch_worker import sdk_runner\n"
+        "print(sdk_runner.HAS_SDK)\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip().splitlines()[-1] == "False"
+
+    tree = ast.parse(Path(sdk_runner.__file__).read_text())
+    imported = [
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    ] + [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+    assert not [name for name in imported if name.split(".")[0] == "claude_agent_sdk"]
