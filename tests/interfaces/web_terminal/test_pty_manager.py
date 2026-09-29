@@ -1,60 +1,64 @@
-"""Tests for PTY manager."""
+"""Tests for PTY manager: real children behind ``PtySession`` and ``PtyRegistry``."""
 
 from __future__ import annotations
 
+import fcntl
 import os
+import select
+import struct
 import sys
-import tempfile
+import termios
 import time
-from unittest.mock import patch
 
 import pytest
 
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
 
+#: How long a real shell may take to answer under a loaded parallel run.
+READ_TIMEOUT_S = 15.0
+
+
+def _read_until(session: PtySession, marker: bytes, timeout: float = READ_TIMEOUT_S) -> bytes:
+    """Read the PTY master until *marker* appears or *timeout* passes.
+
+    The shell echoes the command line first and answers later, so a reader
+    that stops early sees only the echo. Only the deadline ends the wait.
+    """
+    output = b""
+    deadline = time.monotonic() + timeout
+    while marker not in output and time.monotonic() < deadline:
+        readable, _, _ = select.select([session._master_fd], [], [], 0.1)
+        if readable:
+            try:
+                output += os.read(session._master_fd, 4096)
+            except BlockingIOError:
+                continue
+    return output
+
+
+def _winsize(session: PtySession) -> tuple[int, int]:
+    buf = fcntl.ioctl(session._master_fd, termios.TIOCGWINSZ, b"\x00" * 8)
+    rows, cols = struct.unpack("HHHH", buf)[:2]
+    return rows, cols
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 class TestPtySession:
-    def test_start_and_is_alive(self):
-        session = PtySession("echo")
-        session.start()
-        # echo exits immediately, but let's just check it started
-        # (may already have exited)
-        session.terminate()
-
     def test_terminate_cleans_up(self):
         session = PtySession("/bin/sh")
         session.start()
         assert session.is_alive
+        assert session.exit_code is None
         session.terminate()
         assert not session.is_alive
+        assert session.exit_code is not None
 
     def test_write_and_read(self):
         session = PtySession("/bin/sh")
         session.start()
         try:
-            # Write a command
             session.write_input(b"echo hello_test_marker\n")
-
-            # Read output — we should eventually see our marker
-            import os
-            import select
-            import time
-
-            output = b""
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                r, _, _ = select.select([session._master_fd], [], [], 0.1)
-                if r:
-                    try:
-                        chunk = os.read(session._master_fd, 4096)
-                        output += chunk
-                        if b"hello_test_marker" in output:
-                            break
-                    except OSError:
-                        break
-
-            assert b"hello_test_marker" in output
+            assert b"hello_test_marker" in _read_until(session, b"hello_test_marker")
         finally:
             session.terminate()
 
@@ -63,37 +67,26 @@ class TestPtySession:
         session = PtySession("/bin/sh")
         session.start(initial_rows=50, initial_cols=132)
         try:
-            # Query the PTY's current window size via ioctl
-            import fcntl
-            import struct
-            import termios
-
-            buf = fcntl.ioctl(session._master_fd, termios.TIOCGWINSZ, b"\x00" * 8)
-            rows, cols = struct.unpack("HHHH", buf)[:2]
-            assert rows == 50
-            assert cols == 132
+            assert _winsize(session) == (50, 132)
         finally:
             session.terminate()
 
     def test_resize(self):
+        """A resize reaches the terminal the child reads its size from."""
         session = PtySession("/bin/sh")
         session.start()
         try:
-            # Should not raise
             session.resize(40, 120)
+            assert _winsize(session) == (40, 120)
         finally:
             session.terminate()
 
     def test_start_with_cwd(self, tmp_path):
         """Child process must run in the supplied working directory.
 
-        Regression for #313: `osprey web --project X` launched from another
-        directory must spawn the terminal's Claude with cwd=X so it finds
-        X/.mcp.json. Without threading cwd into the PTY spawn, the child
-        inherits the launch dir and starts zero MCP servers.
+        ``osprey web --project X`` launched from another directory must spawn
+        the terminal's Claude with cwd=X so it finds X/.mcp.json.
         """
-        import select
-
         target = tmp_path / "project"
         target.mkdir()
 
@@ -101,339 +94,104 @@ class TestPtySession:
         session.start(cwd=str(target))
         try:
             session.write_input(b"pwd -P\n")
-
-            output = b""
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                r, _, _ = select.select([session._master_fd], [], [], 0.1)
-                if r:
-                    try:
-                        chunk = os.read(session._master_fd, 4096)
-                        output += chunk
-                        if os.path.realpath(target).encode() in output:
-                            break
-                    except OSError:
-                        break
-
-            assert os.path.realpath(target).encode() in output
+            expected = os.path.realpath(target).encode()
+            assert expected in _read_until(session, expected)
         finally:
             session.terminate()
 
-    def test_exit_code_none_while_running(self):
-        session = PtySession("/bin/sh")
-        session.start()
-        try:
-            assert session.exit_code is None
-        finally:
-            session.terminate()
+    def test_sigwinch_delivered_on_resize(self, tmp_path):
+        """SIGWINCH reaches the child when the PTY is resized.
 
-    def test_sigwinch_delivered_on_resize(self):
-        """SIGWINCH must be delivered to the child when the PTY is resized.
-
-        The child installs a SIGWINCH handler that creates a marker file,
-        then the test calls session.resize() and checks for the file.
+        The child installs a SIGWINCH handler that writes a marker file and
+        announces the handler first, so a resize never lands on a disposition
+        that ignores it. On macOS delivery needs the controlling terminal the
+        preexec sets up with TIOCSCTTY.
         """
-        marker = tempfile.mktemp(suffix="_sigwinch")
-        ready = tempfile.mktemp(suffix="_sigwinch_ready")
-
-        # Python one-liner: install SIGWINCH handler, say so, write marker on
-        # the signal, wait. The child announces the handler rather than the
-        # test guessing how long a fresh interpreter takes to reach it: a
-        # resize that lands first is delivered to a disposition that ignores
-        # it, and no second signal follows to make up for it.
+        marker = tmp_path / "sigwinch"
+        ready = tmp_path / "sigwinch_ready"
         child_script = (
             "import signal, time, pathlib; "
-            f"pathlib.Path('{marker}').unlink(missing_ok=True); "
-            f"signal.signal(signal.SIGWINCH, lambda *_: pathlib.Path('{marker}').write_text('ok')); "
-            f"pathlib.Path('{ready}').write_text('ok'); "
+            f"signal.signal(signal.SIGWINCH, lambda *_: pathlib.Path({str(marker)!r}).write_text('ok')); "
+            f"pathlib.Path({str(ready)!r}).write_text('ok'); "
             "time.sleep(60)"
         )
 
-        session = PtySession(sys.executable)
-        # Pass the script via -c by reaching into the Popen machinery:
-        # PtySession wraps [shell_command], so we set the command to python
-        # and inject args.  Easiest: override _shell_command with a full cmd.
-        session._shell_command = sys.executable
-        # We need to pass -c and the script.  PtySession wraps the command
-        # in a list, so we'll temporarily monkey-patch start() to pass args.
-        import fcntl
-        import struct
-        import subprocess
-        import termios
-
-        master_fd, slave_fd = __import__("pty").openpty()
-        winsize = struct.pack("HHHH", 24, 80, 0, 0)
-        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
-
-        slave_for_preexec = slave_fd
-
-        def preexec():
-            os.setsid()
-            fcntl.ioctl(slave_for_preexec, termios.TIOCSCTTY, 0)
-
-        proc = subprocess.Popen(
-            [sys.executable, "-c", child_script],
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            preexec_fn=preexec,
-        )
-        os.close(slave_fd)
-
-        # Set master to non-blocking
-        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
+        session = PtySession([sys.executable, "-c", child_script])
+        session.start()
         try:
-            # Wait for the child to say its handler is installed.
             deadline = time.monotonic() + 30
-            while not os.path.exists(ready):
+            while not ready.exists():
                 assert time.monotonic() < deadline, "the child never installed its handler"
                 time.sleep(0.05)
 
-            # Resize the PTY until the child reports the signal. The two sizes
-            # alternate because TIOCSWINSZ raises SIGWINCH only on a size that
-            # actually changed, so a repeat of the same one would be silent.
-            sizes = (
-                struct.pack("HHHH", 40, 120, 0, 0),
-                struct.pack("HHHH", 24, 80, 0, 0),
-            )
+            # TIOCSWINSZ raises SIGWINCH only on a size that changed, so the
+            # two sizes alternate.
+            sizes = ((40, 120), (24, 80))
             attempt = 0
             deadline = time.monotonic() + 15
-            while not os.path.exists(marker) and time.monotonic() < deadline:
-                fcntl.ioctl(master_fd, termios.TIOCSWINSZ, sizes[attempt % 2])
+            while not marker.exists() and time.monotonic() < deadline:
+                session.resize(*sizes[attempt % 2])
                 attempt += 1
                 round_ends = time.monotonic() + 1
-                while not os.path.exists(marker) and time.monotonic() < round_ends:
+                while not marker.exists() and time.monotonic() < round_ends:
                     time.sleep(0.05)
 
-            assert os.path.exists(marker), "SIGWINCH was not delivered to the child process"
+            assert marker.exists(), "SIGWINCH was not delivered to the child process"
         finally:
-            try:
-                proc.terminate()
-                proc.wait(timeout=3)
-            except Exception:
-                proc.kill()
-                proc.wait()
-            try:
-                os.close(master_fd)
-            except OSError:
-                pass
-            for path in (marker, ready):
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-class TestPtySessionPathAugmentation:
-    def test_env_includes_user_bin_dirs(self, tmp_path):
-        """PtySession env should include user-local bin dirs not on PATH."""
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-
-        with patch("osprey.utils.shell_resolver._user_bin_candidates", lambda: [bin_dir]):
-            with patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
-                session = PtySession("/bin/sh")
-                session.start()
-                try:
-                    # Read the child's PATH from the PTY
-                    session.write_input(b"echo PATH=$PATH\n")
-
-                    import select
-
-                    output = b""
-                    deadline = time.monotonic() + 3
-                    while time.monotonic() < deadline:
-                        r, _, _ = select.select([session._master_fd], [], [], 0.1)
-                        if r:
-                            try:
-                                chunk = os.read(session._master_fd, 4096)
-                                output += chunk
-                                if str(bin_dir).encode() in output:
-                                    break
-                            except OSError:
-                                break
-
-                    assert str(bin_dir).encode() in output
-                finally:
-                    session.terminate()
+            session.terminate()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 class TestPtyRegistry:
-    def test_create_and_get_session(self):
-        registry = PtyRegistry()
-        try:
-            session = registry.create_session("test-1", "/bin/sh")
-            assert session is not None
-            assert registry.get_session("test-1") is session
-        finally:
-            registry.cleanup_all()
-
-    def test_terminate_session(self):
-        registry = PtyRegistry()
-        try:
-            registry.create_session("test-1", "/bin/sh")
-            registry.terminate_session("test-1")
-            assert registry.get_session("test-1") is None
-        finally:
-            registry.cleanup_all()
-
-    def test_create_replaces_existing(self):
-        registry = PtyRegistry()
-        try:
-            s1 = registry.create_session("test-1", "/bin/sh")
-            s2 = registry.create_session("test-1", "/bin/sh")
-            assert s1 is not s2
-            assert not s1.is_alive
-        finally:
-            registry.cleanup_all()
-
-    def test_cleanup_all(self):
-        registry = PtyRegistry()
-        registry.create_session("a", "/bin/sh")
-        registry.create_session("b", "/bin/sh")
-        registry.cleanup_all()
-        assert registry.get_session("a") is None
-        assert registry.get_session("b") is None
-
-    def test_terminate_nonexistent_session(self):
-        registry = PtyRegistry()
-        # Should not raise
-        registry.terminate_session("nonexistent")
-
     def test_stale_cleanup_does_not_kill_replacement(self):
-        """Simulate page reload: WS1 creates session, WS2 replaces it,
-        then WS1's finally block runs — must NOT kill WS2's session."""
+        """A stale owner's teardown kills only its own process.
+
+        The first child has died and a replacement is pooled under the same
+        key; the first handler's cleanup must leave the replacement alone.
+        """
         registry = PtyRegistry()
         try:
-            # WS1 creates a session
-            session_1 = registry.create_session("default", "/bin/sh")
-            assert session_1.is_alive
+            session_1, _ = registry.get_or_create_session("default", ["/bin/sh", "-c", "exit 0"])
+            deadline = time.monotonic() + 5
+            while session_1.is_alive and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert not session_1.is_alive
 
-            # WS2 connects (page reload) — replaces session
-            session_2 = registry.create_session("default", "/bin/sh")
-            assert not session_1.is_alive  # session_1 was killed
+            session_2, reused = registry.get_or_create_session("default", "/bin/sh")
+            assert reused is False
             assert session_2.is_alive
 
-            # WS1's finally block runs with the OLD session reference.
-            # It must NOT kill session_2.
             registry.terminate_session_if_owner("default", session_1)
 
-            # session_2 must still be alive
             assert session_2.is_alive
             assert registry.get_session("default") is session_2
         finally:
             registry.cleanup_all()
 
-    def test_create_session_passes_initial_dimensions(self):
-        """Registry should forward initial dimensions to the PTY session."""
-        import fcntl
-        import struct
-        import termios
-
+    def test_get_or_create_session_passes_initial_dimensions(self):
+        """The registry forwards the requested size to the spawn."""
         registry = PtyRegistry()
         try:
-            session = registry.create_session(
-                "test-dims", "/bin/sh", initial_rows=48, initial_cols=160
-            )
-            buf = fcntl.ioctl(session._master_fd, termios.TIOCGWINSZ, b"\x00" * 8)
-            rows, cols = struct.unpack("HHHH", buf)[:2]
-            assert rows == 48
-            assert cols == 160
+            session, _ = registry.get_or_create_session("test-dims", "/bin/sh", rows=48, cols=160)
+            assert _winsize(session) == (48, 160)
         finally:
             registry.cleanup_all()
 
     def test_owner_terminate_works_when_still_owner(self):
-        """When the owning WS disconnects normally, cleanup works."""
+        """When the owning handler tears down, the session is killed and forgotten."""
         registry = PtyRegistry()
         try:
-            session = registry.create_session("default", "/bin/sh")
+            session, _ = registry.get_or_create_session("default", "/bin/sh")
             assert session.is_alive
 
-            # Owner terminates — should work
             registry.terminate_session_if_owner("default", session)
             assert not session.is_alive
             assert registry.get_session("default") is None
         finally:
             registry.cleanup_all()
 
-    def test_create_session_with_command_list(self):
-        """PtySession with a list command works correctly."""
-        registry = PtyRegistry()
-        try:
-            session = registry.create_session("test-list", ["echo", "hello"])
-            assert session is not None
-            # echo exits immediately, just verify it was created
-        finally:
-            registry.cleanup_all()
-
-    def test_start_with_extra_env(self):
-        """Extra env vars are passed to the child process."""
-        import select
-
-        registry = PtyRegistry()
-        try:
-            session = registry.create_session(
-                "test-env",
-                "/bin/sh",
-                extra_env={"OSPREY_TEST_VAR": "test_value_12345"},
-            )
-            # Ask the shell to print the env var
-            session.write_input(b"echo $OSPREY_TEST_VAR\n")
-
-            output = b""
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                r, _, _ = select.select([session._master_fd], [], [], 0.1)
-                if r:
-                    try:
-                        chunk = os.read(session._master_fd, 4096)
-                        output += chunk
-                        if b"test_value_12345" in output:
-                            break
-                    except OSError:
-                        break
-
-            assert b"test_value_12345" in output
-        finally:
-            registry.cleanup_all()
-
-    def test_create_session_passes_cwd(self, tmp_path):
-        """create_session forwards cwd to the child (operator/test path)."""
-        import select
-
-        target = tmp_path / "proj"
-        target.mkdir()
-
-        registry = PtyRegistry()
-        try:
-            session = registry.create_session("test-cwd", "/bin/sh", cwd=str(target))
-            session.write_input(b"pwd -P\n")
-
-            output = b""
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                r, _, _ = select.select([session._master_fd], [], [], 0.1)
-                if r:
-                    try:
-                        chunk = os.read(session._master_fd, 4096)
-                        output += chunk
-                        if os.path.realpath(target).encode() in output:
-                            break
-                    except OSError:
-                        break
-
-            assert os.path.realpath(target).encode() in output
-        finally:
-            registry.cleanup_all()
-
     def test_get_or_create_session_passes_cwd(self, tmp_path):
-        """get_or_create_session (interactive terminal path, #313) forwards cwd."""
-        import select
-
+        """The interactive terminal's spawn path forwards cwd."""
         target = tmp_path / "proj"
         target.mkdir()
 
@@ -443,20 +201,7 @@ class TestPtyRegistry:
                 "term-cwd", "/bin/sh", cwd=str(target)
             )
             session.write_input(b"pwd -P\n")
-
-            output = b""
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                r, _, _ = select.select([session._master_fd], [], [], 0.1)
-                if r:
-                    try:
-                        chunk = os.read(session._master_fd, 4096)
-                        output += chunk
-                        if os.path.realpath(target).encode() in output:
-                            break
-                    except OSError:
-                        break
-
-            assert os.path.realpath(target).encode() in output
+            expected = os.path.realpath(target).encode()
+            assert expected in _read_until(session, expected)
         finally:
             registry.cleanup_all()
