@@ -262,7 +262,7 @@ INVALID_NAMES = ["bad\\.md", "no-extension", ".hidden.md", "has spaces.md"]
 #: Names that carry a separator: only a POST body can deliver them.
 SEPARATOR_NAMES = ["../escape.md", "../../etc/passwd", "path/traversal.md"]
 
-VALID_NAMES = ["MEMORY.md", "debugging.md", "my-notes.md", "topic_1.md", "A.md"]
+VALID_NAMES = ["MEMORY.md", "debugging.md", "my-notes.md", "topic_1.md", "A.md", "notes..v2.md"]
 
 
 class TestFilenameValidation:

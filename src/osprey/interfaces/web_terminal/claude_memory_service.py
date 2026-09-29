@@ -152,12 +152,13 @@ class ClaudeMemoryService:
 
     @staticmethod
     def _validate_filename(filename: str) -> None:
-        """Validate that a filename is safe and ends with .md."""
+        """Validate that a filename is safe and ends with .md.
+
+        The grammar admits no path separator and no leading dot, so a name that
+        passes it cannot leave the memory directory, whatever dots it holds.
+        """
         if not filename or not _VALID_FILENAME_RE.match(filename):
             raise MemoryValidationError(
                 f"Invalid filename: '{filename}'. "
                 "Must be alphanumeric with hyphens/underscores, ending in .md"
             )
-        # Reject path traversal
-        if ".." in filename or "/" in filename or "\\" in filename:
-            raise MemoryValidationError(f"Path traversal not allowed: '{filename}'")
