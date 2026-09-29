@@ -1741,9 +1741,20 @@ class TestRestoreContainment:
     startup.
     """
 
+    PLANTED = "# PLANTED BY THE STORE\n"
+
     def _seed(self, volume_dir: Path, output_path: str) -> None:
+        """Index a claim on *output_path* and put a body where the store would read it.
+
+        The body is what makes the refusal mean something: a record with no
+        body is skipped by every restore for that reason alone. It is planted
+        only where it stays on the volume — a relative path, even a climbing
+        one, lands under the store; an absolute one is left bodiless, because
+        writing it would be the very write under test.
+        """
         store_dir = volume_dir / "osprey" / "scaffold"
-        (store_dir / "files").mkdir(parents=True, exist_ok=True)
+        files = store_dir / "files"
+        files.mkdir(parents=True, exist_ok=True)
         (store_dir / "user_owned.json").write_text(
             json.dumps(
                 {
@@ -1755,12 +1766,22 @@ class TestRestoreContainment:
             ),
             encoding="utf-8",
         )
+        if Path(output_path).is_absolute():
+            return
+        body = Path(os.path.normpath(files / output_path))
+        assert body.is_relative_to(volume_dir), body
+        body.parent.mkdir(parents=True, exist_ok=True)
+        body.write_text(self.PLANTED, encoding="utf-8")
 
     @pytest.mark.parametrize(
         "output_path",
         [
             "config.yml",
             ".env",
+            # Absent from the render and outside the ownable tree: no other
+            # rule (existing-file, reserved) is in the way, so containment alone
+            # decides it.
+            "planted-at-root.md",
             "../escaped.md",
             "/etc/passwd",
             ".claude/../../escaped.md",
@@ -1774,23 +1795,14 @@ class TestRestoreContainment:
         self, container_project, volume_dir, output_path
     ):
         self._seed(volume_dir, output_path)
+        project_files = {
+            path: path.read_bytes() for path in container_project.rglob("*") if path.is_file()
+        }
 
         assert restore_scaffold_bodies(container_project) == []
-
-    def test_a_planted_path_does_not_overwrite_config(self, container_project, volume_dir):
-        self._seed(volume_dir, "config.yml")
-        store_dir = volume_dir / "osprey" / "scaffold"
-        (store_dir / "files").mkdir(parents=True, exist_ok=True)
-        before = (container_project / "config.yml").read_text(encoding="utf-8")
-
-        restore_scaffold_bodies(container_project)
-
-        assert (container_project / "config.yml").read_text(encoding="utf-8") == before
-
-
-# ===========================================================================
-# Artifact shapes the naming rules trip over
-# ===========================================================================
+        after = {path: path.read_bytes() for path in container_project.rglob("*") if path.is_file()}
+        assert after == project_files, "a refused restore changed the project tree"
+        assert not (container_project.parent / "escaped.md").exists()
 
 
 class TestArtifactShapes:
