@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -639,6 +639,13 @@ it stripped away, and <code class="docutils literal notranslate"><span class="pr
 gives the container it runs in — is what survives the stripping. In a
 multi-user deployment both answers are the user whose terminal the kernel
 belongs to, so a cell reads that user’s own chip settings and nobody else’s.</p>
+<p>Each channel a cell writes leaves one <code class="docutils literal notranslate"><span class="pre">allowed</span></code> record in
+<code class="docutils literal notranslate"><span class="pre">notebook_kernel.jsonl</span></code>, filed after the put. Its reason says how the write
+ended: <code class="docutils literal notranslate"><span class="pre">write_landed</span></code> when the write was verified, <code class="docutils literal notranslate"><span class="pre">write_unconfirmed</span></code> when
+the value was sent but not verified. The record’s <code class="docutils literal notranslate"><span class="pre">detail</span></code> names the channel
+and the account and host the control system saw the write come from, which is
+what joins it to a gateway’s put-log. A refused write reaches no channel and
+leaves only its refusal record. See <a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a>.</p>
 <p>A cell carries no target at all in two cases: the deployment’s control-context
 record is missing or unreadable, or it names a machine this deployment cannot
 build — a target whose connector block was never rendered, or was removed
@@ -646,6 +653,39 @@ under it. Reads then answer from the deployment’s baseline target and every
 write is refused. The first case clears itself as soon as the web terminal has
 written the record; the second is a configuration gap and stays until somebody
 fixes it.</p>
+<p id="notebooks-write-channel">A cell writes through <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code>. A client library’s own put —
+<code class="docutils literal notranslate"><span class="pre">epics.caput</span></code>, <code class="docutils literal notranslate"><span class="pre">PV.put</span></code>, a caproto <code class="docutils literal notranslate"><span class="pre">PV.write</span></code>, a Tango
+<code class="docutils literal notranslate"><span class="pre">write_attribute</span></code>, an ophyd-async signal set directly — goes around the
+connector, and with it around the write posture, the limits check and the
+audit record, so the kernel refuses it whatever the chip says. It raises
+<code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code> with reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE</span></code>, nothing is
+sent, and the cell prints one line above the traceback:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Direct client-library writes are refused. Write through osprey.runtime.write_channel(address, value) instead.
+</pre></div>
+</div>
+<p>Turning writes on does not change that answer. Replace the put with the
+runtime’s call, which takes the same address and value:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Refused:</span>
+<span class="c1">#   from epics import caput</span>
+<span class="c1">#   caput(&quot;DEMO:CORR1:SP&quot;, 1.5)</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.runtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">write_channel</span><span class="p">,</span> <span class="n">write_channels</span>
+
+<span class="n">write_channel</span><span class="p">(</span><span class="s2">&quot;DEMO:CORR1:SP&quot;</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
+<span class="n">write_channels</span><span class="p">({</span><span class="s2">&quot;DEMO:CORR1:SP&quot;</span><span class="p">:</span> <span class="mf">1.5</span><span class="p">,</span> <span class="s2">&quot;DEMO:CORR2:SP&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.4</span><span class="p">})</span>
+</pre></div>
+</div>
+<p>Reads through a client library are unchanged. So are p4p’s <code class="docutils literal notranslate"><span class="pre">rpc</span></code> and Tango
+commands, which carry no channel value and stay allowed in a kernel, and the
+PVAccess puts (a p4p <code class="docutils literal notranslate"><span class="pre">Context.put</span></code>, a pvaPy <code class="docutils literal notranslate"><span class="pre">Channel.put</span></code>): the connector
+does not write PVAccess yet, so <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> has no route to a PVAccess
+channel and a raw put is how one is written. A kernel does not limits-check
+it. A
+<code class="docutils literal notranslate"><span class="pre">RunEngine</span></code> driving ophyd or ophyd-async devices inside a cell is refused
+the same way, because its devices end in a raw put; submit the plan to a
+Bluesky lane queue instead, where it runs unchanged. The refusal is filed in
+<code class="docutils literal notranslate"><span class="pre">notebook_kernel.jsonl</span></code> with reason <code class="docutils literal notranslate"><span class="pre">raw_client_write</span></code>. The full list of
+refused entry points is under <a class="reference internal" href="../../architecture/python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>.</p>
 <p>A refusal for any other reason — a write ceiling, a limits violation — carries
 no extra line, because nothing you do in the notebook would change it.</p>
 <p>A page reload keeps the kernel running, but the notebook comes back as it was

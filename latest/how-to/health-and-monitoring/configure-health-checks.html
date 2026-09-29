@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -729,6 +729,26 @@ reports the archive as <strong>stale</strong> — a <code class="docutils litera
 an honest answer: the store is reachable, it is simply not being written.</p>
 </div>
 </section>
+<section id="which-account-each-card-and-worker-writes-as">
+<h2>Which account each card and worker writes as<a class="headerlink" href="#which-account-each-card-and-worker-writes-as" title="Link to this heading">#</a></h2>
+<p>The control system records the account name a write arrives under. The built-in
+<code class="docutils literal notranslate"><span class="pre">web_terminals</span></code> category needs no configuration: it asks every web-terminal
+card and every dispatch worker which name its process runs as (<code class="docutils literal notranslate"><span class="pre">ca_user</span></code> on
+its <code class="docutils literal notranslate"><span class="pre">/health</span></code>) and compares that with the name your config intends, one row
+each.</p>
+<ul class="simple">
+<li><p>A card behind a login wall (<code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code>) should run
+as its roster <code class="docutils literal notranslate"><span class="pre">control_identity</span></code>. Every other card runs as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>.</p></li>
+<li><p>Dispatch worker <em>i</em> should run as <code class="docutils literal notranslate"><span class="pre">osprey-dispatch-&lt;i&gt;</span></code>.</p></li>
+</ul>
+<p>A row is an <code class="docutils literal notranslate"><span class="pre">error</span></code> when the name differs, or when the image is too old to
+report one while a name other than <code class="docutils literal notranslate"><span class="pre">osprey</span></code> is expected — that image ignores
+the setting, so rebuild and redeploy. It is a <code class="docutils literal notranslate"><span class="pre">warning</span></code> when the container
+started without root and so could not apply the name (<code class="docutils literal notranslate"><span class="pre">/health</span></code> then carries
+<code class="docutils literal notranslate"><span class="pre">control_identity_skipped</span></code>), or when the process does not answer. Workers on
+a bridge network publish no host port, so their rows are <code class="docutils literal notranslate"><span class="pre">skip</span></code> rows; check
+those with <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">exec</span> <span class="pre">&lt;worker&gt;</span> <span class="pre">whoami</span></code>.</p>
+</section>
 <section id="checks-that-need-real-python">
 <h2>Checks that need real Python<a class="headerlink" href="#checks-that-need-real-python" title="Link to this heading">#</a></h2>
 <p>A check that has to query a facility service or compute a derived state cannot
@@ -840,6 +860,7 @@ nothing is shared across sessions.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-a-control-system-smoke-test">Recipe: a control-system smoke test</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-host-health-from-the-facility-s-own-host-ioc">Recipe: host health from the facility’s own host IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-archive-freshness-without-declaring-a-check">Recipe: archive freshness, without declaring a check</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-account-each-card-and-worker-writes-as">Which account each card and worker writes as</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#checks-that-need-real-python">Checks that need real Python</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-web-dashboard-system-panel">The web dashboard (<code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> panel)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-agent-surface">The agent surface</a></li>

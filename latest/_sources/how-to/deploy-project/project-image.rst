@@ -443,6 +443,10 @@ that ``osprey build`` renders beside ``config.yml``, and it runs as root:
    record naming a protected path is skipped and recorded instead, under the
    surface name ``scaffold_restore``; see :ref:`the protected set
    <config-protected-set>`.
+#. **Names uid 1000**, when ``OSPREY_CONTROL_IDENTITY`` is set. The container
+   gives uid 1000 that name so that a control-system client reports it as the
+   user behind every write the container makes; see
+   :ref:`containerize-control-identity`.
 #. **Hands the state zone back** to the ``osprey`` user — only the paths root
    actually left behind — because both earlier steps wrote into ``var/`` as
    root, including the protected-write audit ledger the running server has to
@@ -472,7 +476,87 @@ Two environment variables carry the consequences:
    the entrypoint says so loudly in the log and runs the command directly. The
    agent artifacts are then whatever the image was built with. That is a valid
    way to run it; it is not the way to run it if you expect a configuration
-   change to be picked up at start.
+   change to be picked up at start. The identity step needs root as well; the
+   failure table below says what a non-root start does with an identity.
+
+.. _containerize-control-identity:
+
+The name uid 1000 writes under
+------------------------------
+
+A Channel Access or PV Access client reports the user name of the process
+doing the put, and it reads that name from the account database
+(``getpwuid``), never from ``USER`` or ``LOGNAME``. Every process in the
+container runs as uid 1000, so without an identity every write from the
+container arrives as ``osprey``.
+
+``OSPREY_CONTROL_IDENTITY`` changes that name. The render sets it on a
+personal card behind a login wall that carries a ``control_identity`` in the
+roster (see :ref:`multi-user-control-identity`), and on every dispatch worker
+as ``osprey-dispatch-<i>``. ``OSPREY_CONTROL_IDENTITY_MODULE`` names the file
+that performs the change: a small stdlib-only script the render stages beside
+the compose file and bind-mounts read-only into the container, so the step
+does not depend on the image version.
+
+The step adds a second ``/etc/passwd`` line for uid 1000, directly above the
+``osprey`` line:
+
+.. code-block:: text
+
+   alice:x:1000:1000::/home/osprey:/bin/bash
+   osprey:x:1000:1000::/home/osprey:/bin/bash
+
+The new line is a copy of the ``osprey`` line with only the name changed, so
+the home directory and shell stay the same. A lookup by uid finds the first
+line, so ``whoami``, ``ls -l`` and every control-system client report
+``alice``. A lookup by name still finds ``osprey``, so ``id osprey``,
+``gosu osprey`` and every other by-name step keep working. The identity is
+also appended to every ``/etc/group`` line that lists ``osprey``, including
+the mount groups the join step created on this boot. Both files are written
+atomically, re-read afterwards, and rewriting with the same name changes
+nothing.
+
+The name is process-wide. It covers every write route inside the container:
+the connector, the Python executor, notebook kernels, and any raw client
+library. It is attribution, not authentication; see
+:ref:`architecture-safety-chain-owner`.
+
+For a person identity the step fails closed: a card configured for that
+person that ran as ``osprey`` instead would put the wrong name on every write.
+A service identity (``osprey-*``, the dispatch workers) only labels a shared
+writer in the put-log and guards nothing, so it fails open:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 38 40
+
+   * - Start
+     - Condition
+     - What the entrypoint does
+   * - Any
+     - ``OSPREY_CONTROL_IDENTITY`` empty or unset
+     - Skips the step; the container writes as ``osprey``
+   * - Root
+     - The identity applies and the re-read confirms it
+     - Logs ``control identity: uid 1000 is '<name>'`` and continues
+   * - Root or non-root
+     - A person identity, such as ``alice``, that cannot be applied:
+       ``OSPREY_CONTROL_IDENTITY_MODULE`` unset, no Python interpreter on
+       ``PATH``, the module missing or unreadable, the rewrite exiting
+       non-zero, or a ``--user`` start
+     - Refuses to start, so a card configured for that person never writes
+       under another name
+   * - Root or non-root
+     - An ``osprey-*`` service identity that cannot be applied, for the same
+       reasons
+     - Logs a warning, exports ``OSPREY_CONTROL_IDENTITY_SKIPPED``
+       (``non-root-start`` or ``apply-failed``), and runs the command under
+       the name the uid already has. The ``/health`` endpoint reports the
+       value, and ``osprey health`` reports it as a warning
+
+A Bluesky lane renames root to its ``osprey-bluesky-*`` name in its own start
+command, with the same answer: a failed rename prints a warning and the lane
+starts as ``root``, the name its preflight records then carry.
 
 One tier gets one more file
 ---------------------------

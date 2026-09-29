@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -1082,6 +1082,79 @@ arms it. Once the deployment is running, a card whose
 nobody, its owner included, and the service logs a warning naming the
 variable until the deployment is rendered again from a corrected profile.</p>
 </section>
+<section id="name-the-account-a-card-writes-as">
+<span id="multi-user-control-identity"></span><h2>Name the account a card writes as<a class="headerlink" href="#name-the-account-a-card-writes-as" title="Link to this heading">#</a></h2>
+<p>A control-system client reports the account name of the process behind each
+write, and every card’s processes run as <code class="docutils literal notranslate"><span class="pre">osprey</span></code> unless told otherwise. On
+a card behind a login wall, <code class="docutils literal notranslate"><span class="pre">control_identity</span></code> gives that card’s writes its
+owner’s account name instead:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span>
+<span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">email</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice@example.org</span>
+<span class="w">        </span><span class="nt">control_identity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol@example.org</span>
+<span class="w">        </span><span class="nt">control_identity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cjones</span>
+</pre></div>
+</div>
+<p>The value is the account name a gateway put-log or an IOC access-security rule
+should see, usually the person’s account on the facility’s control systems. It
+applies to every write the card makes: through the connector, the Python
+executor, a notebook kernel or a raw client library. The container gives uid
+1000 that name at start; <a class="reference internal" href="../../deploy-project/project-image.html#containerize-control-identity"><span class="std std-ref">The name uid 1000 writes under</span></a> describes the
+mechanism and what happens when it cannot be applied.</p>
+<p>The key takes effect only behind a login wall (<code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">password</span></code> or
+<code class="docutils literal notranslate"><span class="pre">oidc</span></code>). Under <code class="docutils literal notranslate"><span class="pre">token</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code> the roster keeps the key but the build
+emits nothing for it, and the card writes as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>: anyone holding the URL
+can open such a card, so a person’s name on its writes would claim more than
+the deployment knows. A profile can therefore carry the roster in an open base
+and arm the wall in a host variant. Cards without the key, and every shared
+card, write as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>.</p>
+<p>The name is attribution, not authentication; the login wall is what
+authenticates the person. See <a class="reference internal" href="../../../architecture/safety-chain.html#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a> for what
+the name does and does not establish, and <a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a> for
+how the audit ledger joins a write to the put-log.</p>
+<p>These rosters are refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> in every
+auth method, and by the build itself even with <code class="docutils literal notranslate"><span class="pre">--no-lint</span></code>:</p>
+<ul class="simple">
+<li><p><strong>The value must be a usable account name</strong>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.invalid_user_control_identity</span></code>). It must be a string of
+lowercase letters, digits, <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">-</span></code>, starting with a letter or <code class="docutils literal notranslate"><span class="pre">_</span></code>,
+at most 32 characters. <code class="docutils literal notranslate"><span class="pre">root</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and every <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> name are
+reserved for the framework, and the accounts the base image already ships
+(<code class="docutils literal notranslate"><span class="pre">daemon</span></code>, <code class="docutils literal notranslate"><span class="pre">nobody</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">backup</span></code> and the rest) are refused too.</p></li>
+<li><p><strong>A shared card cannot carry one</strong> (<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_control_identity</span></code>).
+Everyone who opens a shared card writes through it, so a fixed name would
+credit every opener’s writes to one person.</p></li>
+<li><p><strong>Two people cannot share one</strong> (<code class="docutils literal notranslate"><span class="pre">web_terminals.duplicate_control_identity</span></code>).
+Two entries with the same value whose <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> values name different
+people would make their writes indistinguishable. Under
+<code class="docutils literal notranslate"><span class="pre">claim:</span> <span class="pre">email</span></code> subjects that differ only in case count as the same person.</p></li>
+</ul>
+<p>Lint also warns, without refusing the build:</p>
+<ul class="simple">
+<li><p><strong>A value that points at someone else</strong>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.control_identity_collision</span></code>): a value equal to another
+entry’s roster name or to the mailbox part of another entry’s
+<code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>, or one value on several entries where the roster cannot
+show that one person holds them.</p></li>
+<li><p><strong>A live writer without a name</strong>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.live_writer_without_control_identity</span></code>): an owner-only card
+behind a login wall with no <code class="docutils literal notranslate"><span class="pre">control_identity</span></code>, whose persona arms writes
+on a live control-system target. Its writes would arrive as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>.
+Cards writing only to a mock or simulated target never trigger it, and
+neither do cards without a login wall.</p></li>
+</ul>
+</section>
 <section id="serve-it-over-https">
 <span id="multi-user-https"></span><h2>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h2>
 <p>A login page hands out session cookies, so <code class="docutils literal notranslate"><span class="pre">password</span></code> and <code class="docutils literal notranslate"><span class="pre">oidc</span></code> refuse to
@@ -1246,6 +1319,7 @@ read <a class="reference internal" href="#multi-user-open-mode"><span class="std
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-method">Choose a method</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#let-single-sign-on-pick-the-tier">Let single sign-on pick the tier</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#share-a-card-with-more-than-one-person">Share a card with more than one person</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#name-the-account-a-card-writes-as">Name the account a card writes as</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-it-over-https">Serve it over HTTPS</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passwords-and-where-they-live">Passwords, and where they live</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-someone-and-turning-it-off">Removing someone, and turning it off</a></li>

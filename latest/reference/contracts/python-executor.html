@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -502,8 +502,10 @@ takes <code class="docutils literal notranslate"><span class="pre">file_path</sp
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">execution_mode</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;readonly&quot;</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">&quot;readonly&quot;</span></code> blocks detected write patterns; <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code> allows
-them.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;readonly&quot;</span></code> blocks detected write patterns. <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code> may write,
+through <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel()</span></code> only; a raw client put is
+refused (see
+<a class="reference internal" href="../../architecture/python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">save_output</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">True</span></code></p></td>

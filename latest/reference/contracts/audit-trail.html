@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -641,7 +641,10 @@ the same way the refusal message names it; on the web surfaces, the
 login the request came from — see <a class="reference internal" href="#audit-trail-identity-keys"><span class="std std-ref">The login behind the record</span></a>.
 An MCP server’s own record adds <code class="docutils literal notranslate"><span class="pre">approval=approved</span> <span class="pre">approver=&lt;who&gt;</span></code>
 when an approval prompt let the call through, and a control-target
-switch adds <code class="docutils literal notranslate"><span class="pre">from_target=</span></code> and <code class="docutils literal notranslate"><span class="pre">to_target=</span></code></p></td>
+switch adds <code class="docutils literal notranslate"><span class="pre">from_target=</span></code> and <code class="docutils literal notranslate"><span class="pre">to_target=</span></code>. A control-system write
+adds the account and host the control system sees it from, and the
+person behind a dispatched run or a queued plan; see
+<a class="reference internal" href="#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a></p></td>
 </tr>
 </tbody>
 </table>
@@ -716,6 +719,122 @@ did before this release. Where the mapped subject is not the roster name — an
 opaque <code class="docutils literal notranslate"><span class="pre">sub</span></code> or an email, the usual case — it never matches, so
 <code class="docutils literal notranslate"><span class="pre">expected_account=</span></code> and a warning ride every audited request. Building against
 this release’s image is what clears it.</p>
+</section>
+<section id="who-the-control-system-saw">
+<span id="audit-trail-attribution"></span><h3>Who the control system saw<a class="headerlink" href="#who-the-control-system-saw" title="Link to this heading">#</a></h3>
+<p>A Channel Access or PV Access server, and a gateway’s put-log, record the
+account name of the process that made each write. That name is the card’s
+<code class="docutils literal notranslate"><span class="pre">control_identity</span></code> on a personal card behind a login wall
+(<a class="reference internal" href="../../how-to/web-terminal/multi-user/login.html#multi-user-control-identity"><span class="std std-ref">Name the account a card writes as</span></a>), a fixed <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> service name on a
+shared writer, and <code class="docutils literal notranslate"><span class="pre">osprey</span></code> everywhere else. The audit ledger records the
+same name beside the person, so a put-log line can be joined back to who asked
+for the write.</p>
+<p>The names are read in the process that writes, never from an environment
+variable, and travel as keys in <code class="docutils literal notranslate"><span class="pre">detail</span></code> on a plain record and as noted
+<code class="docutils literal notranslate"><span class="pre">facts</span></code> on a <a class="reference internal" href="#audit-trail-tool-call"><span class="std std-ref">full tool-call record</span></a>.
+<code class="docutils literal notranslate"><span class="pre">ca_user</span></code>, <code class="docutils literal notranslate"><span class="pre">ca_host</span></code> and <code class="docutils literal notranslate"><span class="pre">owner</span></code> are also copied into the default
+record’s <code class="docutils literal notranslate"><span class="pre">detail</span></code>, so they are there with <code class="docutils literal notranslate"><span class="pre">audit.tool_call</span></code> off:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>What it holds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ca_user=</span></code></p></td>
+<td><p>The account name the control system sees the write arrive under</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ca_host=</span></code></p></td>
+<td><p>The host name of the writing container</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">owner=</span></code></p></td>
+<td><p>The person a shared writer acted for: the owner of a dispatched run,
+or of a queued Bluesky plan. Written only when there is a person to
+name</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel=</span></code></p></td>
+<td><p>The channel a notebook kernel wrote or was refused</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channels</span></code></p></td>
+<td><p>The channels a Python executor run attempted to write, in the order
+first attempted. A fact on the tool-call record only, because it can be
+long</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Each write route leaves a different record, and joins the put-log by a
+different key:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 20.0%" />
+<col style="width: 40.0%" />
+<col style="width: 22.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Route</p></th>
+<th class="head"><p>Name on the wire</p></th>
+<th class="head"><p>Ledger record naming the person</p></th>
+<th class="head"><p>Join key to the put-log</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_write</span></code></p></td>
+<td><p>The card’s identity</p></td>
+<td><p>The call’s own record, with <code class="docutils literal notranslate"><span class="pre">ca_user</span></code> and <code class="docutils literal notranslate"><span class="pre">ca_host</span></code></p></td>
+<td><p>Account, channel, time</p></td>
+</tr>
+<tr class="row-odd"><td><p>Notebook kernel write</p></td>
+<td><p>The card’s identity</p></td>
+<td><p>One <code class="docutils literal notranslate"><span class="pre">allowed</span></code> record per channel in <code class="docutils literal notranslate"><span class="pre">notebook_kernel.jsonl</span></code>,
+filed after the put: reason <code class="docutils literal notranslate"><span class="pre">write_landed</span></code> when the write was
+verified, <code class="docutils literal notranslate"><span class="pre">write_unconfirmed</span></code> when the value was sent but not
+verified. <code class="docutils literal notranslate"><span class="pre">detail</span></code> carries <code class="docutils literal notranslate"><span class="pre">channel=</span></code>, <code class="docutils literal notranslate"><span class="pre">ca_user=</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ca_host=</span></code></p></td>
+<td><p>Account, channel, time</p></td>
+</tr>
+<tr class="row-even"><td><p>Refused notebook kernel write</p></td>
+<td><p>None; nothing reached the wire</p></td>
+<td><p>The kernel’s refusal record, with <code class="docutils literal notranslate"><span class="pre">channel=</span></code> and <code class="docutils literal notranslate"><span class="pre">ca_user=</span></code></p></td>
+<td><p>None</p></td>
+</tr>
+<tr class="row-odd"><td><p>Python executor write</p></td>
+<td><p>The card’s identity</p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">python_execute</span></code> record, with <code class="docutils literal notranslate"><span class="pre">ca_user</span></code> and <code class="docutils literal notranslate"><span class="pre">ca_host</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">channels</span></code> on the tool-call record. A run killed mid-way lists what it
+attempted before it stopped</p></td>
+<td><p>Account, time window, channel when listed</p></td>
+</tr>
+<tr class="row-even"><td><p>Dispatched run</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey-dispatch-&lt;i&gt;</span></code></p></td>
+<td><p>The worker’s tool-call records, with <code class="docutils literal notranslate"><span class="pre">owner</span></code> naming the person the
+run belongs to</p></td>
+<td><p>Worker name, channel, time</p></td>
+</tr>
+<tr class="row-odd"><td><p>Bluesky plan on a lane OSPREY renders</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey-bluesky</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey-bluesky-&lt;lane&gt;</span></code></p></td>
+<td><p>The lane’s pre-flight record in <code class="docutils literal notranslate"><span class="pre">preflight.jsonl</span></code>. <code class="docutils literal notranslate"><span class="pre">detail</span></code>
+carries <code class="docutils literal notranslate"><span class="pre">lane=</span></code>, <code class="docutils literal notranslate"><span class="pre">target=</span></code>, <code class="docutils literal notranslate"><span class="pre">owner=</span></code> when the plan was queued for
+a person, and the planned channels: their count (<code class="docutils literal notranslate"><span class="pre">addresses=</span></code>), a
+digest of the full sorted set (<code class="docutils literal notranslate"><span class="pre">digest=</span></code>), as many names as fit
+(<code class="docutils literal notranslate"><span class="pre">channels=</span></code>), and <code class="docutils literal notranslate"><span class="pre">truncated=</span></code> saying whether any were left out</p></td>
+<td><p>Lane name, time window, channel in the plan</p></td>
+</tr>
+<tr class="row-even"><td><p>Bluesky plan on an external-worker lane</p></td>
+<td><p>The facility worker’s account</p></td>
+<td><p>None in OSPREY; the facility’s RE Manager writes under its own account</p></td>
+<td><p>None</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The name is attribution, not authentication: see
+<a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a>.</p>
 </section>
 <section id="why-a-login-was-refused">
 <span id="audit-trail-login-refusals"></span><h3>Why a login was refused<a class="headerlink" href="#why-a-login-was-refused" title="Link to this heading">#</a></h3>
@@ -823,7 +942,8 @@ approval prompt let the call through, else <code class="docutils literal notrans
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facts</span></code></p></td>
 <td><p>What the tool noted while it ran — for a control-system write, the
-limits verdict and each channel’s value before the write</p></td>
+limits verdict, each channel’s value before the write, and the
+attribution facts in <a class="reference internal" href="#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">duration_ms</span></code></p></td>
 <td><p>How long the call took, in milliseconds</p></td>
@@ -994,6 +1114,7 @@ be the file that grows.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#files-by-surface">Files, by surface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-record">The record</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-login-behind-the-record">The login behind the record</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-the-control-system-saw">Who the control system saw</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-a-login-was-refused">Why a login was refused</a></li>
 </ul>
 </li>

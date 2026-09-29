@@ -143,6 +143,14 @@ gives the container it runs in --- is what survives the stripping. In a
 multi-user deployment both answers are the user whose terminal the kernel
 belongs to, so a cell reads that user's own chip settings and nobody else's.
 
+Each channel a cell writes leaves one ``allowed`` record in
+``notebook_kernel.jsonl``, filed after the put. Its reason says how the write
+ended: ``write_landed`` when the write was verified, ``write_unconfirmed`` when
+the value was sent but not verified. The record's ``detail`` names the channel
+and the account and host the control system saw the write come from, which is
+what joins it to a gateway's put-log. A refused write reaches no channel and
+leaves only its refusal record. See :ref:`audit-trail-attribution`.
+
 A cell carries no target at all in two cases: the deployment's control-context
 record is missing or unreadable, or it names a machine this deployment cannot
 build --- a target whose connector block was never rendered, or was removed
@@ -150,6 +158,46 @@ under it. Reads then answer from the deployment's baseline target and every
 write is refused. The first case clears itself as soon as the web terminal has
 written the record; the second is a configuration gap and stays until somebody
 fixes it.
+
+.. _notebooks-write-channel:
+
+A cell writes through ``osprey.runtime``. A client library's own put ---
+``epics.caput``, ``PV.put``, a caproto ``PV.write``, a Tango
+``write_attribute``, an ophyd-async signal set directly --- goes around the
+connector, and with it around the write posture, the limits check and the
+audit record, so the kernel refuses it whatever the chip says. It raises
+``ChannelWriteBlockedError`` with reason ``RAW_CLIENT_WRITE``, nothing is
+sent, and the cell prints one line above the traceback:
+
+.. code-block:: text
+
+   Direct client-library writes are refused. Write through osprey.runtime.write_channel(address, value) instead.
+
+Turning writes on does not change that answer. Replace the put with the
+runtime's call, which takes the same address and value:
+
+.. code-block:: python
+
+   # Refused:
+   #   from epics import caput
+   #   caput("DEMO:CORR1:SP", 1.5)
+
+   from osprey.runtime import write_channel, write_channels
+
+   write_channel("DEMO:CORR1:SP", 1.5)
+   write_channels({"DEMO:CORR1:SP": 1.5, "DEMO:CORR2:SP": -0.4})
+
+Reads through a client library are unchanged. So are p4p's ``rpc`` and Tango
+commands, which carry no channel value and stay allowed in a kernel, and the
+PVAccess puts (a p4p ``Context.put``, a pvaPy ``Channel.put``): the connector
+does not write PVAccess yet, so ``write_channel`` has no route to a PVAccess
+channel and a raw put is how one is written. A kernel does not limits-check
+it. A
+``RunEngine`` driving ophyd or ophyd-async devices inside a cell is refused
+the same way, because its devices end in a raw put; submit the plan to a
+Bluesky lane queue instead, where it runs unchanged. The refusal is filed in
+``notebook_kernel.jsonl`` with reason ``raw_client_write``. The full list of
+refused entry points is under :ref:`python-executor-armed-block`.
 
 A refusal for any other reason — a write ceiling, a limits violation — carries
 no extra line, because nothing you do in the notebook would change it.

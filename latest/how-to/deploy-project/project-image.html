@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -944,6 +944,10 @@ source, whatever its permissions look like — so this step really does put
 your claimed bodies back into a render nothing else can write. A store
 record naming a protected path is skipped and recorded instead, under the
 surface name <code class="docutils literal notranslate"><span class="pre">scaffold_restore</span></code>; see <a class="reference internal" href="../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>.</p></li>
+<li><p><strong>Names uid 1000</strong>, when <code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY</span></code> is set. The container
+gives uid 1000 that name so that a control-system client reports it as the
+user behind every write the container makes; see
+<a class="reference internal" href="#containerize-control-identity"><span class="std std-ref">The name uid 1000 writes under</span></a>.</p></li>
 <li><p><strong>Hands the state zone back</strong> to the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user — only the paths root
 actually left behind — because both earlier steps wrote into <code class="docutils literal notranslate"><span class="pre">var/</span></code> as
 root, including the protected-write audit ledger the running server has to
@@ -972,8 +976,90 @@ process, and <code class="docutils literal notranslate"><span class="pre">gosu</
 the entrypoint says so loudly in the log and runs the command directly. The
 agent artifacts are then whatever the image was built with. That is a valid
 way to run it; it is not the way to run it if you expect a configuration
-change to be picked up at start.</p>
+change to be picked up at start. The identity step needs root as well; the
+failure table below says what a non-root start does with an identity.</p>
 </div>
+</section>
+<section id="the-name-uid-1000-writes-under">
+<span id="containerize-control-identity"></span><h3>The name uid 1000 writes under<a class="headerlink" href="#the-name-uid-1000-writes-under" title="Link to this heading">#</a></h3>
+<p>A Channel Access or PV Access client reports the user name of the process
+doing the put, and it reads that name from the account database
+(<code class="docutils literal notranslate"><span class="pre">getpwuid</span></code>), never from <code class="docutils literal notranslate"><span class="pre">USER</span></code> or <code class="docutils literal notranslate"><span class="pre">LOGNAME</span></code>. Every process in the
+container runs as uid 1000, so without an identity every write from the
+container arrives as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY</span></code> changes that name. The render sets it on a
+personal card behind a login wall that carries a <code class="docutils literal notranslate"><span class="pre">control_identity</span></code> in the
+roster (see <a class="reference internal" href="../web-terminal/multi-user/login.html#multi-user-control-identity"><span class="std std-ref">Name the account a card writes as</span></a>), and on every dispatch worker
+as <code class="docutils literal notranslate"><span class="pre">osprey-dispatch-&lt;i&gt;</span></code>. <code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY_MODULE</span></code> names the file
+that performs the change: a small stdlib-only script the render stages beside
+the compose file and bind-mounts read-only into the container, so the step
+does not depend on the image version.</p>
+<p>The step adds a second <code class="docutils literal notranslate"><span class="pre">/etc/passwd</span></code> line for uid 1000, directly above the
+<code class="docutils literal notranslate"><span class="pre">osprey</span></code> line:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>alice:x:1000:1000::/home/osprey:/bin/bash
+osprey:x:1000:1000::/home/osprey:/bin/bash
+</pre></div>
+</div>
+<p>The new line is a copy of the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> line with only the name changed, so
+the home directory and shell stay the same. A lookup by uid finds the first
+line, so <code class="docutils literal notranslate"><span class="pre">whoami</span></code>, <code class="docutils literal notranslate"><span class="pre">ls</span> <span class="pre">-l</span></code> and every control-system client report
+<code class="docutils literal notranslate"><span class="pre">alice</span></code>. A lookup by name still finds <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, so <code class="docutils literal notranslate"><span class="pre">id</span> <span class="pre">osprey</span></code>,
+<code class="docutils literal notranslate"><span class="pre">gosu</span> <span class="pre">osprey</span></code> and every other by-name step keep working. The identity is
+also appended to every <code class="docutils literal notranslate"><span class="pre">/etc/group</span></code> line that lists <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, including
+the mount groups the join step created on this boot. Both files are written
+atomically, re-read afterwards, and rewriting with the same name changes
+nothing.</p>
+<p>The name is process-wide. It covers every write route inside the container:
+the connector, the Python executor, notebook kernels, and any raw client
+library. It is attribution, not authentication; see
+<a class="reference internal" href="../../architecture/safety-chain.html#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a>.</p>
+<p>For a person identity the step fails closed: a card configured for that
+person that ran as <code class="docutils literal notranslate"><span class="pre">osprey</span></code> instead would put the wrong name on every write.
+A service identity (<code class="docutils literal notranslate"><span class="pre">osprey-*</span></code>, the dispatch workers) only labels a shared
+writer in the put-log and guards nothing, so it fails open:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 38.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Start</p></th>
+<th class="head"><p>Condition</p></th>
+<th class="head"><p>What the entrypoint does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Any</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY</span></code> empty or unset</p></td>
+<td><p>Skips the step; the container writes as <code class="docutils literal notranslate"><span class="pre">osprey</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Root</p></td>
+<td><p>The identity applies and the re-read confirms it</p></td>
+<td><p>Logs <code class="docutils literal notranslate"><span class="pre">control</span> <span class="pre">identity:</span> <span class="pre">uid</span> <span class="pre">1000</span> <span class="pre">is</span> <span class="pre">'&lt;name&gt;'</span></code> and continues</p></td>
+</tr>
+<tr class="row-even"><td><p>Root or non-root</p></td>
+<td><p>A person identity, such as <code class="docutils literal notranslate"><span class="pre">alice</span></code>, that cannot be applied:
+<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY_MODULE</span></code> unset, no Python interpreter on
+<code class="docutils literal notranslate"><span class="pre">PATH</span></code>, the module missing or unreadable, the rewrite exiting
+non-zero, or a <code class="docutils literal notranslate"><span class="pre">--user</span></code> start</p></td>
+<td><p>Refuses to start, so a card configured for that person never writes
+under another name</p></td>
+</tr>
+<tr class="row-odd"><td><p>Root or non-root</p></td>
+<td><p>An <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> service identity that cannot be applied, for the same
+reasons</p></td>
+<td><p>Logs a warning, exports <code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_IDENTITY_SKIPPED</span></code>
+(<code class="docutils literal notranslate"><span class="pre">non-root-start</span></code> or <code class="docutils literal notranslate"><span class="pre">apply-failed</span></code>), and runs the command under
+the name the uid already has. The <code class="docutils literal notranslate"><span class="pre">/health</span></code> endpoint reports the
+value, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports it as a warning</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A Bluesky lane renames root to its <code class="docutils literal notranslate"><span class="pre">osprey-bluesky-*</span></code> name in its own start
+command, with the same answer: a failed rename prints a warning and the lane
+starts as <code class="docutils literal notranslate"><span class="pre">root</span></code>, the name its preflight records then carry.</p>
 </section>
 <section id="one-tier-gets-one-more-file">
 <h3>One tier gets one more file<a class="headerlink" href="#one-tier-gets-one-more-file" title="Link to this heading">#</a></h3>
@@ -1223,6 +1309,7 @@ the complement to the project image on this page.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#path-relocation">Path Relocation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-privilege-split">The Privilege Split</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-entrypoint-does">What the entrypoint does</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-name-uid-1000-writes-under">The name uid 1000 writes under</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-tier-gets-one-more-file">One tier gets one more file</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#on-a-bare-host-it-is-ownership-you-set-up">On a bare host it is ownership you set up</a></li>
 </ul>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -472,7 +472,8 @@ has to behave the same way at its edges, because the agent, the plans and the
 safety layers on top of it are written against that behaviour rather than against any
 one control system. This page states those contracts: how large array values are
 returned, how a write reports whether it actually took effect and which gates it
-must pass first, and what an archiver’s historical data has to look like. For the
+must pass first, where a connector makes its client put, and what an archiver’s
+historical data has to look like. For the
 day-to-day task of picking and configuring a connector, see
 <a class="reference internal" href="../../how-to/control-systems/use-connectors.html"><span class="doc">Use Connectors</span></a>.</p>
 <section id="reading-large-values">
@@ -660,6 +661,46 @@ is a separate, complementary layer from the <strong>per-intent human authorizati
 at the tool boundary (the approval hook, the launch token for plans), which
 gates the <em>intent</em> once rather than every put. The approval layer cannot
 substitute for the connector’s mechanical refusal.</p>
+</section>
+<section id="the-write-door">
+<span id="connector-write-door"></span><h3>The write door<a class="headerlink" href="#the-write-door" title="Link to this heading">#</a></h3>
+<p>In a readwrite executor run and in a notebook kernel, a client library’s put
+entry points refuse a put that no connector is making
+(<a class="reference internal" href="../../architecture/python-executor.html#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>). A connector marks its own put by
+holding the <strong>write door</strong> open around it. The base class does that for every
+connector: it wraps <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> and <code class="docutils literal notranslate"><span class="pre">write_multiple_channels</span></code> — the
+latter is what <code class="docutils literal notranslate"><span class="pre">write_channels</span></code> reaches — and, after the write-posture
+check has passed, opens the door around the original method. A write refused
+by the posture check never opens it.</p>
+<p>The door is a context variable
+(<code class="docutils literal notranslate"><span class="pre">osprey_connectors.control_system.write_door</span></code>), so it reaches only code
+that shares the context that opened it. That makes one rule for a connector’s
+implementation:</p>
+<ul class="simple">
+<li><p><strong>Make the client put in the calling context, or inside</strong>
+<code class="docutils literal notranslate"><span class="pre">asyncio.to_thread</span></code>. <code class="docutils literal notranslate"><span class="pre">asyncio.to_thread</span></code> copies the context into its
+worker thread, and a task created while the door is open inherits it too.</p></li>
+<li><p><strong>Not behind</strong> <code class="docutils literal notranslate"><span class="pre">loop.run_in_executor</span></code>, a raw executor <code class="docutils literal notranslate"><span class="pre">submit</span></code> or a bare
+<code class="docutils literal notranslate"><span class="pre">threading.Thread</span></code>. Each starts from a fresh context, sees the door
+closed, and the put is refused with reason <code class="docutils literal notranslate"><span class="pre">RAW_CLIENT_WRITE</span></code>.</p></li>
+</ul>
+<p>A put made from a client-library callback thread the library started itself
+— pyepics’ preemptive callbacks, for one — carries no door either, and is
+refused the same way.</p>
+<p>The door records who is making a put; it does not decide whether the put is
+allowed. The connector’s own gates below do that. Two paths hold the door
+open for code that is not a shipped connector’s own put, and are accepted as
+<strong>cooperative bypasses</strong>:</p>
+<ul class="simple">
+<li><p>pyepics with <code class="docutils literal notranslate"><span class="pre">PREEMPTIVE_CALLBACK=False</span></code> runs callbacks while a thread
+polls, including the poll inside a connector’s waiting put, so a put made
+from such a callback runs inside the open door.</p></li>
+<li><p>A connector subclass written by the user is wrapped like a shipped one, so
+its <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> puts inside the open door.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code> imports nothing from <code class="docutils literal notranslate"><span class="pre">osprey</span></code> for this. The door
+module is standard-library only, because the guard that reads it runs in
+executor subprocesses and kernels where <code class="docutils literal notranslate"><span class="pre">osprey</span></code> may not be importable.</p>
 </section>
 <section id="limits-checking">
 <span id="limits-checking-config"></span><h3>Limits Checking<a class="headerlink" href="#limits-checking" title="Link to this heading">#</a></h3>
@@ -874,6 +915,7 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-write-door">The write door</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
 </ul>
 </li>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 28, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 29, 2026"/>
   </head>
   
   
@@ -759,6 +759,11 @@ fired refuses its first write, with the refusal you would have seen in the
 terminal. The name comes from the session the call left, never from a tool
 argument or a header the agent can set, so there is no way to fire on someone
 else’s behalf.</p>
+<p>The control system sees the job’s writes under the worker’s own service name,
+<code class="docutils literal notranslate"><span class="pre">osprey-dispatch-&lt;i&gt;</span></code> for worker <em>i</em>, not under yours: one worker runs jobs
+for everyone. Your name goes into the audit ledger instead, as <code class="docutils literal notranslate"><span class="pre">owner=</span></code> on
+the job’s write records beside the worker name, which is how a line in the
+gateway’s put-log is joined back to you. See <a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a>.</p>
 <p>A job that cron or an inbound webhook started carries no name, and neither does
 one whose account name the dispatcher cannot read — a name that is not a plain
 account spelling is refused, and the only trace is a warning in the dispatcher’s
