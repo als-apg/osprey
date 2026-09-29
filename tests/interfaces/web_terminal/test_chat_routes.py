@@ -37,14 +37,14 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.chat import _strip_for_chat
-from tests.interfaces.web_terminal.test_operator_session import (
+from tests.interfaces.web_terminal._fakes import (
     FakeAssistantMessage,
     FakeResultMessage,
-    FakeSystemMessage,
     FakeTextBlock,
     FakeThinkingBlock,
     FakeToolResultBlock,
     FakeToolUseBlock,
+    sdk_seam,
 )
 
 
@@ -670,12 +670,10 @@ class TestRouteRegistration:
 # tests run a REAL ``OperatorRegistry`` + ``OperatorSession`` and patch only the
 # SDK seam inside ``operator_session``: ``ClaudeSDKClient`` becomes a
 # controllable ``_ScriptedSdkClient`` and the SDK message/block types become the
-# ``Fake*`` doubles reused from ``test_operator_session`` so ``_message_to_events``
+# shared ``Fake*`` doubles from ``_fakes`` so ``_message_to_events``
 # converts our fakes. That makes session reuse, the one-creation double-submit,
 # the awaited interrupt, and guard release provable *at the fake seam* — the
 # same fake client instance is observed receiving both prompts, etc.
-
-_OS = "osprey.interfaces.web_terminal.operator_session."
 
 
 class _ScriptedSdkClient:
@@ -811,24 +809,10 @@ def _seam(responder, *, aenter_delay: float = 0.0):
 
     factory.created = created  # type: ignore[attr-defined]
 
-    with contextlib.ExitStack() as stack:
-        stack.enter_context(patch.object(chat_module, "CLAUDE_SDK_AVAILABLE", True))
-        stack.enter_context(patch(_OS + "CLAUDE_SDK_AVAILABLE", True))
-        stack.enter_context(patch(_OS + "ClaudeSDKClient", factory))
-        stack.enter_context(patch(_OS + "AssistantMessage", FakeAssistantMessage))
-        stack.enter_context(patch(_OS + "ResultMessage", FakeResultMessage))
-        stack.enter_context(patch(_OS + "SystemMessage", FakeSystemMessage))
-        stack.enter_context(patch(_OS + "TextBlock", FakeTextBlock))
-        stack.enter_context(patch(_OS + "ThinkingBlock", FakeThinkingBlock))
-        stack.enter_context(patch(_OS + "ToolUseBlock", FakeToolUseBlock))
-        stack.enter_context(patch(_OS + "ToolResultBlock", FakeToolResultBlock))
-        stack.enter_context(patch(_OS + "validate_project_directory", lambda cwd: []))
-        stack.enter_context(
-            patch(
-                _OS + "build_system_prompt", lambda tz: {"type": "preset", "preset": "claude_code"}
-            )
-        )
-        stack.enter_context(patch(_OS + "get_facility_timezone", lambda: None))
+    with (
+        patch.object(chat_module, "CLAUDE_SDK_AVAILABLE", True),
+        sdk_seam(factory),
+    ):
         yield factory
 
 
