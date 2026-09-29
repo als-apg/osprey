@@ -552,6 +552,9 @@ class OperatorSession:
             # the agent which UI the operator is looking at (the PTY terminal
             # sets "expert" — see routes/websocket.py's _build_extra_env).
             session_env["OSPREY_WEB_UX"] = "simple"
+        # The SDK merges its env over the process environment, so an empty
+        # overlay is its spelling of "inherit"; it refuses None.
+        sdk_env: dict[str, str] = session_env if session_env is not None else {}
 
         # The identity half is spelled out twice rather than assembled, because
         # the two shapes are mutually exclusive and the SDK's options are a
@@ -561,7 +564,7 @@ class OperatorSession:
             options = ClaudeAgentOptions(
                 system_prompt=build_system_prompt(get_facility_timezone()),
                 cwd=self._cwd,
-                env=session_env,
+                env=sdk_env,
                 setting_sources=["project"],
                 resume=resume_id,
             )
@@ -579,7 +582,7 @@ class OperatorSession:
             options = ClaudeAgentOptions(
                 system_prompt=build_system_prompt(get_facility_timezone()),
                 cwd=self._cwd,
-                env=session_env,
+                env=sdk_env,
                 setting_sources=["project"],
                 session_id=(self._session_key if is_posture_key(self._session_key) else None),
             )
@@ -593,13 +596,14 @@ class OperatorSession:
         if self._client is None:
             raise RuntimeError("Session not started")
 
-        await self._client.query(prompt)
-        self._response_task = asyncio.create_task(self._stream_response())
+        client = self._client
+        await client.query(prompt)
+        self._response_task = asyncio.create_task(self._stream_response(client))
 
-    async def _stream_response(self) -> None:
-        """Iterate ``receive_response()`` and push events to the queue."""
+    async def _stream_response(self, client: ClaudeSDKClient) -> None:
+        """Iterate ``client.receive_response()`` and push events to the queue."""
         try:
-            async for message in self._client.receive_response():
+            async for message in client.receive_response():
                 for event in _message_to_events(message):
                     await self._queue.put(event)
         except (ClaudeSDKError, CLIConnectionError) as exc:
