@@ -18,7 +18,7 @@ for type checking or CLI argument parsing) still succeed.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Collection, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -121,7 +121,7 @@ async def stream_query(
     await_mcp_servers: Collection[str] | None = None,
     require_mcp_servers: Collection[str] = (),
     on_mcp_status: Callable[[list[dict[str, Any]]], None] | None = None,
-) -> AsyncIterator[AgentEvent]:
+) -> AsyncGenerator[AgentEvent, None]:
     """Run one prompt and yield the run's event records as they arrive.
 
     The agent options are built by ``build_agent_options`` from the keywords of
@@ -272,15 +272,20 @@ async def run_query(
         workflow.mcp_servers = servers
 
     try:
-        async for message in _query_messages(
-            options,
-            project_dir,
-            prompt,
-            await_mcp_servers=await_mcp_servers,
-            require_mcp_servers=(),
-            on_mcp_status=_keep_snapshot,
-        ):
-            _absorb_message(message, workflow, pending_tools)
+        # aclosing: an error in the loop body must unwind the client and its CLI
+        # child before it propagates, not at finalization.
+        async with contextlib.aclosing(
+            _query_messages(
+                options,
+                project_dir,
+                prompt,
+                await_mcp_servers=await_mcp_servers,
+                require_mcp_servers=(),
+                on_mcp_status=_keep_snapshot,
+            )
+        ) as messages:
+            async for message in messages:
+                _absorb_message(message, workflow, pending_tools)
     except Exception as exc:
         raise RuntimeError(f"SDK query failed: {exc}") from exc
 

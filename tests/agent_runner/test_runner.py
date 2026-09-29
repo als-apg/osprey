@@ -318,6 +318,33 @@ async def test_run_query_wraps_sdk_exception(project_dir: Path) -> None:
             await run_query(project_dir, "query", disallowed_tools=[])
 
 
+@pytest.mark.asyncio
+async def test_run_query_closes_the_stream_when_its_loop_body_raises(project_dir: Path) -> None:
+    closed: list[bool] = []
+
+    async def _stream(*_args, **_kwargs):
+        try:
+            yield AssistantMessage(content=[TextBlock(text=FAKE_TEXT)], model="m")
+        finally:
+            closed.append(True)
+
+    with (
+        _routing_patches(),
+        patch("osprey.agent_runner.runner._query_messages", new=_stream),
+        patch(
+            "osprey.agent_runner.runner._absorb_message",
+            side_effect=ValueError("bad message"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="SDK query failed: bad message"):
+            try:
+                await run_query(project_dir, "query", disallowed_tools=[])
+            finally:
+                closed_when_raised = list(closed)
+
+    assert closed_when_raised == [True]
+
+
 # ---------------------------------------------------------------------------
 # Tool-result parsing branches: list content, is_error, AssistantMessage-embedded
 # ---------------------------------------------------------------------------
