@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 
 
 def _apply_e2e_overrides(spec: Any) -> Any:
-    """Apply suite-wide CBORG model-matrix overrides to a resolved spec (#259).
+    """Apply suite-wide CBORG model-matrix overrides to a resolved spec.
 
     This is the single chokepoint every routing consumer goes through
     (``provider_env_for_project``, ``resolve_default_model``,

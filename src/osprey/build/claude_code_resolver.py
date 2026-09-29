@@ -1088,8 +1088,8 @@ class ClaudeCodeModelResolver:
         # so ANTHROPIC_BASE_URL must be the bare origin — never ending in /v1.
         # OpenAI-compatible endpoints carry a trailing /v1 by convention (it is
         # the OpenAI API root); strip it here so an anthropic-native provider
-        # configured with such a URL doesn't resolve to "…/v1/v1/messages"
-        # (issue #312). The proxy upstream keeps the original /v1 (see
+        # configured with such a URL doesn't resolve to "…/v1/v1/messages".
+        # The proxy upstream keeps the original /v1 (see
         # upstream_base_url below); for proxy providers this value is overwritten
         # with the loopback URL at launch. Skipped when neither config nor the
         # built-in table names a URL (direct Anthropic with no api.providers entry).
