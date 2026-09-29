@@ -40,6 +40,12 @@ from typing import Any
 
 import click
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import (
+    get_user_owned,
+    update_config_remove_user_owned,
+    update_manifest_remove_user_owned,
+)
 from osprey.cli.profile_conventions import (
     BUILD_OUTPUT_DIR,
     CONVENTION_DIRS,
@@ -50,12 +56,6 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.errors import ConfigurationError
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import (
-    get_user_owned,
-    update_config_remove_user_owned,
-    update_manifest_remove_user_owned,
-)
 from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
 
@@ -522,7 +522,7 @@ def _same_content(left: Path, right: Path, *, is_directory: bool) -> bool:
     """Whether two artifacts hold identical content (recursively, for directories)."""
     import filecmp
 
-    from osprey.services.build_artifacts.ownership import sha256_directory
+    from osprey.agent_runner.build_artifacts.ownership import sha256_directory
 
     try:
         if is_directory:

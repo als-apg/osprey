@@ -587,7 +587,7 @@ def _framework_rendered_outputs() -> frozenset[str]:
     Deferred import: the build-artifact catalog pulls in the scaffold-ownership
     stack, which this module's mapping table has no need of.
     """
-    from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 
     catalog = BuildArtifactCatalog.default()
     return frozenset(

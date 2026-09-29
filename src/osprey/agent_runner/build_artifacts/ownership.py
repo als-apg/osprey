@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

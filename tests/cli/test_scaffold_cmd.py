@@ -16,6 +16,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.agent_runner.build_artifacts.ownership import update_config_add_user_owned
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.scaffold_cmd import (
@@ -28,7 +29,6 @@ from osprey.cli.scaffold_cmd import (
     scaffold,
 )
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
-from osprey.services.build_artifacts.ownership import update_config_add_user_owned
 
 
 @pytest.fixture()
@@ -805,8 +805,8 @@ class TestPromptsUnclaim:
         assert "rules/safety" not in user_owned
 
     def test_unclaim_removes_manifest_entry(self, repo_dir, project_dir):
+        from osprey.agent_runner.build_artifacts.ownership import update_manifest_add_user_owned
         from osprey.cli.templates.manager import TemplateManager
-        from osprey.services.build_artifacts.ownership import update_manifest_add_user_owned
 
         update_config_add_user_owned(project_dir, "rules/safety")
         update_manifest_add_user_owned(project_dir, TemplateManager(), {}, "rules/safety")

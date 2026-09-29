@@ -17,13 +17,13 @@ from types import SimpleNamespace
 import jinja2
 import pytest
 
-from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
-from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import (
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import (
     framework_template_hash,
     sha256_directory,
     update_manifest_add_user_owned,
 )
+from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
 
 
 def _env(templates: Path, **kwargs) -> jinja2.Environment:

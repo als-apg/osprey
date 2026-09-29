@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _SRC = str(Path(__file__).resolve().parents[2] / "src")
 
 
@@ -54,3 +56,20 @@ def test_importing_the_package_loads_no_module_of_it_and_no_agent_sdk():
 
     assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
     assert not [name for name in added if name.startswith("osprey.agent_runner.")]
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "osprey.agent_runner.build_artifacts",
+        "osprey.cli.templates.claude_code",
+        "osprey.cli.scaffold_cmd",
+        "osprey.cli.templates.manifest",
+        "osprey.interfaces.web_terminal.scaffold_gallery_service",
+    ],
+)
+def test_the_build_artifact_catalog_costs_no_agent_sdk(module: str) -> None:
+    """The catalog's build-time consumers never drive an agent, so they load no agent SDK."""
+    added = _modules_added_by_import(module)
+
+    assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]

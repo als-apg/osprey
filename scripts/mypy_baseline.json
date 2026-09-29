@@ -164,6 +164,12 @@
       "count": 1
     },
     {
+      "path": "src/osprey/agent_runner/build_artifacts/ownership.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[str]\"",
+      "count": 1
+    },
+    {
       "path": "src/osprey/build/claude_code_resolver.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"str | None\"",
@@ -1283,12 +1289,6 @@
       "path": "src/osprey/services/bluesky_bridge/session_upload.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"None\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/services/build_artifacts/ownership.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"list[str]\"",
       "count": 1
     },
     {

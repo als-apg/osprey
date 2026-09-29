@@ -252,7 +252,7 @@ def test_rule_heading_contract_intact(tmp_path):
     ):
         assert heading in content, f"missing section heading: {heading}"
 
-    from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 
     artifact = BuildArtifactCatalog.default().get("rules/control-system-safety")
     assert artifact is not None

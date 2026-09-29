@@ -12,6 +12,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
@@ -27,7 +28,6 @@ from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     ScaffoldGalleryService,
     restore_scaffold_bodies,
 )
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 
 # ---------------------------------------------------------------------------
 # Fixtures
