@@ -21,7 +21,7 @@
 import { el as _el } from '/design-system/js/dom.js';
 import {
   BEHAVIOR_CATEGORIES,
-  BEHAVIOR_NAMES,
+  BEHAVIOR_OUTPUTS,
   BEHAVIOR_CATEGORY_OVERRIDES,
   BEHAVIOR_CATEGORY_REMAPS,
   BEHAVIOR_PINNED_CATEGORIES,
@@ -56,7 +56,7 @@ import { createScaffoldGalleryEdit } from './scaffold/edit.js';
  * @property {boolean} [showFilterChips]
  * @property {(() => void)|null} [onDetailOpen]
  * @property {(() => void)|null} [onDetailClose]
- * @property {Record<string, string>} [categoryOverrides]
+ * @property {Record<string, string>} [categoryOverrides] keyed by output path
  * @property {Record<string, string>} [categoryRemaps]
  * @property {string[]} [pinnedCategories]
  */
@@ -459,7 +459,7 @@ export function initScaffoldGallery() {
     document.getElementById('behavior-gallery-section') || behaviorPanel;
   const behaviorGallery = new ArtifactGallery({
     container: behaviorGalleryContainer,
-    categoryFilter: (a) => BEHAVIOR_CATEGORIES.has(a.category) || BEHAVIOR_NAMES.has(a.name),
+    categoryFilter: (a) => BEHAVIOR_CATEGORIES.has(a.category) || BEHAVIOR_OUTPUTS.has(a.output_path),
     options: {
       categoryOverrides: BEHAVIOR_CATEGORY_OVERRIDES,
       categoryRemaps: BEHAVIOR_CATEGORY_REMAPS,

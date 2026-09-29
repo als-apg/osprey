@@ -150,13 +150,15 @@ describe('loadArtifacts', () => {
     expect(result.summary).toEqual({ total: 2, framework: 1, userOwned: 1 });
   });
 
-  test('a per-name categoryOverride wins over a per-category categoryRemap', async () => {
+  test('a per-output categoryOverride wins over a per-category categoryRemap', async () => {
     vi.stubGlobal('fetch', vi.fn((url) => {
       if (url === '/api/scaffold') {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
-            artifacts: [{ name: 'claude-md', category: 'config', status: 'framework' }],
+            artifacts: [
+              { name: 'claude-md-ariel', category: 'config', status: 'framework', output_path: 'CLAUDE.md' },
+            ],
           }),
         });
       }
@@ -164,7 +166,7 @@ describe('loadArtifacts', () => {
     }));
 
     const state = makeState({
-      categoryOverrides: { 'claude-md': 'system instructions' },
+      categoryOverrides: { 'CLAUDE.md': 'system instructions' },
       categoryRemaps: { config: 'settings' },
     });
     const result = await loadArtifacts(state);

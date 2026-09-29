@@ -20,7 +20,7 @@ import { qs } from '../_support/dom.mjs';
 import {
   CATEGORY_HELP,
   BEHAVIOR_CATEGORIES,
-  BEHAVIOR_NAMES,
+  BEHAVIOR_OUTPUTS,
   BEHAVIOR_CATEGORY_OVERRIDES,
   BEHAVIOR_CATEGORY_REMAPS,
   BEHAVIOR_PINNED_CATEGORIES,
@@ -139,9 +139,9 @@ describe('category-routing set membership', () => {
     expect(BEHAVIOR_CATEGORIES.has('hooks')).toBe(false);
   });
 
-  test('BEHAVIOR_NAMES routes the claude-md config artifact to the Behavior tab', () => {
-    expect(BEHAVIOR_NAMES.has('claude-md')).toBe(true);
-    expect(BEHAVIOR_NAMES.has('mcp-json')).toBe(false);
+  test('BEHAVIOR_OUTPUTS routes the project instructions to the Behavior tab by output path', () => {
+    expect(BEHAVIOR_OUTPUTS.has('CLAUDE.md')).toBe(true);
+    expect(BEHAVIOR_OUTPUTS.has('.mcp.json')).toBe(false);
   });
 
   test('SAFETY_CATEGORIES routes hooks to the Safety tab, and nothing else', () => {
