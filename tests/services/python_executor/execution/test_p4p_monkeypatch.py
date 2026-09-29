@@ -871,13 +871,26 @@ def test_json_bytes_payload_out_of_range_raises(monkeypatch):
 
 
 def test_plain_string_payload_is_not_treated_as_json(monkeypatch):
-    """Only a '{'-leading string is a structure; the rest is a string write."""
+    """Only a '{'-leading string is a structure; the rest is a string write.
+
+    A string write reaches the validator as a string: a channel with no
+    numeric limit (an enum written by label) takes it, and a numeric-limited
+    one refuses it, since the server -- not the validator -- would parse it.
+    """
+    validator = _make_validator()
+    validator.limits["TEST:ENUM:CMD"] = ChannelLimitsConfig(
+        channel_address="TEST:ENUM:CMD", writable=True
+    )
     classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
+    _run_monkeypatch(monkeypatch, validator)
 
     ctxt = classes["thread"]()
-    assert ctxt.put("TEST:MAG:SP", "Off") == "put-done"
-    assert ctxt.puts == [("TEST:MAG:SP", "Off")]
+    assert ctxt.put("TEST:ENUM:CMD", "Off") == "put-done"
+    assert ctxt.puts == [("TEST:ENUM:CMD", "Off")]
+
+    with pytest.raises(ChannelLimitsViolationError):
+        ctxt.put("TEST:MAG:SP", "Off")
+    assert ctxt.puts == [("TEST:ENUM:CMD", "Off")]
 
 
 def test_value_object_without_a_value_field_fails_closed(monkeypatch):
