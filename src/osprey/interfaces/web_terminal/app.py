@@ -2680,7 +2680,7 @@ def create_app(
     # the window global + import map injected into each HTML document below,
     # and routes/panels.py + routes/proxy.py (which read compute_url_prefix()
     # directly). Guarded by test_prefix_injection.py's bare-path static assert
-    # and the tests/e2e/web_terminals/test_prefix_routing.py master e2e.
+    # and its literal-prefixed-path 404.
     app = FastAPI(
         title="OSPREY Web Terminal",
         description="Browser-based terminal with live workspace viewer",
