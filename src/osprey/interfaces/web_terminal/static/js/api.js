@@ -398,10 +398,11 @@ export async function fetchJSON(url) {
  * JSON API request through the {@link withPrefix} chokepoint. Covers the
  * mutating verbs (POST/PUT/PATCH/DELETE) that fetchJSON's GET contract
  * doesn't: serializes `json` as the request body, and on a non-OK response
- * throws an Error carrying the server's `detail` message when the error body
- * has one, else `"<errorPrefix> (HTTP <status>)"`. Resolves with the parsed
- * JSON response body (null when the body isn't JSON, e.g. empty DELETE
- * responses).
+ * throws an Error whose message is the whole operator-facing line, naming the
+ * action once: `"<errorPrefix>: <detail>"` when the error body carries the
+ * server's `detail`, else `"<errorPrefix> (HTTP <status>)"`. Callers show the
+ * message as it is. Resolves with the parsed JSON response body (null when the
+ * body isn't JSON, e.g. empty DELETE responses).
  * @param {string} url
  * @param {{method?: string, json?: any, errorPrefix?: string}} [opts]
  * @returns {Promise<any>}
@@ -416,7 +417,9 @@ export async function apiRequest(url, { method = 'POST', json, errorPrefix = 'Re
   const resp = await fetch(withPrefix(url), init);
   if (!resp.ok) {
     const detail = await resp.json().catch(() => ({}));
-    throw new Error(detail.detail || `${errorPrefix} (HTTP ${resp.status})`);
+    throw new Error(
+      detail.detail ? `${errorPrefix}: ${detail.detail}` : `${errorPrefix} (HTTP ${resp.status})`
+    );
   }
   return resp.json().catch(() => null);
 }

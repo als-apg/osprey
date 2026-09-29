@@ -121,7 +121,7 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
     expect(fetchMock).toHaveBeenCalledWith('/api/scaffold/x/claim', { method: 'POST' });
   });
 
-  test('a non-OK response throws the server `detail` message when present', async () => {
+  test('a non-OK response throws `<errorPrefix>: <detail>` when the server gives a detail', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
@@ -131,9 +131,10 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
       }))
     );
 
+    // The whole operator-facing line: callers show it as-is.
     await expect(
       api.apiRequest('/api/scaffold/x/claim', { method: 'POST', errorPrefix: 'Scaffold failed' })
-    ).rejects.toThrow('already claimed');
+    ).rejects.toHaveProperty('message', 'Scaffold failed: already claimed');
   });
 
   test('a non-OK response without a JSON body falls back to `<errorPrefix> (HTTP <status>)`', async () => {
@@ -148,7 +149,7 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
 
     await expect(
       api.apiRequest('/api/config', { method: 'PUT', errorPrefix: 'Save failed' })
-    ).rejects.toThrow('Save failed (HTTP 502)');
+    ).rejects.toHaveProperty('message', 'Save failed (HTTP 502)');
   });
 
   test('an OK response without a JSON body (e.g. empty DELETE) resolves to null', async () => {
