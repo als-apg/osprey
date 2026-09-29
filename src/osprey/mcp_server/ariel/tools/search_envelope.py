@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from osprey.mcp_server.ariel.server import make_error, serialize_entry
+from osprey.mcp_server.ariel.server_context import get_ariel_context
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -50,10 +51,6 @@ _FAULT_SUGGESTIONS: dict[str, list[str]] = {
         "Search the term as plain text, or use a * glob instead of an explicit /regex/.",
     ],
 }
-
-
-#: Characters of ``raw_text`` each entry carries into a search envelope.
-_ENTRY_TEXT_LIMIT = 500
 
 
 def advanced_params(
@@ -133,7 +130,8 @@ class ResultWindow:
         return self.max_results + len(self.excluded) if self.excluded else self.max_results
 
     def select(self, entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Drop the excluded entries, truncate, and serialize for the envelope.
+        """Drop the excluded entries, keep at most `max_results`, and serialize each
+        at the deployment's listing budget (`ariel.entry_text.listing_chars`).
 
         Args:
             entries: The service's ranked entries.
@@ -142,7 +140,8 @@ class ResultWindow:
             At most ``max_results`` serialized entries, in ranking order.
         """
         kept = [e for e in entries if e["entry_id"] not in self.excluded][: self.max_results]
-        return [serialize_entry(e, text_limit=_ENTRY_TEXT_LIMIT) for e in kept]
+        listing_chars = get_ariel_context().config.entry_text.listing_chars
+        return [serialize_entry(e, text_limit=listing_chars) for e in kept]
 
 
 def success_envelope(

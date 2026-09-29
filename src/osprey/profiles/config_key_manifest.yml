@@ -1941,6 +1941,28 @@ keys:
       unset, or a template that does not format, emits no `entry_url` (the
       second is logged once) and the read itself never fails.
     default: null
+  ariel.entry_text:
+    rendered: false
+    evidence: 'config_dict\.get\("entry_text"\)'
+    default: {}
+  ariel.entry_text.listing_chars:
+    rendered: false
+    evidence: '_entry_text_chars\(data, "listing_chars"'
+    note: >-
+      Characters of each entry's text a listing carries: the three search tools
+      and `browse`. Commented in the two presets that ship an `ariel:` block,
+      because the number that fits depends on how long a facility's entries run.
+      A cut entry carries `raw_text_truncated` and `raw_text_length`; a value
+      that is not a positive integer is refused at config parse.
+    default: 500
+  ariel.entry_text.read_chars:
+    rendered: false
+    evidence: '_entry_text_chars\(data, "read_chars"'
+    note: >-
+      Characters of each entry's text `entries_by_ids` carries; `entry_get` is
+      never cut. Refused at config parse when it is not a positive integer or
+      is below `ariel.entry_text.listing_chars`.
+    default: 1000
   ariel.default_search_mode: {evidence: 'default_search_mode', default: derived, default_note: the implicit mode for whichever search modules are enabled}
   # The facility vocabulary: shorthand the operators type, mapped to the words
   # the logbook prose actually uses. Read ONCE at config parse — the file is

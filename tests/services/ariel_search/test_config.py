@@ -16,6 +16,10 @@ from osprey.services.ariel_search.config import (
     WatchConfig,
 )
 from osprey.services.ariel_search.exceptions import ConfigurationError, VocabularyError
+from osprey.services.ariel_search.models import (
+    DEFAULT_LISTING_TEXT_CHARS,
+    DEFAULT_READ_TEXT_CHARS,
+)
 from osprey.services.ariel_search.search.keyword import KeywordSearchSettings
 
 
@@ -1114,3 +1118,39 @@ class TestSemanticSettingsValidation:
         """No block is the normal case: the defaults resolve and nothing is reported."""
         errors = _semantic_config().validate()
         assert not [error for error in errors if "search_modules.semantic.settings" in error]
+
+
+def _entry_text_config(entry_text: object) -> ARIELConfig:
+    return ARIELConfig.from_dict(
+        {"database": {"uri": "postgresql://localhost:5432/ariel"}, "entry_text": entry_text}
+    )
+
+
+class TestEntryTextConfig:
+    """Tests for the ``ariel.entry_text`` budgets."""
+
+    def test_absent_block_gives_the_shipped_defaults(self) -> None:
+        config = ARIELConfig.from_dict({"database": {"uri": "postgresql://localhost:5432/ariel"}})
+        assert config.entry_text.listing_chars == 500 == DEFAULT_LISTING_TEXT_CHARS
+        assert config.entry_text.read_chars == 1000 == DEFAULT_READ_TEXT_CHARS
+
+    def test_values_are_read(self) -> None:
+        config = _entry_text_config({"listing_chars": 800, "read_chars": 4000})
+        assert config.entry_text.listing_chars == 800
+        assert config.entry_text.read_chars == 4000
+
+    @pytest.mark.parametrize("value", [True, "500", 500.0, 0, -1, None])
+    def test_a_value_that_is_not_a_positive_integer_is_refused_by_name(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.entry_text\.listing_chars"):
+            _entry_text_config({"listing_chars": value})
+
+    def test_read_below_listing_is_refused(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            _entry_text_config({"listing_chars": 2000})
+        message = str(excinfo.value)
+        assert "ariel.entry_text.read_chars" in message
+        assert "ariel.entry_text.listing_chars" in message
+
+    def test_block_must_be_a_mapping(self) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.entry_text must be a mapping"):
+            _entry_text_config(500)

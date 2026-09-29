@@ -257,6 +257,11 @@ config:
   # opening tab, `osprey ariel search` without `--mode`, and the service API.
   # Naming a module that is off below is refused at startup.
   ariel.default_search_mode: hybrid
+  # How much of each entry's text the agent sees: search and browse results
+  # carry the first `listing_chars`, `entries_by_ids` the first `read_chars`,
+  # and `entry_get` the whole entry. A cut entry says so and gives its length.
+  # ariel.entry_text.listing_chars: 500
+  # ariel.entry_text.read_chars: 1000
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains. Off here because a vocabulary is
   # facility content and this preset ships none: write a vocabulary.yml (the

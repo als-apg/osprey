@@ -3,6 +3,8 @@
 import json
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 from tests.mcp_server.conftest import assert_raises_error
@@ -20,11 +22,12 @@ def _get_filter_options():
     return get_tool_fn(filter_options)
 
 
-def _setup_registry(tmp_path, monkeypatch):
+def _setup_registry(tmp_path, monkeypatch, entry_text=None):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    )
+    ariel: dict = {"database": {"uri": "postgresql://localhost/test"}}
+    if entry_text is not None:
+        ariel["entry_text"] = entry_text
+    (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
     initialize_ariel_context()
 
 
@@ -193,3 +196,32 @@ async def test_filter_options_unknown_field(tmp_path, monkeypatch):
             await fn(field="unknown")
 
     _exc_ctx["envelope"]
+
+
+@pytest.mark.parametrize(
+    ("entry_text", "expected_chars"),
+    [(None, 400), ({"listing_chars": 10}, 10)],
+)
+async def test_browse_carries_the_listing_budget(tmp_path, monkeypatch, entry_text, expected_chars):
+    """Browse cuts at the listing budget: 400 characters fit the default."""
+    _setup_registry(tmp_path, monkeypatch, entry_text=entry_text)
+
+    mock_service = AsyncMock()
+    mock_service.repository.search_by_time_range.return_value = [
+        make_mock_entry(entry_id="e1", raw_text="x" * 400)
+    ]
+    mock_service.repository.count_entries.return_value = 1
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        result = await _get_browse()()
+
+    [entry] = json.loads(result)["entries"]
+    assert entry["raw_text"] == "x" * expected_chars
+    if expected_chars == 400:
+        assert "raw_text_truncated" not in entry
+    else:
+        assert entry["raw_text_truncated"] is True
+        assert entry["raw_text_length"] == 400
