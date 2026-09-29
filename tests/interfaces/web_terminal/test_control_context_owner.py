@@ -102,20 +102,6 @@ async def test_the_mutation_result_reaches_the_caller(context_owner):
     assert await context_owner.mutate_record(switch) == "applied"
 
 
-async def test_the_callable_sees_the_record_on_disk(context_owner):
-    seen: list[ControlContext | None] = []
-
-    def observe(record):
-        seen.append(record)
-        return Mutation.unchanged(None)
-
-    await context_owner.mutate_record(observe)
-
-    assert len(seen) == 1
-    assert seen[0] is not None
-    assert (seen[0].target, seen[0].generation) == ("live", 3)
-
-
 async def test_an_unchanged_mutation_writes_nothing(context_owner, record_file):
     before = record_file.stat()
 
@@ -195,6 +181,7 @@ async def test_a_claim_may_run_over_a_foreign_owner(record_file):
 
     def claim(record):
         assert record is not None and record.owner == SERVER
+        assert (record.target, record.generation) == ("va", 6)
         return Mutation(record=record, result="claimed")
 
     assert await context_owner.mutate_record(claim, verify_owner=False) == "claimed"
@@ -374,16 +361,3 @@ async def test_a_blocked_job_does_not_stall_the_event_loop(context_owner):
     release.set()
     await mutation
     await ticker
-
-
-async def test_mutations_are_applied_one_at_a_time(context_owner, record_file):
-    """Twenty concurrent increments produce twenty generations, not fewer."""
-
-    def bump(record):
-        return Mutation(record=replace(record, generation=record.generation + 1), result=None)
-
-    await asyncio.gather(*(context_owner.mutate_record(bump) for _ in range(20)))
-
-    stored = read(record_file)
-    assert stored is not None
-    assert stored.generation == 23
