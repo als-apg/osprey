@@ -101,23 +101,22 @@ def write_record(
     header: dict[str, Any],
     context: dict[str, Any],
     *,
-    record_id: str | None = None,
+    record_id: str,
 ) -> str:
     """Write one feedback record into *feedback_dir* and return its id.
 
     *feedback_dir* is created if absent. The context document is written first
-    and the header last; both are stamped with the allocated id, and the header
+    and the header last; both are stamped with *record_id*, and the header
     additionally carries a ``context_file`` pointer at its paired context
     document. Those two keys are authoritative — values supplied by the caller
     under the same names are overwritten. The caller's dicts are not mutated.
 
-    *record_id* lets the caller allocate the id (with :func:`new_record_id`)
-    before the header exists, which is what a caller who has to *name* the
-    record inside the record needs — the web-terminal route digests a payload
-    whose truncation marker carries the id, and a digest of a payload naming a
-    different id would not match the bytes the operator pasted. Omitted, the id
-    is minted here as before. Either way it is the id both documents are stamped
-    and filed under, and the id returned.
+    The caller allocates *record_id* (with :func:`new_record_id`) before the
+    header exists, because the caller has to *name* the record inside the
+    record: the web-terminal route digests a payload whose truncation marker
+    carries the id, and a digest of a payload naming a different id would not
+    match the bytes the operator pasted. It is the id both documents are
+    stamped and filed under, and the id returned.
 
     Raises:
         ValueError: if *record_id* does not start with :data:`HEADER_PREFIX`.
@@ -127,7 +126,7 @@ def write_record(
             pruner, while its context document stayed behind as a prunable
             orphan.
     """
-    if record_id is not None and not record_id.startswith(HEADER_PREFIX):
+    if not record_id.startswith(HEADER_PREFIX):
         raise ValueError(
             f"record_id must start with {HEADER_PREFIX!r} (it is the header filename stem); "
             f"got {record_id!r}"
@@ -136,7 +135,6 @@ def write_record(
     feedback_dir = Path(feedback_dir)
     feedback_dir.mkdir(parents=True, exist_ok=True)
 
-    record_id = record_id or new_record_id()
     context_name = context_filename(record_id)
 
     context_doc: dict[str, Any] = {"id": record_id}

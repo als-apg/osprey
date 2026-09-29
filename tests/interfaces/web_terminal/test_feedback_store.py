@@ -68,13 +68,16 @@ def test_filename_helpers_pair_a_header_and_context_for_one_record_id() -> None:
 def test_write_record_creates_both_documents_and_returns_the_id(tmp_path: Path) -> None:
     feedback_dir = tmp_path / "nested" / "feedback"
 
+    allocated = feedback_store.new_record_id()
+
     record_id = feedback_store.write_record(
         feedback_dir,
         {"channel": "local", "excerpt": "it broke"},
         {"context": {"panels": []}, "scrollback": "$ osprey\n"},
+        record_id=allocated,
     )
 
-    assert ID_RE.match(record_id), record_id
+    assert record_id == allocated
     header_path = feedback_dir / feedback_store.header_filename(record_id)
     context_path = feedback_dir / feedback_store.context_filename(record_id)
     assert header_path.is_file()
@@ -107,7 +110,12 @@ def test_write_record_puts_the_context_on_disk_before_the_header(
 
     monkeypatch.setattr(os, "replace", spy_replace)
 
-    record_id = feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
+    record_id = feedback_store.write_record(
+        feedback_dir,
+        {"channel": "local"},
+        {"context": {}},
+        record_id=feedback_store.new_record_id(),
+    )
 
     assert destinations == [
         feedback_store.context_filename(record_id),
@@ -143,7 +151,12 @@ def test_write_record_temp_files_never_match_the_record_globs(
 
     monkeypatch.setattr(os, "replace", spy_replace)
 
-    feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
+    feedback_store.write_record(
+        feedback_dir,
+        {"channel": "local"},
+        {"context": {}},
+        record_id=feedback_store.new_record_id(),
+    )
 
     assert len(temp_names) == 2
     for name in temp_names:
@@ -159,7 +172,9 @@ def test_write_record_does_not_mutate_the_caller_dicts(tmp_path: Path) -> None:
     header = {"channel": "local"}
     context = {"context": {}}
 
-    feedback_store.write_record(tmp_path / "feedback", header, context)
+    feedback_store.write_record(
+        tmp_path / "feedback", header, context, record_id=feedback_store.new_record_id()
+    )
 
     assert header == {"channel": "local"}
     assert context == {"context": {}}
@@ -172,6 +187,7 @@ def test_write_record_id_and_pointer_win_over_caller_supplied_values(tmp_path: P
         feedback_dir,
         {"id": "spoofed", "context_file": "../escape.json"},
         {"id": "spoofed"},
+        record_id=feedback_store.new_record_id(),
     )
 
     header = json.loads((feedback_dir / feedback_store.header_filename(record_id)).read_text())
@@ -220,19 +236,6 @@ def test_write_record_refuses_an_id_without_the_header_prefix(tmp_path: Path, ba
 
     # Refused before the directory is even created, so a bad id leaves nothing.
     assert not feedback_dir.exists()
-
-
-def test_write_record_mints_its_own_id_when_none_is_supplied(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    monkeypatch.setattr(feedback_store, "_now_ms", lambda: 1755712345678)
-
-    record_id = feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
-
-    assert ID_RE.match(record_id), record_id
-    assert record_id.startswith("fb-1755712345678-")
-    assert (feedback_dir / feedback_store.header_filename(record_id)).is_file()
 
 
 # ── prune_store ────────────────────────────────────────────────────────────
