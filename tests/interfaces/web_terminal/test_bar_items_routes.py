@@ -250,9 +250,16 @@ class TestPut:
         assert types(body, "header") == ["logo"]
         assert (store_dir / LAYOUT_FILENAME).exists()
 
-        second = client.put("/api/bar-items", json=document(1, header=[{"type": "identity"}]))
+        # The route never judges availability: a Bluesky item on a deployment
+        # that declares no Bluesky panel is saved, and the browser decides.
+        assert client.app.state.bluesky_available is False
+        second = client.put(
+            "/api/bar-items",
+            json=document(1, header=[{"type": "identity"}], status=[{"type": "bluesky-queue"}]),
+        )
         assert second.status_code == 200
         assert second.json()["rev"] == 2
+        assert types(second.json(), "status") == ["bluesky-queue"]
 
     def test_completes_declared_options_from_their_defaults(self, client):
         body = client.put("/api/bar-items", json=document(0)).json()

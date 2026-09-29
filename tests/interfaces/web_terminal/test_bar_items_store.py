@@ -371,15 +371,6 @@ def test_save_leaves_the_stored_document_untouched_when_it_refuses(tmp_path: Pat
     assert stored["rev"] == 1
 
 
-def test_save_does_not_check_availability(tmp_path: Path) -> None:
-    # The client refuses an item whose runtime dependency is missing; the server
-    # cannot see that, and refusing here would make a layout unsavable for as
-    # long as a bridge happened to be down.
-    saved = save(tmp_path, document(status=[{"type": "feedback"}]))
-
-    assert saved["status"] == [{"type": "feedback", "options": {}}]
-
-
 # ── save_layout: options are completed, not trusted ────────────────────────
 
 
