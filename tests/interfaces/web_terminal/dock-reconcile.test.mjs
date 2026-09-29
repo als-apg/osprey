@@ -95,6 +95,8 @@ describe('reconcile — clean layout pass-through', () => {
     expect(out).not.toBeNull();
     expect(Object.keys(out.panels).sort()).toEqual(['terminal', 'workspace']);
     expect(referencedIds(out).sort()).toEqual(['terminal', 'workspace']);
+    expect(out.grid.root.type).toBe('branch');
+    expect(out.activeGroup).toBe('group-left');
   });
 
   test('accepts a raw JSON string as well as a parsed object', () => {
@@ -167,6 +169,7 @@ describe('reconcile — one panel per tile (stacks flattened)', () => {
     const layout = singleGroupLayout(['iframe:artifacts', 'iframe:ariel', 'iframe:lattice']);
     layout.grid.root.data.activeView = 'iframe:ariel';
     const out = reconcile(layout, []);
+    expect(out.grid.root.type).toBe('branch');
     const leaf = out.grid.root.data[0];
     expect(leaf.data.views).toEqual(['iframe:ariel']);
     expect(leaf.data.activeView).toBe('iframe:ariel');
@@ -194,12 +197,6 @@ describe('reconcile — one panel per tile (stacks flattened)', () => {
     expect(right.data.views).toEqual(['terminal']);
     expect(Object.keys(out.panels).sort()).toEqual(['iframe:artifacts', 'terminal']);
   });
-
-  test('an already-flat layout passes through unchanged', () => {
-    const layout = twoGroupLayout(['iframe:artifacts'], ['terminal']);
-    const out = reconcile(layout, ['terminal']);
-    expect(referencedIds(out).sort()).toEqual(['iframe:artifacts', 'terminal']);
-  });
 });
 
 describe('reconcile — panels absent from the layout are not appended', () => {
@@ -221,26 +218,6 @@ describe('reconcile — grid root invariant (dockview fromJSON requires a branch
     expect(out.grid.root.type).toBe('branch');
     expect(out.grid.root.data[0].type).toBe('leaf');
   });
-
-  test('a multi-group layout keeps its branch root', () => {
-    const layout = twoGroupLayout(['workspace'], ['terminal']);
-    const out = reconcile(layout, ['workspace', 'terminal']);
-    expect(out.grid.root.type).toBe('branch');
-  });
-
-  test('collapsing every group but one still yields a branch root', () => {
-    const layout = twoGroupLayout(['gone'], ['workspace']);
-    const out = reconcile(layout, ['workspace']);
-    expect(out.grid.root.type).toBe('branch');
-    expect(referencedIds(out)).toEqual(['workspace']);
-  });
-
-  test('flattening a stacked single-group root still yields a branch root', () => {
-    const layout = singleGroupLayout(['workspace', 'iframe:artifacts']);
-    const out = reconcile(layout, ['workspace']);
-    expect(out.grid.root.type).toBe('branch');
-    expect(referencedIds(out)).toEqual(['workspace']);
-  });
 });
 
 describe('reconcile — activeGroup', () => {
@@ -250,12 +227,6 @@ describe('reconcile — activeGroup', () => {
     const layout = twoGroupLayout(['stale-panel'], ['terminal']);
     const out = reconcile(layout, ['terminal']);
     expect(out.activeGroup).toBe('group-right');
-  });
-
-  test('leaves a still-present activeGroup untouched', () => {
-    const layout = twoGroupLayout(['workspace'], ['terminal']);
-    const out = reconcile(layout, ['workspace', 'terminal']);
-    expect(out.activeGroup).toBe('group-left');
   });
 });
 
