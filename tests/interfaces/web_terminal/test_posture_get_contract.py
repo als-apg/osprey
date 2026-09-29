@@ -484,9 +484,16 @@ class TestTheTarget:
 class TestTheOwner:
     """``owner {kind, pid, port, self}`` — who may write, and whether it is us."""
 
-    def test_this_terminal_owning_reports_itself(self, client, monkeypatch):
+    def test_this_terminal_owning_reports_itself(self, make_client, monkeypatch):
+        """The row names the identity the terminal claimed the record as.
+
+        The port is read once, when the owner task claims; a variable that
+        moves afterwards changes neither the record nor what the row says.
+        """
         monkeypatch.setenv(control_context_owner.WEB_PORT_ENV, "8080")
-        payload = get_posture(client)
+        with make_client() as client:
+            monkeypatch.setenv(control_context_owner.WEB_PORT_ENV, "9999")
+            payload = get_posture(client)
         assert payload["owner"] == {
             "kind": "web_terminal",
             "pid": os.getpid(),

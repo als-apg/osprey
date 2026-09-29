@@ -36,7 +36,6 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     ContextOwnerError,
     Mutation,
     owned_elsewhere_message,
-    terminal_identity,
 )
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
@@ -2618,10 +2617,14 @@ def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     ``None`` when nothing owns the context — no tick has got far enough and the
     record on disk names nobody. A ``controls_server`` owner is an ordinary
     answer here and carries ``port: null``: it serves nothing to open.
+
+    This terminal's own row is the identity its owner claimed as — the one
+    every write stamps into the record — so the row and the record name the
+    same port.
     """
     context = _context_state(app)
     if context.owner is not None:
-        identity = context.follows if context.follows is not None else terminal_identity()
+        identity = context.follows if context.follows is not None else context.owner.identity
         return {**identity.to_payload(), "self": context.follows is None}
     recorded = getattr(record, "owner", None)
     if recorded is None:
