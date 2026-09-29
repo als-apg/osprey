@@ -210,7 +210,7 @@ function renderSessionList() {
  * for warm sessions). Cold fallback: full stop/start cycle if no WS is open.
  * @param {string} sessionId
  */
-export async function resumeSession(sessionId) {
+async function resumeSession(sessionId) {
   if (switchSession(sessionId)) {
     // Fast path — server handles everything.
     // terminal.js onMessage updates UI on session_switched.
