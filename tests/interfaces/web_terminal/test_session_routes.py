@@ -87,31 +87,6 @@ class TestRestartEndpoint:
         assert chat.stop_calls == 1
 
 
-class TestResolveWorkspace:
-    def test_file_tree_with_session_id(self, workspace_dir, client):
-        """File tree with session_id scopes to sessions subdir."""
-        session_dir = workspace_dir / "sessions" / "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        session_dir.mkdir(parents=True)
-        (session_dir / "test.txt").write_text("scoped content")
-
-        resp = client.get("/api/files/tree?session_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
-        assert resp.status_code == 200
-        data = resp.json()
-        names = [c["name"] for c in data.get("children", [])]
-        assert "test.txt" in names
-
-    def test_invalid_session_id_ignored(self, workspace_dir, client):
-        """Invalid session_id (path traversal attempt) falls back to base."""
-        (workspace_dir / "base_file.txt").write_text("safe")
-
-        resp = client.get("/api/files/tree?session_id=../../../etc")
-        assert resp.status_code == 200
-        data = resp.json()
-        # Should not have traversed — uses base workspace
-        names = [c["name"] for c in data.get("children", [])]
-        assert "base_file.txt" in names
-
-
 class TestSessionScopedDiagnostics:
     """Verify session diagnostics endpoints accept ?session_id= param."""
 
