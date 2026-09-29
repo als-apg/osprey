@@ -364,6 +364,23 @@ def test_validate_reports_a_bad_index_once(okf_bundle: Path) -> None:
     assert "1 file(s) failed validation" in result.output
 
 
+def test_the_shipped_bundle_validates() -> None:
+    """The example bundle passes ``validate``, so an edit to it needs ``regen-index`` to merge.
+
+    ``validate`` never writes, so the bundle is read in place.
+    """
+    import osprey
+
+    bundle = (
+        Path(osprey.__file__).parent / "templates/apps/control_assistant/data/facility_knowledge"
+    )
+
+    result = CliRunner().invoke(knowledge, ["validate", str(bundle)])
+
+    assert result.exit_code == 0, result.output
+    assert "valid" in result.output
+
+
 # ---------------------------------------------------------------------------
 # seed-from-ttl
 # ---------------------------------------------------------------------------
