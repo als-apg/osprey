@@ -2847,6 +2847,9 @@ keys:
 # in any preset `config:` dotted key, or in the loader's synthesized defaults.
 # ---------------------------------------------------------------------------
 deleted:
+  # A collector's token is named by claude_code.telemetry.auth.token_env; there
+  # is no free-form header map.
+- claude_code.telemetry.headers
   # Ledger 1 / 5 / — : the whole write_verification block. The three inert
   # knobs went first; `default_level` and `default_tolerance_percent` followed
   # when confirmation became a per-channel `confirm: true|false` in the limits

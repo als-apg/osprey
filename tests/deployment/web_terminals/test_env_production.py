@@ -1900,55 +1900,55 @@ def test_the_external_store_refusal_sentence_is_pinned(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# A generic collector's credential sits in a header, not under `openobserve`
+# A generic collector's references sit anywhere in its block, not under `openobserve`
 #
 # Every reference outside the account table is handled as a secret: required
 # when it carries no default of its own, never copied into `.env.users`.
 # ---------------------------------------------------------------------------
 
 
-def _collector_block(headers, **overrides):
-    """A generic-collector telemetry block carrying ``headers``."""
+def _collector_block(**overrides):
+    """A generic-collector telemetry block, with ``overrides`` applied."""
     return {
         "enabled": True,
         "backend": "generic",
         "endpoint": "https://collector.example.org:4318",
-        "headers": headers,
         **overrides,
     }
 
 
 @pytest.mark.parametrize(
-    "headers",
+    "attributes",
     [
-        {"Authorization": "${OTLP_TOKEN}"},
-        {"Authorization": "Bearer ${OTLP_TOKEN}"},
-        "Authorization=Bearer ${OTLP_TOKEN},X-Scope-OrgID=site",
+        {"collector.key": "${OTLP_TOKEN}"},
+        {"collector.key": "key-${OTLP_TOKEN}"},
+        "collector.key=${OTLP_TOKEN},deployment.tier=site",
     ],
     ids=["whole-value", "embedded", "wire-string"],
 )
-def test_a_bare_header_reference_is_a_requirement(tmp_path, headers):
-    """A header credential is required whichever shape the header takes."""
-    config = _catalog_config(_write_block_persona(tmp_path, _collector_block(headers)))
+def test_a_bare_reference_is_a_requirement(tmp_path, attributes):
+    """A bare reference is required whichever shape the value takes."""
+    block = _collector_block(resource_attributes=attributes)
+    config = _catalog_config(_write_block_persona(tmp_path, block))
 
     reported = env_production._telemetry_credential_requirements(config, tmp_path)
 
     assert list(reported) == ["OTLP_TOKEN"]
-    assert reported["OTLP_TOKEN"].startswith("claude_code.telemetry.headers")
+    assert reported["OTLP_TOKEN"].startswith("claude_code.telemetry.resource_attributes")
     assert reported["OTLP_TOKEN"].endswith("(persona 'operator')")
 
 
-def test_a_header_reference_with_its_own_default_asks_nothing(tmp_path):
+def test_a_reference_with_its_own_default_asks_nothing(tmp_path):
     """A reference that names its own fallback resolves on its own."""
-    block = _collector_block({"Authorization": "Bearer ${OTLP_TOKEN:-anonymous}"})
+    block = _collector_block(endpoint="${COLLECTOR_URL:-https://collector.example.org:4318}")
     config = _catalog_config(_write_block_persona(tmp_path, block))
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
 
 
 def test_a_switched_off_collector_block_is_asked_for_nothing(tmp_path):
-    """The master switch gates the header walk as it gates the store login."""
-    block = _collector_block({"Authorization": "Bearer ${OTLP_TOKEN}"}, enabled=False)
+    """The master switch gates the whole-block walk as it gates the store login."""
+    block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
     config = _catalog_config(_write_block_persona(tmp_path, block))
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
@@ -1957,7 +1957,7 @@ def test_a_switched_off_collector_block_is_asked_for_nothing(tmp_path):
 def test_a_reference_anywhere_in_the_block_is_read(tmp_path):
     """The endpoint and list members are walked too, each named by its key path."""
     block = _collector_block(
-        {}, endpoint="${COLLECTOR_URL}", resource_attributes=["site=${SITE_LABEL}"]
+        endpoint="${COLLECTOR_URL}", resource_attributes=["site=${SITE_LABEL}"]
     )
     config = _catalog_config(_write_block_persona(tmp_path, block))
 
@@ -1969,18 +1969,18 @@ def test_a_reference_anywhere_in_the_block_is_read(tmp_path):
 
 def test_the_store_issued_exclusion_holds_under_any_key(tmp_path):
     """A credential this deploy mints is never asked for, whichever key names it."""
-    block = _collector_block({"Authorization": "${ZO_INGEST_SA_TOKEN}"})
+    block = _collector_block(resource_attributes={"ingest.key": "${ZO_INGEST_SA_TOKEN}"})
     config = _catalog_config(_write_block_persona(tmp_path, block))
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
 
 
-def test_a_header_secret_in_the_chain_never_reaches_the_users_file(tmp_path):
+def test_a_block_secret_in_the_chain_never_reaches_the_users_file(tmp_path):
     """Required from the chain, and still never copied into the shared file."""
     _write_dotenv(
         tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_TOKEN": "c0llect0r-t0ken"}
     )
-    block = _collector_block({"Authorization": "Bearer ${OTLP_TOKEN}"})
+    block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
     config = _catalog_config(_write_block_persona(tmp_path, block))
 
     result = env_production.ensure_env_production(config, tmp_path)
@@ -1990,20 +1990,21 @@ def test_a_header_secret_in_the_chain_never_reaches_the_users_file(tmp_path):
     assert "c0llect0r-t0ken" not in raw_text
 
 
-def test_an_unset_header_secret_refuses_the_deploy_by_name(tmp_path, monkeypatch):
+def test_an_unset_block_secret_refuses_the_deploy_by_name(tmp_path, monkeypatch):
     """The refusal names the key and the variable, with the collector note."""
     monkeypatch.delenv("OTLP_TOKEN", raising=False)
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    block = _collector_block({"Authorization": "Bearer ${OTLP_TOKEN}"})
+    block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
     config = _catalog_config(_write_block_persona(tmp_path, block))
 
     with pytest.raises(RuntimeError, match="OTLP_TOKEN") as excinfo:
         env_production.ensure_env_production(config, tmp_path)
 
     message = str(excinfo.value)
-    assert "claude_code.telemetry.headers.Authorization (persona 'operator') needs OTLP_TOKEN" in (
-        message
-    )
+    assert (
+        "claude_code.telemetry.resource_attributes.collector.key (persona 'operator') "
+        "needs OTLP_TOKEN"
+    ) in message
     assert "handled as a credential" in message
     assert "OpenObserve" not in message
     assert not (tmp_path / env_production.USERS_ENV_FILENAME).exists()
@@ -2013,17 +2014,17 @@ def test_the_deploy_config_block_is_walked_too(tmp_path):
     """The deploy config's own telemetry block answers as a persona's does."""
     config = _catalog_config(_write_block_persona(tmp_path, {"enabled": False}))
     config["claude_code"] = {
-        "telemetry": _collector_block({"Authorization": "Bearer ${OTLP_TOKEN}"})
+        "telemetry": _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
     }
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {
-        "OTLP_TOKEN": "claude_code.telemetry.headers.Authorization (deploy config)"
+        "OTLP_TOKEN": "claude_code.telemetry.resource_attributes.collector.key (deploy config)"
     }
 
 
 def test_only_the_account_table_feeds_the_account_advisory(tmp_path):
-    """A defaulted header reference is not an account name."""
-    block = _shipped_block(headers={"X-Tenant": "${TENANT_NAME:-site}"})
+    """A defaulted reference outside the account table is not an account name."""
+    block = _shipped_block(resource_attributes={"tenant": "${TENANT_NAME:-site}"})
     config = _catalog_config(_write_block_persona(tmp_path, block))
 
     assert env_production._telemetry_user_references(config, tmp_path) == _INGEST_ACCOUNT
@@ -2034,7 +2035,7 @@ def test_a_store_secret_and_a_collector_secret_each_get_their_own_note(tmp_path,
     monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
     monkeypatch.delenv("RELAY_KEY", raising=False)
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    block = _shipped_block(headers={"X-Relay-Key": "${RELAY_KEY}"})
+    block = _shipped_block(resource_attributes={"relay.key": "${RELAY_KEY}"})
     config = _catalog_config(_write_block_persona(tmp_path, block), deployed_services=())
 
     problem = env_production.users_env_generation_problem(config, tmp_path)

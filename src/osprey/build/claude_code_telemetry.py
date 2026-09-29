@@ -518,11 +518,11 @@ def _bearer_header(
 
 
 def _parse_header_map(value: dict | str) -> dict[str, str]:
-    """Parse OTLP headers config into a ``{key: value}`` dict.
+    """Parse an ``OTEL_EXPORTER_OTLP_HEADERS`` wire string into a ``{key: value}`` dict.
 
-    Accepts either a mapping (used directly) or a comma-separated ``k=v`` string
-    (as OTLP expects on the wire). Only the first ``=`` in each pair is treated
-    as the separator, so header values may themselves contain ``=``.
+    The wire string is comma-separated ``k=v`` pairs; a mapping is returned as
+    strings unchanged. Only the first ``=`` in each pair is the separator, so a
+    header value may itself contain ``=``.
     """
     if isinstance(value, dict):
         return {str(k): str(v) for k, v in value.items()}
@@ -743,7 +743,7 @@ def _build_telemetry_env(
             empty, not a list, or names anything but ``metrics``, ``logs`` and
             ``traces``.
             Also on an ``auth`` block the collector cannot use (see
-            :func:`telemetry_auth_token_env`).
+            :func:`telemetry_auth_token_env`), and on a ``headers`` key.
         ObservabilityCredentialError: On an ``openobserve`` backend whose
             credentials are missing, blank, or an unresolved ``${VAR}``, or on
             a collector token that is unset, blank, or carries a comma or a
@@ -775,13 +775,15 @@ def _build_telemetry_env(
         ),
     }
 
-    # Headers: config headers first, then the collector's bearer token or the
-    # computed OpenObserve Basic auth (never both), which wins on key
-    # collision. OTLP wire format is comma-separated k=v.
+    # The header map holds the one Authorization value: the collector's bearer
+    # token or the computed OpenObserve Basic auth, never both. OTLP wire
+    # format is comma-separated k=v.
+    if "headers" in telemetry_cfg:
+        raise TelemetryConfigError(
+            "claude_code.telemetry.headers is not a setting; name the variable that "
+            "holds the collector's bearer token in claude_code.telemetry.auth.token_env"
+        )
     headers: dict[str, str] = {}
-    configured = telemetry_cfg.get("headers")
-    if configured:
-        headers.update(_parse_header_map(configured))
     token_env = telemetry_auth_token_env(telemetry_cfg)
     if token_env is not None:
         bearer = _bearer_header(token_env, auth_token, defer_unresolved=defer_unresolved_creds)
