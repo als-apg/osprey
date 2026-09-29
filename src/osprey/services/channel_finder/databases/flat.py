@@ -6,6 +6,7 @@ This is the base implementation for in-context channel databases.
 """
 
 import json
+from typing import Any
 
 from ..core.base_database import BaseDatabase, DatabaseWriteError
 
@@ -66,7 +67,7 @@ class ChannelDatabase(BaseDatabase):
         """Check if channel exists in database."""
         return channel_name in self.channel_map
 
-    def validate_channels(self, channel_names: list[str]) -> list[dict[str, any]]:
+    def validate_channels(self, channel_names: list[str]) -> list[dict[str, Any]]:
         """Validate list of channels, return list of {channel, valid} dicts.
 
         Args:
