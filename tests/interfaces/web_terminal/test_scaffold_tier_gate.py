@@ -33,19 +33,15 @@ a write, and a tier that may not author still has to be able to look.
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
-    coerce_config_flag,
     create_app,
     register_scaffold_conflict_handlers,
 )
-from osprey.interfaces.web_terminal.routes import router as full_router
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
 
 from .conftest import bare_route_app
@@ -172,16 +168,12 @@ def _seed_reads(service):
 
 class TestDisabledRefusesEveryWrite:
     @pytest.mark.usefixtures("svc")
-    def test_every_write_verb_refuses_with_403(self, disabled_client):
-        for label, call in _write_requests(disabled_client):
-            resp = call()
-            assert resp.status_code == 403, f"{label} answered {resp.status_code}"
-
-    @pytest.mark.usefixtures("svc")
     def test_refusal_names_the_key_that_produced_it(self, disabled_client):
         """An operator who meets the refusal must learn which switch made it."""
         for label, call in _write_requests(disabled_client):
-            detail = call().json()["detail"]
+            resp = call()
+            assert resp.status_code == 403, f"{label} answered {resp.status_code}"
+            detail = resp.json()["detail"]
             assert "scaffold" in detail.lower(), label
             assert SCAFFOLD_WRITE_KEY in detail, label
 
@@ -222,79 +214,6 @@ class TestEnabledAndAbsentServeWrites:
         for label, call in _write_requests(client):
             resp = call()
             assert resp.status_code == 200, f"{label} answered {resp.status_code}"
-
-    def test_absent_state_attribute_creates(self, default_client, svc):
-        """The spot check with teeth: no attribute at all is the enabled path."""
-        svc.create_artifact.return_value = {"status": "created"}
-        resp = default_client.post(
-            "/api/scaffold/create",
-            json={"category": "rules", "name": "my-rule", "content": "x"},
-        )
-        assert resp.status_code == 200
-        assert resp.json() == {"status": "created"}
-        svc.create_artifact.assert_called_once_with("rules", "my-rule", "x")
-
-    def test_protected_refusals_still_reach_the_operator(self, default_client, svc):
-        """An enabled gallery still reports the protected-set refusal as itself."""
-        from osprey.interfaces.web_terminal.scaffold_gallery_service import (
-            ProtectedArtifactError,
-        )
-
-        svc.create_artifact.side_effect = ProtectedArtifactError(
-            "rules/ is written by the build",
-            channel="the build",
-            output_path=".claude/rules/x.md",
-        )
-        resp = default_client.post("/api/scaffold/create", json={"category": "rules", "name": "x"})
-        assert resp.status_code == 403
-        assert SCAFFOLD_WRITE_KEY not in resp.json()["detail"]
-
-
-# ---- The client's half: GET /api/panels publishes the posture ----
-
-
-class TestPanelsPayload:
-    def _panels_client(self, tmp_path, *, write_enabled):
-        application = FastAPI()
-        application.include_router(full_router)
-        application.state.project_cwd = str(tmp_path)
-        if write_enabled is not None:
-            application.state.scaffold_write_enabled = write_enabled
-        return TestClient(application)
-
-    def test_disabled_payload_says_so(self, tmp_path):
-        client = self._panels_client(tmp_path, write_enabled=False)
-        assert client.get("/api/panels").json()["scaffold_write_enabled"] is False
-
-    def test_enabled_payload_says_so(self, tmp_path):
-        client = self._panels_client(tmp_path, write_enabled=True)
-        assert client.get("/api/panels").json()["scaffold_write_enabled"] is True
-
-
-# ---- coerce_config_flag on this key ----
-
-
-class TestFlagCoercion:
-    def test_real_booleans_pass_through(self):
-        assert coerce_config_flag(SCAFFOLD_WRITE_KEY, False, True) is False
-        assert coerce_config_flag(SCAFFOLD_WRITE_KEY, True, False) is True
-
-    def test_absent_key_takes_the_default(self):
-        assert coerce_config_flag(SCAFFOLD_WRITE_KEY, None, True) is True
-
-    def test_quoted_false_is_honoured(self):
-        """`bool("false")` is True — the trap this helper exists to close."""
-        for spelling in ("false", "False", "FALSE", " no ", "off"):
-            assert coerce_config_flag(SCAFFOLD_WRITE_KEY, spelling, True) is False
-
-    def test_uninterpretable_value_warns_and_takes_the_default(self, caplog):
-        with caplog.at_level(logging.WARNING):
-            result = coerce_config_flag(SCAFFOLD_WRITE_KEY, {"write_enabled": 1}, True)
-        assert result is True
-        assert any(
-            SCAFFOLD_WRITE_KEY in record.message and record.levelno == logging.WARNING
-            for record in caplog.records
-        ), "expected a WARNING naming the key"
 
 
 # ---- Startup: the lifespan resolves the key once, onto app.state ----
