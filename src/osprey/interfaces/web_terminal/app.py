@@ -1527,7 +1527,8 @@ def _load_config_section(section: str, config_path: str | Path | None = None) ->
         if path and path.exists() and path.is_file():
             with open(path) as f:
                 config = yaml.safe_load(f) or {}
-            return config.get(section, {})
+            value = config.get(section, {}) if isinstance(config, dict) else {}
+            return value if isinstance(value, dict) else {}
 
     return {}
 
