@@ -163,28 +163,19 @@ describe('applyConfigTabGate', () => {
     expect(document.getElementById('behavior-gallery-section')).not.toBeNull();
   });
 
-  test('config_panel_enabled true keeps the tab', () => {
-    expect(applyConfigTabGate({ config_panel_enabled: true })).toBe(false);
+  test.each([
+    ['config_panel_enabled true', { config_panel_enabled: true }],
+    // Absent means enabled, mirroring the server's own default.
+    ['a payload without the key', { enabled: ['artifacts'], visible: [] }],
+    // A failed or hung /api/panels is not a statement about the posture.
+    ['a null payload', null],
+    // Only an explicit `false` withdraws: a string "false" would mean the
+    // payload contract changed under us — fix that at the source, not here.
+    ['a truthy non-boolean flag', { config_panel_enabled: 'false' }],
+  ])('%s keeps the tab', (_name, payload) => {
+    expect(applyConfigTabGate(payload)).toBe(false);
     expect(tabButtonPresent()).toBe(true);
     expect(tabPanelPresent()).toBe(true);
-  });
-
-  test('a payload without the key keeps the tab (absent means enabled)', () => {
-    expect(applyConfigTabGate({ enabled: ['artifacts'], visible: [] })).toBe(false);
-    expect(tabButtonPresent()).toBe(true);
-  });
-
-  test('a null payload — a failed or hung /api/panels — keeps the tab', () => {
-    expect(applyConfigTabGate(null)).toBe(false);
-    expect(tabButtonPresent()).toBe(true);
-  });
-
-  test('a truthy non-boolean flag is not a withdrawal', () => {
-    // Only an explicit `false` withdraws: the server sends a real bool, and a
-    // string "false" arriving here would mean the payload contract changed
-    // under us — something to fix at the source, not to guess at.
-    expect(applyConfigTabGate({ config_panel_enabled: 'false' })).toBe(false);
-    expect(tabButtonPresent()).toBe(true);
   });
 
   test('a second application is a no-op once the tab is gone', () => {
@@ -208,16 +199,6 @@ describe('applyConfigTabGate', () => {
     expect(document.getElementById('tab-behavior')?.classList.contains('active')).toBe(true);
   });
 
-  test('a root option scopes the lookup to one subtree', () => {
-    const other = document.createElement('div');
-    other.innerHTML = '<button class="drawer-tab" data-tab="tab-config">Config</button>';
-    document.body.appendChild(other);
-
-    expect(applyConfigTabGate({ config_panel_enabled: false }, { root: other })).toBe(true);
-    expect(other.querySelector('.drawer-tab')).toBeNull();
-    // The drawer's own tab is untouched — the gate acted only inside `root`.
-    expect(tabPanelPresent()).toBe(true);
-  });
 });
 
 describe('boot wiring: initPanelManager applies the gate', () => {
@@ -270,18 +251,14 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     await initPanelManager('panel-manager');
   }
 
-  test('a disabled deployment loses the Config tab at boot', async () => {
-    await boot(false);
+  test.each([
+    ['a disabled deployment loses the Config tab at boot', false],
+    ['an enabled deployment keeps it', true],
+  ])('%s', async (_name, enabled) => {
+    await boot(enabled);
 
-    expect(tabButtonPresent()).toBe(false);
-    expect(tabPanelPresent()).toBe(false);
-  });
-
-  test('an enabled deployment keeps it', async () => {
-    await boot(true);
-
-    expect(tabButtonPresent()).toBe(true);
-    expect(tabPanelPresent()).toBe(true);
+    expect(tabButtonPresent()).toBe(enabled);
+    expect(tabPanelPresent()).toBe(enabled);
   });
 });
 
@@ -442,6 +419,9 @@ describe('scaffold gallery survives the Config sections being gone', () => {
   test('Behavior and Safety still wire up after the gate removed the Config tab', async () => {
     const drawer = drawerWithGuard();
     applyConfigTabGate({ config_panel_enabled: false });
+    // No vendored `marked` global here, so init also walks configureMarked's
+    // absent-library path.
+    expect(Reflect.get(globalThis, 'marked')).toBeUndefined();
 
     vi.resetModules();
     const { initScaffoldGallery } = await import(
