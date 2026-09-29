@@ -9,12 +9,14 @@ file, so it is answered with the graph guidance panel instead.
 
 import json
 from pathlib import Path
+from typing import Any
 
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from osprey.services.channel_finder.core.base_database import BaseDatabase
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
@@ -32,8 +34,8 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
     Returns:
         (is_valid, errors, warnings)
     """
-    errors = []
-    warnings = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     if not db_path.exists():
         errors.append(f"Database file not found: {db_path}")
@@ -149,9 +151,10 @@ def validate_database_loading(db_path: Path, pipeline_type: str) -> tuple[bool, 
     Returns:
         (success, errors, stats)
     """
-    errors = []
-    stats = {}
+    errors: list[str] = []
+    stats: dict[str, Any] = {}
 
+    db: BaseDatabase
     try:
         if pipeline_type == "hierarchical":
             db = HierarchicalChannelDatabase(str(db_path))
@@ -186,9 +189,9 @@ def print_validation_results(
     is_valid: bool,
     errors: list[str],
     warnings: list[str],
-    stats: dict = None,
+    stats: dict | None = None,
     verbose: bool = False,
-    pipeline_type: str = None,
+    pipeline_type: str | None = None,
     console: Console | None = None,
 ):
     """Print formatted validation results using rich console and osprey theme."""
@@ -378,18 +381,20 @@ def run_validation(
     from osprey.utils.config import load_config as get_config
     from osprey.utils.workspace import resolve_path
 
-    pipeline_type = pipeline
+    pipeline_type: str
 
     if database:
         db_path = Path(database)
-        if not pipeline_type:
+        if pipeline:
+            pipeline_type = pipeline
+        else:
             try:
                 config = get_config()
                 detected_type, _ = detect_pipeline_config(config)
                 # An explicit file is the request; the graph paradigm says
                 # nothing about how to read one, so it falls back with the
                 # unconfigured case rather than reaching a file loader.
-                if detected_type in (None, "graph"):
+                if detected_type is None or detected_type == "graph":
                     pipeline_type = "in_context"
                 else:
                     pipeline_type = detected_type
@@ -404,7 +409,7 @@ def run_validation(
                 print_graph_paradigm_guidance(console)
                 return 0
 
-            if not detected_type:
+            if not detected_type or db_config is None:
                 console.print()
                 console.print(
                     Panel(

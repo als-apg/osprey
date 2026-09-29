@@ -459,3 +459,17 @@ class TestRunValidation:
         console = _capture_console()
         rc = run_validation(database=str(p), console=console)
         assert rc == 0
+
+    def test_database_on_a_graph_project_reads_as_in_context(self, tmp_path, monkeypatch):
+        import osprey.utils.config as config_mod
+
+        p = _write(
+            tmp_path / "db.json",
+            {"channels": [{"channel": "A:B", "address": "A:B", "description": "d"}]},
+        )
+        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(mod, "detect_pipeline_config", lambda config: ("graph", None))
+        console = _capture_console()
+        rc = run_validation(database=str(p), console=console)
+        assert rc == 0
+        assert "In Context" in _text(console)
