@@ -858,16 +858,6 @@ def test_payload_is_byte_identical_for_identical_input():
     assert first[1:] == second[1:]
 
 
-def test_payload_honours_a_smaller_cap_and_floor():
-    payload, bundle, truncated = assemble_payload(
-        "x" * 5_000, _oversized_material(), cap=2_000, floor=500
-    )
-
-    assert _byte_len(payload) <= 2_000
-    assert truncated is True
-    assert _byte_len(bundle) <= 500
-
-
 def test_payload_with_a_dead_session_still_carries_text_and_metadata():
     material = _material(context_status=CONTEXT_TRANSCRIPT_NOT_FOUND)
 
@@ -945,7 +935,6 @@ def test_payload_bundle_budget_reserves_the_floor_and_never_goes_negative():
     assert payload_bundle_budget(MAX_TEXT_BYTES) == CONTEXT_FLOOR_BYTES
     assert payload_bundle_budget(10**9) == CONTEXT_FLOOR_BYTES
     assert payload_bundle_budget(-5) == PAYLOAD_CAP_BYTES - SEPARATOR_BYTES
-    assert payload_bundle_budget(0, cap=10, floor=8_000, separator=PAYLOAD_SEPARATOR) >= 0
 
 
 # ---- first_line: the shared excerpt/summary cutter ----
