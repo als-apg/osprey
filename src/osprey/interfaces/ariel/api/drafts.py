@@ -12,7 +12,7 @@ import mimetypes
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -105,7 +105,7 @@ def read_draft(draft_id: str) -> dict[str, Any] | None:
     filepath = _drafts_dir() / f"{draft_id}.json"
     if not filepath.exists():
         return None
-    return json.loads(filepath.read_text())
+    return cast(dict[str, Any], json.loads(filepath.read_text()))
 
 
 @draft_router.post("/drafts", response_model=DraftCreateResponse)
