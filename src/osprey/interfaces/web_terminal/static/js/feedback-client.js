@@ -34,10 +34,10 @@
 import { withPrefix } from './api.js';
 import {
   PASTE_POINTER,
-  buildGitHubIssueUrl as defaultGitHubIssueUrl,
-  buildGitLabIssueUrl as defaultGitLabIssueUrl,
-  buildMailto as defaultMailto,
-  buildPrefillBody as defaultPrefillBody,
+  buildGitHubIssueUrl,
+  buildGitLabIssueUrl,
+  buildMailto,
+  buildPrefillBody,
   utf8Length,
 } from './feedback-prefill.js';
 
@@ -186,10 +186,6 @@ const SESSION_TITLE_CHARS = 8;
  * @property {string} [email] - maintainer address from `web.feedback.email`
  * @property {(payload: string) => void} [showSelectableText] - last copy rung
  * @property {(notice: FeedbackNotice) => void} [onNotice]
- * @property {typeof defaultGitHubIssueUrl} [buildGitHubIssueUrl]
- * @property {typeof defaultGitLabIssueUrl} [buildGitLabIssueUrl]
- * @property {typeof defaultMailto} [buildMailto]
- * @property {typeof defaultPrefillBody} [buildPrefillBody]
  */
 
 /**
@@ -504,26 +500,22 @@ function buildOutboundLink(form, deps) {
     // block would only duplicate it under the paste.
     body = PASTE_POINTER;
   } else {
-    const buildBody = deps.buildPrefillBody ?? defaultPrefillBody;
     const metadata = form.metadataOn === true ? { ...(deps.metadata ?? {}) } : {};
-    body = buildBody(String(form.text ?? ''), metadata);
+    body = buildPrefillBody(String(form.text ?? ''), metadata);
   }
   const title = deriveTitle(form);
 
   const channel = effectiveChannel(form);
   const target = String(form.tracker?.target ?? '');
   if (channel === 'github') {
-    const build = deps.buildGitHubIssueUrl ?? defaultGitHubIssueUrl;
-    const issue = build(target, title, body);
+    const issue = buildGitHubIssueUrl(target, title, body);
     return { url: issue.url, needsPaste: contextOn || issue.needsPaste === true };
   }
   if (channel === 'gitlab') {
-    const build = deps.buildGitLabIssueUrl ?? defaultGitLabIssueUrl;
-    const issue = build(target, title, body);
+    const issue = buildGitLabIssueUrl(target, title, body);
     return { url: issue.url, needsPaste: contextOn || issue.needsPaste === true };
   }
-  const build = deps.buildMailto ?? defaultMailto;
-  const draft = build(String(deps.email ?? ''), title, body);
+  const draft = buildMailto(String(deps.email ?? ''), title, body);
   return { url: draft.url, needsPaste: contextOn || draft.needsPaste === true };
 }
 
