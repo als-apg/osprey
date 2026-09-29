@@ -331,7 +331,7 @@ def chat(
 
     import yaml
 
-    from osprey.agent_runner.launcher import build_claude_launch_argv
+    from osprey.agent_runner.launcher import build_claude_launch_argv, build_session_argv
     from osprey.build.claude_code_resolver import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
@@ -461,21 +461,19 @@ def chat(
     # --project-dir flag). When claude_code.cli_version is set,
     # build_claude_launch_argv() returns an ``npx -y @anthropic-ai/claude-code@<v>``
     # prefix instead of a bare ``claude`` so each deployment can pin the CLI
-    # version (issue #218). ``--no-pin`` opts out of the pin but not the
-    # ``--setting-sources project`` provider isolation.
-    args = build_claude_launch_argv(cc_config, no_pin=no_pin)
-    if resume:
-        args.extend(["--resume", resume])
-    if print_mode:
-        args.append("--print")
-    if effort:
-        args.extend(["--effort", effort])
-    # Last, and positional: the agent CLI reads a single trailing argument as
-    # the opening message, so an unquoted `osprey chat what is the current?` is
-    # rejoined into the one message the operator meant rather than forwarded as
-    # four arguments of which only the first would be read.
-    if prompt:
-        args.append(" ".join(prompt))
+    # version. ``--no-pin`` opts out of the pin but not the
+    # ``--setting-sources project`` provider isolation. The agent CLI reads a
+    # single trailing argument as the opening message, so an unquoted
+    # `osprey chat what is the current?` is rejoined into the one message the
+    # operator meant rather than forwarded as four arguments of which only the
+    # first would be read.
+    args = build_session_argv(
+        build_claude_launch_argv(cc_config, no_pin=no_pin),
+        resume_id=resume,
+        print_mode=print_mode,
+        effort=effort,
+        prompt=" ".join(prompt) if prompt else None,
+    )
 
     # build/ IS the rendered project, and the agent CLI uses the working
     # directory as its project root — this is what points it at this

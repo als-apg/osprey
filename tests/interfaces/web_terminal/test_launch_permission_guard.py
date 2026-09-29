@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.agent_runner.launcher import build_claude_launch_argv
+from osprey.agent_runner.launcher import build_claude_launch_argv, build_session_argv
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -42,6 +42,7 @@ LAUNCH_PATH = (
     "src/osprey/templates/claude_code",
     "src/osprey/interfaces/web_terminal/app.py",
     "src/osprey/cli/web_cmd.py",
+    "src/osprey/interfaces/web_terminal/routes/websocket.py",
 )
 
 # Restricted to surfaces that can actually launch or configure a process.
@@ -114,6 +115,27 @@ class TestLaunchArgvCarriesNoPermissionBypass:
         argv = build_claude_launch_argv(cc_config)
         assert "--permission-mode" not in argv
         assert "--permissionMode" not in argv
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"resume_id": "abc123"},
+            {"session_id": "key-1"},
+            {"print_mode": True, "prompt": "hello"},
+            {"session_id": "key-1", "effort": "high"},
+        ],
+        ids=["resume", "new-session", "print", "effort"],
+    )
+    def test_session_argv_contains_no_bypass_token_or_permission_mode(self, kwargs):
+        argv = build_session_argv(build_claude_launch_argv({}), **kwargs)
+        joined = " ".join(argv)
+        for token in BYPASS_TOKENS:
+            assert token not in joined, (
+                f"build_session_argv(..., **{kwargs!r}) emitted {token!r}. The web "
+                f"terminal's permissions.deny array stops being authoritative the "
+                f"moment the agent launches in a bypassing mode."
+            )
+        assert "--permission-mode" not in argv
 
 
 class TestLaunchPathSourcesCarryNoPermissionBypass:
