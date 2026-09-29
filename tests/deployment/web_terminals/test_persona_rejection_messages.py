@@ -5,8 +5,8 @@ the deploy path, ``test_lint.py`` for the gate). What these tests pin is the
 remedy, on both paths at once: the operator most likely to hit either
 rejection is one whose variant build predates the persona-delta layout, so
 "set this value to ``personas/<name>.yml``" is advice about a file they do not
-have. Both messages must therefore also name ``/osprey:install``, the
-thing that converts an old variant into that file — and they must keep saying
+have. Both messages must therefore also link the installer's page
+(``INSTALL_DOCS_URL``), which covers converting an old variant into that file — and they must keep saying
 the same thing as each other, since a config can be rejected by whichever path
 the operator happens to reach first.
 """
@@ -19,11 +19,10 @@ import pytest
 
 from osprey.deployment.web_terminals import persona_images
 from osprey.deployment.web_terminals.lint import lint_web_terminals
+from osprey.docs_links import INSTALL_DOCS_URL
 
 #: A pre-delta value: the bundled preset name a facility used to write here.
 _LEGACY_VALUE = "control-assistant"
-
-_INTERVIEW = "/osprey:install"
 
 
 def _profile_root(tmp_path: Path) -> Path:
@@ -66,15 +65,21 @@ def _lint_rejection(tmp_path: Path, build_profile: str) -> str:
     return shape[0].message
 
 
-def test_deploy_rejection_names_the_install_skill(tmp_path: Path):
-    assert _INTERVIEW in _deploy_rejection(tmp_path, _LEGACY_VALUE)
+def test_deploy_rejection_links_the_install_page(tmp_path: Path):
+    message = _deploy_rejection(tmp_path, _LEGACY_VALUE)
+
+    assert INSTALL_DOCS_URL in message
+    assert "/osprey:install" not in message
 
 
-def test_lint_rejection_names_the_install_skill(tmp_path: Path):
-    assert _INTERVIEW in _lint_rejection(tmp_path, _LEGACY_VALUE)
+def test_lint_rejection_links_the_install_page(tmp_path: Path):
+    message = _lint_rejection(tmp_path, _LEGACY_VALUE)
+
+    assert INSTALL_DOCS_URL in message
+    assert "/osprey:install" not in message
 
 
-def test_missing_delta_file_also_names_the_install_skill(tmp_path: Path):
+def test_missing_delta_file_also_links_the_install_page(tmp_path: Path):
     """A well-shaped value pointing at nothing is the *likeliest* pre-delta
     symptom: the operator took the advice, wrote the path, and has no file to
     put there. That message shares the same remedy sentence, so it inherits
@@ -82,7 +87,8 @@ def test_missing_delta_file_also_names_the_install_skill(tmp_path: Path):
     message = _deploy_rejection(tmp_path, "personas/ops.yml")
 
     assert "no file exists at" in message
-    assert _INTERVIEW in message
+    assert INSTALL_DOCS_URL in message
+    assert "/osprey:install" not in message
 
 
 @pytest.mark.parametrize(
@@ -93,7 +99,9 @@ def test_missing_delta_file_also_names_the_install_skill(tmp_path: Path):
         "profiles/ops.yml",  # the registry-mode lone-YAML spelling
     ],
 )
-def test_both_paths_recommend_the_same_delta_and_the_interview(tmp_path: Path, build_profile: str):
+def test_both_paths_recommend_the_same_delta_and_the_install_page(
+    tmp_path: Path, build_profile: str
+):
     """One predicate decides the shape, but the two callers write their own
     remedies. If they drift, an operator who lints clean and then fails the
     deploy gets contradictory advice about which file to create."""
@@ -102,4 +110,5 @@ def test_both_paths_recommend_the_same_delta_and_the_interview(tmp_path: Path, b
 
     for message in (deploy_message, lint_message):
         assert "personas/ops.yml" in message
-        assert _INTERVIEW in message
+        assert INSTALL_DOCS_URL in message
+        assert "/osprey:install" not in message

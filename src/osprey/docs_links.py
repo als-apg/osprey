@@ -1,7 +1,8 @@
 """Published documentation addresses that runtime messages link.
 
 Runtime refusals and warnings that enforce a documented limit link the page
-that states it. The addresses are the published site's, not a deployment's
+that states it, and a remedy that needs the installer links the installer's
+page. The addresses are the published site's, not a deployment's
 ``web.docs_url``, because these lines reach a terminal or a container log.
 
 The module imports nothing, so :mod:`osprey.port_layout` stays a stdlib-only
@@ -16,3 +17,7 @@ DEPLOY_DOCS_URL: str = "https://als-apg.github.io/osprey/how-to/deploy-a-facilit
 #: perimeter needs: its own hostname or host:port, one origin, the host network,
 #: and a user ceiling.
 PERIMETER_LIMITS_URL: str = f"{DEPLOY_DOCS_URL}#perimeter-limits"
+
+#: The installer's page. A remedy whose fix is authoring or converting profile
+#: blocks sends the operator here.
+INSTALL_DOCS_URL: str = "https://als-apg.github.io/osprey/getting-started/osprey-install.html"
