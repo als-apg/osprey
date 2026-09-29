@@ -25,6 +25,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
+    BAR_ITEM_GATES,
     BAR_ITEM_OPTIONS,
     BAR_LAYOUT_VERSION,
     DEFAULT_BAR_LAYOUT,
@@ -139,10 +140,14 @@ class TestValidBlocks:
         assert layout[f"{shown}_visible"] is True
 
     def test_the_default_document_is_not_mutated(self, tmp_path):
-        """Two loads of a configured header leave the shipped default intact."""
-        before = [dict(item) for item in DEFAULT_BAR_LAYOUT["header"]]
-        _load_bar_items(_write_config(tmp_path, {"header": ["logo"]}), context=_OFFERS_EVERYTHING)
-        assert DEFAULT_BAR_LAYOUT["header"] == before
+        """An unconfigured bar is handed out as a copy of the shipped one, so a
+        caller editing the result cannot reach the process-wide default."""
+        before = [dict(item) for item in DEFAULT_BAR_LAYOUT["status"]]
+        layout = _load_bar_items(
+            _write_config(tmp_path, {"header": ["logo"]}), context=_OFFERS_EVERYTHING
+        )
+        layout["status"].append({"type": "separator"})
+        assert DEFAULT_BAR_LAYOUT["status"] == before
 
 
 class TestDropRules:
@@ -161,7 +166,12 @@ class TestDropRules:
         with caplog.at_level(logging.WARNING):
             layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
         assert _types(layout["status"]) == ["clock", "logo"]
-        assert "logo" not in caplog.text
+        assert [
+            record
+            for record in caplog.records
+            if record.name == "osprey.interfaces.web_terminal.app"
+            and record.levelno >= logging.WARNING
+        ] == []
 
     def test_a_second_copy_of_a_single_node_type_is_dropped_with_a_warning(self, tmp_path, caplog):
         """Counted across both bars, header first: the status-bar ``docs`` is
@@ -176,13 +186,16 @@ class TestDropRules:
         assert _types(layout["status"]) == ["separator", "clock"]
         assert "web.bar_items.status[0] places 'docs' a second time" in caplog.text
 
-    def test_a_configured_bar_counts_against_the_shipped_order_of_the_other(self, tmp_path):
+    def test_a_configured_bar_counts_against_the_shipped_order_of_the_other(self, tmp_path, caplog):
         """Only the status bar is configured, so the header keeps the shipped
-        order — and the ``docs`` it does not place stays available to the
-        status bar, while a second ``space`` is fine either way."""
-        path = _write_config(tmp_path, {"status": ["docs", "space", "space"]})
-        layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
+        order: the ``logo`` it places is a second copy in the status bar, the
+        ``docs`` it does not place stays available, and a second ``space`` is
+        fine either way."""
+        path = _write_config(tmp_path, {"status": ["docs", "logo", "space", "space"]})
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
         assert _types(layout["status"]) == ["docs", "space", "space"]
+        assert "web.bar_items.status[1] places 'logo' a second time" in caplog.text
 
     @pytest.mark.parametrize("entry", [42, None, [], {}, {"type": 5}, {"nope": "logo"}])
     def test_malformed_entry_is_dropped_and_neighbours_survive(self, tmp_path, entry, caplog):
@@ -381,7 +394,7 @@ class TestUnrenderableItemsLeaveTheDefault:
     """
 
     def test_a_deployment_that_renders_everything_gets_the_shipped_default_itself(self, tmp_path):
-        assert _load_bar_items(tmp_path / "nope.yml", context=_OFFERS_EVERYTHING) is (
+        assert _load_bar_items(tmp_path / "nope.yml", context=_OFFERS_EVERYTHING) == (
             DEFAULT_BAR_LAYOUT
         )
 
@@ -435,6 +448,9 @@ class TestUnrenderableItemsLeaveTheDefault:
         assert "web.bar_items.header[1]" in caplog.text
         assert "web.bar_items.header[2]" in caplog.text
         assert "identity" in caplog.text and "bluesky-queue" in caplog.text
+        # What each item needs, in the words an operator acts on.
+        assert BAR_ITEM_GATES["identity"] in caplog.text
+        assert BAR_ITEM_GATES["bluesky-queue"] in caplog.text
 
     def test_renderable_bar_layout_returns_the_same_object_when_nothing_is_dropped(self):
         assert renderable_bar_layout(DEFAULT_BAR_LAYOUT, context=_OFFERS_EVERYTHING) is (
