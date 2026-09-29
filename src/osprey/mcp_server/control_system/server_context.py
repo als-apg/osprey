@@ -208,25 +208,32 @@ class MCPServerConfig:
     raw: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
+    def _section(self, key: str) -> dict[str, Any]:
+        """Read the section at ``key`` as a mapping; empty reads as ``{}``."""
+        value = self.raw.get(key)
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        raise ValueError(
+            f"'{key}' in {self.config_path} must be a mapping, got {type(value).__name__}"
+        )
+
     @property
     def control_system(self) -> dict[str, Any]:
-        return self.raw.get("control_system", {})
+        return self._section("control_system")
 
     @property
     def archiver(self) -> dict[str, Any]:
-        return self.raw.get("archiver", {})
+        return self._section("archiver")
 
     @property
     def channel_finder(self) -> dict[str, Any]:
-        return self.raw.get("channel_finder", {})
+        return self._section("channel_finder")
 
     @property
     def ariel(self) -> dict[str, Any]:
-        return self.raw.get("ariel", {})
-
-    @property
-    def writes_enabled(self) -> bool:
-        return self.control_system.get("writes_enabled", False)
+        return self._section("ariel")
 
 
 # ---------------------------------------------------------------------------
