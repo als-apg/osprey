@@ -904,8 +904,12 @@ def _log_no_durable_store() -> None:
     logger.warning(NO_DURABLE_STORE)
 
 
-def _reset_store_notice() -> None:
-    """Re-arm the once-per-process notice. For tests."""
+def reset_store_notice() -> None:
+    """Re-arm the once-per-process no-durable-store notice.
+
+    The notice is process-wide: once said, it stays silent for every later
+    container-mode resolution in the process until this re-arms it.
+    """
     global _store_notice_logged
     _store_notice_logged = False
 

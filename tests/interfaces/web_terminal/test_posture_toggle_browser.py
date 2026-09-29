@@ -372,7 +372,7 @@ def _reset_process_memos() -> None:
     """
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes._reset_rendered_config_memo()
+    websocket_routes.reset_rendered_config_memo()
 
 
 #: A sweep in which every configured target answered. The switch gate refuses

@@ -302,8 +302,13 @@ _UNREADABLE_SECTION = object()
 _CONFIG_MEMO: tuple[Path, tuple[int, int, int], Any] | None = None
 
 
-def _reset_rendered_config_memo() -> None:
-    """Forget the parsed render. For tests, and for anything that rewrites it."""
+def reset_rendered_config_memo() -> None:
+    """Forget the parsed render, so the next read parses the file afresh.
+
+    The memo is process-wide: without a reset, a render parsed for one app is
+    still answered to the next app in the same process whose file carries the
+    same path and stat signature.
+    """
     global _CONFIG_MEMO
     _CONFIG_MEMO = None
 

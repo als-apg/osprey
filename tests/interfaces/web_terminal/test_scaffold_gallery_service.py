@@ -3793,7 +3793,7 @@ class TestNoDurableStoreIsSaidOutLoud:
     def test_a_missing_store_names_the_variable_it_needs(self, tmp_path, caplog):
         from osprey.interfaces.web_terminal import ownership as ownership_module
 
-        ownership_module._reset_store_notice()
+        ownership_module.reset_store_notice()
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
             resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
 
@@ -3803,7 +3803,7 @@ class TestNoDurableStoreIsSaidOutLoud:
     def test_it_is_said_once_per_process(self, tmp_path, caplog):
         from osprey.interfaces.web_terminal import ownership as ownership_module
 
-        ownership_module._reset_store_notice()
+        ownership_module.reset_store_notice()
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
             resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
             resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
@@ -3813,7 +3813,7 @@ class TestNoDurableStoreIsSaidOutLoud:
     def test_a_mounted_store_says_nothing(self, tmp_path, caplog):
         from osprey.interfaces.web_terminal import ownership as ownership_module
 
-        ownership_module._reset_store_notice()
+        ownership_module.reset_store_notice()
         env = self._in_a_container(
             ownership_module, **{ownership_module.CLAUDE_CONFIG_ENV: str(tmp_path)}
         )
@@ -3832,7 +3832,7 @@ class TestNoDurableStoreIsSaidOutLoud:
         """
         from osprey.interfaces.web_terminal import ownership as ownership_module
 
-        ownership_module._reset_store_notice()
+        ownership_module.reset_store_notice()
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
             assert resolve_ownership(tmp_path, env={}).mode is OwnershipMode.CONFIG
 

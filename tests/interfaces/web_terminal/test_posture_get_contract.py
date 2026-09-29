@@ -270,11 +270,11 @@ def agent_data_root(tmp_path, monkeypatch):
     monkeypatch.delenv(control_context_owner.WEB_PORT_ENV, raising=False)
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes._reset_rendered_config_memo()
+    websocket_routes.reset_rendered_config_memo()
     yield root
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes._reset_rendered_config_memo()
+    websocket_routes.reset_rendered_config_memo()
 
 
 @pytest.fixture

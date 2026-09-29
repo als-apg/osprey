@@ -1068,6 +1068,16 @@ _host_addrs_cache: tuple[float, frozenset[ipaddress.IPv4Address | ipaddress.IPv6
 )
 
 
+def reset_host_addrs_cache() -> None:
+    """Forget the last probe, so the next validation probes the interfaces again.
+
+    The memo is process-wide: without a reset, one probe's answer stands for
+    every panel validation in the process until the TTL runs out.
+    """
+    global _host_addrs_cache
+    _host_addrs_cache = None
+
+
 def _host_interface_addresses() -> frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     """Best-effort, dependency-free discovery of this host's own addresses.
 
