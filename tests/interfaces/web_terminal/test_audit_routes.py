@@ -134,7 +134,7 @@ def disabled_client(project_dir):
 
 @pytest.fixture
 def default_client(project_dir):
-    """No flag on state at all — the absent-key posture every plain app has."""
+    """No flag on state at all — the absent flag is refused, never assumed on."""
     with TestClient(_app(project_dir, config_panel_enabled=None)) as client:
         yield client
 
@@ -179,9 +179,15 @@ class TestTierGate:
         assert client.get(RECENT).status_code == 200
 
     @pytest.mark.usefixtures("own_dir")
-    def test_an_absent_flag_means_enabled(self, default_client):
-        """Matches every other Config-panel route: absent is not disabled."""
-        assert default_client.get(RECENT).status_code == 200
+    def test_an_absent_flag_means_disabled(self, default_client):
+        """Matches every other Config-panel route: the gate fails closed.
+
+        An app that never resolved ``web.config_panel.enabled`` is refused,
+        and the refusal names the key that was never decided.
+        """
+        response = default_client.get(RECENT)
+        assert response.status_code == 403
+        assert "web.config_panel.enabled" in response.json()["detail"]
 
     @pytest.mark.usefixtures("own_dir")
     @pytest.mark.parametrize(
