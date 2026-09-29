@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -132,7 +133,7 @@ async def file_tree(request: Request):
         return {"name": workspace_dir.name, "type": "directory", "children": []}
 
     def build_tree(directory: Path, depth: int = 0) -> dict:
-        node = {
+        node: dict[str, Any] = {
             "name": directory.name,
             "path": str(directory.relative_to(workspace_dir)),
             "type": "directory",
@@ -140,7 +141,7 @@ async def file_tree(request: Request):
         if depth > 10:
             return node
 
-        children = []
+        children: list[dict[str, Any]] = []
         try:
             entries = sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
         except PermissionError:
