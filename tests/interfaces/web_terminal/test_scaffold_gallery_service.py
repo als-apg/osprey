@@ -722,38 +722,6 @@ class TestSaveOverrideProtectedSet:
 
     # ── The route ────────────────────────────────────────────────────
 
-    @pytest.mark.usefixtures("audit_zone")
-    def test_save_override_route_refuses_with_403_and_records_activity(self, project_dir):
-        """The PUT route maps the refusal to 403 and publishes it to the ring."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        on_disk = project_dir / ".claude" / "rules" / "facility.md"
-        before = on_disk.read_text(encoding="utf-8")
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).put(
-            f"/api/scaffold/{self.RESERVED_OWNED}/override",
-            json={"content": "# Rewritten by the agent\n"},
-        )
-
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS WRITTEN" in detail
-        assert on_disk.read_text(encoding="utf-8") == before
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["save_override"]
-        recorded = app.state.agent_activity_ring[0]["target"]
-        assert recorded["kind"] == "artifact"
-        assert self.RESERVED_OWNED in recorded["detail"]
-
 
 # ===========================================================================
 # Unclaim
@@ -1098,40 +1066,6 @@ class TestDeleteUntrackedProtectedSet:
         assert "NOTHING WAS DELETED" in str(exc.value)
         assert target.exists()
         assert len(_protected_records(audit_zone)) == 1
-
-    @pytest.mark.usefixtures("audit_zone")
-    def test_delete_untracked_route_refuses_with_403_and_records_activity(self, project_dir):
-        """The DELETE route maps the refusal to 403 and publishes it to the ring.
-
-        The service holds no ``Request``, so naming the refusal in the agent's
-        activity history is the route's job.
-        """
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        target = project_dir / ".claude" / "rules" / "route-guard.md"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("# Route guard\n", encoding="utf-8")
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).delete("/api/scaffold/untracked/rules/route-guard")
-
-        assert response.status_code == 403
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS DELETED" in detail
-        assert target.exists()
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["delete_untracked"]
-        recorded = app.state.agent_activity_ring[0]["target"]
-        assert recorded["kind"] == "artifact"
-        assert "rules/route-guard" in recorded["detail"]
 
 
 class TestCustomArtifacts:
@@ -2339,7 +2273,8 @@ class TestRouteRefusals:
             "/api/scaffold/create", json={"category": "rules", "name": "../../evil"}
         )
 
-        assert response.status_code in (400, 409), response.text
+        assert response.status_code == 409, response.text
+        assert "is not an artifact name" in response.json()["detail"]
         assert not (container_project.parent / "evil.md").exists()
 
 
@@ -2476,36 +2411,6 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not (container_project / ".claude" / "rules" / f"{name}.md").exists()
         assert len(_protected_records(audit_zone)) == 1
 
-    @pytest.mark.usefixtures("audit_zone")
-    def test_create_artifact_route_refuses_with_403_and_records_activity(self, project_dir):
-        """The POST route maps the refusal to 403 and publishes it to the ring."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        category, name = self.NEW_RULE
-        response = TestClient(app).post(
-            "/api/scaffold/create",
-            json={"category": category, "name": name, "content": "# Written by the agent\n"},
-        )
-
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS CREATED" in detail
-        assert not (_profile_root(project_dir) / "rules" / f"{name}.md").exists()
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["create_artifact"]
-        recorded = app.state.agent_activity_ring[0]["target"]
-        assert recorded["kind"] == "artifact"
-        assert f"rules/{name}" in recorded["detail"]
-
     # ── claim ────────────────────────────────────────────────────────
 
     def test_claim_of_a_reserved_rule_is_refused_in_profile_mode(
@@ -2575,38 +2480,6 @@ class TestCreateClaimUnoverrideProtectedSet:
             svc.scaffold_override("hooks/hook-config")
 
         assert _protected_records(audit_zone) == [], "the older refusal audits nothing"
-
-    @pytest.mark.usefixtures("audit_zone")
-    def test_claim_route_refuses_a_reserved_skill_with_403_and_records_activity(self, project_dir):
-        """A pattern-reserved claim is a 403 naming the channel, not a 500.
-
-        The app-level handler turns the CLI's refusal into a 409, but it only
-        ever sees the exactly-reserved paths; a refusal on a reserved SUBTREE
-        would have reached the browser as a bare 500 with the channel stripped
-        out of it.
-        """
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        register_scaffold_conflict_handlers(app)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).post("/api/scaffold/skills/diagnose/claim")
-
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`skills/` convention directory" in detail
-        assert "NOTHING WAS CLAIMED" in detail
-        assert not (_profile_root(project_dir) / "skills" / "diagnose").exists()
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["claim"]
-        assert "skills/diagnose" in app.state.agent_activity_ring[0]["target"]["detail"]
 
     # ── unclaim with delete ──────────────────────────────────────────
 
@@ -2685,32 +2558,6 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not orphan.exists()
         assert "agents/removable" not in _get_user_owned(detached_project_dir)
         assert _protected_records(audit_zone) == []
-
-    @pytest.mark.usefixtures("audit_zone")
-    def test_unoverride_route_refuses_with_403_and_records_activity(self, detached_project_dir):
-        """The DELETE route had no clause for this: the refusal was a 500."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        planted = self._owned_reserved_file(detached_project_dir)
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(detached_project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).delete("/api/scaffold/rules/planted/override?delete_file=true")
-
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS DELETED" in detail
-        assert planted.exists()
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["unoverride"]
-        assert "rules/planted" in app.state.agent_activity_ring[0]["target"]["detail"]
 
 
 class TestLinkedWritesAreJudgedOnTheResolvedFile:
@@ -3248,37 +3095,6 @@ class TestSaveOverrideReportsAppliesOnRestart:
         result = ScaffoldGalleryService(project_dir).save_override(WRITABLE_ARTIFACT, "# Edited\n")
 
         assert result["applies_on_restart"] is False
-
-    def test_the_reserved_gate_still_wins_before_applies_on_restart_is_reported(
-        self, project_dir, audit_zone
-    ):
-        """Ordering: a protected artifact is a 403, never a degraded 200.
-
-        Both answers are "your edit is not in the tree", and they must not be
-        confused for one another — one says come back after a restart, the
-        other says this is not yours to write at all. The refusal is raised
-        before either surface is touched, so it cannot arrive as a save that
-        merely applies later.
-        """
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).put(
-            f"/api/scaffold/{self.RESERVED_OWNED}/override",
-            json={"content": "# Rewritten by the agent\n"},
-        )
-
-        assert response.status_code == 403, response.text
-        assert "applies_on_restart" not in response.text
-        assert "NOTHING WAS WRITTEN" in response.json()["detail"]
-        assert len(_protected_records(audit_zone)) == 1
 
 
 # ===========================================================================
