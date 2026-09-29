@@ -897,7 +897,7 @@ def _resolve_web_shell_command(
     left to PATH lookup unchanged. Always returns ``list[str]`` so downstream
     consumers can unpack safely.
     """
-    from osprey.utils.claude_launcher import build_claude_launch_argv
+    from osprey.agent_runner.launcher import build_claude_launch_argv
     from osprey.utils.shell_resolver import normalize_shell_command, resolve_shell_command
 
     if shell_override:

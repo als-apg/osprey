@@ -331,6 +331,7 @@ def chat(
 
     import yaml
 
+    from osprey.agent_runner.launcher import build_claude_launch_argv
     from osprey.build.claude_code_resolver import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
@@ -342,7 +343,6 @@ def chat(
         telemetry_creds_are_store_issued,
     )
     from osprey.deployment.staleness import BUILD_DIRNAME
-    from osprey.utils.claude_launcher import build_claude_launch_argv
 
     repo_root = find_repo_root(repo)
     build_dir = repo_root / BUILD_DIRNAME

@@ -3,7 +3,10 @@
 OSPREY projects can pin a specific Claude Code CLI version via the
 ``claude_code.cli_version`` config field. When set, OSPREY launches Claude
 through ``npx`` rather than the user's global install, insulating projects
-from upstream CC releases that break compatibility (see issue #218).
+from upstream CC releases that break compatibility.
+
+This module is the harness adapter's single home for the agent CLI's command
+line: the program, the pin, the isolation flag and the conversation flags.
 
 That pin governs the CLI OSPREY *spawns*. It does not govern the CLI the
 Agent SDK runs, which prefers a binary bundled inside its own package, so a
@@ -45,7 +48,7 @@ _VERSION_PROBE_TIMEOUT_S = 5.0
 # ~/.claude/settings.json and a gitignored .claude/settings.local.json both
 # outrank the inherited process environment, so an `env` block there would
 # silently override the provider variables OSPREY injects at launch — including
-# ANTHROPIC_BASE_URL, bypassing the translation proxy (issue #355). Loading only
+# ANTHROPIC_BASE_URL, bypassing the translation proxy. Loading only
 # the project scope makes the process environment authoritative again. The SDK
 # launch paths (agent_runner.primitives, dispatch_worker.sdk_runner) already
 # pass setting_sources=["project"]; this keeps the subprocess paths consistent.
