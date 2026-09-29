@@ -527,7 +527,8 @@ async def run_sync(
     async with service:
         scheduler = IngestionScheduler(config=sync_config, repository=service.repository)
         if progress:
-            source = sync_config.ingestion.source_url or "unknown"
+            ingestion = sync_config.ingestion
+            source = (ingestion.source_url if ingestion else None) or "unknown"
             progress(f"Polling for new entries (source: {source})...")
 
         poll_result = await scheduler.poll_once(limit=limit)
@@ -1618,7 +1619,7 @@ async def _embed_batch(
     batch_texts: list[str],
     batch_ids: list[str],
     model: str,
-    base_url: str,
+    base_url: str | None,
     table_name: str,
     force: bool,
     progress: _ProgressCb,

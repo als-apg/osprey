@@ -214,7 +214,7 @@ class ALSLogbookAdapter(FacilityAdapter):
         auth_user = request.auth_user or write_cfg.auth_user
         auth_password = request.auth_password or write_cfg.auth_password
 
-        if self.requires_write_auth and (not auth_user or not auth_password):
+        if not auth_user or not auth_password:
             raise AuthenticationRequiredError(
                 "OLOG publishing requires credentials. "
                 "Provide username and password in the submit form, "

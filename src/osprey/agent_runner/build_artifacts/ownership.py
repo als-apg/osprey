@@ -24,7 +24,9 @@ if TYPE_CHECKING:
 
 def get_user_owned(config: dict) -> list[str]:
     """Extract scaffold.user_owned list from config."""
-    return config.get("scaffold", {}).get("user_owned", [])
+    scaffold = config.get("scaffold")
+    user_owned = scaffold.get("user_owned") if isinstance(scaffold, dict) else None
+    return list(user_owned) if isinstance(user_owned, list) else []
 
 
 # ── Config.yml helpers ───────────────────────────────────────────────
