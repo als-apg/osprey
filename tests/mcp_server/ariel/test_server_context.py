@@ -196,3 +196,18 @@ def test_initialize_missing_ariel_section_still_does_not_raise(tmp_path, monkeyp
     registry = initialize_ariel_context()
 
     assert registry.raw_config.get("ariel") is None
+
+
+def test_initialize_refuses_a_malformed_entry_text_budget(tmp_path, monkeypatch):
+    """A malformed entry-text budget refuses startup and names the key."""
+    monkeypatch.chdir(tmp_path)
+    config = {
+        "ariel": {
+            "database": {"uri": "postgresql://localhost:5432/ariel"},
+            "entry_text": {"listing_chars": "lots"},
+        }
+    }
+    (tmp_path / "config.yml").write_text(json.dumps(config))
+
+    with pytest.raises(ValueError, match=r"ariel\.entry_text\.listing_chars"):
+        initialize_ariel_context()

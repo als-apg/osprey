@@ -16,7 +16,12 @@ from osprey.port_layout import default_port
 from osprey.utils.config_paths import resolve_config_relative_path
 
 from .exceptions import ConfigurationError
-from .models import normalize_search_mode, resolve_implicit_search_mode
+from .models import (
+    DEFAULT_LISTING_TEXT_CHARS,
+    DEFAULT_READ_TEXT_CHARS,
+    normalize_search_mode,
+    resolve_implicit_search_mode,
+)
 from .vocabulary.loader import load_vocabulary
 from .vocabulary.model import Vocabulary
 
@@ -685,6 +690,78 @@ class VocabularyConfig:
         )
 
 
+_ENTRY_TEXT_PREFIX = "ariel.entry_text"
+
+
+def _entry_text_chars(data: dict[str, Any], key: str, default: int) -> int:
+    """Read one character budget from the ``ariel.entry_text`` block.
+
+    A *present* key of the wrong type is refused rather than defaulted or
+    clamped, for the same reason :func:`_vocab_bool` refuses one: silently
+    ignoring it would leave the deployment on the behavior it explicitly asked
+    to leave.
+
+    Args:
+        data: The ``ariel.entry_text`` mapping.
+        key: Leaf key to read.
+        default: Value to use when the key is absent.
+
+    Returns:
+        The budget, a positive whole number of characters.
+
+    Raises:
+        ValueError: If the key is present but not a positive integer.
+    """
+    value = data.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(
+            f"{_ENTRY_TEXT_PREFIX}.{key} must be a positive whole number of characters, "
+            f"got {value!r}"
+        )
+    return value
+
+
+@dataclass(frozen=True)
+class EntryTextConfig:
+    """The ``ariel.entry_text`` block: how much of each entry's text the agent sees.
+
+    Attributes:
+        listing_chars: Characters of each entry's text a listing carries:
+            ``keyword_search``, ``semantic_search``, ``hybrid_search`` and ``browse``.
+        read_chars: Characters of each entry's text a batch read carries:
+            ``entries_by_ids``. Never below ``listing_chars``.
+
+    ``entry_get`` is never cut.
+    """
+
+    listing_chars: int = DEFAULT_LISTING_TEXT_CHARS
+    read_chars: int = DEFAULT_READ_TEXT_CHARS
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EntryTextConfig":
+        """Create EntryTextConfig from the ``ariel.entry_text`` mapping.
+
+        Args:
+            data: The ``ariel.entry_text`` mapping.
+
+        Returns:
+            EntryTextConfig instance.
+
+        Raises:
+            ValueError: If a budget is not a positive integer, or ``read_chars``
+                is below ``listing_chars``.
+        """
+        listing = _entry_text_chars(data, "listing_chars", cls.listing_chars)
+        read = _entry_text_chars(data, "read_chars", cls.read_chars)
+        if read < listing:
+            raise ValueError(
+                f"{_ENTRY_TEXT_PREFIX}.read_chars ({read}) is below "
+                f"{_ENTRY_TEXT_PREFIX}.listing_chars ({listing}): reading an entry must "
+                "show at least what a search result shows"
+            )
+        return cls(listing_chars=listing, read_chars=read)
+
+
 @dataclass
 class ARIELConfig:
     """Root configuration for ARIEL service.
@@ -710,6 +787,8 @@ class ARIELConfig:
             classes leave a working service.
         vocabulary_warnings: Loader warnings — a vocabulary that loads but may
             not behave as its author expects. Never blocks anything.
+        entry_text: The ``ariel.entry_text`` block — how much of each entry's text
+            the agent-facing tools return.
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
@@ -733,6 +812,7 @@ class ARIELConfig:
     loaded_vocabulary: Vocabulary | None = None
     vocabulary_errors: list[str] = field(default_factory=list)
     vocabulary_warnings: list[str] = field(default_factory=list)
+    entry_text: EntryTextConfig = field(default_factory=EntryTextConfig)
 
     @classmethod
     def from_dict(
@@ -769,6 +849,7 @@ class ARIELConfig:
         Raises:
             ConfigurationError: If the deprecated 'pipelines' section is present.
             ValueError: If the ``vocabulary`` block is malformed.
+            ValueError: If the ``entry_text`` block is malformed.
         """
         if "pipelines" in config_dict:
             raise ConfigurationError(
@@ -800,6 +881,14 @@ class ARIELConfig:
         default_search_mode = config_dict.get("default_search_mode")
         if default_search_mode is not None:
             default_search_mode = normalize_search_mode(default_search_mode)
+
+        entry_text_data = config_dict.get("entry_text")
+        if entry_text_data is None:
+            entry_text = EntryTextConfig()
+        elif isinstance(entry_text_data, dict):
+            entry_text = EntryTextConfig.from_dict(entry_text_data)
+        else:
+            raise ValueError(f"{_ENTRY_TEXT_PREFIX} must be a mapping, got {entry_text_data!r}")
 
         vocabulary_data = config_dict.get("vocabulary")
         if vocabulary_data is None:
@@ -842,6 +931,7 @@ class ARIELConfig:
             loaded_vocabulary=loaded_vocabulary,
             vocabulary_errors=vocabulary_errors,
             vocabulary_warnings=vocabulary_warnings,
+            entry_text=entry_text,
         )
 
     @property

@@ -591,6 +591,11 @@ config:
   # the same Postgres the logbook lives in, so this number is a storage
   # decision in both directions.
   # ariel.attachments.max_file_mb: 10
+  # How much of each entry's text the agent sees: search and browse results
+  # carry the first `listing_chars`, `entries_by_ids` the first `read_chars`,
+  # and `entry_get` the whole entry. A cut entry says so and gives its length.
+  # ariel.entry_text.listing_chars: 500
+  # ariel.entry_text.read_chars: 1000
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite

@@ -137,9 +137,9 @@ async def entries_by_ids(
 ) -> str:
     """Get multiple logbook entries by their IDs in a single call.
 
-    Efficient batch retrieval for reading full details of entries found
-    via search. Returns full entry content with a higher text limit than
-    search results.
+    Efficient batch retrieval for reading entries found via search. Each entry
+    carries more of its text than a search result does; an entry cut short is
+    marked `raw_text_truncated`, and `entry_get` returns it whole.
 
     Args:
         entry_ids: List of entry IDs to retrieve (max 50 per call).
@@ -168,8 +168,10 @@ async def entries_by_ids(
 
         entries = await service.repository.get_entries_by_ids(entry_ids)
 
-        # Serialize with longer text limit for full details
-        entries_out = [serialize_entry(e, text_limit=1000) for e in entries]
+        # A batch read carries more of each entry than a search result; a cut entry says so.
+        entries_out = [
+            serialize_entry(e, text_limit=registry.config.entry_text.read_chars) for e in entries
+        ]
 
         return json.dumps(
             {
