@@ -112,10 +112,12 @@ async def screenshot_capture(
             display_num = target or "1"
             info = await backend.capture_display(display_num, str(filepath))
         elif mode == "region":
+            assert target is not None  # region needs a target, checked above
             parts = target.split(",")
             x, y, w, h = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
             info = await backend.capture_region(x, y, w, h, str(filepath))
         elif mode == "window":
+            assert target is not None  # window needs a target, checked above
             info = await backend.capture_window(target, str(filepath))
 
         # Save to ArtifactStore (unified)
@@ -273,8 +275,10 @@ async def manage_window(
         if action == "bring_to_front":
             await backend.bring_to_front(app)
         elif action == "move":
+            assert x is not None and y is not None  # checked above
             await backend.move_window(app, x, y)
         elif action == "resize":
+            assert width is not None and height is not None  # checked above
             await backend.resize_window(app, width, height)
 
         # Only once the backend moved the window: a refused or failed action

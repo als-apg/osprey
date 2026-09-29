@@ -437,7 +437,8 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
     metadata_path = execution_folder / "execution_metadata.json"
     if metadata_path.exists():
         try:
-            return json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            return metadata if isinstance(metadata, dict) else None
         except Exception:
             logger.debug("Failed to read execution metadata", exc_info=True)
     return None
