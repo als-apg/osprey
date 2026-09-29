@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shutil
 import time
@@ -11,12 +12,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from watchdog.events import (
+    DirCreatedEvent,
     DirDeletedEvent,
     DirModifiedEvent,
     DirMovedEvent,
     FileCreatedEvent,
     FileDeletedEvent,
     FileModifiedEvent,
+    FileMovedEvent,
 )
 from watchdog.observers.polling import PollingObserver
 
@@ -24,6 +27,8 @@ from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
     WorkspaceWatcher,
     _WorkspaceHandler,
+    filesystem_is_case_insensitive,
+    resolve_store_rel,
 )
 from tests.interfaces.fsevents_wait import (
     collect_frames,
@@ -269,6 +274,13 @@ def _broadcast_paths(broadcaster: MagicMock) -> list[str]:
     return [call.args[0]["path"] for call in broadcaster.broadcast.call_args_list]
 
 
+def _require_case_insensitive_fs(directory: Path) -> None:
+    """Skip rather than pass vacuously where the case-variant bypass is not reachable."""
+    (directory / "probe").write_text("x")
+    if not (directory / "PROBE").exists():
+        pytest.skip("case-sensitive filesystem: the case-variant bypass is not reachable here")
+
+
 class TestSeveralStoresAreConcealed:
     """``concealed`` is a collection: every server-side store the watched tree
     happens to contain is dropped, not just the feedback one.
@@ -351,9 +363,7 @@ class TestSeveralStoresAreConcealed:
         """``mkdir(exist_ok=True)`` against ``bar_items`` succeeds silently
         when ``Bar_Items`` already exists, so a layout really can be written
         under a spelling an exact segment compare would broadcast."""
-        (tmp_path / "probe").write_text("x")
-        if not (tmp_path / "PROBE").exists():
-            pytest.skip("case-sensitive filesystem: the case-variant bypass is not reachable here")
+        _require_case_insensitive_fs(tmp_path)
         workspace = tmp_path / "_agent_data"
         workspace.mkdir()
         broadcaster = MagicMock()
@@ -365,6 +375,63 @@ class TestSeveralStoresAreConcealed:
         handler.on_any_event(FileCreatedEvent(str(workspace / "artifacts" / "plot.png")))
 
         assert _broadcast_paths(broadcaster) == [str(Path("artifacts/plot.png"))]
+
+
+class TestConcealmentIsRootAnchored:
+    """A store is concealed for every event type, from its own directory down,
+    and only where the workspace root puts it."""
+
+    def test_every_event_type_is_dropped(self):
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+        record = str(WORKSPACE / "feedback" / "fb-abc123.json")
+
+        handler.on_any_event(FileCreatedEvent(record))
+        handler.on_any_event(FileModifiedEvent(record + ".2"))
+        handler.on_any_event(FileDeletedEvent(record + ".3"))
+        handler.on_any_event(
+            FileMovedEvent(record + ".4", str(WORKSPACE / "feedback" / "fb-moved.json"))
+        )
+        handler.on_any_event(
+            FileCreatedEvent(str(WORKSPACE / "feedback" / "contexts" / "ctx-abc123.json"))
+        )
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "notes.md")))
+
+        assert _broadcast_paths(broadcaster) == ["notes.md"]
+
+    def test_store_directory_itself_is_dropped(self):
+        """The first submission creates the store; its own creation is concealed."""
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+
+        handler.on_any_event(DirCreatedEvent(str(WORKSPACE / "feedback")))
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "notes.md")))
+
+        assert _broadcast_paths(broadcaster) == ["notes.md"]
+
+    def test_nested_feedback_directory_still_broadcasts(self):
+        """A session-scoped ``feedback/`` elsewhere in the tree is ordinary content.
+
+        This is why the store is not added to ``_IGNORE_PATTERNS``, which
+        matches any path segment at any depth.
+        """
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+
+        handler.on_any_event(
+            FileCreatedEvent(str(WORKSPACE / "sessions" / "x" / "feedback" / "notes.md"))
+        )
+
+        assert _broadcast_paths(broadcaster) == [str(Path("sessions/x/feedback/notes.md"))]
+
+    def test_outside_the_workspace_is_still_dropped(self):
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+
+        handler.on_any_event(FileCreatedEvent("/elsewhere/feedback/fb-abc.json"))
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "notes.md")))
+
+        assert _broadcast_paths(broadcaster) == ["notes.md"]
 
 
 class TestWatcherThreadsTheCollectionThrough:
@@ -875,3 +942,86 @@ class TestAReconciliationPass:
 
         assert handler._pending_descent == set()
         assert self._events(broadcaster) == []
+
+
+class TestFirstEverStartup:
+    """The derivation probes the filesystem, so it must not run before the
+    workspace exists. The watcher creates it in ``start()`` -- too late."""
+
+    def test_concealment_engages_when_the_workspace_is_absent_at_derivation(self, tmp_path):
+        """First run, case-mismatched store: an absent directory probes as
+        case-sensitive, yields ``None``, and leaves concealment off for the
+        life of the process."""
+        _require_case_insensitive_fs(tmp_path)
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.web_terminal.app import create_app
+
+        workspace_dir = tmp_path / "_agent_data"  # deliberately NOT created
+        store_root = tmp_path / "_AGENT_DATA"
+
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ),
+            patch(
+                "osprey.utils.workspace.resolve_shared_data_root",
+                return_value=store_root,
+            ),
+        ):
+            with TestClient(create_app(shell_command="echo")) as client:
+                assert client.app.state.feedback_rel == PurePath("feedback")
+
+
+class TestStoreRelDerivation:
+    """``resolve_store_rel`` decides whether the watcher conceals anything at
+    all -- returning ``None`` disables concealment entirely."""
+
+    def test_store_inside_the_tree(self, tmp_path):
+        assert resolve_store_rel(tmp_path / "feedback", tmp_path) == PurePath("feedback")
+
+    def test_store_outside_the_tree_is_none(self, tmp_path):
+        outside = tmp_path.parent / "elsewhere" / "feedback"
+        assert resolve_store_rel(outside, tmp_path / "_agent_data") is None
+
+    def test_a_differently_cased_workspace_still_yields_a_relative_path(self, tmp_path):
+        """The store root and ``watch_dir`` can spell one directory two ways.
+        An exact comparison returns ``None`` here, silently switching the
+        watcher's concealment off."""
+        _require_case_insensitive_fs(tmp_path)
+        workspace = tmp_path / "_agent_data"
+        workspace.mkdir()
+
+        store = tmp_path / "_AGENT_DATA" / "feedback"
+        assert resolve_store_rel(store, workspace) == PurePath("feedback")
+
+    def test_a_store_that_is_the_watched_tree_is_none(self, tmp_path, caplog):
+        """That relative path has no segments, which every path trivially
+        starts with -- concealing it would drop every event and black out the
+        file panel entirely."""
+        with caplog.at_level(logging.WARNING, logger="osprey.interfaces.web_terminal.file_watcher"):
+            assert resolve_store_rel(tmp_path, tmp_path) is None
+
+        assert "watched workspace itself" in caplog.text
+
+    def test_an_uncased_workspace_name_is_probed_from_inside(self, tmp_path):
+        """A workspace whose own basename has no cased characters (``2026``)
+        cannot be re-spelled, and probing its parent would measure the wrong
+        filesystem for a mount point. The probe uses a child instead."""
+        _require_case_insensitive_fs(tmp_path)
+        workspace = tmp_path / "2026"
+        workspace.mkdir()
+        (workspace / "artifacts").mkdir()
+
+        assert filesystem_is_case_insensitive(workspace) is True
+        assert resolve_store_rel(workspace / "FEEDBACK", workspace) == PurePath("FEEDBACK")
+
+    def test_an_empty_uncased_workspace_falls_back_without_raising(self, tmp_path):
+        """Nothing inside to re-spell and nothing cased in the name: the probe
+        gives up and the exact comparison stands."""
+        workspace = tmp_path / "2026"
+        workspace.mkdir()
+
+        assert filesystem_is_case_insensitive(workspace) is False
+        assert resolve_store_rel(workspace / "feedback", workspace) == PurePath("feedback")
