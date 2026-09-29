@@ -12,7 +12,8 @@ from then on. It writes, under ``--out``:
 * ``records/channels.yaml`` -- every channel of the demo TTL plus the
   fingerprint additions (the deck machine's tune and chromaticity readbacks);
 * ``records/groups.yaml`` -- one group per machine family and per machine
-  system.
+  system;
+* ``limits.yaml`` -- three records, each teaching one limits shape.
 
 Output is deterministic: records sorted by id (places in tree order), UTF-8
 YAML, one scalar per line. Run it with the project interpreter
@@ -46,22 +47,6 @@ def _load_records() -> Any:
 _records = _load_records()
 
 
-def _load_models() -> Any:
-    """``_models.py`` beside this file, under a name no other module takes."""
-    name = "facility_demo__models"
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name("_models.py"))
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_models = _load_models()
-
-
 class _Dumper(yaml.SafeDumper):
     """A safe dumper that never writes anchors and writes scalar lists inline."""
 
@@ -89,6 +74,23 @@ def dump(document: Any) -> str:
     )
 
 
+def _load_sibling(stem: str) -> Any:
+    """``<stem>.py`` beside this file, under a name no other module takes."""
+    name = f"facility_demo_{stem}"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f"{stem}.py"))
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_limits = _load_sibling("_limits")
+_models = _load_sibling("_models")
+
+
 def files(records: _records.Records) -> dict[str, str]:
     """Relative path -> text for every file the generator writes."""
     return {
@@ -99,6 +101,7 @@ def files(records: _records.Records) -> dict[str, str]:
         "records/devices.yaml": dump(records.devices),
         "records/channels.yaml": dump(records.channels),
         "records/groups.yaml": dump(records.groups),
+        "limits.yaml": _limits.text(),
     }
 
 
