@@ -160,6 +160,27 @@ async def test_tool_result_in_user_message_is_captured(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_a_tool_result_with_no_content_is_recorded_as_empty(monkeypatch):
+    """A call that returned nothing is recorded as returned, with an empty result."""
+
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
+        yield AssistantMessage(
+            content=[ToolUseBlock(id="tu1", name="mcp__x__y", input={})], model="m"
+        )
+        yield UserMessage(content=[ToolResultBlock(tool_use_id="tu1", content=None)])
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=queue)
+
+    assert result["tool_calls"][0]["result"] == ""
+    events = await _drain(queue)
+    assert {"type": "tool_result", "name": "mcp__x__y", "result": ""} in events
+
+
+@pytest.mark.asyncio
 async def test_tool_policy_wiring(monkeypatch, tmp_path):
     """run_dispatch wires the dispatch tool policy into ClaudeAgentOptions.
 
