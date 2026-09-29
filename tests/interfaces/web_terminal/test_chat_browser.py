@@ -981,14 +981,16 @@ def test_hostile_markdown_renders_inert(tmp_path, chromium_browser):
 
 
 def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
-    """An eviction with nothing to resume makes the next turn show the divider.
+    """No divider after a fresh first turn; exactly one after an unresumable eviction.
 
     What paints the divider is the conversation ending, not the process dying.
-    The evicted key has no transcript on disk here — the faked SDK writes none
-    — so the re-created session has nothing to continue and starts a
-    conversation of its own, which is what re-emits ``session_reset`` while
-    prior turns are on screen. Its counterpart is the resume below, where the
-    same eviction draws nothing.
+    A fresh page's first turn also opens with ``session_reset`` (the chat has
+    no transcript to continue), and the operator's own prompt is not prior
+    history, so nothing is drawn there. The evicted key has no transcript on
+    disk either — the faked SDK writes none — so the re-created session starts
+    a conversation of its own, and that ``session_reset``, arriving with prior
+    turns on screen, is the one that paints. Its counterpart is the resume
+    below, where the same eviction draws nothing.
     """
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["turn one"] = [("text", "answer one"), ("result",)]
@@ -1001,11 +1003,9 @@ def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
         )
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled()
 
-        # Count dividers BEFORE the eviction and assert the eviction adds exactly
-        # one more. Measuring the delta keeps this test correct whether or not the
-        # separate first-turn-divider bug is present.
+        # The first turn opened a conversation; it did not lose one.
         divider = page.locator(f"{_OP} .op-system").filter(has_text="session reset")
-        before = divider.count()
+        expect(divider).to_have_count(0)
 
         _wait_chat_idle(base_url)
         resp = requests.post(f"{base_url}/__test__/evict-all")
@@ -1013,7 +1013,7 @@ def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
 
         _send(page, "turn two")
         # The eviction's session_reset paints a fresh divider (prior turns present).
-        expect(divider).to_have_count(before + 1, timeout=10_000)
+        expect(divider).to_have_count(1, timeout=10_000)
         expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text("answer two")
 
         page.close()
@@ -1057,28 +1057,6 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
         # The re-created session resumed rather than started.
         options = _wait_for_chat_options(base_url)
         assert [entry.get("resume") for entry in options] == [key]
-        expect(page.locator(f"{_OP} .op-system").filter(has_text="session reset")).to_have_count(0)
-
-        page.close()
-
-
-def test_no_session_reset_divider_on_fresh_first_turn(tmp_path, chromium_browser):
-    """A fresh page's very first turn must NOT show a "session reset" divider.
-
-    The renderer's ``hasPriorExchange`` gate suppresses the first turn's
-    ``session_reset`` even though the controller renders the user message before
-    the stream starts — so no spurious divider paints under the operator's very
-    first prompt. (Regression guard for the first-turn-divider fix.)
-    """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["hello there"] = [("text", "hi back"), ("result",)]
-        page = _open_chat_page(chromium_browser, base_url)
-
-        _send(page, "hello there")
-        expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
-            "hi back", timeout=10_000
-        )
-        # No session-reset divider should exist after a fresh first turn.
         expect(page.locator(f"{_OP} .op-system").filter(has_text="session reset")).to_have_count(0)
 
         page.close()
