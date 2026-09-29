@@ -196,6 +196,7 @@ async def test_input_files_content_b64_absent_from_worker_record_and_logs(
         # exact fields run_dispatch reads for a clean (non-error) completion.
         rm = MagicMock(spec=ResultMessage)
         rm.num_turns = 1
+        rm.total_cost_usd = None
         rm.is_error = False
         rm.subtype = "success"
         rm.result = "ok"

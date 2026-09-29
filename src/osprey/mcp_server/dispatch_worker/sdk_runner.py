@@ -430,7 +430,7 @@ async def run_dispatch(
             tool_calls: list of {name, input, result} dicts
             error: error message string or None
             duration_sec: wall-clock seconds
-            cost_usd: API cost (from ResultMessage, if available)
+            cost_usd: the run's cost in USD as the agent reported it (None when it reported none)
             num_turns: agentic turn count (from ResultMessage, if available)
             session_id: the forced telemetry session UUID for this run — the
                 value the OTEL emitter tags records with as session.id, so a
@@ -870,7 +870,7 @@ async def run_dispatch(
                         )
 
             elif isinstance(message, ResultMessage):
-                cost_usd = getattr(message, "cost_usd", None)
+                cost_usd = getattr(message, "total_cost_usd", None)
                 num_turns = getattr(message, "num_turns", None)
                 result_is_error = bool(getattr(message, "is_error", False))
                 result_subtype = getattr(message, "subtype", None)
