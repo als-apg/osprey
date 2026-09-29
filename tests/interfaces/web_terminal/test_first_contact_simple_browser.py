@@ -89,15 +89,18 @@ def _open_simple_hub(browser: Browser, base_url: str) -> tuple[Page, list[str], 
 def test_empty_state_renders_and_a_chip_only_inserts(tmp_path, chromium_browser):
     """The block appears, claims nothing about a machine, and its chip inserts.
 
-    One test because the second half needs the first: the chip only exists once
-    the block has rendered, and re-reaching that settled moment in a second page
-    load buys nothing. The insert is asserted on the composer's exact value (no
-    trailing newline, which would be a submitted turn's residue elsewhere), on
-    focus landing in the same input, and on the negative that matters most — no
-    request reached the chat endpoint.
+    One test because each half needs the one before it: the chip only exists
+    once the block has rendered, and re-reaching that settled moment in a second
+    page load buys nothing. The insert is asserted on the composer's exact value
+    (no trailing newline, which would be a submitted turn's residue elsewhere),
+    on focus landing in the same input, and on the negative that matters most —
+    no request reached the chat endpoint. Sending the inserted question then
+    removes the block, and the same request recorder sees that POST, which is
+    what makes its earlier silence evidence rather than a broken listener.
     """
     with _live_chat_server(tmp_path, ui_mode="simple") as (base_url, app):
         app.state.tour_capabilities = [_CAPABILITY]
+        _PLANS[_ALLOWED_PROMPT] = [("text", "hi back"), ("result",)]
         page, errors, chat_posts = _open_simple_hub(chromium_browser, base_url)
 
         block = page.locator(_EMPTY)
@@ -136,32 +139,13 @@ def test_empty_state_renders_and_a_chip_only_inserts(tmp_path, chromium_browser)
         # The invitation is still standing: nothing was said yet.
         expect(block).to_be_visible()
 
-        assert errors == [], f"the page reported errors during first contact: {errors}"
-        page.close()
-
-
-def test_first_message_clears_the_empty_state(tmp_path, chromium_browser):
-    """Sending a turn removes the block: the log is the conversation from here."""
-    with _live_chat_server(tmp_path, ui_mode="simple") as (base_url, app):
-        app.state.tour_capabilities = [_CAPABILITY]
-        _PLANS["hello there"] = [("text", "hi back"), ("result",)]
-        page, errors, chat_posts = _open_simple_hub(chromium_browser, base_url)
-
-        block = page.locator(_EMPTY)
-        expect(block).to_be_visible(timeout=10_000)
-
-        textarea = page.locator(_INPUT)
-        textarea.fill("hello there")
+        # Sending it takes the invitation: the log is the conversation from here.
         textarea.press("Enter")
-
         expect(block).to_have_count(0, timeout=10_000)
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
             "hi back", timeout=10_000
         )
-
-        # The same recorder the chip test reads as empty did see this turn leave,
-        # so its silence there is evidence and not a broken listener.
         assert chat_posts, "no POST reached the chat endpoint; the request recorder is blind"
 
-        assert errors == [], f"the page reported errors while sending the first turn: {errors}"
+        assert errors == [], f"the page reported errors during first contact: {errors}"
         page.close()
