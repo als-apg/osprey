@@ -663,13 +663,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     Args:
         workspace_root: Agent-data root containing the ``artifacts/`` dir.
-            REQUIRED in practice despite the ``None`` default: the store would
-            resolve the deployment's configured root on its own, but this
-            function also joins ``workspace_root`` directly (the focus file
-            below), so passing ``None`` raises ``TypeError`` rather than
-            defaulting. Every launch path passes it. Documented as-is rather
-            than papered over with a default that would change which directory
-            an existing caller's focus file lands in.
+            Omitted, it is the deployment's shared agent-data root, the same
+            one the store would resolve, so the store, the index watcher and
+            the focus file share one directory.
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.stores.artifact_store import (
@@ -681,8 +677,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         unregister_artifact_delete_listener,
         unregister_artifact_listener,
     )
+    from osprey.utils.workspace import resolve_shared_data_root
 
-    store = ArtifactStore(workspace_root=workspace_root)
+    data_root: Path = workspace_root if workspace_root is not None else resolve_shared_data_root()
+    store = ArtifactStore(workspace_root=data_root)
 
     # Prime config and load custom artifact categories (if available).
     #
@@ -743,7 +741,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     broadcaster = _SSEBroadcaster()
 
     index_watcher = StoreIndexWatcher(
-        workspace_root=workspace_root,
+        workspace_root=data_root,
         broadcaster=broadcaster,
         artifact_store=store,
     )
@@ -786,7 +784,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     app.state.agent_project_dir = deployed_render_dir()
     app.state.focused_artifact_id = None  # None = show latest
 
-    focus_file = workspace_root / "focus_state.txt"
+    focus_file = data_root / "focus_state.txt"
 
     def _write_focus_file() -> None:
         """Write current focus state to a plain-text file for the CLI hook."""
@@ -1173,7 +1171,8 @@ def run_server(
             deployment's ``deployment.port_base``. A multi-user deployment does
             not come through here at all: its launcher builds the app from the
             registry's factory and serves it itself.
-        workspace_root: Workspace root dir.
+        workspace_root: Agent-data root containing the ``artifacts/`` dir.
+            Omitted, it is the deployment's shared agent-data root.
     """
     import os
 
