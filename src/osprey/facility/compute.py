@@ -53,9 +53,6 @@ __all__ = [
     "resolve_groups",
 ]
 
-#: The entry-point group every simulation engine registers under.
-_ENGINE_GROUP = "osprey.simulation.engines"
-
 _MODELS_FILE = "models.yaml"
 _LIMITS_FILE = "limits.yaml"
 _PERIODIC = "periodic"
@@ -226,7 +223,9 @@ def _addresses_wired_twice(run: _Run) -> set[str]:
 
 
 def _prepare_decks(run: _Run) -> dict[str, _Deck]:
-    engines = metadata.entry_points(group=_ENGINE_GROUP)
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
     decks: dict[str, _Deck] = {}
     for model in run.document.get("models", []):
         if "deck" not in model:
