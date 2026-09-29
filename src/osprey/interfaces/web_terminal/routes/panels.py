@@ -49,8 +49,12 @@ def _prefix_path(path: str) -> str:
 
 @router.get("/health")
 async def health(request: Request):
-    """Health check endpoint."""
+    """Health check endpoint, with the card's control-identity fields.
+
+    See :func:`osprey.deployment.control_identity.health_fields`.
+    """
     from osprey import __version__
+    from osprey.deployment.control_identity import health_fields
 
     session_id = getattr(request.app.state, "server_session_id", None)
     return {
@@ -58,6 +62,7 @@ async def health(request: Request):
         "service": "web_terminal",
         "session_id": session_id,
         "version": __version__,
+        **health_fields(),
     }
 
 

@@ -1019,34 +1019,6 @@ class TestFromPosture:
 
 
 # ---------------------------------------------------------------------------
-# get_limits_config
-# ---------------------------------------------------------------------------
-
-
-class TestGetLimitsConfig:
-    def test_known_channel_returns_full_dict(self, tmp_path):
-        validator = _make_validator(
-            tmp_path,
-            {"FOO": {"min_value": 1.0, "max_value": 9.0, "max_step": 2.0, "writable": True}},
-        )
-
-        config = validator.get_limits_config("FOO")
-
-        assert config == {
-            "channel_address": "FOO",
-            "min_value": 1.0,
-            "max_value": 9.0,
-            "max_step": 2.0,
-            "writable": True,
-        }
-
-    def test_unknown_channel_returns_none(self, tmp_path):
-        validator = _make_validator(tmp_path, {"FOO": {"max_value": 9.0}})
-
-        assert validator.get_limits_config("MISSING") is None
-
-
-# ---------------------------------------------------------------------------
 # resolve_confirm (channel entry -> defaults -> True)
 # ---------------------------------------------------------------------------
 

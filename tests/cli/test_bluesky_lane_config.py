@@ -29,6 +29,7 @@ from __future__ import annotations
 import ast
 import logging
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,12 @@ import yaml as pyyaml
 from jinja2 import Environment, nodes
 
 import osprey
-from osprey.bluesky_bridge_connection import LANE_KEYS, LANE_ONE, SECOND_LANE_KEYS
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    LANE_ONE,
+    SECOND_LANE_KEYS,
+    lane_control_identity,
+)
 from osprey.cli.build_injectors import (
     _LIVE_LANE_CA_NAME_SERVERS,
     _LIVE_STANDIN_COMPOSE_SERVICE,
@@ -925,3 +931,45 @@ def test_the_registry_covers_every_control_target() -> None:
     assert set(SECOND_LANE_KEYS) == set(connector_types.CONTROL_TARGETS)
     assert LANE_KEYS == (LANE_ONE, *SECOND_LANE_KEYS.values())
     assert len(set(LANE_KEYS)) == len(LANE_KEYS)
+
+
+#: The control-identity charset: a Linux account name a lane service runs as.
+#: Restated here, not imported, so the registry module stays a leaf.
+_IDENTITY_CHARSET = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+#: An RFC 1123 label: lowercase alphanumerics and hyphens, alphanumeric at
+#: both ends, at most 63 characters.
+_RFC1123_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+@pytest.mark.parametrize(
+    ("lane", "identity"),
+    [
+        ("bluesky", "osprey-bluesky"),
+        ("bluesky_va", "osprey-bluesky-va"),
+        ("bluesky_live", "osprey-bluesky-live"),
+        ("bluesky_standin", "osprey-bluesky-standin"),
+    ],
+)
+def test_lane_control_identity_names_each_lane(lane: str, identity: str) -> None:
+    assert lane_control_identity(lane) == identity
+
+
+def test_lane_control_identity_covers_every_lane_key() -> None:
+    """Every registry key has an identity, and no two lanes share one."""
+    identities = [lane_control_identity(lane) for lane in LANE_KEYS]
+    assert len(set(identities)) == len(LANE_KEYS)
+
+
+@pytest.mark.parametrize("lane", LANE_KEYS)
+def test_lane_control_identity_is_a_valid_account_and_host_name(lane: str) -> None:
+    identity = lane_control_identity(lane)
+    assert len(identity) <= 32
+    assert _IDENTITY_CHARSET.fullmatch(identity), identity
+    assert _RFC1123_LABEL.fullmatch(identity), identity
+
+
+@pytest.mark.parametrize("lane", ["", "bluesky-va", "BLUESKY", "va", "tiled", "bluesky_nope"])
+def test_lane_control_identity_refuses_a_lane_outside_the_registry(lane: str) -> None:
+    with pytest.raises(ValueError, match="bluesky plan lane"):
+        lane_control_identity(lane)

@@ -67,12 +67,13 @@ import json
 import re
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from unittest import mock
 
 import pytest
 import yaml
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
 from osprey.services.virtual_accelerator.bindings import (
@@ -711,6 +712,29 @@ def two_zero_repo(
 ) -> Path:
     """One repo per committed 2.0 fixture tree, imported and mapped."""
     return _two_zero_tree(tmp_path / request.param, FIXTURES / request.param, monkeypatch)
+
+
+@dataclass(frozen=True)
+class _OneEmit:
+    """A committed 2.0 tree after one emit, and what that emit printed."""
+
+    repo: Path
+    result: Result
+
+
+@pytest.fixture(scope="module", params=TWO_ZERO_TREES)
+def one_emit(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> _OneEmit:
+    """One repo per committed 2.0 fixture tree, imported, mapped and emitted once.
+
+    Shared by every case that only reads what that one emit wrote. A case that
+    emits a second time or changes the tree takes ``two_zero_repo`` instead, so
+    nothing it does can reach a tree another case reads.
+    """
+    root = tmp_path_factory.mktemp(f"emitted-{request.param}") / request.param
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        repo = _two_zero_tree(root, FIXTURES / request.param, monkeypatch)
+        result = _emit()
+    return _OneEmit(repo=repo, result=result)
 
 
 def _mark_the_deck(repo: Path, *names: str) -> None:
@@ -1516,13 +1540,13 @@ class TestEveryCommittedTwoZeroTree:
         assert TWO_ZERO_TREES, "no fixture export carries a *.va.json sibling"
 
     def test_the_lane_writes_the_five_artifacts_a_served_tree_boots_from(
-        self, two_zero_repo: Path
+        self, one_emit: _OneEmit
     ) -> None:
-        result = _emit()
+        result = one_emit.result
 
         assert "Traceback" not in result.output
         assert result.exit_code == 0, result.output
-        assert sorted(_va_files(two_zero_repo)) == sorted(VA_ARTIFACTS)
+        assert sorted(_va_files(one_emit.repo)) == sorted(VA_ARTIFACTS)
 
     def test_a_second_emit_leaves_every_artifact_byte_identical(self, two_zero_repo: Path) -> None:
         assert _emit().exit_code == 0
@@ -1537,26 +1561,26 @@ class TestEveryCommittedTwoZeroTree:
         assert _tree(two_zero_repo) == first
 
     def test_the_stamp_names_the_exporter_the_frozen_contract_spells(
-        self, two_zero_repo: Path
+        self, one_emit: _OneEmit
     ) -> None:
-        assert _emit().exit_code == 0
+        assert one_emit.result.exit_code == 0
 
         for name in VA_STAMPED:
-            assert _json(two_zero_repo, name)["_provenance"] == _stamp(two_zero_repo)
+            assert _json(one_emit.repo, name)["_provenance"] == _stamp(one_emit.repo)
 
 
 class TestEachDocumentThroughItsOwnReader:
     """Every file the lane writes, read back by the code that reads it in production."""
 
     def test_the_deck_loads_through_pyat_and_holds_the_elements_the_bindings_name(
-        self, two_zero_repo: Path
+        self, one_emit: _OneEmit
     ) -> None:
         import at
 
-        assert _emit().exit_code == 0
+        assert one_emit.result.exit_code == 0
 
-        ring = at.load_lattice(two_zero_repo / "data" / "simulation" / "lattice.json")
-        document = _bindings(two_zero_repo)
+        ring = at.load_lattice(one_emit.repo / "data" / "simulation" / "lattice.json")
+        document = _bindings(one_emit.repo)
         assert len(ring) > 0
         assert ring.energy == pytest.approx(document.energy_gev * 1e9)
         names = {element.FamName for element in ring}
@@ -1566,22 +1590,22 @@ class TestEachDocumentThroughItsOwnReader:
         assert bound <= names, sorted(bound - names)
 
     def test_the_bindings_load_through_their_reader_and_name_this_runs_deck(
-        self, two_zero_repo: Path
+        self, one_emit: _OneEmit
     ) -> None:
-        assert _emit().exit_code == 0
+        assert one_emit.result.exit_code == 0
 
-        document = _bindings(two_zero_repo)
-        deck = (two_zero_repo / "data" / "simulation" / "lattice.json").read_bytes()
+        document = _bindings(one_emit.repo)
+        deck = (one_emit.repo / "data" / "simulation" / "lattice.json").read_bytes()
         assert document.lattice_sha256 == hashlib.sha256(deck).hexdigest()
-        assert document.provenance == _stamp(two_zero_repo)
+        assert document.provenance == _stamp(one_emit.repo)
         assert setpoints(document), "the export couples families and none is writable"
 
     def test_the_starting_state_parses_through_the_simulation_reader(
-        self, two_zero_repo: Path
+        self, one_emit: _OneEmit
     ) -> None:
-        assert _emit().exit_code == 0
+        assert one_emit.result.exit_code == 0
 
-        path = two_zero_repo / "data" / "simulation" / "machine.json"
+        path = one_emit.repo / "data" / "simulation" / "machine.json"
         model = parse_machine(json.loads(path.read_text(encoding="utf-8")), path)
         channels = load_machine_json_channels(path)
         assert set(channels) == set(model.channels)
@@ -1589,14 +1613,14 @@ class TestEachDocumentThroughItsOwnReader:
         assert "nominal" in model.scenarios
         # The one cross-document claim that makes it a starting state: every
         # address the served machine can be written on has a value to start at.
-        assert set(setpoints(_bindings(two_zero_repo))) <= set(channels)
+        assert set(setpoints(_bindings(one_emit.repo))) <= set(channels)
 
     def test_the_machine_state_list_loads_through_the_manifest_reader(
-        self, two_zero_repo: Path
+        self, one_emit: _OneEmit
     ) -> None:
-        assert _emit().exit_code == 0
+        assert one_emit.result.exit_code == 0
 
-        paths = ManifestPaths(two_zero_repo / "data")
+        paths = ManifestPaths(one_emit.repo / "data")
         candidates = load_machine_state_candidate_addresses(paths)
         document = json.loads(paths.machine_state_channels.read_text(encoding="utf-8"))
         assert candidates == [key for key in document if not key.startswith("_")]
@@ -1605,30 +1629,30 @@ class TestEachDocumentThroughItsOwnReader:
             document[address]["label"] and document[address]["group"] for address in candidates
         )
 
-    def test_the_write_bands_load_through_the_limits_validator(self, two_zero_repo: Path) -> None:
-        assert _emit().exit_code == 0
+    def test_the_write_bands_load_through_the_limits_validator(self, one_emit: _OneEmit) -> None:
+        assert one_emit.result.exit_code == 0
 
-        limits = two_zero_repo / "data" / "channel_limits.json"
+        limits = one_emit.repo / "data" / "channel_limits.json"
         database, raw = LimitsValidator._load_limits_database(str(limits))
         assert set(database) == set(raw)
         # Exactly the addresses the bindings drive may be written, and the file
         # this lane created states every one of its entries itself.
         assert LimitsValidator.writable_addresses(limits) == frozenset(
-            setpoints(_bindings(two_zero_repo))
+            setpoints(_bindings(one_emit.repo))
         )
-        assert all(entry["_provenance"] == _stamp(two_zero_repo) for entry in raw.values())
+        assert all(entry["_provenance"] == _stamp(one_emit.repo) for entry in raw.values())
         # A blank device slot stays blank in the channel database rather than
         # compacting the list; a blank is not an address and never gets a band.
         assert all(address.strip() for address in raw)
 
     def test_the_write_bands_carry_no_stamp_of_their_own_above_the_entries(
-        self, two_zero_repo: Path
+        self, one_emit: _OneEmit
     ) -> None:
         # The file is shared with the facility, so the lane states each entry it
         # owns and never the document.
-        assert _emit().exit_code == 0
+        assert one_emit.result.exit_code == 0
 
-        document = _json(two_zero_repo, "data/channel_limits.json")
+        document = _json(one_emit.repo, "data/channel_limits.json")
         assert [key for key in document if key.startswith("_")] == []
 
     def test_the_state_list_can_name_a_monitor_the_starting_state_holds_no_value_for(
@@ -1677,16 +1701,16 @@ class TestTheMonitorReadoutReachesTheBindingsAndChangesNothing:
             if isinstance(body.get("Monitor"), dict) and "readout" in body["Monitor"]
         }
 
-    def test_nothing_but_a_reading_carries_one(self, two_zero_repo: Path) -> None:
+    def test_nothing_but_a_reading_carries_one(self, one_emit: _OneEmit) -> None:
         # The rule as it stands on every committed export, whose readouts are
         # all on families that publish a reading. What pins the emitter's
         # choice is a driven family that states one, and that case is built
         # against ``emit_bindings`` in tests/services/mml/test_emit_va.py.
-        assert _emit().exit_code == 0
+        assert one_emit.result.exit_code == 0
 
         assert all(
             binding.readout is None
-            for binding in _bindings(two_zero_repo).bindings
+            for binding in _bindings(one_emit.repo).bindings
             if binding.kind != "monitor"
         )
 

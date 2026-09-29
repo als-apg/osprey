@@ -80,7 +80,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
+from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
 from osprey.deployment.compose_generator import BLUESKY_DEVICES_FILENAME
 from osprey.mcp_server.bluesky import lanes as lanes_module
@@ -185,13 +185,17 @@ LIVE_ENDPOINT_BOOT_TIMEOUT_S = 240.0
 QUEUE_DRAIN_TIMEOUT_S = 300.0
 HTTP_TIMEOUT_S = 30.0
 
+#: Bound on a restarted RE manager returning to ``healthy``: it re-applies its
+#: control identity, waits on Redis and re-imports the bluesky/ophyd stack.
+MANAGER_RESTART_TIMEOUT_S = 300.0
+
 #: Points in the one PLAN this module queues. Small on purpose: what is under
 #: test is WHICH lane ran it, not how it scanned.
 PLAN_POINTS = 3
 
 #: Floor for this module's own test count -- a guard against a refactor that
 #: leaves the file importable but empty, which would otherwise pass silently.
-MIN_COLLECTED_TESTS = 13
+MIN_COLLECTED_TESTS = 15
 
 
 # ---------------------------------------------------------------------------
@@ -1249,6 +1253,93 @@ def test_each_lane_holds_only_its_own_curve_material(stack: LaneStack) -> None:
 def _secret_bytes(directory: Path) -> set[bytes]:
     """Every ``*.key_secret`` file's contents under *directory*."""
     return {path.read_bytes() for path in directory.rglob("*.key_secret")}
+
+
+# ---------------------------------------------------------------------------
+# 5b. Each lane's RE manager writes under its lane's control identity
+# ---------------------------------------------------------------------------
+def _manager(lane: str) -> str:
+    """The RE manager container of *lane*."""
+    return LANE_CONTAINERS[lane][1]
+
+
+def _uid0_name(container: str) -> str:
+    """The name ``getent passwd 0`` resolves first inside *container*."""
+    proc = _docker("exec", container, "getent", "passwd", "0", timeout=60)
+    assert proc.returncode == 0, f"getent passwd 0 in {container} failed: {proc.stderr}"
+    return proc.stdout.split(":", 1)[0]
+
+
+def _passwd_lines_named(container: str, name: str) -> list[str]:
+    """Every ``/etc/passwd`` record in *container* whose account name is *name*."""
+    proc = _docker("exec", container, "cat", "/etc/passwd", timeout=60)
+    assert proc.returncode == 0, f"reading /etc/passwd in {container} failed: {proc.stderr}"
+    return [line for line in proc.stdout.splitlines() if line.split(":", 1)[0] == name]
+
+
+def _wait_healthy(container: str, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    last = "(no status yet)"
+    while time.monotonic() < deadline:
+        last = _docker(
+            "inspect", "-f", "{{.State.Status}}/{{.State.Health.Status}}", container, timeout=60
+        ).stdout.strip()
+        if last == "running/healthy":
+            return
+        time.sleep(2.0)
+    logs = _docker("logs", "--tail", "60", container, timeout=60)
+    raise AssertionError(
+        f"{container} did not return to running/healthy within {timeout:.0f}s "
+        f"(last: {last!r})\n{logs.stdout}\n{logs.stderr}"
+    )
+
+
+@pytest.mark.usefixtures("stack")
+def test_each_lane_manager_runs_as_its_lane_identity() -> None:
+    """uid 0 in each lane's RE manager resolves to that lane's identity. LAYER: containers.
+
+    The manager runs as root, so the name uid 0 resolves to is the name every
+    write it makes carries. Both lanes are checked, and against each other: two
+    lanes writing under one name would make a write on the VA indistinguishable
+    from one on the live machine. The expected names come from
+    ``lane_control_identity``, the same function the compose render uses.
+    """
+    names = {lane: _uid0_name(_manager(lane)) for lane in LANE_CONTAINERS}
+    for lane, name in names.items():
+        assert name == lane_control_identity(lane), (
+            f"uid 0 in lane {lane!r}'s manager resolves to {name!r}, "
+            f"not {lane_control_identity(lane)!r}"
+        )
+    assert names[LANE_VA] != names[LANE_LIVE], f"both lanes write under one name: {names}"
+
+
+@pytest.mark.usefixtures("stack")
+def test_a_manager_restart_leaves_one_identity_line() -> None:
+    """A restarted manager re-applies its identity without stacking it. LAYER: containers.
+
+    ``docker restart`` keeps the container's filesystem, so the rename runs a
+    second time over a passwd it already edited. It must replace, never add:
+    exactly one record for the identity, still first for uid 0. Placed after
+    every test that queues through the VA lane, because a restart closes that
+    lane's worker environment.
+    """
+    container = _manager(LANE_VA)
+    identity = lane_control_identity(LANE_VA)
+    assert len(_passwd_lines_named(container, identity)) == 1, (
+        f"{container} holds more than one {identity!r} record before any restart"
+    )
+
+    restarted = _docker("restart", container, timeout=180)
+    assert restarted.returncode == 0, f"docker restart {container} failed: {restarted.stderr}"
+    _wait_healthy(container, MANAGER_RESTART_TIMEOUT_S)
+
+    lines = _passwd_lines_named(container, identity)
+    assert len(lines) == 1, (
+        f"after a restart {container} holds {len(lines)} {identity!r} records: {lines}"
+    )
+    assert _uid0_name(container) == identity, (
+        f"after a restart uid 0 in {container} no longer resolves to {identity!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

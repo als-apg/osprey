@@ -57,9 +57,10 @@ silently, and ``container`` is treated as ``subprocess`` and logs a one-time
 warning naming the config file it came from. Any other value is a
 configuration error.
 
-The ``ExecutionWrapper`` wraps user code with safety monkeypatches (e.g.
-``epics.caput()`` validation against the limits database), writes the wrapped
-script to an execution folder, and runs it. The subprocess working directory is
+The ``ExecutionWrapper`` wraps user code with runtime guards (e.g. the
+raw-put block, which refuses a direct ``epics.caput()`` so that every write
+goes through the connector), writes the wrapped script to an execution folder,
+and runs it. The subprocess working directory is
 set to the project root so that relative workspace paths (e.g.
 ``_agent_data/data/002_archiver_read.json``) resolve correctly.
 
@@ -132,39 +133,28 @@ Nine safety layers are applied in sequence:
    subprocess so it also sees paths the source did not spell out. Emitted
    in **every** execution mode.
 
-7. **Limits monkeypatch** (``ExecutionWrapper`` /
-   ``LimitsValidator``)---at runtime, a write this build knows how to
-   intercept is checked against the channel limits database before it
-   leaves, and an out-of-range value never reaches the machine. That covers
-   pyepics, aioca, pvaPy, all four p4p clients including the raw one
-   underneath them, all three caproto clients --- the sync client's
-   ``write`` and ``read_write_read``, the threading client's ``PV`` and
-   ``Batch``, and the asyncio client's ``PV`` --- the attribute-write
-   spellings on Tango's ``DeviceProxy`` and ``AttributeProxy``, asynchronous
-   and write-read forms included, and DOOCS. A structured payload is
-   checked on the number it carries; a p4p payload written as JSON is
-   decoded first, ``bytes`` included --- which p4p itself would not decode,
-   so such a write is checked on the number it *would* become rather than
-   waved through for not looking like one.
+7. **Raw-put block** (``osprey.runtime.raw_put_block``, armed
+   mode)---in a ``readwrite`` run a write goes through ``write_channel()`` /
+   ``write_channels()`` from ``osprey.runtime``, and nowhere else. The
+   connector underneath them is what applies the write posture, the limits
+   database and the audit record, so a client library called directly is a
+   route around all three. Every client put entry point the connector can
+   stand in for is replaced with one that calls through only while a
+   connector is making the put, and otherwise raises
+   ``ChannelWriteBlockedError`` with reason ``RAW_CLIENT_WRITE``, whatever the
+   value. Nothing is sent. The PVAccess puts are the exception until the
+   connector writes PVAccess: they pass the block and are limits-checked
+   instead. Which entry points are refused, which
+   pass, and how a connector's own put is told apart are described under
+   :ref:`python-executor-armed-block`; the migration is under
+   :ref:`python-executor-write-channel`.
 
-   Writes that cannot be checked are refused outright instead, in range or
-   not: p4p's ``rpc``, a p4p value passed as a builder callback, pvaPy's
-   ``parsePut``/``parsePutGet``, Tango commands---on ``DeviceProxy`` and on
-   the ``Connection`` class that defines them---and every Tango ``Group``
-   write, which fans one value out to many devices with no single channel
-   to bound it under.
-
-   Two routes to hardware are neither checked nor refused: the ctypes
-   bindings underneath aioca, ``epicscorelibs.ca.cadef.ca_array_put`` and
-   ``ca_array_put_callback``. By the time a call reaches either one the
-   value has been marshalled into C memory and the channel is an opaque
-   handle, so there is no number left to bound and no channel name to look
-   the limits up under; pyepics loads a second ``libca`` of its own, so this
-   binding is not the one place ctypes-level puts pass through either. The
-   code lists them in ``_LIMITS_UNWRAPPABLE`` rather than leaving the gap
-   implicit---a ``readwrite`` run reaches hardware through them without
-   passing the limits database, while a ``readonly`` run refuses them like
-   everything else.
+   The block occupies the readonly guard's slot: a run gets exactly one of
+   layer 5 and layer 7. It is installed before the user code runs and is not
+   wrapped in ``try``, so a block that cannot install aborts the run rather
+   than letting it write unguarded. Where the limits database is on, the
+   connector checks every ``write_channel`` value against it before the value
+   leaves.
 
 8. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
@@ -186,7 +176,9 @@ What counts as a control-system write
 A ``readonly`` run refuses all of the following. The list is generated from
 one table in the code (``services/python_executor/write_surface.py``), so
 adding a library there is all it takes to enforce it --- the runtime guard,
-the import denylist and this page all read that one table.
+the import denylist and this page all read that one table. A ``readwrite``
+run refuses the client puts of the same table unless a connector makes them;
+see :ref:`python-executor-armed-block`.
 
 **Approved API** --- the path everything should use:
 
@@ -244,6 +236,143 @@ program, and the ``exec`` half of every fork-and-exec is already refused.
    subprocess`` is refused before execution in **every** mode, by the
    prohibited-import check. Work that genuinely needs a child process belongs
    outside the executor.
+
+.. _python-executor-armed-block:
+
+What a readwrite run refuses
+----------------------------
+
+A ``readwrite`` run may write, but only through the connector. The raw-put
+block (layer 7) reads the same table as the list above and splits its client
+rows into four buckets, so the page, the executor and the notebook kernel
+agree on every row:
+
+``_ARMED_BLOCKED`` --- **refused** unless a connector is making the put. The
+refusal does not depend on the value: an in-range ``caput`` is refused like an
+out-of-range one, because the connector is where a write is checked and
+recorded.
+
+- **pyepics** --- ``caput``, ``caput_many``, ``PV.put``, and ``ca.put`` and
+  ``ca.sg_put`` beneath them
+- **aioca** --- ``caput``, under the package name and under
+  ``aioca._catools``, the module that defines it
+- **epicscorelibs** --- ``ca.cadef.ca_array_put`` and
+  ``ca_array_put_callback``
+- **caproto** --- ``sync.client.write`` and ``read_write_read``,
+  ``threading.client.PV.write`` and ``Batch.write``,
+  ``asyncio.client.PV.write``
+- **doocs4py** --- ``set``
+- **Tango** --- the attribute writes on ``DeviceProxy`` (also under the
+  legacy ``PyTango`` name), ``AttributeProxy.write`` and its variants, and
+  ``Group.write_attribute``
+
+``_ARMED_CHECKED`` --- **limits-checked, not refused**: the PVAccess puts.
+The connector reads PVAccess but does not write it yet, so a raw put is the
+one PVAccess write route a ``readwrite`` run has, and refusing it would take
+PVAccess writes away from every deployment. These keep the posture they had
+before the raw-put block: the approval hook asks for the run, and in an
+executor run with the limits database on each put is validated before it
+reaches the network (a ``parsePut`` or a builder callable carries no value to
+check and is refused). A run with limits off, and a notebook kernel, let them
+through. They move to ``_ARMED_BLOCKED`` once the connector writes PVAccess.
+
+- **p4p** --- ``Context.put`` for the raw, thread, asyncio and cothread
+  clients
+- **pvaPy** --- every ``Channel.put*`` method, typed setters included, and
+  ``asyncPut``, ``parsePut`` and ``parsePutGet``
+
+``_ARMED_RPC`` --- p4p's ``Context.rpc`` and Tango's ``command_inout`` (on
+``DeviceProxy``, ``Connection`` and ``Group``). An rpc payload or a Tango
+command has no channel value a connector write could carry, so no
+``write_channel`` call can stand in for one. An executor run with the limits
+database on **refuses** them, because nothing could bound them; a run with
+limits off, and a notebook kernel, **lets them through**.
+
+``_ARMED_PASSED`` --- **let through**, because they write no device: p4p's
+``SharedPV.post``/``open`` serve a PV rather than write one, and Tango's
+``DeviceProxy.put_property`` writes the Tango database, not a channel.
+
+The acquisition frameworks and the routes out of Python are not rows of the
+armed block. ophyd-async and a Bluesky ``RunEngine`` are refused in a
+``readwrite`` run by the client put underneath them --- an ophyd-async signal
+written directly, or a ``RunEngine`` driving ophyd or ophyd-async devices,
+ends in an aioca put and is refused like any raw put (a device on the p4p
+backend ends in a PVAccess put, limits-checked as above). A plan belongs on
+a Bluesky lane queue, where it runs unchanged. ``subprocess`` and ``ctypes``
+are untouched by the armed block; the prohibited-import check refuses
+``import subprocess`` in every mode.
+
+**How a connector's put is told apart.** A connector opens the *write door*
+(``osprey_connectors.control_system.write_door``) around its own call into the
+client library, after its write-posture check, and a blocked row calls
+through only while the door is open. The door is a context variable, so it
+reaches the connector's own code and ``asyncio.to_thread`` started from it,
+and nothing else; see :ref:`connector-write-door`. It records who is making
+the put. It is not a sandbox, and code that goes around the client library
+altogether is not stopped by it. These are the **cooperative bypasses**:
+
+- a put through a ``libca`` handle the code loaded itself with ``ctypes``
+  (the ``ca_array_put``, ``ca_array_put_callback`` and ``ca_sg_array_put``
+  symbols), or through a raw socket;
+- a put from a pyepics callback under ``PREEMPTIVE_CALLBACK=False``: pyepics
+  then runs callbacks while a thread polls, and the poll inside a connector's
+  own waiting put is inside the open door;
+- a connector subclass written in the run itself, whose ``write_channel`` the
+  base class wraps like any other.
+
+**The refusal.** A refused put raises
+``ChannelWriteBlockedError`` with reason ``RAW_CLIENT_WRITE``. Its message
+names the channel where the call exposes one and ``<unknown>`` where it does
+not (a low-level handle put):
+
+.. code-block:: text
+
+   raw client write refused: write to 'DEMO:CORR1:SP' bypassed the reference monitor. Use osprey.runtime.write_channel(address, value) or osprey.runtime.write_channels({address: value, ...}) so limits and approval apply.
+
+Where ``osprey_connectors`` is not importable the same text arrives as a
+``RuntimeError``. The block logs the refusal at ``WARNING`` before raising, so
+a refusal swallowed inside a callback --- ``PV(..., monitor_delta=…)`` writes
+``.MDEL`` from one --- still shows in the run's output. The executor
+recognises the marker ``raw client write refused`` in the run's stderr and
+files the refusal in the audit log with reason ``raw_client_write``, with the
+same operator alert a readonly refusal raises.
+
+**Before the run.** For the ``execute`` tool in a ``readwrite`` run, the
+approval hook refuses the unambiguous raw spellings before any human is asked
+to approve: ``caput(``, ``caput_many(``, ``epics.caput(``, ``PV(...).put(``,
+``ctxt.put(``, ``aioca.caput(``, ``write_door`` and ``open_door``. It reads
+the source with comments and string literals removed, so a spelling inside a
+comment or a message does not count. The hook answers with a ``deny`` and the
+``write_channel`` message, and files a refused audit record with reason
+``raw_client_write``. ``write_channel``, ``write_channels`` and a bare
+``.put(`` --- which also matches ``queue.put`` --- are still asked about as
+before. ``execute_file`` carries a path rather than source, so it is asked
+about as before and relies on the runtime block.
+
+.. _python-executor-write-channel:
+
+Writing from executed code
+--------------------------
+
+Replace a raw client put with the runtime's own write call. It takes the same
+address and value, goes through the deployment's connector, and so gets the
+write posture, the limits check, the approval that admitted the run, and the
+audit record:
+
+.. code-block:: python
+
+   # Refused in every run:
+   #   from epics import caput
+   #   caput("DEMO:CORR1:SP", 1.5)
+
+   from osprey.runtime import write_channel, write_channels
+
+   write_channel("DEMO:CORR1:SP", 1.5)
+   write_channels({"DEMO:CORR1:SP": 1.5, "DEMO:CORR2:SP": -0.4})
+
+Reads are unchanged: ``read_channel()``, and a client library's own reads in a
+``readwrite`` run. The same call is what a notebook cell uses; see
+:doc:`/how-to/web-terminal/notebooks`.
 
 .. _python-executor-protected-paths:
 

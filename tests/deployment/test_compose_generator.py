@@ -32,7 +32,12 @@ import yaml
 from ruamel.yaml import YAML
 
 import osprey.channel_roster as channel_roster
-from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS, lane_env_prefix
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    SECOND_LANE_KEYS,
+    lane_control_identity,
+    lane_env_prefix,
+)
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
@@ -41,6 +46,7 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
     resolve_user_volume_names,
 )
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
@@ -352,6 +358,19 @@ def _render_worker_template(
 
 #: Path of the dispatcher's compose template, from the packaged templates root.
 _DISPATCHER_TEMPLATE = "services/event_dispatcher/docker-compose.yml.j2"
+
+
+def _control_identity_context() -> dict[str, Any]:
+    """The two control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
+
+    Every bluesky lane's queueserver renames root to its lane identity before
+    ``start-re-manager`` runs, so the template reads both keys with no fallback:
+    a context without them is not a render any deploy produces.
+    """
+    return {
+        "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
+    }
 
 
 def _image_defaults(project_name: str = "p") -> dict[str, str]:
@@ -1727,6 +1746,7 @@ def _render_bluesky_template(
         "osprey_images": _image_defaults(),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
+        **_control_identity_context(),
     }
     # control_system is omitted by default (matching every pre-existing call
     # site below). The template reads each lane's posture from
@@ -3189,6 +3209,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "osprey_env_present": False,
         "deployed_services": [],
         "control_system": {},
+        **_control_identity_context(),
     }
     ctx.update(overrides)
     # After the overrides, never before: a caller that hands this helper its own
@@ -10540,3 +10561,218 @@ class TestTerminalControlContextBind:
         assert len(set(sources.values())) == len(sources), sources
         for name, source in sources.items():
             assert source.rstrip("/") != _CONTROL_TREE_SOURCE, (name, source)
+
+
+# ---------------------------------------------------------------------------
+# The control-identity module (``_stage_control_identity_module``)
+#
+# The dispatch worker and every bluesky lane mount ``control_identity.py``
+# unconditionally, so for those two build contexts staging is mandatory: the
+# file is always there, byte-for-byte the packaged module, or the render
+# refuses. Every other context carries no copy at all.
+# ---------------------------------------------------------------------------
+
+#: A stand-in service template: what is under test is that the module lands
+#: beside the compose file from either renderer, not what a shipped template
+#: does with it.
+_CONTROL_IDENTITY_STAND_IN_TEMPLATE = """\
+services:
+  worker:
+    image: demo
+"""
+
+
+def _control_identity_source_bytes() -> bytes:
+    from osprey.deployment import control_identity
+
+    return Path(control_identity.__file__).read_bytes()
+
+
+def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
+    from osprey.deployment.compose_generator import _stage_control_identity_module
+
+    return _stage_control_identity_module({}, source_dir, str(out_dir))
+
+
+@pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
+def test_stage_control_identity_copies_the_module_byte_for_byte(
+    tmp_path: Path, service: str
+) -> None:
+    """A mandatory context receives the packaged module, unchanged."""
+    out_dir = tmp_path / service
+    out_dir.mkdir()
+
+    assert _stage_control_identity(out_dir, f"services/{service}") is True
+    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+
+
+@pytest.mark.parametrize("service", ["bluesky_web", "web_terminal", "postgres"])
+def test_stage_control_identity_skips_every_other_context(tmp_path: Path, service: str) -> None:
+    """Outside the two mandatory contexts nothing is staged."""
+    out_dir = tmp_path / service
+    out_dir.mkdir()
+
+    assert _stage_control_identity(out_dir, f"services/{service}") is False
+    assert not (out_dir / "control_identity.py").exists()
+
+
+def test_stage_control_identity_removes_a_stale_copy_elsewhere(tmp_path: Path) -> None:
+    """A copy an earlier build left in a non-mandatory context is removed."""
+    out_dir = tmp_path / "bluesky_web"
+    out_dir.mkdir()
+    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+
+    assert _stage_control_identity(out_dir, "services/bluesky_web") is False
+    assert not (out_dir / "control_identity.py").exists()
+
+
+def test_stage_control_identity_stale_removal_failure_only_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unremovable stale copy outside the mandatory contexts is a warning,
+    not a refusal: no template there mounts it."""
+    from osprey.deployment import compose_generator
+
+    out_dir = tmp_path / "bluesky_web"
+    out_dir.mkdir()
+
+    def refuse(path: str) -> None:
+        raise PermissionError(errno.EACCES, "denied", path)
+
+    monkeypatch.setattr(compose_generator.os, "remove", refuse)
+    with caplog.at_level(logging.WARNING):
+        assert _stage_control_identity(out_dir, "services/bluesky_web") is False
+    assert "stale control-identity module" in caplog.text
+
+
+@pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
+def test_stage_control_identity_raises_when_the_copy_fails(tmp_path: Path, service: str) -> None:
+    """A mandatory context whose copy cannot be written refuses the render:
+    its compose file mounts the module unconditionally."""
+    missing_out_dir = tmp_path / "does-not-exist"
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _stage_control_identity(missing_out_dir, f"services/{service}")
+    assert "control_identity.py" in excinfo.value.reason
+    assert excinfo.value.remedy
+
+
+def test_stage_control_identity_replaces_a_stale_copy(tmp_path: Path) -> None:
+    """A re-stage overwrites whatever an earlier build left behind."""
+    out_dir = tmp_path / "dispatch_worker"
+    out_dir.mkdir()
+    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+
+    assert _stage_control_identity(out_dir, "services/dispatch_worker") is True
+    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+
+
+def _control_identity_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A repo holding a stand-in ``services/dispatch_worker`` template, chdir'd into."""
+    repo = tmp_path / "repo"
+    service_dir = repo / "services" / "dispatch_worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text(
+        _CONTROL_IDENTITY_STAND_IN_TEMPLATE, encoding="utf-8"
+    )
+    monkeypatch.chdir(repo)
+    return repo
+
+
+@pytest.mark.parametrize("entry_point", ["full", "incremental"])
+def test_both_render_paths_stage_the_control_identity_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_point: str
+) -> None:
+    """Both renderers stage the module; the incremental one — which reuses a
+    busy build directory — refreshes a stale copy instead of keeping it."""
+    from osprey.deployment.compose_generator import (
+        _incremental_setup_build_dir,
+        setup_build_dir,
+    )
+
+    repo = _control_identity_render_repo(tmp_path, monkeypatch)
+    config = {"build_dir": "./build", "deployment": {}, "system": {"timezone": "UTC"}}
+    template = "services/dispatch_worker/docker-compose.yml.j2"
+    out_dir = repo / "build" / "services" / "dispatch_worker"
+    if entry_point == "full":
+        setup_build_dir(template, config, {})
+    else:
+        out_dir.mkdir(parents=True)
+        (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+        _incremental_setup_build_dir(template, config, {}, str(out_dir))
+
+    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    assert (out_dir / "docker-compose.yml").is_file()
+
+
+def test_inject_project_metadata_carries_control_identity_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The container path the module is mounted at and each lane's identity
+    reach every render context, goldens included."""
+    from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+    from osprey.deployment.compose_generator import _inject_project_metadata
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    monkeypatch.chdir(tmp_path)
+    context = _inject_project_metadata({})
+
+    assert context["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
+    assert context["lane_control_identities"] == {
+        lane: lane_control_identity(lane) for lane in LANE_KEYS
+    }
+    assert context["lane_control_identities"]["bluesky_va"] == "osprey-bluesky-va"
+
+
+# ---------------------------------------------------------------------------
+# The dispatch worker's control identity
+#
+# Each worker writes to the control system under its OWN service identity,
+# `osprey-dispatch-<i>`, derived from the same loop index as its audit identity,
+# and reads the staged ``control_identity.py`` from a read-only bind.
+# ---------------------------------------------------------------------------
+
+
+def _dispatch_worker_services(rendered: str) -> dict:
+    return {
+        name: body
+        for name, body in yaml.safe_load(rendered)["services"].items()
+        if name.startswith("dispatch-worker-")
+    }
+
+
+def test_dispatch_worker_control_identity_is_per_worker() -> None:
+    """Every worker carries its own ``osprey-dispatch-<i>`` identity."""
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 3})
+
+    services = _dispatch_worker_services(rendered)
+    assert sorted(services) == ["dispatch-worker-1", "dispatch-worker-2", "dispatch-worker-3"]
+    for i in (1, 2, 3):
+        environment = services[f"dispatch-worker-{i}"]["environment"]
+        assert environment["OSPREY_CONTROL_IDENTITY"] == f"osprey-dispatch-{i}"
+        assert environment["OSPREY_CONTROL_IDENTITY_MODULE"] == CONTROL_IDENTITY_CONTAINER_PATH
+
+
+def test_dispatch_worker_control_identity_is_a_valid_service_identity() -> None:
+    """The rendered identity passes the leaf module's own service validation."""
+    from osprey.deployment.control_identity import validate_identity
+
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
+
+    for body in _dispatch_worker_services(rendered).values():
+        validate_identity(body["environment"]["OSPREY_CONTROL_IDENTITY"], allow_service=True)
+
+
+def test_dispatch_worker_mounts_the_staged_control_identity_module_read_only() -> None:
+    """The staged module is bind-mounted read-only at the path the env names."""
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
+
+    expected = (
+        f"./build/services/dispatch_worker/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
+    )
+    for body in _dispatch_worker_services(rendered).values():
+        assert body["volumes"].count(expected) == 1, body["volumes"]

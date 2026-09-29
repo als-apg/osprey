@@ -1,4 +1,10 @@
-"""Tests for the p4p/PVAccess guards in the generated execution-wrapper monkeypatch.
+"""Tests for the PVAccess limits guard a readwrite executor run installs.
+
+The connector reads PVAccess but does not write it yet, so the armed raw-put
+block lets raw ``p4p`` and ``pvaccess`` puts through
+(``write_surface._ARMED_CHECKED``) and this guard limits-checks them instead,
+as it did before that block existed. ``rpc`` is not the guard's: the armed
+block refuses it (``test_armed_block.py``).
 
 The wrapper emits *source text* that runs inside the executor subprocess, so
 these tests execute that generated source against fake ``p4p`` modules injected
@@ -25,9 +31,6 @@ from osprey.connectors.control_system.limits_validator import (
 from osprey.errors import ChannelLimitsViolationError
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey.services.python_executor.write_surface import _CLIENT_WRITE_TARGETS
-
-RPC_REFUSAL = "rpc is not mediated and cannot be approved"
-
 
 # ---------------------------------------------------------------------------
 # Restoration
@@ -88,6 +91,18 @@ def _restore_patched_targets():
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
+
+#: Marks a module as one of this suite's stand-ins, so ``_run_monkeypatch``
+#: can tell a fake a test already installed from a real installed client.
+_FAKE_CLIENT_MARKER = "_osprey_fake_client"
+
+
+def _fake_module(name):
+    """A module object marked as one of this suite's client stand-ins."""
+    mod = ModuleType(name)
+    setattr(mod, _FAKE_CLIENT_MARKER, True)
+    return mod
 
 
 class RawRecordingContext:
@@ -348,6 +363,12 @@ def _count_validations(namespace):
     return calls
 
 
+def _guard_source(validator):
+    """The limits block and the PVAccess guard a readwrite run emits, in order."""
+    wrapper = ExecutionWrapper(limits_validator=validator, execution_mode="readwrite")
+    return "\n".join((wrapper._get_limits_checking_monkeypatch(), wrapper._get_pva_limits_guard()))
+
+
 def _run_monkeypatch(monkeypatch, validator=None):
     """Execute the generated monkeypatch block; return ``(namespace, stdout)``."""
     validator = validator or _make_validator()
@@ -359,15 +380,18 @@ def _run_monkeypatch(monkeypatch, validator=None):
     # this module is about p4p, and aioca is really installed here — exec'ing
     # the block against it would rebind the installed library for the rest of
     # the session. Their behaviour is covered in test_client_limits_monkeypatch.
-    for name in ("aioca", "aioca._catools", "pvaccess"):
+    for name in ("aioca", "aioca._catools"):
         monkeypatch.setitem(sys.modules, name, None)
+    # pvaPy is faked by the tests that exercise it and absent for the rest.
+    if getattr(sys.modules.get("pvaccess"), _FAKE_CLIENT_MARKER, False) is not True:
+        monkeypatch.setitem(sys.modules, "pvaccess", None)
 
     # The block injects the validator into osprey.runtime as a side effect.
     import osprey.runtime as runtime_module
 
     monkeypatch.setattr(runtime_module, "_limits_validator", None, raising=False)
 
-    source = ExecutionWrapper(limits_validator=validator)._get_limits_checking_monkeypatch()
+    source = _guard_source(validator)
     namespace: dict = {}
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -384,8 +408,7 @@ def _run_monkeypatch(monkeypatch, validator=None):
 
 
 def test_generated_source_patches_every_p4p_flavor():
-    wrapper = ExecutionWrapper(limits_validator=_make_validator())
-    source = wrapper._get_limits_checking_monkeypatch()
+    source = _guard_source(_make_validator())
     assert "from p4p.client.thread import Context" in source
     assert "from p4p.client.asyncio import Context" in source
     assert "from p4p.client.cothread import Context" in source
@@ -394,11 +417,37 @@ def test_generated_source_patches_every_p4p_flavor():
     assert "strict=True" in source
     # Scalar-vs-batch keys on str, exactly as p4p's own put() does.
     assert "isinstance(_name, str)" in source
-    assert RPC_REFUSAL in source
+    # rpc belongs to the armed raw-put block, not to this guard.
+    assert ".rpc = " not in source
 
 
-def test_no_p4p_code_when_limits_checking_disabled():
-    assert ExecutionWrapper(limits_validator=None)._get_limits_checking_monkeypatch() == ""
+def test_no_pva_guard_when_limits_checking_disabled():
+    wrapper = ExecutionWrapper(limits_validator=None, execution_mode="readwrite")
+    assert wrapper._get_pva_limits_guard() == ""
+
+
+def test_no_pva_guard_in_a_readonly_run():
+    """A readonly run refuses these puts outright; there is nothing to check."""
+    wrapper = ExecutionWrapper(limits_validator=_make_validator(), execution_mode="readonly")
+    assert wrapper._get_pva_limits_guard() == ""
+
+
+def test_the_guard_says_so_when_limits_setup_failed():
+    """Without a validator in scope the guard installs nothing and says why."""
+    wrapper = ExecutionWrapper(limits_validator=_make_validator(), execution_mode="readwrite")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        exec(compile(wrapper._get_pva_limits_guard(), "<generated-wrapper>", "exec"), {})
+    assert "PVAccess limits guard not installed" in buf.getvalue()
+
+
+def test_the_guard_follows_the_limits_block_in_the_script():
+    wrapper = ExecutionWrapper(limits_validator=_make_validator(), execution_mode="readwrite")
+    script = wrapper.create_wrapper("pass")
+    guard = wrapper._get_pva_limits_guard()
+    assert guard and guard in script
+    assert script.index(wrapper._get_limits_checking_monkeypatch()) < script.index(guard)
+    assert script.index(guard) < script.index(wrapper._get_armed_block())
 
 
 # ---------------------------------------------------------------------------
@@ -519,32 +568,6 @@ def test_batch_put_with_non_sequence_values_raises(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# rpc
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("flavor", ["thread", "asyncio"])
-def test_rpc_is_refused_unconditionally(monkeypatch, flavor):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes[flavor]()
-    with pytest.raises(RuntimeError, match=RPC_REFUSAL):
-        ctxt.rpc("TEST:MAG:SP", 1.0)
-    assert ctxt.rpcs == []
-
-
-def test_rpc_is_refused_even_for_an_in_limits_channel(monkeypatch):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["thread"]()
-    with pytest.raises(RuntimeError, match="supervised write path"):
-        ctxt.rpc("TEST:MAG:SP")
-    assert ctxt.rpcs == []
-
-
-# ---------------------------------------------------------------------------
 # asyncio flavor
 # ---------------------------------------------------------------------------
 
@@ -567,8 +590,9 @@ def test_each_flavor_is_patched_independently(monkeypatch):
 
     assert classes["thread"].put is not RecordingContext.put
     assert classes["asyncio"].put is not RecordingContext.put
-    assert classes["thread"].rpc is not RecordingContext.rpc
-    assert classes["asyncio"].rpc is not RecordingContext.rpc
+    # rpc is left for the armed raw-put block.
+    assert classes["thread"].rpc is RecordingContext.rpc
+    assert classes["asyncio"].rpc is RecordingContext.rpc
 
 
 def test_one_missing_flavor_does_not_stop_the_others(monkeypatch):
@@ -1010,16 +1034,6 @@ def test_raw_put_to_a_max_step_channel_fails_closed_without_a_reader(monkeypatch
     assert ctxt.raw_puts == []
 
 
-def test_raw_rpc_is_refused(monkeypatch):
-    classes = _install_fake_p4p(monkeypatch)
-    _run_monkeypatch(monkeypatch)
-
-    ctxt = classes["raw"]()
-    with pytest.raises(RuntimeError, match=RPC_REFUSAL):
-        ctxt.rpc("TEST:MAG:SP", None, 1.0)
-    assert ctxt.rpcs == []
-
-
 def test_flavor_put_forwards_through_raw_exactly_once(monkeypatch):
     """The re-entry through ``super().put`` must not be validated a second time."""
     classes = _install_fake_p4p(monkeypatch)
@@ -1047,3 +1061,404 @@ def test_raw_guard_reports_itself_installed(monkeypatch):
     _, out = _run_monkeypatch(monkeypatch)
 
     assert "Monkeypatched p4p.client.raw" in out
+
+
+class _FakePvObject:
+    """The structure a pvaccess ``Channel`` hands back and takes in.
+
+    Shaped after the real binding, because pvaccess is not installed here and
+    this fake is therefore the only evidence the guard binds correctly on it.
+    pvaPy's no-arg ``getPyObject()`` answers the VALUE of the structure's
+    ``value`` field and raises ``pvaccess.InvalidRequest`` when there is none;
+    ``toDict()`` is the spelling that answers the whole structure as a dict.
+    (The exception type is not part of the guard's contract — it lets whatever
+    is raised propagate, and the write fails closed either way.)
+    """
+
+    def __init__(self, data):
+        self._data = dict(data)
+
+    def getPyObject(self):  # pvaccess spells it this way
+        if "value" not in self._data:
+            raise RuntimeError("PvObject has no value field")
+        return self._data["value"]
+
+    def toDict(self):  # pvaccess spells it this way
+        return dict(self._data)
+
+
+def _install_fake_pvaccess(monkeypatch, writes=None, reads=None, read=None):
+    """Inject a ``pvaccess`` with the typed put family a Channel really carries.
+
+    pvaPy spells a write as ``put`` plus a typed setter per scalar kind
+    (``putDouble``, ``putInt``, …), which is why the block sweeps every
+    ``put``-prefixed attribute rather than naming one. ``asyncPut``,
+    ``parsePut`` and ``parsePutGet`` are the three writes whose names fall
+    outside that prefix, and they are here so the sweep is tested against them.
+
+    ``get`` answers a structure, as pvaPy's does, so a guard that reduces the
+    payload but not the read is caught here. ``read`` replaces what it
+    answers, and may raise: a channel that cannot be read is the case a step
+    check has to fail closed on.
+    """
+    writes = [] if writes is None else writes
+    reads = [] if reads is None else reads
+    mod = _fake_module("pvaccess")
+
+    class Channel:
+        def __init__(self, name, provider=None):  # noqa: ARG002 - pvaPy Channel signature
+            self._name = name
+            self.current = 1.0
+
+        def getName(self):  # pvaccess spells it this way
+            return self._name
+
+        def get(self, request=""):  # noqa: ARG002 - pvaPy Channel signature
+            reads.append(self._name)
+            if read is not None:
+                return read(self._name)
+            return _FakePvObject({"value": self.current})
+
+        def put(self, value, request=""):  # noqa: ARG002 - pvaPy Channel signature
+            writes.append((self._name, value))
+            return "put-done"
+
+        def putDouble(self, value, request=""):  # noqa: ARG002 - pvaPy Channel signature
+            writes.append((self._name, value))
+            return "put-done"
+
+        def putGet(self, value, request=""):  # noqa: ARG002 - pvaPy Channel signature
+            writes.append((self._name, value))
+            return _FakePvObject({"value": value})
+
+        def asyncPut(self, value, callback=None, request=""):  # noqa: ARG002 - pvaPy Channel signature
+            # pvaPy's asynchronous write: a PvObject first, the completion
+            # callback second. A write whose name does not start with "put".
+            writes.append((self._name, value))
+            return "async-put-done"
+
+        def parsePut(self, args, request=""):  # noqa: ARG002 - pvaPy Channel signature
+            # Takes a LIST OF JSON STRINGS, not a value object.
+            writes.append((self._name, args))
+            return "parse-put-done"
+
+        def parsePutGet(self, args, request=""):  # noqa: ARG002 - pvaPy Channel signature
+            writes.append((self._name, args))
+            return _FakePvObject({"value": args})
+
+    mod.Channel = Channel
+    mod.PvObject = _FakePvObject
+    monkeypatch.setitem(sys.modules, "pvaccess", mod)
+    return mod
+
+
+def _make_pva_validator():
+    """The pvaPy tests' channels: one plain, one with ``max_step``."""
+    limits = {
+        "TEST:MAG:SP": ChannelLimitsConfig(
+            channel_address="TEST:MAG:SP", min_value=0.0, max_value=10.0
+        ),
+        "TEST:MAG:STEP": ChannelLimitsConfig(
+            channel_address="TEST:MAG:STEP",
+            min_value=0.0,
+            max_value=100.0,
+            max_step=2.0,
+        ),
+    }
+    return LimitsValidator(limits, {"allow_unlisted_channels": False})
+
+
+# ---------------------------------------------------------------------------
+# pvaPy (pvaccess)
+# ---------------------------------------------------------------------------
+
+
+def test_pvaccess_put_within_limits_reaches_the_channel(monkeypatch):
+    writes: list = []
+    reads: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes, reads)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    assert mod.Channel("TEST:MAG:SP").put(5.0) == "put-done"
+    assert writes == [("TEST:MAG:SP", 5.0)]
+    # No max_step on this channel, so the guard buys no read for it.
+    assert reads == []
+
+
+def test_pvaccess_put_out_of_bounds_raises_before_the_channel(monkeypatch):
+    """pvaPy is a PVAccess client of its own, not a p4p spelling.
+
+    A ``pvaccess.Channel`` put never passes through a p4p ``Context``, so the
+    p4p guards leave it unchecked; this is the guard that closes it.
+    """
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError):
+        mod.Channel("TEST:MAG:SP").put(99.0)
+    assert writes == []
+
+
+def test_pvaccess_typed_put_is_refused_out_of_range(monkeypatch):
+    """The typed setters are the same write under another name.
+
+    pvaPy spells one setter per scalar and array kind — ``putDouble``,
+    ``putInt``, ``putScalarArray`` — so the guard sweeps every ``put``-prefixed
+    attribute rather than naming ``put``. Naming them would go stale against
+    the binding, and every name missed would be an unchecked write.
+    """
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError):
+        mod.Channel("TEST:MAG:SP").putDouble(99.0)
+    assert writes == []
+
+
+def test_pvaccess_structure_payload_is_reduced_before_validation(monkeypatch):
+    """A ``PvObject`` payload is unwrapped to the number it carries.
+
+    Handed the structure itself, the validator finds nothing numeric to check
+    and lets the write past — so an out-of-range value dressed as a structure
+    would reach the machine.
+    """
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError):
+        mod.Channel("TEST:MAG:SP").put(_FakePvObject({"value": 99.0}))
+    assert writes == []
+
+
+def test_pvaccess_dict_payload_is_reduced_before_validation(monkeypatch):
+    """The plain dict a structure converts to is unwrapped the same way."""
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError):
+        mod.Channel("TEST:MAG:SP").put({"value": 99.0})
+    assert writes == []
+
+
+def test_pvaccess_dict_without_a_value_field_fails_closed(monkeypatch):
+    """A shape with no value under it is refused, not written unchecked."""
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ValueError):
+        mod.Channel("TEST:MAG:SP").put({"unit": "A"})
+    assert writes == []
+
+
+def test_pvaccess_callable_payload_fails_closed(monkeypatch):
+    """A callable is not a value a limits database can be asked about."""
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ValueError):
+        mod.Channel("TEST:MAG:SP").put(lambda: 5.0)
+    assert writes == []
+
+
+def test_pvaccess_step_check_reads_through_the_channels_own_get(monkeypatch):
+    """The step is measured over the same Channel the put goes through.
+
+    pvaPy answers a get with a structure, so the reader reduces it exactly as
+    it reduces a payload. Left unreduced, the structure is non-numeric, the
+    validator SKIPS the step check, and a 49-unit step past a max of 2 reaches
+    the machine — which is why this asserts the refusal is ``MAX_STEP_EXCEEDED``
+    and not merely that something raised.
+    """
+    writes: list = []
+    reads: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes, reads)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError) as exc:
+        mod.Channel("TEST:MAG:STEP").put(50.0)
+
+    assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
+    assert reads == ["TEST:MAG:STEP"]
+    assert writes == []
+
+
+def test_pvaccess_put_within_max_step_reaches_the_channel(monkeypatch):
+    """The reader is a real read, not a blanket refusal on max_step channels."""
+    writes: list = []
+    reads: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes, reads)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    # The fake reads back 1.0, so this is a step of 1.0 against a max of 2.0.
+    assert mod.Channel("TEST:MAG:STEP").put(2.0) == "put-done"
+    assert reads == ["TEST:MAG:STEP"]
+    assert writes == [("TEST:MAG:STEP", 2.0)]
+
+
+def test_pvaccess_step_check_fails_closed_when_the_read_fails(monkeypatch):
+    """A Channel that cannot be read refuses the write rather than skipping it."""
+    writes: list = []
+    reads: list = []
+
+    def _raise(_name):
+        raise OSError("channel unreachable")
+
+    mod = _install_fake_pvaccess(monkeypatch, writes, reads, read=_raise)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError) as exc:
+        mod.Channel("TEST:MAG:STEP").put(2.0)
+
+    assert exc.value.violation_type == "STEP_CHECK_FAILED"
+    assert writes == []
+
+
+def test_pvaccess_async_put_out_of_range_is_refused(monkeypatch):
+    """``asyncPut`` is a write whose name does not start with ``put``.
+
+    pvaPy spells the asynchronous write ``asyncPut(pvObject, callback)`` — the
+    same put with a completion callback bolted on, and the same value going to
+    the machine. A sweep keyed on the ``put`` prefix alone leaves it out, so an
+    approved run could send an out-of-range value with no check at all.
+    """
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError):
+        mod.Channel("TEST:MAG:SP").asyncPut(_FakePvObject({"value": 99.0}), lambda _r: None)
+    assert writes == []
+
+
+def test_pvaccess_async_put_within_limits_reaches_the_channel(monkeypatch):
+    """The first positional is a PvObject, so the ordinary reduction covers it."""
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    channel = mod.Channel("TEST:MAG:SP")
+    assert channel.asyncPut(_FakePvObject({"value": 5.0}), lambda _r: None) == "async-put-done"
+    assert len(writes) == 1
+    assert writes[0][0] == "TEST:MAG:SP"
+
+
+def test_pvaccess_parse_put_cannot_be_limits_checked(monkeypatch):
+    """``parsePut``/``parsePutGet`` carry JSON strings, so they are refused.
+
+    Their payload is a list of ``field=value`` strings parsed against the
+    channel's introspected structure — there is no value object to reduce, and
+    the wrapper cannot know which string names the field the limits are about.
+    Guessing would be a check that silently means nothing, so the write is
+    refused with the same posture the p4p guard takes for a callable payload:
+    an in-range value is refused too, and the caller is pointed at ``put``.
+    """
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ValueError, match="cannot be limits-checked"):
+        mod.Channel("TEST:MAG:SP").parsePut(["value=5.0"])
+    with pytest.raises(ValueError, match="cannot be limits-checked"):
+        mod.Channel("TEST:MAG:SP").parsePutGet(["value=5.0"])
+    assert writes == []
+
+
+def test_pvaccess_structure_payload_over_max_step_is_refused(monkeypatch):
+    """A structure payload is stepped against a structure read, both reduced.
+
+    This is the shape a real pvaPy run has on both sides — ``PvObject`` in,
+    ``PvObject`` back from ``get`` — and neither is a number until the guard
+    reduces it. Unreduced, the validator finds nothing numeric and SKIPS the
+    step check, so the assertion is on ``MAX_STEP_EXCEEDED`` specifically.
+    """
+    writes: list = []
+    reads: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes, reads)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(ChannelLimitsViolationError) as exc:
+        mod.Channel("TEST:MAG:STEP").put(_FakePvObject({"value": 50.0}))
+
+    assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
+    assert reads == ["TEST:MAG:STEP"]
+    assert writes == []
+
+
+def test_pvaccess_valueless_structure_payload_fails_closed(monkeypatch):
+    """A structure with no value under it is refused by pvaPy's own accessor.
+
+    ``PvObject.getPyObject()`` raises when the structure has no ``value``
+    field, which happens before the guard's own dict branch is reached. The
+    exception propagates and the write never leaves — a different exception
+    type from the plain-dict refusal, the same fail-closed outcome.
+    """
+    writes: list = []
+    mod = _install_fake_pvaccess(monkeypatch, writes)
+    _run_monkeypatch(monkeypatch, _make_pva_validator())
+
+    with pytest.raises(RuntimeError):
+        mod.Channel("TEST:MAG:SP").put(_FakePvObject({"unit": "A"}))
+    assert writes == []
+
+
+def test_fake_pv_object_answers_the_way_pvapy_does():
+    """The fake is the only surface standing in for binding on the real library.
+
+    pvaPy's no-arg ``PvObject.getPyObject()`` answers the VALUE of the
+    ``value`` field and raises ``pvaccess.InvalidRequest`` when there is none;
+    ``toDict()`` is the spelling that answers the whole structure as a dict. A
+    fake that answered a dict from ``getPyObject()`` would test the guard only
+    against a shape a real PvObject never produces. (The exception type is not
+    part of the contract — the guard lets whatever is raised propagate.)
+    """
+    payload = _FakePvObject({"value": 99.0, "unit": "A"})
+
+    assert payload.getPyObject() == 99.0
+    assert payload.toDict() == {"value": 99.0, "unit": "A"}
+    with pytest.raises(RuntimeError):
+        _FakePvObject({"unit": "A"}).getPyObject()
+
+
+def test_pvaccess_without_a_channel_class_reports_the_gap(monkeypatch):
+    """A pvaccess module with no ``Channel`` must not report itself guarded.
+
+    The success line is the operator's only evidence the guard is on. A stub or
+    broken install that carries no ``Channel`` wraps nothing, and saying so is
+    the difference between a known gap and an unchecked write believed checked.
+    """
+    monkeypatch.setitem(sys.modules, "pvaccess", _fake_module("pvaccess"))
+
+    _, out = _run_monkeypatch(monkeypatch, _make_pva_validator())
+    assert "no Channel class" in out
+    assert "✅ Monkeypatched pvaccess" not in out
+
+
+def test_pvaccess_channel_without_a_put_reports_the_gap(monkeypatch):
+    """A ``Channel`` the sweep found nothing on is the same gap, and says so."""
+    mod = _fake_module("pvaccess")
+
+    class Channel:
+        def get(self):
+            return 1.0
+
+    mod.Channel = Channel
+    monkeypatch.setitem(sys.modules, "pvaccess", mod)
+
+    _, out = _run_monkeypatch(monkeypatch, _make_pva_validator())
+    assert "⚠️  pvaccess guard failed: Channel has no put method" in out
+    assert "✅ Monkeypatched pvaccess" not in out
+
+
+def test_absent_pvaccess_leaves_the_p4p_guards_in_place(monkeypatch):
+    _install_fake_p4p(monkeypatch)
+    monkeypatch.setitem(sys.modules, "pvaccess", None)
+
+    _, out = _run_monkeypatch(monkeypatch, _make_pva_validator())
+    assert "pvaccess not available" in out
+    assert "✅ Monkeypatched p4p.client.thread Context.put()" in out

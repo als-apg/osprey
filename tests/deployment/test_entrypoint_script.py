@@ -39,6 +39,7 @@ verbatim, and the regen/restore/hand-back order.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import shutil
@@ -78,6 +79,12 @@ RENDER_NAMED_VARS = frozenset(
 
 #: The marker that routes the root phase's records to their own file.
 WRITER_VAR = "OSPREY_AUDIT_WRITER"
+
+#: Who this container acts as, and the staged module that makes uid 1000 say so.
+IDENTITY_VAR = "OSPREY_CONTROL_IDENTITY"
+IDENTITY_MODULE_VAR = "OSPREY_CONTROL_IDENTITY_MODULE"
+#: What a non-root start exports for ``/health`` when it could not apply one.
+IDENTITY_SKIPPED_VAR = "OSPREY_CONTROL_IDENTITY_SKIPPED"
 
 #: Stand-in the stubs print when the variable is not in their environment, so
 #: "absent" and "empty" are distinguishable in an assertion.
@@ -304,6 +311,10 @@ class Run:
     visited: list[str]
     maintenance_marker: str
     drop_marker: str
+    #: argv of every ``python <module> apply ...`` call, one per line.
+    apply_calls: list[str]
+    #: ``OSPREY_CONTROL_IDENTITY_SKIPPED`` as the command saw it.
+    skipped: str
 
 
 class Sandbox:
@@ -399,7 +410,14 @@ class Sandbox:
         read_probe_rc: int | None = None,
         traverse_probe_rc: int | None = None,
         uid_map: str | None = None,
+        identity: str | None = None,
+        module: str | None = "present",
+        apply_rc: int = 0,
+        with_python: bool = True,
     ) -> Run:
+        """``module`` is ``"present"``, ``"unreadable"``, ``"absent"`` (the
+        variable names a path that does not exist) or ``None`` (the variable
+        is not set). It is only passed when ``identity`` is."""
         # The map is read off a path the script hardcodes, so the sandbox's
         # copy of the script is re-pointed at a file holding the fabricated
         # map — the same move as the stubbed `stat`, for the same reason: the
@@ -421,6 +439,8 @@ class Sandbox:
             probe_rc=probe_rc,
             read_probe_rc=read_probe_rc,
             traverse_probe_rc=traverse_probe_rc,
+            apply_rc=apply_rc,
+            with_python=with_python,
         )
         order_log = self.tmp / "order.log"
         group_log = self.tmp / "group.log"
@@ -428,7 +448,18 @@ class Sandbox:
         find_visited = self.tmp / "find.visited"
         py_env = self.tmp / "py.env"
         drop_env = self.tmp / "drop.env"
-        for path in (order_log, group_log, find_args, find_visited, py_env, drop_env):
+        apply_log = self.tmp / "apply.log"
+        skipped_env = self.tmp / "skipped.env"
+        for path in (
+            order_log,
+            group_log,
+            find_args,
+            find_visited,
+            py_env,
+            drop_env,
+            apply_log,
+            skipped_env,
+        ):
             path.write_text("")
 
         env = {
@@ -442,7 +473,12 @@ class Sandbox:
             "DROP_ENV": str(drop_env),
             "GID_MAP": str(self.gid_map),
             "GROUP_DB": str(self.group_db),
+            "APPLY_LOG": str(apply_log),
         }
+        if identity is not None:
+            env[IDENTITY_VAR] = identity
+            if module is not None:
+                env[IDENTITY_MODULE_VAR] = str(self.identity_module(module))
         if audit_dir is not None:
             env[AUDIT_VAR] = str(audit_dir)
         if control_dir is not None:
@@ -454,7 +490,12 @@ class Sandbox:
         if mirror_dir is not None:
             env[MIRROR_VAR] = str(mirror_dir)
 
-        command = ["/bin/sh", "-c", f'printf "cmd\\n" >> "{order_log}"']
+        command = [
+            "/bin/sh",
+            "-c",
+            f'printf "cmd\\n" >> "{order_log}"; '
+            f'printf "%s\\n" "${{{IDENTITY_SKIPPED_VAR}-{UNSET}}}" > "{skipped_env}"',
+        ]
         result = subprocess.run(
             ["/bin/sh", str(self.script), *command],
             capture_output=True,
@@ -471,7 +512,26 @@ class Sandbox:
             visited=find_visited.read_text().splitlines(),
             maintenance_marker=py_env.read_text().strip() or UNSET,
             drop_marker=drop_env.read_text().strip() or UNSET,
+            apply_calls=apply_log.read_text().splitlines(),
+            skipped=skipped_env.read_text().strip() or UNSET,
         )
+
+    def identity_module(self, state: str) -> Path:
+        """A stand-in for the staged module: the ``python`` stub never runs
+        it, so only whether the script can read it matters."""
+        path = self.tmp / "opt" / "control_identity.py"
+        path.parent.mkdir(exist_ok=True)
+        if path.exists():
+            path.chmod(0o644)
+            path.unlink()
+        if state == "absent":
+            return path
+        path.write_text("# stand-in\n")
+        if state == "unreadable":
+            path.chmod(0o000)
+        else:
+            assert state == "present", state
+        return path
 
     def call_probe(
         self, var: str, directory: Path | str, mode: str | None = None
@@ -529,6 +589,8 @@ class Sandbox:
         probe_rc: int,
         read_probe_rc: int | None = None,
         traverse_probe_rc: int | None = None,
+        apply_rc: int = 0,
+        with_python: bool = True,
     ) -> Path:
         bindir = self.tmp / "bin"
         bindir.mkdir(exist_ok=True)
@@ -548,8 +610,17 @@ class Sandbox:
             "esac\n",
         )
         write("id", f'if [ "$1" = "-u" ]; then printf "{uid}\\n"; fi\nexit 0\n')
+        # Two callers. `python <module> apply ...` is the identity step: it is
+        # recorded under its own token and argv, answered from a knob, and
+        # must neither touch the writer-marker capture nor read stdin. Anything
+        # else is the maintenance heredoc.
         write(
             "python",
+            'if [ "$2" = "apply" ]; then\n'
+            '  printf "apply\\n" >> "$ORDER_LOG"\n'
+            '  printf "%s\\n" "$*" >> "$APPLY_LOG"\n'
+            f"  exit {apply_rc}\n"
+            "fi\n"
             'printf "python\\n" >> "$ORDER_LOG"\n'
             f'printf "%s\\n" "${{{WRITER_VAR}-{UNSET}}}" > "$PY_ENV"\n'
             "while IFS= read -r line; do :; done\n"
@@ -617,6 +688,8 @@ class Sandbox:
             f'printf "%s\\n" "${{{WRITER_VAR}-{UNSET}}}" > "$DROP_ENV"\n'
             'shift\nexec "$@"\n',
         )
+        if not with_python:
+            (bindir / "python").unlink()
         # `stat -c %g <dir>`: the fabricated gid table, so no test needs root.
         # TAB-separated, because the paths in it deliberately contain spaces.
         if stat_rc is not None:
@@ -1624,3 +1697,265 @@ class TestTheOwnershipSweep:
         assert f"-path {audit} -prune -o" in run.find_args, run.find_args
         assert f"-path {control} -prune -o" in run.find_args, run.find_args
         assert "no-tree" not in run.find_args, run.find_args
+
+
+# ── the control identity ─────────────────────────────────────────────────────
+
+
+def _identity_body(text: str) -> str:
+    """``apply_control_identity``'s body: the one place the rewrite runs."""
+    start = text.index("apply_control_identity() {")
+    return text[start : text.index("\n}", start)]
+
+
+def _non_root_branch(text: str) -> str:
+    """The ``--user`` branch of ``main``, up to and including its ``exec``."""
+    start = text.index('if [ "$(id -u)" -ne 0 ]; then')
+    return text[start : text.index('exec "$@"', start) + len('exec "$@"')]
+
+
+#: The privilege drop, spelled exactly once in the shipped script.
+_EXEC_FORM = re.compile(r'^[ \t]*exec gosu osprey "\$@"$', re.MULTILINE)
+
+
+class TestTheIdentityStepShape:
+    """Where the step sits is part of what it guarantees."""
+
+    def test_the_variables_are_read_with_a_default(self, text: str):
+        """``set -eu``: a bare ``$OSPREY_CONTROL_IDENTITY`` on a container
+        that sets none would abort the boot with no FATAL line at all."""
+        code = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+        for var in (IDENTITY_VAR, IDENTITY_MODULE_VAR):
+            bare = [
+                line
+                for line in code
+                if re.search(r"\$\{?" + var + r"\b(?!:-)", line) and "log " not in line
+            ]
+            assert not bare, f"{var} read without a default: {bare}"
+            assert "${" + var + ":-}" in text, f"{var} is never read"
+
+    def test_the_step_runs_after_the_join_and_before_the_hand_back(self, text: str):
+        """After the join, so the renamed account inherits the mount groups
+        this boot created; before the hand-back and the drop, because after
+        ``exec gosu`` nothing runs and gosu has already read ``/etc/passwd``."""
+        join = text.index("\n    join_mounted_groups")
+        step = text.index("\n    apply_control_identity\n")
+        hand_back = text.index("\n    hand_back_state_zone\n")
+        drop = text.index('exec gosu osprey "$@"')
+        assert join < step < hand_back < drop
+
+    def test_the_step_is_not_softened_into_a_warning(self, text: str):
+        """Fail closed: the call carries no ``|| log`` that would let a failed
+        rewrite start the container as ``osprey``."""
+        call = re.search(r"^\s*apply_control_identity\b(.*)$", text[text.index("main() {") :], re.M)
+        assert call is not None
+        assert "||" not in call.group(1), call.group(0)
+
+    def test_the_module_is_run_against_uid_1000(self, text: str):
+        body = _identity_body(text)
+        assert '"$PYTHON" "$_ci_module" apply --uid 1000 --name "$_ci_name"' in body
+
+    def test_the_rewrite_cannot_reach_the_commands_streams(self, text: str):
+        """stdin closed and stdout folded into stderr: the command's stdout is
+        the command's own, and a module that read stdin would eat it."""
+        body = _identity_body(text)
+        call = next(line for line in body.splitlines() if " apply --uid" in line)
+        assert "< /dev/null" in call, call
+        assert ">&2" in call, call
+
+    def test_the_osprey_account_is_kept(self, text: str):
+        """Every by-name step still names ``osprey``: the module keeps that
+        line, so the drop and the probes do not change."""
+        assert _EXEC_FORM.search(text)
+
+    def test_the_non_root_check_precedes_the_exec(self, text: str):
+        branch = _non_root_branch(text)
+        assert "${" + IDENTITY_VAR + ":-}" in branch
+        assert "control_identity_failed" in branch
+        assert "non-root-start" in branch
+
+    def test_one_helper_splits_person_from_service(self, text: str):
+        """Every failure path goes through ``control_identity_failed``: an
+        ``osprey-*`` name exports the skip, anything else dies."""
+        helper = text[text.index("control_identity_failed() {") :]
+        helper = helper[: helper.index("\n}\n")]
+        assert "osprey-*)" in helper
+        assert f"export {IDENTITY_SKIPPED_VAR}" in helper
+        assert "die " in helper
+
+    def test_the_stdout_contract_states_both_answers(self, text: str):
+        contract = text[text.index("# ── logging") : text.index("log() {")]
+        assert "`osprey`" in contract
+        assert IDENTITY_VAR in contract
+
+
+class TestTheIdentityOnARootStart:
+    """Root start: the rewrite runs. When it cannot, a person identity does not
+    start and a service identity warns and runs as ``osprey``."""
+
+    def test_no_identity_runs_no_module(self, sandbox: Sandbox):
+        """Unset is the default for every card that names no identity, and
+        it must leave the boot exactly as it was."""
+        run = sandbox.run()
+
+        assert run.returncode == 0, run.stderr
+        assert run.apply_calls == []
+        assert "apply" not in run.order
+        assert run.skipped == UNSET
+
+    def test_an_empty_identity_runs_no_module(self, sandbox: Sandbox):
+        run = sandbox.run(identity="")
+
+        assert run.returncode == 0, run.stderr
+        assert run.apply_calls == []
+        assert run.order[-3:] == ["gosu", "osprey", "cmd"], run.order
+
+    @pytest.mark.parametrize("identity", ["alice", "osprey-dispatch-1"])
+    def test_the_identity_is_applied_to_uid_1000(self, sandbox: Sandbox, identity: str):
+        run = sandbox.run(identity=identity)
+
+        assert run.returncode == 0, run.stderr
+        module = sandbox.identity_module("present")
+        assert run.apply_calls == [f"{module} apply --uid 1000 --name {identity}"]
+        assert f"control identity: uid 1000 is '{identity}'" in run.stderr
+        assert run.skipped == UNSET
+
+    def test_the_rewrite_follows_the_join_and_precedes_the_hand_back(self, sandbox: Sandbox):
+        audit = sandbox.audit_mount(gid=3000)
+
+        run = sandbox.run(identity="alice", audit_dir=audit)
+
+        assert run.returncode == 0, run.stderr
+        order = run.order
+        assert order.index("python") < order.index("usermod") < order.index("apply"), order
+        assert order.index("apply") < order.index("chown") < order.index("gosu"), order
+        assert order[-1] == "cmd", order
+
+    def test_the_rewrite_does_not_carry_the_writer_marker(self, sandbox: Sandbox):
+        """The apply call is a separate interpreter; the maintenance marker
+        stays on the maintenance heredoc and nowhere else."""
+        run = sandbox.run(identity="alice")
+
+        assert run.maintenance_marker == "maintenance"
+        assert run.drop_marker == UNSET
+
+    @pytest.mark.parametrize("identity", ["alice"])
+    def test_a_failed_rewrite_is_fatal_for_a_person(self, sandbox: Sandbox, identity: str):
+        run = sandbox.run(identity=identity, apply_rc=1)
+
+        assert run.returncode != 0
+        assert "FATAL" in run.stderr and identity in run.stderr, run.stderr
+        assert "gosu" not in run.order and "cmd" not in run.order, run.order
+
+    @pytest.mark.parametrize("identity", ["alice"])
+    def test_a_missing_module_is_fatal_for_a_person(self, sandbox: Sandbox, identity: str):
+        run = sandbox.run(identity=identity, module="absent")
+
+        assert run.returncode != 0
+        assert "FATAL" in run.stderr and "missing or unreadable" in run.stderr, run.stderr
+        assert run.apply_calls == []
+        assert "cmd" not in run.order, run.order
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 file")
+    @pytest.mark.parametrize("identity", ["alice"])
+    def test_an_unreadable_module_is_fatal_for_a_person(self, sandbox: Sandbox, identity: str):
+        run = sandbox.run(identity=identity, module="unreadable")
+
+        assert run.returncode != 0
+        assert "missing or unreadable" in run.stderr, run.stderr
+        assert run.apply_calls == []
+        assert "cmd" not in run.order, run.order
+
+    @pytest.mark.parametrize("identity", ["alice"])
+    def test_an_unset_module_variable_is_fatal_for_a_person(self, sandbox: Sandbox, identity: str):
+        """Said with a FATAL line, not the shell's own ``parameter not set``."""
+        run = sandbox.run(identity=identity, module=None)
+
+        assert run.returncode != 0
+        assert f"FATAL: {IDENTITY_VAR} is '{identity}' but {IDENTITY_MODULE_VAR}" in run.stderr
+        assert "cmd" not in run.order, run.order
+
+    @pytest.mark.parametrize("identity", ["alice"])
+    def test_a_missing_python_is_fatal_for_a_person(self, sandbox: Sandbox, identity: str):
+        """Maintenance fails open without an interpreter; the identity does
+        not, because the alternative is acting as ``osprey``."""
+        run = sandbox.run(identity=identity, with_python=False)
+
+        assert run.returncode != 0
+        assert "FATAL" in run.stderr and "interpreter" in run.stderr, run.stderr
+        assert "cmd" not in run.order, run.order
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            {"apply_rc": 1},
+            {"module": "absent"},
+            {"module": None},
+            {"with_python": False},
+        ],
+        ids=["failed-rewrite", "missing-module", "unset-module-variable", "missing-python"],
+    )
+    def test_a_service_identity_warns_and_runs_when_it_cannot_apply(
+        self, sandbox: Sandbox, failure: dict
+    ):
+        """A service name labels a shared writer in the put-log and guards
+        nothing, so a container that cannot carry it still starts."""
+        run = sandbox.run(identity="osprey-dispatch-1", **failure)
+
+        assert run.returncode == 0, run.stderr
+        assert "FATAL" not in run.stderr, run.stderr
+        assert any("osprey-dispatch-1" in line for line in _warnings(run)), run.stderr
+        assert run.order[-3:] == ["gosu", "osprey", "cmd"], run.order
+        assert run.skipped == "apply-failed"
+        assert "control identity: uid 1000 is" not in run.stderr
+
+    def test_without_an_identity_a_missing_python_still_boots(self, sandbox: Sandbox):
+        run = sandbox.run(with_python=False)
+
+        assert run.returncode == 0, run.stderr
+        assert run.order[-3:] == ["gosu", "osprey", "cmd"], run.order
+
+
+class TestTheIdentityOnANonRootStart:
+    """``--user``: no rewrite is possible, so the identity decides the boot."""
+
+    def test_a_person_identity_refuses_to_start(self, sandbox: Sandbox):
+        """A card configured as alice never silently writes as uid 1000."""
+        run = sandbox.run(uid=1000, identity="alice")
+
+        assert run.returncode != 0
+        assert "FATAL" in run.stderr and "'alice'" in run.stderr, run.stderr
+        assert run.order == [], run.order
+
+    def test_a_service_identity_warns_and_runs(self, sandbox: Sandbox):
+        run = sandbox.run(uid=1000, identity="osprey-dispatch-1")
+
+        assert run.returncode == 0, run.stderr
+        assert run.order == ["cmd"], run.order
+        assert any("osprey-dispatch-1" in line for line in _warnings(run)), run.stderr
+
+    def test_a_service_identity_exports_the_skip_for_health(self, sandbox: Sandbox):
+        run = sandbox.run(uid=1000, identity="osprey-bluesky")
+
+        assert run.skipped == "non-root-start"
+
+    def test_no_identity_leaves_the_branch_as_it_was(self, sandbox: Sandbox):
+        run = sandbox.run(uid=1000)
+
+        assert run.returncode == 0, run.stderr
+        assert run.order == ["cmd"], run.order
+        assert run.skipped == UNSET
+        assert "FATAL" not in run.stderr
+
+    def test_an_empty_identity_is_no_identity(self, sandbox: Sandbox):
+        run = sandbox.run(uid=1000, identity="")
+
+        assert run.returncode == 0, run.stderr
+        assert run.order == ["cmd"], run.order
+        assert run.skipped == UNSET
+
+    def test_the_module_is_never_run(self, sandbox: Sandbox):
+        """Not even for a service identity: the rewrite needs root."""
+        run = sandbox.run(uid=1000, identity="osprey-dispatch-1")
+
+        assert run.apply_calls == []

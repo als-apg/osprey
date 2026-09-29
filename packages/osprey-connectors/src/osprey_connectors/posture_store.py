@@ -193,6 +193,7 @@ __all__ = [
     "VALID_POSTURES",
     "agent_data_root",
     "bind_owner",
+    "bound_owner",
     "bound_state_dir",
     "current_owner",
     "effective_writes",
@@ -438,6 +439,21 @@ def current_owner(owner: str | _NoOwner | None = None) -> str | _NoOwner:
         return NO_OWNER
 
     return acting_identity()
+
+
+def bound_owner() -> str | _NoOwner:
+    """The owner :func:`bind_owner` bound for the running plan, and nothing else.
+
+    Rung 2 of :func:`current_owner` alone: no caller argument, no environment
+    stamp, no process account. This is the question an attribution asks — whose
+    queued plan is this — and the ladder's lower rungs answer a different one:
+    whose narrowing governs a write here. A record attributed through them would
+    name the account the worker runs as rather than the person who queued the
+    run, so outside a :func:`bind_owner` block this answers :data:`NO_OWNER`.
+
+    Never raises.
+    """
+    return _owner_var.get()
 
 
 @contextmanager

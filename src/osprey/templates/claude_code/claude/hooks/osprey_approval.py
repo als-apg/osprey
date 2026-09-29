@@ -110,17 +110,20 @@ deployment has nothing to address and renders exactly what it always did.
 """
 
 import hashlib
+import io
 import json
 import os
 import re
 import sys
 import time
+import tokenize
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
     AUDIT_DECISION_APPROVED,
     AUDIT_DECISION_ASK,
     AUDIT_DECISION_DENIED,
+    AUDIT_DECISION_REFUSED,
     emit_audit,
     get_hook_input,
     is_write_call,
@@ -2706,6 +2709,122 @@ def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
         return _unanswerable_posture(short_name)
 
 
+#: Spellings of a direct client-library write that no reading makes innocent,
+#: as ``(label, pattern)``. The executor's runtime block refuses every one of
+#: them in a readwrite run anyway, so asking a human to approve code that is
+#: certain to be refused only spends their attention. The patterns run over the
+#: token stream with comments and string text removed (see
+#: :func:`_code_tokens`), joined by single spaces, so each one tolerates
+#: whitespace between tokens. Order matters only for the label: the qualified
+#: spellings come before the bare ``caput(`` they also match.
+#:
+#: Deliberately absent: ``write_channel`` / ``write_channels``, the sanctioned
+#: path; a bare ``.put(``, which also names ``queue.put`` and every other
+#: container in ordinary analysis code; and the PVAccess puts (a p4p
+#: ``ctxt.put(``, a pvaPy ``Channel.put``), which the connector cannot carry
+#: yet, so the runtime limits-checks them instead of refusing them. All keep
+#: the ask.
+_RAW_CLIENT_WRITE_SPELLINGS = (
+    ("epics.caput(", re.compile(r"\bepics\s*\.\s*caput\s*\(")),
+    ("aioca.caput(", re.compile(r"\baioca\s*\.\s*caput\s*\(")),
+    ("caput_many(", re.compile(r"\bcaput_many\s*\(")),
+    ("caput(", re.compile(r"\bcaput\s*\(")),
+    ("PV(...).put(", re.compile(r"\bPV\s*\(.*?\)\s*\.\s*put\s*\(")),
+    ("write_door", re.compile(r"\bwrite_door\b")),
+    ("open_door", re.compile(r"\bopen_door\b")),
+)
+
+#: Token types whose text is data, not code. ``FSTRING_MIDDLE`` (3.12+) and
+#: ``TSTRING_MIDDLE`` (3.14+) are the literal text of an f-/t-string; the
+#: expressions inside its braces are ordinary tokens and stay. Before 3.12 an
+#: f-string is one ``STRING`` token and goes whole.
+_DATA_TOKEN_TYPES = frozenset(
+    t
+    for t in (
+        tokenize.COMMENT,
+        tokenize.STRING,
+        getattr(tokenize, "FSTRING_MIDDLE", None),
+        getattr(tokenize, "TSTRING_MIDDLE", None),
+    )
+    if t is not None
+)
+
+#: The deny text. The hook cannot import ``osprey_connectors``, so it restates
+#: the runtime refusal's marker and remedy literally.
+_RAW_CLIENT_WRITE_REASON = (
+    "raw client write refused: `{spelling}` reaches the control system around "
+    "osprey.runtime and bypasses the reference monitor. Use "
+    "osprey.runtime.write_channel(address, value) or "
+    "osprey.runtime.write_channels({{address: value, ...}}) so limits and "
+    "approval apply."
+)
+_RAW_CLIENT_WRITE_AUDIT_REASON = "raw_client_write"
+
+
+def _code_tokens(code):
+    """The source as space-joined code tokens, or ``None`` if it does not tokenize.
+
+    Comments and string text are dropped, so a spelling that only appears in
+    prose or data never matches. ``None`` means "no verdict": the caller keeps
+    its ordinary flow, and the runtime block still stands behind it.
+    """
+    try:
+        return " ".join(
+            tok.string
+            for tok in tokenize.generate_tokens(io.StringIO(code).readline)
+            if tok.type not in _DATA_TOKEN_TYPES
+        )
+    except Exception:
+        return None
+
+
+def _raw_client_write_spelling(code):
+    """The label of the first raw client-write spelling in *code*, or ``None``."""
+    if not isinstance(code, str) or not code:
+        return None
+    stream = _code_tokens(code)
+    if stream is None:
+        return None
+    for label, pattern in _RAW_CLIENT_WRITE_SPELLINGS:
+        if pattern.search(stream):
+            return label
+    return None
+
+
+def _deny_raw_client_write(hook_input, tool_name, spelling):
+    """Emit the raw-client-write deny and exit 0. Does not return.
+
+    A refusal, not an answer to an ask, so it is filed as ``refused``. Both
+    filesystem touches are wrapped and happen before the exit: an unwritable
+    log or audit zone costs a record, never the decision.
+    """
+    detail = f"spelling={spelling}"
+    try:
+        log_hook("approval", hook_input, status="deny", detail=f"raw_client_write {detail}")
+    except Exception:
+        pass  # logging must never cost the deny
+    try:
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=_RAW_CLIENT_WRITE_AUDIT_REASON,
+            detail=detail,
+        )
+    except Exception:
+        pass  # the audit trail must never cost the deny
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": _RAW_CLIENT_WRITE_REASON.format(spelling=spelling),
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
 def main():
     # What the harness will allow this hook, straight from the rendered
     # command. The render derives the `--budget` value and the harness timeout
@@ -2785,6 +2904,16 @@ def main():
             detail=f"writes_not_armed tool={short_name}",
         )
         sys.exit(0)
+
+    # A readwrite `execute` whose code spells a direct client-library write is
+    # refused here, before any human is asked: the runtime block would refuse
+    # it anyway. Placed ahead of the `enabled` and `skip` checks so neither
+    # turns a certain refusal into a silent allow. `execute_file` carries a
+    # path, not code, so it keeps its ask and relies on the runtime block.
+    if short_name == "execute" and tool_input.get("execution_mode") == "readwrite":
+        spelling = _raw_client_write_spelling(tool_input.get("code"))
+        if spelling is not None:
+            _deny_raw_client_write(hook_input, tool_name, spelling)
 
     # Global toggle — disabled means allow everything
     if not approval_config.get("enabled", True):

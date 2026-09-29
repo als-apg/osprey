@@ -73,3 +73,13 @@ def test_harness_session_id_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_meta_key_is_the_harness_spelling() -> None:
     assert call.TOOL_USE_ID_META_KEY == "claudecode/toolUseId"
+
+
+@pytest.mark.parametrize("fact", ["ca_user", "ca_host", "owner"])
+def test_attribution_stamps_ride_the_default_record(fact: str) -> None:
+    assert fact in call.DETAIL_FACTS
+
+
+@pytest.mark.parametrize("fact", ["old_values", "limits"])
+def test_values_stay_off_the_default_record(fact: str) -> None:
+    assert fact not in call.DETAIL_FACTS

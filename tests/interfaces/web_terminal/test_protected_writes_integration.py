@@ -318,6 +318,10 @@ class Refusal:
             accepted as an either/or, because an either/or would go on passing
             if a surface quietly stopped carrying the half it owes.
         drive: Sends the request. Returns the response.
+        planted: Whether the target is written before the drive. The render
+            carries no file at a delete or register target, and an absent file
+            reads as unchanged whatever the route did; planting one gives the
+            untouched check bytes that a leaked delete or rewrite would move.
     """
 
     surface: str
@@ -329,6 +333,7 @@ class Refusal:
     outcome: str
     frame_names: str
     drive: Callable[[TestClient], object]
+    planted: bool = False
 
     @property
     def channel(self) -> str:
@@ -425,6 +430,7 @@ REFUSALS = [
             drive=lambda c: c.delete(
                 f"/api/scaffold/{RESERVED_CUSTOM_ARTIFACT}/override?delete_file=true"
             ),
+            planted=True,
         ),
         id="gallery-unoverride-delete-file",
     ),
@@ -441,6 +447,7 @@ REFUSALS = [
             drive=lambda c: c.post(
                 "/api/scaffold/untracked/register", json={"name": "skills/agent-authored"}
             ),
+            planted=True,
         ),
         id="gallery-register-untracked",
     ),
@@ -455,6 +462,7 @@ REFUSALS = [
             outcome="NOTHING WAS DELETED",
             frame_names="channel",
             drive=lambda c: c.delete("/api/scaffold/untracked/skills/agent-authored"),
+            planted=True,
         ),
         id="gallery-delete-untracked",
     ),
@@ -526,22 +534,56 @@ REFUSALS = [
 
 
 class TestEveryHttpSurfaceRefusesAudibly:
-    """FR2 and FR3, asserted once per writer the browser can reach."""
+    """FR2 and FR3, asserted once per writer the browser can reach.
+
+    One app per case, and every after-effect of that case is read off the same
+    refused attempt: the response, the ledger, the feed and the target. A real
+    app over a real render is what makes each case expensive, and none of the
+    after-effects needs an app of its own -- each is a distinct read of the one
+    attempt. The retry comes last because it changes the counts every earlier
+    read pins at exactly one.
+    """
 
     @pytest.mark.parametrize("case", REFUSALS)
-    def test_refusal_is_a_403(self, client, case):
+    def test_a_refusal_answers_records_publishes_and_moves_nothing(
+        self, client, audit_zone, project_dir, monkeypatch, case
+    ):
+        target = project_dir / case.target_file
+        if case.planted:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("# planted before the refused request\n", encoding="utf-8")
+        before = target.read_bytes() if target.is_file() else None
+
+        assert audit_records(audit_zone) == []
+        assert recent_activity(client) == []
+
+        # A web request belongs to no session, whatever the server inherited.
+        # ``HttpAuditMiddleware`` files ``app`` for the very request these
+        # refusals answer, so a surface reading the environment ladder instead
+        # would leave two records of one request disagreeing about where its
+        # posture came from. The ladder is pointed at a *different* answer
+        # first: a call site that dropped its own stamp would quietly inherit
+        # ``spawn`` and the record would say so.
+        monkeypatch.setenv(POSTURE_SOURCE_ENV_VAR, POSTURE_SOURCE_SPAWN)
+
         with no_panel_token():
             resp = case.drive(client)
         assert resp.status_code == 403, f"{case.surface}/{case.tool}: {resp.text}"
 
-    @pytest.mark.parametrize("case", REFUSALS)
-    def test_refusal_appends_exactly_one_audit_record(self, client, audit_zone, case):
-        """One line per attempt -- the log counts attempts, so neither zero nor two."""
-        assert audit_records(audit_zone) == []
+        # The two halves of an honest refusal. Naming the channel is what turns
+        # a refusal into a route forward; saying outright that nothing happened
+        # is what stops a reader assuming the write half-landed. Each surface
+        # phrases the second half in its own terms, so the pattern travels with
+        # the case.
+        detail = resp.json()["detail"]
+        assert case.channel in detail, (
+            f"{case.surface}/{case.tool} refused without naming the owning channel: {detail!r}"
+        )
+        assert re.search(case.outcome, detail, re.IGNORECASE), (
+            f"{case.surface}/{case.tool} did not state that nothing happened: {detail!r}"
+        )
 
-        with no_panel_token():
-            assert case.drive(client).status_code == 403
-
+        # One line per attempt -- the log counts attempts, so neither zero nor two.
         records = audit_records(audit_zone)
         assert len(records) == 1, f"{case.surface}/{case.tool} wrote {len(records)} records"
         record = records[0]
@@ -554,25 +596,27 @@ class TestEveryHttpSurfaceRefusesAudibly:
         assert record["decision"] == "refused"
         assert record["reason"] == case.reason
 
-    @pytest.mark.parametrize("case", REFUSALS)
-    def test_a_retried_refusal_is_a_second_line(self, client, audit_zone, case):
-        """The log appends. A pushed-twice attempt must not read as pushed once."""
-        with no_panel_token():
-            assert case.drive(client).status_code == 403
-            assert case.drive(client).status_code == 403
+        # One query over the log has to span every surface, so no field is optional.
+        assert set(record) == AUDIT_RECORD_FIELDS, f"{record['surface']} recorded {sorted(record)}"
+        for field in set(record) - NULLABLE_RECORD_FIELDS:
+            assert isinstance(record[field], str) and record[field], (
+                f"{record['surface']} left {field} empty"
+            )
+        session = record["session"]
+        assert session is None or (isinstance(session, str) and session), (
+            f"{record['surface']} recorded session={session!r}: the field is "
+            "nullable, not unchecked"
+        )
+        assert record["posture_source"] == POSTURE_SOURCE_APP, (
+            f"{record['surface']} filed posture_source={record['posture_source']!r} "
+            "for a web request"
+        )
+        # The ``surface`` field is what an operator filters on; it is a closed set.
+        assert record["surface"] in set(PROTECTED_SURFACES), (
+            "a surface an operator filters on must be one the audit package names"
+        )
 
-        records = audit_records(audit_zone)
-        assert len(records) == 2, f"{case.surface}/{case.tool} collapsed a retry"
-        assert records[0]["subject"] == records[1]["subject"] == case.key_or_path
-
-    @pytest.mark.parametrize("case", REFUSALS)
-    def test_refusal_reaches_the_activity_route(self, client, case):
-        """FR3 read the way a browser reads it: back out through the GET route."""
-        assert recent_activity(client) == []
-
-        with no_panel_token():
-            assert case.drive(client).status_code == 403
-
+        # FR3 read the way a browser reads it: back out through the GET route.
         events = recent_activity(client)
         assert len(events) == 1, f"{case.surface}/{case.tool} published {len(events)} frames"
         event = events[0]
@@ -581,143 +625,35 @@ class TestEveryHttpSurfaceRefusesAudibly:
         assert event["target"]["kind"] == case.kind
         assert isinstance(event["ts"], float)
 
-    @pytest.mark.parametrize("case", REFUSALS)
-    def test_activity_detail_identifies_what_was_refused(self, client, case):
-        """A frame that says only "refused" sends the operator nowhere.
-
-        The path surfaces quote the owning channel into the frame; the config
-        surfaces quote the key and leave the channel to the 403 body, because
-        a config channel sentence is longer than the frame is meant to be.
-        Which of the two a surface owes is fixed per case, so neither can drop
-        to the other and still pass.
-        """
-        with no_panel_token():
-            assert case.drive(client).status_code == 403
-
-        detail = recent_activity(client)[0]["target"]["detail"]
+        # A frame that says only "refused" sends the operator nowhere. The path
+        # surfaces quote the owning channel into the frame; the config surfaces
+        # quote the key and leave the channel to the 403 body, because a config
+        # channel sentence is longer than the frame is meant to be. Which of the
+        # two a surface owes is fixed per case, so neither can drop to the other
+        # and still pass.
+        frame_detail = event["target"]["detail"]
         expected = case.channel if case.frame_names == "channel" else case.key_or_path
-        assert expected in detail, (
+        assert expected in frame_detail, (
             f"{case.surface}/{case.tool} published a frame that does not name "
-            f"the {case.frame_names}: {detail!r}"
+            f"the {case.frame_names}: {frame_detail!r}"
         )
+        # ``http_config`` and ``setup_patch`` share one searchable phrase, asserted
+        # on the shared prefix: the two name different things after it, and only
+        # the prefix is what an operator searches for.
+        if case.surface == "http_config":
+            assert frame_detail.startswith(CONFIG_FEED_PHRASE), frame_detail
 
-    @pytest.mark.parametrize("case", REFUSALS)
-    def test_refusal_message_names_the_channel_and_says_nothing_happened(self, client, case):
-        """The two halves of an honest refusal, asserted per surface.
-
-        Naming the channel is what turns a refusal into a route forward; saying
-        outright that nothing happened is what stops a reader assuming the
-        write half-landed. Each surface phrases the second half in its own
-        terms, so the pattern travels with the case.
-        """
-        with no_panel_token():
-            resp = case.drive(client)
-
-        detail = resp.json()["detail"]
-        assert case.channel in detail, (
-            f"{case.surface}/{case.tool} refused without naming the owning channel: {detail!r}"
-        )
-        assert re.search(case.outcome, detail, re.IGNORECASE), (
-            f"{case.surface}/{case.tool} did not state that nothing happened: {detail!r}"
-        )
-
-
-class TestNothingMoved:
-    """A refusal that left something behind would satisfy every assertion above."""
-
-    @pytest.mark.parametrize("case", REFUSALS)
-    def test_the_protected_target_is_untouched(self, client, project_dir, case):
-        target = project_dir / case.target_file
-        before = target.read_bytes() if target.is_file() else None
-
-        with no_panel_token():
-            assert case.drive(client).status_code == 403
-
+        # A refusal that left something behind would satisfy every assertion above.
         after = target.read_bytes() if target.is_file() else None
         assert after == before, f"{case.surface}/{case.tool} moved {case.target_file}"
 
-
-class TestCrossSurfaceShape:
-    """What the surfaces owe each other, rather than what each owes on its own."""
-
-    def test_every_record_carries_the_same_fields(self, client, audit_zone):
-        """One query over the log has to span every surface, so no field is optional."""
-        for case in (p.values[0] for p in REFUSALS):
-            with no_panel_token():
-                assert case.drive(client).status_code == 403
+        # The log appends. A pushed-twice attempt must not read as pushed once.
+        with no_panel_token():
+            assert case.drive(client).status_code == 403
 
         records = audit_records(audit_zone)
-        assert len(records) == len(REFUSALS)
-        for record in records:
-            assert set(record) == AUDIT_RECORD_FIELDS, (
-                f"{record['surface']} recorded {sorted(record)}"
-            )
-            for field in set(record) - NULLABLE_RECORD_FIELDS:
-                assert isinstance(record[field], str) and record[field], (
-                    f"{record['surface']} left {field} empty"
-                )
-            session = record["session"]
-            assert session is None or (isinstance(session, str) and session), (
-                f"{record['surface']} recorded session={session!r}: the field is "
-                "nullable, not unchecked"
-            )
-
-    def test_every_http_surface_stamps_the_app_posture_source(
-        self, client, audit_zone, monkeypatch
-    ):
-        """A web request belongs to no session, whatever the server inherited.
-
-        ``HttpAuditMiddleware`` files ``app`` for the very request these
-        refusals answer, so a surface reading the environment ladder instead
-        would leave two records of one request disagreeing about where its
-        posture came from -- one of them calling a web request a bare CLI
-        process.
-
-        The ladder is pointed at a *different* answer first: with
-        ``OSPREY_POSTURE_SOURCE`` set, a call site that dropped its own stamp
-        would quietly inherit ``spawn`` and this test would say so.
-        """
-        monkeypatch.setenv(POSTURE_SOURCE_ENV_VAR, POSTURE_SOURCE_SPAWN)
-
-        for case in (p.values[0] for p in REFUSALS):
-            with no_panel_token():
-                assert case.drive(client).status_code == 403
-
-        records = audit_records(audit_zone)
-        assert len(records) == len(REFUSALS)
-        for record in records:
-            assert record["posture_source"] == POSTURE_SOURCE_APP, (
-                f"{record['surface']} filed posture_source={record['posture_source']!r} "
-                "for a web request"
-            )
-
-    def test_the_recorded_surfaces_are_the_documented_ones(self, client, audit_zone):
-        """The ``surface`` field is what an operator filters on; it is a closed set."""
-        for case in (p.values[0] for p in REFUSALS):
-            with no_panel_token():
-                assert case.drive(client).status_code == 403
-
-        recorded = {r["surface"] for r in audit_records(audit_zone)}
-        assert recorded == {"scaffold_gallery", "claude_setup", "http_config"}
-        assert recorded <= set(PROTECTED_SURFACES), (
-            "a surface an operator filters on must be one the audit package names"
-        )
-
-    def test_the_config_surfaces_spell_the_feed_phrase_identically(self, client):
-        """``http_config`` and ``setup_patch`` share one searchable phrase.
-
-        Asserted on the shared prefix rather than the whole sentence: the two
-        surfaces name different things after it (a key list versus a single
-        key), and only the prefix is what an operator searches for.
-        """
-        for case in (p.values[0] for p in REFUSALS if p.values[0].surface == "http_config"):
-            with no_panel_token():
-                assert case.drive(client).status_code == 403
-
-        details = [e["target"]["detail"] for e in recent_activity(client)]
-        assert details, "the config surfaces published nothing"
-        for detail in details:
-            assert detail.startswith(CONFIG_FEED_PHRASE), detail
+        assert len(records) == 2, f"{case.surface}/{case.tool} collapsed a retry"
+        assert records[0]["subject"] == records[1]["subject"] == case.key_or_path
 
 
 class TestTheGateIsDiscriminating:

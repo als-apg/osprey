@@ -27,27 +27,35 @@ the proxy that re-issues the sidecar's credential.
 
 WHAT IS ASSERTED, IN ORDER
 --------------------------
-The order is load-bearing: the narrowing in 3 has to be in place before the
-switch in 4 moves off the target it narrowed, and the down/up must come last.
+The order is load-bearing: the raw-put scenario in 3 needs writes on, so it
+runs before the narrowing in 4; the narrowing in 4 has to be in place before
+the switch in 5 moves off the target it narrowed; and the down/up must come
+last.
 
 1. The starter notebook is listed on first open, and only the ``osprey``
    kernelspec exists.
 2. Attaching a terminal yields a session id, and the deployment's
    control-context record — owned by the web terminal — names the target the
    posture route reports.
-3. A cell run while writes are off for that target reads, and refuses a write
+3. With writes on, a runtime write lands, while a direct ``epics.caput`` from a
+   cell is refused with ``RAW_CLIENT_WRITE``, the write-through-the-runtime
+   line and one ``raw_client_write`` audit record, and leaves the value where
+   the runtime put it. A client put made from a libca callback thread while a
+   runtime write is in flight is refused too: the connector's write door is
+   open only in the context that opened it, never on a thread libca started.
+4. A cell run while writes are off for that target reads, and refuses a write
    with the connector's text plus the turn-writes-on line and exactly one audit
    record on the ``notebook_kernel`` surface, filed under the KERNEL's own
    audit session.
-4. After a chip target switch the SAME kernel's next cell comes up on the new
+5. After a chip target switch the SAME kernel's next cell comes up on the new
    target and writes there. Nothing is restarted: a kernel re-routes itself
    from the record before every cell, which is the one thing that separates it
    from an executor sandbox.
-5. ``NotebookEdit`` under ``notebooks/`` is allowed by the rendered
+6. ``NotebookEdit`` under ``notebooks/`` is allowed by the rendered
    ``Edit(...)`` rules and the guard hook and badges the panel; outside it is
    denied.
-6. The sidecar's runtime directory is not under the agent-data root.
-7. Notebooks survive ``osprey down && osprey up``; kernels do not.
+7. The sidecar's runtime directory is not under the agent-data root.
+8. Notebooks survive ``osprey down && osprey up``; kernels do not.
 
 The refusal a switch DOES produce in a notebook — ``ControlTargetChangedError``
 and its re-run-the-cell line, for a switch that lands while a cell is already
@@ -132,6 +140,14 @@ SURVIVOR_NOTEBOOK = "e2e-survives.ipynb"
 #: A readback the virtual accelerator always serves.
 CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
 
+#: A setpoint the virtual accelerator serves and the limits database lets the
+#: ``va`` target write (range -12..12, confirmed). A readback cannot stand in:
+#: the limits layer refuses it as unwritable before a write ever reaches the
+#: mechanism under test.
+WRITE_TARGET = "SR:MAG:HCM:01:CURRENT:SP"
+#: The setpoint's identity readback in the virtual accelerator's bindings.
+WRITE_READBACK = "SR:MAG:HCM:01:CURRENT:RB"
+
 #: The hint line the kernel prints before a writes-off refusal's traceback. It
 #: is about the CELL rather than the kernel: a kernel re-routes itself from the
 #: deployment's control-context record before every cell, so the way out is to
@@ -140,6 +156,18 @@ CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
 #: operator reads and acts on.
 HINT_WRITES_OFF = (
     "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
+)
+
+#: The hint line the kernel prints before a raw client put's traceback. No
+#: posture lets such a put through, so it names the runtime call rather than
+#: the chip. Re-spelled for the same reason as the line above.
+HINT_RAW_CLIENT_WRITE = (
+    "Direct client-library writes are refused. "
+    "Write through osprey.runtime.write_channel(address, value) instead."
+)
+#: The refusal text a raw client put carries, re-spelled for the same reason.
+RAW_CLIENT_WRITE_TEXT = (
+    f"raw client write refused: write to '{WRITE_TARGET}' bypassed the reference monitor."
 )
 
 #: The audit surface a cell's refusals file under, and the ledger it lands in.
@@ -710,6 +738,59 @@ STAMPS_CELL = (
 )
 READ_CELL = f"from osprey.runtime import read_channel\nprint(repr(read_channel({CHANNEL!r})))\n"
 WRITE_CELL = f"from osprey.runtime import write_channel\nwrite_channel({CHANNEL!r}, 1.0)\n"
+#: A client library's own put, straight past the runtime.
+RAW_CAPUT_CELL = f"import epics\nepics.caput({WRITE_TARGET!r}, 2.0)\n"
+#: How long a readback gets to follow its setpoint.
+READBACK_SETTLE_SEC = 20.0
+#: A cell that prints the setpoint and, once it has followed or the wait runs
+#: out, its readback, as JSON.
+SETPOINT_CELL = (
+    "import json, time\n"
+    "from osprey.runtime import read_channel\n"
+    f"sp = read_channel({WRITE_TARGET!r})\n"
+    f"deadline = time.monotonic() + {READBACK_SETTLE_SEC}\n"
+    f"rb = read_channel({WRITE_READBACK!r})\n"
+    "while abs(rb - sp) > 1e-6 and time.monotonic() < deadline:\n"
+    "    time.sleep(0.5)\n"
+    f"    rb = read_channel({WRITE_READBACK!r})\n"
+    "print(json.dumps({'sp': sp, 'rb': rb}))\n"
+)
+#: The real-libca door proof. A monitor callback runs on a thread libca
+#: started, which never carries the connector's write door; it tries a client
+#: put of its own and records whether the runtime write was in flight at that
+#: moment. The in-flight flag is a plain ``threading.Event`` for the same
+#: reason: a context variable set here would be invisible on that thread. The
+#: callback catches its own refusal, because pyepics swallows what a callback
+#: raises. The initial-value callback is allowed to land before the flag is set,
+#: so the flag marks only callbacks the in-flight write caused.
+DOOR_PROOF_CELL = (
+    "import json, threading, time\n"
+    "import epics\n"
+    "from osprey.runtime import write_channel\n"
+    "in_flight = threading.Event()\n"
+    "seen = []\n"
+    "def on_change(pvname=None, value=None, **kw):\n"
+    "    try:\n"
+    f"        epics.caput({WRITE_TARGET!r}, value)\n"
+    "        refused = None\n"
+    "    except Exception as exc:\n"
+    "        refused = getattr(exc, 'reason', None) or type(exc).__name__\n"
+    "    seen.append({'in_flight': in_flight.is_set(), 'value': value, 'refused': refused})\n"
+    f"pv = epics.PV({WRITE_TARGET!r}, callback=on_change, auto_monitor=True)\n"
+    "assert pv.wait_for_connection(timeout=30), 'the setpoint never connected'\n"
+    "deadline = time.monotonic() + 10\n"
+    "while not seen and time.monotonic() < deadline:\n"
+    "    time.sleep(0.1)\n"
+    "in_flight.set()\n"
+    "try:\n"
+    f"    write_channel({WRITE_TARGET!r}, 3.0, confirm=True)\n"
+    "finally:\n"
+    "    in_flight.clear()\n"
+    "time.sleep(1.0)\n"
+    "pv.clear_callbacks()\n"
+    "pv.disconnect()\n"
+    "print(json.dumps(seen))\n"
+)
 
 
 def _stamps(socket: Any, session_id: str) -> dict[str, str]:
@@ -835,7 +916,79 @@ def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -
 
 
 # ---------------------------------------------------------------------------
-# 3. Writes off for the target the deployment is on
+# 3. Writes on: the runtime write lands, a raw client put does not
+# ---------------------------------------------------------------------------
+
+
+def _setpoint(socket: Any, session_id: str) -> dict[str, float]:
+    return json.loads(_run_ok(socket, SETPOINT_CELL, session_id))
+
+
+def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Terminal) -> None:
+    """The write door is the connector's, and only the connector opens it.
+
+    On a card with writes on, the runtime write is the positive control: it
+    lands, so anything refused afterwards is refused for going around the
+    runtime and not for the card's posture. The raw put is refused with its own
+    reason, the line that names the runtime call, and one ``raw_client_write``
+    record, and the setpoint stays where the runtime put it.
+
+    The last scenario is the one only real libca can pose. The door opened by
+    an in-flight runtime write reaches the worker the connector hands the put
+    to, and nothing else: a monitor callback libca delivers on its own thread
+    during that write is outside it, so its client put is refused while the
+    write it was woken by is still going.
+    """
+    assert terminal.session_id and terminal.first_target
+    # The baseline target is the only one whose limits make the setpoint writable.
+    assert terminal.first_target == "va", terminal.first_target
+    _wait_for_switch_to_settle(terminal, "va")
+
+    session = terminal.start_notebook_session(STARTER_NOTEBOOK)
+    kernel_id = session["kernel"]["id"]
+    channel_session = uuid.uuid4().hex
+    try:
+        with terminal.kernel_channels(kernel_id, channel_session) as socket:
+            stamps = _stamps(socket, channel_session)
+            assert stamps.get("OSPREY_CONTROL_TARGET") == "va", stamps
+            assert stamps.get("OSPREY_LAUNCH_POSTURE") != "va=sandbox", stamps
+
+            _run_ok(
+                socket,
+                f"from osprey.runtime import write_channel\nwrite_channel({WRITE_TARGET!r}, 1.0)\n",
+                channel_session,
+            )
+            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 1.0, "rb": 1.0})
+
+            records_before = len(terminal.ledger())
+            refused = _run_cell(socket, RAW_CAPUT_CELL, channel_session)
+            assert refused.error_name == "ChannelWriteBlockedError", refused
+            assert RAW_CLIENT_WRITE_TEXT in refused.error_value, refused.error_value
+            assert HINT_RAW_CLIENT_WRITE in refused.stdout, refused.stdout
+            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 1.0, "rb": 1.0})
+
+            new_records = terminal.ledger()[records_before:]
+            raw = [r for r in new_records if r.get("reason") == "raw_client_write"]
+            assert len(raw) == 1, new_records
+            record = raw[0]
+            assert record["surface"] == SURFACE
+            assert record["decision"] == "refused"
+            assert record["session"] == f"kernel:{kernel_id}"
+            assert record["subject"] == "notebook_cell"
+            detail = dict(token.split("=", 1) for token in record["detail"].split())
+            assert detail["channel"] == WRITE_TARGET, record
+
+            seen = json.loads(_run_ok(socket, DOOR_PROOF_CELL, channel_session))
+            during = [call for call in seen if call["in_flight"]]
+            assert any(call["refused"] == "RAW_CLIENT_WRITE" for call in during), seen
+            assert all(call["refused"] is not None for call in seen), seen
+            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 3.0, "rb": 3.0})
+    finally:
+        terminal.delete(f"{PANEL}/api/sessions/{session['id']}")
+
+
+# ---------------------------------------------------------------------------
+# 4. Writes off for the target the deployment is on
 # ---------------------------------------------------------------------------
 
 
@@ -888,11 +1041,11 @@ def test_a_sandboxed_cell_refuses_writes_with_the_turn_writes_on_line(
     assert record["reason"] == "channel_write_blocked"
     assert record["session"] == f"kernel:{terminal.kernel_id}"
     assert record["subject"] == "notebook_cell"
-    assert record["detail"] == f"channel={CHANNEL}"
+    assert dict(token.split("=", 1) for token in record["detail"].split())["channel"] == CHANNEL
 
 
 # ---------------------------------------------------------------------------
-# 4. A chip target switch
+# 5. A chip target switch
 # ---------------------------------------------------------------------------
 
 
@@ -929,7 +1082,7 @@ def test_the_next_cell_follows_a_chip_target_switch(terminal: Terminal) -> None:
             )
             assert followed.strip() == other, followed
 
-            # The narrowing in scenario 3 was recorded against the OLD target,
+            # The narrowing in scenario 4 was recorded against the OLD target,
             # so the new one carries the deployment's own posture and the write
             # is admitted. What is being ruled out is a cell still pinned to a
             # machine the deployment has left.
@@ -940,7 +1093,7 @@ def test_the_next_cell_follows_a_chip_target_switch(terminal: Terminal) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. NotebookEdit: settings, guard, badge
+# 6. NotebookEdit: settings, guard, badge
 # ---------------------------------------------------------------------------
 
 
@@ -1026,7 +1179,7 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
 
 
 # ---------------------------------------------------------------------------
-# 6. The runtime directory
+# 7. The runtime directory
 # ---------------------------------------------------------------------------
 
 
@@ -1044,7 +1197,7 @@ def test_the_runtime_dir_is_not_under_the_agent_data_root(terminal: Terminal) ->
 
 
 # ---------------------------------------------------------------------------
-# 7. down && up
+# 8. down && up
 # ---------------------------------------------------------------------------
 
 

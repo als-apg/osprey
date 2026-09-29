@@ -545,6 +545,9 @@ services:
     # service just runs the resulting image with a different command.
     image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ svc.image | default(osprey_images.bluesky_bridge) }}}
     container_name: {{ osprey_labels.project_name }}-{{ lane }}-queueserver
+    # The lane's control identity, also the name the command below gives root
+    # before the manager starts: one name for the container and its writer.
+    hostname: {{ lane_control_identities[lane_key] }}
     depends_on:
       # The manager connects to Redis at startup and exits if it cannot.
       {{ lane }}-redis:
@@ -610,10 +613,21 @@ services:
     # manager pulls the real plan/device list from the worker on every
     # environment open (`_load_existing_plans_and_devices_from_worker`), and the
     # startup script is the authoritative copy anyway.
+    #
+    # The manager runs as root, so before it starts root is renamed to this
+    # lane's control identity (uid 0 keeps its number, so nothing loses
+    # access) and every write it makes names the lane. The name only labels
+    # the lane in the put-log and guards nothing, so a failed rename (a
+    # read-only root filesystem, a non-root start) warns on stderr and the
+    # lane starts as `root`, the name the preflight record then carries; the
+    # entrypoint answers a service identity on the dispatch worker the same
+    # way. The `;` is load-bearing: the manager starts on either outcome.
     command:
       - "sh"
       - "-c"
       - >-
+        python {{ control_identity_container_path }} apply --uid 0 --name {{ lane_control_identities[lane_key] }}
+        || echo "WARNING: control identity {{ lane_control_identities[lane_key] }} not applied; this lane writes as root" >&2;
         exec start-re-manager
         --startup-script "$$(python -c 'import osprey.services.bluesky_bridge.qserver_startup as m; print(m.__file__)')"
         --user-group-permissions /app/qserver/user_group_permissions.yaml
@@ -811,6 +825,10 @@ services:
       # under data/.runtime/ — the runtime-output subpath the build-drift
       # fingerprint reserves for exactly this material (#716).
       - ./data/.runtime/{{ lane_key }}_curve/queueserver:/app/curve:ro
+      # The control-identity module the command runs, staged into this build
+      # context by compose_generator byte for byte from the packaged source.
+      # Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/bluesky/control_identity.py:{{ control_identity_container_path }}:ro
 {% if bluesky_devices | default(false) %}
       # The device file the env var above names. Unlike the limits DB, the
       # SOURCE is a literal staged path rather than a computed one: the staging

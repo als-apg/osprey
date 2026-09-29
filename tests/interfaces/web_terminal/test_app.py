@@ -96,6 +96,22 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["service"] == "web_terminal"
 
+    def test_health_reports_ca_user_in_process(self, client, monkeypatch):
+        """``ca_user`` is the name this process's uid resolves to, read live."""
+        import os
+        import pwd
+
+        monkeypatch.delenv("OSPREY_CONTROL_IDENTITY_SKIPPED", raising=False)
+        data = client.get("/health").json()
+        assert data["ca_user"] == pwd.getpwuid(os.getuid()).pw_name
+        assert data["control_identity_skipped"] is None
+
+    def test_health_reports_skipped_identity(self, client, monkeypatch):
+        """The entrypoint's skip reason reaches ``osprey health`` unchanged."""
+        monkeypatch.setenv("OSPREY_CONTROL_IDENTITY_SKIPPED", "non-root-start")
+        data = client.get("/health").json()
+        assert data["control_identity_skipped"] == "non-root-start"
+
 
 class TestFileTreeEndpoint:
     def test_file_tree_returns_structure(self, client):

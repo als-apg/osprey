@@ -41,8 +41,11 @@ async def execute_file(
         file_path: Path to a ``.py`` file.  Absolute paths are used as-is;
                    relative paths resolve against the project root.
         description: Human-readable description of what the script does.
-        execution_mode: "readonly" (default) blocks detected write patterns;
-                        "readwrite" allows them. Any other value is rejected.
+        execution_mode: "readonly" (default) refuses every control-system
+                        write; "readwrite" permits writes through
+                        ``osprey.runtime.write_channel`` / ``write_channels``
+                        after human approval, and still refuses raw client
+                        puts. Any other value is rejected.
         script_args: Optional command-line arguments for the script
                      (populates ``sys.argv[1:]``).
         save_output: If True, save the code and output to a workspace data file.
@@ -182,7 +185,10 @@ async def execute_file(
                 suggestions=[
                     *import_issues,
                     "Use read_channel() from osprey.runtime for reads.",
-                    "Set execution_mode to 'readwrite' if writes are intentional.",
+                    (
+                        "Set execution_mode to 'readwrite' if writes are intentional, "
+                        "and write through osprey.runtime.write_channel(address, value)."
+                    ),
                 ],
             )
 
@@ -210,7 +216,10 @@ async def execute_file(
             description=description,
             message="Control-system write patterns detected in readonly mode.",
             suggestions=[
-                "Set execution_mode to 'readwrite' if writes are intentional.",
+                (
+                    "Set execution_mode to 'readwrite' if writes are intentional, "
+                    "and write through osprey.runtime.write_channel(address, value)."
+                ),
                 "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
             ],
         )

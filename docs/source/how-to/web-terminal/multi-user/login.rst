@@ -639,6 +639,87 @@ person opens their terminal with ``osprey users login-url <name>`` and returns
 through their card. Under ``none`` the card is the only way in.
 
 
+.. _multi-user-control-identity:
+
+Name the account a card writes as
+=================================
+
+A control-system client reports the account name of the process behind each
+write, and every card's processes run as ``osprey`` unless told otherwise. On
+a card behind a login wall, ``control_identity`` gives that card's writes its
+owner's account name instead:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       auth:
+         method: oidc
+         oidc:
+           issuer: https://sso.example.org/realms/accelerator
+           client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID
+           client_secret_env: OSPREY_AUTH_OIDC_CLIENT_SECRET
+           claim: email
+       users:
+         - name: alice
+           oidc_subject: alice@example.org
+           control_identity: alice
+         - name: carol
+           oidc_subject: carol@example.org
+           control_identity: cjones
+
+The value is the account name a gateway put-log or an IOC access-security rule
+should see, usually the person's account on the facility's control systems. It
+applies to every write the card makes: through the connector, the Python
+executor, a notebook kernel or a raw client library. The container gives uid
+1000 that name at start; :ref:`containerize-control-identity` describes the
+mechanism and what happens when it cannot be applied.
+
+The key takes effect only behind a login wall (``method: password`` or
+``oidc``). Under ``token`` or ``none`` the roster keeps the key but the build
+emits nothing for it, and the card writes as ``osprey``: anyone holding the URL
+can open such a card, so a person's name on its writes would claim more than
+the deployment knows. A profile can therefore carry the roster in an open base
+and arm the wall in a host variant. Cards without the key, and every shared
+card, write as ``osprey``.
+
+The name is attribution, not authentication; the login wall is what
+authenticates the person. See :ref:`architecture-safety-chain-owner` for what
+the name does and does not establish, and :ref:`audit-trail-attribution` for
+how the audit ledger joins a write to the put-log.
+
+These rosters are refused by ``osprey scaffold web-terminals lint`` in every
+auth method, and by the build itself even with ``--no-lint``:
+
+- **The value must be a usable account name**
+  (``web_terminals.invalid_user_control_identity``). It must be a string of
+  lowercase letters, digits, ``_`` and ``-``, starting with a letter or ``_``,
+  at most 32 characters. ``root``, ``osprey`` and every ``osprey-*`` name are
+  reserved for the framework, and the accounts the base image already ships
+  (``daemon``, ``nobody``, ``list``, ``backup`` and the rest) are refused too.
+- **A shared card cannot carry one** (``web_terminals.shared_card_control_identity``).
+  Everyone who opens a shared card writes through it, so a fixed name would
+  credit every opener's writes to one person.
+- **Two people cannot share one** (``web_terminals.duplicate_control_identity``).
+  Two entries with the same value whose ``oidc_subject`` values name different
+  people would make their writes indistinguishable. Under
+  ``claim: email`` subjects that differ only in case count as the same person.
+
+Lint also warns, without refusing the build:
+
+- **A value that points at someone else**
+  (``web_terminals.control_identity_collision``): a value equal to another
+  entry's roster name or to the mailbox part of another entry's
+  ``oidc_subject``, or one value on several entries where the roster cannot
+  show that one person holds them.
+- **A live writer without a name**
+  (``web_terminals.live_writer_without_control_identity``): an owner-only card
+  behind a login wall with no ``control_identity``, whose persona arms writes
+  on a live control-system target. Its writes would arrive as ``osprey``.
+  Cards writing only to a mock or simulated target never trigger it, and
+  neither do cards without a login wall.
+
+
 .. _multi-user-https:
 
 Serve it over HTTPS

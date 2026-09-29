@@ -129,12 +129,11 @@ def test_tutorial_stack_provider_skips(monkeypatch) -> None:
     from contextlib import contextmanager
 
     @contextmanager
-    # The seam this stands in for takes the artifact port by keyword.
-    def _skip_stack(*, artifact_port):  # noqa: ARG001
+    def _skip_stack():
         raise ScreenshotSkip("container runtime unavailable")
         yield  # pragma: no cover - unreachable; marks this a generator
 
-    monkeypatch.setattr(capture, "_tutorial_stack", _skip_stack)
+    monkeypatch.setattr(capture, "tutorial_stack", _skip_stack)
 
     shot = DocShot(
         name="hero",
@@ -307,3 +306,54 @@ def test_standalone_element_capture_end_to_end(tmp_path, monkeypatch) -> None:
     data = png_path.read_bytes()
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(data) > 8
+
+
+# --- artifact server requests ---------------------------------------------------
+
+
+class _Response:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def read(self) -> bytes:
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+
+def test_artifact_list_carries_the_operator_secret(monkeypatch) -> None:
+    # The artifact server sits behind the same gate as the web terminal.
+    seen = []
+
+    def urlopen(request, **_kwargs):
+        seen.append(request)
+        return _Response(json.dumps({"artifacts": [{"id": "a1"}]}).encode())
+
+    monkeypatch.setattr(capture.urllib.request, "urlopen", urlopen)
+    assert capture.artifact_ids(4242, "s3cret") == {"a1"}
+    (request,) = seen
+    assert request.full_url == "http://127.0.0.1:4242/api/artifacts"
+    assert request.get_header("X-osprey-terminal-secret") == "s3cret"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_artifact_request_fails_loudly(monkeypatch, status) -> None:
+    # An empty list would read as "no plot yet" and burn the whole budget.
+    def urlopen(request, **_kwargs):
+        raise capture.urllib.error.HTTPError(request.full_url, status, "no", {}, None)
+
+    monkeypatch.setattr(capture.urllib.request, "urlopen", urlopen)
+    with pytest.raises(RuntimeError, match=f"HTTP {status}"):
+        capture.fetch_artifacts(4242, "wrong")
+
+
+def test_an_unreachable_artifact_server_is_an_empty_list(monkeypatch) -> None:
+    def urlopen(_request, **_kwargs):
+        raise capture.urllib.error.URLError("refused")
+
+    monkeypatch.setattr(capture.urllib.request, "urlopen", urlopen)
+    assert capture.fetch_artifacts(4242, "s3cret") == []

@@ -1,0 +1,35 @@
+{
+  "release": "docs-media-v2026.9.0b4",
+  "themes": {
+    "dark": {
+      "duration_s": 58.24,
+      "mp4": {
+        "name": "osprey-demo-dark.mp4",
+        "sha256": "5d1063c2d03bc3dbeda01f08b10697becf33c2ac926bd5953776715a676b53ec"
+      },
+      "osprey_version": "2026.9.0b3.post514+gad84b9d40.d20260927",
+      "poster": {
+        "name": "osprey-demo-dark-poster.jpg",
+        "sha256": "85b2c9c6210c788f64284e58408e9a409d30c5a887ff6ab4404c88e5faf7d033"
+      },
+      "real_session_s": 307.0,
+      "recorded_at": "2026-09-27T15:50:26.296136+00:00",
+      "speed": 16.0
+    },
+    "light": {
+      "duration_s": 70.92,
+      "mp4": {
+        "name": "osprey-demo-light.mp4",
+        "sha256": "f47bd6581915b103daa61111a07dc19b5372535697d5cefbb45d7b5aabd1675d"
+      },
+      "osprey_version": "2026.9.0b3.post514+gad84b9d40.d20260927",
+      "poster": {
+        "name": "osprey-demo-light-poster.jpg",
+        "sha256": "a2620736304dfd9698dab229606868c3dfd7aa8d8ce59dc8dd8fef388ea926f0"
+      },
+      "real_session_s": 396.8,
+      "recorded_at": "2026-09-27T16:51:09.390259+00:00",
+      "speed": 16.0
+    }
+  }
+}

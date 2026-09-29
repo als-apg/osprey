@@ -1384,4 +1384,113 @@ async def test_nothing_extra_is_read_with_the_surface_off(tmp_path, monkeypatch)
         _data, connector = await _run_single(_make_write_result(channel="TEST:PV", value=1.0))
 
     connector.read_multiple_channels.assert_not_called()
-    assert call.facts == {}
+    assert "old_values" not in call.facts
+    assert "limits" not in call.facts
+
+
+# ---------------------------------------------------------------------------
+# Attribution stamps: who the write went out as, on both record surfaces
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(params=[True, False], ids=["tool_call_on", "tool_call_off"])
+def record_surface(request, monkeypatch):
+    """Run the test with the full ``tool_call`` record both on and off."""
+    from osprey.audit import tool_call
+
+    monkeypatch.setattr(
+        tool_call, "settings", lambda: (request.param, tool_call.DEFAULT_MAX_INLINE_BYTES)
+    )
+    return request.param
+
+
+async def _stamped_facts(tmp_path, monkeypatch) -> dict:
+    from osprey.audit.call import call_scope
+
+    _prepare(tmp_path, monkeypatch)
+    with call_scope("toolu_stamp", None) as call:
+        data, connector = await _run_single(_make_write_result(channel="TEST:PV", value=1.0))
+    assert data["status"] == "success"
+    connector.write_channel.assert_awaited_once()
+    return call.facts
+
+
+@pytest.mark.usefixtures("record_surface")
+async def test_the_record_carries_the_writing_process_account_and_host(tmp_path, monkeypatch):
+    import os
+    import pwd
+    import socket
+
+    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
+    facts = await _stamped_facts(tmp_path, monkeypatch)
+
+    assert facts["ca_user"] == pwd.getpwuid(os.getuid()).pw_name
+    assert facts["ca_host"] == socket.gethostname()
+
+
+@pytest.mark.usefixtures("record_surface")
+async def test_the_dispatch_owner_is_noted_from_the_env_var(tmp_path, monkeypatch):
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", "alice")
+    facts = await _stamped_facts(tmp_path, monkeypatch)
+
+    assert facts["owner"] == "alice"
+
+
+@pytest.mark.usefixtures("record_surface")
+@pytest.mark.parametrize("value", [None, "", "   "], ids=["unset", "empty", "blank"])
+async def test_no_owner_is_noted_without_the_env_var(tmp_path, monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
+    else:
+        monkeypatch.setenv("OSPREY_CONTROL_OWNER", value)
+    facts = await _stamped_facts(tmp_path, monkeypatch)
+
+    assert "owner" not in facts
+    assert "ca_user" in facts
+
+
+async def test_the_owner_ladder_is_never_consulted(tmp_path, monkeypatch):
+    """The ladder's last rung is the card's own identity; it must not attribute."""
+    from osprey_connectors import posture_store
+
+    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
+    monkeypatch.setattr(
+        posture_store,
+        "current_owner",
+        MagicMock(side_effect=AssertionError("current_owner must not be consulted")),
+    )
+    facts = await _stamped_facts(tmp_path, monkeypatch)
+
+    assert "owner" not in facts
+
+
+async def test_an_unreadable_account_costs_the_stamp_not_the_write(tmp_path, monkeypatch):
+    import pwd
+
+    def no_entry(_uid):
+        raise KeyError("uid not in passwd")
+
+    monkeypatch.setattr(pwd, "getpwuid", no_entry)
+    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
+    facts = await _stamped_facts(tmp_path, monkeypatch)
+
+    assert "ca_user" not in facts
+    assert facts["ca_host"]
+
+
+@pytest.mark.usefixtures("record_surface")
+async def test_the_stamps_reach_the_default_record_detail(tmp_path, monkeypatch):
+    """The middleware's value-free detail carries the stamps as ``key=value`` tokens."""
+    from osprey.audit.call import call_scope
+    from osprey.mcp_server.audit_middleware import _call_detail
+
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", "alice")
+    _prepare(tmp_path, monkeypatch)
+    with call_scope("toolu_detail", None) as call:
+        await _run_single(_make_write_result(channel="TEST:PV", value=1.0))
+        detail = _call_detail()
+
+    assert detail is not None
+    assert f"ca_user={call.facts['ca_user']}" in detail
+    assert f"ca_host={call.facts['ca_host']}" in detail
+    assert "owner=alice" in detail

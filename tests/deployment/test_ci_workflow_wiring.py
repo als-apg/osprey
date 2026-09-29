@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import functools
 import importlib.util
 import json
 import re
@@ -203,11 +204,19 @@ CI_CHECK_SCRIPT = "scripts/ci_check.sh"
 PTY_DESELECT_TERM = "not pty"
 
 
-def _load_workflow() -> dict[str, Any]:
+@functools.cache
+def _parsed_workflow() -> dict[str, Any]:
+    """ci.yml parsed once per process; read only through ``_load_workflow``."""
     with CI_YML.open() as f:
         loaded = yaml.safe_load(f)
     assert loaded is not None, f"{CI_YML} parsed to None"
     return loaded
+
+
+def _load_workflow() -> dict[str, Any]:
+    """A private deep copy of the parsed ci.yml, so a mutation test's edits
+    never reach any other test."""
+    return copy.deepcopy(_parsed_workflow())
 
 
 @pytest.fixture()
@@ -1508,6 +1517,28 @@ def test_pty_marker_is_registered__mutation_drops_it() -> None:
         test_pty_marker_is_registered(mutated)
 
 
+@functools.cache
+def _test_tree_paths() -> tuple[Path, ...]:
+    """Every ``tests/**/test_*.py`` path, walked once per process."""
+    return tuple((CI_YML.parents[2] / "tests").rglob("test_*.py"))
+
+
+@functools.cache
+def _test_tree_sources() -> dict[Path, str]:
+    """The source of every path in ``_test_tree_paths``, read once per process.
+
+    Callers must not mutate the returned dict; ``_test_module_sources`` hands
+    out a fresh one.
+    """
+    return {path: path.read_text(encoding="utf-8") for path in _test_tree_paths()}
+
+
+def _e2e_test_sources() -> dict[Path, str]:
+    """The ``tests/e2e/**/test_*.py`` subset of ``_test_tree_sources``."""
+    e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
+    return {path: src for path, src in _test_tree_sources().items() if path.is_relative_to(e2e_dir)}
+
+
 def _test_module_sources() -> dict[str, str]:
     """Every test module under ``tests/``, keyed by repo-relative posix path.
 
@@ -1519,8 +1550,8 @@ def _test_module_sources() -> dict[str, str]:
     root = CI_YML.parents[2]
     me = Path(__file__).resolve()
     return {
-        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
-        for path in (root / "tests").rglob("test_*.py")
+        path.relative_to(root).as_posix(): source
+        for path, source in _test_tree_sources().items()
         if path.resolve() != me
     }
 
@@ -1756,8 +1787,8 @@ def _dockerbuild_marked_e2e_files() -> list[str]:
     e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
     return sorted(
         (p.relative_to(e2e_dir.parents[1])).as_posix()
-        for p in e2e_dir.rglob("test_*.py")
-        if "pytest.mark.dockerbuild" in p.read_text(encoding="utf-8")
+        for p, source in _e2e_test_sources().items()
+        if "pytest.mark.dockerbuild" in source
     )
 
 
@@ -2243,8 +2274,8 @@ def _emulator_container_e2e_files() -> list[str]:
     e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
     return sorted(
         p.relative_to(e2e_dir.parents[1]).as_posix()
-        for p in e2e_dir.rglob("test_*.py")
-        if PUBSUB_FIXTURE_NAME in p.read_text(encoding="utf-8")
+        for p, source in _e2e_test_sources().items()
+        if PUBSUB_FIXTURE_NAME in source
     )
 
 
@@ -3069,10 +3100,7 @@ def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
     run_text = _find_named_step(wf, E2E_TESTS_JOB, "Run E2E tests")["run"]
     ignored = set(re.findall(r"--ignore=(\S+)", run_text))
     repo_root = CI_YML.parents[2]
-    swept = {
-        path.relative_to(repo_root).as_posix()
-        for path in (repo_root / "tests" / "e2e").rglob("test_*.py")
-    }
+    swept = {path.relative_to(repo_root).as_posix() for path in _e2e_test_sources()}
     return swept - ignored
 
 
@@ -3532,6 +3560,12 @@ def _module_marks(source: str) -> set[str]:
 
 
 def _browser_suites_on_disk() -> list[str]:
+    """A fresh list of ``_browser_suites_on_disk_once``, safe for the caller to edit."""
+    return list(_browser_suites_on_disk_once())
+
+
+@functools.cache
+def _browser_suites_on_disk_once() -> tuple[str, ...]:
     """Every test module that marks itself ``browser``, repo-relative, POSIX-spelled.
 
     Discovery follows the marker, never the filename: the marker is the
@@ -3539,11 +3573,12 @@ def _browser_suites_on_disk() -> list[str]:
     be called anything. A filename convention accounts only for the modules
     that follow it and passes over every other in silence.
     """
-    return sorted(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in TESTS_ROOT.rglob("test_*.py")
-        if "__pycache__" not in path.parts
-        and BROWSER_MARKER in _module_marks(path.read_text(encoding="utf-8"))
+    return tuple(
+        sorted(
+            path.relative_to(REPO_ROOT).as_posix()
+            for path, source in _test_tree_sources().items()
+            if "__pycache__" not in path.parts and BROWSER_MARKER in _module_marks(source)
+        )
     )
 
 
@@ -3580,8 +3615,8 @@ def test_browser_suite_discovery_covers_every_suite_named_like_one() -> None:
     found = set(_browser_suites_on_disk())
     named_like_one = sorted(
         path.relative_to(REPO_ROOT).as_posix()
-        for path in TESTS_ROOT.rglob("test_*_browser.py")
-        if "__pycache__" not in path.parts
+        for path in _test_tree_paths()
+        if path.match("test_*_browser.py") and "__pycache__" not in path.parts
     )
     missing = [suite for suite in named_like_one if suite not in found]
     assert missing == [], f"browser suites the marker discovery does not find: {missing}"

@@ -196,6 +196,12 @@ class ExecutionResult:
     #: class the error envelope: a dead backend is an infrastructure outage,
     #: not a bug in the user's script.
     failure_kind: str | None = None
+    #: Every channel the run's ``osprey.runtime`` attempted to write, in first
+    #: attempt order and without repeats, read from the ledger the wrapper keeps
+    #: in the execution folder. Filled after a timeout too — a killed run's
+    #: ledger holds the attempts it reached. Empty for a readonly run and for a
+    #: run that never started.
+    written_channels: list[str] = field(default_factory=list)
 
 
 def _read_config() -> dict:
@@ -434,55 +440,6 @@ def _load_limits_validator(target: str | None):
         # the posture twice, turning that bug into a silently unvalidated run.
         logger.debug("Limits validator not available", exc_info=True)
         return None
-
-
-def _step_read_timeout_seconds(target: str) -> float:
-    """The ``max_step`` fresh-read budget the run's own connector reads with.
-
-    Resolved here, beside the limits posture and from the same target, because
-    both answer to the machine this run was stamped for: the budget bounds the
-    fresh read the ``max_step`` half of that policy makes, and taking it from a
-    different connector's block would be exactly the disagreement between the
-    script's check and the connector's that the key exists to prevent. The
-    sandbox is a fresh process holding no config, so the resolved number
-    travels into its source as a literal.
-
-    Args:
-        target: The control target this run is stamped against, as
-            :func:`_apply_target_stamp` resolved it. A target that names no
-            machine on this deployment reads the deployment's own connector
-            block — the same reading
-            :func:`osprey_connectors.types.target_limits_posture` takes for the
-            posture, so the two cannot describe different machines.
-
-    Returns:
-        The budget that block declares, or the connectors package's own default
-        when no config is reachable, the block declares none, or what it
-        declares is unusable. A config that cannot be read must not be what
-        takes the bound off the read, and the default fails closed just as
-        quickly.
-    """
-    from osprey_connectors.control_system.limits_validator import (
-        DEFAULT_STEP_READ_TIMEOUT_SECONDS,
-        step_read_timeout_seconds,
-    )
-
-    try:
-        from osprey_connectors.config import get_config_value
-        from osprey_connectors.types import resolve_target
-
-        raw = get_config_value("control_system", {})
-        section = raw if isinstance(raw, dict) else {}
-        try:
-            connector_type = resolve_target(section, target)
-        except ValueError:
-            connector_type = section.get("type")
-        table = section.get("connector")
-        block = table.get(connector_type) if isinstance(table, dict) else None
-    except Exception:
-        logger.debug("No config available for step_read_timeout_s", exc_info=True)
-        return DEFAULT_STEP_READ_TIMEOUT_SECONDS
-    return step_read_timeout_seconds(block, connector_type)
 
 
 class _SwitchInProgress(Exception):
@@ -918,12 +875,6 @@ async def _execute_via_local(
         # renderer's caveat rather than any stronger one this module could
         # claim.
         perimeter_denied_ports=_perimeter_denied_ports(os.environ),
-        # Resolved from the target this run was just stamped with, for the same
-        # reason the limits posture above is: the budget bounds a read that
-        # policy makes, and the connector the sandbox builds reads with its own
-        # block's value. Deriving it inside the child would find the baseline
-        # block rather than the stamped one.
-        step_read_timeout_s=_step_read_timeout_seconds(control_target),
     )
     wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
@@ -994,6 +945,7 @@ async def _execute_via_local(
                 error_message=f"Execution timed out after {timeout} seconds",
                 control_target=control_target,
                 failure_kind=FAILURE_KIND_TIMEOUT,
+                written_channels=_read_written_channels(execution_folder),
             )
 
     return _result_from_run(
@@ -1054,7 +1006,35 @@ def _result_from_run(
         execution_time_seconds=elapsed,
         error_message=error_msg,
         control_target=control_target,
+        written_channels=_read_written_channels(execution_folder),
     )
+
+
+def _read_written_channels(execution_folder: Path) -> list[str]:
+    """Read the channels a run attempted to write from its write ledger. Never raises.
+
+    One JSON object per line; a line that does not parse — the last one of a
+    run killed mid-append — is skipped, so a truncated ledger yields the
+    attempts that were fully recorded. A missing ledger is an empty list.
+    """
+    from osprey.services.python_executor.execution.wrapper import WRITES_LEDGER_FILENAME
+
+    try:
+        text = (execution_folder / WRITES_LEDGER_FILENAME).read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError:
+        return []
+    channels: list[str] = []
+    for line in text.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        channel = entry.get("channel") if isinstance(entry, dict) else None
+        if isinstance(channel, str) and channel and channel not in channels:
+            channels.append(channel)
+    return channels
 
 
 def _read_execution_metadata(execution_folder: Path) -> dict | None:

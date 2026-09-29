@@ -19,6 +19,8 @@ from osprey.interfaces.vendor import (
     _fetch_one,
     _load_manifest,
     asset_cdn_url,
+    html_has_plotly_bundle,
+    html_needs_plotly,
     is_offline,
     vendor_url,
 )
@@ -298,3 +300,91 @@ def test_every_vendored_filename_literal_matches_the_manifest() -> None:
     assert not stale, (
         "vendored filename literals out of step with vendor_manifest.json:\n  " + "\n  ".join(stale)
     )
+
+
+# ---------------------------------------------------------------------------
+# Plotly bundle detection
+# ---------------------------------------------------------------------------
+
+_PLOT_CALL = b'<div id="p"></div><script>Plotly.newPlot("p", [], {});</script>'
+
+
+def _page(head: bytes = b"", body: bytes = _PLOT_CALL) -> bytes:
+    return b"<html><head>" + head + b"</head><body>" + body + b"</body></html>"
+
+
+def test_html_has_plotly_bundle_false_without_script() -> None:
+    assert html_has_plotly_bundle(_page()) is False
+
+
+def test_html_has_plotly_bundle_detects_cdn_script() -> None:
+    html = _page(b'<script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>')
+    assert html_has_plotly_bundle(html) is True
+
+
+def test_html_has_plotly_bundle_detects_other_cdn_version() -> None:
+    html = _page(
+        b"<script charset='utf-8' src='https://cdn.plot.ly/plotly-2.27.0.min.js'></script>"
+    )
+    assert html_has_plotly_bundle(html) is True
+
+
+def test_html_has_plotly_bundle_detects_unversioned_cdn() -> None:
+    html = _page(
+        b'<script type="text/javascript" src="https://cdn.plot.ly/plotly-latest.min.js"></script>'
+    )
+    assert html_has_plotly_bundle(html) is True
+
+
+def test_html_has_plotly_bundle_detects_vendored_script() -> None:
+    html = _page(b'<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>')
+    assert html_has_plotly_bundle(html) is True
+
+
+def test_html_has_plotly_bundle_detects_relative_vendored_script() -> None:
+    html = _page(b'<SCRIPT SRC="../vendor/plotly.min.js"></SCRIPT>')
+    assert html_has_plotly_bundle(html) is True
+
+
+def test_html_has_plotly_bundle_detects_inlined_bundle() -> None:
+    inline = b"<script>/**\n* plotly.js v3.3.1\n* Copyright 2012-2025, Plotly, Inc.\n*/ !function(){}</script>"
+    assert html_has_plotly_bundle(_page(inline)) is True
+
+
+def test_html_has_plotly_bundle_ignores_non_plotly_script() -> None:
+    html = _page(b'<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>')
+    assert html_has_plotly_bundle(html) is False
+
+
+def test_html_has_plotly_bundle_ignores_plotly_word_outside_src() -> None:
+    html = _page(
+        b'<script src="/app.js" data-note="plotly"></script>', b"<p>plotly.js is great</p>"
+    )
+    assert html_has_plotly_bundle(html) is False
+
+
+def test_html_needs_plotly_true_when_call_has_no_bundle() -> None:
+    assert html_needs_plotly(_page()) is True
+
+
+def test_html_needs_plotly_false_with_cdn_bundle() -> None:
+    html = _page(b'<script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>')
+    assert html_needs_plotly(html) is False
+
+
+def test_html_needs_plotly_false_with_inlined_bundle() -> None:
+    html = _page(b"<script>/** plotly.js v2.35.2 */</script>")
+    assert html_needs_plotly(html) is False
+
+
+def test_html_needs_plotly_false_with_vendored_bundle() -> None:
+    html = _page(b'<script src="/static/js/vendor/plotly-3.3.1.min.js"></script>')
+    assert html_needs_plotly(html) is False
+
+
+def test_html_needs_plotly_false_without_plotly_call() -> None:
+    assert html_needs_plotly(_page(body=b"<p>No figures here.</p>")) is False
+
+
+def test_html_needs_plotly_false_for_empty_html() -> None:
+    assert html_needs_plotly(b"") is False

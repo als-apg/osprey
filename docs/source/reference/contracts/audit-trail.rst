@@ -155,7 +155,10 @@ and a refused control-system write alike. One JSON object per line:
        login the request came from --- see :ref:`audit-trail-identity-keys`.
        An MCP server's own record adds ``approval=approved approver=<who>``
        when an approval prompt let the call through, and a control-target
-       switch adds ``from_target=`` and ``to_target=``
+       switch adds ``from_target=`` and ``to_target=``. A control-system write
+       adds the account and host the control system sees it from, and the
+       person behind a dispatched run or a queued plan; see
+       :ref:`audit-trail-attribution`
 
 A ``PUT`` that would have changed many protected keys at once names the first
 ten and counts the rest in the message, but **every changed key gets its own
@@ -224,6 +227,100 @@ did before this release. Where the mapped subject is not the roster name --- an
 opaque ``sub`` or an email, the usual case --- it never matches, so
 ``expected_account=`` and a warning ride every audited request. Building against
 this release's image is what clears it.
+
+.. _audit-trail-attribution:
+
+Who the control system saw
+--------------------------
+
+A Channel Access or PV Access server, and a gateway's put-log, record the
+account name of the process that made each write. That name is the card's
+``control_identity`` on a personal card behind a login wall
+(:ref:`multi-user-control-identity`), a fixed ``osprey-*`` service name on a
+shared writer, and ``osprey`` everywhere else. The audit ledger records the
+same name beside the person, so a put-log line can be joined back to who asked
+for the write.
+
+The names are read in the process that writes, never from an environment
+variable, and travel as keys in ``detail`` on a plain record and as noted
+``facts`` on a :ref:`full tool-call record <audit-trail-tool-call>`.
+``ca_user``, ``ca_host`` and ``owner`` are also copied into the default
+record's ``detail``, so they are there with ``audit.tool_call`` off:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Key
+     - What it holds
+   * - ``ca_user=``
+     - The account name the control system sees the write arrive under
+   * - ``ca_host=``
+     - The host name of the writing container
+   * - ``owner=``
+     - The person a shared writer acted for: the owner of a dispatched run,
+       or of a queued Bluesky plan. Written only when there is a person to
+       name
+   * - ``channel=``
+     - The channel a notebook kernel wrote or was refused
+   * - ``channels``
+     - The channels a Python executor run attempted to write, in the order
+       first attempted. A fact on the tool-call record only, because it can be
+       long
+
+Each write route leaves a different record, and joins the put-log by a
+different key:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 20 40 22
+
+   * - Route
+     - Name on the wire
+     - Ledger record naming the person
+     - Join key to the put-log
+   * - ``channel_write``
+     - The card's identity
+     - The call's own record, with ``ca_user`` and ``ca_host``
+     - Account, channel, time
+   * - Notebook kernel write
+     - The card's identity
+     - One ``allowed`` record per channel in ``notebook_kernel.jsonl``,
+       filed after the put: reason ``write_landed`` when the write was
+       verified, ``write_unconfirmed`` when the value was sent but not
+       verified. ``detail`` carries ``channel=``, ``ca_user=`` and
+       ``ca_host=``
+     - Account, channel, time
+   * - Refused notebook kernel write
+     - None; nothing reached the wire
+     - The kernel's refusal record, with ``channel=`` and ``ca_user=``
+     - None
+   * - Python executor write
+     - The card's identity
+     - The ``python_execute`` record, with ``ca_user`` and ``ca_host``, and
+       ``channels`` on the tool-call record. A run killed mid-way lists what it
+       attempted before it stopped
+     - Account, time window, channel when listed
+   * - Dispatched run
+     - ``osprey-dispatch-<i>``
+     - The worker's tool-call records, with ``owner`` naming the person the
+       run belongs to
+     - Worker name, channel, time
+   * - Bluesky plan on a lane OSPREY renders
+     - ``osprey-bluesky`` or ``osprey-bluesky-<lane>``
+     - The lane's pre-flight record in ``preflight.jsonl``. ``detail``
+       carries ``lane=``, ``target=``, ``owner=`` when the plan was queued for
+       a person, and the planned channels: their count (``addresses=``), a
+       digest of the full sorted set (``digest=``), as many names as fit
+       (``channels=``), and ``truncated=`` saying whether any were left out
+     - Lane name, time window, channel in the plan
+   * - Bluesky plan on an external-worker lane
+     - The facility worker's account
+     - None in OSPREY; the facility's RE Manager writes under its own account
+     - None
+
+The name is attribution, not authentication: see
+:ref:`architecture-safety-chain-owner`.
 
 .. _audit-trail-login-refusals:
 
@@ -327,7 +424,8 @@ record shape, and the default files are the same whether it is on or off.
      - The error text of a call that raised, and whether the call failed
    * - ``facts``
      - What the tool noted while it ran --- for a control-system write, the
-       limits verdict and each channel's value before the write
+       limits verdict, each channel's value before the write, and the
+       attribution facts in :ref:`audit-trail-attribution`
    * - ``duration_ms``
      - How long the call took, in milliseconds
 

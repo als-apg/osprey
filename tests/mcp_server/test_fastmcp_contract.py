@@ -44,11 +44,13 @@ covers end to end, both against a project this file really renders:
 from __future__ import annotations
 
 import ast
+import functools
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -947,21 +949,39 @@ def _called_names(tree: ast.AST) -> set[str]:
     }
 
 
-def _fastmcp_constructing_packages() -> set[Path]:
-    """Directories under ``src/osprey`` holding a module that builds a ``FastMCP``.
+class _SourceTreeFacts(NamedTuple):
+    """What the roster checks read from ``src/osprey``, gathered in one AST pass."""
 
-    AST only — nothing is imported, so this stays cheap and cannot be defeated
-    by an import guard.
+    #: Directories holding a module that builds a ``FastMCP``.
+    fastmcp_packages: frozenset[Path]
+    #: Every ``create_server()`` call, as ``path:lineno`` relative to ``src``.
+    create_server_call_sites: tuple[str, ...]
+
+
+@functools.cache
+def _source_tree_facts() -> _SourceTreeFacts:
+    """Parse every module under ``src/osprey`` once and keep only immutable facts.
+
+    AST only — nothing is imported, so this cannot be defeated by an import
+    guard. Cached because the full-tree parse dominates the cost of the checks
+    that read it; the result is frozen so no test can alter what another reads.
     """
     packages: set[Path] = set()
+    call_sites: list[str] = []
     for path in SRC_ROOT.joinpath("osprey").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id == "FastMCP":
-                    packages.add(path.parent)
-                    break
-    return packages
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "FastMCP":
+                packages.add(path.parent)
+            named = (isinstance(func, ast.Name) and func.id == "create_server") or (
+                isinstance(func, ast.Attribute) and func.attr == "create_server"
+            )
+            if named:
+                call_sites.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
+    return _SourceTreeFacts(frozenset(packages), tuple(call_sites))
 
 
 class TestEveryFrameworkServerLaunchesThroughRunMcpServer:
@@ -987,10 +1007,11 @@ class TestEveryFrameworkServerLaunchesThroughRunMcpServer:
         # App bundles under ``osprey/templates`` ship example servers for the
         # deployment repo to own; they are seeded into repos, never rostered.
         bundles = SRC_ROOT.joinpath("osprey", "templates")
+        fastmcp_packages = _source_tree_facts().fastmcp_packages
         on_disk = {
             path.parent
             for path in SRC_ROOT.joinpath("osprey").rglob("__main__.py")
-            if path.parent in _fastmcp_constructing_packages() and not path.is_relative_to(bundles)
+            if path.parent in fastmcp_packages and not path.is_relative_to(bundles)
         }
         assert on_disk, "found no FastMCP entry points at all — the walk is broken"
         assert on_disk == rostered
@@ -1079,18 +1100,6 @@ class TestEveryFrameworkServerLaunchesThroughRunMcpServer:
         server gets built — and served — outside the sequence that installs the
         middleware.
         """
-        call_sites: list[str] = []
-        for path in SRC_ROOT.joinpath("osprey").rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                func = node.func
-                named = (isinstance(func, ast.Name) and func.id == "create_server") or (
-                    isinstance(func, ast.Attribute) and func.attr == "create_server"
-                )
-                if named:
-                    call_sites.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
-
+        call_sites = _source_tree_facts().create_server_call_sites
         assert len(call_sites) == 1, f"expected one create_server() call site, got {call_sites}"
         assert call_sites[0].startswith("osprey/mcp_server/startup.py:")

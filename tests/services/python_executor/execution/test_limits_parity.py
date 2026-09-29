@@ -1,49 +1,37 @@
-"""The limits partition is held to the write-surface table.
+"""The armed partition is held to the write-surface table.
 
-A readonly run refuses every entry point in ``_CLIENT_WRITE_TARGETS``. A
-readwrite run does something *different* with each one — checks the value
-against the channel limits, refuses it outright, or cannot reach it at all.
-Those three answers are written down as :data:`_LIMITS_WRAPPED`,
-:data:`_LIMITS_REFUSED` and :data:`_LIMITS_UNWRAPPABLE`.
+A readonly run refuses every entry point in ``_CLIENT_WRITE_TARGETS``. A run
+with writes armed answers each one differently — refuses the raw call because
+the connector is the one route to the machine, limits-checks it because the
+connector has no route for it yet, keeps an action's own split, or lets it
+through because it writes no device. Those four answers are written down as
+:data:`_ARMED_BLOCKED`, :data:`_ARMED_CHECKED`, :data:`_ARMED_RPC` and
+:data:`_ARMED_PASSED`.
 
 Written down, they can go stale: a row added to the table with no bucket would
-quietly claim a limits check it never gets, and a bucket entry left behind by a
+have no stated fate in an armed run, and a bucket entry left behind by a
 removed row would describe a write surface that no longer exists. Both
 directions are pinned here, and every failure names the offending row.
 
-The buckets are keyed by the canonical ``tango`` spelling. ``PyTango`` is the
-legacy alias for the same package, so ``PyTango.DeviceProxy`` resolves to the
-same class object and its fate is the ``tango.DeviceProxy`` row's fate; the
-alias rows are canonicalised before the lookup rather than duplicated.
+The buckets are keyed by the table's own spelling, ``PyTango`` rows included:
+each row a guard patches carries its own answer.
 """
 
 from osprey.services.python_executor.write_surface import (
+    _ARMED_BLOCKED,
+    _ARMED_CHECKED,
+    _ARMED_PASSED,
+    _ARMED_RPC,
     _CLIENT_WRITE_TARGETS,
-    _LIMITS_REFUSED,
-    _LIMITS_UNWRAPPABLE,
-    _LIMITS_WRAPPED,
 )
 
 #: The buckets, by the name a failure should print.
 _BUCKETS = {
-    "_LIMITS_WRAPPED": _LIMITS_WRAPPED,
-    "_LIMITS_REFUSED": _LIMITS_REFUSED,
-    "_LIMITS_UNWRAPPABLE": _LIMITS_UNWRAPPABLE,
+    "_ARMED_BLOCKED": _ARMED_BLOCKED,
+    "_ARMED_CHECKED": _ARMED_CHECKED,
+    "_ARMED_RPC": _ARMED_RPC,
+    "_ARMED_PASSED": _ARMED_PASSED,
 }
-
-_ALIAS_PACKAGE = "PyTango"
-_CANONICAL_PACKAGE = "tango"
-
-
-def _canonical(dotted):
-    """The spelling the buckets are keyed by.
-
-    ``PyTango`` re-exports the ``tango`` package, so both dotted names resolve
-    to one class object and a guard patching either patches both.
-    """
-    if dotted == _ALIAS_PACKAGE or dotted.startswith(_ALIAS_PACKAGE + "."):
-        return _CANONICAL_PACKAGE + dotted[len(_ALIAS_PACKAGE) :]
-    return dotted
 
 
 def _table_rows():
@@ -53,22 +41,21 @@ def _table_rows():
 
 def test_every_client_row_is_in_exactly_one_bucket():
     """A row with no bucket, or with two, is the drift this partition exists to catch."""
-    for dotted, attr in _table_rows():
-        row = (_canonical(dotted), attr)
+    for row in _table_rows():
         holders = [name for name, bucket in _BUCKETS.items() if row in bucket]
         assert holders, (
-            f"{dotted}.{attr} is in the write surface but in no limits bucket — "
-            "say whether a limits-checked run wraps it, refuses it, or cannot "
-            "reach it at all"
+            f"{row[0]}.{row[1]} is in the write surface but in no armed bucket — "
+            "say whether an armed run blocks it, limits-checks it, keeps its rpc split, "
+            "or passes it"
         )
         assert len(holders) == 1, (
-            f"{dotted}.{attr} is in more than one limits bucket: {', '.join(holders)}"
+            f"{row[0]}.{row[1]} is in more than one armed bucket: {', '.join(holders)}"
         )
 
 
 def test_no_bucket_names_a_row_outside_the_table():
     """A bucket entry that outlives its row would describe a surface that is gone."""
-    table = {(_canonical(dotted), attr) for dotted, attr in _table_rows()}
+    table = set(_table_rows())
     for name, bucket in _BUCKETS.items():
         for dotted, attr in bucket:
             assert (dotted, attr) in table, (
@@ -76,24 +63,57 @@ def test_no_bucket_names_a_row_outside_the_table():
             )
 
 
+def test_the_buckets_partition_the_table_exactly():
+    """Together the buckets are the table: same rows, none counted twice."""
+    rows = _table_rows()
+    assert len(rows) == len(set(rows)), "the table lists a row twice"
+    assert set().union(*_BUCKETS.values()) == set(rows)
+    assert sum(len(bucket) for bucket in _BUCKETS.values()) == len(rows)
+
+
 def test_every_bucket_entry_carries_a_reason():
     """A bucket is a reason per row; an empty one answers nothing."""
     for name, bucket in _BUCKETS.items():
         for (dotted, attr), reason in bucket.items():
-            assert reason.strip(), f"{name}[{dotted}.{attr}] carries no reason"
+            assert isinstance(reason, str) and reason.strip(), (
+                f"{name}[{dotted}.{attr}] carries no reason"
+            )
 
 
-def test_alias_rows_resolve_to_a_row_the_table_spells_canonically():
-    """The legacy ``PyTango`` rows are covered by their ``tango`` twins, not on their own.
+def test_synchronous_group_put_is_in_the_table_and_blocked():
+    """``epics.ca.sg_put`` writes a channel like ``put`` does, only deferred to a flush."""
+    assert ("epics.ca", "sg_put") in _table_rows()
+    assert ("epics.ca", "sg_put") in _ARMED_BLOCKED
 
-    That only holds while the canonical row exists. An alias row naming an
-    attribute ``tango`` does not list would be bucketed by accident of the
-    rewrite rather than by anyone having looked at it.
-    """
-    table = {(dotted, attr) for dotted, attr in _table_rows()}
-    alias_rows = [row for row in table if row[0].startswith(_ALIAS_PACKAGE)]
-    assert alias_rows, "the alias contract this test pins no longer has any rows"
-    for dotted, attr in alias_rows:
-        assert (_canonical(dotted), attr) in table, (
-            f"{dotted}.{attr} has no {_CANONICAL_PACKAGE} row to inherit its limits bucket from"
-        )
+
+def test_rpc_bucket_holds_the_actions_only():
+    """The rpc split covers p4p rpc and the Tango command spellings, nothing else."""
+    assert set(_ARMED_RPC) == {
+        *((f"p4p.client.{f}.Context", "rpc") for f in ("raw", "thread", "asyncio", "cothread")),
+        *(
+            (cls, attr)
+            for cls in ("tango.DeviceProxy", "tango.Connection", "tango.Group")
+            for attr in ("command_inout", "command_inout_asynch")
+        ),
+        ("PyTango.DeviceProxy", "command_inout"),
+    }
+
+
+def test_passed_bucket_holds_the_non_device_writes_only():
+    """Only server-side SharedPV calls and the Tango database write pass an armed run."""
+    assert set(_ARMED_PASSED) == {
+        *(
+            (f"p4p.server.{f}.SharedPV", attr)
+            for f in ("raw", "thread", "asyncio")
+            for attr in ("post", "open")
+        ),
+        ("tango.DeviceProxy", "put_property"),
+    }
+
+
+def test_checked_bucket_holds_the_pvaccess_puts_only():
+    """PVAccess puts are the one write the connector cannot carry yet, so they
+    keep their limits check instead of being refused; nothing else may."""
+    assert {dotted.split(".")[0] for dotted, _attr in _ARMED_CHECKED} == {"p4p", "pvaccess"}
+    assert all(attr.startswith(("put", "asyncPut", "parsePut")) for _dotted, attr in _ARMED_CHECKED)
+    assert not any(dotted.startswith("p4p.server") for dotted, _attr in _ARMED_CHECKED)

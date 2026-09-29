@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
+from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.channel_roster import RosterAbsenceReason, RosterResult, registered_channels
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
@@ -37,6 +37,7 @@ from osprey.deployment.compose_merge import (
     _atomic_write,
     _load_compose_document,
 )
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
@@ -1873,6 +1874,17 @@ def _inject_project_metadata(config):
         container_project_dir / AUDIT_DIR_RELPATH
     ).as_posix()
     config_with_labels["osprey_audit_mount_source"] = repo_relative_mount_source(AUDIT_DIR_RELPATH)
+
+    # The control-identity step, in the two values a template needs: the fixed
+    # container path the module is mounted at (the copy
+    # `_stage_control_identity_module` puts in the build context), and the
+    # identity each bluesky lane runs as. Both come from the modules that own
+    # them, so a template never spells a path or an identity of its own.
+    # Injected unconditionally, like every other derived key here.
+    config_with_labels["control_identity_container_path"] = CONTROL_IDENTITY_CONTAINER_PATH
+    config_with_labels["lane_control_identities"] = {
+        lane: lane_control_identity(lane) for lane in LANE_KEYS
+    }
 
     # The same container-side root for a STANDALONE service image — one that
     # runs no OSPREY project, so it has no `/app/<project>` to hang its audit
@@ -4077,6 +4089,72 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     return False
 
 
+#: The build contexts whose compose fragments mount the control-identity module
+#: unconditionally: the dispatch worker and every bluesky lane (all lanes render
+#: the one ``bluesky`` directory, so one staged copy serves them all).
+_CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky"})
+
+#: The module's file name inside a build context.
+CONTROL_IDENTITY_FILENAME = "control_identity.py"
+
+
+def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
+    """Copy the control-identity module into the build contexts that mount it.
+
+    For the contexts in :data:`_CONTROL_IDENTITY_SERVICES` staging is
+    mandatory: their compose fragments bind the module unconditionally, which is
+    only legitimate because this function either lands a byte-for-byte copy of
+    the packaged :mod:`osprey.deployment.control_identity` source or refuses the
+    render. A mount whose source is missing would make the container runtime
+    create an empty directory in its place, and the service would start without
+    the identity step it depends on.
+
+    Every other context mounts nothing, so a copy an earlier build left there is
+    removed and the answer is False. The copy overwrites in place on every call,
+    so an incremental rebuild never keeps a previous release's module.
+
+    :param config: Full project configuration dictionary (unused; the module
+        is the same for every configuration)
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :param out_dir: The service's build context directory
+    :type out_dir: str
+    :return: True iff the module is staged in ``out_dir``
+    :rtype: bool
+    :raises DeploymentPreconditionError: A mandatory context could not receive
+        its copy
+    """
+    staged_path = os.path.join(out_dir, CONTROL_IDENTITY_FILENAME)
+    if os.path.basename(source_dir) not in _CONTROL_IDENTITY_SERVICES:
+        try:
+            os.remove(staged_path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not remove the stale control-identity module {staged_path}: {e}")
+        return False
+
+    from osprey.deployment import control_identity
+
+    module_source = control_identity.__file__
+    try:
+        shutil.copyfile(module_source, staged_path)
+    except OSError as e:
+        raise DeploymentPreconditionError(
+            reason=(
+                f"The {os.path.basename(source_dir)} service mounts {CONTROL_IDENTITY_FILENAME} "
+                f"to set its control identity, and it could not be staged at {staged_path}: {e}"
+            ),
+            remedy=(
+                f"Make {out_dir} writable and {module_source} readable, then rebuild. The "
+                f"service cannot start without the module, so the render is refused rather "
+                f"than emitted with a mount that points at nothing."
+            ),
+        ) from e
+    return True
+
+
 def setup_build_dir(template_path, config, container_cfg, dev_mode=False, persona_root=None):
     """Create complete build environment for service deployment.
 
@@ -4245,6 +4323,9 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
             config, source_dir, persona_root
         ),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
+        # Mandatory where a fragment mounts it (the stager refuses otherwise);
+        # False, with any stale copy removed, everywhere else.
+        "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
@@ -4444,6 +4525,9 @@ def _incremental_setup_build_dir(
             config, source_dir, persona_root
         ),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
+        # Mandatory where a fragment mounts it (the stager refuses otherwise);
+        # False, with any stale copy removed, everywhere else.
+        "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 

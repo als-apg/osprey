@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -72,8 +73,49 @@ def _baked_repo(tmp_path_factory) -> Path:
     return repo
 
 
+def _outside_the_gallery(build_zone: Path, names: list[str]) -> set[str]:
+    """Build-zone entries no gallery path reads: the image context and the role renders.
+
+    The gallery reads one render, ``build/`` itself -- its config.yml, manifest,
+    ``.claude/`` and service templates. ``build/.image/`` is the container build
+    context and every ``build/<name>/`` holding its own manifest is a sibling
+    render for another role; together they are most of the bake's bytes and
+    none of what a gallery test reads or writes.
+    """
+    return {
+        name
+        for name in names
+        if name == ".image" or (build_zone / name / ".osprey-manifest.json").is_file()
+    }
+
+
+@pytest.fixture(scope="session")
+def _baked_copy_plan(_baked_repo) -> tuple[Callable[[str, list[str]], set[str]], tuple[Path, ...]]:
+    """What ``project_dir`` skips and which files it re-anchors, read once off the bake.
+
+    The bake never changes after the session fixture returns, so which files
+    carry its absolute path is a property of the bake, not of each copy.
+    """
+    build_zone = _baked_repo / "build"
+
+    def ignore(src: str, names: list[str]) -> set[str]:
+        return _outside_the_gallery(build_zone, names) if Path(src) == build_zone else set()
+
+    old = str(_baked_repo).encode()
+    skipped = {build_zone / name for name in ignore(str(build_zone), os.listdir(build_zone))}
+    carriers = tuple(
+        path.relative_to(_baked_repo)
+        for path in _baked_repo.rglob("*")
+        if not path.is_symlink()
+        and path.is_file()
+        and not any(path.is_relative_to(s) for s in skipped)
+        and old in path.read_bytes()
+    )
+    return ignore, carriers
+
+
 @pytest.fixture()
-def project_dir(_baked_repo, tmp_path):
+def project_dir(_baked_repo, _baked_copy_plan, tmp_path):
     """A private copy of the baked render, free for the test to mutate.
 
     A render records absolute paths — ``project_root`` in config.yml,
@@ -82,16 +124,14 @@ def project_dir(_baked_repo, tmp_path):
     every path back to the shared bake and mutate it. Re-anchoring them to the
     copy is what makes each test's repo genuinely its own.
     """
+    ignore, carriers = _baked_copy_plan
     repo = tmp_path / "gallery-test"
-    shutil.copytree(_baked_repo, repo, symlinks=True)
+    shutil.copytree(_baked_repo, repo, symlinks=True, ignore=ignore)
 
     old, new = str(_baked_repo).encode(), str(repo).encode()
-    for path in repo.rglob("*"):
-        if path.is_symlink() or not path.is_file():
-            continue
-        data = path.read_bytes()
-        if old in data:
-            path.write_bytes(data.replace(old, new))
+    for rel in carriers:
+        path = repo / rel
+        path.write_bytes(path.read_bytes().replace(old, new))
     return repo / "build"
 
 

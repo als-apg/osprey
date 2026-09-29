@@ -106,6 +106,23 @@ def test_health_no_auth(client):
         assert isinstance(body[key], int)
 
 
+def test_health_reports_ca_user_in_process(client, monkeypatch):
+    """``ca_user`` is the name the worker's uid resolves to, read live."""
+    import pwd
+
+    monkeypatch.delenv("OSPREY_CONTROL_IDENTITY_SKIPPED", raising=False)
+    body = client.get("/health").json()
+    assert body["ca_user"] == pwd.getpwuid(os.getuid()).pw_name
+    assert body["control_identity_skipped"] is None
+
+
+def test_health_reports_skipped_identity(client, monkeypatch):
+    """The entrypoint's skip reason reaches ``osprey health`` unchanged."""
+    monkeypatch.setenv("OSPREY_CONTROL_IDENTITY_SKIPPED", "non-root-start")
+    body = client.get("/health").json()
+    assert body["control_identity_skipped"] == "non-root-start"
+
+
 # ---------------------------------------------------------------------------
 # POST /dispatch
 # ---------------------------------------------------------------------------

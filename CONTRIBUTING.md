@@ -79,7 +79,8 @@ admins cannot bypass). Open Claude Code in the repo and describe what you want
 to contribute; the skill picks up wherever you are in the journey.
 
 The same plugin carries `/osprey:design-philosophy`, `/osprey:pre-commit`,
-`/osprey:release`, `/osprey:install`, `/osprey:upstream-scout`, and `/osprey:panel`. The full
+`/osprey:release`, `/osprey:install`, `/osprey:upstream-scout`, `/osprey:panel`, and
+`/osprey:test-audit`. The full
 list, the Codex commands, and how to update are in the
 [Agent Skills guide](https://als-apg.github.io/osprey/contributing/agent-skills.html).
 

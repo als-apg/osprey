@@ -85,7 +85,10 @@ REASON_POSTURE = "posture"
 #: The layer that refused a control-system write, filed as the record's
 #: ``reason``. Static layers refuse before the script is launched;
 #: ``runtime_guard`` is the one that fires inside the subprocess, so it is the
-#: layer that catches the spellings the static ones cannot see. Spelled here,
+#: layer that catches the spellings the static ones cannot see.
+#: ``raw_client_write`` also fires inside the subprocess, in readwrite runs: the
+#: armed raw-put block refusing a direct client-library write that bypassed the
+#: connector's reference monitor. Spelled here,
 #: beside the recorder, because this module is where every one of them converges
 #: -- they used to live in the retired P1 ledger module, which was their only
 #: other shared home.
@@ -93,6 +96,7 @@ LAYER_IMPORT_DENYLIST = "import_denylist"
 LAYER_PATTERN_DETECTION = "pattern_detection"
 LAYER_PATH_POLICY = "path_policy"
 LAYER_RUNTIME_GUARD = "runtime_guard"
+LAYER_RAW_CLIENT_WRITE = "raw_client_write"
 
 #: Characters of the matched trigger, and of the agent's own description, kept
 #: inside the record's ``detail``. Bounded here rather than left to the
@@ -322,14 +326,25 @@ def _tool_subject(tool: str) -> str:
     return f"mcp__{prefix}__{tool}" if prefix else tool
 
 
-def _refusal_detail(tool: str, execution_mode: str, trigger: Any, description: str | None) -> str:
+def _refusal_detail(
+    tool: str,
+    execution_mode: str,
+    trigger: Any,
+    description: str | None,
+    ca_user: str | None = None,
+) -> str:
     """The supplementary context one refused write carries.
 
     ``tool`` and ``mode`` first: they are the two an operator scans a ledger
-    for. The trigger and the agent's description follow, each bounded, because
-    both are as long as whatever produced them.
+    for. ``ca_user``, when stamped, follows: it is an identifier, so it goes
+    ahead of the bounded fields rather than risk being cut. The trigger and the
+    agent's description follow, each bounded, because both are as long as
+    whatever produced them.
     """
-    parts = [f"tool={tool}", f"mode={execution_mode}", f"trigger={trigger}"[:MAX_TRIGGER_CHARS]]
+    parts = [f"tool={tool}", f"mode={execution_mode}"]
+    if ca_user:
+        parts.append(f"ca_user={ca_user}")
+    parts.append(f"trigger={trigger}"[:MAX_TRIGGER_CHARS])
     if description:
         parts.append(f"description={description}"[:MAX_DESCRIPTION_CHARS])
     return " ".join(parts)
@@ -456,6 +471,7 @@ def _record_write_refusal(
     code: str,
     description: str | None,
     execution_mode: str,
+    ca_user: str | None = None,
 ) -> None:
     """File one refused control-system write, and claim it for this layer.
 
@@ -487,7 +503,7 @@ def _record_write_refusal(
             session=posture.posture_session(),
             subject=_tool_subject(tool),
             source=code,
-            detail=_refusal_detail(tool, execution_mode, trigger, description),
+            detail=_refusal_detail(tool, execution_mode, trigger, description, ca_user),
         )
     except Exception:  # the audit trail degrades; the refusal does not
         logger.warning("Could not record the refusal for audit", exc_info=True)
@@ -501,6 +517,7 @@ async def record_and_alert_refusal(
     code: str,
     description: str | None = None,
     execution_mode: str,
+    ca_user: str | None = None,
 ) -> None:
     """Write the audit record and alert the operator for one refused write.
 
@@ -522,6 +539,9 @@ async def record_and_alert_refusal(
     Never raises. The recorder swallows its own errors and
     ``notify_agent_activity_async`` is fire-and-forget by contract, so a
     refusal is never turned into a traceback by the act of reporting it.
+
+    ``ca_user``, when given, is stamped into the record's ``detail``: the
+    account the refused write would have gone out as.
     """
     _record_write_refusal(
         tool=tool,
@@ -530,6 +550,7 @@ async def record_and_alert_refusal(
         code=code,
         description=description,
         execution_mode=execution_mode,
+        ca_user=ca_user,
     )
 
     await notify_agent_activity_async(
@@ -661,7 +682,7 @@ async def report_runtime_refusal(
     description: str | None,
     execution_mode: str,
 ) -> bool:
-    """Report a write the *runtime* guard refused, mid-run. Returns whether it did.
+    """Report a write refused *inside* the run, mid-run. Returns whether it did.
 
     The static layers refuse by raising, so they control their own reporting.
     The runtime ones cannot: they run inside the subprocess, and all that
@@ -670,48 +691,60 @@ async def report_runtime_refusal(
     shelled-out ``caput`` — would be the only ones that never alerted the
     operator or left an audit record.
 
-    Matching is on
-    :data:`~osprey.services.python_executor.execution.wrapper.READONLY_REFUSAL_MARKER`
-    rather than on the guard's full message, so the connector reference
-    monitor's own refusal — a write that took the *approved* ``write_channel``
-    path in a readonly run — is reported too.
+    Two in-run layers refuse, one per mode, and each is recognised by its own
+    marker rather than by its full message:
+
+    * readonly — the runtime guard, matched on
+      :data:`~osprey.services.python_executor.execution.wrapper.READONLY_REFUSAL_MARKER`,
+      so the connector reference monitor's own refusal (a write that took the
+      *approved* ``write_channel`` path in a readonly run) is reported too.
+      Filed as :data:`LAYER_RUNTIME_GUARD`.
+    * readwrite — the armed raw-put block, matched on
+      :data:`~osprey_connectors.errors.RAW_CLIENT_WRITE_MARKER`: a direct
+      client-library write that bypassed the reference monitor. Filed as
+      :data:`LAYER_RAW_CLIENT_WRITE`, stamped with the ``ca_user`` this process
+      runs as — the sandbox is its child, under the same account, so that is
+      the account the refused write would have gone out as.
+
+    A readwrite run still matches the readonly marker as well: a guard that
+    emits it mid-``readwrite`` must be reported, and must not have the ledger
+    and the operator alert call that run readonly.
 
     The script's own result is left alone: its stderr already names the mode
     and the way forward, and converting it into a tool error here would
     discard whatever the run legitimately produced before the refusal.
-
-    ``execution_mode`` comes from the run rather than from a default. Today the
-    marker only reaches here out of a readonly run — the readwrite filesystem
-    refusal in
-    :mod:`~osprey.services.python_executor.execution.wrapper` deliberately does
-    not carry it — but that is a property of another module's message strings,
-    and a guard that ever emits the marker mid-``readwrite`` (the connector
-    reference monitor is the candidate) must not have the ledger and the
-    operator alert call that run readonly.
     """
+    from osprey.audit.call import write_stamps
     from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
+    from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
 
-    if READONLY_REFUSAL_MARKER not in (stderr or ""):
+    stderr = stderr or ""
+    ca_user: str | None = None
+    if execution_mode == "readwrite" and RAW_CLIENT_WRITE_MARKER in stderr:
+        layer, marker = LAYER_RAW_CLIENT_WRITE, RAW_CLIENT_WRITE_MARKER
+        ca_user = write_stamps().get("ca_user")
+    elif READONLY_REFUSAL_MARKER in stderr:
+        layer, marker = LAYER_RUNTIME_GUARD, READONLY_REFUSAL_MARKER
+    else:
         return False
 
     await record_and_alert_refusal(
         tool=tool,
-        layer=LAYER_RUNTIME_GUARD,
-        trigger=_refusal_lines(stderr),
+        layer=layer,
+        trigger=_refusal_lines(stderr, marker),
         code=code,
         description=description,
         execution_mode=execution_mode,
+        ca_user=ca_user,
     )
     return True
 
 
-def _refusal_lines(stderr: str) -> list[str]:
+def _refusal_lines(stderr: str, marker: str) -> list[str]:
     """The stderr lines naming the refusal, for the audit record's ``trigger``.
 
     The whole traceback would bury the fact in noise and the bare marker would
-    drop the channel name the connector's message carries; the matching lines
-    keep what an auditor actually reads.
+    drop the channel name the refusal message carries; the lines carrying
+    *marker* keep what an auditor actually reads.
     """
-    from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
-
-    return [line.strip() for line in stderr.splitlines() if READONLY_REFUSAL_MARKER in line]
+    return [line.strip() for line in stderr.splitlines() if marker in line]

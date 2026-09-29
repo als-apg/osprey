@@ -31,6 +31,7 @@ class TestChannelWriteBlockedError:
             "LIMITS",
             "VALIDATION_ERROR",
             "CONTROL_SYSTEM_REFUSED",
+            "RAW_CLIENT_WRITE",
         )
 
     def test_unknown_reason_permitted(self):

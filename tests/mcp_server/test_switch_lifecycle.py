@@ -1025,17 +1025,9 @@ class TestTheDestinationAlreadyAnswers:
         assert len(manager.spawned) == spawns + 1
         assert manager.status()["child_pid"] != pid
         assert result["child_pid"] != pid
+        assert result["child_pid"] == manager.status()["child_pid"]
         assert result["target_changed"] is False
         assert manager.active_generation() == generation
-
-    async def test_a_forced_switch_replaces_the_child_on_the_same_target(self, make_manager):
-        manager = await started_on(make_manager, "va")
-        pid = manager.status()["child_pid"]
-
-        result = await manager.switch("va", force=True)
-
-        assert result["child_pid"] != pid
-        assert manager.status()["child_pid"] == result["child_pid"]
 
     async def test_ensure_started_still_brings_the_first_child_up(self, make_manager):
         manager = make_manager()
@@ -1344,7 +1336,6 @@ class TestReconcileToTheRecord:
         manager = make_manager(drain_timeout_s=2.0, probe_timeout_s=3.0, spawn_timeout_s=4.0)
 
         assert manager.applying_bound_s() == 2.0 + 2 * (4.0 + 3.0)
-        assert manager.applying_bound_s(fallback_retry=False) == 2.0 + 4.0 + 3.0
 
     async def test_the_applying_bound_counts_the_configured_probe_timeout(self, make_manager):
         manager = make_manager(

@@ -10,7 +10,7 @@ The two hooks are exercised in full: a stub shell stands in for ``IPython``'s,
 so the refusal handler can be fired with a real refusal and the cell hooks
 called directly, without a kernel behind either.
 
-Nothing here starts a kernel. ``main()`` is the five statements after the
+Nothing here starts a kernel. ``main()`` is the kernel statements after the
 preparation, and running them would hand the test session's stdio to
 ``ipykernel``; the preparation is called directly instead, and the one test
 that does call ``main()`` puts a stub in ``IPKernelApp``'s place.
@@ -23,22 +23,36 @@ import io
 import json
 import logging
 import os
+import pwd
+import socket
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 from osprey import jupyter_kernel, runtime
 from osprey.audit import posture
-from osprey.audit.envelope import DECISION_REFUSED
+from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor
-from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
+from osprey.runtime import ControlTargetChangedError, SwitchInProgressError, raw_put_block
+from osprey.services.python_executor import write_surface
+from osprey.services.python_executor.execution import wrapper
 from osprey_connectors import posture_store
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    RAW_CLIENT_WRITE_MARKER,
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    raw_client_write_message,
+)
 from tests._control_context_fixtures import state_dir_under
+from tests.runtime._patch_restore import restore_patches  # noqa: F401
+
+#: The engine's own ``install``, kept before the autouse stub replaces it.
+_REAL_INSTALL = raw_put_block.install
 
 #: The id Jupyter put in this kernel's connection-file name.
 KERNEL_ID = "4f1c2a7e0000400080000000000002"
@@ -57,6 +71,56 @@ def kernel_env():
     os.environ.clear()
     os.environ.update(saved)
     posture_store.invalidate_cache()
+
+
+#: The account and host this process writes as — what a kernel record names.
+CA_USER = pwd.getpwuid(os.getuid()).pw_name
+CA_HOST = socket.gethostname()
+
+
+@pytest.fixture(autouse=True)
+def write_observers():
+    """The runtime's write observers, emptied for the test and restored after.
+
+    Registration is process-global, and ``main()`` registers the kernel's
+    observer: without this, one test's registration would record every write
+    a later test makes.
+    """
+    saved = list(runtime._write_observers)
+    runtime._write_observers.clear()
+    yield runtime._write_observers
+    runtime._write_observers[:] = saved
+
+
+@pytest.fixture(autouse=True)
+def armed_installs(monkeypatch):
+    """Every ``raw_put_block.install`` call ``main()`` makes, recorded, not run.
+
+    The real install patches client libraries process-wide and leaves an import
+    hook behind, so a test that calls ``main()`` would arm the whole test
+    session. A test that wants the real one puts it back and restores after.
+    """
+    calls = []
+    monkeypatch.setattr(
+        raw_put_block, "install", lambda mode, **contract: calls.append((mode, contract))
+    )
+    return calls
+
+
+def detail_tokens(detail: str | None) -> dict[str, str]:
+    """A record's ``detail`` read as its ``key=value`` tokens."""
+    return dict(token.split("=", 1) for token in (detail or "").split())
+
+
+def kernel_ledger(zone: Path) -> list[dict]:
+    """Every record filed under the kernel's surface in the audit *zone*."""
+    records = []
+    for path in sorted(zone.glob("**/*.jsonl")):
+        for line in path.read_text().splitlines():
+            entry = json.loads(line)
+            if entry.get("surface") == jupyter_kernel.SURFACE_NOTEBOOK_KERNEL:
+                records.append(entry)
+    return records
 
 
 def connection_argv(root: Path, name: str = f"kernel-{KERNEL_ID}.json") -> list[str]:
@@ -394,6 +458,9 @@ class TestInstallingTheHook:
         monkeypatch.setattr(jupyter_kernel, "_prepare_environment", prepare)
         monkeypatch.setattr("osprey.registry.initialize_registry", initialize_registry)
         monkeypatch.setattr(
+            raw_put_block, "install", lambda mode, **contract: order.append(f"install:{mode}")
+        )
+        monkeypatch.setattr(
             jupyter_kernel,
             "install_shell_stream_rearm",
             lambda shell_stream: order.append("install_shell_stream_rearm"),
@@ -405,6 +472,7 @@ class TestInstallingTheHook:
         assert order == [
             "route_logs",
             "prepare",
+            "install:armed",
             "initialize_registry",
             "install_shell_stream_rearm",
             "initialize",
@@ -448,6 +516,114 @@ class TestInstallingTheHook:
         assert "Registry initialization failed" in caplog.text
 
 
+def _flatten(rows) -> list[tuple[str, str]]:
+    """``(dotted, attrs)`` rows back to the ``(dotted, attr)`` keys they came from."""
+    return [(dotted, attr) for dotted, attrs in rows for attr in attrs]
+
+
+class _StartRecorder:
+    """An ``IPKernelApp`` stand-in that records ``initialize`` and ``start``."""
+
+    order: list[str]
+
+    @classmethod
+    def instance(cls):
+        app = cls()
+        app.shell = StubShell()
+        return app
+
+    def initialize(self, _argv):
+        self.order.append("initialize")
+
+    def start(self):
+        self.order.append("start")
+
+
+def _stub_main(monkeypatch) -> list[str]:
+    """Stub every ``main()`` step but the raw-put block; return the start order."""
+    order: list[str] = []
+    app = type("App", (_StartRecorder,), {"order": order})
+    monkeypatch.setattr(jupyter_kernel, "_route_logs_to_process_stderr", lambda: None)
+    monkeypatch.setattr(jupyter_kernel, "_prepare_environment", dict)
+    monkeypatch.setattr("osprey.registry.initialize_registry", lambda **kwargs: None)
+    monkeypatch.setattr(jupyter_kernel, "install_shell_stream_rearm", lambda shell_stream: None)
+    monkeypatch.setattr("ipykernel.kernelapp.IPKernelApp", app)
+    return order
+
+
+class TestTheRawPutBlock:
+    """The kernel arms the raw-put block before any cell can run, or does not start."""
+
+    def test_armed_install_passes_the_executor_armed_contract(self, monkeypatch, armed_installs):
+        """The rows are the armed write surface; rpc stays allowed; the marker is shared."""
+        _stub_main(monkeypatch)
+
+        jupyter_kernel.main([])
+
+        ((mode, contract),) = armed_installs
+        assert mode == "armed"
+        assert contract["refuse_rpc"] is False
+        assert contract["marker"] == RAW_CLIENT_WRITE_MARKER
+        assert _flatten(contract["blocked_targets"]) == list(write_surface._ARMED_BLOCKED)
+        assert _flatten(contract["rpc_targets"]) == list(write_surface._ARMED_RPC)
+        blocked_owners = [dotted for dotted, _attrs in contract["blocked_targets"]]
+        assert len(blocked_owners) == len(set(blocked_owners))
+        assert set(contract) == {
+            "blocked_targets",
+            "rpc_targets",
+            "refuse_rpc",
+            "marker",
+            "rpc_refusals",
+        }
+
+    def test_armed_install_failure_stops_the_kernel_start(self, monkeypatch):
+        """No fallback: a kernel that could not arm the block never initializes."""
+        order = _stub_main(monkeypatch)
+
+        def failing_install(_mode, **_contract):
+            raise ValueError("armed mode needs a non-empty refusal marker")
+
+        monkeypatch.setattr(raw_put_block, "install", failing_install)
+
+        with pytest.raises(ValueError, match="non-empty refusal marker"):
+            jupyter_kernel.main([])
+
+        assert order == []
+
+    def test_armed_install_refuses_a_raw_put_in_the_kernel_process(
+        self,
+        monkeypatch,
+        restore_patches,  # noqa: F811
+    ):
+        """The real install, over a fake client: a raw put is refused, rpc is not."""
+        name = "osprey_fake_kernel_client"
+        client = ModuleType(name)
+        client.__file__ = f"<{name}>"
+        exec(
+            compile(
+                "def caput(pvname, value):\n    return 'put'\n"
+                "def rpc(payload):\n    return 'rpc'\n",
+                client.__file__,
+                "exec",
+            ),
+            vars(client),
+        )
+        monkeypatch.setitem(sys.modules, name, client)
+        restore_patches(client)
+        monkeypatch.setattr(wrapper, "_ARMED_BLOCKED", {(name, "caput"): "raw put"})
+        monkeypatch.setattr(wrapper, "_ARMED_RPC", {(name, "rpc"): "an rpc"})
+        monkeypatch.setattr(raw_put_block, "install", _REAL_INSTALL)
+        _stub_main(monkeypatch)
+
+        jupyter_kernel.main([])
+
+        with pytest.raises(ChannelWriteBlockedError) as raised:
+            client.caput("SR:MAG:1", 1.0)
+        assert raised.value.reason == "RAW_CLIENT_WRITE"
+        assert RAW_CLIENT_WRITE_MARKER in str(raised.value)
+        assert client.rpc({}) == "rpc"
+
+
 class TestTheAuditRecord:
     """One refusal, one record — the ledger's whole claim about a cell."""
 
@@ -468,15 +644,130 @@ class TestTheAuditRecord:
         fire(shell, REFUSALS["write_blocked"]())
 
         assert audit_records[0]["reason"] == "channel_write_blocked"
-        assert audit_records[0]["detail"] == "channel=SR:MAG:1"
+        assert detail_tokens(audit_records[0]["detail"]) == {
+            "channel": "SR:MAG:1",
+            "ca_user": CA_USER,
+        }
 
     @pytest.mark.usefixtures("unstamped")
-    def test_a_refusal_with_no_channel_carries_no_detail(self, shell, audit_records):
-        """``ControlTargetChangedError`` names no channel, and detail is optional."""
+    def test_a_refusal_with_no_channel_carries_only_the_account(self, shell, audit_records):
+        """``ControlTargetChangedError`` names no channel; the account is still named."""
         fire(shell, REFUSALS["target_changed"]())
 
-        assert audit_records[0]["detail"] is None
+        assert detail_tokens(audit_records[0]["detail"]) == {"ca_user": CA_USER}
         assert audit_records[0]["reason"] == "control_target_changed"
+
+
+class TestTheWriteRecord:
+    """One record per channel a cell put on the wire, read back from the ledger."""
+
+    @pytest.fixture
+    def observed(self, write_observers):
+        """The kernel's observer registered the way ``main()`` registers it."""
+        runtime._register_write_observer(jupyter_kernel._record_write)
+        return write_observers
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_kernel_write_record_a_landed_write_files_one_allowed_record(self, _isolate_audit_zone):
+        """A write a re-read verified is ``allowed`` with ``write_landed``."""
+        runtime._notify_write("SR:MAG:1", "attempt")
+        runtime._notify_write("SR:MAG:1", "landed")
+
+        records = kernel_ledger(_isolate_audit_zone)
+        assert len(records) == 1, records
+        assert records[0]["decision"] == DECISION_ALLOWED
+        assert records[0]["reason"] == "write_landed"
+        assert records[0]["subject"] == jupyter_kernel.REFUSAL_SUBJECT
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_kernel_write_record_a_sent_write_files_write_unconfirmed(self, _isolate_audit_zone):
+        """A write sent without verification is still ``allowed``, and says so."""
+        runtime._notify_write("SR:MAG:1", "attempt")
+        runtime._notify_write("SR:MAG:1", "sent")
+
+        records = kernel_ledger(_isolate_audit_zone)
+        assert len(records) == 1, records
+        assert records[0]["decision"] == DECISION_ALLOWED
+        assert records[0]["reason"] == "write_unconfirmed"
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_kernel_write_record_an_attempt_alone_files_nothing(self, _isolate_audit_zone):
+        """A refused write gets only ``attempt``, and its record is the refusal's."""
+        runtime._notify_write("SR:MAG:1", "attempt")
+
+        assert kernel_ledger(_isolate_audit_zone) == []
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_kernel_write_record_the_detail_names_channel_account_and_host(
+        self, _isolate_audit_zone
+    ):
+        """The stamps travel as detail tokens, read in the writing process."""
+        runtime._notify_write("SR:MAG:1", "landed")
+
+        (entry,) = kernel_ledger(_isolate_audit_zone)
+        assert detail_tokens(entry["detail"]) == {
+            "channel": "SR:MAG:1",
+            "ca_user": CA_USER,
+            "ca_host": CA_HOST,
+        }
+
+    @pytest.mark.usefixtures("observed", "unstamped")
+    def test_kernel_write_record_each_channel_files_its_own_record(self, _isolate_audit_zone):
+        """A multi-channel write files one record per channel, each with its outcome."""
+        runtime._notify_write("SR:MAG:1", "landed")
+        runtime._notify_write("SR:MAG:2", "sent")
+
+        records = kernel_ledger(_isolate_audit_zone)
+        assert [(detail_tokens(r["detail"])["channel"], r["reason"]) for r in records] == [
+            ("SR:MAG:1", "write_landed"),
+            ("SR:MAG:2", "write_unconfirmed"),
+        ]
+
+    @pytest.mark.usefixtures("unstamped")
+    def test_kernel_write_record_main_registers_the_observer(
+        self, monkeypatch, write_observers, _isolate_audit_zone
+    ):
+        """After ``main()`` a write in this process files its record, once."""
+
+        class StubKernelApp:
+            @classmethod
+            def instance(cls):
+                app = cls()
+                app.shell = StubShell()
+                return app
+
+            def initialize(self, _argv):
+                pass
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(jupyter_kernel, "_route_logs_to_process_stderr", lambda: None)
+        monkeypatch.setattr(jupyter_kernel, "_prepare_environment", dict)
+        monkeypatch.setattr("osprey.registry.initialize_registry", lambda **kwargs: None)
+        monkeypatch.setattr(jupyter_kernel, "install_shell_stream_rearm", lambda shell_stream: None)
+        monkeypatch.setattr("ipykernel.kernelapp.IPKernelApp", StubKernelApp)
+
+        jupyter_kernel.main([])
+        jupyter_kernel.main([])
+        runtime._notify_write("SR:MAG:1", "landed")
+
+        assert write_observers == [jupyter_kernel._record_write]
+        (entry,) = kernel_ledger(_isolate_audit_zone)
+        assert entry["reason"] == "write_landed"
+
+    def test_an_audit_failure_does_not_reach_the_write(self, monkeypatch, caplog):
+        """The trail degrades to a warning; the observer itself never raises."""
+
+        def broken_record(**fields):
+            raise RuntimeError("no ledger here")
+
+        monkeypatch.setattr("osprey.audit.writer.record", broken_record)
+
+        with caplog.at_level("WARNING", logger=jupyter_kernel.__name__):
+            jupyter_kernel._record_write("SR:MAG:1", "landed")
+
+        assert "Could not record the notebook write" in caplog.text
 
     @pytest.mark.usefixtures("unstamped")
     def test_a_writer_that_fails_does_not_swallow_the_refusal(self, shell, monkeypatch):
@@ -569,6 +860,54 @@ class TestTheActionLine:
         whether it had ended, and the restart each of them asked for.
         """
         assert not hasattr(jupyter_kernel, name)
+
+
+def raw_client_write_refusal():
+    """The refusal a direct client-library put raises inside a cell."""
+    return ChannelWriteBlockedError(
+        "SR:MAG:1", "RAW_CLIENT_WRITE", raw_client_write_message("SR:MAG:1")
+    )
+
+
+class TestARawClientWrite:
+    """A put that went around the runtime is answered by its reason, not its class."""
+
+    @pytest.mark.usefixtures("audit_records", "unstamped")
+    def test_raw_client_write_hint_names_write_channel(self, shell, capsys):
+        """The line names the call that applies limits and approval."""
+        fire(shell, raw_client_write_refusal())
+
+        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_WRITE + "\n"
+        assert "osprey.runtime.write_channel" in jupyter_kernel.HINT_RAW_CLIENT_WRITE
+
+    @pytest.mark.usefixtures("audit_records")
+    def test_raw_client_write_hint_wins_over_writes_off(self, shell, unstamped, capsys):
+        """Turning writes on would not let a raw put through, so the chip is not the answer."""
+        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+
+        fire(shell, raw_client_write_refusal())
+
+        assert capsys.readouterr().out == jupyter_kernel.HINT_RAW_CLIENT_WRITE + "\n"
+
+    @pytest.mark.usefixtures("unstamped")
+    def test_raw_client_write_records_raw_client_write_reason(self, shell, audit_records):
+        """The ledger tells a bypass apart from a posture refusal on the same class."""
+        fire(shell, raw_client_write_refusal())
+
+        assert len(audit_records) == 1
+        assert audit_records[0]["reason"] == "raw_client_write"
+        assert audit_records[0]["decision"] == DECISION_REFUSED
+        assert detail_tokens(audit_records[0]["detail"]) == {
+            "channel": "SR:MAG:1",
+            "ca_user": CA_USER,
+        }
+
+    @pytest.mark.usefixtures("unstamped")
+    def test_raw_client_write_leaves_other_reasons_on_the_class_code(self, shell, audit_records):
+        """Only the raw-write reason re-files; a posture refusal keeps its class code."""
+        fire(shell, REFUSALS["write_blocked"]())
+
+        assert audit_records[0]["reason"] == "channel_write_blocked"
 
 
 @pytest.fixture

@@ -34,8 +34,11 @@ from osprey.deployment.web_terminals.personas import (
     ALL_PRIVILEGES,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
+    _is_shared_entry,
     as_dict,
     auth_is_enforced,
+    control_identity_collision_warnings,
+    control_identity_problems,
     deployment_wide_privileged_exposure_problems,
     effective_image_source,
     effective_persona,
@@ -80,7 +83,14 @@ from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.services.auth_sidecar.passwords import stored_hash_problem
 from osprey.utils.dotenv import parse_dotenv_file
-from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
+from osprey_connectors.types import (
+    TARGET_LIVE,
+    TYPE_WRITES_ENABLED_LEAF,
+    WRITES_ENABLED_KEY,
+    configured_targets,
+    resolve_target,
+    type_writes_enabled,
+)
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
 # listener is `tls.port` and the auth sidecar's is `auth.port`. Neither default
@@ -176,6 +186,7 @@ def lint_web_terminals(
     findings.extend(_check_user_theme(users))
     findings.extend(_check_user_tour(users))
     findings.extend(_check_user_access(users))
+    findings.extend(_check_control_identities(web_terminals, users))
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
@@ -207,6 +218,18 @@ def lint_web_terminals(
             web_terminals,
             users,
             rendered_project=rendered_project,
+            profile_root=profile_root,
+        )
+    )
+    # The same persona walk once more, asking whether a card writes to the real
+    # machine without saying who is writing. Both altitudes.
+    findings.extend(
+        _check_live_writer_without_control_identity(
+            root,
+            web_terminals,
+            users,
+            rendered_project=rendered_project,
+            project_root=project_root,
             profile_root=profile_root,
         )
     )
@@ -562,6 +585,36 @@ def _check_user_tour(users: list[Any]) -> list[Finding]:
                 ),
             )
         )
+    return findings
+
+
+def _check_control_identities(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+    """Each card's optional ``control_identity`` must be a name the container accepts.
+
+    ``control_identity`` is the account name the control system sees a card's
+    writes arrive under. Every refusal the builders name
+    (:func:`~osprey.deployment.web_terminals.personas.control_identity_problems`)
+    is an ERROR — an unusable value, a value on a shared card, or one value
+    carried for two different people — so lint accepts exactly what the
+    container accepts. A collision the roster cannot prove wrong
+    (:func:`~osprey.deployment.web_terminals.personas.control_identity_collision_warnings`)
+    is a WARN.
+
+    The rules read only the roster, so they run in every auth posture. The
+    configured OIDC claim decides whether subjects compare case-folded; with no
+    ``oidc`` login, or an ``auth.method`` naming no method (reported on its
+    own), the sidecar default applies and subjects compare exactly.
+    """
+    context = _auth_context(web_terminals)
+    claim = (context.get("auth_oidc_claim") if context is not None else None) or ""
+    findings = [
+        Finding(severity="error", code=code, message=message)
+        for code, message in control_identity_problems(users, claim=claim)
+    ]
+    findings.extend(
+        Finding(severity="warn", code=code, message=message)
+        for code, message in control_identity_collision_warnings(users, claim=claim)
+    )
     return findings
 
 
@@ -1109,6 +1162,77 @@ def _profile_persona_layers(
     return _PersonaLayers((resolved.config,), authored, build_profile, is_delta=False)
 
 
+def _persona_documents(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    rendered_project: bool,
+    project_root: Path | None,
+    profile_root: Path | None,
+) -> tuple[dict[str, tuple[Any, ...]], dict[str, _UnreadablePersona]]:
+    """The config layers each REFERENCED persona is deployed from, at either altitude.
+
+    The one persona walk behind every rule here that asks what a persona holds,
+    so those rules cannot disagree about which personas they could read:
+
+    * **Rendered project.** Each persona's ``build/<project_path>/config.yml``
+      is already the fully composed answer, so it is the only layer. Read
+      through
+      :func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`
+      — the same walk the credential grants use.
+    * **Profile.** There is no merged document yet, so the chain
+      :func:`_profile_persona_layers` returns is handed back as it stands, base
+      first; a rule folds it the way it needs (see :func:`_fold_layers`).
+
+    Returns:
+        ``(layers, unreadable)``. A referenced persona whose catalog entry does
+        not resolve is in neither — that reference is reported elsewhere. One
+        whose document could not be read is in ``unreadable`` only: "cannot
+        tell" is never "holds nothing".
+    """
+    layers_by_persona: dict[str, tuple[Any, ...]] = {}
+    unreadable: dict[str, _UnreadablePersona] = {}
+
+    if rendered_project:
+        documents = rendered_persona_configs(root, project_root or Path("."))
+        catalog = _persona_catalog(web_terminals)
+        for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+            if persona_name in documents:
+                layers_by_persona[persona_name] = (documents[persona_name],)
+                continue
+            if not isinstance(catalog.get(persona_name), dict):
+                continue  # unresolvable reference — reported elsewhere
+            # No rendered config.yml where this persona's project_path says one
+            # is. "Cannot tell" is not "holds nothing" here either: once `osprey
+            # up` gates on this belt, reading an absent render as unprivileged
+            # is fail-open on the deploy path itself, and the only other signal
+            # is `persona_project_path_not_rendered_yet` — a WARN about a
+            # different question that no error-filtering surface sees.
+            project_path = as_dict(catalog.get(persona_name)).get("project_path")
+            unreadable[persona_name] = _UnreadablePersona(
+                build_profile=None,
+                path_tried=None,
+                shape_problem=None,
+                # `""` is the "declares none at all" case, which reads as its
+                # own sentence rather than as a quoted empty path.
+                project_path=project_path if isinstance(project_path, str) else "",
+            )
+        return layers_by_persona, unreadable
+
+    catalog = _persona_catalog(web_terminals)
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        layers = _profile_persona_layers(root, entry, profile_root=profile_root)
+        if isinstance(layers, _UnreadablePersona):
+            unreadable[persona_name] = layers
+            continue
+        layers_by_persona[persona_name] = layers.layers
+    return layers_by_persona, unreadable
+
+
 def _privileges_by_persona(
     root: dict[str, Any],
     web_terminals: dict[str, Any],
@@ -1132,16 +1256,8 @@ def _privileges_by_persona(
     :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
     for the full statement of the asymmetry.
 
-    Two altitudes, two shapes of input:
-
-    * **Rendered project.** Each persona's ``build/<project_path>/config.yml``
-      exists and is already the fully composed answer, so it is the only layer.
-      Read through
-      :func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`
-      — the same walk the credential grants use, rather than a second path join
-      that would be free to disagree with them about where ``project_path``
-      resolves.
-    * **Profile.** See :func:`_profile_persona_layers`.
+    Both altitudes are read through :func:`_persona_documents`, the persona
+    walk every rule here that asks what a persona holds shares.
 
     Returns:
         ``(absolute, lifted, unreadable)``. A persona absent from all three is
@@ -1154,7 +1270,6 @@ def _privileges_by_persona(
     baseline = persona_privileges(root)
     absolute: _PrivilegeMap = {}
     lifted: _PrivilegeMap = {}
-    unreadable: dict[str, _UnreadablePersona] = {}
 
     def record(persona_name: str, held: tuple[str, ...]) -> None:
         if held:
@@ -1163,42 +1278,16 @@ def _privileges_by_persona(
         if beyond:
             lifted[persona_name] = beyond
 
-    if rendered_project:
-        documents = rendered_persona_configs(root, project_root or Path("."))
-        catalog = _persona_catalog(web_terminals)
-        for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-            if persona_name in documents:
-                record(persona_name, persona_privileges(documents[persona_name]))
-                continue
-            if not isinstance(catalog.get(persona_name), dict):
-                continue  # unresolvable reference — reported elsewhere
-            # No rendered config.yml where this persona's project_path says one
-            # is. "Cannot tell" is not "holds nothing" here either: once `osprey
-            # up` gates on this belt, reading an absent render as unprivileged
-            # is fail-open on the deploy path itself, and the only other signal
-            # is `persona_project_path_not_rendered_yet` — a WARN about a
-            # different question that no error-filtering surface sees.
-            project_path = as_dict(catalog.get(persona_name)).get("project_path")
-            unreadable[persona_name] = _UnreadablePersona(
-                build_profile=None,
-                path_tried=None,
-                shape_problem=None,
-                # `""` is the "declares none at all" case, which reads as its
-                # own sentence rather than as a quoted empty path.
-                project_path=project_path if isinstance(project_path, str) else "",
-            )
-        return absolute, lifted, unreadable
-
-    catalog = _persona_catalog(web_terminals)
-    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
-        entry = catalog.get(persona_name)
-        if not isinstance(entry, dict):
-            continue  # unresolvable reference — reported elsewhere
-        layers = _profile_persona_layers(root, entry, profile_root=profile_root)
-        if isinstance(layers, _UnreadablePersona):
-            unreadable[persona_name] = layers
-            continue
-        record(persona_name, persona_privileges(*layers.layers))
+    documents, unreadable = _persona_documents(
+        root,
+        web_terminals,
+        users,
+        rendered_project=rendered_project,
+        project_root=project_root,
+        profile_root=profile_root,
+    )
+    for persona_name, layers in documents.items():
+        record(persona_name, persona_privileges(*layers))
     return absolute, lifted, unreadable
 
 
@@ -1789,6 +1878,109 @@ def _check_readonly_persona_inherits_writes(
                     f"read-only tier while writes stay armed for it. Set "
                     f"{privilege_phrase(inherited)}: false in {layers.source!r} too, or "
                     f"take the inherited true out of {inherited_from}"
+                ),
+            )
+        )
+    return findings
+
+
+def _fold_layers(*layers: Any) -> dict[str, Any]:
+    """One nested document out of a persona's config layers, later layers winning.
+
+    The merged document a rendered project already is, assembled from the chain
+    :func:`_persona_documents` returns at profile altitude, where the layers mix
+    dotted and nested spellings of the same keys (see :func:`_config_leaves`).
+    """
+    return _nest_dotted(_config_leaves(*layers))
+
+
+def _live_writes_type(section: Any) -> str | None:
+    """The connector type a ``control_system`` section arms writes on for ``live``.
+
+    ``None`` unless all of it holds: ``live`` is one of the section's
+    :func:`~osprey_connectors.types.configured_targets`, it resolves to a real
+    connector type, and that type's own posture is armed. A ``live`` that does
+    not resolve — a mock or other simulated deployment that never named its
+    real machine — is not live here, and deliberately does NOT fall back to the
+    deployment-wide ``control_system.writes_enabled`` the way
+    :func:`~osprey_connectors.types.target_writes_enabled` does: a simulator
+    armed for writes has no control system to attribute them on.
+    """
+    if TARGET_LIVE not in configured_targets(section):
+        return None
+    try:
+        live_type = resolve_target(section, TARGET_LIVE)
+    except ValueError:
+        return None
+    return live_type if type_writes_enabled(section, live_type) else None
+
+
+def _check_live_writer_without_control_identity(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    rendered_project: bool,
+    project_root: Path | None,
+    profile_root: Path | None,
+) -> list[Finding]:
+    """An owner-only card that writes to the real machine should say who is writing.
+
+    A WARN, per roster entry: behind a login wall, an owner-only card whose
+    persona arms writes on the ``live`` target, and which carries no
+    ``control_identity``. Its writes then reach the control system under the
+    container's shared account, so the machine's own records cannot tell which
+    person made them — the one attribution ``control_identity`` exists to give.
+
+    Advisory rather than an error: the deployment works, and a facility whose
+    control system does not attribute by account loses nothing. Silent where
+    the question has no answer — with no wall there is no person behind a card,
+    a shared card must not carry one person's identity (that is an error of its
+    own), and a persona that cannot write to ``live`` writes nothing to
+    attribute. Personas whose documents cannot be read are reported by the
+    privilege belt, not here.
+    """
+    if not users or not auth_is_enforced(web_terminals):
+        return []
+
+    documents, _unreadable = _persona_documents(
+        root,
+        web_terminals,
+        users,
+        rendered_project=rendered_project,
+        project_root=project_root,
+        profile_root=profile_root,
+    )
+    live_writers: dict[str, str] = {}
+    for persona_name, layers in documents.items():
+        live_type = _live_writes_type(as_dict(_fold_layers(*layers).get("control_system")))
+        if live_type is not None:
+            live_writers[persona_name] = live_type
+    if not live_writers:
+        return []
+
+    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
+    registry_cfg = as_dict(root.get("registry"))
+    findings: list[Finding] = []
+    for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False):
+        persona = entry.get("persona")
+        if not isinstance(persona, str) or persona not in live_writers:
+            continue
+        if entry.get("control_identity") or entry_is_shared(dict(entry)):
+            continue
+        name = entry.get("name")
+        findings.append(
+            Finding(
+                severity="warn",
+                code="web_terminals.live_writer_without_control_identity",
+                message=(
+                    f"modules.web_terminals user {name!r} resolves to persona "
+                    f"{persona!r}, which arms writes on the live machine "
+                    f"({live_writers[persona]!r}), but sets no control_identity; its "
+                    f"writes reach the control system under the container's shared "
+                    f"account, so the machine cannot tell who made them. Set "
+                    f"control_identity on {name!r} to the account name that person "
+                    f"holds on the control system"
                 ),
             )
         )
@@ -3406,43 +3598,6 @@ def _check_auth_stored_hashes(
             )
         )
     return findings
-
-
-def _is_shared_entry(user: Any) -> bool:
-    """:func:`entry_is_shared` over a RAW roster entry, without its refusal.
-
-    The predicate raises for an ``access`` value the vocabulary does not
-    recognise, deliberately: a value no consumer understands must not be read
-    as an owner-only card at one surface while another reads it as admitting
-    somebody. Every caller that holds a *normalized* entry is already past that
-    refusal — :func:`~osprey.deployment.web_terminals.personas.normalize_users`
-    drops such an entry before it is resolved — but the two rules below ask the
-    question of the raw roster, where the bad value is still there.
-
-    So they absorb it, and read the entry as not shared. Linting is how the
-    operator LEARNS the value is unreadable: :func:`_check_user_access` reports
-    it with the sentence that says what to write instead, and a rule that
-    propagated the refusal instead would take that report — and every other
-    finding in the run — down with it over the one config the operator most
-    needs a report for. Treating the entry as not shared is also the fail-safe
-    reading *for these two rules specifically*: both only ever ADD a finding
-    about a shared card, so skipping the entry withholds a finding rather than
-    blessing anything.
-
-    Args:
-        user: One entry straight off ``modules.web_terminals.users``, of either
-            roster form.
-
-    Returns:
-        Whether the entry admits anyone beyond its own user; ``False`` for a
-        bare-string entry and for an ``access`` value that cannot be read.
-    """
-    if not isinstance(user, dict):
-        return False
-    try:
-        return entry_is_shared(user)
-    except ValueError:
-        return False
 
 
 def _check_shared_card_duplicate_subject(

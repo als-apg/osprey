@@ -30,6 +30,7 @@ from osprey.deployment.compose_generator import (
     repo_relative_mount_source,
     resolve_repo_root,
 )
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
@@ -49,6 +50,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
+    control_identity_problems,
     effective_image_source,
     entry_is_shared,
     env_var_suffix,
@@ -91,6 +93,8 @@ _LANDING_TEMPLATE = "landing.html.j2"
 _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
+# Mounted as `./build/control_identity/control_identity.py` by the template.
+_CONTROL_IDENTITY_OUTPUT = "control_identity/control_identity.py"
 
 # The one button a `names: hidden` users section shows in place of its cards.
 _SIGN_IN_LABEL = "Log in to your terminal"
@@ -951,7 +955,10 @@ def render_web_terminals(
         roster user whose location injects one. The write seam clears that directory
         first (see
         :func:`clear_nginx_templates_dir`), so a decommissioned user's snippet
-        cannot survive a re-render.
+        cannot survive a re-render. Plus ``control_identity/control_identity.py``
+        — the packaged :mod:`osprey.deployment.control_identity` source, byte
+        for byte — only when the deployment is walled and some card sets a
+        ``control_identity``, i.e. exactly when the compose file binds it.
 
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is set to something
@@ -974,7 +981,10 @@ def render_web_terminals(
             (both :func:`_terminal_secret_artifacts`), or if
             ``auth_env_digest`` is not a sha256 hex digest — the value is
             templated verbatim into compose YAML, so anything but lowercase hex
-            is rejected here rather than trusted not to carry YAML structure.
+            is rejected here rather than trusted not to carry YAML structure,
+            or if a roster ``control_identity`` is unusable, sits on a shared
+            card, or is carried by two different people (see
+            :func:`_check_roster_control_identities`).
     """
     if auth_env_digest and not re.fullmatch(r"[0-9a-f]{64}", auth_env_digest):
         raise ValueError("auth_env_digest must be a sha256 hex digest")
@@ -1076,6 +1086,11 @@ def render_web_terminals(
                 # would render no subject mapping at all and every IdP identity
                 # would be unmappable.
                 "oidc_subject": entry.get("oidc_subject"),
+                # Optional name the control system sees this card write as ->
+                # OSPREY_CONTROL_IDENTITY. Same absent-means-absent shape as
+                # `oidc_subject`: no identity leaves the template's guard false
+                # and the container keeps its image account name.
+                "control_identity": entry.get("control_identity"),
                 # This user's static role -> the auth sidecar's
                 # OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>, which is the privilege a
                 # PASSWORD login is minted with (under `oidc` the ID token
@@ -1319,6 +1334,9 @@ def render_web_terminals(
     _check_roster_charset(services, auth_tls_ctx)
     _check_roster_audit_identities(services)
     _check_roster_env_var_collisions(services, auth_tls_ctx)
+    _check_roster_control_identities(
+        web_terminals.get("users"), claim=auth_tls_ctx["auth_oidc_claim"] or ""
+    )
     # Parsed on every render, authenticated or not: `roles:` binds privileges
     # through the roster in every posture, and an incoherent stanza must stop
     # the deployment rather than render artifacts that bind the wrong ones.
@@ -1464,6 +1482,10 @@ def render_web_terminals(
         # a record nothing looks for, and a missing record reads as "nothing
         # narrowed".
         "control_context_dir_env": CONTROL_CONTEXT_DIR_ENV_VAR,
+        # Where the staged identity module sits INSIDE the container, handed
+        # to the template from the module's own constant: the bind target and
+        # the path the entrypoint runs must be one spelling, not two.
+        "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
         # Which CHECKOUT this stack belongs to, baked into every container and
         # volume label the template emits. Derived through the same helper the
         # services stack renders from, so one deployment cannot end up with two
@@ -1585,6 +1607,19 @@ def render_web_terminals(
         rendered_nginx = conf_env.get_template(_NGINX_TEMPLATE).render(**nginx_ctx)
         rendered_landing = html_env.get_template(_LANDING_TEMPLATE).render(**landing_ctx)
 
+    # The source of the identity module's bind, written beside the compose file
+    # whenever the template emits that bind — the same predicate, so a card
+    # never mounts a missing file (which the runtime would turn into an empty
+    # directory) and a deployment with no identity stages nothing. Byte-equal
+    # to the packaged module, exactly as the build-context stager copies it.
+    identity_module: dict[str, str] = {}
+    if auth_tls_ctx["walled"] and any(svc.get("control_identity") for svc in services):
+        from osprey.deployment import control_identity
+
+        identity_module[_CONTROL_IDENTITY_OUTPUT] = Path(control_identity.__file__).read_text(
+            encoding="utf-8"
+        )
+
     return {
         _COMPOSE_OUTPUT: rendered_compose,
         _NGINX_OUTPUT: rendered_nginx,
@@ -1593,6 +1628,7 @@ def render_web_terminals(
         # none in hand (the scaffold path) returns exactly the three artifacts
         # it always did, byte for byte.
         **secret_templates,
+        **identity_module,
     }
 
 
@@ -2866,6 +2902,39 @@ def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
             "subdirectory on a case-insensitive host filesystem. Rename the roster "
             "entry."
         )
+
+
+def _check_roster_control_identities(raw_users: Any, *, claim: str = "") -> None:
+    """Fail-closed render gate: every roster ``control_identity`` ERROR refuses.
+
+    ``control_identity`` is the account name the control system sees a card's
+    writes arrive under. The rules are
+    :func:`~osprey.deployment.web_terminals.personas.control_identity_problems`'s,
+    the same builder lint reports its errors from, so render refuses exactly
+    what lint calls an error: a value the container would refuse to apply, a
+    value on a shared card, and one value carried by two different people.
+    The collision warnings stay lint's alone.
+
+    Reads the RAW roster rather than the resolved services, because the roster
+    normalizer drops a non-string or empty value before any service entry
+    exists — the refusal must see what the author wrote.
+
+    A render-time refusal rather than a lint finding only, because lint is
+    skippable (``--no-lint``) and the consequence is misattributed writes on
+    the control system, not a cosmetic defect.
+
+    Args:
+        raw_users: ``modules.web_terminals.users`` as authored.
+        claim: The configured OIDC claim, which decides whether subjects are
+            compared case-insensitively. Empty compares exactly.
+
+    Raises:
+        ValueError: If any problem is found. The message lists every problem,
+            each prefixed with its lint code.
+    """
+    problems = control_identity_problems(raw_users, claim=claim)
+    if problems:
+        raise ValueError("\n".join(f"{code}: {message}" for code, message in problems))
 
 
 def _check_roster_charset(services: list[dict[str, Any]], auth_tls_ctx: dict[str, Any]) -> None:

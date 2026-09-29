@@ -204,6 +204,9 @@ services:
     # service just runs the resulting image with a different command.
     image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-golden-project-bluesky-bridge:local}
     container_name: golden-project-bluesky-queueserver
+    # The lane's control identity, also the name the command below gives root
+    # before the manager starts: one name for the container and its writer.
+    hostname: osprey-bluesky
     depends_on:
       # The manager connects to Redis at startup and exits if it cannot.
       bluesky-redis:
@@ -249,10 +252,21 @@ services:
     # manager pulls the real plan/device list from the worker on every
     # environment open (`_load_existing_plans_and_devices_from_worker`), and the
     # startup script is the authoritative copy anyway.
+    #
+    # The manager runs as root, so before it starts root is renamed to this
+    # lane's control identity (uid 0 keeps its number, so nothing loses
+    # access) and every write it makes names the lane. The name only labels
+    # the lane in the put-log and guards nothing, so a failed rename (a
+    # read-only root filesystem, a non-root start) warns on stderr and the
+    # lane starts as `root`, the name the preflight record then carries; the
+    # entrypoint answers a service identity on the dispatch worker the same
+    # way. The `;` is load-bearing: the manager starts on either outcome.
     command:
       - "sh"
       - "-c"
       - >-
+        python /opt/osprey/control_identity.py apply --uid 0 --name osprey-bluesky
+        || echo "WARNING: control identity osprey-bluesky not applied; this lane writes as root" >&2;
         exec start-re-manager
         --startup-script "$$(python -c 'import osprey.services.bluesky_bridge.qserver_startup as m; print(m.__file__)')"
         --user-group-permissions /app/qserver/user_group_permissions.yaml
@@ -335,6 +349,10 @@ services:
       # under data/.runtime/ — the runtime-output subpath the build-drift
       # fingerprint reserves for exactly this material (#716).
       - ./data/.runtime/bluesky_curve/queueserver:/app/curve:ro
+      # The control-identity module the command runs, staged into this build
+      # context by compose_generator byte for byte from the packaged source.
+      # Read-only: it runs as root, so nothing inside may edit it.
+      - ./build/services/bluesky/control_identity.py:/opt/osprey/control_identity.py:ro
 
 
 

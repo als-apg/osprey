@@ -10,14 +10,16 @@ opt-in — a profile with no ``bluesky:`` key injects nothing.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from ruamel.yaml import YAML
 
-from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
+from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
 from osprey.deployment.compose_generator import find_service_config
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
@@ -126,6 +128,19 @@ def test_find_service_config_resolves_bluesky(tmp_path: Path) -> None:
     assert template_path == "./services/bluesky/docker-compose.yml.j2"
 
 
+def _control_identity_context() -> dict[str, Any]:
+    """The two control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
+
+    Every bluesky lane's queueserver renames root to its lane identity before
+    ``start-re-manager`` runs, so the template reads both keys with no fallback:
+    a context without them is not a render any deploy produces.
+    """
+    return {
+        "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
+    }
+
+
 def _image_defaults(project_name: str) -> dict[str, str]:
     """The image map ``_inject_project_metadata`` injects, for hand-built ctx.
 
@@ -173,6 +188,7 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
         # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
         "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
+        **_control_identity_context(),
     }
     return pyyaml.safe_load(tmpl.render(ctx))
 

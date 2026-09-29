@@ -6,6 +6,7 @@ import logging
 import nbformat
 from mcp.types import CallToolResult, TextContent
 
+from osprey.audit.call import note, write_stamps
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_SETUP,
@@ -44,6 +45,18 @@ _SWITCH_IN_PROGRESS_SUGGESTIONS = [
     "The control target is being switched, so the run was declined before it started.",
     "Re-run the code after the target switch completes.",
 ]
+
+
+def _note_writes(exec_result: ExecutionResult) -> None:
+    """Note who the run wrote as and which channels it attempted. Never raises.
+
+    ``ca_user`` and ``ca_host`` are read in this process: the sandbox is its
+    child, running under the same account on the same host, so these are the
+    stamps the control system saw. A stamp that cannot be read is left out
+    rather than guessed. ``channels`` is the run's write ledger — empty for a
+    run that attempted no write.
+    """
+    note(**write_stamps(), channels=list(exec_result.written_channels))
 
 
 def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict) -> None:
@@ -118,6 +131,8 @@ async def build_execution_response(
         CallToolResult whose first content block carries the execution summary
         as JSON; ``isError`` is True when the execution reported errors.
     """
+    _note_writes(exec_result)
+
     artifact_ids: list[str] = []
 
     stdout_text = exec_result.stdout

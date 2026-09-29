@@ -935,7 +935,7 @@ class ConnectorHostManager:
             "drain_timeout_s": self._drain_timeout(),
         }
 
-    def applying_bound_s(self, *, fallback_retry: bool = True) -> float:
+    def applying_bound_s(self) -> float:
         """How long a swap this server is running may legitimately take.
 
         The deadline a reader needs and cannot compute. The spawn, probe and
@@ -945,17 +945,11 @@ class ConnectorHostManager:
         bound and writes it into ``expires_at``, and readers compare their own
         clock to that. Exposed here because the reconcile loop publishes that
         block and the timeouts live behind this object.
-
-        Args:
-            fallback_retry: Whether a probe failure can be retried through the
-                read-only gateway. True for a swap, which retries; false for a
-                first launch, which is not probed at all.
         """
         return target_state.applying_bound_s(
             spawn_timeout_s=self._spawn_timeout_s,
             probe_timeout_s=self._probe_timeout(),
             drain_timeout_s=self._drain_timeout(),
-            fallback_retry=fallback_retry,
         )
 
     def _live_child(self) -> _Child | None:
@@ -1140,7 +1134,7 @@ class ConnectorHostManager:
             )
             return True
 
-    async def switch(self, target: str, *, force: bool = False) -> dict[str, Any]:
+    async def switch(self, target: str) -> dict[str, Any]:
         """Move the session to *target*, spawn-then-swap, under the lock.
 
         A switch whose destination is already active *and* served is already
@@ -1153,10 +1147,6 @@ class ConnectorHostManager:
 
         Args:
             target: The destination.
-            force: Replace the child even when it already serves *target*. The
-                deliberate respawn (:meth:`respawn_same_target`) is the one
-                caller that means "a new process" rather than "be on this
-                target".
 
         Raises:
             SwitchError: The target could not be derived, names no probe
@@ -1167,7 +1157,6 @@ class ConnectorHostManager:
             return await self._switch_locked(
                 target,
                 cause=(f"the control-system target switch from {self._target!r} to {target!r}"),
-                force=force,
             )
 
     async def respawn_same_target(self) -> dict[str, Any]:

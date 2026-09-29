@@ -26,6 +26,7 @@ Two claims are tested here, and the first one is the anchor:
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -33,8 +34,14 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS, lane_env_prefix
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    SECOND_LANE_KEYS,
+    lane_control_identity,
+    lane_env_prefix,
+)
 from osprey.deployment.compose_generator import repo_relative_mount_source
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
@@ -216,6 +223,11 @@ def _context(
         "osprey_lane_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
         # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
         "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
+        # The control-identity module's container path and each lane's
+        # identity, injected unconditionally because the generator injects
+        # them unconditionally.
+        "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
     if any(posture.values()):
         context["limits_mount"] = LIMITS_MOUNT
@@ -1718,6 +1730,106 @@ def test_the_second_lane_reads_the_same_one_tree() -> None:
 
     assert _tree_bind(doc, "queueserver") == _tree_bind(doc, "bluesky-va-queueserver")
     assert _tree_bind(doc, "queueserver") != []
+
+
+# ---------------------------------------------------------------------------
+# The lane's control identity
+# ---------------------------------------------------------------------------
+
+
+def _two_lane_identity_doc() -> dict[str, Any]:
+    return _render(
+        _context(
+            lanes={
+                "bluesky": _lane_block(BLUESKY_PORT, target="va"),
+                "bluesky_live": _lane_block(SECOND_LANE_PORT, target="live"),
+            },
+            deployed_services=["bluesky", "bluesky_live"],
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("lane", "service"),
+    [("bluesky", "queueserver"), ("bluesky_live", "bluesky-live-queueserver")],
+)
+def test_the_queueserver_applies_its_lane_identity_before_the_manager_starts(
+    lane: str, service: str
+) -> None:
+    """The RE Manager writes as root, so root is renamed to the lane's name
+    first. The name labels the lane in the put-log and guards nothing, so a
+    failed rename warns and the manager starts anyway; the `;` is what starts
+    it on either outcome."""
+    command = _two_lane_identity_doc()["services"][service]["command"]
+    script = command[2]
+    identity = lane_control_identity(lane)
+
+    assert command[:2] == ["sh", "-c"]
+    assert script.startswith(
+        f"python {CONTROL_IDENTITY_CONTAINER_PATH} apply --uid 0 --name {identity}"
+        f' || echo "WARNING: control identity {identity} not applied; this lane writes as root"'
+        " >&2; exec start-re-manager"
+    )
+    subprocess.run(["sh", "-n", "-c", script], check=True)
+
+
+@pytest.mark.parametrize("rename_exit", [0, 1])
+def test_the_manager_starts_whether_or_not_the_rename_lands(
+    tmp_path: Path, rename_exit: int
+) -> None:
+    """Run the rendered command with stub `python` and `start-re-manager` on
+    PATH: the manager starts after a landed rename and after a failed one, and
+    only the failure prints the warning."""
+    script = _two_lane_identity_doc()["services"]["queueserver"]["command"][2]
+    stub_python = tmp_path / "python"
+    stub_python.write_text(f"#!/bin/sh\nexit {rename_exit}\n")
+    stub_manager = tmp_path / "start-re-manager"
+    stub_manager.write_text('#!/bin/sh\necho "manager started"\n')
+    for stub in (stub_python, stub_manager):
+        stub.chmod(0o755)
+
+    # Compose unescapes `$$` before the shell sees the command.
+    result = subprocess.run(
+        ["sh", "-c", script.replace("$$", "$")],
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "manager started" in result.stdout
+    assert ("not applied" in result.stderr) is bool(rename_exit)
+
+
+@pytest.mark.parametrize(
+    ("lane", "service"),
+    [("bluesky", "queueserver"), ("bluesky_live", "bluesky-live-queueserver")],
+)
+def test_the_queueserver_mounts_the_module_and_carries_the_lane_hostname(
+    lane: str, service: str
+) -> None:
+    """The module the command runs is the staged packaged copy, read-only; the
+    hostname names the lane in the audit trail and the shell prompt alike."""
+    qserver = _two_lane_identity_doc()["services"][service]
+
+    assert qserver["hostname"] == lane_control_identity(lane)
+    assert (
+        f"./build/services/bluesky/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
+        in qserver["volumes"]
+    )
+
+
+def test_an_external_worker_lane_renders_no_control_identity() -> None:
+    """A facility-run RE Manager is not this deployment's container: nothing
+    here renames its accounts, so the lane renders no apply, module or name."""
+    lane = dict(_lane_block(BLUESKY_PORT))
+    lane["external"] = {"zmq_control_addr": "tcp://facility:60615"}
+    text = _render_text(_context(lanes={"bluesky": lane}, deployed_services=["bluesky"]))
+
+    assert "control_identity.py" not in text
+    assert "apply --uid" not in text
+    assert f"hostname: {lane_control_identity('bluesky')}" not in text
 
 
 def _regenerate() -> None:

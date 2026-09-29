@@ -30,6 +30,7 @@ import importlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,7 @@ from osprey.interfaces._serving import (
     run_app_server,
     wait_for_port,
 )
+from osprey.interfaces.vendor import verify_all as verify_vendor_bundles
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_secret
 from osprey.port_layout import default_port
 
@@ -69,6 +71,14 @@ _POSTGRES_PORT = default_port("postgres")
 # <dir>/<name> --preset control-assistant`` creates the repo; ``osprey build``
 # run inside it renders ``<dir>/<name>/build``.
 _TUTORIAL_PROJECT_NAME = "docshots-tutorial"
+
+# Provider shorthand for the tutorial deployment's agent, for a host whose
+# credentials belong to a provider other than the preset's default. Unset keeps
+# the preset's own provider.
+PROVIDER_ENV = "OSPREY_DOCSHOTS_PROVIDER"
+#: When set, a directory each live session's transcripts are copied into before
+#: its config dir is removed, so a failed take can be read afterwards.
+KEEP_ENV = "OSPREY_DOCSHOTS_KEEP"
 
 # Floor (bytes) below which a captured hero PNG is treated as too trivial to be a
 # real screenshot when Pillow is unavailable to inspect its pixels.
@@ -413,21 +423,69 @@ def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
         raise ScreenshotSkip(f"failed to {what} (exit {result.returncode}): {tail[0]}")
 
 
+def rendered_artifact_port(project_dir: Path) -> int:
+    """The artifact-server port ``osprey build`` rendered for *project_dir*.
+
+    The build derives it from ``deployment.port_base`` and writes it to
+    ``build/config.yml``; the capture talks to whatever port that says.
+
+    Raises:
+        ScreenshotSkip: If the rendered config is missing or names no port.
+    """
+    import yaml
+
+    config_path = project_dir / "build" / "config.yml"
+    try:
+        config = yaml.safe_load(config_path.read_text()) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise ScreenshotSkip(f"no artifact_server.port: cannot read {config_path}: {exc}") from exc
+    port = (config.get("artifact_server") or {}).get("port")
+    if not isinstance(port, int) or isinstance(port, bool):
+        raise ScreenshotSkip(f"no artifact_server.port rendered in {config_path}")
+    return port
+
+
+def _opus_model_id(project_dir: Path) -> str:
+    """The Opus model id the tutorial repo's provider serves.
+
+    Read from the repo's own ``profile.yml`` (which provider answers) and
+    ``providers.yml`` (the ids that provider serves), the files ``osprey init``
+    writes. Every capture on the tutorial stack runs on Opus, the stack
+    screenshots and the demo video alike, so a provider that serves no Opus
+    model is a skip rather than a silent fall back to another model.
+    """
+    import yaml
+
+    try:
+        profile = yaml.safe_load((project_dir / "profile.yml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load((project_dir / "providers.yml").read_text(encoding="utf-8"))
+        provider = profile["provider"]
+        models = catalog["providers"][provider]["models"]
+    except (OSError, yaml.YAMLError, KeyError, TypeError) as exc:
+        raise ScreenshotSkip(f"could not read the tutorial's provider catalog: {exc!r}") from exc
+    for model in models:
+        if "opus" in str(model):
+            return str(model)
+    raise ScreenshotSkip(f"provider {provider!r} serves no Opus model: {models}")
+
+
 @contextmanager
-def _tutorial_stack(*, artifact_port: int) -> Iterator[Path]:
+def tutorial_stack() -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
 
     Lifecycle order (each step's failure degrades to :class:`ScreenshotSkip`):
     make a temp build root, ``osprey init <dir> --preset control-assistant``
-    into it with the artifact-server port pinned, ``osprey build --skip-deps``
+    into it, ``osprey set model=<the provider's Opus id>``, ``osprey build --skip-deps --dev``
     (the capture drives ``osprey``/ARIEL from the current environment, so the
-    deployment needs no venv of its own), ``osprey up -d`` (detached — the
+    deployment needs no venv of its own), ``osprey up -d --dev`` (detached — the
     non-detached form would ``execvpe`` away the runner), wait for Postgres on
     :data:`_POSTGRES_PORT` *before* seeding, then ``osprey sim apply nominal``
     frozen to :data:`recipes.ANCHOR`. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
-    down with the repo-scoped ``osprey down`` and removes the build root — it
-    never issues any prune, volume, or system-wide command.
+    down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
+    built images carrying this repo's identity, so the next run's fresh
+    credentials never meet a store initialized with this run's — and removes the
+    build root. It never issues any prune or system-wide command.
     """
     try:
         build_root = Path(tempfile.mkdtemp(prefix="osprey-docshot-"))
@@ -437,29 +495,45 @@ def _tutorial_stack(*, artifact_port: int) -> Iterator[Path]:
     project_dir = build_root / _TUTORIAL_PROJECT_NAME
     try:
         # Two steps because they are two things: `init` writes the source
-        # zone (and bakes --set into the emitted profile.yml), `build` renders
-        # it. --skip-deps belongs to the render.
+        # zone, `build` renders it. --skip-deps belongs to the render. The
+        # containers run this checkout (a dev render and a dev start), because
+        # an unreleased checkout has no published version to pin.
+        init_cmd = [
+            "osprey",
+            "init",
+            str(project_dir),
+            "--preset",
+            "control-assistant",
+            "--no-git",
+            # The capture drives a single-user `osprey web` on the host; the
+            # preset's multi-user roster would own the same index-0 panel ports.
+            "--set",
+            "config.modules.web_terminals.enabled=false",
+        ]
+        provider = os.environ.get(PROVIDER_ENV)
+        if provider:
+            init_cmd += ["--set", f"provider={provider}"]
         _run_stack_step(
-            [
-                "osprey",
-                "init",
-                str(project_dir),
-                "--preset",
-                "control-assistant",
-                "--no-git",
-                "--set",
-                f"config.artifact_server.port={artifact_port}",
-            ],
+            init_cmd,
             cwd=None,
             what="create the control-assistant tutorial repo",
         )
+        # Captures on this stack (the stack and agentic screenshots and the
+        # demo video) run on Opus, whatever the preset defaults to. The profile
+        # names a model by the id its provider serves, and only the catalog
+        # init just wrote says which one that is.
         _run_stack_step(
-            ["osprey", "build", "--skip-deps"],
+            ["osprey", "set", f"model={_opus_model_id(project_dir)}"],
+            cwd=project_dir,
+            what="pin the tutorial to Opus",
+        )
+        _run_stack_step(
+            ["osprey", "build", "--skip-deps", "--dev"],
             cwd=project_dir,
             what="build the control-assistant tutorial",
         )
         _run_stack_step(
-            ["osprey", "up", "-d"],
+            ["osprey", "up", "-d", "--dev"],
             cwd=project_dir,
             what="bring up Postgres",
         )
@@ -479,7 +553,7 @@ def _tutorial_stack(*, artifact_port: int) -> Iterator[Path]:
             # stack, and a silent failure leaks it for the rest of the run.
             # A raise here is caught below and reported rather than dropped.
             subprocess.run(
-                ["osprey", "down"],
+                ["osprey", "reset", "--yes"],
                 cwd=str(project_dir),
                 capture_output=True,
                 check=True,
@@ -489,7 +563,7 @@ def _tutorial_stack(*, artifact_port: int) -> Iterator[Path]:
             # here would replace whatever brought us into it. But it is not
             # swallowed either — a leaked container stack outlives the run and
             # the next one inherits it.
-            print(f"WARNING: `osprey down` failed; container stack may be leaking: {exc}")
+            print(f"WARNING: `osprey reset` failed; container stack may be leaking: {exc}")
         shutil.rmtree(build_root, ignore_errors=True)
 
 
@@ -537,19 +611,41 @@ def assert_hero_structural(png_bytes: bytes, viewport: tuple[int, int]) -> None:
         raise AssertionError("hero PNG is a single uniform color (blank capture)")
 
 
-def _fetch_artifacts(artifact_port: int) -> list[dict]:
-    """Return the artifact-server's current artifact list ([] on any error)."""
-    url = f"http://127.0.0.1:{artifact_port}/api/artifacts"
+# The header a scripted client carries the operator secret in; the artifact
+# server sits behind the same gate as the web terminal.
+OPERATOR_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+
+
+def artifact_request(artifact_port: int, path: str, secret: str | None) -> urllib.request.Request:
+    """A loopback request to the artifact server, carrying ``secret`` when given."""
+    headers = {OPERATOR_SECRET_HEADER: secret} if secret else {}
+    return urllib.request.Request(f"http://127.0.0.1:{artifact_port}{path}", headers=headers)
+
+
+def fetch_artifacts(artifact_port: int, secret: str | None = None) -> list[dict]:
+    """Return the artifact-server's current artifact list.
+
+    An unreachable or garbled answer is an empty list, since the server may
+    still be starting. A refused credential raises :class:`RuntimeError`: no
+    later poll can pass, and an empty list would read as "nothing yet".
+    """
+    request = artifact_request(artifact_port, "/api/artifacts", secret)
     try:
-        with urllib.request.urlopen(url, timeout=5.0) as resp:  # loopback only
+        with urllib.request.urlopen(request, timeout=5.0) as resp:  # loopback only
             return json.loads(resp.read().decode()).get("artifacts", [])
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise RuntimeError(
+                f"the artifact server refused {request.full_url}: HTTP {exc.code}"
+            ) from exc
+        return []
     except (urllib.error.URLError, json.JSONDecodeError, OSError):
         return []
 
 
-def _artifact_ids(artifact_port: int) -> set[str]:
+def artifact_ids(artifact_port: int, secret: str | None = None) -> set[str]:
     """Snapshot the ids already present, so a later wait can ignore them."""
-    return {a["id"] for a in _fetch_artifacts(artifact_port) if a.get("id")}
+    return {a["id"] for a in fetch_artifacts(artifact_port, secret) if a.get("id")}
 
 
 def _wait_for_artifact(
@@ -558,6 +654,7 @@ def _wait_for_artifact(
     *,
     timeout: float,
     exclude_ids: set[str] | None = None,
+    secret: str | None = None,
 ) -> str:
     """Poll until a *new* ``artifact_type`` contains ``needle``; return its id.
 
@@ -577,7 +674,7 @@ def _wait_for_artifact(
     seen = exclude_ids or set()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        for artifact in _fetch_artifacts(artifact_port):
+        for artifact in fetch_artifacts(artifact_port, secret):
             if artifact.get("id") in seen:
                 continue
             if needle in (artifact.get("artifact_type") or ""):
@@ -589,28 +686,149 @@ def _wait_for_artifact(
     )
 
 
-def _capture_agentic(
-    browser: Browser, project_dir: Path, artifact_port: int, shot: DocShot
-) -> list[Path]:
-    """Drive the live web terminal to produce the agentic hero screenshot(s).
+# Environment switch the web terminal reads at startup (it outranks
+# ``web.tour``). Fresh browser contexts would otherwise each get the first-visit
+# tour invite, which covers the page and takes focus.
+WEB_TOUR_ENV = "OSPREY_WEB_TOUR"
 
-    Launches a detached ``osprey web`` bound to a free port, then for each theme:
-    opens the UI with ``?theme=``, answers the PTY trust prompt, types the
-    operator prompt, waits (bounded) for a matching
-    artifact, reveals the artifacts panel, opens the plot, and screenshots the
-    viewport. Every launched process and page is torn down in ``finally``; the
-    web server is stopped with the repo-scoped ``osprey web stop --repo``.
+# Seconds a stopped web terminal gets to exit before it is killed: `osprey web
+# stop` only signals it, and a server still holding its panel ports would clash
+# with the next capture's.
+_WEB_STOP_GRACE_S = 10.0
+
+
+def _now_ms() -> int:
+    """Wall-clock time in epoch milliseconds, as Claude Code stamps its state."""
+    return int(time.time() * 1000)
+
+
+def _isolated_claude_config(project_dir: Path) -> Path:
+    """A fresh Claude Code config dir, seeded for the rendered project.
+
+    The session must not load the operator's own hooks, plugins, output style
+    or memory, which would change what the agent does and what the capture
+    shows. The seed marks onboarding complete, trusts ``build/`` and approves
+    the provider key, as a deployed web terminal's entrypoint does.
+
+    The session starts in auto permission mode, as an operator runs it: the
+    agent hands work to background subagents, which cannot show a permission
+    prompt, so in manual mode their tool calls wait on a click nobody gives.
+    OSPREY's own approval hooks still ask for the tools they gate. Auto mode
+    behind a gateway also opens a one-time billing notice that waits for Enter
+    and holds the tool call it interrupted; no capture can answer it, so it is
+    recorded as acknowledged, as Claude Code records it once an operator has.
     """
+    from osprey.deployment.claude_state_seed import seed_claude_state
+
+    config_dir = Path(tempfile.mkdtemp(prefix="osprey-docshot-claude-"))
+    seed_claude_state(
+        project_dir / "build", env={**os.environ, "CLAUDE_CONFIG_DIR": str(config_dir)}
+    )
+    settings_path = config_dir / "settings.json"
+    settings = json.loads(settings_path.read_text()) if settings_path.is_file() else {}
+    settings.setdefault("permissions", {})["defaultMode"] = "auto"
+    settings["skipAutoPermissionPrompt"] = True
+    settings_path.write_text(json.dumps(settings, indent=2))
+    state_path = config_dir / ".claude.json"
+    state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+    state["autoModeClassifierBillingNoticeAcknowledgedAt"] = _now_ms()
+    state_path.write_text(json.dumps(state, indent=2))
+    return config_dir
+
+
+def _web_server_pid(project_dir: Path) -> int | None:
+    """The PID a detached ``osprey web`` recorded for *project_dir*, if any."""
+    from osprey.cli.web_cmd import PID_FILE
+
+    try:
+        return int((project_dir / PID_FILE).read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _reap_web_server(pid: int) -> None:
+    """Wait up to :data:`_WEB_STOP_GRACE_S` for *pid* to exit, then kill it."""
+    deadline = time.monotonic() + _WEB_STOP_GRACE_S
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            return  # not ours
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.2)
+    print(f"WARNING: web terminal PID {pid} survived `osprey web stop`; killing it")
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+@dataclass(frozen=True)
+class WebTerminal:
+    """A detached ``osprey web`` launched by :func:`web_terminal`."""
+
+    port: int
+    base_url: str
+    operator_secret: str
+    claude_config_dir: Path
+
+
+def _keep_session_record(config_dir: Path) -> None:
+    """Copy the session's transcripts under :data:`KEEP_ENV`, when it is set.
+
+    Reported, never raised: this runs in a teardown, and a failed copy must not
+    replace whatever ended the session.
+    """
+    keep_root = os.environ.get(KEEP_ENV)
+    transcripts = config_dir / "projects"
+    if not keep_root or not transcripts.is_dir():
+        return
+    dest = Path(keep_root) / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    try:
+        shutil.copytree(transcripts, dest / "projects")
+    except OSError as exc:
+        print(f"WARNING: could not keep the session transcripts in {dest}: {exc}")
+    else:
+        print(f"Kept the session transcripts in {dest}")
+
+
+@contextmanager
+def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
+    """Launch a detached ``osprey web`` for ``project_dir``; stop it on exit.
+
+    The server runs in a SEPARATE process whose credential holder is its own,
+    so a same-process session cookie cannot reach it. Instead a known operator
+    secret is pinned into the child's environment and exposed here: a browser
+    logs in with ``?token=<secret>`` (the child mints its own session and sets
+    the cookie every later request and the terminal websocket carry), and
+    scripted requests send it as ``X-Osprey-Terminal-Secret``.
+
+    Raises :class:`ScreenshotSkip` when the ``osprey`` CLI is missing or the
+    server never opens its port. Teardown is the repo-scoped
+    ``osprey web stop --repo``; a failed stop is reported, never raised.
+    """
+    # The page's scripts come from this checkout's vendored bundles, never a
+    # public CDN: no capture, screenshot or video, may depend on the network
+    # answering mid-run.
+    _ok, problems = verify_vendor_bundles()
+    if problems:
+        raise ScreenshotSkip(
+            f"{len(problems)} vendored front-end file(s) missing or corrupt "
+            f"(first: {problems[0]}); run `osprey vendor fetch` once"
+        )
     web_port = free_port()
-    # Unlike the standalone runner, this launches a SEPARATE process, whose
-    # credential holder is its own — a session minted here would not be one it
-    # recognises, so authorize_browser_context (a same-process cookie) cannot
-    # reach it. Instead pin a known operator secret into the child's environment
-    # and follow the real ``?token=`` login below: the child then mints its own
-    # session and sets the cookie the browser carries for every later request
-    # (including the terminal websocket).
     operator_secret = mint_secret()
-    child_env = {**os.environ, OPERATOR_SECRET_ENV: operator_secret}
+    config_dir = _isolated_claude_config(project_dir)
+    child_env = {
+        **os.environ,
+        OPERATOR_SECRET_ENV: operator_secret,
+        WEB_TOUR_ENV: "never",
+        "CLAUDE_CONFIG_DIR": str(config_dir),
+        "OSPREY_OFFLINE": "1",
+    }
     try:
         proc = subprocess.Popen(
             [
@@ -625,6 +843,7 @@ def _capture_agentic(
             env=child_env,
         )
     except FileNotFoundError as exc:
+        shutil.rmtree(config_dir, ignore_errors=True)
         raise ScreenshotSkip(f"osprey CLI unavailable to launch web terminal: {exc}") from exc
 
     try:
@@ -632,8 +851,49 @@ def _capture_agentic(
             wait_for_port(web_port, timeout=90.0)
         except RuntimeError as exc:
             raise ScreenshotSkip(f"web terminal did not become ready: {exc}") from exc
+        yield WebTerminal(
+            port=web_port,
+            base_url=f"http://127.0.0.1:{web_port}",
+            operator_secret=operator_secret,
+            claude_config_dir=config_dir,
+        )
+    finally:
+        server_pid = _web_server_pid(project_dir)
+        try:
+            # check=True: a silently-failed stop leaves a detached web terminal
+            # holding its port.
+            subprocess.run(
+                ["osprey", "web", "stop", "--repo", str(project_dir)],
+                capture_output=True,
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"WARNING: `osprey web stop` failed; a web terminal may still be running: {exc}")
+        if server_pid is not None:
+            _reap_web_server(server_pid)
+        _keep_session_record(config_dir)
+        shutil.rmtree(config_dir, ignore_errors=True)
+        try:
+            proc.terminate()
+        except (OSError, ValueError):
+            pass
 
-        base_url = f"http://127.0.0.1:{web_port}"
+
+def _capture_agentic(
+    browser: Browser, project_dir: Path, artifact_port: int, shot: DocShot
+) -> list[Path]:
+    """Drive the live web terminal to produce the agentic hero screenshot(s).
+
+    Launches a detached ``osprey web`` bound to a free port, then for each theme:
+    opens the UI with ``?theme=``, answers the PTY trust prompt, types the
+    operator prompt, waits (bounded) for a matching
+    artifact, reveals the artifacts panel, opens the plot, and screenshots the
+    viewport. Every launched process and page is torn down in ``finally``; the
+    web server is stopped with the repo-scoped ``osprey web stop --repo``.
+    """
+    with web_terminal(project_dir) as web:
+        base_url = web.base_url
+        operator_secret = web.operator_secret
         dest_dir = output_dir()
         dest_dir.mkdir(parents=True, exist_ok=True)
         n_themes = len(shot.themes)
@@ -667,12 +927,16 @@ def _capture_agentic(
                 # Baseline the artifacts already present (from earlier themes) so
                 # the wait below matches the plot *this* prompt produces, not a
                 # stale one carried over in the shared artifact store.
-                before = _artifact_ids(artifact_port)
+                before = artifact_ids(artifact_port, operator_secret)
                 page.keyboard.type(shot.prompt or "")
                 page.keyboard.press("Enter")
 
                 plot_id = _wait_for_artifact(
-                    artifact_port, shot.wait_for or "", timeout=240.0, exclude_ids=before
+                    artifact_port,
+                    shot.wait_for or "",
+                    timeout=240.0,
+                    exclude_ids=before,
+                    secret=operator_secret,
                 )
 
                 # Reveal the artifacts panel and select the plot by its id. The
@@ -697,25 +961,6 @@ def _capture_agentic(
                 page.close()
 
         return written
-    finally:
-        try:
-            # `--repo`, not the retired `--project`. check=True for the same
-            # reason as the stack teardown: a silently-failed stop leaves a
-            # detached web terminal running.
-            subprocess.run(
-                ["osprey", "web", "stop", "--repo", str(project_dir)],
-                capture_output=True,
-                check=True,
-            )
-        except (OSError, subprocess.CalledProcessError) as exc:
-            # Same rule as the stack teardown: reported, not raised, not
-            # swallowed. A stop that failed leaves a detached web terminal
-            # holding its port.
-            print(f"WARNING: `osprey web stop` failed; a web terminal may still be running: {exc}")
-        try:
-            proc.terminate()
-        except (OSError, ValueError):
-            pass
 
 
 def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocShot) -> list[Path]:
@@ -733,32 +978,9 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
     """
     from playwright.sync_api import expect
 
-    web_port = free_port()
-    operator_secret = mint_secret()
-    child_env = {**os.environ, OPERATOR_SECRET_ENV: operator_secret}
-    try:
-        proc = subprocess.Popen(
-            [
-                "osprey",
-                "web",
-                "--repo",
-                str(project_dir),
-                "--detach",
-                "--port",
-                str(web_port),
-            ],
-            env=child_env,
-        )
-    except FileNotFoundError as exc:
-        raise ScreenshotSkip(f"osprey CLI unavailable to launch web terminal: {exc}") from exc
-
-    try:
-        try:
-            wait_for_port(web_port, timeout=90.0)
-        except RuntimeError as exc:
-            raise ScreenshotSkip(f"web terminal did not become ready: {exc}") from exc
-
-        base_url = f"http://127.0.0.1:{web_port}"
+    with web_terminal(project_dir) as web:
+        base_url = web.base_url
+        operator_secret = web.operator_secret
         dest_dir = output_dir()
         dest_dir.mkdir(parents=True, exist_ok=True)
         n_themes = len(shot.themes)
@@ -808,21 +1030,6 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
             finally:
                 page.close()
         return written
-    finally:
-        try:
-            # Repo-scoped stop, mirroring _capture_agentic's teardown rule: a
-            # silently-failed stop leaves a detached web terminal running.
-            subprocess.run(
-                ["osprey", "web", "stop", "--repo", str(project_dir)],
-                capture_output=True,
-                check=True,
-            )
-        except (OSError, subprocess.CalledProcessError) as exc:
-            print(f"WARNING: `osprey web stop` failed; a web terminal may still be running: {exc}")
-        try:
-            proc.terminate()
-        except (OSError, ValueError):
-            pass
 
 
 def capture_tutorial_stack(
@@ -832,7 +1039,7 @@ def capture_tutorial_stack(
 
     ``browser_factory`` is a zero-argument callable returning a live browser to
     reuse for the capture. Builds and seeds the tutorial stack (via
-    :func:`_tutorial_stack`), then dispatches on ``shot.kind`` and
+    :func:`tutorial_stack`), then dispatches on ``shot.kind`` and
     ``shot.stack_app``: ``"static"`` boots the ARIEL app on a throwaway port
     and reuses :func:`capture_shot` — or, for ``stack_app="web_terminal"``,
     drives the live web terminal statically via
@@ -841,8 +1048,8 @@ def capture_tutorial_stack(
     Raises :class:`ScreenshotSkip` when the container runtime is unavailable
     so a ``--stack`` run degrades gracefully.
     """
-    artifact_port = free_port()
-    with _tutorial_stack(artifact_port=artifact_port) as project_dir:
+    with tutorial_stack() as project_dir:
+        artifact_port = rendered_artifact_port(project_dir)
         browser = browser_factory()
 
         if shot.kind == "agentic":
