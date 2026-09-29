@@ -1322,6 +1322,43 @@ class TestUnoverrideFrameworkRestore:
         disk_path = detached_project_dir / art.output_path
         assert disk_path.read_text(encoding="utf-8") == custom_text
 
+    def test_a_restore_that_fails_keeps_the_release_and_says_so(
+        self, detached_service, detached_project_dir
+    ):
+        """The release is already durable when the write-back fails, so it stands.
+
+        What the operator must not get is the plain "removed" of a clean
+        release: their text is still on disk, and the answer says so and why.
+        """
+        detached_service.scaffold_override(WRITABLE_ARTIFACT)
+        custom_text = "# Operator's version\n"
+        detached_service.save_override(WRITABLE_ARTIFACT, custom_text)
+        art = detached_service._registry.get(WRITABLE_ARTIFACT)
+        disk_path = detached_project_dir / art.output_path
+        disk_path.chmod(0o444)
+
+        outcome = ScaffoldGalleryService(detached_project_dir).unoverride(
+            WRITABLE_ARTIFACT, delete_file=True
+        )
+
+        assert outcome["status"] == "removed"
+        assert outcome["restored_file"] is False
+        assert art.output_path in outcome["message"]
+        assert "could not be restored" in outcome["message"]
+        assert disk_path.read_text(encoding="utf-8") == custom_text
+        assert WRITABLE_ARTIFACT not in _get_user_owned(detached_project_dir)
+
+    def test_a_clean_restore_carries_no_message(self, detached_service, detached_project_dir):
+        """Control for the failure case: a restore that worked has nothing to explain."""
+        detached_service.scaffold_override(WRITABLE_ARTIFACT)
+
+        outcome = ScaffoldGalleryService(detached_project_dir).unoverride(
+            WRITABLE_ARTIFACT, delete_file=True
+        )
+
+        assert outcome["restored_file"] is True
+        assert "message" not in outcome
+
 
 # ===========================================================================
 # Profile mode — the project names a profile this process can reach

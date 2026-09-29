@@ -969,6 +969,7 @@ class ScaffoldGalleryService:
 
         deleted = False
         restored = False
+        message: str | None = None
         if delete_file and is_custom:
             # Custom artifact (no framework template) — delete the file
             out = self.project_dir / self._canonical_to_path(name)
@@ -977,6 +978,9 @@ class ScaffoldGalleryService:
                 deleted = True
         elif delete_file and not is_custom:
             # Framework artifact — restore file to rendered template
+            # The release above is durable and stands whatever happens here;
+            # a failed write-back is reported, because the operator's text is
+            # still on disk and a bare "removed" would say it is not.
             art = self._registry.get(name)
             try:
                 content = self._render_framework(art)
@@ -984,10 +988,22 @@ class ScaffoldGalleryService:
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(content, encoding="utf-8")
                 restored = True
-            except Exception:
-                pass  # ownership already removed; stale file stays
+            except Exception as exc:
+                logger.warning("Released %s but could not restore it: %s", name, exc)
+                message = (
+                    f"Released '{name}', but the framework copy of {art.output_path} "
+                    f"could not be restored ({exc}). The file on disk is still your "
+                    "last saved version."
+                )
 
-        return {"status": "removed", "deleted_file": deleted, "restored_file": restored}
+        outcome: dict[str, Any] = {
+            "status": "removed",
+            "deleted_file": deleted,
+            "restored_file": restored,
+        }
+        if message is not None:
+            outcome["message"] = message
+        return outcome
 
     # ── Untracked file detection ─────────────────────────────────────
 
