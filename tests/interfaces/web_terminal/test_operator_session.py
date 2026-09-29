@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from claude_agent_sdk import (
     AssistantMessage,
+    ClaudeAgentOptions,
+    CLIConnectionError,
     ResultMessage,
     SystemMessage,
     TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
     UserMessage,
 )
 
@@ -1394,3 +1401,236 @@ class TestBuildCleanEnvProjectCwd:
 
         env2 = build_clean_env(project_cwd=None)
         assert "OSPREY_CONFIG" not in env2
+
+
+# ---------------------------------------------------------------------------
+# Parity pins: launch options, stream frames, child handling
+# ---------------------------------------------------------------------------
+
+_KEY = TestOperatorSessionResumeOptions.KEY
+_PRIMITIVES = "osprey.agent_runner.primitives."
+
+
+class _ScriptedClient:
+    """A client whose one response is *messages*, or *error* raised mid-turn."""
+
+    def __init__(self, messages=(), *, error: Exception | None = None) -> None:
+        self.messages = list(messages)
+        self.error = error
+        self.interrupt_calls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def query(self, _prompt):
+        return None
+
+    async def interrupt(self):
+        self.interrupt_calls += 1
+
+    async def receive_response(self):
+        for message in self.messages:
+            yield message
+        if self.error is not None:
+            raise self.error
+
+
+async def _drain(session: OperatorSession) -> list[dict]:
+    """Run the turn's reader to its end and return every frame it queued."""
+    assert session._response_task is not None
+    await asyncio.wait_for(session._response_task, timeout=2.0)
+    frames = []
+    while not session._queue.empty():
+        frames.append(session._queue.get_nowait())
+    return frames
+
+
+class TestOperatorChatLaunchParity:
+    """The options the chat launches with are the ones it always built by hand."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("shape", ["resume", "posture_key", "foreign_key"])
+    async def test_the_launch_options_equal_the_hand_built_ones(self, shape):
+        key = "e2e" if shape == "foreign_key" else _KEY
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=key)
+        captured: list = []
+
+        with _sdk_seam(_mock_client(), captured):
+            if shape == "resume":
+                await session.start(resume_id="transcript-9")
+            else:
+                await session.start()
+
+        (options,) = captured
+        if shape == "resume":
+            identity = {"resume": "transcript-9"}
+        else:
+            identity = {"session_id": _KEY if shape == "posture_key" else None}
+        assert options == ClaudeAgentOptions(
+            system_prompt=PRESET,
+            cwd="/tmp",
+            env=options.env,
+            setting_sources=["project"],
+            **identity,
+        )
+        assert options.env["PATH"] == "/usr/bin"
+        assert options.env["OSPREY_TELEMETRY_SESSION_ID"] == key
+        assert options.env["OSPREY_TELEMETRY_SESSION_START"]
+        assert options.env["OSPREY_WEB_UX"] == "simple"
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_the_launch_resolves_no_provider_and_waits_for_no_mcp_server(self):
+        def refuse(*_args, **_kwargs):
+            raise AssertionError("the chat launch must not route its own run")
+
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=_KEY)
+        with (
+            patch(_PRIMITIVES + "sdk_env", side_effect=refuse),
+            patch(_PRIMITIVES + "resolve_default_model", side_effect=refuse),
+            patch(_PRIMITIVES + "_resolve_project_spec", side_effect=refuse),
+            patch(_PRIMITIVES + "start_proxy", side_effect=refuse),
+            patch(_PRIMITIVES + "await_mcp_ready", side_effect=refuse),
+            _sdk_seam(_mock_client()),
+        ):
+            await session.start()
+
+        assert session.is_active
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_no_permission_callback_hook_or_bypass_reaches_the_child(self):
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=_KEY)
+        captured: list = []
+
+        with _sdk_seam(_mock_client(), captured):
+            await session.start()
+
+        (options,) = captured
+        assert options.can_use_tool is None
+        assert options.hooks is None
+        assert options.permission_mode is None
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_a_session_built_without_an_env_inherits_the_process_env(self):
+        session = OperatorSession(cwd="/tmp", session_key=_KEY)
+        captured: list = []
+
+        with (
+            patch(_PRIMITIVES + "sdk_env") as sdk_env,
+            _sdk_seam(_mock_client(), captured),
+        ):
+            await session.start()
+
+        (options,) = captured
+        assert options.env == {}
+        sdk_env.assert_not_called()
+        await session.stop()
+
+
+class TestOperatorChatStreamParity:
+    """A real agent stream reaches the queue as the frames the chat always sent."""
+
+    @pytest.mark.asyncio
+    async def test_a_real_agent_stream_reaches_the_queue_frame_for_frame(self):
+        tool = "mcp__osprey_workspace__channel_read"
+        client = _ScriptedClient(
+            [
+                assistant_message(
+                    [
+                        ThinkingBlock("pondering", "sig"),
+                        ToolUseBlock("tu_1", tool, {"channel": "SR:BPM"}),
+                        TextBlock("done"),
+                    ],
+                    error="rate_limit",
+                ),
+                user_message([ToolResultBlock("tu_1", "42.0", is_error=False)]),
+                system_message("init", {"session_id": "abc"}),
+                result_message(),
+            ]
+        )
+        async with _started_session(client) as session:
+            await session.send_prompt("read it")
+            frames = await _drain(session)
+
+        assert frames == [
+            {
+                "type": "error",
+                "message": "API error: rate_limit",
+                "error_type": "AssistantMessageError",
+            },
+            {"type": "thinking", "content": "pondering"},
+            {
+                "type": "tool_use",
+                "tool_name": "Channel Read",
+                "tool_name_raw": tool,
+                "tool_use_id": "tu_1",
+                "input": {"channel": "SR:BPM"},
+            },
+            {"type": "text", "content": "done"},
+            {"type": "system", "subtype": "init", "session_id": "abc"},
+            {
+                "type": "result",
+                "is_error": False,
+                "total_cost_usd": 0.01,
+                "duration_ms": 1200,
+                "num_turns": 1,
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_agent_sdk_failure_mid_turn_is_named_for_its_class(self):
+        client = _ScriptedClient(error=CLIConnectionError("gone"))
+        async with _started_session(client) as session:
+            await session.send_prompt("x")
+            frames = await _drain(session)
+
+        assert frames[-1] == {
+            "type": "error",
+            "message": "gone",
+            "error_type": "CLIConnectionError",
+        }
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_failure_mid_turn_keeps_its_prefix(self):
+        client = _ScriptedClient(error=ValueError("x"))
+        async with _started_session(client) as session:
+            await session.send_prompt("x")
+            frames = await _drain(session)
+
+        assert frames[-1]["type"] == "error"
+        assert frames[-1]["message"] == "Unexpected error: x"
+        assert frames[-1]["error_type"] == "ValueError"
+
+    @pytest.mark.asyncio
+    async def test_interrupt_after_stop_reaches_no_client(self):
+        client = FakeStreamClient()
+        async with _started_session(client) as session:
+            pass
+        calls = client.interrupt_calls
+
+        await session.interrupt()
+        await session.cancel()
+
+        assert client.interrupt_calls == calls
+
+
+def test_the_operator_session_module_imports_nothing_from_the_agent_sdk():
+    """The chat reaches the agent SDK only through the agent runner."""
+    root = Path(__file__).resolve().parents[3] / "src" / "osprey" / "interfaces" / "web_terminal"
+    for path in (root / "operator_session.py", root / "routes" / "chat.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                names = []
+            assert not any(name.split(".")[0] == "claude_agent_sdk" for name in names), path
+            if isinstance(node, ast.Attribute):
+                assert node.attr != "_transport", path

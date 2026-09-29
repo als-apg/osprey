@@ -26,7 +26,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from claude_agent_sdk import TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock
+from claude_agent_sdk import (
+    CLIConnectionError,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -455,6 +461,20 @@ class TestChatStreamRoute:
         resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
         assert resp.status_code == 503
 
+    async def test_a_failed_submit_names_the_agent_sdk_error_on_the_wire(self):
+        with _seam(_clean_responder(), query_error=CLIConnectionError("closed")):
+            registry = OperatorRegistry()
+            req = _req(registry)
+
+            resp = await chat_module.chat(req, chat_module.ChatRequest(prompt="p", chat_id="c"))
+            frames = await _collect_sse(resp)
+
+            errors = [f for f in frames if f.get("type") == "error"]
+            assert errors
+            assert errors[-1]["error_type"] == "CLIConnectionError"
+            assert errors[-1]["message"] == "closed"
+            await registry.cleanup_all()
+
 
 class TestChatBufferedRoute:
     """Buffered branch (`stream=false`): reduced payload + guard discipline."""
@@ -694,9 +714,12 @@ class _ScriptedSdkClient:
     ``interrupted`` / ``reached_hold`` events let a test sequence a turn precisely.
     """
 
-    def __init__(self, responder, *, aenter_delay: float = 0.0) -> None:
+    def __init__(
+        self, responder, *, aenter_delay: float = 0.0, query_error: Exception | None = None
+    ) -> None:
         self.responder = responder
         self.aenter_delay = aenter_delay
+        self.query_error = query_error
         self.prompts: list[str] = []
         self.query_calls = 0
         self.interrupt_calls = 0
@@ -718,6 +741,8 @@ class _ScriptedSdkClient:
 
     async def query(self, prompt: str) -> None:
         self.query_calls += 1
+        if self.query_error is not None:
+            raise self.query_error
         self.prompts.append(prompt)
         self._prompt = prompt
         # Reset (never replace) the per-turn events so a test that captured a
@@ -797,7 +822,7 @@ def _partial_then_hold_responder(text: str = "partial"):
 
 
 @contextlib.contextmanager
-def _seam(responder, *, aenter_delay: float = 0.0):
+def _seam(responder, *, aenter_delay: float = 0.0, query_error: Exception | None = None):
     """Patch the runner's SDK client; yield a client factory with ``.created``.
 
     Every ``OperatorSession.start()`` builds a ``_ScriptedSdkClient(responder)`` via
@@ -808,7 +833,7 @@ def _seam(responder, *, aenter_delay: float = 0.0):
 
     # ``ClaudeSDKClient``'s constructor, which the session calls with ``options`` by name.
     def factory(options=None):  # noqa: ARG001
-        client = _ScriptedSdkClient(responder, aenter_delay=aenter_delay)
+        client = _ScriptedSdkClient(responder, aenter_delay=aenter_delay, query_error=query_error)
         created.append(client)
         return client
 
