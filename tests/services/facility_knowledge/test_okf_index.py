@@ -19,6 +19,7 @@ from osprey.services.facility_knowledge.okf.index import (
     OKFIndexError,
     _synthesize_description,
     regenerate_indexes,
+    render_indexes,
     validate_index,
 )
 
@@ -318,6 +319,64 @@ class TestEmptiedDirectory:
         regenerate_indexes(root)
 
         assert {p: p.read_bytes() for p in root.rglob("*.md")} == before
+
+
+# ---------------------------------------------------------------------------
+# render_indexes
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(root: Path) -> dict[Path, bytes]:
+    return {p: p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+class TestRenderIndexes:
+    """render_indexes computes what regenerate_indexes writes, without touching the disk."""
+
+    def _mixed_bundle(self, tmp_path: Path) -> Path:
+        """A live page, index-only directories with stale indexes, a blank placeholder."""
+        root = TestEmptiedDirectory()._emptied_bundle(tmp_path)
+        (root / "skeleton").mkdir()
+        (root / "skeleton" / "index.md").write_text("", encoding="utf-8")
+        return root
+
+    def test_render_writes_nothing(self, tmp_path: Path) -> None:
+        root = self._mixed_bundle(tmp_path)
+        before = _snapshot(root)
+
+        render_indexes(root)
+
+        assert _snapshot(root) == before
+        assert (root / "demo" / "index.md").is_file()
+
+    def test_render_is_what_regenerate_writes(self, tmp_path: Path) -> None:
+        root = self._mixed_bundle(tmp_path)
+
+        rendered = render_indexes(root)
+        written = regenerate_indexes(root)
+
+        assert list(rendered.texts) == written
+        for path in written:
+            assert path.read_text(encoding="utf-8") == rendered.texts[path]
+        assert rendered.stale
+        for path in rendered.stale:
+            assert not path.exists()
+
+    def test_nested_stale_indexes_are_all_listed(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "top.md", type_="Device", title="Top")
+        _write(tmp_path / "a" / "b" / "index.md", "# Device\n\n* [Gone](/a/b/gone.md)\n")
+        _write(tmp_path / "a" / "index.md", "# Subdirectories\n\n* [b](/a/b/)\n")
+
+        rendered = render_indexes(tmp_path)
+
+        assert rendered.stale == (tmp_path / "a" / "b" / "index.md", tmp_path / "a" / "index.md")
+        assert "(/a/)" not in rendered.texts[tmp_path / "index.md"]
+
+    def test_nonexistent_root_renders_nothing(self, tmp_path: Path) -> None:
+        rendered = render_indexes(tmp_path / "missing")
+
+        assert rendered.texts == {}
+        assert rendered.stale == ()
 
 
 # ---------------------------------------------------------------------------

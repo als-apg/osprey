@@ -1,4 +1,4 @@
-"""OKF index regenerator: writes one index.md per non-empty directory in a bundle.
+"""OKF index producer: renders, writes and checks one index.md per non-empty directory.
 
 Index files follow OKF §6: a flat Markdown document with section headings that
 group concepts by type.  No YAML frontmatter is written — except in the
@@ -12,6 +12,7 @@ with a description).  No network or model call is made.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 from .document import OKFDocument
@@ -103,26 +104,24 @@ def _directories_to_index(bundle_root: Path) -> list[Path]:
     return sorted(dirs)
 
 
-def _holds_pages(directory: Path) -> bool:
-    """Return whether *directory* holds any ``.md`` file at any depth."""
-    return next(directory.rglob("*.md"), None) is not None
+def _holds_pages(directory: Path, dropped: set[Path]) -> bool:
+    """Return whether *directory* holds any ``.md`` file at any depth not in *dropped*."""
+    return any(md not in dropped for md in directory.rglob("*.md"))
 
 
-def _drop_stale_index(directory: Path) -> None:
-    """Delete a non-blank ``index.md`` that is the only ``.md`` left in *directory*.
+def _is_stale_index(directory: Path, dropped: set[Path]) -> bool:
+    """Return whether *directory*'s non-blank ``index.md`` is the only live ``.md`` in it.
 
     Such an index lists pages that no longer exist. A blank ``index.md`` lists
-    nothing and is kept: it is the placeholder that holds a skeleton directory
-    in place until the facility adds its own pages. Child directories are
-    processed first, so a child that held only a stale index has already lost
-    it and no longer counts as content here.
+    nothing and is not stale: it is the placeholder that holds a skeleton
+    directory in place until the facility adds its own pages. Child directories
+    are processed first, so a child that held only a stale index already has it
+    in *dropped* and no longer counts as content here.
     """
     index_path = directory / _INDEX_FILE
     if not index_path.is_file() or not index_path.read_text(encoding="utf-8").strip():
-        return
-    if any(md != index_path for md in directory.rglob("*.md")):
-        return
-    index_path.unlink()
+        return False
+    return all(md == index_path or md in dropped for md in directory.rglob("*.md"))
 
 
 # ---------------------------------------------------------------------------
@@ -130,34 +129,49 @@ def _drop_stale_index(directory: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def regenerate_indexes(bundle_root: Path) -> list[Path]:
-    """Write one ``index.md`` per non-empty directory in *bundle_root*.
+@dataclass(frozen=True)
+class RenderedIndexes:
+    """Every index a bundle should hold, computed without touching the disk.
+
+    Attributes:
+        texts: Each ``index.md`` path mapped to its full file text, in
+            processing order (deepest first).
+        stale: The non-blank ``index.md`` files whose directory no longer holds
+            any page; the regenerator deletes them.
+    """
+
+    texts: dict[Path, str]
+    stale: tuple[Path, ...]
+
+
+def render_indexes(bundle_root: Path) -> RenderedIndexes:
+    """Compute one ``index.md`` per non-empty directory in *bundle_root*.
 
     Directories are processed deepest-first so that child-directory
-    descriptions are available when the parent index is written.
+    descriptions are available when the parent index is rendered.
 
     A directory whose only ``.md`` file is its own non-blank ``index.md`` has
-    that stale index deleted (a blank placeholder index is kept), and a parent
-    never lists a child directory that holds no ``.md`` file, so an emptied
-    directory advertises no removed page.
+    that stale index listed in ``stale`` (a blank placeholder index is neither
+    rendered nor stale), and a parent never lists a child directory that holds
+    no live ``.md`` file, so an emptied directory advertises no removed page.
 
     The bundle-root ``index.md`` includes an ``okf_version`` frontmatter block
     (OKF §11).  All other ``index.md`` files have no frontmatter (OKF §6).
 
     No network or model calls are made.  Sub-directory descriptions are
-    synthesised deterministically from child titles.
+    synthesised deterministically from child titles.  Nothing is written.
 
     Args:
         bundle_root: Path to the root directory of an OKF bundle.
 
     Returns:
-        List of ``index.md`` paths written (in processing order,
-        deepest first).
+        The rendered index texts and the stale indexes.
     """
     bundle_root = Path(bundle_root)
-    written: list[Path] = []
+    texts: dict[Path, str] = {}
+    stale: list[Path] = []
     if not bundle_root.exists():
-        return written
+        return RenderedIndexes(texts=texts, stale=())
 
     # Process deepest directories first so child descriptions bubble up.
     directories = sorted(
@@ -166,6 +180,7 @@ def regenerate_indexes(bundle_root: Path) -> list[Path]:
     )
 
     dir_descriptions: dict[Path, str] = {}
+    dropped: set[Path] = set()
 
     for directory in directories:
         entries: list[tuple[str, str, str, str]] = []
@@ -183,18 +198,19 @@ def regenerate_indexes(bundle_root: Path) -> list[Path]:
                 desc = str(fm.get("description") or "")
                 typ = str(fm.get("type") or "")
                 entries.append((typ, title, f"/{rel}", desc))
-            elif child.is_dir() and _holds_pages(child):
+            elif child.is_dir() and _holds_pages(child, dropped):
                 desc = dir_descriptions.get(child, "")
                 entries.append(("Subdirectories", child.name, f"/{rel}/", desc))
 
         if not entries:
-            _drop_stale_index(directory)
+            if _is_stale_index(directory, dropped):
+                index_path = directory / _INDEX_FILE
+                dropped.add(index_path)
+                stale.append(index_path)
             continue
 
         is_root = directory == bundle_root
-        index_path = directory / _INDEX_FILE
-        index_path.write_text(_build_index_text(entries, root_index=is_root), encoding="utf-8")
-        written.append(index_path)
+        texts[directory / _INDEX_FILE] = _build_index_text(entries, root_index=is_root)
 
         if is_root:
             continue
@@ -203,7 +219,27 @@ def regenerate_indexes(bundle_root: Path) -> list[Path]:
         child_pairs = [(title, desc) for _, title, _, desc in entries]
         dir_descriptions[directory] = _synthesize_description(child_pairs)
 
-    return written
+    return RenderedIndexes(texts=texts, stale=tuple(stale))
+
+
+def regenerate_indexes(bundle_root: Path) -> list[Path]:
+    """Write what :func:`render_indexes` computes for *bundle_root*.
+
+    Every rendered ``index.md`` is written, then every stale index is deleted.
+
+    Args:
+        bundle_root: Path to the root directory of an OKF bundle.
+
+    Returns:
+        List of ``index.md`` paths written (in processing order,
+        deepest first).
+    """
+    rendered = render_indexes(Path(bundle_root))
+    for path, text in rendered.texts.items():
+        path.write_text(text, encoding="utf-8")
+    for path in rendered.stale:
+        path.unlink()
+    return list(rendered.texts)
 
 
 # ---------------------------------------------------------------------------
