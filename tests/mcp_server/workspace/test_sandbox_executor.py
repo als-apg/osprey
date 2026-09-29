@@ -2,9 +2,10 @@
 
 import json
 import textwrap
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -16,6 +17,18 @@ from osprey.mcp_server.workspace.execution.sandbox_executor import (
     validate_sandbox_code,
 )
 from osprey.stores.artifact_manifest import collect_artifacts
+
+
+def _zone_away_from_host() -> ZoneInfo:
+    """Return a zone whose wall-clock differs from the host clock by hours.
+
+    The folder stamp must be shown to follow the facility zone and not the host clock, so the
+    two must differ by more than the test tolerance on any host (the closest real host offset
+    to +14 h is +13:45, fifteen minutes away).
+    """
+    if datetime.now().astimezone().utcoffset() == timedelta(hours=14):
+        return ZoneInfo("Etc/GMT+12")
+    return ZoneInfo("Etc/GMT-14")
 
 
 # ---------------------------------------------------------------------------
@@ -589,6 +602,23 @@ class TestCreateExecutionFolder:
         assert "sandbox_executions" in str(folder)
         # No figures/ subdirectory should be created
         assert not (folder / "figures").exists()
+
+    def test_folder_name_is_stamped_in_the_facility_zone(self, tmp_path, monkeypatch):
+        """The folder name carries the start time in the facility zone, not the host clock."""
+        ws = tmp_path / "_agent_data"
+        ws.mkdir()
+        zone = _zone_away_from_host()
+        monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+
+        with patch(
+            "osprey.utils.workspace.resolve_workspace_root",
+            return_value=ws,
+        ):
+            folder = create_sandbox_execution_folder()
+
+        stamp = datetime.strptime(folder.name[:15], "%Y%m%d_%H%M%S")
+        expected = datetime.now(zone).replace(tzinfo=None)
+        assert abs((stamp - expected).total_seconds()) < 120
 
 
 class TestSandboxExecutionResult:
