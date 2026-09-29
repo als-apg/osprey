@@ -1074,12 +1074,8 @@ async def test_a_cron_fire_reaches_the_agent_in_the_facility_zone(monkeypatch):
 
     monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
 
-    real_sleep = asyncio.sleep
-
     async def instant_interval(_seconds):
-        await real_sleep(0)
-
-    monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", instant_interval)
+        await asyncio.sleep(0)
 
     reg = TriggerRegistry()
     trig = TriggerConfig(
@@ -1097,7 +1093,7 @@ async def test_a_cron_fire_reaches_the_agent_in_the_facility_zone(monkeypatch):
             fired.set()
         return "d-1"
 
-    source = CronSource()
+    source = CronSource(sleep=instant_interval)
     await source.start([trig], callback)
     try:
         await asyncio.wait_for(fired.wait(), timeout=5)

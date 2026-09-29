@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING, ClassVar
 
@@ -50,15 +50,22 @@ class CronSource:
         now: Wall clock returning an aware UTC instant.
         zone: Zone a clock schedule is read in. ``None`` resolves the facility
             zone (``system.timezone``) when the source starts.
+        sleep: Coroutine the loops wait with, given seconds. A test drives the
+            wall clock through it.
     """
 
     source_type: ClassVar[str] = "cron"
 
     def __init__(
-        self, *, now: Callable[[], datetime] | None = None, zone: tzinfo | None = None
+        self,
+        *,
+        now: Callable[[], datetime] | None = None,
+        zone: tzinfo | None = None,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self._tasks: list[asyncio.Task] = []
         self._now: Callable[[], datetime] = now or _utc_now
+        self._sleep: Callable[[float], Awaitable[None]] = sleep or asyncio.sleep
         self._zone = zone
 
     def register_routes(self, mcp_app: FastMCP) -> None:  # noqa: ARG002 - trigger-source lifecycle signature; a source with no routes registers nothing
@@ -126,7 +133,7 @@ class CronSource:
     ) -> None:
         """Sleep for the interval, fire the trigger, repeat until cancelled."""
         while True:
-            await asyncio.sleep(interval_sec)
+            await self._sleep(interval_sec)
             await self._fire(trigger, fire_callback)
 
     async def _run_clock_loop(
@@ -141,7 +148,7 @@ class CronSource:
         while True:
             while (now := self._now()) < target:
                 remaining = (target - now).total_seconds()
-                await asyncio.sleep(min(remaining, _MAX_CLOCK_SLEEP_SEC))
+                await self._sleep(min(remaining, _MAX_CLOCK_SLEEP_SEC))
             late = (now - target).total_seconds()
             if late > _LATE_FIRE_GRACE_SEC:
                 logger.warning(

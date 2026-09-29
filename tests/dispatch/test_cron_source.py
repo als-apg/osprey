@@ -37,21 +37,20 @@ class _RecordingCallback:
 
 
 @pytest.mark.asyncio
-async def test_loop_fires_at_interval_then_stops(monkeypatch):
+async def test_loop_fires_at_interval_then_stops():
     """The loop fires the trigger each interval and stops cleanly when cancelled.
 
     Deterministic and pollution-proof: the interval wait is replaced with an
-    immediate yield (loop body runs without real time), the test waits on an
-    ``Event`` for the first fire — never racing the spawned task — then
-    ``stop()`` cancels the loop. Earlier this test stopped the loop by counting
-    ``asyncio.sleep`` calls and raising ``CancelledError`` on the second; because
-    the patch lands on the *global* ``asyncio.sleep`` and the counter is shared,
-    any other coroutine's ``sleep`` in the same loop could push the count so the
-    loop's *first* sleep raised before the callback ever fired — an intermittent
-    ``0 == 1`` under full-suite load. Termination now keys off the callback, not
-    the sleep count, so a stray ``sleep`` can no longer skew it.
+    immediate yield through the source's own ``sleep`` seam, so no other
+    coroutine's sleep reaches it; the test waits on an ``Event`` for the first
+    fire, never racing the spawned task, and termination keys off the callback
+    before ``stop()`` cancels the loop.
     """
-    source = CronSource()
+
+    async def instant_interval(_seconds):
+        await asyncio.sleep(0)
+
+    source = CronSource(sleep=instant_interval)
     trigger = _make_trigger("nightly", interval_sec=300)
 
     calls: list[tuple[TriggerConfig, dict]] = []
@@ -61,15 +60,6 @@ async def test_loop_fires_at_interval_then_stops(monkeypatch):
         calls.append((trig, payload))
         fired.set()
         return "d-1"
-
-    # Capture the genuine sleep before patching so the no-op interval still
-    # yields control to the event loop (without any real delay).
-    real_sleep = asyncio.sleep
-
-    async def instant_interval(_seconds):
-        await real_sleep(0)
-
-    monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", instant_interval)
 
     await source.start([trigger], callback)
     await asyncio.wait_for(fired.wait(), timeout=5)
@@ -86,7 +76,7 @@ async def test_loop_fires_at_interval_then_stops(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_first_fire_waits_one_full_interval(monkeypatch):
+async def test_the_first_fire_waits_one_full_interval():
     """An interval trigger waits one whole interval before its first fire.
 
     This is the behaviour the event-dispatch how-to documents: nothing fires at
@@ -94,7 +84,6 @@ async def test_the_first_fire_waits_one_full_interval(monkeypatch):
     wait is recorded, not slept, and only the order of the first two events is
     asserted, so another coroutine's ``sleep`` in the same loop cannot skew it.
     """
-    source = CronSource()
     order: list[tuple[str, object]] = []
     fired = asyncio.Event()
 
@@ -103,13 +92,11 @@ async def test_the_first_fire_waits_one_full_interval(monkeypatch):
         fired.set()
         return "d-1"
 
-    real_sleep = asyncio.sleep
-
     async def recorded_wait(seconds):
         order.append(("wait", seconds))
-        await real_sleep(0)
+        await asyncio.sleep(0)
 
-    monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", recorded_wait)
+    source = CronSource(sleep=recorded_wait)
 
     await source.start([_make_trigger("daily", interval_sec=86400)], callback)
     await asyncio.wait_for(fired.wait(), timeout=5)
@@ -201,7 +188,7 @@ def _clock_trigger(name: str, source_config: dict) -> TriggerConfig:
 
 
 class _FakeClock:
-    """A wall clock that ``asyncio.sleep`` advances by the requested seconds.
+    """A wall clock that its own ``sleep`` advances by the requested seconds.
 
     ``extra`` maps a step index to seconds added on that step only, standing in
     for a host that was suspended while the loop slept.
@@ -215,19 +202,13 @@ class _FakeClock:
     def now(self) -> datetime:
         return self.current
 
-    def install(self, monkeypatch) -> None:
-        real_sleep = asyncio.sleep
-
-        async def fake_sleep(seconds):
-            self.current += timedelta(seconds=seconds + self.extra.get(self.steps, 0.0))
-            self.steps += 1
-            await real_sleep(0)
-
-        monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", fake_sleep)
+    async def sleep(self, seconds: float) -> None:
+        self.current += timedelta(seconds=seconds + self.extra.get(self.steps, 0.0))
+        self.steps += 1
+        await asyncio.sleep(0)
 
 
 async def _collect_fires(
-    monkeypatch,
     clock: _FakeClock,
     trigger: TriggerConfig,
     zone,
@@ -246,8 +227,7 @@ async def _collect_fires(
             raise fail_first_with
         return "d-1"
 
-    clock.install(monkeypatch)
-    source = CronSource(now=clock.now, zone=zone)
+    source = CronSource(now=clock.now, zone=zone, sleep=clock.sleep)
     await source.start([trigger], callback)
     try:
         await asyncio.wait_for(done.wait(), timeout=30)
@@ -257,13 +237,13 @@ async def _collect_fires(
 
 
 @pytest.mark.asyncio
-async def test_a_clock_trigger_fires_on_the_listed_weekdays(monkeypatch):
+async def test_a_clock_trigger_fires_on_the_listed_weekdays():
     trigger = _clock_trigger(
         "weekday-report", {"at": ["07:45"], "days": ["mon", "tue", "wed", "thu", "fri"]}
     )
     clock = _FakeClock(datetime(2026, 9, 25, 15, 0, tzinfo=_LA))
 
-    fires = await _collect_fires(monkeypatch, clock, trigger, _LA, 2)
+    fires = await _collect_fires(clock, trigger, _LA, 2)
 
     assert fires[:2] == [
         datetime(2026, 9, 28, 7, 45, tzinfo=_LA),
@@ -292,11 +272,11 @@ async def test_a_clock_trigger_fires_on_the_listed_weekdays(monkeypatch):
     ],
 )
 async def test_a_time_skipped_by_spring_forward_fires_at_the_first_valid_minute(
-    monkeypatch, zone, start, first, second
+    zone, start, first, second
 ):
     trigger = _clock_trigger("night", {"at": ["02:30"]})
 
-    fires = await _collect_fires(monkeypatch, _FakeClock(start), trigger, zone, 2)
+    fires = await _collect_fires(_FakeClock(start), trigger, zone, 2)
 
     assert fires[:2] == [first, second]
 
@@ -326,25 +306,25 @@ async def test_a_time_skipped_by_spring_forward_fires_at_the_first_valid_minute(
     ],
 )
 async def test_a_time_repeated_by_fall_back_fires_once_at_its_first_occurrence(
-    monkeypatch, zone, at, start, first, second, repeat
+    zone, at, start, first, second, repeat
 ):
     trigger = _clock_trigger("night", {"at": [at]})
 
-    fires = await _collect_fires(monkeypatch, _FakeClock(start), trigger, zone, 2)
+    fires = await _collect_fires(_FakeClock(start), trigger, zone, 2)
 
     assert fires[:2] == [first, second]
     assert repeat not in fires
 
 
 @pytest.mark.asyncio
-async def test_a_slot_the_dispatcher_wakes_late_for_is_skipped_not_made_up(monkeypatch, caplog):
+async def test_a_slot_the_dispatcher_wakes_late_for_is_skipped_not_made_up(caplog):
     trigger = _clock_trigger("morning", {"at": ["07:45"]})
     # Start at 07:40 local: the fifth 60 s step is where the slot falls, and the
     # host sleeps an extra hour on the first step.
     clock = _FakeClock(datetime(2026, 9, 28, 7, 40, tzinfo=_LA), extra={0: 3600.0})
 
     with caplog.at_level(logging.WARNING, logger="osprey.dispatch.sources.cron"):
-        fires = await _collect_fires(monkeypatch, clock, trigger, _LA, 1)
+        fires = await _collect_fires(clock, trigger, _LA, 1)
 
     assert fires == [datetime(2026, 9, 29, 7, 45, tzinfo=_LA)]
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
@@ -371,16 +351,12 @@ async def test_start_logs_the_zone_the_slot_before_start_and_the_next_fire(caplo
 
 
 @pytest.mark.asyncio
-async def test_a_clock_tick_on_a_full_queue_is_dropped_and_the_next_slot_still_fires(
-    monkeypatch, caplog
-):
+async def test_a_clock_tick_on_a_full_queue_is_dropped_and_the_next_slot_still_fires(caplog):
     trigger = _clock_trigger("morning", {"at": ["07:45"]})
     clock = _FakeClock(datetime(2026, 9, 28, 7, 0, tzinfo=_LA))
 
     with caplog.at_level(logging.WARNING, logger="osprey.dispatch.sources.cron"):
-        fires = await _collect_fires(
-            monkeypatch, clock, trigger, _LA, 2, fail_first_with=QueueFullError("full")
-        )
+        fires = await _collect_fires(clock, trigger, _LA, 2, fail_first_with=QueueFullError("full"))
 
     assert fires[:2] == [
         datetime(2026, 9, 28, 7, 45, tzinfo=_LA),
