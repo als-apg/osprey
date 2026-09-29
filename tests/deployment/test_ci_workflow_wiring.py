@@ -97,6 +97,9 @@ TWO_SHAPE_PROVIDER_STEP = "Step 0 — assert the compose provider is podman-comp
 #: it needs no container runtime, only a renderer and a YAML parser.
 PARSE_ONLY_JOB = "static-checks"
 PARSE_ONLY_STEP = "Parse the merged podman topology (podman-compose config, no containers)"
+#: Re-proves the recorded CLI tool inventories against the real pinned builds.
+INVENTORY_JOB = "static-checks"
+INVENTORY_STEP = "Check the recorded CLI tool inventories against the pinned builds"
 PODMAN_COMPOSE_PIN = "podman-compose==1.0.6"
 #: The containers.conf key that forces podman's choice of external provider.
 COMPOSE_PROVIDER_FORCE_KEY = "compose_providers"
@@ -8079,3 +8082,34 @@ def test_ci_check_blocks_on_a_broken_documentation_link__mutation_drops_the_reco
     )
     assert mutated != source, f"no linkcheck failure record in {CI_CHECK_SCRIPT}; mutation is stale"
     assert _linkcheck_verdict_missing(mutated) == ["a recorded failure"]
+
+
+# ---------------------------------------------------------------------------
+# CLI tool inventory check runs on every push
+# ---------------------------------------------------------------------------
+
+
+def test_cli_tool_inventory_check_runs_on_every_push(workflow: dict[str, Any]) -> None:
+    """The recorded inventories are re-proved against the real builds on every
+    run; a job-level ``if:`` would let a stale inventory pass unseen."""
+    step = _find_named_step(workflow, INVENTORY_JOB, INVENTORY_STEP)
+    assert "scripts/cli_tool_inventory.py --check" in step.get("run", ""), (
+        f"'{INVENTORY_STEP}' must run the inventory check"
+    )
+    assert "if" not in _jobs(workflow)[INVENTORY_JOB], f"'{INVENTORY_JOB}' must carry no `if:`"
+
+
+def test_cli_tool_inventory_check_runs_on_every_push__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[INVENTORY_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != INVENTORY_STEP]
+    with pytest.raises(AssertionError):
+        test_cli_tool_inventory_check_runs_on_every_push(mutated)
+
+
+def test_cli_tool_inventory_check_runs_on_every_push__mutation_writes_instead() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, INVENTORY_JOB, INVENTORY_STEP)
+    step["run"] = step["run"].replace("--check", "--write")
+    with pytest.raises(AssertionError):
+        test_cli_tool_inventory_check_runs_on_every_push(mutated)

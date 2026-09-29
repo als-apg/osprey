@@ -877,6 +877,17 @@ jobs:
       timeout-minutes: 15
       run: uv run pytest tests/integration/test_preset_static.py -v --tb=short
 
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: '22'
+
+    # The unit test checks the deny lists against the recorded inventories;
+    # this step proves every recorded name against the real binaries.
+    - name: Check the recorded CLI tool inventories against the pinned builds
+      timeout-minutes: 5
+      run: uv run python scripts/cli_tool_inventory.py --check
+
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # Identical pin to the two-shape-boot-e2e lane below, for the identical
       # reason: `podman compose` delegates to whichever provider it finds, and
