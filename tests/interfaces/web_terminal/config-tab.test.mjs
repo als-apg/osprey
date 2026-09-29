@@ -265,6 +265,8 @@ describe('boot wiring: initPanelManager applies the gate', () => {
 describe('command palette guards on the tab being gone', () => {
   /** Captures what `initCommandPalette`'s entry points hand `openPalette`. */
   const opens = /** @type {any[]} */ ([]);
+  /** The dock's reset verb, as the palette must reach it. */
+  const resetDockLayout = vi.fn();
 
   // palette-boot.js is pure wiring: every collaborator it imports is stubbed
   // at the module boundary, so what this suite reads is exactly the dep bundle
@@ -304,6 +306,7 @@ describe('command palette guards on the tab being gone', () => {
     'sessions.js': () => ({ startNewSession: () => {} }),
     'rail-position.js': () => ({ setRailPosition: () => {} }),
     'feedback-modal.js': () => ({ isFeedbackModalOpen: () => false }),
+    'dock-workspace.js': () => ({ resetDockLayout }),
   };
 
   afterEach(() => {
@@ -343,6 +346,13 @@ describe('command palette guards on the tab being gone', () => {
 
     expect(deps.actions.map((/** @type {any} */ a) => a.label)).toContain('Open Settings');
     expect(typeof deps.revealSetting).toBe('function');
+  });
+
+  test('the Reset layout row is bound to the dock\'s resetDockLayout', async () => {
+    const deps = await openThroughTrigger();
+
+    deps.resetLayout();
+    expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
   test('with the tab gone: no Open Settings row, no revealSetting dep, no throw', async () => {

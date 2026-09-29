@@ -285,6 +285,26 @@ describe('buildRegistry', () => {
     expect(applied).toEqual(['Focus Mode']);
   });
 
+  it('LAYOUTS: a Reset layout row restores the default arrangement, and needs its verb', () => {
+    /** @type {string[]} */
+    const reset = [];
+    const items = buildRegistry({
+      getPresets: () => [{ name: 'Focus Mode', panels: ['ariel'] }],
+      applyPreset: () => {},
+      resetLayout: () => reset.push('reset'),
+    });
+
+    const layouts = inGroup(items, 'Layouts');
+    expect(layouts.map((it) => it.label)).toEqual(['Layout: Focus Mode', 'Reset layout']);
+    layouts[1].run();
+    expect(reset).toEqual(['reset']);
+    expect(layouts[1].searchText).toContain('default');
+
+    // A host with no dock to reset withholds the verb, and the row goes with it.
+    const without = buildRegistry({ getPresets: () => [], applyPreset: () => {} });
+    expect(inGroup(without, 'Layouts')).toEqual([]);
+  });
+
   it('ACTIONS: injected actions preserved in order with run wired through', () => {
     /** @type {string[]} */
     const fired = [];

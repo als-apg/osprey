@@ -65,6 +65,7 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  *   popoutPanel?: (id: string) => void,
  *   openPanelBeside?: (id: string) => void,
  *   applyPreset?: (name: string) => void,
+ *   resetLayout?: () => void,
  *   revealSetting?: (dotKey: string) => void,
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
  * }} OpenDeps
@@ -231,6 +232,7 @@ function rebuildRegistry() {
     popoutPanel: currentDeps.popoutPanel,
     openPanelBeside: currentDeps.openPanelBeside,
     applyPreset: currentDeps.applyPreset,
+    resetLayout: currentDeps.resetLayout,
     revealSetting: currentDeps.revealSetting,
     actions: currentDeps.actions,
   });
