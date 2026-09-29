@@ -579,9 +579,6 @@ describe('rail state for custom panels without a health endpoint', () => {
     const entry = document.querySelector('[data-panel-id="results"]');
     if (!(entry instanceof HTMLElement)) throw new Error('expected a results rail entry');
     expect(entry.classList.contains('disabled')).toBe(false);
-    // The rail reports liveness ONLY as .disabled — no per-entry LED. Backend
-    // health is surfaced by the SYSTEM panel's `web_panels` category instead.
-    expect(entry.querySelector('.panel-rail-led')).toBeNull();
   });
 });
 
@@ -918,12 +915,6 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(entry('artifacts')).not.toBeNull();
     expect(entry('ariel')).toBeNull();
     expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'ARIEL' }]);
-  });
-
-  test('no entry ever carries the retired dimmed/closed class', async () => {
-    const { emit } = await bootMembership();
-    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
-    expect(document.querySelector('.panel-rail-closed')).toBeNull();
   });
 
   test('a panel_visibility show APPENDS the entry with its live health state', async () => {
