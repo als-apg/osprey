@@ -1,0 +1,1424 @@
+- id: BR/BPM
+  description: 'Booster BPMs: Measure beam position during acceleration. 8 BPMs for orbit measurement.'
+  names:
+  - beam position monitor
+  members:
+  - BR/BPM01
+  - BR/BPM02
+  - BR/BPM03
+  - BR/BPM04
+  - BR/BPM05
+  - BR/BPM06
+  - BR/BPM07
+  - BR/BPM08
+  signals:
+    POSITION: Beam position during booster cycle (millimeters).
+    POSITION/X: 'Horizontal Position (read-only): Beam X position.'
+    POSITION/Y: 'Vertical Position (read-only): Beam Y position.'
+    STATUS: BPM status.
+    STATUS/VALID: 'Valid Data (read-only): BPM reading is valid.'
+- id: BR/DCCT
+  description: 'Booster Beam Current Monitor: Tracks current during acceleration cycle.'
+  names:
+  - DC current transformer
+  members:
+  - BR/DCCT01
+  signals:
+    CURRENT: Beam current (milliAmperes) during booster cycle.
+    CURRENT/RB: 'Current Readback (read-only): Beam current during acceleration.'
+    STATUS: DCCT status.
+    STATUS/VALID: 'Valid (read-only): Measurement valid.'
+- id: BR/DIAG
+  description: 'Booster Diagnostics: Beam measurement during acceleration cycle.'
+  members:
+  - BR/BPM01
+  - BR/BPM02
+  - BR/BPM03
+  - BR/BPM04
+  - BR/BPM05
+  - BR/BPM06
+  - BR/BPM07
+  - BR/BPM08
+  - BR/DCCT01
+- id: BR/DIPOLE
+  description: 'Booster Dipole Magnets: Main bending magnets, ramped during acceleration cycle to increase beam energy.'
+  names:
+  - dipole bending magnet
+  members:
+  - BR/DIPOLE01
+  - BR/DIPOLE02
+  - BR/DIPOLE03
+  - BR/DIPOLE04
+  - BR/DIPOLE05
+  - BR/DIPOLE06
+  - BR/DIPOLE07
+  - BR/DIPOLE08
+  signals:
+    CURRENT: Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration.
+    CURRENT/SP: 'Current Setpoint (read-write): Programmed ramp profile for acceleration.'
+    CURRENT/RB: 'Current Readback (read-only): Measured dipole current during ramping.'
+    STATUS: Dipole power supply status.
+    STATUS/READY: 'Ready (read-only): Power supply ready for ramping.'
+    STATUS/FAULT: 'Fault (read-only): Power supply fault detected.'
+- id: BR/MAG
+  description: 'Booster Magnet System: Ramped magnets that track the beam energy during acceleration. Dipoles define the orbit, quadrupoles maintain focusing.'
+  members:
+  - BR/DIPOLE01
+  - BR/DIPOLE02
+  - BR/DIPOLE03
+  - BR/DIPOLE04
+  - BR/DIPOLE05
+  - BR/DIPOLE06
+  - BR/DIPOLE07
+  - BR/DIPOLE08
+  - BR/QD01
+  - BR/QD02
+  - BR/QD03
+  - BR/QD04
+  - BR/QF01
+  - BR/QF02
+  - BR/QF03
+  - BR/QF04
+- id: BR/QD
+  description: 'Booster Defocusing Quadrupoles: Maintain beam focusing during energy ramp.'
+  names:
+  - defocusing quadrupole
+  members:
+  - BR/QD01
+  - BR/QD02
+  - BR/QD03
+  - BR/QD04
+  signals:
+    CURRENT: Quadrupole current (Amperes). Ramped during acceleration.
+    CURRENT/SP: 'Setpoint (read-write): Programmed current waveform.'
+    CURRENT/RB: 'Readback (read-only): Measured current.'
+    STATUS: Power supply status.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+    STATUS/FAULT: 'Fault (read-only): Fault detected.'
+- id: BR/QF
+  description: 'Booster Focusing Quadrupoles: Maintain beam focusing during energy ramp.'
+  names:
+  - focusing quadrupole
+  members:
+  - BR/QF01
+  - BR/QF02
+  - BR/QF03
+  - BR/QF04
+  signals:
+    CURRENT: Quadrupole current (Amperes). Ramped during acceleration.
+    CURRENT/SP: 'Setpoint (read-write): Programmed current waveform.'
+    CURRENT/RB: 'Readback (read-only): Measured current.'
+    STATUS: Power supply status.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+    STATUS/FAULT: 'Fault (read-only): Fault detected.'
+- id: BTS/BPM
+  description: 'Transfer Line BPMs: Monitor beam trajectory during injection.'
+  names:
+  - beam position monitor
+  members:
+  - BTS/BPM01
+  - BTS/BPM02
+  - BTS/BPM03
+  - BTS/BPM04
+  - BTS/BPM05
+  - BTS/BPM06
+  signals:
+    POSITION: Beam position in transfer line (millimeters).
+    POSITION/X: 'Horizontal Position (read-only): Beam X position.'
+    POSITION/Y: 'Vertical Position (read-only): Beam Y position.'
+    STATUS: BPM status.
+    STATUS/VALID: 'Valid Data (read-only): BPM reading is valid.'
+- id: BTS/DIAG
+  description: 'Transfer Line Diagnostics: Beam measurement during injection.'
+  members:
+  - BTS/BPM01
+  - BTS/BPM02
+  - BTS/BPM03
+  - BTS/BPM04
+  - BTS/BPM05
+  - BTS/BPM06
+- id: BTS/HCM
+  description: 'Horizontal Correctors: Horizontal steering magnets in the transfer line.'
+  names:
+  - horizontal corrector
+  members:
+  - BTS/HCM01
+  - BTS/HCM02
+  - BTS/HCM03
+  - BTS/HCM04
+  - BTS/HCM05
+  - BTS/HCM06
+  signals:
+    CURRENT: Corrector current (Amperes).
+    CURRENT/SP: 'Setpoint (read-write): Commanded corrector current.'
+    CURRENT/RB: 'Readback (read-only): Measured corrector current.'
+    STATUS: Power supply status.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+- id: BTS/MAG
+  description: 'Transfer Line Magnets: Steering and focusing magnets for beam transport from booster to storage ring.'
+  members:
+  - BTS/HCM01
+  - BTS/HCM02
+  - BTS/HCM03
+  - BTS/HCM04
+  - BTS/HCM05
+  - BTS/HCM06
+  - BTS/QF01
+  - BTS/QF02
+  - BTS/QF03
+  - BTS/QF04
+  - BTS/QF05
+  - BTS/QF06
+  - BTS/VCM01
+  - BTS/VCM02
+  - BTS/VCM03
+  - BTS/VCM04
+  - BTS/VCM05
+  - BTS/VCM06
+- id: BTS/QF
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
+  names:
+  - focusing quadrupole
+  members:
+  - BTS/QF01
+  - BTS/QF02
+  - BTS/QF03
+  - BTS/QF04
+  - BTS/QF05
+  - BTS/QF06
+  signals:
+    CURRENT: Quadrupole current (Amperes).
+    CURRENT/SP: 'Setpoint (read-write): Commanded current.'
+    CURRENT/RB: 'Readback (read-only): Measured current.'
+    STATUS: Power supply status.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+- id: BTS/VCM
+  description: 'Vertical Correctors: Vertical steering magnets in the transfer line.'
+  names:
+  - vertical corrector
+  members:
+  - BTS/VCM01
+  - BTS/VCM02
+  - BTS/VCM03
+  - BTS/VCM04
+  - BTS/VCM05
+  - BTS/VCM06
+  signals:
+    CURRENT: Corrector current (Amperes).
+    CURRENT/SP: 'Setpoint (read-write): Commanded corrector current.'
+    CURRENT/RB: 'Readback (read-only): Measured corrector current.'
+    STATUS: Power supply status.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+- id: SR/BPM
+  description: 'Beam Position Monitors: Measure transverse (X, Y) beam position at many locations around the ring. Typical resolution: 1-10 microns. Essential for orbit correction and feedback.'
+  names:
+  - beam position monitor
+  members:
+  - SR/BPM01
+  - SR/BPM02
+  - SR/BPM03
+  - SR/BPM04
+  - SR/BPM05
+  - SR/BPM06
+  - SR/BPM07
+  - SR/BPM08
+  - SR/BPM09
+  - SR/BPM10
+  - SR/BPM11
+  - SR/BPM12
+  - SR/BPM13
+  - SR/BPM14
+  - SR/BPM15
+  - SR/BPM16
+  - SR/BPM17
+  - SR/BPM18
+  - SR/BPM19
+  - SR/BPM20
+  - SR/BPM21
+  - SR/BPM22
+  - SR/BPM23
+  - SR/BPM24
+  - SR/BPM25
+  - SR/BPM26
+  - SR/BPM27
+  - SR/BPM28
+  - SR/BPM29
+  - SR/BPM30
+  - SR/BPM31
+  - SR/BPM32
+  - SR/BPM33
+  - SR/BPM34
+  - SR/BPM35
+  - SR/BPM36
+  - SR/BPM37
+  - SR/BPM38
+  - SR/BPM39
+  - SR/BPM40
+  - SR/BPM41
+  - SR/BPM42
+  - SR/BPM43
+  - SR/BPM44
+  - SR/BPM45
+  - SR/BPM46
+  - SR/BPM47
+  - SR/BPM48
+  - SR/BPM49
+  - SR/BPM50
+  - SR/BPM51
+  - SR/BPM52
+  - SR/BPM53
+  - SR/BPM54
+  - SR/BPM55
+  - SR/BPM56
+  - SR/BPM57
+  - SR/BPM58
+  - SR/BPM59
+  - SR/BPM60
+  - SR/BPM61
+  - SR/BPM62
+  - SR/BPM63
+  - SR/BPM64
+  - SR/BPM65
+  - SR/BPM66
+  - SR/BPM67
+  - SR/BPM68
+  - SR/BPM69
+  - SR/BPM70
+  - SR/BPM71
+  - SR/BPM72
+  signals:
+    POSITION: 'Beam Position (meters): Measured transverse beam position.'
+    POSITION/X: 'Horizontal Position (read-only): Beam X position at this BPM location.'
+    POSITION/Y: 'Vertical Position (read-only): Beam Y position at this BPM location.'
+    GOLDEN: 'Golden Orbit Reference (meters): Stored reference orbit positions.'
+    GOLDEN/X: 'Golden X Position (read-only): Reference horizontal position.'
+    GOLDEN/Y: 'Golden Y Position (read-only): Reference vertical position.'
+    OFFSET: 'Position Offset from Golden (meters): Difference between measured and golden orbit.'
+    OFFSET/X: 'Horizontal Offset (read-only): X position error from golden orbit.'
+    OFFSET/Y: 'Vertical Offset (read-only): Y position error from golden orbit.'
+    STATUS: 'BPM System Status: Data validity and connection monitoring.'
+    STATUS/VALID: 'Valid Data (read-only): BPM reading is valid.'
+    STATUS/CONNECTED: 'Connected Status (read-only): BPM electronics responding.'
+- id: SR/CAVITY
+  description: 'RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Gap voltage (MV range) determines energy gain per turn.'
+  names:
+  - RF cavity
+  members:
+  - SR/CAVITY01
+  - SR/CAVITY02
+  signals:
+    POWER: 'RF Power (Kilowatts): Electromagnetic power in RF transmission system.'
+    POWER/FWD: 'Forward Power (read-only): RF power traveling from klystron toward cavity.'
+    POWER/REV: 'Reflected Power (read-only): Power bouncing back from cavity.'
+    POWER/NET: 'Net Power (read-only): Actual power delivered to cavity (FWD - REV).'
+    VOLTAGE: 'Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV.'
+    VOLTAGE/RB: 'Voltage Readback (read-only): Measured cavity gap voltage.'
+    VOLTAGE/SP: 'Voltage Setpoint (read-write): Commanded cavity gap voltage.'
+    VOLTAGE/GOLDEN: 'Golden Voltage (read-only): Reference gap voltage for nominal operation.'
+    FREQUENCY: 'RF Frequency (MHz): Operating frequency of RF system. Must match harmonic of beam revolution frequency.'
+    FREQUENCY/RB: 'Frequency Readback (read-only): Measured RF frequency.'
+    FREQUENCY/SP: 'Frequency Setpoint (read-write): Commanded RF frequency.'
+    TEMPERATURE: 'Cavity Temperature (Celsius): Body temperature of RF cavity.'
+    TEMPERATURE/RB: 'Temperature Readback (read-only): Measured cavity temperature.'
+    TUNER: 'Cavity Tuner Position (Centimeters): Mechanical tuner adjusts cavity resonant frequency.'
+    TUNER/RB: 'Position Readback (read-only): Current tuner position.'
+    TUNER/SP: 'Position Setpoint (read-write): Commanded tuner position.'
+    STATUS: 'RF System Status: Cavity and low-level RF system health.'
+    STATUS/READY: 'Ready Status (read-only): RF system ready for operation.'
+    STATUS/INTERLOCK: 'Interlock Status (read-only): RF interlocks satisfied.'
+    STATUS/FAULT: 'Fault Status (read-only): RF system fault detected.'
+- id: SR/DCCT
+  description: 'DC Current Transformer: Non-intercepting beam current monitor. Measures total circulating beam current with high accuracy.'
+  names:
+  - DC current transformer
+  members:
+  - SR/DCCT01
+  signals:
+    CURRENT: 'Beam Current (milliAmperes): Total circulating electron current. Typical range: 1-500 mA.'
+    CURRENT/RB: 'Current Readback (read-only): Standard beam current measurement.'
+    STATUS: 'DCCT Operational Status: Measurement validity.'
+    STATUS/VALID: 'Valid Status (read-only): DCCT measurement is valid and calibrated.'
+- id: SR/DIAG
+  description: 'Diagnostic System (DIAG): Beam measurement and monitoring instrumentation. Includes beam position monitors (BPMs) for orbit measurement, beam current monitors (DCCT), and radiation safety monitors.'
+  members:
+  - SR/BPM01
+  - SR/BPM02
+  - SR/BPM03
+  - SR/BPM04
+  - SR/BPM05
+  - SR/BPM06
+  - SR/BPM07
+  - SR/BPM08
+  - SR/BPM09
+  - SR/BPM10
+  - SR/BPM11
+  - SR/BPM12
+  - SR/BPM13
+  - SR/BPM14
+  - SR/BPM15
+  - SR/BPM16
+  - SR/BPM17
+  - SR/BPM18
+  - SR/BPM19
+  - SR/BPM20
+  - SR/BPM21
+  - SR/BPM22
+  - SR/BPM23
+  - SR/BPM24
+  - SR/BPM25
+  - SR/BPM26
+  - SR/BPM27
+  - SR/BPM28
+  - SR/BPM29
+  - SR/BPM30
+  - SR/BPM31
+  - SR/BPM32
+  - SR/BPM33
+  - SR/BPM34
+  - SR/BPM35
+  - SR/BPM36
+  - SR/BPM37
+  - SR/BPM38
+  - SR/BPM39
+  - SR/BPM40
+  - SR/BPM41
+  - SR/BPM42
+  - SR/BPM43
+  - SR/BPM44
+  - SR/BPM45
+  - SR/BPM46
+  - SR/BPM47
+  - SR/BPM48
+  - SR/BPM49
+  - SR/BPM50
+  - SR/BPM51
+  - SR/BPM52
+  - SR/BPM53
+  - SR/BPM54
+  - SR/BPM55
+  - SR/BPM56
+  - SR/BPM57
+  - SR/BPM58
+  - SR/BPM59
+  - SR/BPM60
+  - SR/BPM61
+  - SR/BPM62
+  - SR/BPM63
+  - SR/BPM64
+  - SR/BPM65
+  - SR/BPM66
+  - SR/BPM67
+  - SR/BPM68
+  - SR/BPM69
+  - SR/BPM70
+  - SR/BPM71
+  - SR/BPM72
+  - SR/DCCT01
+  - SR/GAMMA01
+  - SR/GAMMA02
+  - SR/GAMMA03
+  - SR/GAMMA04
+  - SR/NEUTRON01
+  - SR/NEUTRON02
+  - SR/NEUTRON03
+  - SR/NEUTRON04
+- id: SR/DIPOLE
+  description: 'Dipole Bending Magnets: Main bending magnets that deflect the beam in a circular path to form the storage ring. Create uniform magnetic field perpendicular to beam. Numbered sequentially around the ring (e.g., B01, B02, ...). Critical for maintaining correct beam trajectory and energy.'
+  names:
+  - dipole bending magnet
+  members:
+  - SR/DIPOLE01
+  - SR/DIPOLE02
+  - SR/DIPOLE03
+  - SR/DIPOLE04
+  - SR/DIPOLE05
+  - SR/DIPOLE06
+  - SR/DIPOLE07
+  - SR/DIPOLE08
+  - SR/DIPOLE09
+  - SR/DIPOLE10
+  - SR/DIPOLE11
+  - SR/DIPOLE12
+  - SR/DIPOLE13
+  - SR/DIPOLE14
+  - SR/DIPOLE15
+  - SR/DIPOLE16
+  - SR/DIPOLE17
+  - SR/DIPOLE18
+  - SR/DIPOLE19
+  - SR/DIPOLE20
+  - SR/DIPOLE21
+  - SR/DIPOLE22
+  - SR/DIPOLE23
+  - SR/DIPOLE24
+  - SR/DIPOLE25
+  - SR/DIPOLE26
+  - SR/DIPOLE27
+  - SR/DIPOLE28
+  - SR/DIPOLE29
+  - SR/DIPOLE30
+  - SR/DIPOLE31
+  - SR/DIPOLE32
+  - SR/DIPOLE33
+  - SR/DIPOLE34
+  - SR/DIPOLE35
+  - SR/DIPOLE36
+  signals:
+    CURRENT: 'Magnet Excitation Current (Amperes): Current through dipole coil windings. Directly proportional to magnetic bending field via Ampere''s law (B ∝ I). Typically 50-500A depending on ring energy. Tightly regulated by precision power supplies to maintain stable beam energy and trajectory.'
+    CURRENT/SP: 'Current Setpoint (read-write): Commanded dipole current for desired bending field. Operators or high-level software set this to control beam energy. Power supply servo loop regulates output to match setpoint.'
+    CURRENT/RB: 'Current Readback (read-only): Actual measured dipole current from DCCT. High-accuracy measurement (±0.01%) essential for field reproducibility. Used in power supply feedback loop and archived for orbit analysis.'
+    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference setpoint for optimal beam operation. Stored golden values represent known good operating conditions. Read-only - used for comparison and restore operations.'
+    STATUS: 'Operational Status: Power supply and magnet health indicators. Monitor readiness, operational state, and fault conditions. Critical for safe operation and automated interlocks.'
+    STATUS/READY: 'Ready Status (read-only): Power supply is ready for operation. Indicates all interlocks satisfied and system initialized.'
+    STATUS/ON: 'On Status (read-only): Power supply is energized and regulating. Indicates magnet is actively powered.'
+    STATUS/FAULT: 'Fault Status (read-only): Fault condition detected (overcurrent, overvoltage, etc.). Boolean flag - true indicates problem requiring attention.'
+- id: SR/GAMMA
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
+  names:
+  - gamma detector
+  members:
+  - SR/GAMMA01
+  - SR/GAMMA02
+  - SR/GAMMA03
+  - SR/GAMMA04
+  signals:
+    DOSE_RATE: 'Gamma Dose Rate (mrem/hour): Gamma radiation intensity measurement.'
+    DOSE_RATE/INST: 'Instantaneous (read-only): Real-time gamma dose rate.'
+    DOSE_RATE/AVG_1MIN: '1-Minute Average (read-only): Gamma dose rate averaged over 1 minute.'
+    DOSE_RATE/AVG_1HR: '1-Hour Average (read-only): Gamma dose rate averaged over 1 hour.'
+    STATUS: 'Gamma Monitor Status: Operational health and alarm state.'
+    STATUS/VALID: 'Valid Data (read-only): Monitor is operational.'
+    STATUS/ALARM: 'Alarm Status (read-only): Gamma level exceeds safety limit.'
+- id: SR/GAUGE
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - vacuum gauge
+  members:
+  - SR/GAUGESR01
+  - SR/GAUGESR02
+  - SR/GAUGESR03
+  - SR/GAUGESR04
+  - SR/GAUGESR05
+  - SR/GAUGESR06
+  - SR/GAUGESR07
+  - SR/GAUGESR08
+  - SR/GAUGESR09
+  - SR/GAUGESR10
+  - SR/GAUGESR11
+  - SR/GAUGESR12
+  signals:
+    PRESSURE: 'Measured Pressure (Torr): Direct pressure reading from ionization gauge.'
+    PRESSURE/RB: 'Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
+    STATUS: 'Gauge Operational Status: Health and validity monitoring.'
+    STATUS/ON: 'On Status (read-only): Gauge powered and measuring.'
+    STATUS/VALID: 'Valid Status (read-only): Pressure reading is valid and within range.'
+- id: SR/HCM
+  description: 'Horizontal Corrector Magnets (HCM): Small dipole steering magnets for fine horizontal (X) beam position adjustments. Used in closed-orbit correction algorithms to compensate for alignment errors and field imperfections. Bipolar power supplies allow positive and negative deflection.'
+  names:
+  - horizontal corrector
+  members:
+  - SR/HCM01
+  - SR/HCM02
+  - SR/HCM03
+  - SR/HCM04
+  - SR/HCM05
+  - SR/HCM06
+  - SR/HCM07
+  - SR/HCM08
+  - SR/HCM09
+  - SR/HCM10
+  - SR/HCM11
+  - SR/HCM12
+  - SR/HCM13
+  - SR/HCM14
+  - SR/HCM15
+  - SR/HCM16
+  - SR/HCM17
+  - SR/HCM18
+  - SR/HCM19
+  - SR/HCM20
+  - SR/HCM21
+  - SR/HCM22
+  - SR/HCM23
+  - SR/HCM24
+  - SR/HCM25
+  - SR/HCM26
+  - SR/HCM27
+  - SR/HCM28
+  - SR/HCM29
+  - SR/HCM30
+  - SR/HCM31
+  - SR/HCM32
+  - SR/HCM33
+  - SR/HCM34
+  - SR/HCM35
+  - SR/HCM36
+  - SR/HCM37
+  - SR/HCM38
+  - SR/HCM39
+  - SR/HCM40
+  - SR/HCM41
+  - SR/HCM42
+  - SR/HCM43
+  - SR/HCM44
+  - SR/HCM45
+  - SR/HCM46
+  - SR/HCM47
+  - SR/HCM48
+  - SR/HCM49
+  - SR/HCM50
+  - SR/HCM51
+  - SR/HCM52
+  - SR/HCM53
+  - SR/HCM54
+  - SR/HCM55
+  - SR/HCM56
+  - SR/HCM57
+  - SR/HCM58
+  - SR/HCM59
+  - SR/HCM60
+  - SR/HCM61
+  - SR/HCM62
+  - SR/HCM63
+  - SR/HCM64
+  - SR/HCM65
+  - SR/HCM66
+  - SR/HCM67
+  - SR/HCM68
+  - SR/HCM69
+  - SR/HCM70
+  - SR/HCM71
+  - SR/HCM72
+  signals:
+    CURRENT: 'Corrector Current (Amperes): Bipolar current for horizontal steering. Range typically ±10A.'
+    CURRENT/SP: 'Setpoint (read-write): Commanded horizontal corrector current.'
+    CURRENT/RB: 'Readback (read-only): Measured horizontal corrector current.'
+    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference orbit correction value.'
+    STATUS: Corrector magnet operational status.
+    STATUS/READY: 'Ready (read-only): Corrector power supply ready.'
+    STATUS/ON: 'On (read-only): Corrector energized and regulating.'
+- id: SR/ION-PUMP
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ion pump
+  members:
+  - SR/ION-PUMP01
+  - SR/ION-PUMP02
+  - SR/ION-PUMP03
+  - SR/ION-PUMP04
+  - SR/ION-PUMP05
+  - SR/ION-PUMP06
+  signals:
+    PRESSURE: 'Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr.'
+    PRESSURE/RB: 'Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
+    VOLTAGE: 'High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV).'
+    VOLTAGE/RB: 'Voltage Readback (read-only): Actual measured ion pump operating voltage.'
+    VOLTAGE/SP: 'Voltage Setpoint (read-write): Commanded ion pump high voltage.'
+    CURRENT: 'Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum.'
+    CURRENT/RB: 'Current Readback (read-only): Measured ion pump current.'
+    STATUS: 'Pump Operational Status: Health and fault monitoring.'
+    STATUS/ON: 'On Status (read-only): Pump high voltage enabled.'
+    STATUS/FAULT: 'Fault Status (read-only): Pump fault detected.'
+- id: SR/KLYSTRON
+  description: 'Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Typically 100-500 kW output power.'
+  names:
+  - klystron
+  members:
+  - SR/KLYSTRON01
+  - SR/KLYSTRON02
+  signals:
+    POWER: 'Klystron Output Power (Kilowatts): RF power produced by klystron.'
+    POWER/RB: 'Power Readback (read-only): Measured klystron output power.'
+    VOLTAGE: 'Beam Voltage (kiloVolts): High voltage accelerating electrons in klystron. Typically 50-150 kV.'
+    VOLTAGE/RB: 'Voltage Readback (read-only): Measured klystron beam voltage.'
+    VOLTAGE/SP: 'Voltage Setpoint (read-write): Commanded beam voltage.'
+    STATUS: 'Klystron Operational Status: Health and safety monitoring.'
+    STATUS/ON: 'On Status (read-only): Klystron high voltage on.'
+    STATUS/READY: 'Ready Status (read-only): Klystron ready.'
+    STATUS/FAULT: 'Fault Status (read-only): Klystron fault.'
+- id: SR/MAG
+  description: 'Magnet System (MAG): Controls beam trajectory and focusing in the storage ring. Includes dipole bending magnets, quadrupole focusing magnets, sextupole magnets for chromaticity correction, and corrector magnets for precise beam steering. All magnets are powered by regulated power supplies and are critical for maintaining stable beam orbit and beam quality.'
+  members:
+  - SR/DIPOLE01
+  - SR/DIPOLE02
+  - SR/DIPOLE03
+  - SR/DIPOLE04
+  - SR/DIPOLE05
+  - SR/DIPOLE06
+  - SR/DIPOLE07
+  - SR/DIPOLE08
+  - SR/DIPOLE09
+  - SR/DIPOLE10
+  - SR/DIPOLE11
+  - SR/DIPOLE12
+  - SR/DIPOLE13
+  - SR/DIPOLE14
+  - SR/DIPOLE15
+  - SR/DIPOLE16
+  - SR/DIPOLE17
+  - SR/DIPOLE18
+  - SR/DIPOLE19
+  - SR/DIPOLE20
+  - SR/DIPOLE21
+  - SR/DIPOLE22
+  - SR/DIPOLE23
+  - SR/DIPOLE24
+  - SR/DIPOLE25
+  - SR/DIPOLE26
+  - SR/DIPOLE27
+  - SR/DIPOLE28
+  - SR/DIPOLE29
+  - SR/DIPOLE30
+  - SR/DIPOLE31
+  - SR/DIPOLE32
+  - SR/DIPOLE33
+  - SR/DIPOLE34
+  - SR/DIPOLE35
+  - SR/DIPOLE36
+  - SR/HCM01
+  - SR/HCM02
+  - SR/HCM03
+  - SR/HCM04
+  - SR/HCM05
+  - SR/HCM06
+  - SR/HCM07
+  - SR/HCM08
+  - SR/HCM09
+  - SR/HCM10
+  - SR/HCM11
+  - SR/HCM12
+  - SR/HCM13
+  - SR/HCM14
+  - SR/HCM15
+  - SR/HCM16
+  - SR/HCM17
+  - SR/HCM18
+  - SR/HCM19
+  - SR/HCM20
+  - SR/HCM21
+  - SR/HCM22
+  - SR/HCM23
+  - SR/HCM24
+  - SR/HCM25
+  - SR/HCM26
+  - SR/HCM27
+  - SR/HCM28
+  - SR/HCM29
+  - SR/HCM30
+  - SR/HCM31
+  - SR/HCM32
+  - SR/HCM33
+  - SR/HCM34
+  - SR/HCM35
+  - SR/HCM36
+  - SR/HCM37
+  - SR/HCM38
+  - SR/HCM39
+  - SR/HCM40
+  - SR/HCM41
+  - SR/HCM42
+  - SR/HCM43
+  - SR/HCM44
+  - SR/HCM45
+  - SR/HCM46
+  - SR/HCM47
+  - SR/HCM48
+  - SR/HCM49
+  - SR/HCM50
+  - SR/HCM51
+  - SR/HCM52
+  - SR/HCM53
+  - SR/HCM54
+  - SR/HCM55
+  - SR/HCM56
+  - SR/HCM57
+  - SR/HCM58
+  - SR/HCM59
+  - SR/HCM60
+  - SR/HCM61
+  - SR/HCM62
+  - SR/HCM63
+  - SR/HCM64
+  - SR/HCM65
+  - SR/HCM66
+  - SR/HCM67
+  - SR/HCM68
+  - SR/HCM69
+  - SR/HCM70
+  - SR/HCM71
+  - SR/HCM72
+  - SR/QD01
+  - SR/QD02
+  - SR/QD03
+  - SR/QD04
+  - SR/QD05
+  - SR/QD06
+  - SR/QD07
+  - SR/QD08
+  - SR/QD09
+  - SR/QD10
+  - SR/QD11
+  - SR/QD12
+  - SR/QD13
+  - SR/QD14
+  - SR/QD15
+  - SR/QD16
+  - SR/QD17
+  - SR/QD18
+  - SR/QD19
+  - SR/QD20
+  - SR/QD21
+  - SR/QD22
+  - SR/QD23
+  - SR/QD24
+  - SR/QF01
+  - SR/QF02
+  - SR/QF03
+  - SR/QF04
+  - SR/QF05
+  - SR/QF06
+  - SR/QF07
+  - SR/QF08
+  - SR/QF09
+  - SR/QF10
+  - SR/QF11
+  - SR/QF12
+  - SR/QF13
+  - SR/QF14
+  - SR/QF15
+  - SR/QF16
+  - SR/QF17
+  - SR/QF18
+  - SR/QF19
+  - SR/QF20
+  - SR/QF21
+  - SR/QF22
+  - SR/QF23
+  - SR/QF24
+  - SR/QFA01
+  - SR/QFA02
+  - SR/QFA03
+  - SR/QFA04
+  - SR/QFA05
+  - SR/QFA06
+  - SR/QFA07
+  - SR/QFA08
+  - SR/QFA09
+  - SR/QFA10
+  - SR/QFA11
+  - SR/QFA12
+  - SR/QFA13
+  - SR/QFA14
+  - SR/QFA15
+  - SR/QFA16
+  - SR/QFA17
+  - SR/QFA18
+  - SR/QFA19
+  - SR/QFA20
+  - SR/QFA21
+  - SR/QFA22
+  - SR/QFA23
+  - SR/QFA24
+  - SR/SD01
+  - SR/SD02
+  - SR/SD03
+  - SR/SD04
+  - SR/SD05
+  - SR/SD06
+  - SR/SD07
+  - SR/SD08
+  - SR/SD09
+  - SR/SD10
+  - SR/SD11
+  - SR/SD12
+  - SR/SD13
+  - SR/SD14
+  - SR/SD15
+  - SR/SD16
+  - SR/SD17
+  - SR/SD18
+  - SR/SD19
+  - SR/SD20
+  - SR/SD21
+  - SR/SD22
+  - SR/SD23
+  - SR/SD24
+  - SR/SF01
+  - SR/SF02
+  - SR/SF03
+  - SR/SF04
+  - SR/SF05
+  - SR/SF06
+  - SR/SF07
+  - SR/SF08
+  - SR/SF09
+  - SR/SF10
+  - SR/SF11
+  - SR/SF12
+  - SR/SF13
+  - SR/SF14
+  - SR/SF15
+  - SR/SF16
+  - SR/SF17
+  - SR/SF18
+  - SR/SF19
+  - SR/SF20
+  - SR/SF21
+  - SR/SF22
+  - SR/SF23
+  - SR/SF24
+  - SR/SHD01
+  - SR/SHD02
+  - SR/SHD03
+  - SR/SHD04
+  - SR/SHD05
+  - SR/SHD06
+  - SR/SHD07
+  - SR/SHD08
+  - SR/SHD09
+  - SR/SHD10
+  - SR/SHD11
+  - SR/SHD12
+  - SR/SHD13
+  - SR/SHD14
+  - SR/SHD15
+  - SR/SHD16
+  - SR/SHD17
+  - SR/SHD18
+  - SR/SHD19
+  - SR/SHD20
+  - SR/SHD21
+  - SR/SHD22
+  - SR/SHD23
+  - SR/SHD24
+  - SR/SHF01
+  - SR/SHF02
+  - SR/SHF03
+  - SR/SHF04
+  - SR/SHF05
+  - SR/SHF06
+  - SR/SHF07
+  - SR/SHF08
+  - SR/SHF09
+  - SR/SHF10
+  - SR/SHF11
+  - SR/SHF12
+  - SR/SHF13
+  - SR/SHF14
+  - SR/SHF15
+  - SR/SHF16
+  - SR/SHF17
+  - SR/SHF18
+  - SR/SHF19
+  - SR/SHF20
+  - SR/SHF21
+  - SR/SHF22
+  - SR/SHF23
+  - SR/SHF24
+  - SR/VCM01
+  - SR/VCM02
+  - SR/VCM03
+  - SR/VCM04
+  - SR/VCM05
+  - SR/VCM06
+  - SR/VCM07
+  - SR/VCM08
+  - SR/VCM09
+  - SR/VCM10
+  - SR/VCM11
+  - SR/VCM12
+  - SR/VCM13
+  - SR/VCM14
+  - SR/VCM15
+  - SR/VCM16
+  - SR/VCM17
+  - SR/VCM18
+  - SR/VCM19
+  - SR/VCM20
+  - SR/VCM21
+  - SR/VCM22
+  - SR/VCM23
+  - SR/VCM24
+  - SR/VCM25
+  - SR/VCM26
+  - SR/VCM27
+  - SR/VCM28
+  - SR/VCM29
+  - SR/VCM30
+  - SR/VCM31
+  - SR/VCM32
+  - SR/VCM33
+  - SR/VCM34
+  - SR/VCM35
+  - SR/VCM36
+  - SR/VCM37
+  - SR/VCM38
+  - SR/VCM39
+  - SR/VCM40
+  - SR/VCM41
+  - SR/VCM42
+  - SR/VCM43
+  - SR/VCM44
+  - SR/VCM45
+  - SR/VCM46
+  - SR/VCM47
+  - SR/VCM48
+  - SR/VCM49
+  - SR/VCM50
+  - SR/VCM51
+  - SR/VCM52
+  - SR/VCM53
+  - SR/VCM54
+  - SR/VCM55
+  - SR/VCM56
+  - SR/VCM57
+  - SR/VCM58
+  - SR/VCM59
+  - SR/VCM60
+  - SR/VCM61
+  - SR/VCM62
+  - SR/VCM63
+  - SR/VCM64
+  - SR/VCM65
+  - SR/VCM66
+  - SR/VCM67
+  - SR/VCM68
+  - SR/VCM69
+  - SR/VCM70
+  - SR/VCM71
+  - SR/VCM72
+- id: SR/NEUTRON
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
+  names:
+  - neutron detector
+  members:
+  - SR/NEUTRON01
+  - SR/NEUTRON02
+  - SR/NEUTRON03
+  - SR/NEUTRON04
+  signals:
+    DOSE_RATE: 'Neutron Dose Rate (mrem/hour): Neutron radiation intensity measurement.'
+    DOSE_RATE/INST: 'Instantaneous (read-only): Real-time neutron dose rate.'
+    DOSE_RATE/AVG_1MIN: '1-Minute Average (read-only): Neutron dose rate averaged over 1 minute.'
+    DOSE_RATE/AVG_1HR: '1-Hour Average (read-only): Neutron dose rate averaged over 1 hour.'
+    STATUS: 'Neutron Monitor Status: Data validity and alarm conditions.'
+    STATUS/VALID: 'Valid Data (read-only): Monitor reading is valid.'
+    STATUS/ALARM: 'Alarm Status (read-only): Radiation level exceeds safety threshold.'
+- id: SR/QD
+  description: 'Defocusing Quadrupoles (QD): Quadrupole magnets with negative gradient. Defocus beam in horizontal plane, focus in vertical plane. Part of tune correction system. Work together with QF magnets for independent horizontal/vertical tune control.'
+  names:
+  - defocusing quadrupole
+  members:
+  - SR/QD01
+  - SR/QD02
+  - SR/QD03
+  - SR/QD04
+  - SR/QD05
+  - SR/QD06
+  - SR/QD07
+  - SR/QD08
+  - SR/QD09
+  - SR/QD10
+  - SR/QD11
+  - SR/QD12
+  - SR/QD13
+  - SR/QD14
+  - SR/QD15
+  - SR/QD16
+  - SR/QD17
+  - SR/QD18
+  - SR/QD19
+  - SR/QD20
+  - SR/QD21
+  - SR/QD22
+  - SR/QD23
+  - SR/QD24
+  signals:
+    CURRENT: 'Quadrupole Excitation Current (Amperes): Current through QD coil windings. Proportional to negative field gradient. Typically 0-200A.'
+    CURRENT/SP: 'Setpoint (read-write): Commanded defocusing current for tune correction.'
+    CURRENT/RB: 'Readback (read-only): Measured defocusing current.'
+    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference defocusing current for optimal tune.'
+    STATUS: Operational status for defocusing quadrupole.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+    STATUS/ON: 'On (read-only): Power supply energized.'
+    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
+- id: SR/QF
+  description: 'Focusing Quadrupoles (QF): Quadrupole magnets with positive gradient. Focus beam in horizontal plane, defocus in vertical plane. Part of tune correction system. Work together with QD magnets for independent horizontal/vertical tune control.'
+  names:
+  - focusing quadrupole
+  members:
+  - SR/QF01
+  - SR/QF02
+  - SR/QF03
+  - SR/QF04
+  - SR/QF05
+  - SR/QF06
+  - SR/QF07
+  - SR/QF08
+  - SR/QF09
+  - SR/QF10
+  - SR/QF11
+  - SR/QF12
+  - SR/QF13
+  - SR/QF14
+  - SR/QF15
+  - SR/QF16
+  - SR/QF17
+  - SR/QF18
+  - SR/QF19
+  - SR/QF20
+  - SR/QF21
+  - SR/QF22
+  - SR/QF23
+  - SR/QF24
+  signals:
+    CURRENT: 'Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A.'
+    CURRENT/SP: 'Setpoint (read-write): Commanded focusing current for tune correction.'
+    CURRENT/RB: 'Readback (read-only): Measured focusing current.'
+    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference focusing current for optimal tune.'
+    STATUS: Operational status for focusing quadrupole.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+    STATUS/ON: 'On (read-only): Power supply energized.'
+    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
+- id: SR/QFA
+  description: 'Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets.'
+  names:
+  - achromat-arc focusing quadrupole
+  members:
+  - SR/QFA01
+  - SR/QFA02
+  - SR/QFA03
+  - SR/QFA04
+  - SR/QFA05
+  - SR/QFA06
+  - SR/QFA07
+  - SR/QFA08
+  - SR/QFA09
+  - SR/QFA10
+  - SR/QFA11
+  - SR/QFA12
+  - SR/QFA13
+  - SR/QFA14
+  - SR/QFA15
+  - SR/QFA16
+  - SR/QFA17
+  - SR/QFA18
+  - SR/QFA19
+  - SR/QFA20
+  - SR/QFA21
+  - SR/QFA22
+  - SR/QFA23
+  - SR/QFA24
+  signals:
+    CURRENT: 'Achromat-Arc Focusing Quadrupole Current (Amperes): current through QFA coil windings.'
+    CURRENT/SP: setpoint
+    CURRENT/RB: readback
+    CURRENT/GOLDEN: golden setpoint
+    STATUS: Operational status for achromat-arc focusing quadrupole.
+    STATUS/READY: ready
+    STATUS/ON: 'on'
+    STATUS/FAULT: fault
+- id: SR/RF
+  description: 'Radio Frequency System (RF): Provides energy to the circulating beam to compensate for synchrotron radiation losses. RF cavities accelerate the beam using high-power electromagnetic waves. Klystrons provide RF power amplification.'
+  members:
+  - SR/CAVITY01
+  - SR/CAVITY02
+  - SR/KLYSTRON01
+  - SR/KLYSTRON02
+- id: SR/SD
+  description: 'Defocusing Sextupoles (SD): Sextupole magnets with negative polarity for chromatic correction. Work together with SF sextupoles to independently control horizontal and vertical chromaticity.'
+  names:
+  - sextupole (defocusing)
+  members:
+  - SR/SD01
+  - SR/SD02
+  - SR/SD03
+  - SR/SD04
+  - SR/SD05
+  - SR/SD06
+  - SR/SD07
+  - SR/SD08
+  - SR/SD09
+  - SR/SD10
+  - SR/SD11
+  - SR/SD12
+  - SR/SD13
+  - SR/SD14
+  - SR/SD15
+  - SR/SD16
+  - SR/SD17
+  - SR/SD18
+  - SR/SD19
+  - SR/SD20
+  - SR/SD21
+  - SR/SD22
+  - SR/SD23
+  - SR/SD24
+  signals:
+    CURRENT: 'Sextupole Excitation Current (Amperes): Current through SD coil windings. Proportional to sextupole field strength with negative polarity. Typically 0-150A.'
+    CURRENT/SP: 'Setpoint (read-write): Commanded defocusing sextupole current for chromaticity correction.'
+    CURRENT/RB: 'Readback (read-only): Measured defocusing sextupole current.'
+    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity.'
+    STATUS: Operational status for defocusing sextupole.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+    STATUS/ON: 'On (read-only): Power supply energized.'
+    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
+- id: SR/SF
+  description: 'Focusing Sextupoles (SF): Sextupole magnets with positive polarity for chromatic correction. Compensate for energy-dependent focusing from quadrupoles (chromaticity). Essential for maintaining beam stability across energy spread.'
+  names:
+  - sextupole (focusing)
+  members:
+  - SR/SF01
+  - SR/SF02
+  - SR/SF03
+  - SR/SF04
+  - SR/SF05
+  - SR/SF06
+  - SR/SF07
+  - SR/SF08
+  - SR/SF09
+  - SR/SF10
+  - SR/SF11
+  - SR/SF12
+  - SR/SF13
+  - SR/SF14
+  - SR/SF15
+  - SR/SF16
+  - SR/SF17
+  - SR/SF18
+  - SR/SF19
+  - SR/SF20
+  - SR/SF21
+  - SR/SF22
+  - SR/SF23
+  - SR/SF24
+  signals:
+    CURRENT: 'Sextupole Excitation Current (Amperes): Current through SF coil windings. Proportional to sextupole field strength. Typically 0-150A.'
+    CURRENT/SP: 'Setpoint (read-write): Commanded focusing sextupole current for chromaticity correction.'
+    CURRENT/RB: 'Readback (read-only): Measured focusing sextupole current.'
+    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity.'
+    STATUS: Operational status for focusing sextupole.
+    STATUS/READY: 'Ready (read-only): Power supply ready.'
+    STATUS/ON: 'On (read-only): Power supply energized.'
+    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
+- id: SR/SHD
+  description: 'Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets.'
+  names:
+  - harmonic defocusing sextupole
+  members:
+  - SR/SHD01
+  - SR/SHD02
+  - SR/SHD03
+  - SR/SHD04
+  - SR/SHD05
+  - SR/SHD06
+  - SR/SHD07
+  - SR/SHD08
+  - SR/SHD09
+  - SR/SHD10
+  - SR/SHD11
+  - SR/SHD12
+  - SR/SHD13
+  - SR/SHD14
+  - SR/SHD15
+  - SR/SHD16
+  - SR/SHD17
+  - SR/SHD18
+  - SR/SHD19
+  - SR/SHD20
+  - SR/SHD21
+  - SR/SHD22
+  - SR/SHD23
+  - SR/SHD24
+  signals:
+    CURRENT: 'Harmonic Defocusing Sextupole Current (Amperes): current through SHD coil windings.'
+    CURRENT/SP: setpoint
+    CURRENT/RB: readback
+    CURRENT/GOLDEN: golden setpoint
+    STATUS: Operational status for harmonic defocusing sextupole.
+    STATUS/READY: ready
+    STATUS/ON: 'on'
+    STATUS/FAULT: fault
+- id: SR/SHF
+  description: 'Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets.'
+  names:
+  - harmonic focusing sextupole
+  members:
+  - SR/SHF01
+  - SR/SHF02
+  - SR/SHF03
+  - SR/SHF04
+  - SR/SHF05
+  - SR/SHF06
+  - SR/SHF07
+  - SR/SHF08
+  - SR/SHF09
+  - SR/SHF10
+  - SR/SHF11
+  - SR/SHF12
+  - SR/SHF13
+  - SR/SHF14
+  - SR/SHF15
+  - SR/SHF16
+  - SR/SHF17
+  - SR/SHF18
+  - SR/SHF19
+  - SR/SHF20
+  - SR/SHF21
+  - SR/SHF22
+  - SR/SHF23
+  - SR/SHF24
+  signals:
+    CURRENT: 'Harmonic Focusing Sextupole Current (Amperes): current through SHF coil windings.'
+    CURRENT/SP: setpoint
+    CURRENT/RB: readback
+    CURRENT/GOLDEN: golden setpoint
+    STATUS: Operational status for harmonic focusing sextupole.
+    STATUS/READY: ready
+    STATUS/ON: 'on'
+    STATUS/FAULT: fault
+- id: SR/VAC
+  description: 'Vacuum System (VAC): Maintains ultra-high vacuum (UHV) in the beam chamber to minimize beam-gas scattering and maximize beam lifetime. Includes ion pumps, pressure gauges, and vacuum valves. Typical operating pressure: 10^-9 to 10^-10 Torr.'
+  members:
+  - SR/GAUGESR01
+  - SR/GAUGESR02
+  - SR/GAUGESR03
+  - SR/GAUGESR04
+  - SR/GAUGESR05
+  - SR/GAUGESR06
+  - SR/GAUGESR07
+  - SR/GAUGESR08
+  - SR/GAUGESR09
+  - SR/GAUGESR10
+  - SR/GAUGESR11
+  - SR/GAUGESR12
+  - SR/ION-PUMP01
+  - SR/ION-PUMP02
+  - SR/ION-PUMP03
+  - SR/ION-PUMP04
+  - SR/ION-PUMP05
+  - SR/ION-PUMP06
+  - SR/VALVE01
+  - SR/VALVE02
+  - SR/VALVE03
+  - SR/VALVE04
+  - SR/VALVE05
+  - SR/VALVE06
+  - SR/VALVE07
+  - SR/VALVE08
+  - SR/VALVE09
+  - SR/VALVE10
+  - SR/VALVE11
+  - SR/VALVE12
+- id: SR/VALVE
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - gate valve
+  members:
+  - SR/VALVE01
+  - SR/VALVE02
+  - SR/VALVE03
+  - SR/VALVE04
+  - SR/VALVE05
+  - SR/VALVE06
+  - SR/VALVE07
+  - SR/VALVE08
+  - SR/VALVE09
+  - SR/VALVE10
+  - SR/VALVE11
+  - SR/VALVE12
+  signals:
+    POSITION: 'Valve Position State: Current valve position (open/closed).'
+    POSITION/OPEN: 'Open Status (read-only): Valve fully open limit switch active.'
+    POSITION/CLOSED: 'Closed Status (read-only): Valve fully closed limit switch active.'
+    CONTROL: 'Valve Control Commands: Commands to actuate valve.'
+    CONTROL/OPEN: 'Open Command: Command channel to open valve.'
+    CONTROL/CLOSE: 'Close Command: Command channel to close valve.'
+    STATUS: 'Valve Operational Status: Ready and fault monitoring.'
+    STATUS/READY: 'Ready Status (read-only): Valve controller ready.'
+    STATUS/FAULT: 'Fault Status (read-only): Valve fault or timeout condition.'
+- id: SR/VCM
+  description: 'Vertical Corrector Magnets (VCM): Small dipole steering magnets for fine vertical (Y) beam position adjustments. Work with BPMs in feedback loops to maintain desired orbit. Bipolar power supplies allow positive and negative deflection.'
+  names:
+  - vertical corrector
+  members:
+  - SR/VCM01
+  - SR/VCM02
+  - SR/VCM03
+  - SR/VCM04
+  - SR/VCM05
+  - SR/VCM06
+  - SR/VCM07
+  - SR/VCM08
+  - SR/VCM09
+  - SR/VCM10
+  - SR/VCM11
+  - SR/VCM12
+  - SR/VCM13
+  - SR/VCM14
+  - SR/VCM15
+  - SR/VCM16
+  - SR/VCM17
+  - SR/VCM18
+  - SR/VCM19
+  - SR/VCM20
+  - SR/VCM21
+  - SR/VCM22
+  - SR/VCM23
+  - SR/VCM24
+  - SR/VCM25
+  - SR/VCM26
+  - SR/VCM27
+  - SR/VCM28
+  - SR/VCM29
+  - SR/VCM30
+  - SR/VCM31
+  - SR/VCM32
+  - SR/VCM33
+  - SR/VCM34
+  - SR/VCM35
+  - SR/VCM36
+  - SR/VCM37
+  - SR/VCM38
+  - SR/VCM39
+  - SR/VCM40
+  - SR/VCM41
+  - SR/VCM42
+  - SR/VCM43
+  - SR/VCM44
+  - SR/VCM45
+  - SR/VCM46
+  - SR/VCM47
+  - SR/VCM48
+  - SR/VCM49
+  - SR/VCM50
+  - SR/VCM51
+  - SR/VCM52
+  - SR/VCM53
+  - SR/VCM54
+  - SR/VCM55
+  - SR/VCM56
+  - SR/VCM57
+  - SR/VCM58
+  - SR/VCM59
+  - SR/VCM60
+  - SR/VCM61
+  - SR/VCM62
+  - SR/VCM63
+  - SR/VCM64
+  - SR/VCM65
+  - SR/VCM66
+  - SR/VCM67
+  - SR/VCM68
+  - SR/VCM69
+  - SR/VCM70
+  - SR/VCM71
+  - SR/VCM72
+  signals:
+    CURRENT: 'Corrector Current (Amperes): Bipolar current for vertical steering.'
+    CURRENT/SP: 'Setpoint (read-write): Commanded vertical corrector current.'
+    CURRENT/RB: 'Readback (read-only): Measured vertical corrector current.'
+    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference vertical correction value.'
+    STATUS: Corrector magnet operational status.
+    STATUS/READY: 'Ready (read-only): Corrector power supply ready.'
+    STATUS/ON: 'On (read-only): Corrector energized and regulating.'

@@ -1,0 +1,86 @@
+- id: SR
+  level: machine
+  description: 'Storage Ring (SR): Main synchrotron light source. 12-sector electron storage ring operating at 2.0 GeV. Contains magnets, diagnostics, vacuum, and RF systems for stable beam circulation and photon production.'
+  names:
+  - storage ring
+- id: SR/SECT1
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT1
+    to_marker: SECT2
+- id: SR/SECT2
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT2
+    to_marker: SECT3
+- id: SR/SECT3
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT3
+    to_marker: SECT4
+- id: SR/SECT4
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT4
+    to_marker: SECT5
+- id: SR/SECT5
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT5
+    to_marker: SECT6
+- id: SR/SECT6
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT6
+    to_marker: SECT7
+- id: SR/SECT7
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT7
+    to_marker: SECT8
+- id: SR/SECT8
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT8
+    to_marker: SECT9
+- id: SR/SECT9
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT9
+    to_marker: SECT10
+- id: SR/SECT10
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT10
+    to_marker: SECT11
+- id: SR/SECT11
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT11
+    to_marker: SECT12
+- id: SR/SECT12
+  level: sector
+  span:
+    model: SR
+    from_marker: SECT12
+- id: BR
+  level: machine
+  description: 'Booster Ring (BR): Accelerates electron beam from 150 MeV (linac energy) to 2.0 GeV before injection into the storage ring. Compact ring with 4-fold symmetry, operates at 1-10 Hz repetition rate.'
+  names:
+  - booster ring
+- id: BTS
+  level: machine
+  description: 'Booster-to-Storage Transfer Line (BTS): Beam transport line that guides accelerated beam from booster ring to storage ring. ~35m beamline with steering magnets, quadrupoles, and diagnostics.'
+  names:
+  - booster-to-storage transfer line
