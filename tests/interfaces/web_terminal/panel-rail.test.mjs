@@ -31,6 +31,7 @@ import {
   setActive,
   setEntryEnabled,
   setEntryAttention,
+  setEntryReachable,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
 
 const PANELS = [
@@ -699,5 +700,54 @@ describe('setEntryAttention tooltip time', () => {
     // make the rail re-announce panels to a screen reader on every event.
     setEntryAttention(rail, 'ariel', true, TS);
     expect(getEntry(rail, 'ariel')?.getAttribute('aria-label')).toBe('ARIEL');
+  });
+});
+
+/**
+ * Coarse reachability: an entry whose backend answered before but has stopped
+ * is dimmed without going inert, and its tooltip says since when. The poll
+ * logic that decides WHEN is panel-lifecycle's (pinned in panel-manager.test.mjs).
+ */
+describe('setEntryReachable', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  const SINCE = new Date(2026, 0, 5, 9, 12).getTime();
+  const since = new Date(SINCE).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  beforeEach(() => {
+    rail = freshRail();
+    createRail(rail, [{ id: 'ariel', label: 'ARIEL', hint: 'right-click for actions' }]);
+  });
+
+  test('unreachable dims without disabling, and the tooltip says since when', () => {
+    expect(setEntryReachable(rail, 'ariel', false, SINCE)).toBe(true);
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    expect(entry.classList.contains('unreachable')).toBe(true);
+    expect(entry.classList.contains('disabled')).toBe(true); // the cold boot state, untouched
+    expect(entry.title).toBe(`not answering since ${since}`);
+
+    setEntryReachable(rail, 'ariel', true);
+    expect(entry.classList.contains('unreachable')).toBe(false);
+    expect(entry.title).toBe('ARIEL · right-click for actions');
+    expect(entry.hasAttribute('data-title-base')).toBe(false);
+  });
+
+  test('the notice outranks a badge time, and each clears without losing the other', () => {
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    setEntryAttention(rail, 'ariel', true, 1_755_000_000);
+    const badged = entry.title;
+
+    setEntryReachable(rail, 'ariel', false, SINCE);
+    expect(entry.title).toBe(`not answering since ${since}`);
+
+    setEntryReachable(rail, 'ariel', true);
+    expect(entry.title).toBe(badged);
+
+    setEntryAttention(rail, 'ariel', false);
+    expect(entry.title).toBe('ARIEL · right-click for actions');
+  });
+
+  test('returns false for an unknown id', () => {
+    expect(setEntryReachable(rail, 'nope', false, SINCE)).toBe(false);
   });
 });

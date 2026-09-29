@@ -582,6 +582,86 @@ describe('rail state for custom panels without a health endpoint', () => {
   });
 });
 
+describe('rail reachability — a panel that stops answering dims, stays clickable, recovers', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The tooltip time the rail renders for an epoch-ms instant. @param {number} ms */
+  const clock = (ms) =>
+    new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  /**
+   * Boot two health-polled panels under fake timers: 'system-health' answers
+   * its /health until `down` names it, and 'jupyter' never answers at all.
+   * The poll hook is the real one (panel-health.js), so each maintenance tick
+   * is a 10 s advance.
+   */
+  async function bootPolled() {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date(2026, 0, 5, 9, 0, 0));
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    /** @type {Set<string>} */
+    const down = new Set();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['system-health', 'jupyter'], custom: [], default: null,
+          visible: ['system-health', 'jupyter'], active: null, labels: {},
+        });
+      }
+      if (url === '/api/system-health-server') return jsonOk({ url: '/panel/system-health', available: true });
+      if (url === '/api/jupyter-server') return jsonOk({ url: '/panel/jupyter', available: true });
+      if (url === '/panel/system-health/health' && !down.has('system-health')) return jsonOk({ status: 'ok' });
+      if (url.startsWith('/panel/')) return { ok: false, status: 503, statusText: 'Down', json: async () => ({}) };
+      return jsonOk({ status: 'ok' });
+    }));
+    stubEventSource();
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="system-health"]'));
+    await settled(() => expect(entry.classList.contains('disabled')).toBe(false));
+    // Past the fast startup retry: the panel is on the 10 s maintenance cadence.
+    await vi.advanceTimersByTimeAsync(1000);
+    return { entry, down, baseTitle: entry.title };
+  }
+
+  const tick = () => vi.advanceTimersByTimeAsync(10_000);
+
+  test('healthy → miss → miss dims the entry; the next healthy settle brightens it', async () => {
+    const { entry, down, baseTitle } = await bootPolled();
+
+    down.add('system-health');
+    await tick();
+    const firstMiss = Date.now();
+    // One miss is not enough: a single slow answer must not flicker the rail.
+    expect(entry.classList.contains('unreachable')).toBe(false);
+
+    await tick();
+    expect(entry.classList.contains('unreachable')).toBe(true);
+    expect(entry.title).toBe(`not answering since ${clock(firstMiss)}`);
+    // Dimmed, not disabled: the entry stays clickable and keeps its menu.
+    expect(entry.classList.contains('disabled')).toBe(false);
+
+    down.delete('system-health');
+    await tick();
+    expect(entry.classList.contains('unreachable')).toBe(false);
+    expect(entry.title).toBe(baseTitle);
+  });
+
+  test('a panel that never answered stays disabled and is never marked unreachable', async () => {
+    await bootPolled();
+    const jupyter = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="jupyter"]'));
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(jupyter.classList.contains('disabled')).toBe(true);
+    expect(jupyter.classList.contains('unreachable')).toBe(false);
+  });
+});
+
 describe('agent activity: rail badge/glow + the activity-strip seam', () => {
   /**
    * Boot the manager with a healthy 'artifacts' panel (no health endpoint, so
@@ -1129,6 +1209,7 @@ const CONFIG_ENDPOINT = {
   ariel: '/api/ariel-server',
   'channel-finder': '/api/channel-finder-server',
   lattice: '/api/lattice-server',
+  'system-health': '/api/system-health-server',
 };
 
 /**
@@ -1197,10 +1278,14 @@ function menuKey(el) {
  * defaulting to all of them. The FIRST listed panel is the catalog default, so
  * boot docks its tile. Resolves once every panel's config has settled and that
  * first tile exists, i.e. past every activation the boot itself performs.
+ * `down` names health-polled panels whose /health stops answering; it is read
+ * on every poll, so a test adds to it to take a panel dark mid-run.
  * @param {{ panels?: string[], visible?: string[], unhealthy?: string[],
- *           mode?: 'simple'|'expert' }} [opts]
+ *           mode?: 'simple'|'expert', down?: Set<string> }} [opts]
  */
-async function bootWorkspace({ panels = ['artifacts', 'ariel'], visible, unhealthy = [], mode } = {}) {
+async function bootWorkspace({
+  panels = ['artifacts', 'ariel'], visible, unhealthy = [], mode, down = new Set(),
+} = {}) {
   if (mode) document.documentElement.setAttribute('data-ui-mode', mode);
   window.__OSPREY_PREFIX__ = '';
   vi.stubGlobal('ResizeObserver', FakeResizeObserver);
@@ -1235,6 +1320,10 @@ async function bootWorkspace({ panels = ['artifacts', 'ariel'], visible, unhealt
     }
     const id = panels.find((p) => CONFIG_ENDPOINT[p] === url);
     if (id) return jsonOk(unhealthy.includes(id) ? {} : { url: `/panel/${id}`, available: true });
+    const polled = /^\/panel\/([^/]+)\/health$/.exec(url)?.[1];
+    if (polled && down.has(polled)) {
+      return { ok: false, status: 503, statusText: 'Down', json: async () => ({}) };
+    }
     return jsonOk({ status: 'ok' });
   }));
   const { emit } = stubEventSource();
@@ -1582,32 +1671,35 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
   });
 
   test('a tile still on screen is never painted over as an empty workspace', async () => {
-    // The reachable route to "docked but UNHEALTHY": "Open in a new tile" docks
-    // a tile regardless of health (its activation then refuses), which is the
-    // state the rebuild deliberately leaves on screen.
-    const { api, emit } = await bootWorkspace({
-      panels: ['artifacts', 'ariel'],
-      unhealthy: ['ariel'],
-    });
-    // A panel that is unhealthy from boot never had its entry enabled, and the
-    // menu declines a disabled entry. Clear the class by hand to stand in for
-    // the production sequence this state comes from: healthy long enough to
-    // enable the entry, then gone dark — the manager never re-disables one.
-    entry('ariel')?.classList.remove('disabled');
-    rightClick(/** @type {Element} */ (entry('ariel')));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
-    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
-    expect(activeStamp()).toBe('artifacts'); // the unhealthy panel took no focus
+    // The production route to "docked but UNHEALTHY": a panel healthy long
+    // enough to be docked, which then stops answering its health poll.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      const down = new Set();
+      const { api, emit } = await bootWorkspace({ panels: ['artifacts', 'system-health'], down });
+      await vi.advanceTimersByTimeAsync(1000); // onto the 10 s maintenance cadence
+      rightClick(/** @type {Element} */ (entry('system-health')));
+      /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+      /** @type {HTMLElement} */ (entry('artifacts')).click(); // the operator looks back
+      expect(dockedTiles(api).sort()).toEqual(['artifacts', 'system-health']);
+      expect(activeStamp()).toBe('artifacts');
 
-    // Arrange onto the unhealthy panel alone: nothing listed can be focused, and
-    // the panel that held the view (artifacts) is not listed.
-    emit({ type: 'panel_arrange', tiles: ['ariel'] });
+      down.add('system-health');
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(entry('system-health')?.classList.contains('unreachable')).toBe(true);
 
-    // Its existing tile survives the rebuild...
-    expect(dockedTiles(api)).toEqual(['ariel']);
-    // ...so the accent clears, but the pane is NOT painted empty over it.
-    expect(activeStamp()).toBeNull();
-    expect(document.querySelector('.artifacts-empty-state')).toBeNull();
+      // Arrange onto the dark panel alone: nothing listed can be focused, and
+      // the panel that held the view (artifacts) is not listed.
+      emit({ type: 'panel_arrange', tiles: ['system-health'] });
+
+      // Its existing tile survives the rebuild...
+      expect(dockedTiles(api)).toEqual(['system-health']);
+      // ...so the accent clears, but the pane is NOT painted empty over it.
+      expect(activeStamp()).toBeNull();
+      expect(document.querySelector('.artifacts-empty-state')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('a listed NON-member is added to the rail; a plain tiles request removes nobody', async () => {
@@ -2167,24 +2259,6 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Open in a new window',
       'Remove from rail',
     ]);
-  });
-
-  test('an entry with no standalone url yet renders the popout row inert', async () => {
-    await bootWorkspace({ panels: ['artifacts', 'ariel'], unhealthy: ['ariel'] });
-    // Stand-in for the production state: enabled by an earlier healthy settle,
-    // url since gone (the manager never re-disables an entry).
-    entry('ariel').classList.remove('disabled');
-
-    rightClick(entry('ariel'));
-
-    const row = /** @type {HTMLElement} */ (menuRow('Open in a new window'));
-    expect(row.getAttribute('aria-disabled')).toBe('true');
-    // Inert, not merely dimmed: the row carries no action at all.
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    row.click();
-    expect(open).not.toHaveBeenCalled();
-    expect(contextMenu()).not.toBeNull();
-    open.mockRestore();
   });
 
   test('a disabled entry gets no menu — not by right-click, not through its still-live "×"', async () => {

@@ -77,6 +77,8 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {boolean} polling
  * @property {boolean} configLoaded
  * @property {string | null} [pendingUrl]
+ * @property {number} misses - consecutive unanswered polls since the panel last answered
+ * @property {number | null} missSince - epoch ms of the first of those misses, or null
  */
 
 /**
