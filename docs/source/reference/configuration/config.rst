@@ -464,8 +464,9 @@ The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the rail's two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, arrange
-the header and status bar, size the Simple-mode operator-chat pool, and set how
-often the file watchers re-read the tree.
+the header and status bar, size the Simple-mode operator-chat pool, bound how
+long a panel's own server gets to start, and set how often the file watchers
+re-read the tree.
 
 .. _feedback-configuration:
 
@@ -518,6 +519,13 @@ Documentation and feedback keys
    * - ``web.chat_max_sessions``
      - ``5``
      - Cap on concurrent operator-chat sessions.
+   * - ``web.sidecar_ready_timeout_s``
+     - ``60``
+     - Seconds the terminal waits for a panel that runs its own server (the
+       **JUPYTER** tab) to answer before it greys that tab. The terminal starts
+       serving once the panel answers or the wait passes, so a larger value also
+       lengthens a start in which the panel fails. A value that is not a
+       positive number is refused with a warning, and 60 applies.
 
 .. code-block:: yaml
 

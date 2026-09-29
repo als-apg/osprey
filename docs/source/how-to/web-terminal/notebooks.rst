@@ -200,10 +200,12 @@ When the tab fails to start
 ---------------------------
 
 A dimmed JUPYTER entry whose tooltip reads *JUPYTER failed to start:
-<reason>* means the sidecar did not start. The reason is one line: what went
-wrong, and the sidecar's last error line when it has one. The terminal log has
-the full error output. The rest of the terminal is unaffected — only that one
-tab is unavailable.
+<reason>* means the sidecar did not start. On a host where the first start is
+slow, the terminal gives up after 60 s. Set ``web.sidecar_ready_timeout_s``
+(:ref:`config-web`) to give the sidecar longer. The reason is one line: what
+went wrong, and the sidecar's last error line when it has one. The terminal log
+has the full error output. The rest of the terminal is unaffected — only that
+one tab is unavailable.
 
 Click the entry to start the sidecar again. The terminal runs one attempt at a
 time and waits as long as it does at startup; the tooltip reads *JUPYTER is
