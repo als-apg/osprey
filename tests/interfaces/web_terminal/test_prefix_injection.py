@@ -33,6 +33,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.testclient import WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 
 from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
@@ -207,9 +208,8 @@ class TestPrefixInjection:
         only ever receives bare ``/static/…`` / ``/design-system/…`` paths. A
         non-empty ``FastAPI(root_path=…)`` used to make Starlette's Mount
         routing expect the prefix in the path and 404 every asset — loading the
-        multi-user UI with no CSS/JS/fonts. This pins the bug fixed at the unit
-        level; ``tests/e2e/web_terminals/test_prefix_routing.py`` guards it end
-        to end.
+        multi-user UI with no CSS/JS/fonts. The last request pins the other
+        half: the prefixed form is no route.
         """
         cfg = {"watch_dir": str(workspace_dir)}
         with (
@@ -327,7 +327,7 @@ def _recv_json(ws, msg_type: str, max_frames: int = 30) -> dict:
 
 @pytest.fixture
 def ws_client(workspace_dir, tmp_path, monkeypatch):
-    """The app under ``/u/alice``, with no PTY or transcript poller behind it.
+    """The app under ``/u/alice``, with no PTY behind it.
 
     ``mode=resume`` with an id that has no transcript on disk is answered
     ``transcript_missing`` before any spawn, so the frame the handshake test
@@ -338,10 +338,6 @@ def ws_client(workspace_dir, tmp_path, monkeypatch):
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session",
-            return_value=None,
         ),
     ):
         app = create_app(shell_command=["echo"], project_dir=str(tmp_path))
@@ -369,4 +365,5 @@ class TestWebSocketUnderPrefix:
         with pytest.raises(WebSocketDisconnect) as closed:
             with ws_client.websocket_connect(url):
                 pass
+        assert not isinstance(closed.value, WebSocketDenialResponse)
         assert closed.value.code == 1000
