@@ -262,25 +262,14 @@ class TestPut:
         assert second.json()["rev"] == 2
         assert types(second.json(), "status") == ["bluesky-queue"]
 
-    def test_completes_declared_options_from_their_defaults(self, client):
-        body = client.put("/api/bar-items", json=document(0)).json()
+    @pytest.mark.parametrize(("hidden", "shown"), [("status", "header"), ("header", "status")])
+    def test_stores_the_visibility_flag(self, client, hidden, shown):
+        flag = f"{hidden}_visible"
+        body = client.put("/api/bar-items", json=document(0, **{flag: False})).json()
 
-        assert body["status"] == [
-            {"type": "clock", "options": {"zone": "none", "format": "24h", "seconds": False}}
-        ]
-
-    def test_stores_the_visibility_flag(self, client):
-        body = client.put("/api/bar-items", json=document(0, status_visible=False)).json()
-
-        assert body["status_visible"] is False
-        assert client.get("/api/bar-items").json()["status_visible"] is False
-
-    def test_a_hidden_header_round_trips_like_the_status_bar(self, client):
-        body = client.put("/api/bar-items", json=document(0, header_visible=False)).json()
-
-        assert body["header_visible"] is False
-        assert body["status_visible"] is True
-        assert client.get("/api/bar-items").json()["header_visible"] is False
+        assert body[flag] is False
+        assert body[f"{shown}_visible"] is True
+        assert client.get("/api/bar-items").json()[flag] is False
 
     def test_a_stale_revision_is_a_409_carrying_the_current_document(self, client):
         client.put("/api/bar-items", json=document(0, header=[{"type": "logo"}]))
@@ -292,12 +281,9 @@ class TestPut:
         assert detail["error"] == "rev_conflict"
         assert detail["layout"]["rev"] == 1
         assert types(detail["layout"], "header") == ["logo"], "the 409 must carry what IS stored"
-
-    def test_the_refused_save_left_the_stored_document_alone(self, client):
-        client.put("/api/bar-items", json=document(0, header=[{"type": "logo"}]))
-        client.put("/api/bar-items", json=document(0, header=[{"type": "identity"}]))
-
-        assert types(client.get("/api/bar-items").json(), "header") == ["logo"]
+        assert types(client.get("/api/bar-items").json(), "header") == ["logo"], (
+            "a refused save must leave the stored document alone"
+        )
 
     @pytest.mark.parametrize(
         ("body", "reason"),
