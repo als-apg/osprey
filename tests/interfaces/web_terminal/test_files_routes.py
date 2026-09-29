@@ -63,13 +63,15 @@ class TestFileContentTraversal:
         assert data["extension"] == Path(rel).suffix
         assert data["size"] == len("# hello")
 
-    def test_encoded_dotdot_is_blocked_with_403(self, client, tmp_path):
-        """An encoded ``..`` reaches the route decoded; the file it names exists
+    @pytest.mark.parametrize("escape", ["..%2Fsecret.txt", "%2E%2E%2Fsecret.txt"])
+    def test_encoded_dotdot_is_blocked_with_403(self, client, tmp_path, escape):
+        """An encoded ``../`` reaches the route decoded; the file it names exists
         outside the workspace, so only the containment check stands between the
-        request and its bytes."""
+        request and its bytes. (A literal ``../`` is normalized by the client and
+        never reaches the route.)"""
         (tmp_path / "secret.txt").write_text("top secret")
 
-        resp = client.get("/api/files/content/..%2Fsecret.txt")
+        resp = client.get(f"/api/files/content/{escape}")
 
         assert resp.status_code == 403
         assert resp.json()["detail"] == "Path traversal blocked"
