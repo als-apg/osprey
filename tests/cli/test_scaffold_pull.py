@@ -722,6 +722,7 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     for path in written:
         relative = path.relative_to(tmp_path)
         assert path.read_bytes() == (control_assistant_root / relative).read_bytes()
+    assert check_indexes(tmp_path / "data" / "facility_knowledge") == []
 
 
 def test_apply_pull_writes_nothing_when_the_plan_holds_a_refusal(
