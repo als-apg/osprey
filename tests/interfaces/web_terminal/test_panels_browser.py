@@ -466,18 +466,6 @@ def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
         page.evaluate(shield, "auto")
 
 
-def _reset_dock_layout(page: Page) -> None:
-    """Invoke the exported resetDockLayout() on the live dock module singleton.
-
-    A dynamic import of the same module URL app.js already loaded returns the same
-    cached instance, so this drives the real DockviewApi — the seam a "Reset
-    layout" control binds to.
-    """
-    page.evaluate(
-        "async () => { const m = await import('/static/js/dock-workspace.js'); m.resetDockLayout(); }"
-    )
-
-
 def _dock_locked(page: Page) -> bool:
     return page.evaluate(
         "async () => { const m = await import('/static/js/dock-workspace.js');"
@@ -1376,12 +1364,36 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         page.close()
 
 
-def test_reset_restores_default_layout(tmp_path, chromium_browser):
-    """resetDockLayout() clears a custom arrangement back to the default.
+def _reset_layout_from_palette(page: Page) -> None:
+    """Run "Reset layout" from the command palette, as an operator would."""
+    _open_palette(page)
+    _palette_query(page, "reset layout")
+    row = _palette_row(page, "Reset layout")
+    expect(row).to_have_count(1, timeout=5_000)
+    row.click()
+    expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
 
-    Rearrange (terminal → left), then reset: the grid returns to the default
-    split (service tile left, terminal right) and the reset survives a
-    reload (the stored value is the default, not the discarded custom one).
+
+def _reset_layout_from_terminal_menu(page: Page) -> None:
+    """Run "Reset layout" from the terminal tile header's right-click menu."""
+    page.locator(".tile-tab-terminal .terminal-label").click(button="right")
+    expect(_context_menu(page)).to_have_count(1, timeout=5_000)
+    _menu_row(page, "Reset layout").click()
+    expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [_reset_layout_from_palette, _reset_layout_from_terminal_menu],
+    ids=["palette", "terminal-menu"],
+)
+def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
+    """The "Reset layout" control clears a custom arrangement back to the default.
+
+    Offered in the command palette and on the terminal tile's menu. Rearrange
+    (terminal → left), then reset: the grid returns to the default split
+    (service tile left, terminal right) and the reset survives a reload (the
+    stored value is the default, not the discarded custom one).
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1403,12 +1415,23 @@ def test_reset_restores_default_layout(tmp_path, chromium_browser):
             first_group,
             target_position={"x": 8, "y": fb["height"] / 2},
         )
-        page.wait_for_timeout(600)
-
-        # Act — reset.
-        _reset_dock_layout(page)
+        # The custom arrangement really landed — a reset from the default would
+        # prove nothing.
         page.wait_for_function(
-            "() => document.querySelectorAll('.dv-groupview').length === 2", timeout=5_000
+            """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
+                const term = gs.find(g => g.querySelector('.terminal-header'));
+                return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
+            timeout=5_000,
+        )
+        page.wait_for_timeout(500)
+
+        # Act — reset through the operator's control.
+        reset(page)
+        page.wait_for_function(
+            """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
+                const term = gs.find(g => g.querySelector('.terminal-header'));
+                return gs.length === 2 && term && Math.max(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
+            timeout=5_000,
         )
 
         # Assert — default: the service tab-stack on the left, terminal right.
