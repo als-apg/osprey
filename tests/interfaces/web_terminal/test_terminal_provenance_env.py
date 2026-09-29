@@ -18,8 +18,8 @@ from types import SimpleNamespace
 from osprey.interfaces.web_terminal.routes.websocket import _build_extra_env
 
 
-def _ws(hooks_env=None):
-    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(hooks_env=hooks_env or {})))
+def _ws():
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
 
 
 def test_new_session_injects_the_telemetry_pair():
@@ -48,12 +48,6 @@ def test_switch_session_stamps_the_key_without_a_telemetry_id():
     env = _build_extra_env(_ws(), claude_session_id="sid", telemetry_session_id=None)
     assert env["OSPREY_SESSION_ID"] == "sid"
     assert "OSPREY_TELEMETRY_SESSION_ID" not in env
-
-
-def test_hooks_env_still_merged():
-    env = _build_extra_env(_ws(hooks_env={"OSPREY_HOOK_X": "1"}), None, "t")
-    assert env["OSPREY_HOOK_X"] == "1"
-    assert env["OSPREY_TELEMETRY_SESSION_ID"] == "t"
 
 
 def test_every_pty_session_is_marked_expert_surface():

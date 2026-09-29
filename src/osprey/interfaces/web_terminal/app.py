@@ -2521,10 +2521,6 @@ def _create_lifespan(
         _launch_enabled_panel_servers(app, enabled_panels)
         await _launch_enabled_sidecars(app, enabled_panels)
 
-        # Hook env placeholder — hooks read config.yml directly for
-        # hot-reloadable settings (no env var propagation needed).
-        app.state.hooks_env = {}
-
         # Shared httpx client for the panel reverse proxy.
         # trust_env=False prevents routing through the corporate HTTP proxy
         # (e.g. Squid) — all panel backends are container-local or on the
