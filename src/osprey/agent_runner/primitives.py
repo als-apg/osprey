@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,6 +50,7 @@ try:
 except ImportError:
     HAS_SDK = False
 
+from osprey.agent_runner.errors import McpNotReadyError
 from osprey.agent_runner.events import (
     AgentEvent,
     TextEvent,
@@ -751,6 +752,32 @@ def build_agent_options(
     return options
 
 
+def _absorb_message(
+    message: object,
+    workflow: SDKWorkflowResult,
+    pending_tools: dict[str, ToolTrace],
+) -> None:
+    """Fold one message of a response stream into *workflow*.
+
+    System messages and the result message are kept as they arrived; every
+    other message goes through :func:`~osprey.agent_runner.events.translate_message`
+    and its records are folded in by :func:`_record_event`.
+
+    Args:
+        message: One message from the SDK's response stream.
+        workflow: Result accumulator.
+        pending_tools: ``tool_use_id`` → the trace awaiting its result, shared
+            across the messages of one response stream.
+    """
+    if isinstance(message, SystemMessage):
+        workflow.system_messages.append(message)
+    elif isinstance(message, ResultMessage):
+        workflow.result = message
+    else:
+        for event in translate_message(message):
+            _record_event(event, workflow.text_blocks, workflow.tool_traces, pending_tools)
+
+
 async def _drain_response(
     client: ClaudeSDKClient,
     workflow: SDKWorkflowResult,
@@ -772,13 +799,25 @@ async def _drain_response(
     # purely local to this drain, reset for each response stream.
     pending_tools: dict[str, ToolTrace] = {}
     async for message in client.receive_response():
-        if isinstance(message, SystemMessage):
-            workflow.system_messages.append(message)
-        elif isinstance(message, ResultMessage):
-            workflow.result = message
-        else:
-            for event in translate_message(message):
-                _record_event(event, workflow.text_blocks, workflow.tool_traces, pending_tools)
+        _absorb_message(message, workflow, pending_tools)
+
+
+async def _send_turn(client: ClaudeSDKClient, prompt: str | Sequence[Mapping[str, Any]]) -> None:
+    """Send one user turn on *client*.
+
+    A string is sent as the turn's text. A sequence of content blocks (text,
+    images, …) is sent as the content of a single user message.
+    """
+    if isinstance(prompt, str):
+        await client.query(prompt)
+        return
+
+    content = list(prompt)
+
+    async def _one_user_message() -> AsyncIterator[dict[str, Any]]:
+        yield {"type": "user", "message": {"role": "user", "content": content}}
+
+    await client.query(_one_user_message())
 
 
 # ---------------------------------------------------------------------------
@@ -937,3 +976,85 @@ def mcp_snapshot_summary(servers: list[Any]) -> list[dict[str, Any]]:
             }
         )
     return summary
+
+
+async def _ready_mcp(
+    client: ClaudeSDKClient,
+    project_dir: Path,
+    *,
+    await_mcp_servers: Collection[str] | None,
+    require_mcp_servers: Collection[str] = (),
+    on_mcp_status: Callable[[list[dict[str, Any]]], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Hold the first turn until the expected MCP servers are terminal.
+
+    The expected set is the project's declared servers when *await_mcp_servers*
+    is ``None``, else exactly the names given. An empty set skips the barrier:
+    an empty expectation can never be satisfied, so polling it only delays the
+    run to the readiness deadline.
+
+    Once the barrier ends, *on_mcp_status* receives the snapshot, and only then
+    is the outcome judged. An expected server that is not connected refuses the
+    run when *require_mcp_servers* names it — the agent's toolset is fixed at
+    its first turn, so a run started without a server it requires would run
+    without its tools — and is logged otherwise. A required server that is not
+    expected is never waited for, so it is not refused.
+
+    Args:
+        client: An open ``ClaudeSDKClient``, before its first turn.
+        project_dir: The project whose ``.mcp.json`` declares the servers.
+        await_mcp_servers: The servers to wait for; ``None`` for the declared
+            ones.
+        require_mcp_servers: The servers without which the run is refused.
+        on_mcp_status: Receives the snapshot the barrier ended on.
+
+    Returns:
+        That snapshot; ``[]`` when the barrier was skipped.
+
+    Raises:
+        McpNotReadyError: When a required, expected server is not connected.
+    """
+    expected = (
+        expected_mcp_servers(project_dir) if await_mcp_servers is None else set(await_mcp_servers)
+    )
+    if not expected:
+        logger.debug("No MCP servers expected for %s; skipping readiness barrier", project_dir)
+        if on_mcp_status is not None:
+            on_mcp_status([])
+        return []
+
+    servers: list[dict[str, Any]] = await await_mcp_ready(client, expected)
+    if on_mcp_status is not None:
+        on_mcp_status(servers)
+
+    connected = mcp_servers_connected(servers)
+    missing = expected - connected
+    missing_required = sorted(missing & set(require_mcp_servers))
+    if missing_required:
+        by_name = {s.get("name"): s for s in servers}
+
+        def _describe(name: str) -> str:
+            entry = by_name.get(name) or {}
+            status = entry.get("status") or "not reported"
+            error = entry.get("error")
+            return f"{name} ({status}: {error})" if error else f"{name} ({status})"
+
+        detail = ", ".join(_describe(name) for name in missing_required)
+        raise McpNotReadyError(
+            f"MCP server(s) this run requires were not connected within "
+            f"{MCP_READY_TIMEOUT_S:.0f}s of agent start: {detail}. The agent's toolset "
+            "is fixed at its first turn, so the run was refused rather than started "
+            "without them.",
+            servers=servers,
+            missing=sorted(missing),
+        )
+    if missing:
+        logger.warning(
+            "MCP servers not connected before first turn: %s (expected %s) — their "
+            "tools will be absent for this run",
+            sorted(missing),
+            sorted(expected),
+        )
+    else:
+        logger.info("MCP ready before first turn: %s", sorted(connected))
+    return servers
