@@ -22,6 +22,7 @@ import json
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from osprey.services.channel_finder.core.exceptions import (
     AddressPatternError,
@@ -335,7 +336,7 @@ def build_database(
             print(f"  \u2713 {family_name}: {len(family_channels)} channels \u2192 template")
 
     # Build database with metadata
-    db = {
+    db: dict[str, Any] = {
         "_metadata": {
             "generated_from": (
                 str(csv_path.relative_to(Path.cwd()))

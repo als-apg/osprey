@@ -133,6 +133,15 @@ class TestGenerateNamesBatch:
         _patch_completion(monkeypatch, ChannelNames(names=["OnlyOne"]))
         assert namer.generate_names_batch(channels) == ["s1", "s2"]
 
+    def test_unexpected_result_type_falls_back_to_short_names(
+        self, namer: LLMChannelNamer, monkeypatch, caplog
+    ):
+        channels = [{"short_name": "s1", "description": "d1"}]
+        _patch_completion(monkeypatch, "text")
+        with caplog.at_level("ERROR", logger=mod.logger.name):
+            assert namer.generate_names_batch(channels) == ["s1"]
+        assert "expected ChannelNames, got str" in caplog.text
+
     def test_llm_exception_falls_back_to_short_names(self, namer: LLMChannelNamer, monkeypatch):
         channels = [{"short_name": "s1", "description": "d1"}]
 
@@ -208,6 +217,18 @@ class TestResolveDuplicates:
 
         _patch_completion(monkeypatch, boom)
         assert namer.resolve_duplicates(channels, names) == ["Dup", "Dup"]
+
+    def test_duplicate_resolution_unexpected_result_keeps_original(
+        self, namer: LLMChannelNamer, monkeypatch, capsys
+    ):
+        channels = [
+            {"short_name": "a", "description": "d1"},
+            {"short_name": "b", "description": "d2"},
+        ]
+        names = ["Dup", "Dup"]
+        _patch_completion(monkeypatch, "text")
+        assert namer.resolve_duplicates(channels, names) == ["Dup", "Dup"]
+        assert "expected ChannelNames, got str" in capsys.readouterr().out
 
     def test_resolution_prompt_lists_groups_and_counts(self, namer: LLMChannelNamer):
         groups = {
