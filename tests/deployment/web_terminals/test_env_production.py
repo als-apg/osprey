@@ -2134,3 +2134,85 @@ def test_personas_needing_telemetry_vars_maps_each_persona_to_its_list(tmp_path)
         "ops": ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME"),
         "physics": ("PHYSICS_COLLECTOR_TOKEN",),
     }
+
+
+# ---------------------------------------------------------------------------
+# The collector's bearer token is required from the env chain
+#
+# Every exporting terminal receives it through its own compose environment, so
+# the chain must carry it; `.env.users` never does.
+# ---------------------------------------------------------------------------
+
+
+def _token_block(**overrides):
+    return _collector_block(auth={"token_env": "OTLP_COLLECTOR_TOKEN"}, **overrides)
+
+
+def test_a_collector_token_missing_from_the_chain_refuses_the_deploy(tmp_path, monkeypatch):
+    """The refusal names the variable and the key that names it."""
+    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(_write_block_persona(tmp_path, _token_block()))
+
+    with pytest.raises(RuntimeError, match="OTLP_COLLECTOR_TOKEN") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert "claude_code.telemetry.auth.token_env (persona 'operator')" in message
+    assert "telemetry collector's bearer token" in message
+    assert "never through .env.users" in message
+    assert not (tmp_path / env_production.USERS_ENV_FILENAME).exists()
+
+
+def test_a_collector_token_in_the_chain_is_not_copied_into_env_users(tmp_path):
+    """Required from the chain, delivered by compose, never written to the shared file."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_COLLECTOR_TOKEN": "c0llect0r-t0ken"},
+    )
+    config = _catalog_config(_write_block_persona(tmp_path, _token_block()))
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    raw_text = result.read_text(encoding="utf-8")
+    assert "OTLP_COLLECTOR_TOKEN" not in raw_text
+    assert "c0llect0r-t0ken" not in raw_text
+
+
+def test_a_persona_with_telemetry_off_is_asked_for_no_collector_token(tmp_path):
+    """A block the builder discards presents no token."""
+    config = _catalog_config(_write_block_persona(tmp_path, _token_block(enabled=False)))
+
+    gap = env_production._required_vars_missing_from_chain(config, tmp_path)
+
+    assert gap.collector_tokens == frozenset()
+    assert "OTLP_COLLECTOR_TOKEN" not in gap.missing
+
+
+def test_the_openobserve_refusal_set_is_unchanged_by_the_collector_walk(tmp_path):
+    """The store persona's gap and users file carry nothing of the collector walk."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, password="${ZO_ROOT_USER_PASSWORD}")
+    )
+
+    gap = env_production._required_vars_missing_from_chain(config, tmp_path)
+
+    assert gap.missing == {
+        "ZO_ROOT_USER_PASSWORD": "claude_code.telemetry.openobserve.password (persona 'operator')"
+    }
+    assert gap.telemetry == gap.telemetry_store == frozenset({"ZO_ROOT_USER_PASSWORD"})
+    assert gap.collector_tokens == frozenset()
+
+    _write_dotenv(tmp_path / ".env", {**_PINNED_CHAIN, "ZO_ROOT_USER_PASSWORD": "root-pw"})
+    result = env_production.ensure_env_production(config, tmp_path)
+    lines = [
+        line
+        for line in result.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert lines == [
+        "ANTHROPIC_API_KEY=cc-secret",
+        "ZO_INGEST_USER_EMAIL=ingest-account@example.org",
+        "TZ=UTC",
+    ]
