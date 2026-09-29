@@ -1,9 +1,10 @@
-"""The demo generator's ``limits.yaml``.
+"""The demo generator's ``limits.yaml`` and ``measurement/SR.yaml``.
 
 The demo limits three setpoints, each record teaching one shape, and leaves
-every other channel to the deployment's limits mode. These tests read the file
-back as the facility loader parses it and hold it to the generated records and
-the limits golden.
+every other channel to the deployment's limits mode. Its measurement file
+names the deck machine's family groups and instruments and pyAML's step and
+settle keys. These tests read both files back as the facility loader parses
+them and hold them to the generated records and the limits golden.
 """
 
 from __future__ import annotations
@@ -15,11 +16,14 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from osprey.facility.sources import slot_names
 from tests.facility.test_cf_view_parity import load_golden
 from tests.facility.test_generator_records import (
+    GENERATOR,
     generated,
     generated_files,
     records_by_id,
+    wired_devices,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -138,3 +142,64 @@ def test_limits_golden_is_what_its_reproduce_command_writes() -> None:
     assert json.loads(golden_path.read_text(encoding="utf-8"))["_reproduce"] == (
         "uv run python scripts/facility_demo/_limits.py --write tests/facility/golden/limits.json"
     )
+
+
+# --- measurement -----------------------------------------------------------------
+
+
+def test_measurement_allows_the_five_kinds() -> None:
+    assert measurement()["kinds"] == [
+        "orm",
+        "dispersion",
+        "trm",
+        "crm",
+        "chromaticity_monitor",
+    ]
+
+
+def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member() -> None:
+    groups = records_by_id("group")
+    wired = wired_devices()
+    named = measurement()["groups"]
+    assert sorted(named) == ["bpm", "hcor", "quad", "sext", "vcor"]
+    for role, group_id in named.items():
+        machine, _, family = group_id.partition("/")
+        assert machine == "SR" and family, f"{role}: {group_id} is not an SR/<family> group"
+        assert group_id in groups, f"{role}: {group_id} is not a generated group"
+        assert set(groups[group_id]["members"]) & wired, f"{role}: {group_id} has no wired member"
+
+
+def test_measurement_instruments_are_served_channels() -> None:
+    channels = records_by_id("channel")
+    instruments = measurement()["instruments"]
+    assert instruments == {
+        "tune": "SR:DIAG:TUNE:X",
+        "chromaticity": "SR:DIAG:CHROM:X",
+        "rf": "SR:RF:CAVITY:01:FREQUENCY:SP",
+    }
+    for address in instruments.values():
+        assert address in channels
+    assert channels[instruments["rf"]].get("role") == "setpoint"
+
+
+def test_measurement_carries_every_pyaml_step_and_settle_key() -> None:
+    document = measurement()
+    tuning = {key: value for key, value in document.items() if key not in _MEASUREMENT_ROLES}
+    assert set(tuning) == slot_names("Measurement") - _MEASUREMENT_ROLES
+    assert tuning == {
+        "n_step": 5,
+        "n_avg_meas": 1,
+        "fit_order": 2,
+        "singular_values": 16,
+        "sleep_between_step": 0.0,
+        "sleep_between_meas": 0.0,
+        "corrector_delta": 1.0e-5,
+        "quad_delta": 1.0e-3,
+        "sextu_delta": 1.0e-2,
+        "frequency_delta": 100.0,
+    }
+
+
+def test_generator_writes_both_files() -> None:
+    assert GENERATOR.is_file()
+    assert {"limits.yaml", "measurement/SR.yaml"} <= set(generated_files())
