@@ -29,8 +29,10 @@ from osprey.utils.logger import get_logger
 logger = get_logger("deployment.runtime")
 
 #: How long each detection probe (``<runtime> compose version``, ``<runtime> ps``)
-#: may take before the runtime is treated as not answering.
-_DETECTION_PROBE_TIMEOUT = 5
+#: may take before the runtime is treated as not answering. A runtime that is not
+#: installed or not running fails its probe at once, so the cap only bounds a
+#: daemon that hangs; it leaves room for a live daemon answering on a loaded host.
+_DETECTION_PROBE_TIMEOUT = 30
 
 #: Memoized detections, keyed on the runtimes a call would probe — which folds in
 #: both ``CONTAINER_RUNTIME`` and the config's ``container_runtime``. Keying on
@@ -647,7 +649,9 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
         runtime = cmd[0]  # 'docker' or 'podman'
 
         # Try a simple ps command to verify daemon is accessible
-        result = subprocess.run([runtime, "ps"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            [runtime, "ps"], capture_output=True, text=True, timeout=_DETECTION_PROBE_TIMEOUT
+        )
 
         if result.returncode == 0:
             return True, ""
