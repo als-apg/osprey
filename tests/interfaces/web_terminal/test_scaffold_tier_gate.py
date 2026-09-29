@@ -19,9 +19,10 @@ Three properties are asserted directly, because each can regress on its own:
 * **The gate is FIRST.** It runs ahead of every service call, so a disabled
   deployment never constructs the gallery service, never touches disk, and
   never reports a protected-set refusal in place of the posture refusal.
-* **Absent means enabled.** An app with no ``scaffold_write_enabled`` on
-  ``app.state`` (every route unit suite, and any deployment that never mentions
-  the key) behaves byte-for-byte as it did before this key existed.
+* **Absent means refused.** An app with no ``scaffold_write_enabled`` on
+  ``app.state`` never ran the lifespan that decides the tier, and it refuses
+  every write exactly as a disabled one does. A deployment that never mentions
+  the key still gets writes: the lifespan resolves the absent key to enabled.
 * **The lifespan resolves it once.** ``create_app`` reads the key into
   ``app.state.scaffold_write_enabled``; a quoted ``"false"`` is honoured as the
   boolean a human meant, and an unreadable config fails OPEN — the shipped
@@ -71,8 +72,8 @@ def _app(tmp_path, *, write_enabled):
 
     ``write_enabled`` of ``None`` leaves the attribute OFF ``app.state``
     entirely — the state of every app built without the web terminal's
-    lifespan, and the case that proves the routes default to enabled rather
-    than to whatever a fixture happened to set.
+    lifespan, and the case that proves the routes refuse an undecided tier
+    rather than inherit whatever a fixture happened to set.
     """
     application = bare_route_app(scaffold_router, project_cwd=str(tmp_path))
     register_scaffold_conflict_handlers(application)
@@ -93,7 +94,7 @@ def enabled_client(tmp_path):
 
 @pytest.fixture
 def default_client(tmp_path):
-    """No ``scaffold_write_enabled`` on state at all — the absent-key posture."""
+    """No ``scaffold_write_enabled`` on state at all — an app that made no tier decision."""
     return TestClient(_app(tmp_path, write_enabled=None))
 
 
@@ -166,20 +167,26 @@ def _seed_reads(service):
 # ---- Disabled: the write surface is closed ----
 
 
+#: The two postures that refuse: configured off, and never decided at all.
+REFUSING_CLIENTS = ["disabled_client", "default_client"]
+
+
 class TestDisabledRefusesEveryWrite:
     @pytest.mark.usefixtures("svc")
-    def test_refusal_names_the_key_that_produced_it(self, disabled_client):
+    @pytest.mark.parametrize("fixture_name", REFUSING_CLIENTS)
+    def test_refusal_names_the_key_that_produced_it(self, fixture_name, request):
         """An operator who meets the refusal must learn which switch made it."""
-        for label, call in _write_requests(disabled_client):
+        for label, call in _write_requests(request.getfixturevalue(fixture_name)):
             resp = call()
             assert resp.status_code == 403, f"{label} answered {resp.status_code}"
             detail = resp.json()["detail"]
             assert "scaffold" in detail.lower(), label
             assert SCAFFOLD_WRITE_KEY in detail, label
 
-    def test_the_service_is_never_constructed(self, disabled_client, svc):
+    @pytest.mark.parametrize("fixture_name", REFUSING_CLIENTS)
+    def test_the_service_is_never_constructed(self, fixture_name, request, svc):
         """The gate runs FIRST — ahead of every service call and every disk touch."""
-        for _label, call in _write_requests(disabled_client):
+        for _label, call in _write_requests(request.getfixturevalue(fixture_name)):
             call()
         assert svc.ctor.call_count == 0
         assert svc.create_artifact.call_count == 0
@@ -189,22 +196,22 @@ class TestDisabledRefusesEveryWrite:
         assert svc.register_untracked.call_count == 0
         assert svc.delete_untracked.call_count == 0
 
-    def test_reads_are_untouched(self, disabled_client, svc):
+    @pytest.mark.parametrize("fixture_name", REFUSING_CLIENTS)
+    def test_reads_are_untouched(self, fixture_name, request, svc):
         """Looking is not authoring: every read route still answers 200."""
         _seed_reads(svc)
-        for label, call in _read_requests(disabled_client):
+        for label, call in _read_requests(request.getfixturevalue(fixture_name)):
             resp = call()
             assert resp.status_code == 200, f"{label} answered {resp.status_code}"
 
 
-# ---- Enabled and absent: the shipped posture, unchanged ----
+# ---- Enabled: the shipped posture ----
 
 
-class TestEnabledAndAbsentServeWrites:
-    @pytest.mark.parametrize("fixture_name", ["enabled_client", "default_client"])
-    def test_writes_still_land(self, fixture_name, request, svc):
+class TestEnabledServesWrites:
+    def test_writes_still_land(self, enabled_client, svc):
         """Every write verb reaches its service call and answers 200-shaped."""
-        client = request.getfixturevalue(fixture_name)
+        client = enabled_client
         svc.create_artifact.return_value = {"status": "created"}
         svc.scaffold_override.return_value = {"status": "claimed"}
         svc.save_override.return_value = {"status": "saved"}

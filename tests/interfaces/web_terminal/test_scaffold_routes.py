@@ -23,15 +23,15 @@ from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.routes import router as full_router
 from osprey.interfaces.web_terminal.routes.scaffold import router
 
+from .conftest import bare_route_app
+
 _SVC = "osprey.interfaces.web_terminal.routes.scaffold.ScaffoldGalleryService"
 
 
 @pytest.fixture
 def app(tmp_path):
-    application = FastAPI()
-    application.include_router(router)
+    application = bare_route_app(router, project_cwd=str(tmp_path), scaffold_write_enabled=True)
     register_scaffold_conflict_handlers(application)
-    application.state.project_cwd = str(tmp_path)
     return application
 
 

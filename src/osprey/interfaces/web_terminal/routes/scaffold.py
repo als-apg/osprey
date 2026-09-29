@@ -61,13 +61,17 @@ def _require_scaffold_writes(request: Request) -> None:
     Read routes are deliberately not gated. Seeing what the agent is running is
     not authoring it, and a tier that cannot edit still has to be able to look.
 
+    An app with no ``scaffold_write_enabled`` on its state never ran the
+    lifespan that decides the tier, so it is refused like a closed one: a
+    privilege boundary that nobody resolved stays shut.
+
     Args:
         request: Incoming request carrying ``app.state``.
 
     Raises:
         HTTPException: 403 when gallery writes are disabled for this deployment.
     """
-    if not getattr(request.app.state, "scaffold_write_enabled", True):
+    if not getattr(request.app.state, "scaffold_write_enabled", False):
         raise HTTPException(
             status_code=403,
             detail=(

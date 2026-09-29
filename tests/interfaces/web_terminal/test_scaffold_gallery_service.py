@@ -31,6 +31,8 @@ from osprey.interfaces.web_terminal.scaffold_gallery_service import (
 )
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 
+from .conftest import bare_route_app
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -2222,16 +2224,15 @@ class TestRouteRefusals:
     """
 
     def _client(self, project_dir: Path):
-        from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
         from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
         from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
 
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
+        app = bare_route_app(
+            scaffold_routes.router, project_cwd=str(project_dir), scaffold_write_enabled=True
+        )
         register_scaffold_conflict_handlers(app)
-        app.state.project_cwd = str(project_dir)
         return TestClient(app)
 
     @pytest.mark.usefixtures("volume_dir")
