@@ -281,7 +281,9 @@ async def _forward_write(
 
     # multi_items(), not a dict: repeated query keys are preserved exactly as
     # they arrived. The lane addresses the sidecar and is stripped.
-    params = [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+    params = httpx.QueryParams(
+        [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+    )
 
     # Passed through only when set: httpx reads an explicit ``timeout=None`` as
     # "no timeout at all", not as "use the client's default".
