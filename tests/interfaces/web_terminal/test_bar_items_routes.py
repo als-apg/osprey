@@ -347,17 +347,6 @@ class TestPut:
         assert response.status_code == 422
         assert error_of(response) == "malformed"
 
-    def test_an_unwritable_store_is_a_503(self, client):
-        with patch(
-            "osprey.interfaces.web_terminal.routes.bar_items.save_layout",
-            side_effect=OSError("read-only file system"),
-        ):
-            response = client.put("/api/bar-items", json=document(0))
-
-        assert response.status_code == 503
-        assert error_of(response) == "store_write_failed"
-        assert client.get("/api/bar-items").json()["rev"] == 0, "the cache must not have moved"
-
     def test_a_deployment_with_no_store_is_a_503(self, client):
         client.app.state.bar_items_dir = None
 
@@ -502,19 +491,6 @@ class TestDelete:
         assert response.status_code == 200
         assert response.json() == default
 
-    def test_a_document_that_cannot_be_removed_is_a_503(self, client):
-        client.put("/api/bar-items", json=document(0, header=[{"type": "identity"}]))
-
-        with patch(
-            "osprey.interfaces.web_terminal.routes.bar_items.reset_layout",
-            side_effect=OSError("read-only file system"),
-        ):
-            response = client.delete("/api/bar-items")
-
-        assert response.status_code == 503
-        assert error_of(response) == "store_write_failed"
-        assert types(client.get("/api/bar-items").json(), "header") == ["identity"]
-
     def test_a_deployment_with_no_store_is_a_503(self, client):
         client.app.state.bar_items_dir = None
 
@@ -561,6 +537,7 @@ class TestARealReadOnlyStore:
         assert response.status_code == 503
         assert error_of(response) == "store_write_failed"
         assert not (readonly_store / LAYOUT_FILENAME).exists()
+        assert client.get("/api/bar-items").json()["rev"] == 0, "the cache must not have moved"
 
     def test_removing_a_stored_document_from_it_is_a_503(self, client, store_dir):
         client.put("/api/bar-items", json=document(0, header=[{"type": "identity"}]))
@@ -852,6 +829,9 @@ class TestALayoutSaveIsNotAFileChange:
     ):
         """The steady state: the store directory exists, so the save touches
         nothing but the document and its atomic-write temp file."""
+        # The premise: with the store outside the watched tree, concealment
+        # would not be what keeps the frames away.
+        assert watched_client.app.state.bar_items_rel is not None
         queue = watched_client.app.state.broadcaster.subscribe()
         # Create the store, then let its frames drain: creating a directory
         # modifies its parent, and that parent frame belongs to the first-save
