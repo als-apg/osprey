@@ -32,12 +32,18 @@ properties asserted here:
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 from pathlib import Path
 
 import pytest
 
-from osprey.agent_runner.claude_state import CLAUDE_STATE_FILENAME, seed_claude_state
+from osprey.agent_runner.claude_state import (
+    CLAUDE_CONFIG_VOLUME_SUFFIX,
+    CLAUDE_STATE_FILENAME,
+    seed_claude_state,
+)
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -221,3 +227,59 @@ def test_render_without_config_still_seeds_onboarding_and_trust(config_dir, tmp_
     assert state["hasCompletedOnboarding"] is True
     assert "lastOnboardingVersion" not in state
     assert state["projects"][str(render)]["hasTrustDialogAccepted"] is True
+
+
+# ── the per-user volume that holds this state ────────────────────────────────
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SUFFIX_OWNER = _REPO_ROOT / "src" / "osprey" / "agent_runner" / "claude_state.py"
+
+
+def test_claude_config_volume_suffix_is_the_deployed_spelling():
+    """Deployed hosts hold each user's state volume under exactly this name, so
+    this literal changes only alongside a migration of those volumes, never on
+    its own."""
+    assert CLAUDE_CONFIG_VOLUME_SUFFIX == "-claude-config"
+
+
+def _docstring_constants(tree: ast.AST) -> set[int]:
+    return {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+
+
+def test_no_other_module_spells_the_volume_suffix():
+    """Every producer of a per-user state-volume name reads the one constant.
+
+    Python sources are scanned for string constants (f-string parts included),
+    docstrings excepted; templates are scanned line by line with Jinja comments
+    and ``#`` comment lines removed, since prose may name the volume.
+    """
+    offenders: list[str] = []
+    for root in (_REPO_ROOT / "src", _REPO_ROOT / "packages"):
+        for path in sorted(root.rglob("*.py")):
+            if path == _SUFFIX_OWNER:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            docstrings = _docstring_constants(tree)
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and id(node) not in docstrings
+                    and "-claude-config" in node.value
+                ):
+                    offenders.append(f"{path.relative_to(_REPO_ROOT)}:{node.lineno}")
+    for path in sorted((_REPO_ROOT / "src" / "osprey" / "templates").rglob("*.j2")):
+        text = re.sub(
+            r"\{#.*?#\}",
+            lambda m: "\n" * m.group(0).count("\n"),
+            path.read_text(encoding="utf-8"),
+            flags=re.S,
+        )
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if not line.strip().startswith("#") and "-claude-config" in line:
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}:{lineno}")
+    assert offenders == []
