@@ -627,8 +627,7 @@ def _parse_relative_timestamp(prefix: str, raw: Any) -> RelativeTimestamp:
     if isinstance(days_ago, bool) or not isinstance(days_ago, int) or days_ago < 0:
         raise ValueError(f"{prefix}: 'days_ago' must be a non-negative integer, got {days_ago!r}")
     raw_time = raw.get("time")
-    _validate_at_time(prefix, raw_time)
-    return RelativeTimestamp(days_ago=days_ago, time=dtime.fromisoformat(raw_time))
+    return RelativeTimestamp(days_ago=days_ago, time=_validate_at_time(prefix, raw_time))
 
 
 def _parse_log_entry(scenario_name: str, raw: Any) -> ScenarioLogEntry:
@@ -729,7 +728,7 @@ def _validate_position_keys(prefix: str, event: dict[str, Any], shape: str) -> N
             raise ValueError(f"{prefix}: 'ramp' event missing keys ['{until_key}']")
 
 
-def _validate_at_time(prefix: str, raw_time: Any) -> None:
+def _validate_at_time(prefix: str, raw_time: Any) -> dtime:
     """Validate an ``at_time`` value: a tz-naive ``'HH:MM:SS'`` local time-of-day."""
     if not isinstance(raw_time, str):
         raise ValueError(
@@ -747,6 +746,7 @@ def _validate_at_time(prefix: str, raw_time: Any) -> None:
             f"{prefix}: event key 'at_time' is local time and must not carry a "
             f"timezone offset, got {raw_time!r}"
         )
+    return parsed_time
 
 
 def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> None:

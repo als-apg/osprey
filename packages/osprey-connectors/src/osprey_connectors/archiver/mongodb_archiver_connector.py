@@ -698,7 +698,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         self._require_connected()
 
-        def check_channels():
+        def check_channels() -> dict[str, bool]:
             """Check which channels exist in the collection."""
             availability = {}
             for channel in channels:

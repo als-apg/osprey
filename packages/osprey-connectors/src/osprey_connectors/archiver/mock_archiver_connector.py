@@ -26,6 +26,8 @@ from osprey_connectors.simulation.procedural import generate_series
 from osprey_connectors.simulation.series import epoch_seconds_array
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from osprey_connectors.simulation import SimulationEngine
 
 logger = get_logger("mock_archiver_connector")
@@ -232,6 +234,7 @@ class MockArchiverConnector(ArchiverConnector):
         resolved = resolve_processing(processing, precision_ms)
         series = {}
         for channel in channels:
+            values: list[Any] | np.ndarray
             if engine_serves(self._sim_engine, channel):
                 values = self._sim_engine.synthesize_series(channel, index)
             else:

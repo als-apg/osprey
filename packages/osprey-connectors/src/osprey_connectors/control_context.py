@@ -738,7 +738,7 @@ def terminus(
     return replace(
         record,
         target=target if moved else record.target,
-        generation=generation if moved else record.generation,
+        generation=generation if generation is not None else record.generation,
         last_switch={
             "request_id": request_id,
             "target": target,
