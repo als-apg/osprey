@@ -212,19 +212,16 @@ class ControlContextOwner:
     an ``asyncio.Lock`` binds to the loop it is first awaited on, and a
     module-level one would be shared across every app in a process.
 
+    The record's path is resolved on **each** mutation, so an owner built
+    before the agent-data root existed starts working as soon as it does.
+
     Args:
         identity: Who this process is in the record's ``owner`` field. Every
             write stamps it.
-        path: Write this file instead of the one :func:`record_path` resolves.
-            For a caller that has already resolved a root, and for tests. When
-            omitted the path is resolved on **each** mutation, so an owner
-            built before the agent-data root existed starts working as soon as
-            it does.
     """
 
-    def __init__(self, identity: Owner, *, path: Path | None = None) -> None:
+    def __init__(self, identity: Owner) -> None:
         self._identity = identity
-        self._path = path
         self._lock = asyncio.Lock()
 
     @property
@@ -291,7 +288,7 @@ class ControlContextOwner:
         return mutation.result
 
     def _resolve_path(self) -> Path:
-        path = self._path if self._path is not None else record_path()
+        path = record_path()
         if path is None:
             raise ContextStoreUnavailable(
                 "store_unavailable",
@@ -409,7 +406,6 @@ class ControlContextOwnerTask:
     Args:
         app: The application whose ``state`` this task publishes ownership on
             and whose ``broadcaster`` it pushes the context frame to.
-        identity: Who to claim as. Defaults to :func:`terminal_identity`.
         interval_s: Seconds between ticks.
     """
 
@@ -417,11 +413,10 @@ class ControlContextOwnerTask:
         self,
         app: Any,
         *,
-        identity: Owner | None = None,
         interval_s: float = OWNER_TICK_S,
     ) -> None:
         self._app = app
-        self._identity = identity if identity is not None else terminal_identity()
+        self._identity = terminal_identity()
         self._owner = ControlContextOwner(self._identity)
         self._interval_s = float(interval_s)
         self._task: asyncio.Task[None] | None = None

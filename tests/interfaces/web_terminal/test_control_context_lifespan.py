@@ -74,14 +74,14 @@ def make_app() -> SimpleNamespace:
 
 
 def make_task(app: SimpleNamespace, **kwargs) -> ControlContextOwnerTask:
-    """A task claiming as this process, which is what production always does.
+    """A task claiming as this process, which is the only identity it has.
 
-    The PID is deliberately the real one: the request half guards on
+    The PID is the real one: the request half guards on
     :func:`~osprey_connectors.control_context.owned_here`, which is PID
     equality against ``os.getpid()`` — the same guard the controls server
     uses, so the two owners cannot disagree about who owns one file.
     """
-    task = ControlContextOwnerTask(app, identity=terminal_identity(), **kwargs)
+    task = ControlContextOwnerTask(app, **kwargs)
     # The baseline and the rendered config are the deployment's, and reading
     # them is a config load this suite is not about.
     task._baseline = lambda: BASELINE  # type: ignore[method-assign]
