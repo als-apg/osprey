@@ -1,5 +1,6 @@
 """Tests for mock connector."""
 
+import asyncio
 import json
 import os
 import subprocess
@@ -170,6 +171,42 @@ class TestMockConnector:
                 assert channel in results
                 assert results[channel].value is not None
 
+            await connector.disconnect()
+
+    @staticmethod
+    def _fail_read_of(connector, channel, error):
+        real_read = connector.read_channel
+
+        async def read_channel(channel_address, timeout=None):
+            if channel_address == channel:
+                raise error
+            return await real_read(channel_address, timeout)
+
+        connector.read_channel = read_channel
+
+    @pytest.mark.asyncio
+    async def test_read_multiple_channels_omits_a_failed_read(self):
+        """A read that fails with an ordinary error is left out of the result."""
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0})
+            self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
+
+            results = await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
+
+            assert set(results) == {"PV:1", "PV:3"}
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_read_multiple_channels_propagates_a_cancelled_read(self):
+        """A cancelled read raises the cancellation instead of returning it as a value."""
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0})
+            self._fail_read_of(connector, "PV:2", asyncio.CancelledError())
+
+            with pytest.raises(asyncio.CancelledError):
+                await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
             await connector.disconnect()
 
     @pytest.mark.asyncio

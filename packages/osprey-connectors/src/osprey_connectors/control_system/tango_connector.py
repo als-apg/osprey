@@ -493,14 +493,7 @@ class TangoConnector(ControlSystemConnector):
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        tasks = [self.read_channel(ch_addr, timeout) for ch_addr in channel_addresses]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        return {
-            ch_addr: result
-            for ch_addr, result in zip(channel_addresses, results, strict=False)
-            if not isinstance(result, Exception)
-        }
+        return await self._read_concurrently(channel_addresses, timeout)
 
     async def subscribe(
         self, channel_address: str, callback: Callable[[ChannelValue], None]
