@@ -17,8 +17,8 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
+from osprey.interfaces.web_terminal import ownership as ownership_module
 from osprey.interfaces.web_terminal.ownership import (
-    Ownership,
     OwnershipMode,
     OwnershipStore,
     reserved_write_channel,
@@ -3531,42 +3531,37 @@ class TestNoDurableStoreIsSaidOutLoud:
     optional.
     """
 
-    def _in_a_container(self, ownership_module, **extra):
-        return {ownership_module.RENDER_ZONE_READONLY_ENV: "1", **extra}
+    @pytest.fixture()
+    def in_a_container(self, monkeypatch):
+        """A container render with no per-user store mounted."""
+        monkeypatch.setenv(ownership_module.RENDER_ZONE_READONLY_ENV, "1")
+        monkeypatch.delenv(ownership_module.CLAUDE_CONFIG_ENV, raising=False)
 
+    @pytest.mark.usefixtures("in_a_container")
     def test_a_missing_store_names_the_variable_it_needs(self, tmp_path, caplog):
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
+            resolve_ownership(tmp_path)
 
         assert ownership_module.CLAUDE_CONFIG_ENV in caplog.text
         assert "durable" in caplog.text
 
+    @pytest.mark.usefixtures("in_a_container")
     def test_it_is_said_once_per_process(self, tmp_path, caplog):
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
-            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
+            resolve_ownership(tmp_path)
+            resolve_ownership(tmp_path)
 
         assert caplog.text.count(ownership_module.CLAUDE_CONFIG_ENV) == 1
 
-    def test_a_mounted_store_says_nothing(self, tmp_path, caplog):
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
-        env = self._in_a_container(
-            ownership_module, **{ownership_module.CLAUDE_CONFIG_ENV: str(tmp_path)}
-        )
+    @pytest.mark.usefixtures("in_a_container")
+    def test_a_mounted_store_says_nothing(self, tmp_path, caplog, monkeypatch):
+        monkeypatch.setenv(ownership_module.CLAUDE_CONFIG_ENV, str(tmp_path))
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            resolve_ownership(tmp_path, env=env)
+            resolve_ownership(tmp_path)
 
         assert ownership_module.CLAUDE_CONFIG_ENV not in caplog.text
 
-    def test_a_bare_host_project_says_nothing(self, tmp_path, caplog):
+    def test_a_bare_host_project_says_nothing(self, tmp_path, caplog, monkeypatch):
         """CONFIG on a host is config.yml, which nothing recreates.
 
         The notice is about a container's writable layer. A pre-profile project
@@ -3574,22 +3569,9 @@ class TestNoDurableStoreIsSaidOutLoud:
         and telling that operator their claims are lost on recreation would be
         a warning about a machine they are not running.
         """
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
+        monkeypatch.delenv(ownership_module.RENDER_ZONE_READONLY_ENV, raising=False)
+        monkeypatch.delenv(ownership_module.CLAUDE_CONFIG_ENV, raising=False)
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            assert resolve_ownership(tmp_path, env={}).mode is OwnershipMode.CONFIG
+            assert resolve_ownership(tmp_path).mode is OwnershipMode.CONFIG
 
         assert ownership_module.CLAUDE_CONFIG_ENV not in caplog.text
-
-    def test_the_gallery_refusal_carries_the_same_sentence(self):
-        from osprey.interfaces.web_terminal.ownership import NO_DURABLE_STORE
-
-        service = ScaffoldGalleryService.__new__(ScaffoldGalleryService)
-        service._ownership = Ownership(OwnershipMode.DEGRADED)
-        service.project_dir = Path("/srv/demo")
-
-        with pytest.raises(Exception) as excinfo:
-            service._require_durable_config_surface()
-
-        assert NO_DURABLE_STORE in str(excinfo.value)

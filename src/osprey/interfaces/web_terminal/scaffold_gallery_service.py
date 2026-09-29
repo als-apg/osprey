@@ -369,7 +369,7 @@ class ScaffoldGalleryService:
             f"  {NO_DURABLE_STORE}"
         )
 
-    def _write_body(self, output_path: str, content: str, name: str | None = None) -> bool:
+    def _write_body(self, output_path: str, content: str, name: str) -> bool:
         """Write an artifact body to whichever surfaces must carry it.
 
         The profile's copy is the source of truth where there is one. Otherwise
@@ -410,8 +410,7 @@ class ScaffoldGalleryService:
                 "Edit the files inside it instead."
             )
 
-        canonical = name if name is not None else self._path_to_canonical(output_path)
-        self._require_writable(canonical, output_path, outcome="NOTHING WAS WRITTEN")
+        self._require_writable(name, output_path, outcome="NOTHING WAS WRITTEN")
 
         profile_file = self._profile_file(name)
         if profile_file is not None:
@@ -419,10 +418,7 @@ class ScaffoldGalleryService:
             return False
 
         if self._store is not None:
-            if name is not None:
-                self._store.claim(name, output_path, content)
-            else:  # pragma: no cover - every save path knows its artifact
-                self._store.write_content(output_path, content)
+            self._store.claim(name, output_path, content)
 
         target = self.project_dir / output_path
         try:
@@ -617,13 +613,6 @@ class ScaffoldGalleryService:
         """Render and return the framework template content."""
         art = self._get_artifact(name)
         return self._render_framework(art)
-
-    def get_override_content(self, name: str) -> str | None:
-        """Read the user-owned file content, or None if not user-owned."""
-        art = self._get_artifact(name)
-        if art.canonical_name not in self._user_owned:
-            return None
-        return self._read_user_file(art)
 
     # ── Diff ──────────────────────────────────────────────────────────
 
@@ -984,7 +973,7 @@ class ScaffoldGalleryService:
             # The release above is durable and stands whatever happens here;
             # a failed write-back is reported, because the operator's text is
             # still on disk and a bare "removed" would say it is not.
-            art = self._registry.get(name)
+            art = self._get_artifact(name)
             try:
                 content = self._render_framework(art)
                 out = self.project_dir / art.output_path

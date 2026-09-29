@@ -819,7 +819,7 @@ class Ownership:
     profile_root: Path | None = None
 
 
-def resolve_ownership(project_dir: Path, env: dict[str, str] | None = None) -> Ownership:
+def resolve_ownership(project_dir: Path) -> Ownership:
     """Decide where claims for *project_dir* durably belong.
 
     The topology answers this, not the caller's privilege. ``PROFILE`` means
@@ -861,9 +861,8 @@ def resolve_ownership(project_dir: Path, env: dict[str, str] | None = None) -> O
 
     Args:
         project_dir: The render whose claims are being resolved.
-        env: Environment to read, for tests. Defaults to ``os.environ``.
     """
-    environ = os.environ if env is None else env
+    environ = os.environ
 
     if not is_container_render(environ):
         profile_root = _reachable_profile_root(project_dir)
