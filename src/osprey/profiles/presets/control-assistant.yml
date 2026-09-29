@@ -392,6 +392,9 @@ config:
   # Seconds in-flight operations get to finish on the old target before it is
   # torn down regardless.
   control_system.target_switch.drain_timeout_s: 5
+  # Seconds a newly started connection gets to read the target's probe_channel
+  # before the switch is refused and the old target kept.
+  control_system.target_switch.probe_timeout_s: 5
   # Seconds between background reachability probes of every target's gateways.
   control_system.target_switch.probe_interval_s: 30
   # Operator acknowledgment for the live machine: set it to your own live

@@ -1411,6 +1411,13 @@ keys:
       How long a target switch waits for the outgoing connector host to drain
       before it is killed. Read by the connector host manager.
     default: 5.0
+  control_system.target_switch.probe_timeout_s:
+    evidence: 'PROBE_TIMEOUT_KEY = "probe_timeout_s"'
+    note: >-
+      How long a target switch waits for the newly started connector host to
+      read the destination's probe_channel before refusing the switch. Read by
+      the connector host manager.
+    default: 5.0
   control_system.target_switch.probe_interval_s:
     evidence: 'PROBE_INTERVAL_KEY = "control_system\.target_switch\.probe_interval_s"'
     note: >-
@@ -3193,7 +3200,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 348
+  expected_union_size: 349
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
