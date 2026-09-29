@@ -542,4 +542,41 @@ describe('renderPreview', () => {
     expect(gallery.detailContentEl.querySelectorAll('input, select, textarea')).toHaveLength(0);
     expect(gallery.editDirty).toBe(false);
   });
+
+  // Scaffold files are agent-writable, so their markdown is untrusted HTML
+  // once parsed. Only the sanitiser's output may reach the DOM, and without a
+  // sanitiser the body is text. The real DOMPurify cannot run under happy-dom,
+  // so a passthrough parser and a sentinel sanitiser pin the seam instead.
+  const HOSTILE_BODY = '<img src=x onerror=alert(1)><script>alert(2)</script>';
+  const SANITISING_PATHS = [
+    ['a markdown file', 'markdown', `---\nname: my-agent\n---\n${HOSTILE_BODY}`],
+    ['a Python hook docstring', 'python', `"""\n---\nname: my_hook\n---\n${HOSTILE_BODY}\n"""\n`],
+  ];
+
+  test.each(SANITISING_PATHS)('%s renders only what the sanitiser returns', async (_label, language, content) => {
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+    vi.stubGlobal('DOMPurify', { sanitize: () => '<em>safe</em>' });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ content, language }),
+    })));
+
+    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    await createScaffoldGalleryDetailContent(gallery).renderPreview();
+
+    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').innerHTML).toBe('<em>safe</em>');
+    expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
+  });
+
+  test.each(SANITISING_PATHS)('%s degrades to text when no sanitiser is loaded', async (_label, language, content) => {
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ content, language }),
+    })));
+
+    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    await createScaffoldGalleryDetailContent(gallery).renderPreview();
+
+    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').textContent).toBe(HOSTILE_BODY);
+    expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
+  });
 });
