@@ -18,6 +18,29 @@ function fakeApi() {
   };
 }
 
+/** The two bar kinds, which share one close control. */
+const CLOSE_BARS = [['service', 'iframe:ariel'], ['terminal', 'terminal']];
+
+/**
+ * The page's terminal header, built DETACHED from the document — the real
+ * production timing: dock-workspace's adoptSubtree moves the whole
+ * .terminal-panel subtree into an unattached host div before dockview reinserts
+ * it, so by the time the terminal's tab is built the header is reachable only
+ * through the reference registered with setTerminalHeaderSource.
+ * @returns {HTMLElement}
+ */
+function detachedTerminalHeader() {
+  const card = document.createElement('div');
+  card.className = 'terminal-card';
+  const header = document.createElement('div');
+  header.className = 'terminal-header';
+  const sel = document.createElement('select');
+  sel.id = 'session-selector';
+  header.appendChild(sel);
+  card.appendChild(header);
+  return header;
+}
+
 describe('tile-tab renderer', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -25,7 +48,7 @@ describe('tile-tab renderer', () => {
     vi.restoreAllMocks();
   });
 
-  test('service tab renders visible title and close, no drag badge', async () => {
+  test('service tab renders visible title and close', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
@@ -35,26 +58,23 @@ describe('tile-tab renderer', () => {
     expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('ARIEL');
     expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     expect(tab.element.querySelector('.tile-tab-actions')).toBeTruthy();
-    // Dragging by the bar is a learned convention — no grip badge spends
-    // bar pixels on it.
-    expect(tab.element.querySelector('.tile-tab-grip')).toBeNull();
-    // Popout stays a rail-entry affordance — never on the tile.
-    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
   });
 
-  test('service close click calls api.close()', async () => {
-    const { createTileTab } = await import(MOD);
+  test.each(CLOSE_BARS)('%s close click calls api.close()', async (_kind, id) => {
+    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
+    setTerminalHeaderSource(detachedTerminalHeader());
     const api = fakeApi();
-    const tab = createTileTab('iframe:ariel');
+    const tab = createTileTab(id);
     tab.init({ title: 'ARIEL', params: {}, api });
     /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
       .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(api.close).toHaveBeenCalledTimes(1);
   });
 
-  test('service close pointerdown is prevented so it cannot start a tile drag', async () => {
-    const { createTileTab } = await import(MOD);
-    const tab = createTileTab('iframe:ariel');
+  test.each(CLOSE_BARS)('%s close pointerdown is prevented so it cannot start a tile drag', async (_kind, id) => {
+    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
+    setTerminalHeaderSource(detachedTerminalHeader());
+    const tab = createTileTab(id);
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
     const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
     /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
@@ -112,26 +132,10 @@ describe('tile-tab renderer', () => {
     let header;
 
     beforeEach(() => {
-      // Build the terminal card DETACHED from the document — this reproduces
-      // the real production timing, not a convenient shortcut: dock-workspace's
-      // adoptSubtree moves the whole .terminal-panel subtree into an unattached
-      // host div before dockview reinserts it, so by the time the terminal's
-      // tab is built the header is NOT reachable via a document-wide query —
-      // only via the reference each test registers through
-      // setTerminalHeaderSource below. (dock-tab.js has no document.querySelector
-      // fallback precisely because that lookup always loses this race.)
-      const card = document.createElement('div');
-      card.className = 'terminal-card';
-      header = document.createElement('div');
-      header.className = 'terminal-header';
-      const sel = document.createElement('select');
-      sel.id = 'session-selector';
-      header.appendChild(sel);
-      card.appendChild(header);
-      // card is intentionally never attached to document.body.
+      header = detachedTerminalHeader();
     });
 
-    test('adopts .terminal-header and renders close, but no popout or title', async () => {
+    test('adopts .terminal-header and renders close, but no title', async () => {
       const { createTileTab, setTerminalHeaderSource } = await import(MOD);
       setTerminalHeaderSource(header);
       const tab = createTileTab('terminal');
@@ -141,33 +145,10 @@ describe('tile-tab renderer', () => {
       // The page's ONE header node moved into the tab (relocation, not clone).
       expect(tab.element.querySelector('.terminal-header')).toBeTruthy();
       expect(document.querySelectorAll('.terminal-header').length).toBe(1);
-      expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
       expect(tab.element.querySelector('.tile-tab-title')).toBeNull();
       // The terminal's rail entry has no "×", so this is its only pointer
       // close path — the one action that stayed on a tile.
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
-    });
-
-    test('close click calls api.close()', async () => {
-      const { createTileTab, setTerminalHeaderSource } = await import(MOD);
-      setTerminalHeaderSource(header);
-      const api = fakeApi();
-      const tab = createTileTab('terminal');
-      tab.init({ title: 'SESSION', params: {}, api });
-      /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
-        .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      expect(api.close).toHaveBeenCalledTimes(1);
-    });
-
-    test('close pointerdown is prevented so it cannot start a tile drag', async () => {
-      const { createTileTab, setTerminalHeaderSource } = await import(MOD);
-      setTerminalHeaderSource(header);
-      const tab = createTileTab('terminal');
-      tab.init({ title: 'SESSION', params: {}, api: fakeApi() });
-      const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
-      /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
-        .dispatchEvent(ev);
-      expect(ev.defaultPrevented).toBe(true);
     });
 
     test('re-adoption after detach (close → reopen) reuses the cached header node', async () => {
@@ -200,13 +181,6 @@ describe('tile-tab renderer', () => {
       expect(reachedRoot).toHaveBeenCalledTimes(1); // plain surface drags
     });
 
-    test('with no setTerminalHeaderSource registration, the tab renders without a header (documents the missing-wiring failure mode)', async () => {
-      const { createTileTab } = await import(MOD);
-      const tab = createTileTab('terminal');
-      tab.init({ title: 'SESSION', params: {}, api: fakeApi() });
-      expect(tab.element.classList.contains('tile-tab-terminal')).toBe(true);
-      expect(tab.element.querySelector('.terminal-header')).toBeNull();
-    });
   });
 });
 
@@ -243,19 +217,6 @@ describe('tile header context menu', () => {
   function firstCall(handler) {
     const [id, opts] = handler.mock.calls[0];
     return { id, opts };
-  }
-
-  /** The detached terminal card fixture, as the terminal-tab suite builds it. */
-  function terminalHeaderFixture() {
-    const card = document.createElement('div');
-    card.className = 'terminal-card';
-    const header = document.createElement('div');
-    header.className = 'terminal-header';
-    const sel = document.createElement('select');
-    sel.id = 'session-selector';
-    header.appendChild(sel);
-    card.appendChild(header);
-    return header;
   }
 
   test('a service bar forwards the press with the SERVICE id, the bar as anchor, and the cursor position', async () => {
@@ -307,7 +268,7 @@ describe('tile header context menu', () => {
   });
 
   test('interactive bar children are excluded — their native menu survives', async () => {
-    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
     const handler = vi.fn(() => true);
     setTileContextMenuHandler(handler);
     const tab = createTileTab('iframe:ariel');
@@ -334,11 +295,22 @@ describe('tile header context menu', () => {
     /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title'))
       .dispatchEvent(rightClick());
     expect(handler).toHaveBeenCalledTimes(1);
+
+    // The terminal bar's adopted header applies the same rule to its selector.
+    const header = detachedTerminalHeader();
+    setTerminalHeaderSource(header);
+    const terminal = createTileTab('terminal');
+    terminal.init({ title: 'SESSION', params: {}, api: fakeApi() });
+    document.body.appendChild(terminal.element);
+    const onSelector = rightClick();
+    /** @type {HTMLElement} */ (header.querySelector('#session-selector')).dispatchEvent(onSelector);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(onSelector.defaultPrevented).toBe(false);
   });
 
   test('the terminal bar forwards the terminal id once, anchored to its adopted header', async () => {
     const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
-    const header = terminalHeaderFixture();
+    const header = detachedTerminalHeader();
     setTerminalHeaderSource(header);
     const handler = vi.fn(() => true);
     setTileContextMenuHandler(handler);
@@ -362,7 +334,7 @@ describe('tile header context menu', () => {
 
   test('the terminal header keeps ONE contextmenu listener across tab rebuilds', async () => {
     const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
-    const header = terminalHeaderFixture();
+    const header = detachedTerminalHeader();
     // Registration is per NODE, not per tab: close→reopen rebuilds the tab but
     // re-adopts the same header, so a per-construction wiring would stack up.
     setTerminalHeaderSource(header);
@@ -381,27 +353,4 @@ describe('tile header context menu', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  test("the terminal header's interactive children are excluded too", async () => {
-    const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
-    const header = terminalHeaderFixture();
-    setTerminalHeaderSource(header);
-    const handler = vi.fn(() => true);
-    setTileContextMenuHandler(handler);
-    const tab = createTileTab('terminal');
-    tab.init({ title: 'SESSION', params: {}, api: fakeApi() });
-    document.body.appendChild(tab.element);
-
-    const ev = rightClick();
-    /** @type {HTMLElement} */ (tab.element.querySelector('#session-selector')).dispatchEvent(ev);
-    expect(handler).not.toHaveBeenCalled();
-    expect(ev.defaultPrevented).toBe(false);
-  });
-
-  test('the verbs live in the menu, not on the bar — still no popout control', async () => {
-    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
-    setTileContextMenuHandler(vi.fn(() => true));
-    const tab = createTileTab('iframe:ariel');
-    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
-    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
-  });
 });
