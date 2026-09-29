@@ -70,9 +70,9 @@ from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
-# The Fake* SDK-message doubles live with the operator_session unit tests; reuse
-# them so isinstance() inside _message_to_events matches what the fake yields.
-from tests.interfaces.web_terminal.test_operator_session import (
+# The shared Fake* SDK-message doubles, so isinstance() inside _message_to_events
+# matches what the fake yields.
+from tests.interfaces.web_terminal._fakes import (
     FakeAssistantMessage,
     FakeResultMessage,
     FakeSystemMessage,
