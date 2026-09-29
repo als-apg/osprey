@@ -214,7 +214,10 @@
       or "none") carries no login surface.
     inject_secret, walled, token_exchange: bool, required
       The other derived booleans, passed for contract symmetry with
-      nginx.conf.j2; unread here. In particular `inject_secret` is TRUE for
+      nginx.conf.j2. `walled` is read in exactly one place: it gates each
+      card's control identity (see `svc.control_identity` below), because a
+      name is only attributable behind a login wall. The other two are unread
+      here. In particular `inject_secret` is TRUE for
       "none", which renders no sidecar service at all — the secret carrier
       below (the templates mount, the envsubst output tmpfs, the per-user
       `OSPREY_TERMINAL_SECRET_*` reference) is emitted unconditionally and
@@ -269,6 +272,16 @@
       lives in `.env.auth`, keyed by the same suffix). Resolved from the roster
       by resolve_personas() and carried through render.py's per-service dicts
       like `display_name`/`theme`.
+    services[].control_identity: str, optional — the account name the control
+      system sees this card's writes arrive under, straight off the roster
+      entry, validated by render.py's `_check_roster_control_identities`.
+      Read only when `walled` is true; it then emits OSPREY_CONTROL_IDENTITY,
+      OSPREY_CONTROL_IDENTITY_MODULE and the read-only bind of the staged
+      module. Absent, or unwalled, emits nothing, so a roster without the key
+      renders byte-identically.
+    control_identity_container_path: str, required — where the staged identity
+      module sits inside the container; both the bind target and the
+      OSPREY_CONTROL_IDENTITY_MODULE value, one spelling for both.
     services[].oidc_subject_env: str — the env-var name the above is emitted
       under, pre-resolved by render.py through personas.env_var_suffix(). Always
       present; read only when `oidc_subject` is set. Pre-resolved on purpose:
@@ -1150,6 +1163,20 @@ services:
          warns+falls back on an unknown value. #}
       - {{ ("OSPREY_WEB_TOUR=" ~ svc.tour) | tojson }}
 {%- endif %}
+{%- if walled and svc.control_identity %}
+      {#- The account name the control system sees this card's writes arrive
+         under, and the in-container path of the module the entrypoint runs as
+         root to make uid 1000 resolve to it. Only behind a login wall: the
+         name attributes writes to the person who signed in, and without a
+         wall there is nobody authenticated to attribute them to, so the card
+         keeps its image account name. The value was validated at render
+         (`_check_roster_control_identities`); tojson quotes the WHOLE
+         `KEY=value` the same way as OSPREY_WEB_APP_NAME above. The module
+         path is render.py's `control_identity_container_path`, the module's
+         own constant, so it is the same string as the bind target below. #}
+      - {{ ("OSPREY_CONTROL_IDENTITY=" ~ svc.control_identity) | tojson }}
+      - {{ ("OSPREY_CONTROL_IDENTITY_MODULE=" ~ control_identity_container_path) | tojson }}
+{%- endif %}
 {%- for env in svc.panel_env %}
       - {{ env.name }}={{ env.port }}
 {%- endfor %}
@@ -1443,6 +1470,15 @@ services:
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}
+{%- if walled and svc.control_identity %}
+      {#- The identity module the entrypoint runs, read-only, under the same
+         guard as its env lines above. Its source is render output: the
+         render writes `build/control_identity/control_identity.py` from the
+         packaged module whenever a card emits this line, so the bind never
+         names a missing file (which the runtime would replace with an empty
+         directory). #}
+      - ./build/control_identity/control_identity.py:{{ control_identity_container_path }}:ro
+{%- endif %}
 {#- Every shared host directory bound above, and the group each was provisioned
     with: the bundle and the mirror, where this service is entitled to them.
     Collected into one list so one `group_add:` is emitted per service, with

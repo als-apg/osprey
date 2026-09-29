@@ -6008,3 +6008,317 @@ def test_token_login_reaches_the_rendered_page_as_a_badge() -> None:
     # Assert
     assert _body(landing_html).count('class="landing-card-token"') == 3
     assert _body(landing_html).count('class="landing-card-token-hint"') == 3
+
+
+# ---------------------------------------------------------------------------
+# control_identity -> svc dict + the staged module's container path
+# ---------------------------------------------------------------------------
+
+
+def test_control_identity_reaches_only_the_svc_of_the_user_that_sets_it() -> None:
+    """A user's `control_identity` lands on that user's svc dict; a user without
+    one gets `None`, which leaves any template guard on it false."""
+    # Arrange
+    config = copy.deepcopy(
+        _config([{"name": "alice", "index": 0, "control_identity": "ahellert"}, "bob"])
+    )
+
+    # Act
+    contexts = _capture_render_contexts(config)
+    services = {svc["user"]: svc for svc in contexts["docker-compose.web.yml.j2"]["services"]}
+
+    # Assert
+    assert services["alice"]["control_identity"] == "ahellert"
+    assert services["bob"]["control_identity"] is None
+
+
+def test_empty_control_identity_is_refused_rather_than_dropped() -> None:
+    """An empty identity is not an account name the container could apply, so the
+    render refuses it instead of silently carrying no identity."""
+    # Arrange
+    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "control_identity": ""}]))
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="web_terminals.invalid_user_control_identity"):
+        render_web_terminals(config)
+
+
+def test_control_identity_is_independent_of_the_other_svc_fields() -> None:
+    """Setting the identity neither drags in nor displaces the other optional
+    per-user fields."""
+    # Arrange
+    config = copy.deepcopy(
+        _config(
+            [
+                {
+                    "name": "alice",
+                    "index": 0,
+                    "theme": "desy",
+                    "oidc_subject": "alice@example.org",
+                    "control_identity": "alice",
+                },
+                {"name": "bob", "index": 1, "control_identity": "bob"},
+            ]
+        )
+    )
+
+    # Act
+    contexts = _capture_render_contexts(config)
+    services = {svc["user"]: svc for svc in contexts["docker-compose.web.yml.j2"]["services"]}
+
+    # Assert
+    assert services["alice"]["theme"] == "desy"
+    assert services["alice"]["oidc_subject"] == "alice@example.org"
+    assert services["alice"]["control_identity"] == "alice"
+    assert services["bob"]["theme"] is None
+    assert services["bob"]["oidc_subject"] is None
+    assert services["bob"]["control_identity"] == "bob"
+
+
+def test_compose_ctx_hands_the_template_the_control_identity_container_path() -> None:
+    """The staged module's container path reaches the compose template from the
+    module's own constant, so the template never spells the path itself."""
+    # Arrange
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    # Act
+    contexts = _capture_render_contexts(copy.deepcopy(_config(["alice"])))
+
+    # Assert
+    compose_ctx = contexts["docker-compose.web.yml.j2"]
+    assert compose_ctx["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
+
+
+# ---------------------------------------------------------------------------
+# control_identity render gate: every lint ERROR refuses, even under --no-lint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(7, id="non-string"),
+        pytest.param("root", id="reserved-root"),
+        pytest.param("osprey-dispatch-0", id="reserved-service"),
+        pytest.param("backup", id="base-image-account"),
+    ],
+)
+def test_render_refuses_an_unusable_control_identity(value: object) -> None:
+    """A value the container's apply step would refuse stops the render, with the
+    finding's code in the message."""
+    # Arrange
+    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "control_identity": value}]))
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="web_terminals.invalid_user_control_identity"):
+        render_web_terminals(config)
+
+
+def test_render_refuses_a_control_identity_on_a_shared_card() -> None:
+    """A shared card would attribute every opener's writes to one person."""
+    # Arrange
+    config = copy.deepcopy(
+        _config([{"name": "ops", "index": 0, "access": "any", "control_identity": "alice"}])
+    )
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="web_terminals.shared_card_control_identity"):
+        render_web_terminals(config)
+
+
+def test_render_refuses_one_control_identity_for_two_different_people() -> None:
+    """Two subjects under one identity leave the control system unable to tell
+    their writes apart."""
+    # Arrange
+    config = copy.deepcopy(
+        _config(
+            [
+                {"name": "alice", "index": 0, "oidc_subject": "a@x", "control_identity": "shared"},
+                {"name": "bob", "index": 1, "oidc_subject": "b@x", "control_identity": "shared"},
+            ]
+        )
+    )
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="web_terminals.duplicate_control_identity"):
+        render_web_terminals(config)
+
+
+def test_render_control_identity_refusal_names_every_problem() -> None:
+    """One refusal lists every offending entry, so a single build shows the
+    whole fix."""
+    # Arrange
+    config = copy.deepcopy(
+        _config(
+            [
+                {"name": "alice", "index": 0, "control_identity": "root"},
+                {"name": "ops", "index": 1, "access": "any", "control_identity": "bob"},
+            ]
+        )
+    )
+
+    # Act
+    with pytest.raises(ValueError) as excinfo:
+        render_web_terminals(config)
+
+    # Assert
+    message = str(excinfo.value)
+    assert "web_terminals.invalid_user_control_identity" in message
+    assert "web_terminals.shared_card_control_identity" in message
+    assert "'alice'" in message
+    assert "'ops'" in message
+
+
+def test_render_accepts_one_person_on_two_cards_under_one_control_identity() -> None:
+    """The same subject on two cards is one person, so the shared value renders
+    (lint only warns)."""
+    # Arrange
+    config = copy.deepcopy(
+        _config(
+            [
+                {"name": "alice", "index": 0, "oidc_subject": "a@x", "control_identity": "ah"},
+                {"name": "alice2", "index": 1, "oidc_subject": "a@x", "control_identity": "ah"},
+            ]
+        )
+    )
+
+    # Act
+    contexts = _capture_render_contexts(config)
+    services = {svc["user"]: svc for svc in contexts["docker-compose.web.yml.j2"]["services"]}
+
+    # Assert
+    assert services["alice"]["control_identity"] == "ah"
+    assert services["alice2"]["control_identity"] == "ah"
+
+
+# ---------------------------------------------------------------------------
+# control_identity -> the walled card's env, mount and staged module artifact
+# ---------------------------------------------------------------------------
+
+_CONTROL_IDENTITY_ARTIFACT = "control_identity/control_identity.py"
+
+
+def _identity_roster() -> list:
+    """alice carries an identity, bob does not."""
+    return [{"name": "alice", "index": 0, "control_identity": "ahellert"}, "bob"]
+
+
+def _walled_identity_config(method: str) -> dict:
+    if method == "oidc":
+        return _auth_config(
+            _identity_roster(), method="oidc", oidc={"issuer": "https://sso.dls.example.org"}
+        )
+    return _auth_config(_identity_roster(), method=method)
+
+
+def _identity_mount() -> str:
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    return f"./build/control_identity/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
+
+
+@pytest.mark.parametrize("method", ["password", "oidc"])
+def test_walled_card_with_control_identity_emits_the_identity_and_module_env(method: str) -> None:
+    """Behind a login wall, the card that sets `control_identity` carries the name
+    and the in-container module path its entrypoint runs; the card without one
+    carries neither."""
+    # Arrange
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    config = copy.deepcopy(_walled_identity_config(method))
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    alice_env = _service_env(compose, "web-alice")
+    bob_env = _service_env(compose, "web-bob")
+    assert alice_env["OSPREY_CONTROL_IDENTITY"] == "ahellert"
+    assert alice_env["OSPREY_CONTROL_IDENTITY_MODULE"] == CONTROL_IDENTITY_CONTAINER_PATH
+    assert "OSPREY_CONTROL_IDENTITY" not in bob_env
+    assert "OSPREY_CONTROL_IDENTITY_MODULE" not in bob_env
+
+
+@pytest.mark.parametrize("method", ["password", "oidc"])
+def test_walled_card_with_control_identity_mounts_the_staged_module_read_only(
+    method: str,
+) -> None:
+    """The module the entrypoint runs is bound read-only from the build zone at
+    the path the env names, and only into the card that applies an identity."""
+    # Arrange
+    config = copy.deepcopy(_walled_identity_config(method))
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    assert _identity_mount() in compose["services"]["web-alice"]["volumes"]
+    assert not any("control_identity" in str(v) for v in compose["services"]["web-bob"]["volumes"])
+
+
+def test_control_identity_env_lines_use_the_quoted_whole_pair_form() -> None:
+    """Both env lines are one double-quoted `KEY=value` scalar, the pattern every
+    roster-derived value in this list follows."""
+    # Arrange
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    config = copy.deepcopy(_walled_identity_config("password"))
+
+    # Act
+    text = render_web_terminals(config)["docker-compose.web.yml"]
+
+    # Assert
+    assert '      - "OSPREY_CONTROL_IDENTITY=ahellert"\n' in text
+    assert f'      - "OSPREY_CONTROL_IDENTITY_MODULE={CONTROL_IDENTITY_CONTAINER_PATH}"\n' in text
+
+
+@pytest.mark.parametrize("method", ["password", "oidc"])
+def test_walled_render_stages_the_module_byte_equal_to_the_package_source(method: str) -> None:
+    """The mount source is written by the render itself, byte-equal to the
+    packaged module, so the bind never lands on a missing file."""
+    # Arrange
+    from osprey.deployment import control_identity
+
+    config = copy.deepcopy(_walled_identity_config(method))
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert artifacts[_CONTROL_IDENTITY_ARTIFACT] == Path(control_identity.__file__).read_text()
+
+
+@pytest.mark.parametrize("method", ["none", "token"])
+def test_unwalled_card_with_control_identity_emits_nothing(method: str) -> None:
+    """Without a login wall nobody is authenticated to attribute writes to, so the
+    identity renders no env, no mount and no module — byte-identical to the same
+    roster without the key."""
+    # Arrange
+    with_identity = _config(_identity_roster())
+    with_identity["modules"]["web_terminals"]["auth"] = {"method": method}
+    without_identity = _config([{"name": "alice", "index": 0}, "bob"])
+    without_identity["modules"]["web_terminals"]["auth"] = {"method": method}
+
+    # Act
+    artifacts = render_web_terminals(copy.deepcopy(with_identity))
+    baseline = render_web_terminals(copy.deepcopy(without_identity))
+
+    # Assert
+    assert _CONTROL_IDENTITY_ARTIFACT not in artifacts
+    assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
+    assert artifacts["docker-compose.web.yml"] == baseline["docker-compose.web.yml"]
+
+
+def test_walled_roster_without_any_control_identity_emits_nothing() -> None:
+    """A walled roster where no card sets the key renders no identity lines and
+    stages no module."""
+    # Arrange
+    config = copy.deepcopy(_auth_config(["alice", "bob"]))
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert _CONTROL_IDENTITY_ARTIFACT not in artifacts
+    assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
+    assert "control_identity.py" not in artifacts["docker-compose.web.yml"]

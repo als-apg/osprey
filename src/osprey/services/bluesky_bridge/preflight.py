@@ -67,6 +67,7 @@ just as well on a bare event loop under pytest.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import math
 import os
@@ -365,24 +366,86 @@ def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
 SURFACE_PREFLIGHT = "preflight"
 
 
+def _verdict_detail(
+    lane: str,
+    target: str,
+    addresses: list[str],
+    *,
+    owner: object,
+    unresponsive: int,
+    unchecked: int,
+    limit: int,
+) -> str:
+    """The ``detail`` of one verdict: a fixed prefix, then as many channels as fit.
+
+    The prefix carries the counts, the owner when the run has one, and a digest
+    of the channel set, so a record whose tail was cut still says how many
+    channels the run declared and which set they were. The digest is the first
+    twelve hex digits of the SHA-256 of the sorted, de-duplicated addresses
+    joined by newlines; two runs over the same channels carry the same digest
+    whatever order or repetition their plans declared them in.
+
+    The tail is ``channels=`` and the sorted, de-duplicated addresses joined by
+    commas, filled greedily until the next one would take the detail past
+    *limit*. ``truncated=true`` says at least one address was left out. Doing
+    the fill here rather than leaving it to the envelope's cap is what keeps
+    the count and the digest out of reach of that cap.
+    """
+    channels = sorted(set(addresses))
+    digest = hashlib.sha256("\n".join(channels).encode("utf-8")).hexdigest()[:12]
+
+    def prefix(truncated: bool) -> str:
+        tokens = [f"lane={lane}", f"target={target}", f"addresses={len(addresses)}"]
+        if isinstance(owner, str):
+            tokens.append(f"owner={owner}")
+        tokens += [
+            f"unresponsive={unresponsive}",
+            f"unchecked={unchecked}",
+            f"digest={digest}",
+            f"truncated={'true' if truncated else 'false'}",
+        ]
+        return " ".join(tokens)
+
+    # Budget against the longer spelling, so the tail fits either way.
+    budget = limit - len(prefix(False)) - len(" channels=")
+    taken: list[str] = []
+    used = 0
+    for channel in channels:
+        cost = len(channel) + (1 if taken else 0)
+        if used + cost > budget:
+            break
+        taken.append(channel)
+        used += cost
+
+    detail = prefix(len(taken) < len(channels))
+    if taken:
+        detail += " channels=" + ",".join(taken)
+    return detail
+
+
 def _file_verdict(
     plan_name: str,
     *,
     decision: str,
     reason: str,
-    addresses: int,
+    addresses: list[str],
     unresponsive: int = 0,
     unchecked: int = 0,
 ) -> None:
     """Record one pre-flight verdict. Never raises: the ledger never costs a run.
 
-    Counts only in ``detail``: the addresses themselves stay in the run's
-    error text, and the record names the lane and target the verdict was
-    taken on.
+    ``detail`` names the lane and target the verdict was taken on, the count of
+    declared addresses, the person whose queued plan this is when
+    :func:`~osprey_connectors.posture_store.bound_owner` names one, a digest of
+    the channel set, and then the channels themselves, sorted, for as long as
+    they fit :data:`~osprey.audit.envelope.MAX_DETAIL_CHARS` (see
+    :func:`_verdict_detail`).
     """
     try:
         from osprey.audit import posture, writer
+        from osprey.audit.envelope import MAX_DETAIL_CHARS
         from osprey.services.bluesky_bridge.queue_backend import resolve_lane_identity
+        from osprey_connectors.posture_store import bound_owner
 
         lane, target = resolve_lane_identity()
         writer.record(
@@ -393,9 +456,14 @@ def _file_verdict(
             subject=plan_name or "unknown",
             decision=decision,
             reason=reason,
-            detail=(
-                f"lane={lane} target={target} addresses={addresses} "
-                f"unresponsive={unresponsive} unchecked={unchecked}"
+            detail=_verdict_detail(
+                lane,
+                target,
+                addresses,
+                owner=bound_owner(),
+                unresponsive=unresponsive,
+                unchecked=unchecked,
+                limit=MAX_DETAIL_CHARS,
             ),
         )
     except Exception:
@@ -463,7 +531,7 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
                 plan_name,
                 skipped,
             )
-        _file_verdict(plan_name, decision="allowed", reason="skipped", addresses=len(addresses))
+        _file_verdict(plan_name, decision="allowed", reason="skipped", addresses=addresses)
         return
 
     from bluesky.utils import Msg
@@ -486,16 +554,14 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
 
     outcome = finished[0].result()
     if outcome.all_responded:
-        _file_verdict(
-            plan_name, decision="allowed", reason="all_responded", addresses=len(addresses)
-        )
+        _file_verdict(plan_name, decision="allowed", reason="all_responded", addresses=addresses)
         return
 
     _file_verdict(
         plan_name,
         decision="refused",
         reason="unresponsive",
-        addresses=len(addresses),
+        addresses=addresses,
         unresponsive=len(outcome.unresponsive),
         unchecked=len(outcome.unchecked),
     )

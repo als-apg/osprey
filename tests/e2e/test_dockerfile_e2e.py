@@ -36,6 +36,13 @@ image installs from its own Debian release clears the CLI's engines floor
 and the image's size is reported so a provenance change's size delta is on the
 record.
 
+The ``test_whoami_*`` tests cover the entrypoint's control-identity step, with
+this tree's ``control_identity`` module bind-mounted where compose stages it:
+an applied identity is what ``whoami`` prints and the only thing on stdout; a
+person identity under ``--user`` refuses to start; an ``osprey-*`` identity
+under ``--user`` starts with a warning; a root start without the module dies,
+for a service identity as for a person.
+
 Three further tests cover the fast-dev-rebuild layer split:
 
 - ``test_rebuild_without_changes_is_fully_cached`` — a no-change rebuild runs
@@ -83,6 +90,8 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.deployment import control_identity
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason
@@ -236,7 +245,10 @@ def test_generated_dockerfile_builds_and_boots(built_image):
     version = _docker_run(tag, "osprey", "--version")
     assert version.returncode == 0, version.stderr
 
-    # Non-root runtime user
+    # The command runs as uid 1000, whose name is one of two answers: `osprey`
+    # when OSPREY_CONTROL_IDENTITY is unset (this run), or the name that
+    # variable carries once the entrypoint has applied it (the test_whoami_*
+    # tests below). Never root either way.
     whoami = _docker_run(tag, "whoami")
     assert whoami.stdout.strip() == "osprey"
 
@@ -251,6 +263,122 @@ def test_generated_dockerfile_builds_and_boots(built_image):
     env_check = _docker_run(tag, "sh", "-c", f"find /app/{project_name} -name '.env' | head -1")
     assert not env_check.stdout.strip(), (
         f".env must never enter the image, found: {env_check.stdout.strip()}"
+    )
+
+
+def _docker_run_with(tag: str, docker_args: list[str], *cmd: str) -> subprocess.CompletedProcess:
+    """``_docker_run`` with ``docker run`` options (``-e``, ``-v``, ``--user``) before the tag."""
+    return subprocess.run(
+        ["docker", "run", "--rm", *_PLATFORM_ARGS, *docker_args, tag, *cmd],
+        capture_output=True,
+        text=True,
+        timeout=RUN_TIMEOUT,
+    )
+
+
+def _identity_env(name: str) -> list[str]:
+    """The two variables compose sets on an identity-carrying service."""
+    return [
+        "-e",
+        f"OSPREY_CONTROL_IDENTITY={name}",
+        "-e",
+        f"OSPREY_CONTROL_IDENTITY_MODULE={CONTROL_IDENTITY_CONTAINER_PATH}",
+    ]
+
+
+def _identity_module_mount() -> list[str]:
+    """Bind this tree's module read-only where compose stages it.
+
+    The image installs OSPREY from PyPI by default, so the module under test is
+    the host copy, mounted exactly the way a deployment mounts its staged copy.
+    """
+    source = Path(control_identity.__file__).resolve()
+    return ["-v", f"{source}:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"]
+
+
+def _streams(proc: subprocess.CompletedProcess) -> str:
+    return f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+
+
+def test_whoami_prints_the_applied_identity(built_image):
+    tag = built_image[0]
+    run = _docker_run_with(tag, [*_identity_env("alice"), *_identity_module_mount()], "whoami")
+    assert run.returncode == 0, _streams(run)
+    assert run.stdout.strip() == "alice", _streams(run)
+    assert "control identity: uid 1000 is 'alice'" in run.stderr, _streams(run)
+
+
+def test_whoami_stdout_carries_only_the_name(built_image):
+    """Every entrypoint diagnostic, the module's own output included, is on stderr."""
+    tag = built_image[0]
+    run = _docker_run_with(tag, [*_identity_env("alice"), *_identity_module_mount()], "whoami")
+    assert run.returncode == 0, _streams(run)
+    assert run.stdout == "alice\n", _streams(run)
+    assert "[osprey-entrypoint]" in run.stderr, _streams(run)
+
+
+def test_whoami_person_identity_under_user_refuses_to_start(built_image):
+    tag = built_image[0]
+    run = _docker_run_with(
+        tag,
+        ["--user", "1000:1000", *_identity_env("alice"), *_identity_module_mount()],
+        "whoami",
+    )
+    assert run.returncode != 0, _streams(run)
+    assert run.stdout == "", _streams(run)
+    assert "needs a root start" in run.stderr, _streams(run)
+
+
+def test_whoami_service_identity_under_user_starts_with_a_warning(built_image):
+    tag = built_image[0]
+    run = _docker_run_with(
+        tag,
+        ["--user", "1000:1000", *_identity_env("osprey-dispatch-1"), *_identity_module_mount()],
+        "sh",
+        "-c",
+        'whoami; printf "%s\\n" "$OSPREY_CONTROL_IDENTITY_SKIPPED"',
+    )
+    assert run.returncode == 0, _streams(run)
+    # Not applied: uid 1000 keeps the image's name, and the skip is exported
+    # for /health to report.
+    assert run.stdout == "osprey\nnon-root-start\n", _streams(run)
+    assert "WARNING: control identity 'osprey-dispatch-1' needs a root start" in run.stderr, (
+        _streams(run)
+    )
+    assert "control identity 'osprey-dispatch-1' not applied, continuing" in run.stderr, _streams(
+        run
+    )
+
+
+def test_whoami_person_identity_root_start_without_the_module_dies(built_image):
+    tag = built_image[0]
+    run = _docker_run_with(tag, _identity_env("alice"), "whoami")
+    assert run.returncode != 0, _streams(run)
+    assert run.stdout == "", _streams(run)
+    assert "FATAL" in run.stderr, _streams(run)
+    assert f"{CONTROL_IDENTITY_CONTAINER_PATH} is missing or unreadable" in run.stderr, _streams(
+        run
+    )
+
+
+def test_whoami_service_identity_root_start_without_the_module_starts_with_a_warning(
+    built_image,
+):
+    tag = built_image[0]
+    run = _docker_run_with(
+        tag,
+        _identity_env("osprey-dispatch-1"),
+        "sh",
+        "-c",
+        'whoami; printf "%s\\n" "$OSPREY_CONTROL_IDENTITY_SKIPPED"',
+    )
+    assert run.returncode == 0, _streams(run)
+    assert run.stdout == "osprey\napply-failed\n", _streams(run)
+    assert f"{CONTROL_IDENTITY_CONTAINER_PATH} is missing or unreadable" in run.stderr, _streams(
+        run
+    )
+    assert "control identity 'osprey-dispatch-1' not applied, continuing" in run.stderr, _streams(
+        run
     )
 
 

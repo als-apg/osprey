@@ -2,7 +2,7 @@
 #
 # OSPREY container entrypoint.
 #
-# Six steps, in this order and no other:
+# Seven steps, in this order and no other:
 #
 #   1. Regen      Re-render the Claude Code artifacts that config.yml drives,
 #                 and only those that have actually drifted.
@@ -22,6 +22,12 @@
 #                 each of those directories, as `osprey`, for the access the
 #                 render named it for. Membership is the mechanism; access is
 #                 the property, and the probe is what tells the two apart.
+#   3b. Identity  When OSPREY_CONTROL_IDENTITY names who this container acts
+#                 as, give uid 1000 that name in /etc/passwd (and in every
+#                 /etc/group line that lists `osprey`), above the `osprey`
+#                 line, which stays — so `id osprey`, `gosu osprey` and every
+#                 other by-name step keep working. After the join, so the
+#                 identity inherits the mount groups created on this boot.
 #   4. Hand back  Return the state zone to the `osprey` user, because steps 1
 #                 and 2 wrote into it as root.
 #   5. Drop       Hand the container's real command to the unprivileged
@@ -42,6 +48,14 @@
 # a missing `gosu` is fatal, because continuing would run the agent as root,
 # which is the one outcome this entrypoint exists to prevent.
 #
+# The identity step is fail-closed for a person identity: a card configured
+# as that person that would run as `osprey` instead writes under the wrong
+# name, so a missing interpreter, an unreadable module, a failed rewrite or a
+# `--user` start refuses to start. An `osprey-*` service identity only names a
+# shared writer in the put-log, so on any of those it warns, exports
+# OSPREY_CONTROL_IDENTITY_SKIPPED=<reason> for /health to report, and runs the
+# command under the account it has.
+#
 # POSIX sh on purpose — this runs as PID 1 in a slim image and has no bash.
 set -eu
 
@@ -61,7 +75,8 @@ RENDER_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 # root has written into it.
 STATE_DIR=$(dirname -- "$RENDER_DIR")/var
 
-# The interpreter that runs the maintenance step. The image installs osprey
+# The interpreter that runs the maintenance step and the control-identity
+# module. The image installs osprey
 # into its system Python (/usr/local/bin/python in the python:*-slim base), not
 # into the render's .venv — a container render has none.
 PYTHON="${OSPREY_ENTRYPOINT_PYTHON:-python}"
@@ -69,7 +84,8 @@ PYTHON="${OSPREY_ENTRYPOINT_PYTHON:-python}"
 # ── logging ──────────────────────────────────────────────────────────────────
 # Every diagnostic goes to stderr, without exception. This entrypoint runs in
 # front of whatever command the image was given, and that command's stdout is
-# its own: `docker run <image> whoami` must print `osprey` and nothing else,
+# its own: `docker run <image> whoami` must print `osprey` and nothing else —
+# or the identity, when OSPREY_CONTROL_IDENTITY names one —
 # and anything that reads a container command's output — a probe, a version
 # query, a JSON payload — breaks the moment a progress line is prepended to it.
 # stderr keeps the diagnostics visible in `docker logs`, which interleaves both
@@ -572,6 +588,53 @@ hand_back_state_zone() {
         || log "WARNING: could not hand $STATE_DIR back to the osprey user; the app may be unable to write it"
 }
 
+# ── control identity ─────────────────────────────────────────────────────────
+# The staged module owns the passwd/group rewrite; this function only decides
+# whether it must run and refuses to start when it cannot. Its stdin is closed
+# and its stdout is sent to stderr, because the command's streams are the
+# command's own.
+
+apply_control_identity() {
+    _ci_name="${OSPREY_CONTROL_IDENTITY:-}"
+    [ -n "$_ci_name" ] || return 0
+    _ci_module="${OSPREY_CONTROL_IDENTITY_MODULE:-}"
+
+    [ -n "$_ci_module" ] \
+        || control_identity_failed "OSPREY_CONTROL_IDENTITY is '$_ci_name' but OSPREY_CONTROL_IDENTITY_MODULE is not set" \
+        || return 0
+    command -v "$PYTHON" > /dev/null 2>&1 \
+        || control_identity_failed "no '$PYTHON' interpreter on PATH to apply control identity '$_ci_name'" \
+        || return 0
+    [ -f "$_ci_module" ] && [ -r "$_ci_module" ] \
+        || control_identity_failed "control identity module $_ci_module is missing or unreadable" \
+        || return 0
+
+    if ! "$PYTHON" "$_ci_module" apply --uid 1000 --name "$_ci_name" < /dev/null >&2; then
+        control_identity_failed "could not apply control identity '$_ci_name' to uid 1000" \
+            || return 0
+    fi
+    log "control identity: uid 1000 is '$_ci_name'"
+}
+
+# One answer for every way the identity step can fail. A person identity
+# refuses to start: a card configured as that person must never act as
+# `osprey`. An `osprey-*` service identity names a shared writer for the
+# put-log and guards nothing, so it warns, exports
+# OSPREY_CONTROL_IDENTITY_SKIPPED=<reason> for /health to report, and lets the
+# container run under the account it has. Returns non-zero after a skip so the
+# caller can stop, and never returns after a refusal.
+control_identity_failed() {
+    case "${OSPREY_CONTROL_IDENTITY:-}" in
+        osprey-*)
+            log "WARNING: $1; control identity '${OSPREY_CONTROL_IDENTITY:-}' not applied, continuing"
+            OSPREY_CONTROL_IDENTITY_SKIPPED="${2:-apply-failed}"
+            export OSPREY_CONTROL_IDENTITY_SKIPPED
+            return 1
+            ;;
+    esac
+    die "$1; refusing to start rather than act as 'osprey'"
+}
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 main() {
@@ -589,6 +652,16 @@ main() {
         log "         scaffold restore and first-run state seed, and running the command"
         log "         directly."
         log "         Derived artifacts will be whatever this image was built with."
+        # The identity rewrite needs root too. A person identity refuses to
+        # start, so a card configured as that person never silently acts as
+        # whatever uid this is; an `osprey-*` service identity is a documented
+        # non-root mode, so it runs and says so where /health can see it.
+        if [ -n "${OSPREY_CONTROL_IDENTITY:-}" ]; then
+            control_identity_failed \
+                "control identity '${OSPREY_CONTROL_IDENTITY:-}' needs a root start to rewrite /etc/passwd, and this is uid $(id -u)" \
+                non-root-start \
+                || :
+        fi
         exec "$@"
     fi
 
@@ -614,6 +687,9 @@ main() {
     # container that refuses to start over it cannot write anything at all.
     join_mounted_groups \
         || log "WARNING: the mounted-group step exited non-zero; continuing to the privilege drop"
+
+    # Fail closed for a person, open for a service: see control_identity_failed.
+    apply_control_identity
 
     hand_back_state_zone
 

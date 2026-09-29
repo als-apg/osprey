@@ -11,6 +11,7 @@ Also covers pre-execution notebook creation for execute (python) approval.
 
 import os
 import re
+import sys
 
 import pytest
 
@@ -118,7 +119,7 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "caput('PV', 1.0)", "execution_mode": "readwrite"},
+        {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -332,7 +333,7 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "caput('PV', 1.0)", "execution_mode": "readwrite"},
+        {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -360,7 +361,7 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "epics.caput('PV', 5.0)", "execution_mode": "readwrite"},
+        {"code": "write_channel('PV', 5.0)", "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -1619,3 +1620,206 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     assert len(saved) == 1, "the review notebook was not saved"
     assert saved[0].artifact_type == "notebook"
     assert launches == []
+
+
+# ============================================================================
+# Raw client-write spellings in a readwrite `execute` are denied, not asked
+# ============================================================================
+
+RAW_PUT_CONFIG = {
+    "approval": DEFAULT_TOOLS_CONFIG,
+    "control_system": {"writes_enabled": True},
+}
+
+
+def _decision(result):
+    return None if result is None else result["hookSpecificOutput"]["permissionDecision"]
+
+
+def _run_execute(hook_runner, make_config, tmp_path, code, *, mode="readwrite", config=None):
+    return hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": code, "execution_mode": mode},
+        config_path=make_config(config or RAW_PUT_CONFIG),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+
+@pytest.mark.parametrize(
+    ("code", "spelling"),
+    [
+        pytest.param("from epics import caput\ncaput('SR:QF:SP', 1.5)\n", "caput(", id="caput"),
+        pytest.param("caput_many(['A', 'B'], [1, 2])\n", "caput_many(", id="caput_many"),
+        pytest.param(
+            "import epics\nepics.caput('SR:QF:SP', 1.5)\n", "epics.caput(", id="epics.caput"
+        ),
+        pytest.param(
+            "from epics import PV\nPV('SR:QF:SP').put(1.5)\n", "PV(...).put(", id="PV-put"
+        ),
+        pytest.param(
+            "import aioca\nawait aioca.caput('SR:QF:SP', 1.5)\n", "aioca.caput(", id="aioca.caput"
+        ),
+        pytest.param(
+            "from osprey_connectors.control_system import write_door\n",
+            "write_door",
+            id="write_door",
+        ),
+        pytest.param(
+            "from osprey_connectors.control_system import open_door\nwith open_door():\n    pass\n",
+            "open_door",
+            id="open_door",
+        ),
+    ],
+)
+def test_readwrite_raw_client_write_is_denied(tmp_path, hook_runner, make_config, code, spelling):
+    """Each unambiguous raw spelling is denied with the write_channel remedy."""
+    result = _run_execute(hook_runner, make_config, tmp_path, code)
+
+    assert _decision(result) == "deny"
+    reason = result["hookSpecificOutput"]["permissionDecisionReason"]
+    assert reason.startswith("raw client write refused")
+    assert f"`{spelling}`" in reason
+    assert "osprey.runtime.write_channel(address, value)" in reason
+    assert "osprey.runtime.write_channels(" in reason
+
+
+@pytest.mark.parametrize(
+    "approval",
+    [
+        pytest.param({"enabled": False}, id="approval-disabled"),
+        pytest.param({"enabled": True, "tools": {"execute": "skip"}}, id="execute-skip"),
+        pytest.param({"enabled": True, "default_policy": "skip"}, id="default-skip"),
+    ],
+)
+def test_raw_client_write_denied_even_when_approval_would_allow(
+    tmp_path, hook_runner, make_config, approval
+):
+    """Neither a disabled approval gate nor a skip policy turns the deny into an allow."""
+    config = {"approval": approval, "control_system": {"writes_enabled": True}}
+
+    result = _run_execute(
+        hook_runner, make_config, tmp_path, "caput('SR:QF:SP', 1.5)", config=config
+    )
+
+    assert _decision(result) == "deny"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("# caput('SR:QF:SP', 1.5)\nprint(1)\n", id="comment"),
+        pytest.param("note = \"caput('SR:QF:SP', 1.5) and open_door\"\n", id="string"),
+        pytest.param('doc = """\nPV(\'X\').put(1)\nctxt.put(\'Y\', 2)\n"""\n', id="docstring"),
+        pytest.param('msg = f"caput( with {x}"\n', id="fstring-text"),
+    ],
+)
+def test_raw_spelling_in_data_still_asks(tmp_path, hook_runner, make_config, code):
+    """A spelling only in a comment, a string or f-string text is not code: readwrite asks."""
+    result = _run_execute(hook_runner, make_config, tmp_path, code)
+
+    assert _decision(result) == "ask"
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="f-string braces tokenize from 3.12")
+def test_raw_spelling_inside_fstring_braces_is_denied(tmp_path, hook_runner, make_config):
+    """From 3.12 the expression inside f-string braces is code, and is matched."""
+    result = _run_execute(hook_runner, make_config, tmp_path, "s = f\"{caput('X', 1)}\"\n")
+
+    assert _decision(result) == "deny"
+
+
+@pytest.mark.skipif(sys.version_info >= (3, 12), reason="before 3.12 an f-string is one token")
+def test_raw_spelling_inside_fstring_braces_asks_before_312(tmp_path, hook_runner, make_config):
+    """Before 3.12 the whole f-string is a STRING token and is stripped."""
+    result = _run_execute(hook_runner, make_config, tmp_path, "s = f\"{caput('X', 1)}\"\n")
+
+    assert _decision(result) == "ask"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "from osprey.runtime import write_channel\nwrite_channel('SR:QF:SP', 1.5)\n",
+            id="write_channel",
+        ),
+        pytest.param("write_channels({'SR:QF:SP': 1.5})\n", id="write_channels"),
+        pytest.param("import queue\nq = queue.Queue()\nq.put(1)\n", id="queue.put"),
+        pytest.param("mycaput('X', 1)\nrecaput_many(1)\n", id="caput-as-suffix"),
+        pytest.param(
+            "from p4p.client.thread import Context\nctxt = Context('pva')\nctxt.put('SR:QF:SP', 1.5)\n",
+            id="p4p-put",
+        ),
+        pytest.param(
+            "import pvaccess\npvaccess.Channel('SR:QF:SP').put(1.5)\n",
+            id="pvaccess-put",
+        ),
+    ],
+)
+def test_sanctioned_and_ambiguous_spellings_still_ask(tmp_path, hook_runner, make_config, code):
+    """write_channel(s), the ambiguous bare `.put(` and the PVAccess puts the
+    runtime limits-checks rather than refuses keep the human ask."""
+    result = _run_execute(hook_runner, make_config, tmp_path, code)
+
+    assert _decision(result) == "ask"
+
+
+def test_untokenizable_code_keeps_the_ask(tmp_path, hook_runner, make_config):
+    """Source tokenize cannot read falls through to today's flow, never an allow."""
+    result = _run_execute(hook_runner, make_config, tmp_path, "caput('X', 1\nx = '''unterminated")
+
+    assert _decision(result) == "ask"
+
+
+def test_readonly_raw_spelling_is_not_denied_here(tmp_path, hook_runner, make_config):
+    """The deny is a readwrite rule; readonly keeps its pattern-detection ask."""
+    result = _run_execute(
+        hook_runner, make_config, tmp_path, "caput('SR:QF:SP', 1.5)", mode="readonly"
+    )
+
+    assert _decision(result) == "ask"
+
+
+def test_execute_file_keeps_its_ask(tmp_path, hook_runner, make_config):
+    """execute_file carries a path, not code, so it asks and the runtime block stands behind it."""
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute_file",
+        {"file_path": "open_door_caput.py", "code": "caput('X', 1)", "execution_mode": "readwrite"},
+        config_path=make_config(RAW_PUT_CONFIG),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _decision(result) == "ask"
+
+
+def test_raw_client_write_deny_files_a_refused_record(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The deny is a refusal on the audit trail — `refused`, reason `raw_client_write`."""
+    import json
+    from pathlib import Path
+
+    from tests._control_context_fixtures import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state_dir_under(root).mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+
+    result = _run_execute(hook_runner, make_config, tmp_path, "open_door()\n")
+
+    assert _decision(result) == "deny"
+    records = [
+        json.loads(line)
+        for path in Path(tmp_path).rglob("hook_approval.jsonl")
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 1
+    assert records[0]["decision"] == "refused"
+    assert records[0]["reason"] == "raw_client_write"
+    assert records[0]["subject"] == "mcp__python__execute"

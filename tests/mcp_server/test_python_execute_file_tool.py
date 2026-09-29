@@ -539,3 +539,45 @@ async def test_execute_file_tool_description_has_no_container_claim():
     assert "container" not in prose.lower(), (
         "description must not claim a container backend; execution is subprocess-only"
     )
+
+
+async def test_execute_file_notes_written_channels_and_stamps(tmp_path, monkeypatch):
+    """execute_file's call facts carry the run's written channels and the parent's stamps."""
+    import os
+    import pwd
+    import socket
+
+    from osprey.audit.call import call_scope
+
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "writer.py"
+    script.write_text("print('done')\n")
+
+    result = ExecutionResult(
+        success=True,
+        stdout="done\n",
+        stderr="",
+        execution_method_used="subprocess",
+        execution_time_seconds=0.1,
+        written_channels=["SR:MAG:1"],
+    )
+    mock_exec = AsyncMock(return_value=result)
+
+    with (
+        patch(
+            "osprey.mcp_server.python_executor.executor._resolve_project_root",
+            return_value=tmp_path,
+        ),
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value=_no_writes(),
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+        call_scope("toolu_file", None) as call,
+    ):
+        fn = _get_python_execute_file()
+        await fn(file_path=str(script), description="ledger", execution_mode="readonly")
+
+    assert call.facts["channels"] == ["SR:MAG:1"]
+    assert call.facts["ca_user"] == pwd.getpwuid(os.getuid()).pw_name
+    assert call.facts["ca_host"] == socket.gethostname()

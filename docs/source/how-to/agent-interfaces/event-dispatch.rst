@@ -241,6 +241,12 @@ terminal. The name comes from the session the call left, never from a tool
 argument or a header the agent can set, so there is no way to fire on someone
 else's behalf.
 
+The control system sees the job's writes under the worker's own service name,
+``osprey-dispatch-<i>`` for worker *i*, not under yours: one worker runs jobs
+for everyone. Your name goes into the audit ledger instead, as ``owner=`` on
+the job's write records beside the worker name, which is how a line in the
+gateway's put-log is joined back to you. See :ref:`audit-trail-attribution`.
+
 A job that cron or an inbound webhook started carries no name, and neither does
 one whose account name the dispatcher cannot read — a name that is not a plain
 account spelling is refused, and the only trace is a warning in the dispatcher's

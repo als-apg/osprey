@@ -40,6 +40,7 @@ is restated from a plan.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shlex
 import shutil
@@ -145,6 +146,9 @@ LIMITS_FILE = "channel_limits.json"
 
 #: What ``VA_LATTICE`` says when the tree carries no model to steer.
 LATTICE_NONE = "none"
+
+#: The sentence that must no longer exist anywhere in a build's output.
+DEAD_FALLBACK_SENTENCE = "built-in demo namespace"
 
 
 def _packaged_scenarios() -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -266,8 +270,6 @@ def env_values(repo: Path) -> dict[str, str]:
 
 def served_manifest(repo: Path) -> dict:
     """The channel manifest the build published, as the container will read it."""
-    import json
-
     return json.loads((repo / SERVED / MANIFEST_FILE).read_text(encoding="utf-8"))
 
 
@@ -837,3 +839,93 @@ class TestServedFromATwoZeroExport:
 
         assert published(repo) == served_repo["first"]
         assert env_values(repo) == served_repo["first_env"]
+
+
+def _collapsed(text: str) -> str:
+    """One line, whitespace collapsed -- the phase reporter wraps its facts."""
+    return " ".join(text.split())
+
+
+class TestTheBuildFactsOfAHarvestedTree:
+    """The facts ``osprey build`` states about the channel set it serves, on a harvested tree.
+
+    tests/cli/test_build_va_manifest_honesty.py holds these facts on trees
+    assembled from the bundle's own sources. These hold them on the tree an
+    operator ends up with after the MML chain and ``osprey build`` over a real
+    export: the one shape of project that reaches that code with a channel set,
+    a ring and the bindings between them all written by the same harvest. They
+    read the ``served_repo`` build above rather than driving the chain again.
+    """
+
+    def test_a_harvested_trees_fact_names_the_database_the_harvest_wrote(
+        self, served_repo: dict
+    ) -> None:
+        """The channel set is the harvest's, and the fact says which file backs it.
+
+        The same sentence the bundled trees are held to, said about a tree
+        whose one staged database was written minutes earlier by ``mml emit``: it
+        names the paradigm that fed the manifest, names the two the harvest did
+        not write, and claims no channel the tree does not hold.
+        """
+        printed = _collapsed(served_repo["build"])
+        total = served_manifest(served_repo["repo"])["_metadata"]["total_channels"]
+
+        assert f"{total} channel(s) from its middle_layer channel database(s)" in printed
+        assert "Not staged at that tier: hierarchical and in_context" in printed
+        assert DEAD_FALLBACK_SENTENCE not in printed
+
+    def test_the_reconciliation_fact_rides_along_on_a_harvested_tree(
+        self, served_repo: dict
+    ) -> None:
+        """The machine-state list the harvest emitted is checked against that set.
+
+        Both facts are said once per tree, so a harvested tree gets the second one
+        too -- and on a tree where one harvest wrote both documents, every
+        candidate the list names is an address the manifest serves.
+        """
+        printed = _collapsed(served_repo["build"])
+        listed = json.loads(
+            (served_repo["repo"] / "data" / "machine_state_channels.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        # The document is address -> entry, with the provenance stamp and the
+        # note it opens on spelled as underscore keys.
+        checked = len([key for key in listed if not key.startswith("_")])
+
+        assert checked
+        assert f"{checked} checked, {checked} valid, 0 invalid" in printed
+
+    def test_the_facility_bands_survive_the_lane_and_the_build(self, served_repo: dict) -> None:
+        """A band the facility authored is still its own after the whole chain.
+
+        ``channel_limits.json`` is the one document of the served tree that is
+        shared: the deployment's own bands are in it before the harvest runs, and
+        the virtual-accelerator lane states the bands of the channels it bound by
+        merging into that file rather than replacing it. The build then copies the
+        merged file beside the manifest. So the invariant is asked of the end of
+        the chain, where it can actually fail: every entry the project carried
+        before the harvest is still there, unchanged, in what the container will
+        read -- and the lane's own bands are an addition to it.
+        """
+        before = json.loads((PACKAGED_DATA / LIMITS_FILE).read_text(encoding="utf-8"))
+        bands = json.loads((served_repo["repo"] / SERVED / LIMITS_FILE).read_text(encoding="utf-8"))
+
+        assert {key: bands.get(key) for key in before} == before
+        assert bands.keys() > before.keys()
+
+    def test_the_published_bands_sit_at_the_root_and_beside_the_manifest(
+        self, served_repo: dict
+    ) -> None:
+        """Both readers find the same file: the model's, and the IOC's clamp.
+
+        The model resolves the bands from the data root it is mounted at, and the
+        IOC reads them from beside the manifest it serves. One build writes both,
+        and a difference between them would clamp a write at one value while the
+        model believed another.
+        """
+        data_root = served_repo["repo"] / "build" / "data"
+
+        assert (data_root / LIMITS_FILE).read_bytes() == (
+            data_root / "simulation" / LIMITS_FILE
+        ).read_bytes()

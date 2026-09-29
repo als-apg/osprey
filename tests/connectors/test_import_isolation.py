@@ -125,3 +125,32 @@ def test_identity_imports_no_osprey_module():
     )
     assert result.returncode == 0, result.stderr
     assert "CLEAN" in result.stdout
+
+
+def test_write_door_imports_no_osprey_module():
+    """The door is read by the raw-client guard beneath the framework.
+
+    The guard runs in executor sandboxes and notebook kernels, so the module it
+    asks must be stdlib-only. Same shape as the ladder case: ``src`` is on the
+    path, so the assertion is on ``sys.modules``, and the door is opened and
+    read rather than only imported.
+    """
+    code = (
+        "from osprey_connectors.control_system import write_door;"
+        "import sys;"
+        "assert not write_door.door_is_open();"
+        "cm = write_door.open_door(); cm.__enter__();"
+        "assert write_door.door_is_open();"
+        "cm.__exit__(None, None, None);"
+        "bad = sorted(m for m in sys.modules if m == 'osprey' or m.startswith('osprey.'));"
+        "assert not bad, f'the write door eagerly imported: {bad}';"
+        "print('CLEAN')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=SRC),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "CLEAN" in result.stdout

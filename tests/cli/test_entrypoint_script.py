@@ -207,6 +207,7 @@ def _stub_bin(
     with_gosu: bool,
     python_rc: int = 0,
     with_osprey_user: bool = True,
+    apply_rc: int = 0,
 ) -> Path:
     """A PATH holding only stubs, so a run touches nothing on the host.
 
@@ -244,8 +245,18 @@ def _stub_bin(
     # rather than only on the script's source.
     # stdin is drained with shell builtins rather than `cat`, because the PATH
     # this builds is the only one the run has and nothing else is on it.
+    # `python <module> apply ...` is the control-identity step, not the
+    # maintenance heredoc: its own token, and a line on stdout and a read of
+    # stdin, so a run shows whether the script kept both off the command's
+    # streams.
     write(
         "python",
+        'if [ "$2" = "apply" ]; then\n'
+        '  printf "apply\\n" >> "$ORDER_LOG"\n'
+        '  printf "apply-stdout\\n"\n'
+        '  if IFS= read -r line; then printf "apply-read-stdin\\n" >> "$ORDER_LOG"; fi\n'
+        f"  exit {apply_rc}\n"
+        "fi\n"
         'printf "python\\n" >> "$ORDER_LOG"\n'
         'while IFS= read -r line; do printf "%s\\n" "$line"; done > "$PY_PROGRAM"\n'
         f"exit {python_rc}\n",
@@ -275,7 +286,14 @@ def _stub_bin(
     return bindir
 
 
-def _run(script: Path, tmp_path: Path, bindir: Path, *args: str):
+def _run(
+    script: Path,
+    tmp_path: Path,
+    bindir: Path,
+    *args: str,
+    extra_env: dict[str, str] | None = None,
+    stdin: str | None = None,
+):
     order_log = tmp_path / "order.log"
     py_program = tmp_path / "program.py"
     order_log.touch()
@@ -284,10 +302,12 @@ def _run(script: Path, tmp_path: Path, bindir: Path, *args: str):
         capture_output=True,
         text=True,
         check=False,
+        input=stdin,
         env={
             "PATH": str(bindir),
             "ORDER_LOG": str(order_log),
             "PY_PROGRAM": str(py_program),
+            **(extra_env or {}),
         },
     )
     return result, order_log.read_text().split(), py_program
@@ -497,3 +517,133 @@ class TestStateZoneHandBack:
         assert result.returncode == 0, result.stderr
         assert "find" not in order, order
         assert "gosu" in order, order
+
+
+class TestControlIdentity:
+    """``OSPREY_CONTROL_IDENTITY`` on the rendered script: applied on a root
+    start or the container refuses to start; under ``--user`` a person
+    identity refuses and an ``osprey-*`` service identity warns and runs."""
+
+    def _cmd(self, tmp_path: Path) -> list[str]:
+        return [
+            "/bin/sh",
+            "-c",
+            f'printf "cmd\\n" >> "{tmp_path / "order.log"}"; '
+            'printf "skipped=%s\\n" "${OSPREY_CONTROL_IDENTITY_SKIPPED-unset}"',
+        ]
+
+    def _env(self, tmp_path: Path, identity: str, *, module: bool = True) -> dict[str, str]:
+        path = tmp_path / "control_identity.py"
+        if module:
+            path.write_text("# stand-in\n")
+        return {
+            "OSPREY_CONTROL_IDENTITY": identity,
+            "OSPREY_CONTROL_IDENTITY_MODULE": str(path),
+        }
+
+    def test_the_step_sits_between_the_join_and_the_hand_back(self, text: str):
+        join = text.index("\n    join_mounted_groups")
+        step = text.index("\n    apply_control_identity\n")
+        hand_back = text.index("\n    hand_back_state_zone\n")
+        assert join < step < hand_back < _EXEC_FORM.search(text).start()
+
+    def test_a_root_start_applies_then_drops_as_osprey(self, script: Path, tmp_path: Path):
+        """The ``osprey`` line stays, so the drop is spelled exactly as before."""
+        bindir = _stub_bin(tmp_path, uid=0, with_gosu=True)
+        result, order, _ = _run(
+            script, tmp_path, bindir, *self._cmd(tmp_path), extra_env=self._env(tmp_path, "alice")
+        )
+
+        assert result.returncode == 0, result.stderr
+        # The shared render may have grown a ``var/`` for the hand-back tests,
+        # so the find/chown pair between the two is not pinned here.
+        assert order[:2] == ["python", "apply"], order
+        assert order[-3:] == ["gosu", "osprey", "cmd"], order
+        assert result.stdout == "skipped=unset\n"
+
+    def test_the_rewrite_stays_off_the_commands_streams(self, script: Path, tmp_path: Path):
+        """``whoami`` prints the identity and nothing else: the module's
+        stdout goes to stderr, and it never reads the container's stdin."""
+        bindir = _stub_bin(tmp_path, uid=0, with_gosu=True)
+        result, order, _ = _run(
+            script,
+            tmp_path,
+            bindir,
+            *self._cmd(tmp_path),
+            extra_env=self._env(tmp_path, "alice"),
+            stdin="for-the-command\n",
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "apply-stdout" not in result.stdout
+        assert "apply-stdout" in result.stderr
+        assert "apply-read-stdin" not in order, order
+
+    @pytest.mark.parametrize("identity", ["alice"])
+    def test_a_failed_rewrite_refuses_to_start(self, script: Path, tmp_path: Path, identity: str):
+        bindir = _stub_bin(tmp_path, uid=0, with_gosu=True, apply_rc=1)
+        result, order, _ = _run(
+            script, tmp_path, bindir, *self._cmd(tmp_path), extra_env=self._env(tmp_path, identity)
+        )
+
+        assert result.returncode != 0
+        assert "FATAL" in result.stderr
+        assert "gosu" not in order and "cmd" not in order, order
+
+    @pytest.mark.parametrize("identity", ["alice"])
+    def test_a_missing_module_refuses_to_start(self, script: Path, tmp_path: Path, identity: str):
+        bindir = _stub_bin(tmp_path, uid=0, with_gosu=True)
+        result, order, _ = _run(
+            script,
+            tmp_path,
+            bindir,
+            *self._cmd(tmp_path),
+            extra_env=self._env(tmp_path, identity, module=False),
+        )
+
+        assert result.returncode != 0
+        assert "FATAL" in result.stderr
+        assert "apply" not in order and "cmd" not in order, order
+
+    def test_a_service_identity_whose_rewrite_fails_warns_and_runs(
+        self, script: Path, tmp_path: Path
+    ):
+        bindir = _stub_bin(tmp_path, uid=0, with_gosu=True, apply_rc=1)
+        result, order, _ = _run(
+            script,
+            tmp_path,
+            bindir,
+            *self._cmd(tmp_path),
+            extra_env=self._env(tmp_path, "osprey-dispatch-1"),
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "FATAL" not in result.stderr
+        assert "WARNING" in result.stderr and "osprey-dispatch-1" in result.stderr
+        assert order[-1] == "cmd", order
+        assert result.stdout == "skipped=apply-failed\n"
+
+    def test_a_person_identity_under_user_refuses_to_start(self, script: Path, tmp_path: Path):
+        bindir = _stub_bin(tmp_path, uid=1000, with_gosu=True)
+        result, order, _ = _run(
+            script, tmp_path, bindir, *self._cmd(tmp_path), extra_env=self._env(tmp_path, "alice")
+        )
+
+        assert result.returncode != 0
+        assert "FATAL" in result.stderr
+        assert order == [], order
+
+    def test_a_service_identity_under_user_warns_and_runs(self, script: Path, tmp_path: Path):
+        bindir = _stub_bin(tmp_path, uid=1000, with_gosu=True)
+        result, order, _ = _run(
+            script,
+            tmp_path,
+            bindir,
+            *self._cmd(tmp_path),
+            extra_env=self._env(tmp_path, "osprey-dispatch-1"),
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert order == ["cmd"], order
+        assert "WARNING" in result.stderr and "osprey-dispatch-1" in result.stderr
+        assert result.stdout == "skipped=non-root-start\n"

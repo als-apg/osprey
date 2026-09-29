@@ -22,6 +22,7 @@ other control-system type is left untouched.
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey.cli.templates import claude_code
@@ -233,8 +234,81 @@ def test_existing_pyepics_prohibitions_survive(tmp_path):
     assert "epics.caget" in content
     assert "epics.caput" in content
     assert "Bypasses audit logging" in content
-    assert "Bypasses limits + approval" in content
-    assert "Bypasses all safety layers" in content
+    assert RAW_PUT_ANNOTATION in content
+
+
+#: The annotation every raw client put example carries in the branches whose
+#: client libraries the executor and the notebook kernels refuse at runtime.
+RAW_PUT_ANNOTATION = "# Refused at runtime: RAW_CLIENT_WRITE"
+
+#: The raw-put example lines of each refusing branch, stem before the ``#``.
+RAW_PUT_LINES = {
+    "epics": (
+        'epics.caput("SR:MAG:QF:01:CURRENT:SP", 150)',
+        "pv.put(150)",
+    ),
+    "doocs": ('doocs4py.set("FACILITY/DEVICE/LOCATION/SETPOINT", 150.0)',),
+    "tango": (
+        'device.write_attribute("Current", 150)',
+        'dev.write_attribute("Setpoint", 150)',
+    ),
+}
+
+
+@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", "doocs", "tango"])
+def test_raw_put_lines_say_refused_and_name_write_channel(cs_type):
+    """Where the runtime refuses a raw client put, the rule says so -- a put
+    marked merely as a bypass reads as a riskier route that approval could
+    still let through -- and names the calls that do write."""
+    content = _render_template_directly(cs_type, set())
+    branch = "epics" if cs_type == "virtual_accelerator" else cs_type
+
+    annotated = {
+        line.split("#", 1)[0].strip(): "#" + line.split("#", 1)[1]
+        for line in content.splitlines()
+        if "#" in line
+    }
+    for stem in RAW_PUT_LINES[branch]:
+        assert stem in annotated, f"{cs_type}: raw-put example missing: {stem!r}"
+        assert annotated[stem].strip() == RAW_PUT_ANNOTATION, (
+            f"{cs_type}: {stem!r} annotated {annotated[stem]!r}"
+        )
+
+    prose = " ".join(content.split())
+    assert "refuse it at runtime with `RAW_CLIENT_WRITE`" in prose
+    assert "in readwrite runs too" in prose
+    assert "approving the run does not change that" in prose
+    assert "`write_channel(address, value)`" in prose
+    assert "`write_channels({address: value, ...})`" in prose
+    assert "Bypasses limits + approval" not in content
+    assert "Bypasses all safety layers" not in content
+
+
+@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator"])
+def test_the_pva_put_is_named_as_the_one_exception(cs_type):
+    """The connector does not write pvAccess yet, so the runtime limits-checks
+    a raw PVA put instead of refusing it. The rule must not call it refused,
+    and must say it is for a PVA channel only and still asks for approval."""
+    content = _render_template_directly(cs_type, set())
+    put_lines = [line for line in content.splitlines() if line.startswith("ctxt.put(")]
+
+    assert len(put_lines) == 1, put_lines
+    assert "RAW_CLIENT_WRITE" not in put_lines[0]
+    assert "PVA channel only" in put_lines[0]
+    prose = " ".join(content.split())
+    assert "the one exception to that refusal, for writes only" in prose
+    assert "`write_channel` does not write pvAccess channels yet" in prose
+    assert "asks for approval" in prose
+    assert "a Channel Access channel goes through `write_channel`" in prose
+
+
+@pytest.mark.parametrize("cs_type", ["opcua", "labview", "mock"])
+def test_non_refusing_branches_make_no_runtime_refusal_claim(cs_type):
+    """The raw-put refusal covers the EPICS, DOOCS and Tango client libraries;
+    naming it for any other branch would claim a guard that is not there."""
+    content = _render_template_directly(cs_type, set())
+
+    assert "RAW_CLIENT_WRITE" not in content
 
 
 def test_rule_heading_contract_intact(tmp_path):

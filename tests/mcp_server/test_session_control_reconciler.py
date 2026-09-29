@@ -119,7 +119,7 @@ class FakeManager:
     def is_started(self) -> bool:
         return self.started
 
-    def applying_bound_s(self, *, fallback_retry: bool = True) -> float:  # noqa: ARG002 - ConnectorHostManager.applying_bound_s fixes this keyword-only parameter
+    def applying_bound_s(self) -> float:
         return self.bound_s
 
     def publish_display(self) -> bool:

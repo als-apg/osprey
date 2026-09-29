@@ -43,9 +43,11 @@ from osprey.bluesky_bridge_connection import (
     SECOND_LANE_KEYS,
     lane_declared_target,
 )
+from osprey.deployment.control_identity import validate_identity
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors import yaml_loader
 from osprey_connectors.types import (
@@ -1084,6 +1086,12 @@ def normalize_users(users_raw: Any, *, strict: bool = True) -> list[dict[str, An
     persona helper reads as "the deployment's default persona". A ``role`` that
     names no declared role, and a non-string one, are reported by lint.
 
+    An object entry's optional ``control_identity`` (the name the control
+    system sees this card's writes arrive under, surfaced downstream as
+    ``OSPREY_CONTROL_IDENTITY``) is carried on the same terms as
+    ``oidc_subject``, empty-string drop included: a carried ``""`` would name
+    nobody. Its charset and reserved names are judged by lint, not here.
+
     An object entry's optional ``access`` (which principals may open this
     entry's card, rather than only the one user it belongs to) is *validated*
     here and carried through **verbatim** — the authored form, never a resolved
@@ -1146,8 +1154,9 @@ def normalize_users(users_raw: Any, *, strict: bool = True) -> list[dict[str, An
 
     Returns:
         New ``{"name": str, "index": int}`` dicts (plus optional
-        ``"display_name"``, ``"theme"``, ``"oidc_subject"`` and ``"role"`` string
-        keys when the entry carried them, and the authored ``"access"`` value
+        ``"display_name"``, ``"theme"``, ``"tour"``, ``"oidc_subject"``,
+        ``"role"`` and ``"control_identity"`` string keys when the entry carried
+        them, and the authored ``"access"`` value
         verbatim when it admits anyone beyond the entry's own user) in
         config-declaration order. Input dicts are never mutated or returned by
         reference.
@@ -1192,6 +1201,13 @@ def normalize_users(users_raw: Any, *, strict: bool = True) -> list[dict[str, An
                 role = entry.get("role")
                 if isinstance(role, str) and role:
                     normalized_entry["role"] = role
+                # The name the control system sees this card write as. Carried on
+                # the same terms as `oidc_subject`: a carried `""` would ask the
+                # container to switch to an identity that names nobody, so an
+                # empty or non-string value is dropped and lint reports it.
+                control_identity = entry.get("control_identity")
+                if isinstance(control_identity, str) and control_identity:
+                    normalized_entry["control_identity"] = control_identity
                 # `access` is validated through the single parser, then carried
                 # verbatim: the authored form is what that parser reads, what
                 # freeze writes back, and what keeps `own`/`any` rendering
@@ -1532,6 +1548,43 @@ def entry_is_shared(entry: dict[str, Any]) -> bool:
             another surface reads it as admitting somebody.
     """
     return resolve_access_principals(entry) != _OWNER_ONLY
+
+
+def _is_shared_entry(user: Any) -> bool:
+    """:func:`entry_is_shared` over a RAW roster entry, without its refusal.
+
+    The predicate raises for an ``access`` value the vocabulary does not
+    recognise, deliberately: a value no consumer understands must not be read
+    as an owner-only card at one surface while another reads it as admitting
+    somebody. Every caller that holds a *normalized* entry is already past that
+    refusal — :func:`normalize_users` drops such an entry before it is
+    resolved — but lint's shared-card rules and the control-identity builders
+    ask the question of the raw roster, where the bad value is still there.
+
+    So they absorb it, and read the entry as not shared. Linting is how the
+    operator LEARNS the value is unreadable: lint's access rule reports it with
+    the sentence that says what to write instead, and a rule that propagated
+    the refusal instead would take that report — and every other finding in the
+    run — down with it over the one config the operator most needs a report
+    for. Treating the entry as not shared is also the fail-safe reading *for
+    these callers specifically*: each only ever ADDS a finding about a shared
+    card, so skipping the entry withholds a finding rather than blessing
+    anything.
+
+    Args:
+        user: One entry straight off ``modules.web_terminals.users``, of either
+            roster form.
+
+    Returns:
+        Whether the entry admits anyone beyond its own user; ``False`` for a
+        bare-string entry and for an ``access`` value that cannot be read.
+    """
+    if not isinstance(user, dict):
+        return False
+    try:
+        return entry_is_shared(user)
+    except ValueError:
+        return False
 
 
 def freeze_user_indices(users_raw: Any) -> list[dict[str, Any]]:
@@ -2131,6 +2184,255 @@ def shared_card_privileged_problems(
     return problems
 
 
+CONTROL_IDENTITY_COLLISION_CODE = "web_terminals.control_identity_collision"
+"""The code every :func:`control_identity_collision_warnings` WARN carries."""
+
+
+def _roster_entry_name(user: Any) -> str | None:
+    """A raw roster entry's name: a bare string is its own, a dict its ``name``."""
+    if isinstance(user, str):
+        return user
+    if isinstance(user, dict):
+        name = user.get("name")
+        if isinstance(name, str):
+            return name
+    return None
+
+
+def _subject_key(user: Mapping[str, Any], fold: bool) -> str | None:
+    """The entry's ``oidc_subject`` as the sidecar compares it, or ``None`` when unset.
+
+    Stripped of surrounding whitespace, and case-folded when the configured
+    claim is matched case-insensitively (:data:`CASE_INSENSITIVE_CLAIMS`).
+    """
+    subject = user.get("oidc_subject")
+    if not isinstance(subject, str) or not subject.strip():
+        return None
+    key = subject.strip()
+    return key.casefold() if fold else key
+
+
+def _valid_control_identity_entries(raw_users: Any) -> list[tuple[str, str, dict[str, Any]]]:
+    """``(name, control_identity, entry)`` for every named entry carrying a valid value.
+
+    The cross-entry rules compare only values that could reach ``/etc/passwd``;
+    an invalid value is already an ERROR of its own, and a comparison over it
+    would only pile a second finding onto the same typo.
+    """
+    entries: list[tuple[str, str, dict[str, Any]]] = []
+    for user in raw_users if isinstance(raw_users, list) else []:
+        if not isinstance(user, dict) or "control_identity" not in user:
+            continue
+        name = _roster_entry_name(user)
+        value = user.get("control_identity")
+        if name is None or not isinstance(value, str):
+            continue
+        try:
+            validate_identity(value, allow_service=False)
+        except ValueError:
+            continue
+        entries.append((name, value, user))
+    return entries
+
+
+def _control_identity_groups(raw_users: Any, fold: bool) -> list[tuple[str, list[str], bool, bool]]:
+    """Every control identity carried by more than one entry.
+
+    Returns ``(value, entry names, two_people, all_subjects)`` in
+    first-appearance order, where ``two_people`` is true when at least two of
+    the entries carry ``oidc_subject`` values that still differ after the
+    claim-dependent fold, and ``all_subjects`` is true when every entry carries
+    one.
+    """
+    by_value: dict[str, list[tuple[str, str | None]]] = {}
+    for name, value, user in _valid_control_identity_entries(raw_users):
+        by_value.setdefault(value, []).append((name, _subject_key(user, fold)))
+    groups: list[tuple[str, list[str], bool, bool]] = []
+    for value, members in by_value.items():
+        if len(members) < 2:
+            continue
+        subjects = [subject for _, subject in members if subject is not None]
+        groups.append(
+            (
+                value,
+                [name for name, _ in members],
+                len(set(subjects)) > 1,
+                len(subjects) == len(members),
+            )
+        )
+    return groups
+
+
+def control_identity_problems(raw_users: Any, *, claim: str = "") -> list[tuple[str, str]]:
+    """Every roster ``control_identity`` that must be refused, as ``(code, message)``.
+
+    ``control_identity`` is the account name the control system sees a card's
+    writes arrive under, so three shapes are refused outright:
+
+    * ``web_terminals.invalid_user_control_identity`` — a value
+      :func:`~osprey.deployment.control_identity.validate_identity` refuses:
+      not a string, outside the passwd-safe charset, reserved for OSPREY, or
+      already an account in the base image.
+    * ``web_terminals.shared_card_control_identity`` — any value on a shared
+      card. Whoever opens a shared card writes through it, so one fixed name
+      would attribute every opener's writes to one person.
+    * ``web_terminals.duplicate_control_identity`` — one value carried by
+      entries whose ``oidc_subject`` values name two different people after
+      the claim-dependent case fold. The control system could no longer tell
+      their writes apart. A value shared with a missing subject, or by one
+      person holding two cards, is a WARN instead
+      (:func:`control_identity_collision_warnings`).
+
+    Read from the raw roster, so both roster forms are accepted and an entry
+    whose ``access`` cannot be read is judged as not shared (see
+    :func:`_is_shared_entry`). Messages name entries and the identity, never
+    a subject value.
+
+    Args:
+        raw_users: ``modules.web_terminals.users`` as authored.
+        claim: The configured OIDC claim; one in :data:`CASE_INSENSITIVE_CLAIMS`
+            folds subject case before comparing. Empty means the sidecar
+            default, which compares exactly.
+
+    Returns:
+        ``(code, message)`` per problem, in roster order: per-entry problems
+        first, then one per duplicated value.
+    """
+    fold = claim in CASE_INSENSITIVE_CLAIMS
+    problems: list[tuple[str, str]] = []
+    for user in raw_users if isinstance(raw_users, list) else []:
+        if not isinstance(user, dict) or "control_identity" not in user:
+            continue
+        name = user.get("name", user)
+        value = user.get("control_identity")
+        try:
+            validate_identity(value, allow_service=False)
+        except ValueError as exc:
+            problems.append(
+                (
+                    "web_terminals.invalid_user_control_identity",
+                    f"modules.web_terminals.users entry {name!r} sets an unusable "
+                    f"control_identity: {exc}. Write the account name the control "
+                    "system should see this card's writes arrive under, or drop the key",
+                )
+            )
+        if _is_shared_entry(user):
+            problems.append(
+                (
+                    "web_terminals.shared_card_control_identity",
+                    f"modules.web_terminals.users entry {name!r} is a shared card "
+                    f"({access_phrase(user)}) and sets control_identity. Everybody who "
+                    "opens a shared card writes through it, so one fixed name would "
+                    "attribute every opener's writes to one person. Drop control_identity "
+                    f"from {name!r}, or make it owner-only",
+                )
+            )
+    for value, names, two_people, _all_subjects in _control_identity_groups(raw_users, fold):
+        if not two_people:
+            continue
+        problems.append(
+            (
+                "web_terminals.duplicate_control_identity",
+                f"modules.web_terminals.users entries {names} all set control_identity "
+                f"{value!r} but carry oidc_subject values naming different people, so "
+                "the control system could not tell their writes apart. Give each "
+                "person their own control_identity",
+            )
+        )
+    return problems
+
+
+def control_identity_collision_warnings(
+    raw_users: Any, *, claim: str = ""
+) -> list[tuple[str, str]]:
+    """Every roster ``control_identity`` collision short of a refusal, as ``(code, message)``.
+
+    Each is a value that may credit one person's writes to somebody else, but
+    that the roster alone cannot prove wrong:
+
+    * a value equal to ANOTHER entry's roster name;
+    * a value equal to the email local part of ANOTHER entry's
+      ``oidc_subject``;
+    * a value carried by more than one entry that
+      :func:`control_identity_problems` does not refuse — a subject is
+      missing, so the roster cannot say whether one person holds the cards,
+      or every subject agrees after the claim-dependent fold.
+
+    The first two are skipped when both entries carry the same subject after
+    the fold: that is one person holding two cards, and their own name is the
+    right one. Invalid values are left to the ERROR and never compared.
+
+    Args:
+        raw_users: ``modules.web_terminals.users`` as authored.
+        claim: The configured OIDC claim, as for
+            :func:`control_identity_problems`.
+
+    Returns:
+        ``(CONTROL_IDENTITY_COLLISION_CODE, message)`` per collision, in roster
+        order, then one per shared value.
+    """
+    fold = claim in CASE_INSENSITIVE_CLAIMS
+    users = raw_users if isinstance(raw_users, list) else []
+    others: list[tuple[str, str | None, str | None]] = []
+    for user in users:
+        name = _roster_entry_name(user)
+        if name is None:
+            continue
+        subject = _subject_key(user, fold) if isinstance(user, dict) else None
+        raw_subject = user.get("oidc_subject") if isinstance(user, dict) else None
+        local = None
+        if isinstance(raw_subject, str) and "@" in raw_subject:
+            local = raw_subject.strip().rsplit("@", 1)[0].casefold() or None
+        others.append((name, subject, local))
+
+    warnings: list[tuple[str, str]] = []
+    for name, value, user in _valid_control_identity_entries(users):
+        own_subject = _subject_key(user, fold)
+        for other_name, other_subject, other_local in others:
+            if other_name == name:
+                continue
+            if own_subject is not None and own_subject == other_subject:
+                continue
+            if value == other_name:
+                warnings.append(
+                    (
+                        CONTROL_IDENTITY_COLLISION_CODE,
+                        f"modules.web_terminals.users entry {name!r} sets control_identity "
+                        f"{value!r}, which is the roster name of entry {other_name!r}. The "
+                        f"control system would credit {name!r}'s writes to that user. "
+                        "Pick a name that belongs to this card's owner",
+                    )
+                )
+            elif value == other_local:
+                warnings.append(
+                    (
+                        CONTROL_IDENTITY_COLLISION_CODE,
+                        f"modules.web_terminals.users entry {name!r} sets control_identity "
+                        f"{value!r}, which matches the mailbox name in the oidc_subject of "
+                        f"entry {other_name!r}. The control system would credit "
+                        f"{name!r}'s writes to that person. Pick a name that belongs to "
+                        "this card's owner",
+                    )
+                )
+    for value, names, two_people, all_subjects in _control_identity_groups(users, fold):
+        if two_people:
+            continue
+        if all_subjects:
+            reason = "Every entry carries the same oidc_subject, so this reads as one person"
+        else:
+            reason = "Not every entry carries an oidc_subject, so the roster cannot say whether"
+            reason += " one person holds them"
+        warnings.append(
+            (
+                CONTROL_IDENTITY_COLLISION_CODE,
+                f"modules.web_terminals.users entries {names} all set control_identity "
+                f"{value!r}. {reason}. If more than one person opens these cards, give "
+                "each person their own control_identity",
+            )
+        )
+    return warnings
+
+
 def env_var_suffix(username: str) -> str:
     """Map a roster username to the suffix its per-user env vars are keyed by.
 
@@ -2407,7 +2709,9 @@ def resolve_personas(
         existed. An optional ``"oidc_subject"`` key rides through on the same
         terms, so the auth sidecar's roster→identity mapping is read off the same
         resolved entry as everything else rather than re-derived from the raw
-        roster. The authored ``"access"`` value rides through likewise, verbatim
+        roster. An optional ``"control_identity"`` key rides through on the
+        same terms, for the compose render's ``OSPREY_CONTROL_IDENTITY``.
+        The authored ``"access"`` value rides through likewise, verbatim
         and whole — present only when the roster entry admits somebody beyond
         its own user (see :func:`entry_is_shared`), so both the render and the
         guards that read resolved entries resolve the same principals the
@@ -2474,7 +2778,7 @@ def resolve_personas(
         render.py's conditional-``sublabel`` convention: a key is present only
         for a non-empty string, so a roster declaring none leaves the entry
         byte-identical to a resolution from before these fields existed."""
-        for field in ("display_name", "theme", "tour", "oidc_subject"):
+        for field in ("display_name", "theme", "tour", "oidc_subject", "control_identity"):
             value = source.get(field)
             if isinstance(value, str) and value:
                 entry[field] = value

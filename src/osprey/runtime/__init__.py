@@ -74,6 +74,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from osprey.connectors.control_system.limits_validator import LimitsValidator
@@ -169,6 +170,9 @@ _cell_marker: "Path | None" = None
 #: wrapper before user code runs. Nothing else sets it — a notebook kernel runs
 #: no wrapper — so every other process validates at the connector alone.
 _limits_validator: "LimitsValidator | None" = None
+#: Callables told about every write this process makes, as ``fn(address, phase)``.
+#: Registered only through :func:`_register_write_observer`.
+_write_observers: "list[Callable[[str, str], None]]" = []
 
 
 def _stamped_target() -> str | None:
@@ -447,6 +451,66 @@ def _assert_target_pin() -> None:
 
 
 # ========================================================
+# Write observers
+# ========================================================
+
+#: Phase names an observer receives. ``attempt`` fires once the target pin and
+#: the local limits net have passed, immediately before the connector call.
+#: After the call, a write whose value reached the control system is reported
+#: ``landed`` when a re-read verified it and ``sent`` otherwise. A write that
+#: reached no control system (refused, or a transport error) gets no second call.
+_WRITE_PHASE_ATTEMPT = "attempt"
+_WRITE_PHASE_LANDED = "landed"
+_WRITE_PHASE_SENT = "sent"
+
+
+def _register_write_observer(fn: "Callable[[str, str], None]") -> None:
+    """Register ``fn(address, phase)`` to hear about every write this process makes.
+
+    Idempotent: registering the same callable again is a no-op. An observer
+    that raises is logged at WARNING and never changes the write's outcome.
+    """
+    if fn not in _write_observers:
+        _write_observers.append(fn)
+
+
+def _notify_write(address: str, phase: str) -> None:
+    """Tell every registered observer about one channel's phase."""
+    for observer in list(_write_observers):
+        try:
+            observer(address, phase)
+        except Exception:
+            logger.warning(
+                f"Write observer {observer!r} raised on {address} [{phase}]; "
+                "the write is unaffected",
+                exc_info=True,
+            )
+
+
+def _phase_for_outcome(outcome: Any) -> str | None:
+    """The post-call phase for a write outcome, or ``None`` when nothing was sent.
+
+    Classified by :class:`WriteOutcome`, never by the exception a caller sees:
+    ``confirmed`` is the only verified outcome (``landed``); ``mismatch``,
+    ``unconfirmed``, ``failed`` and ``unrequested`` all put the value on the
+    wire without verifying it held (``sent``); ``refused`` sent nothing.
+    """
+    from osprey.connectors.control_system import WriteOutcome
+
+    if outcome is None or outcome == WriteOutcome.REFUSED:
+        return None
+    if outcome == WriteOutcome.CONFIRMED:
+        return _WRITE_PHASE_LANDED
+    return _WRITE_PHASE_SENT
+
+
+def _notify_outcome(address: str, outcome: Any) -> None:
+    phase = _phase_for_outcome(outcome)
+    if phase is not None:
+        _notify_write(address, phase)
+
+
+# ========================================================
 # Internal async implementations
 # ========================================================
 
@@ -483,7 +547,18 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # on a refusal, on a failed write, AND on a write whose confirming re-read
     # did not hold the setpoint. Calling write_channel directly would let an
     # unconfirmed write return silently and get logged as "Wrote ...".
-    result = await connector.write_channel_checked(channel_address, value, **kwargs)
+    from osprey.errors import ChannelWriteFailedError
+
+    _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
+    try:
+        result = await connector.write_channel_checked(channel_address, value, **kwargs)
+    except ChannelWriteFailedError as exc:
+        # The value reached the control system but did not come back verified.
+        # ``outcome`` is unset only when a connector raised this itself rather
+        # than returning a result; the exception still means the value went out.
+        _notify_write(channel_address, _phase_for_outcome(exc.outcome) or _WRITE_PHASE_SENT)
+        raise
+    _notify_outcome(channel_address, result.outcome)
 
     # Reaching here means the outcome is confirmed, or confirmation was not
     # requested (unrequested) — every other outcome already raised above.
@@ -524,7 +599,14 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
             for channel_address, value in channel_values.items():
                 _limits_validator.validate(channel_address, value, read_current=read_current)
 
+        for channel_address in channel_values:
+            _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
+
         results = await connector.write_multiple_channels(list(channel_values.items()), **kwargs)
+        # Every channel's outcome is reported before any raise: a failure on one
+        # channel must not hide that the others already went out.
+        for result in results:
+            _notify_outcome(result.channel_address, result.outcome)
         # Same denial contract as the single-channel path: a refusal or an
         # unconfirmed write must raise rather than return.
         for result in results:

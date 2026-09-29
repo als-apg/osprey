@@ -9,8 +9,10 @@ import pytest
 
 from osprey.deployment.web_terminals import personas as personas_module
 from osprey.deployment.web_terminals.personas import (
+    CONTROL_IDENTITY_COLLISION_CODE,
     EVENTS_PANEL_ID,
     UnresolvedRoleError,
+    _is_shared_entry,
     access_wire_value,
     bluesky_server_enabled,
     config_archiver_password_env,
@@ -20,6 +22,8 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_graphdb_password,
     config_needs_launch_token,
     config_needs_launch_token_for,
+    control_identity_collision_warnings,
+    control_identity_problems,
     effective_persona,
     entry_is_shared,
     env_var_suffix,
@@ -3278,3 +3282,351 @@ def test_role_bound_persona_counts_as_referenced_for_entitlements(tmp_path) -> N
 
     # Act / Assert
     assert personas_needing_ariel_password(config, tmp_path) == {"readwrite"}
+
+
+# ---------------------------------------------------------------------------
+# control_identity (the per-card name the control system sees this user write as)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_users_carries_string_control_identity_through() -> None:
+    """An object entry's `control_identity` is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "control_identity": "alice"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "control_identity": "alice"}]
+
+
+def test_normalize_users_omits_control_identity_key_when_absent() -> None:
+    """A roster declaring no identity keeps the plain two-key shape."""
+    # Act / Assert
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+@pytest.mark.parametrize("value", ["", None, 1000, ["alice"], {"name": "alice"}, True])
+def test_normalize_users_drops_empty_or_non_string_control_identity(value: Any) -> None:
+    """An empty or non-string `control_identity` is dropped: a carried `""` would
+    render an identity switch that names nobody. The entry itself survives."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "control_identity": value}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_control_identity_is_independent_of_the_other_optional_fields() -> None:
+    """Declaring every optional string field keeps every one of them, and the
+    identity is not confused with the name, the OIDC subject or the role."""
+    # Arrange
+    users_raw = [
+        {
+            "name": "alice",
+            "index": 0,
+            "display_name": "Operations",
+            "theme": "desy",
+            "tour": "never",
+            "oidc_subject": "alice@example.org",
+            "role": "operator",
+            "control_identity": "ahellert",
+        },
+        {"name": "bob", "index": 1, "oidc_subject": "bob@example.org"},
+    ]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result[0] == users_raw[0]
+    assert "control_identity" not in result[1]
+
+
+def test_freeze_user_indices_preserves_control_identity() -> None:
+    """The roster written back to config.yml keeps each survivor's identity; a
+    write-back that lost it would silently turn a named card anonymous."""
+    # Arrange
+    users_raw = [
+        {"name": "alice", "index": 0, "control_identity": "alice"},
+        {"name": "bob", "index": 1},
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == users_raw
+
+
+def test_resolve_personas_exposes_control_identity_when_set() -> None:
+    """The identity rides through to the resolved entry the render reads."""
+    # Arrange
+    web_terminals = {"users": [{"name": "alice", "index": 0, "control_identity": "alice"}]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["control_identity"] == "alice"
+
+
+def test_resolve_personas_control_identity_threads_through_persona_branch() -> None:
+    """A user resolved through a catalog persona keeps its identity too."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "gui", "control_identity": "alice"}],
+        "personas": {"gui": {"project": "als-gui"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["persona"] == "gui"
+    assert result[0]["control_identity"] == "alice"
+
+
+@pytest.mark.parametrize(
+    "users", [["alice"], [{"name": "alice", "index": 0, "control_identity": ""}]]
+)
+def test_resolve_personas_omits_control_identity_key_when_unset(users: list) -> None:
+    """No identity (or an empty one) resolves byte-identically to before the
+    field existed — no `control_identity: None` key appears."""
+    # Act
+    result = resolve_personas({"users": users}, _REGISTRY, "als")
+
+    # Assert
+    assert "control_identity" not in result[0]
+
+
+# ---------------------------------------------------------------------------
+# control_identity roster builders (shared by lint and the render gate)
+# ---------------------------------------------------------------------------
+
+
+def _codes(findings: list[tuple[str, str]]) -> list[str]:
+    return [code for code, _ in findings]
+
+
+def test_is_shared_entry_reads_bare_string_and_unreadable_access_as_not_shared() -> None:
+    """The raw-roster predicate answers instead of raising on an unknown access."""
+    assert _is_shared_entry("alice") is False
+    assert _is_shared_entry({"name": "alice", "access": "sometimes"}) is False
+    assert _is_shared_entry({"name": "alice", "access": "any"}) is True
+    assert _is_shared_entry({"name": "alice"}) is False
+
+
+def test_control_identity_problems_is_empty_for_a_clean_roster() -> None:
+    """Distinct valid identities on owner-only cards raise nothing."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+        {"name": "carol", "control_identity": "carol", "oidc_subject": "carol@example.org"},
+        "bob",
+    ]
+    assert control_identity_problems(users, claim="email") == []
+    assert control_identity_collision_warnings(users, claim="email") == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", 7, None, "Alice", "alice:x", "alice\n", "root", "osprey", "osprey-dispatch-0", "backup"],
+)
+def test_control_identity_problems_refuses_an_invalid_value(value: Any) -> None:
+    """Every value `validate_identity` refuses is an invalid_user_control_identity ERROR,
+    including a service name, which a roster may never claim."""
+    problems = control_identity_problems([{"name": "alice", "control_identity": value}])
+    assert _codes(problems) == ["web_terminals.invalid_user_control_identity"]
+    assert "'alice'" in problems[0][1]
+
+
+def test_control_identity_problems_ignores_entries_without_the_key() -> None:
+    """Only a present key is judged; bare strings and absent keys are silent."""
+    assert control_identity_problems(["alice", {"name": "carol"}]) == []
+
+
+@pytest.mark.parametrize("access", ["any", ["user:carol@example.org"], ["domain:example.org"]])
+def test_control_identity_problems_refuses_any_value_on_a_shared_card(access: Any) -> None:
+    """A control_identity on a shared card is an ERROR, whatever the shared form."""
+    users = [{"name": "alice", "access": access, "control_identity": "alice"}]
+    problems = control_identity_problems(users)
+    assert _codes(problems) == ["web_terminals.shared_card_control_identity"]
+    assert "'alice'" in problems[0][1]
+
+
+def test_control_identity_problems_reports_both_an_invalid_value_and_a_shared_card() -> None:
+    """The two per-entry refusals are independent."""
+    users = [{"name": "alice", "access": "any", "control_identity": "root"}]
+    assert _codes(control_identity_problems(users)) == [
+        "web_terminals.invalid_user_control_identity",
+        "web_terminals.shared_card_control_identity",
+    ]
+
+
+def test_control_identity_problems_treats_unreadable_access_as_not_shared() -> None:
+    """An unknown access value is lint's access rule's finding, not this builder's crash."""
+    users = [{"name": "alice", "access": "sometimes", "control_identity": "alice"}]
+    assert control_identity_problems(users) == []
+
+
+def test_control_identity_problems_refuses_one_value_for_two_different_subjects() -> None:
+    """Two people on one name is a duplicate_control_identity ERROR naming both entries,
+    never echoing a subject."""
+    users = [
+        {"name": "alice", "control_identity": "ops", "oidc_subject": "alice@example.org"},
+        {"name": "carol", "control_identity": "ops", "oidc_subject": "carol@example.org"},
+    ]
+    problems = control_identity_problems(users)
+    assert _codes(problems) == ["web_terminals.duplicate_control_identity"]
+    message = problems[0][1]
+    assert "'alice'" in message and "'carol'" in message and "'ops'" in message
+    assert "@example.org" not in message
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_problems_same_subject_on_two_cards_is_no_error() -> None:
+    """One person holding two cards under one name is at most a WARN."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+    ]
+    assert control_identity_problems(users, claim="email") == []
+    warnings = control_identity_collision_warnings(users, claim="email")
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "one person" in warnings[0][1]
+
+
+def test_control_identity_problems_case_only_subject_difference_folds_under_email() -> None:
+    """Under an email claim subjects differing only in case are one person: a WARN."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "Alice@Example.org"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+    ]
+    assert control_identity_problems(users, claim="email") == []
+    assert _codes(control_identity_collision_warnings(users, claim="email")) == [
+        CONTROL_IDENTITY_COLLISION_CODE
+    ]
+
+
+@pytest.mark.parametrize("claim", ["", "sub", "preferred_username"])
+def test_control_identity_problems_case_only_subject_difference_is_two_people_elsewhere(
+    claim: str,
+) -> None:
+    """Without a case-insensitive claim the sidecar compares exactly, so so does the rule."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": "Alice"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice"},
+    ]
+    assert _codes(control_identity_problems(users, claim=claim)) == [
+        "web_terminals.duplicate_control_identity"
+    ]
+
+
+def test_control_identity_problems_strips_subject_whitespace_before_comparing() -> None:
+    """Surrounding whitespace never makes one subject two people."""
+    users = [
+        {"name": "alice", "control_identity": "alice", "oidc_subject": " alice "},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice"},
+    ]
+    assert control_identity_problems(users) == []
+
+
+@pytest.mark.parametrize("missing", [None, "", "   "])
+def test_control_identity_shared_value_with_a_missing_subject_is_a_warn(missing: Any) -> None:
+    """A shared value where a subject is missing cannot be proved two people: WARN only."""
+    carol: dict[str, Any] = {"name": "carol", "control_identity": "ops"}
+    if missing is not None:
+        carol["oidc_subject"] = missing
+    users = [
+        {"name": "alice", "control_identity": "ops", "oidc_subject": "alice@example.org"},
+        carol,
+    ]
+    assert control_identity_problems(users) == []
+    warnings = control_identity_collision_warnings(users)
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "'alice'" in warnings[0][1] and "'carol'" in warnings[0][1]
+    assert "cannot say" in warnings[0][1]
+
+
+def test_control_identity_duplicate_among_three_is_an_error_when_any_two_differ() -> None:
+    """One missing subject does not hide two present subjects that differ."""
+    users = [
+        {"name": "alice", "control_identity": "ops", "oidc_subject": "alice@example.org"},
+        {"name": "bob", "control_identity": "ops"},
+        {"name": "carol", "control_identity": "ops", "oidc_subject": "carol@example.org"},
+    ]
+    problems = control_identity_problems(users)
+    assert _codes(problems) == ["web_terminals.duplicate_control_identity"]
+    assert "['alice', 'bob', 'carol']" in problems[0][1]
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_invalid_values_are_never_compared() -> None:
+    """Two copies of one invalid value give their per-entry ERRORs, nothing more."""
+    users = [
+        {"name": "alice", "control_identity": "root", "oidc_subject": "a"},
+        {"name": "carol", "control_identity": "root", "oidc_subject": "c"},
+    ]
+    assert _codes(control_identity_problems(users)) == [
+        "web_terminals.invalid_user_control_identity",
+        "web_terminals.invalid_user_control_identity",
+    ]
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_warns_on_another_entrys_roster_name() -> None:
+    """A value naming another roster entry credits writes to that user: WARN."""
+    users = [{"name": "alice", "control_identity": "carol"}, "carol"]
+    assert control_identity_problems(users) == []
+    warnings = control_identity_collision_warnings(users)
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "roster name of entry 'carol'" in warnings[0][1]
+
+
+def test_control_identity_equal_to_own_roster_name_is_silent() -> None:
+    """An entry naming itself is the expected shape."""
+    assert (
+        control_identity_collision_warnings([{"name": "alice", "control_identity": "alice"}]) == []
+    )
+
+
+def test_control_identity_warns_on_another_entrys_subject_local_part() -> None:
+    """A value equal to another entry's email local part (any case): WARN, no subject echo."""
+    users = [
+        {"name": "alice", "control_identity": "cjones", "oidc_subject": "alice@example.org"},
+        {"name": "carol", "oidc_subject": "CJones@example.org"},
+    ]
+    warnings = control_identity_collision_warnings(users)
+    assert _codes(warnings) == [CONTROL_IDENTITY_COLLISION_CODE]
+    assert "entry 'carol'" in warnings[0][1]
+    assert "example.org" not in warnings[0][1]
+
+
+def test_control_identity_subject_without_at_sign_has_no_local_part() -> None:
+    """A non-email subject contributes no mailbox name to compare against."""
+    users = [
+        {"name": "alice", "control_identity": "cjones"},
+        {"name": "carol", "oidc_subject": "cjones"},
+    ]
+    assert control_identity_collision_warnings(users) == []
+
+
+def test_control_identity_name_collision_is_skipped_for_one_person_on_two_cards() -> None:
+    """Another card of the SAME person carrying that name is not a collision."""
+    users = [
+        {"name": "alice", "oidc_subject": "alice@example.org"},
+        {"name": "alice-ops", "control_identity": "alice", "oidc_subject": "alice@example.org"},
+    ]
+    assert control_identity_collision_warnings(users, claim="email") == []
+
+
+def test_control_identity_builders_tolerate_a_non_list_roster() -> None:
+    """A malformed roster is some other rule's finding; the builders return nothing."""
+    for raw in (None, "alice", {"name": "alice"}):
+        assert control_identity_problems(raw) == []
+        assert control_identity_collision_warnings(raw) == []

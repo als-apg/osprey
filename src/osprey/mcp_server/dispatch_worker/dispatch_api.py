@@ -1005,7 +1005,13 @@ async def stream_dispatch(run_id: str, request: Request) -> StreamingResponse:
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    """Liveness check with run statistics — no auth required."""
+    """Liveness check with run statistics — no auth required.
+
+    Carries the worker's control-identity fields; see
+    :func:`osprey.deployment.control_identity.health_fields`.
+    """
+    from osprey.deployment.control_identity import health_fields
+
     counts = {"pending": 0, "completed": 0, "error": 0}
     for run in _runs.values():
         s = run.get("status", "")
@@ -1025,6 +1031,7 @@ async def health() -> dict[str, Any]:
         "infrastructure_errors": lifetime[failure_class.FAILURE_INFRASTRUCTURE],
         "boot_nonce": _BOOT_NONCE,
         "capabilities": _CAPABILITIES,
+        **health_fields(),
     }
 
 

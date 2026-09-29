@@ -436,6 +436,21 @@ _REFUSAL_REASONS = {
     "ControlTargetChangedError": "control_target_changed",
 }
 
+#: ``reason`` codes keyed by the refusal's own ``reason`` attribute, consulted
+#: before the class table: one class carries refusals with different remedies,
+#: and the ledger has to tell a raw client put apart from a posture refusal.
+_REFUSAL_REASONS_BY_CODE = {
+    "RAW_CLIENT_WRITE": "raw_client_write",
+}
+
+#: ``reason`` codes for a write a cell made, keyed by the phase the runtime
+#: reports once the connector has answered. ``landed`` is a write a re-read
+#: verified; ``sent`` put the value on the wire without that verification.
+_WRITE_REASONS = {
+    "landed": "write_landed",
+    "sent": "write_unconfirmed",
+}
+
 #: The target moved while the cell was running. A kernel re-routes itself from
 #: the record before every cell, so the cell is what picks the new target up.
 HINT_TARGET_CHANGED = "The control target changed while this cell ran. Re-run the cell."
@@ -445,6 +460,14 @@ HINT_TARGET_CHANGED = "The control target changed while this cell ran. Re-run th
 #: is stamped from it.
 HINT_WRITES_OFF = (
     "Writes are off for this cell. Turn writes on from the chip, then re-run the cell."
+)
+
+#: A client library's own put was refused because it went around the runtime.
+#: Turning writes on would not let it through; the runtime's write call is
+#: what applies limits and approval, so that is the call the line names.
+HINT_RAW_CLIENT_WRITE = (
+    "Direct client-library writes are refused. "
+    "Write through osprey.runtime.write_channel(address, value) instead."
 )
 
 
@@ -464,9 +487,11 @@ def _refusal_classes() -> tuple[type[BaseException], ...]:
 def _hint_for(value: BaseException) -> str | None:
     """The one action line for *value*, or ``None`` when there is no action.
 
-    Every branch is read from the stamp this cell was given, so the hint and
-    the connector's own refusal text answer from one state rather than from a
-    flag the kernel would have to keep in step. A live-store refusal, a limits
+    A raw client put is answered by its reason code alone: no posture lets it
+    through, so the chip is not its remedy. Every other branch is read from
+    the stamp this cell was given, so the hint and the connector's own refusal
+    text answer from one state rather than from a flag the kernel would have
+    to keep in step. A live-store refusal, a limits
     violation and a switch in flight get no line: their own message already
     names what to do, and a second line would either repeat it or send the
     operator somewhere the message did not.
@@ -488,10 +513,80 @@ def _hint_for(value: BaseException) -> str | None:
         return HINT_TARGET_CHANGED
     if not isinstance(value, ChannelWriteBlockedError):
         return None
+    if getattr(value, "reason", None) == "RAW_CLIENT_WRITE":
+        return HINT_RAW_CLIENT_WRITE
     target = (os.environ.get(executor.ENV_CONTROL_TARGET) or "").strip() or None
     if posture_store.launch_permits(target):
         return None
     return HINT_WRITES_OFF
+
+
+def _detail_tokens(channel: object, *, with_host: bool) -> str | None:
+    """The ``detail`` of a kernel record: space-separated ``key=value`` tokens.
+
+    The envelope's field set is closed, so the channel and the account and host
+    the control system sees this process as travel here. ``ca_user`` and
+    ``ca_host`` are read in this process, because this process is the one that
+    writes; a stamp that cannot be read is left out rather than guessed.
+
+    Args:
+        channel: The channel the write named; anything but a non-empty string
+            contributes no token.
+        with_host: Whether ``ca_host`` is one of the tokens.
+
+    Returns:
+        The tokens joined by single spaces, or ``None`` when there are none.
+    """
+    from osprey.audit.call import write_stamps
+
+    stamps = write_stamps()
+    if not with_host:
+        stamps.pop("ca_host", None)
+    tokens = [f"channel={channel}"] if isinstance(channel, str) and channel else []
+    tokens.extend(f"{key}={value}" for key, value in stamps.items())
+    return " ".join(tokens) or None
+
+
+def _record_write(address: str, phase: str) -> None:
+    """File one ``allowed`` record for a write a cell put on the wire. Never raises.
+
+    Registered as a runtime write observer, so it hears every phase of every
+    channel; only the phases after the connector answered are recorded, one
+    record per channel. ``attempt`` precedes the send and a refused write gets
+    no later phase, so neither files anything here.
+
+    Args:
+        address: The channel written.
+        phase: The runtime's write phase.
+    """
+    reason = _WRITE_REASONS.get(phase)
+    if reason is None:
+        return
+    try:
+        from osprey.audit import posture
+        from osprey.audit.envelope import DECISION_ALLOWED
+        from osprey.audit.writer import record
+
+        record(
+            decision=DECISION_ALLOWED,
+            reason=reason,
+            surface=SURFACE_NOTEBOOK_KERNEL,
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=posture.posture_session(),
+            subject=REFUSAL_SUBJECT,
+            detail=_detail_tokens(address, with_host=True),
+        )
+    except Exception:  # the audit trail degrades; the write does not
+        logger.warning("Could not record the notebook write for audit", exc_info=True)
+
+
+def _refusal_reason(value: BaseException) -> str:
+    """The audit ``reason`` for *value*: its own reason code first, then its class."""
+    by_code = _REFUSAL_REASONS_BY_CODE.get(getattr(value, "reason", None) or "")
+    if by_code is not None:
+        return by_code
+    return _REFUSAL_REASONS.get(type(value).__name__, "refused")
 
 
 def _record_refusal(value: BaseException) -> None:
@@ -510,13 +605,13 @@ def _record_refusal(value: BaseException) -> None:
         channel = getattr(value, "channel_address", None)
         record(
             decision=DECISION_REFUSED,
-            reason=_REFUSAL_REASONS.get(type(value).__name__, "refused"),
+            reason=_refusal_reason(value),
             surface=SURFACE_NOTEBOOK_KERNEL,
             posture=posture.posture(),
             posture_source=posture.posture_source(),
             session=posture.posture_session(),
             subject=REFUSAL_SUBJECT,
-            detail=f"channel={channel}" if isinstance(channel, str) and channel else None,
+            detail=_detail_tokens(channel, with_host=False),
         )
     except Exception:  # the audit trail degrades; the refusal does not
         logger.warning("Could not record the notebook refusal for audit", exc_info=True)
@@ -582,6 +677,23 @@ def _initialize_registry() -> None:
         initialize_registry(auto_export=False, config_path=os.environ.get(CONFIG_FILE_ENV_VAR))
     except Exception:  # the kernel still starts; the cause is logged
         logger.warning("Registry initialization failed", exc_info=True)
+
+
+def _install_raw_put_block() -> None:
+    """Refuse every raw client put in this process that no connector let through.
+
+    The contract is the executor's own armed contract, so a cell's raw put is
+    refused in the words a sandboxed run's would be. rpc and Tango commands
+    stay allowed, as they always have been in a kernel: nothing here bounds
+    them, so nothing here refuses them.
+
+    There is no guard: a kernel that could not arm the block must not start,
+    because every cell it ran would put around the connector unchecked.
+    """
+    from osprey.runtime import raw_put_block
+    from osprey.services.python_executor.execution.wrapper import armed_contract
+
+    raw_put_block.install("armed", **armed_contract(refuse_rpc=False))
 
 
 #: Set on ``SubshellManager`` once :func:`install_shell_stream_rearm` has wrapped
@@ -703,6 +815,10 @@ def main(argv: list[str] | None = None) -> None:
     The environment is prepared before the registry is loaded, because the
     registry is created from the config path the preparation publishes; and
     both happen before the kernel exists, so no cell can run ahead of them.
+    The raw-put block goes on straight after the preparation, before anything
+    else loads a client library, and a failure to install it stops the start.
+    The write observer is registered in the same window, so every write a
+    cell makes files its record.
 
     The kernel statements are separate rather than one chained call because
     things go between them: the shell stream re-arm is installed before
@@ -718,7 +834,12 @@ def main(argv: list[str] | None = None) -> None:
     """
     _route_logs_to_process_stderr()
     _prepare_environment(argv if argv is not None else sys.argv[1:])
+    _install_raw_put_block()
     _initialize_registry()
+
+    from osprey.runtime import _register_write_observer
+
+    _register_write_observer(_record_write)
 
     from ipykernel.kernelapp import IPKernelApp
 

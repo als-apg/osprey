@@ -108,6 +108,15 @@ services:
       OSPREY_AUDIT_IDENTITY: dispatch-worker-1
       OSPREY_AUDIT_DIR: /app/golden-project/var/audit/dispatch-worker-1
 
+      # WHO this worker is to the control system. Per worker, from the same
+      # loop index as the audit identity above, so a write traced to
+      # `osprey-dispatch-<i>` names the one container that made it. The
+      # entrypoint's root phase renames the image's `osprey` account to this
+      # name, using the module mounted read-only below, before it drops
+      # privileges.
+      OSPREY_CONTROL_IDENTITY: osprey-dispatch-1
+      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity.py
+
       # WHERE this worker reads the control-context tree, mounted read-only
       # below. A dispatch run writes as the OWNER on its job — a person, whose
       # terminal may have narrowed them to another machine since the trigger was
@@ -230,6 +239,11 @@ services:
       # compose_generator from the same `agent_data.base_dir` the writer
       # resolves its own record path against.
       - ./var/agent_data/control_target:/osprey/control_tree:ro
+
+      # The control-identity module, staged into this build context by
+      # compose_generator byte for byte from the packaged source. Read-only:
+      # the entrypoint runs it as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity.py:/opt/osprey/control_identity.py:ro
     networks:
       - osprey-network
     healthcheck:

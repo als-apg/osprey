@@ -272,8 +272,15 @@ def test_limits_validator_disabled_gracefully(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypatch):
-    """ExecutionWrapper.create_wrapper() output contains monkeypatch code when validator present."""
+#: The line that hands the sandbox's rebuilt validator to ``osprey.runtime``.
+_INJECTION_LINE = "_runtime_module._limits_validator = _limits_validator"
+
+#: The armed raw-put block's install call, emitted for every readwrite run.
+_ARMED_INSTALL_CALL = '_ns["install"](\n    "armed",'
+
+
+def test_wrapper_injects_validator_when_present(tmp_path, monkeypatch):
+    """With a validator, the script injects it and still arms the raw-put block."""
     monkeypatch.chdir(tmp_path)
     limits_db = tmp_path / "channel_limits.json"
     limits_db.write_text(
@@ -300,21 +307,25 @@ def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypat
     validator = _load_limits_validator(target=None)
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(limits_validator=validator)
+    assert validator is not None
+
+    wrapper = ExecutionWrapper(limits_validator=validator, execution_mode="readwrite")
     wrapped = wrapper.create_wrapper("print('hello')", tmp_path)
-    assert "_checked_ca_put" in wrapped
+    assert _INJECTION_LINE in wrapped
     assert "LimitsValidator" in wrapped
+    assert _ARMED_INSTALL_CALL in wrapped
 
 
-def test_wrapper_omits_monkeypatch_when_no_validator(tmp_path, monkeypatch):
-    """Wrapper output has no monkeypatch when validator is None."""
+def test_wrapper_omits_injection_when_no_validator(tmp_path, monkeypatch):
+    """Without a validator there is nothing to inject; the raw-put block still arms."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(limits_validator=None)
+    wrapper = ExecutionWrapper(limits_validator=None, execution_mode="readwrite")
     wrapped = wrapper.create_wrapper("print('hello')", tmp_path)
-    assert "_checked_ca_put" not in wrapped
+    assert _INJECTION_LINE not in wrapped
+    assert _ARMED_INSTALL_CALL in wrapped
 
 
 # ---------------------------------------------------------------------------

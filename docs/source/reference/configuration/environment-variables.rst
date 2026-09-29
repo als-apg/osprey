@@ -116,6 +116,28 @@ spec the build renders.
 :ref:`The audit identity ladder <audit-trail-identity-ladder>` covers that set
 and why it is closed.
 
+Three of them decide the account name a container's control-system writes
+arrive under (:ref:`containerize-control-identity`):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 36 64
+
+   * - Variable
+     - What it carries
+   * - ``OSPREY_CONTROL_IDENTITY``
+     - The name the entrypoint gives uid 1000 at start. Rendered for a
+       personal card behind a login wall that sets ``control_identity``, and
+       as ``osprey-dispatch-<i>`` for each dispatch worker. Unset, the
+       container writes as ``osprey``
+   * - ``OSPREY_CONTROL_IDENTITY_MODULE``
+     - The container path of the staged script that applies the name. Set
+       wherever ``OSPREY_CONTROL_IDENTITY`` is
+   * - ``OSPREY_CONTROL_IDENTITY_SKIPPED``
+     - Set by the entrypoint, to ``non-root-start``, when a container started
+       without root could not apply an ``osprey-*`` service identity. The
+       ``/health`` endpoint reports it and ``osprey health`` warns on it
+
 .. seealso::
 
    :doc:`config`

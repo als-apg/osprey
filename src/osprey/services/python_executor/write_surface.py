@@ -54,7 +54,7 @@ Python-level ``Group`` refusals. It has no row for the same reason
 ``p4p._p4p.ClientOperation`` has none: it is a C-extension type carrying the
 group's reads as well as its writes, so it cannot be re-pointed from Python and
 refusing it would refuse reading a group at all. A readonly run is covered
-because ``tango`` cannot be imported there; a limits-checked run's group
+because ``tango`` cannot be imported there; an armed run's group
 refusals sit on the Python class only.
 
 The table is split three ways because the three groups are answered
@@ -70,14 +70,17 @@ differently by the *static* import check:
 * :data:`_ESCAPE_ROUTES` — routes out of Python that reach a control system
   without importing a client at all.
 
-Refusing a write is one question; letting an *approved* write through only
-within the channel's limits is another, and the second is answered for fewer
-entry points than the first. :data:`_LIMITS_WRAPPED`, :data:`_LIMITS_REFUSED`
-and :data:`_LIMITS_UNWRAPPABLE` partition :data:`_CLIENT_WRITE_TARGETS` by what
-a limits-checked run does with each entry point, so "which client writes are
-bounded" has a written answer instead of being read out of the generated
-monkeypatch. ``tests/services/python_executor/
-execution/test_limits_parity.py`` holds the partition to the table.
+A readwrite run with writes armed answers a different question for each
+client entry point: whether a raw call to it is refused because the connector
+is the one route to the machine, is limits-checked because the connector has
+no route for it yet (PVAccess), keeps its own split because it is an action
+rather than a channel write, or passes because it writes no device at all.
+:data:`_ARMED_BLOCKED`, :data:`_ARMED_CHECKED`, :data:`_ARMED_RPC` and
+:data:`_ARMED_PASSED` partition :data:`_CLIENT_WRITE_TARGETS` by that answer,
+each entry with its reason, so "which client calls an armed run lets through"
+has a written answer.
+``tests/services/python_executor/execution/test_limits_parity.py`` holds the
+partition to the table.
 """
 
 #: Control-system client libraries, as ``(dotted target, attributes)``. Also
@@ -87,7 +90,7 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # --- EPICS Channel Access (pyepics) ---
     ("epics", ("caput", "caput_many")),
     ("epics.PV", ("put",)),
-    ("epics.ca", ("put",)),
+    ("epics.ca", ("put", "sg_put")),
     # --- EPICS Channel Access (aioca). Not an optional extra: ophyd-async's
     # [ca] backend pulls it into every environment OSPREY builds, so a readonly
     # script can reach ``aioca.caput`` with nothing else installed. The name on
@@ -100,12 +103,10 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # ``libca`` through, so it is a client route in its own right. Listing it
     # also puts ``epicscorelibs`` in :data:`READONLY_DENIED_IMPORTS`, which is
     # what closes the route in a readonly run: the import is refused, so the
-    # binding is never reached. A limits-checked run has no bound to put on it
-    # — the call carries a value already marshalled into C memory and an
-    # opaque channel handle — which is why both names sit in
-    # :data:`_LIMITS_UNWRAPPABLE`. pyepics loads a handle of its own through
+    # binding is never reached. An armed run refuses both names as well — they
+    # sit in :data:`_ARMED_BLOCKED`. pyepics loads a handle of its own through
     # ``ctypes`` rather than this binding, and the ``ctypes`` rows of
-    # :data:`_ESCAPE_ROUTES` refuse these same two symbols on that handle.
+    # :data:`_ESCAPE_ROUTES` refuse the put symbols on that handle.
     ("epicscorelibs.ca.cadef", ("ca_array_put", "ca_array_put_callback")),
     # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
     # server-side SharedPV, which puts values on the wire when it is opened or
@@ -287,160 +288,176 @@ READONLY_DENIED_IMPORTS: frozenset[str] = frozenset(
     dotted.split(".")[0] for dotted, _attrs in _CLIENT_WRITE_TARGETS
 )
 
-#: What a *limits-checked* run does with each client entry point, wrapped in
-#: :data:`_LIMITS_WRAPPED`: the value is how the check is reached, either
-#: ``"direct"`` — the guard patches this very name — or the name it is checked
-#: through. The three buckets below partition :data:`_CLIENT_WRITE_TARGETS`
-#: exactly, and are keyed by the canonical ``tango`` spelling: a
-#: ``PyTango.DeviceProxy`` row resolves to the same class object, so its fate is
-#: the ``tango.DeviceProxy`` row's fate and it carries no separate entry.
-_LIMITS_WRAPPED: dict[tuple[str, str], str] = {
-    ("epics", "caput"): "via epics.ca.put — caput() puts through a PV",
-    ("epics", "caput_many"): "via epics.ca.put — one PV.put() per pair",
-    ("epics.PV", "put"): "via epics.ca.put",
-    ("epics.ca", "put"): (
-        "direct — the choke point every pyepics spelling reaches; the channel "
-        "is asked for by name because a chid is opaque"
+#: Client entry points a run with writes armed refuses: a write reaches the
+#: machine through the connector, which checks and records it, so a raw client
+#: call is a route around that and is refused whatever value it carries.
+_ARMED_BLOCKED: dict[tuple[str, str], str] = {
+    ("epics", "caput"): "pyepics channel write; put through the connector instead",
+    ("epics", "caput_many"): "pyepics channel writes, one per pair; put through the connector",
+    ("epics.PV", "put"): "pyepics channel write on a PV object; put through the connector",
+    ("epics.ca", "put"): "the low-level pyepics put every other pyepics spelling reaches",
+    ("epics.ca", "sg_put"): (
+        "a synchronous-group put: the same channel write, queued until the group is flushed"
     ),
-    ("aioca", "caput"): "direct — the package re-export is rebound to the checked coroutine",
+    ("aioca", "caput"): "aioca channel write; the package re-export of the defining coroutine",
     ("aioca._catools", "caput"): (
-        "direct — the defining module is rebound too, which is also what gets "
-        "the array form checked: it writes each pair through this global"
+        "the module that defines aioca's caput; refusing it closes the re-export's second spelling"
     ),
-    ("p4p.client.raw.Context", "put"): (
-        "direct, but only for a put whose receiver IS the raw Context. A "
-        "subclass receiver is forwarded unvalidated — that is a flavour "
-        "Context re-entering through super().put after its own check, and "
-        "equally a subclass a script writes itself, which is therefore checked "
-        "nowhere"
-    ),
-    ("p4p.client.thread.Context", "put"): "direct",
-    ("p4p.client.asyncio.Context", "put"): "direct",
-    ("p4p.client.cothread.Context", "put"): "direct",
-    ("caproto.sync.client", "write"): "direct",
-    ("caproto.sync.client", "read_write_read"): (
-        "direct — it drives the channel with the value the plain write drives, so it "
-        "is bounded the same way and the reads around it are left alone"
-    ),
-    ("caproto.threading.client.PV", "write"): "direct — the PV knows its own channel",
-    ("caproto.threading.client.Batch", "write"): (
-        "direct — bounded under the name of the PV the call carries, since a batch is "
-        "handed the PV to drive rather than being bound to one"
-    ),
-    ("caproto.asyncio.client.PV", "write"): (
-        "direct — a coroutine guard, so a max_step channel is read through the PV's "
-        "own await before the check rather than through a reader handed to it"
-    ),
-    ("pvaccess.Channel", "put"): "direct — swept by the put prefix",
-    ("pvaccess.Channel", "putGet"): "direct — swept by the put prefix",
-    ("pvaccess.Channel", "asyncPut"): "direct — swept by the asyncPut prefix",
-    ("doocs4py", "set"): "direct",
-    ("tango.DeviceProxy", "write_attribute"): (
-        "direct — the channel is rebuilt as dev_name()/attribute"
-    ),
-    ("tango.DeviceProxy", "write_attributes"): "direct — one check per (attribute, value) pair",
-    ("tango.DeviceProxy", "write_attribute_asynch"): (
-        "direct — the asynchronous spelling drives the same device with the same "
-        "value, and is checked against the same rebuilt address"
-    ),
-    ("tango.DeviceProxy", "write_attributes_asynch"): (
-        "direct — one check per (attribute, value) pair, taken positionally or under "
-        "either keyword PyTango names the pairs by"
-    ),
-    ("tango.DeviceProxy", "write_read_attribute"): (
-        "direct — reading the attribute back afterwards does not change the value "
-        "written, so it is bounded like the plain write"
-    ),
-    ("tango.DeviceProxy", "write_read_attributes"): (
-        "direct — one check per (attribute, value) pair, taken positionally or under "
-        "either keyword PyTango names the pairs by"
-    ),
-    ("tango.AttributeProxy", "write"): (
-        "direct — the address is rebuilt from the device proxy behind the attribute "
-        "and the attribute's own name; the call forwards to a wrapped DeviceProxy "
-        "spelling, so the bound is applied twice and the outer check is the one left "
-        "if the DeviceProxy install fails"
-    ),
-    ("tango.AttributeProxy", "write_asynch"): (
-        "direct — the same rebuilt address as the plain attribute write"
-    ),
-    ("tango.AttributeProxy", "write_read"): (
-        "direct — the same rebuilt address as the plain attribute write"
-    ),
-}
-
-#: Entry points a limits-checked run refuses outright, in range or not, with
-#: the reason no bound can be put on them.
-_LIMITS_REFUSED: dict[tuple[str, str], str] = {
-    ("p4p.client.raw.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
-    ("p4p.client.thread.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
-    ("p4p.client.asyncio.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
-    ("p4p.client.cothread.Context", "rpc"): "an rpc payload is arbitrary; limits cannot apply",
-    ("pvaccess.Channel", "parsePut"): (
-        "a list of JSON strings parsed against the channel's own structure — "
-        "nothing says which string carries the field the limits are about"
-    ),
-    ("pvaccess.Channel", "parsePutGet"): (
-        "a list of JSON strings parsed against the channel's own structure — "
-        "nothing says which string carries the field the limits are about"
-    ),
-    ("tango.DeviceProxy", "command_inout"): (
-        "a command is an action on the device, not a channel write: no address "
-        "to look limits up under and no number to bound"
-    ),
-    ("tango.DeviceProxy", "command_inout_asynch"): (
-        "a command is an action on the device, not a channel write: no address "
-        "to look limits up under and no number to bound"
-    ),
-    ("tango.Connection", "command_inout"): (
-        "the class that DEFINES the command; refusing here closes the unbound "
-        "spelling and every other Connection subclass with it"
-    ),
-    ("tango.Connection", "command_inout_asynch"): (
-        "the class that DEFINES the command; refusing here closes the unbound "
-        "spelling and every other Connection subclass with it"
-    ),
-    ("tango.Group", "command_inout"): "a group command is an action on many devices",
-    ("tango.Group", "command_inout_asynch"): "a group command is an action on many devices",
-    ("tango.Group", "write_attribute"): (
-        "a group write fans one value out to every device the group matched: "
-        "no single channel to bound it under and no one device to step against"
-    ),
-    ("tango.Group", "write_attribute_asynch"): (
-        "a group write fans one value out to every device the group matched: "
-        "no single channel to bound it under and no one device to step against"
-    ),
-}
-
-#: Entry points a limits check cannot be attached to at all. Listed so the
-#: partition stays honest about them: a readonly run still refuses every one.
-_LIMITS_UNWRAPPABLE: dict[tuple[str, str], str] = {
     ("epicscorelibs.ca.cadef", "ca_array_put"): (
-        "the call carries a value already marshalled into C memory and an "
-        "opaque channel handle: no number left to bound and no channel name "
-        "to look limits up under"
+        "the ctypes Channel Access put: a value already marshalled into C memory "
+        "and an opaque channel handle"
     ),
     ("epicscorelibs.ca.cadef", "ca_array_put_callback"): (
-        "the call carries a value already marshalled into C memory and an "
-        "opaque channel handle: no number left to bound and no channel name "
-        "to look limits up under"
+        "the ctypes Channel Access put with a completion callback: the same raw "
+        "write as ca_array_put"
     ),
-    ("p4p.server.raw.SharedPV", "post"): "server side — serves a PV, writes no device",
-    ("p4p.server.raw.SharedPV", "open"): "server side — serves a PV, writes no device",
-    ("p4p.server.thread.SharedPV", "post"): "server side — serves a PV, writes no device",
-    ("p4p.server.thread.SharedPV", "open"): "server side — serves a PV, writes no device",
-    ("p4p.server.asyncio.SharedPV", "post"): "server side — serves a PV, writes no device",
-    ("p4p.server.asyncio.SharedPV", "open"): "server side — serves a PV, writes no device",
-    ("tango.DeviceProxy", "put_property"): "writes the Tango database, not a channel",
+    ("caproto.sync.client", "write"): "caproto channel write",
+    ("caproto.sync.client", "read_write_read"): (
+        "drives the channel with the value a plain write drives; the reads around "
+        "it do not change that"
+    ),
+    ("caproto.threading.client.PV", "write"): "caproto channel write on a PV object",
+    ("caproto.threading.client.Batch", "write"): "caproto channel writes queued on a batch",
+    ("caproto.asyncio.client.PV", "write"): "caproto channel write from a coroutine",
+    ("doocs4py", "set"): "DOOCS property write; the client the DOOCS connector writes through",
+    ("tango.DeviceProxy", "write_attribute"): "Tango attribute write on a device",
+    ("tango.DeviceProxy", "write_attributes"): "Tango attribute write on a device",
+    ("tango.DeviceProxy", "write_attribute_asynch"): "Tango attribute write on a device",
+    ("tango.DeviceProxy", "write_attributes_asynch"): "Tango attribute write on a device",
+    ("tango.DeviceProxy", "write_read_attribute"): "Tango attribute write on a device",
+    ("tango.DeviceProxy", "write_read_attributes"): "Tango attribute write on a device",
+    (
+        "PyTango.DeviceProxy",
+        "write_attribute",
+    ): "Tango attribute write, reached under the legacy PyTango name",
+    (
+        "PyTango.DeviceProxy",
+        "write_attributes",
+    ): "Tango attribute write, reached under the legacy PyTango name",
+    (
+        "PyTango.DeviceProxy",
+        "write_read_attribute",
+    ): "Tango attribute write, reached under the legacy PyTango name",
+    ("tango.AttributeProxy", "write"): "Tango attribute write through the proxy for one attribute",
+    (
+        "tango.AttributeProxy",
+        "write_asynch",
+    ): "Tango attribute write through the proxy for one attribute",
+    (
+        "tango.AttributeProxy",
+        "write_read",
+    ): "Tango attribute write through the proxy for one attribute",
+    (
+        "tango.Group",
+        "write_attribute",
+    ): "Tango attribute write fanned out to every device the group matched",
+    (
+        "tango.Group",
+        "write_attribute_asynch",
+    ): "Tango attribute write fanned out to every device the group matched",
+}
+
+#: PVAccess client puts an armed run lets through to the limits check rather
+#: than refusing. The connector reads PVAccess but does not yet write it, so a
+#: raw put is the one PVAccess write route a readwrite run has; refusing it
+#: would take PVAccess writes away from every deployment. It keeps the posture
+#: it had before the raw-put block: the approval hook asks, and with limits
+#: checking on each put is validated before it reaches the network. It moves to
+#: :data:`_ARMED_BLOCKED` once the connector writes PVAccess.
+_ARMED_CHECKED: dict[tuple[str, str], str] = {
+    ("p4p.client.raw.Context", "put"): (
+        "PVAccess channel write through the raw client; limits-checked, no connector route yet"
+    ),
+    ("p4p.client.thread.Context", "put"): (
+        "PVAccess channel write through the thread client; limits-checked, no connector route yet"
+    ),
+    ("p4p.client.asyncio.Context", "put"): (
+        "PVAccess channel write through the asyncio client; limits-checked, no connector route yet"
+    ),
+    ("p4p.client.cothread.Context", "put"): (
+        "PVAccess channel write through the cothread client; limits-checked, no connector route yet"
+    ),
+    ("pvaccess.Channel", "put"): (
+        "pvaPy channel write, swept with its typed setters; limits-checked, no connector route yet"
+    ),
+    ("pvaccess.Channel", "putGet"): (
+        "pvaPy channel write, swept with its typed setters; limits-checked, no connector route yet"
+    ),
+    ("pvaccess.Channel", "asyncPut"): (
+        "pvaPy channel write, swept with its family; limits-checked, no connector route yet"
+    ),
+    ("pvaccess.Channel", "parsePut"): (
+        "pvaPy JSON put; refused by the limits check, which has no value to bound"
+    ),
+    ("pvaccess.Channel", "parsePutGet"): (
+        "pvaPy JSON put; refused by the limits check, which has no value to bound"
+    ),
+}
+
+#: Client entry points that are actions rather than channel writes, and keep
+#: their own split in an armed run: an rpc payload or a Tango
+#: command has no channel address and no value a connector write could carry.
+_ARMED_RPC: dict[tuple[str, str], str] = {
+    ("p4p.client.raw.Context", "rpc"): "a PVAccess rpc: an arbitrary payload, not a channel write",
+    (
+        "p4p.client.thread.Context",
+        "rpc",
+    ): "a PVAccess rpc: an arbitrary payload, not a channel write",
+    (
+        "p4p.client.asyncio.Context",
+        "rpc",
+    ): "a PVAccess rpc: an arbitrary payload, not a channel write",
+    (
+        "p4p.client.cothread.Context",
+        "rpc",
+    ): "a PVAccess rpc: an arbitrary payload, not a channel write",
+    (
+        "tango.DeviceProxy",
+        "command_inout",
+    ): "a Tango command: an action on the device, not a channel write",
+    (
+        "tango.DeviceProxy",
+        "command_inout_asynch",
+    ): "a Tango command: an action on the device, not a channel write",
+    (
+        "tango.Connection",
+        "command_inout",
+    ): "the class that defines the Tango command every Connection subclass inherits",
+    (
+        "tango.Connection",
+        "command_inout_asynch",
+    ): "the class that defines the Tango command every Connection subclass inherits",
+    ("tango.Group", "command_inout"): "a Tango command sent to every device the group matched",
+    (
+        "tango.Group",
+        "command_inout_asynch",
+    ): "a Tango command sent to every device the group matched",
+    (
+        "PyTango.DeviceProxy",
+        "command_inout",
+    ): "a Tango command, reached under the legacy PyTango name",
+}
+
+#: Client entry points an armed run lets through: they write no device, so the
+#: connector has nothing to check on them.
+_ARMED_PASSED: dict[tuple[str, str], str] = {
+    ("p4p.server.raw.SharedPV", "post"): "server side: serves a PV, writes no device",
+    ("p4p.server.raw.SharedPV", "open"): "server side: serves a PV, writes no device",
+    ("p4p.server.thread.SharedPV", "post"): "server side: serves a PV, writes no device",
+    ("p4p.server.thread.SharedPV", "open"): "server side: serves a PV, writes no device",
+    ("p4p.server.asyncio.SharedPV", "post"): "server side: serves a PV, writes no device",
+    ("p4p.server.asyncio.SharedPV", "open"): "server side: serves a PV, writes no device",
+    ("tango.DeviceProxy", "put_property"): "writes the Tango database, not a device channel",
 }
 
 __all__ = [
     "READONLY_DENIED_IMPORTS",
     "_CLIENT_WRITE_TARGETS",
+    "_ARMED_BLOCKED",
+    "_ARMED_CHECKED",
+    "_ARMED_PASSED",
+    "_ARMED_RPC",
     "_ESCAPE_ROUTES",
     "_FRAMEWORK_WRITE_TARGETS",
-    "_LIMITS_REFUSED",
-    "_LIMITS_UNWRAPPABLE",
-    "_LIMITS_WRAPPED",
     "_READONLY_WRITE_TARGETS",
 ]

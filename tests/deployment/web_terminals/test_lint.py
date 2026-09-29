@@ -5029,3 +5029,379 @@ def test_lint_self_only_card_on_a_privileged_persona_reports_nothing() -> None:
     # Assert
     assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
     assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+
+
+# --- per-card control identity ------------------------------------------------
+
+
+def _control_identity_config(users: list, auth: object | None = None) -> dict:
+    """A clean config whose roster is *users*, under *auth* when given."""
+    config = _auth_config(auth) if auth is not None else copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = users
+    return config
+
+
+def _control_identity_findings(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if "control_identity" in f.code]
+
+
+def test_lint_control_identity_valid_value_reports_nothing() -> None:
+    """An owner-only card carrying a passwd-safe, unreserved name is clean."""
+    # Arrange
+    config = _control_identity_config(
+        [{"name": "alice", "control_identity": "ahellert"}, {"name": "bob"}]
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _control_identity_findings(findings) == []
+
+
+@pytest.mark.parametrize("value", ["", 7, None, "Alice", "alice:x", "root", "osprey", "backup"])
+def test_lint_control_identity_invalid_value_is_an_error(value: object) -> None:
+    """A value the container would refuse is refused by lint first, as an ERROR
+    carrying the exact invalid-value code and naming the entry."""
+    # Arrange
+    config = _control_identity_config([{"name": "alice", "control_identity": value}, "bob"])
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert [(f.severity, f.code) for f in findings] == [
+        ("error", "web_terminals.invalid_user_control_identity")
+    ]
+    assert "'alice'" in findings[0].message
+
+
+def test_lint_control_identity_on_a_shared_card_is_an_error() -> None:
+    """A shared card writes as whoever opens it, so a fixed name is an ERROR."""
+    # Arrange
+    config = _control_identity_config(
+        [{"name": "alice"}, {"name": "logbook", "access": "any", "control_identity": "logbook"}]
+    )
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert [(f.severity, f.code) for f in findings] == [
+        ("error", "web_terminals.shared_card_control_identity")
+    ]
+    assert "'logbook'" in findings[0].message
+
+
+def test_lint_control_identity_differing_subjects_is_an_error() -> None:
+    """One value on two cards whose subjects name different people is an ERROR."""
+    # Arrange
+    config = _control_identity_config(
+        [
+            {"name": "alice", "oidc_subject": "a@example.org", "control_identity": "ops"},
+            {"name": "bob", "oidc_subject": "b@example.org", "control_identity": "ops"},
+        ],
+        auth=_oidc(),
+    )
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    errors = _errors(findings)
+    assert [f.code for f in errors] == ["web_terminals.duplicate_control_identity"]
+    assert "'alice'" in errors[0].message and "'bob'" in errors[0].message
+    assert "a@example.org" not in errors[0].message
+
+
+def test_lint_control_identity_one_person_on_two_cards_is_at_most_a_warn() -> None:
+    """The same subject on two cards is one person holding two cards: never an
+    ERROR, and any finding is the collision WARN."""
+    # Arrange
+    config = _control_identity_config(
+        [
+            {"name": "alice", "oidc_subject": "a@example.org", "control_identity": "ahellert"},
+            {"name": "alice2", "oidc_subject": "a@example.org", "control_identity": "ahellert"},
+        ],
+        auth=_oidc(),
+    )
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert _errors(findings) == []
+    assert all(
+        (f.severity, f.code) == ("warn", "web_terminals.control_identity_collision")
+        for f in findings
+    )
+
+
+def test_lint_control_identity_case_only_subject_difference_under_email_is_a_warn() -> None:
+    """Under an `email` claim the sidecar folds case, so subjects differing only
+    in case are one mailbox: the shared value is a WARN, not an ERROR."""
+    # Arrange
+    config = _control_identity_config(
+        [
+            {"name": "alice", "oidc_subject": "Alice@example.org", "control_identity": "ops"},
+            {"name": "alice2", "oidc_subject": "alice@example.org", "control_identity": "ops"},
+        ],
+        auth=_oidc(claim="email"),
+    )
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert _errors(findings) == []
+    assert [(f.severity, f.code) for f in findings] == [
+        ("warn", "web_terminals.control_identity_collision")
+    ]
+
+
+def test_lint_control_identity_case_only_subject_difference_under_sub_is_an_error() -> None:
+    """Under the default claim subjects compare exactly, so a case-only
+    difference names two people and the shared value is an ERROR."""
+    # Arrange
+    config = _control_identity_config(
+        [
+            {"name": "alice", "oidc_subject": "Alice@example.org", "control_identity": "ops"},
+            {"name": "alice2", "oidc_subject": "alice@example.org", "control_identity": "ops"},
+        ],
+        auth=_oidc(),
+    )
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert [f.code for f in _errors(findings)] == ["web_terminals.duplicate_control_identity"]
+
+
+def test_lint_control_identity_equal_to_another_roster_name_is_a_warn() -> None:
+    """A value naming another roster entry may credit writes to that user: WARN."""
+    # Arrange
+    config = _control_identity_config([{"name": "alice", "control_identity": "bob"}, "bob"])
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert [(f.severity, f.code) for f in findings] == [
+        ("warn", "web_terminals.control_identity_collision")
+    ]
+    assert "'alice'" in findings[0].message
+
+
+@pytest.mark.parametrize("auth", [None, {"method": "token"}])
+def test_lint_control_identity_value_checks_run_without_a_login(auth: object) -> None:
+    """Under `none` or `token` the value checks still run, and lint says
+    nothing more about a carried key than those checks do."""
+    # Arrange
+    config = _control_identity_config(
+        [{"name": "alice", "control_identity": "root"}, {"name": "bob", "control_identity": "bb"}],
+        auth=auth,
+    )
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert [(f.severity, f.code) for f in findings] == [
+        ("error", "web_terminals.invalid_user_control_identity")
+    ]
+
+
+def test_lint_control_identity_unknown_auth_method_still_checks_values() -> None:
+    """An auth.method naming no method degrades the claim to the default; the
+    value checks still run."""
+    # Arrange
+    config = _control_identity_config(
+        [{"name": "alice", "control_identity": 7}, "bob"], auth={"method": "kerberos"}
+    )
+
+    # Act
+    findings = _control_identity_findings(lint_web_terminals(config))
+
+    # Assert
+    assert [f.code for f in findings] == ["web_terminals.invalid_user_control_identity"]
+
+
+def test_lint_control_identity_shipped_preset_reports_nothing() -> None:
+    """The shipped control-assistant preset gains no control-identity finding."""
+    # Arrange
+    config = _shipped_profile_config()
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert _control_identity_findings(findings) == []
+
+
+# --- live writers without a control identity -----------------------------------
+
+_LIVE_WRITER_CODE = "web_terminals.live_writer_without_control_identity"
+
+# A persona that writes to the facility's real machine: `live` is the baseline
+# and its own block arms writes.
+_LIVE_WRITER_DELTA = {
+    "control_system.type": "epics",
+    "control_system.connector.epics.writes_enabled": True,
+}
+
+
+def _live_writer_config(
+    tmp_path,
+    delta_config: dict | None = None,
+    *,
+    auth: object = None,
+    user: dict | None = None,
+) -> dict:
+    """A walled profile whose one card runs a persona delta beside it."""
+    config = _write_posture_config(
+        tmp_path, _LIVE_WRITER_DELTA if delta_config is None else delta_config
+    )
+    web_terminals = config["modules.web_terminals"]
+    web_terminals["auth"] = {"method": "password"} if auth is None else auth
+    web_terminals["users"] = [{"name": "alice", "index": 0, "persona": "tier", **(user or {})}]
+    return config
+
+
+def _live_writer_findings(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.code == _LIVE_WRITER_CODE]
+
+
+def test_lint_live_writer_without_control_identity_is_a_warn(tmp_path) -> None:
+    """An owner-only card behind a wall whose persona arms writes on `live`,
+    with no control_identity, is one WARN naming the user and the remedy."""
+    # Arrange
+    config = _live_writer_config(tmp_path)
+
+    # Act
+    findings = _live_writer_findings(lint_profile_config(config, profile_root=tmp_path))
+
+    # Assert
+    assert [f.severity for f in findings] == ["warn"], findings
+    assert "'alice'" in findings[0].message
+    assert "control_identity" in findings[0].message
+
+
+def test_lint_live_writer_inheriting_the_global_flag_is_a_warn(tmp_path) -> None:
+    """A live type with no per-type block inherits the flat key, and is armed."""
+    # Arrange
+    config = _live_writer_config(
+        tmp_path, {"control_system.type": "epics", "control_system.writes_enabled": True}
+    )
+
+    # Act
+    findings = _live_writer_findings(lint_profile_config(config, profile_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1, findings
+
+
+def test_lint_live_writer_with_control_identity_reports_nothing(tmp_path) -> None:
+    """Setting control_identity is the remedy the WARN asks for."""
+    # Arrange
+    config = _live_writer_config(tmp_path, user={"control_identity": "ahellert"})
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert _live_writer_findings(findings) == []
+
+
+def test_lint_live_writer_rule_reads_a_rendered_persona(tmp_path) -> None:
+    """At deploy altitude the rendered persona `config.yml` is the document."""
+    # Arrange
+    render_dir = tmp_path / "build" / "ca-tier"
+    render_dir.mkdir(parents=True)
+    (render_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {"control_system": {"type": "epics", "connector": {"epics": {"writes_enabled": True}}}}
+        )
+    )
+    config = _auth_config({"method": "password"})
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["users"] = [{"name": "alice", "index": 0, "persona": "tier"}]
+    web_terminals["default_persona"] = "tier"
+    web_terminals["personas"] = {"tier": {"project": "ca-tier", "project_path": "build/ca-tier"}}
+
+    # Act
+    findings = _live_writer_findings(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert [f.severity for f in findings] == ["warn"], findings
+
+
+def test_lint_walled_mock_deployment_armed_for_writes_reports_nothing(tmp_path) -> None:
+    """A mock deployment's `live` does not resolve, so it is not live — and the
+    rule never falls back to the armed flat key."""
+    # Arrange
+    config = _live_writer_config(
+        tmp_path, {"control_system.type": "mock", "control_system.writes_enabled": True}
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert _live_writer_findings(findings) == []
+
+
+def test_lint_live_type_pinned_off_under_an_armed_flat_key_reports_nothing(tmp_path) -> None:
+    """A per-type `false` does not fall back to a flat `true`."""
+    # Arrange
+    config = _live_writer_config(
+        tmp_path,
+        {
+            "control_system.type": "epics",
+            "control_system.writes_enabled": True,
+            "control_system.connector.epics.writes_enabled": False,
+        },
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert _live_writer_findings(findings) == []
+
+
+@pytest.mark.parametrize("auth", [{"method": "none"}, {"method": "token"}])
+def test_lint_live_writer_on_an_unwalled_deployment_reports_nothing(tmp_path, auth) -> None:
+    """With no login wall there is no person behind a card to name."""
+    # Arrange
+    config = _live_writer_config(tmp_path, auth=auth)
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert _live_writer_findings(findings) == []
+
+
+def test_lint_live_writer_on_a_shared_card_reports_nothing(tmp_path) -> None:
+    """A shared card must not carry one person's identity, so it is not asked for."""
+    # Arrange
+    config = _live_writer_config(tmp_path, user={"access": "any"})
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert _live_writer_findings(findings) == []
+
+
+def test_lint_live_writer_rule_is_silent_on_the_shipped_preset() -> None:
+    """The shipped control-assistant preset produces no live-writer finding."""
+    # Arrange
+    config = _shipped_profile_config()
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert _live_writer_findings(findings) == []

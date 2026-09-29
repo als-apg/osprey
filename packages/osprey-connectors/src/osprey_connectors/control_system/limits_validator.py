@@ -507,31 +507,6 @@ class LimitsValidator:
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
             return None
 
-    def get_limits_config(self, channel_address: str) -> dict | None:
-        """Get raw limits configuration for a channel (with defaults merged).
-
-        Returns the channel's configuration dictionary with defaults applied,
-        or None if channel is not in database and unlisted channels are allowed.
-
-        Args:
-            channel_address: Channel address to look up
-
-        Returns:
-            Configuration dictionary with defaults merged, or None if not found
-        """
-        channel_config = self.limits.get(channel_address)
-        if channel_config is None:
-            return None
-
-        # Convert ChannelLimitsConfig dataclass to dict for compatibility
-        return {
-            "channel_address": channel_config.channel_address,
-            "min_value": channel_config.min_value,
-            "max_value": channel_config.max_value,
-            "max_step": channel_config.max_step,
-            "writable": channel_config.writable,
-        }
-
     def resolve_confirm(self, channel_address: str) -> bool:
         """Whether a write to this channel must be confirmed by re-reading it.
 

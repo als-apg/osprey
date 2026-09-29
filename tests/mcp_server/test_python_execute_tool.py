@@ -1392,3 +1392,105 @@ async def test_python_execute_readwrite_allows_epics_import(tmp_path, monkeypatc
 
     assert extract_response_dict(result)["status"] == "success"
     mock_exec.assert_called_once()
+
+
+def _mock_execute_with_writes(success=True, written_channels=None):
+    """An execute_code mock whose result carries a write ledger."""
+    result = ExecutionResult(
+        success=success,
+        stdout="done\n" if success else "",
+        stderr="" if success else "Traceback: boom",
+        execution_method_used="subprocess",
+        execution_time_seconds=0.1,
+        written_channels=list(written_channels or []),
+    )
+    return AsyncMock(return_value=result)
+
+
+@pytest.mark.parametrize("success", [True, False])
+async def test_python_execute_notes_written_channels_and_stamps(tmp_path, monkeypatch, success):
+    """The call's facts carry the run's written channels and this process's stamps.
+
+    A failed run is noted too: a script that raised after a write still wrote.
+    """
+    import os
+    import pwd
+    import socket
+
+    from osprey.audit.call import call_scope
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    monkeypatch.chdir(tmp_path)
+    mock_exec = _mock_execute_with_writes(success, ["SR:MAG:1", "SR:MAG:2"])
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
+        ),
+        call_scope("toolu_x", None) as call,
+    ):
+        fn = _get_python_execute()
+        if success:
+            await fn(code="print('done')", description="ledger", execution_mode="readwrite")
+        else:
+            with assert_raises_error(error_type="execution_error"):
+                await fn(code="raise X", description="ledger", execution_mode="readwrite")
+
+    assert call.facts["channels"] == ["SR:MAG:1", "SR:MAG:2"]
+    assert call.facts["ca_user"] == pwd.getpwuid(os.getuid()).pw_name
+    assert call.facts["ca_host"] == socket.gethostname()
+
+
+async def test_python_execute_notes_empty_channels_without_writes(tmp_path, monkeypatch):
+    """A run that attempted no write is noted with an empty channel list."""
+    from osprey.audit.call import call_scope
+
+    monkeypatch.chdir(tmp_path)
+    mock_exec = _mock_execute_with_writes(True, [])
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+        call_scope("toolu_y", None) as call,
+    ):
+        fn = _get_python_execute()
+        await fn(code="print(1)", description="no writes", execution_mode="readonly")
+
+    assert call.facts["channels"] == []
+
+
+async def test_python_execute_note_omits_unreadable_stamps(tmp_path, monkeypatch):
+    """A stamp that cannot be read is left out rather than guessed."""
+    from osprey.audit.call import call_scope
+
+    monkeypatch.chdir(tmp_path)
+    mock_exec = _mock_execute_with_writes(True, ["SR:MAG:1"])
+
+    def _no_user(_uid):
+        raise KeyError("no passwd entry")
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+        patch("pwd.getpwuid", _no_user),
+        patch("socket.gethostname", return_value=""),
+        call_scope("toolu_z", None) as call,
+    ):
+        fn = _get_python_execute()
+        await fn(code="print(1)", description="stamps", execution_mode="readonly")
+
+    assert "ca_user" not in call.facts
+    assert "ca_host" not in call.facts
+    assert call.facts["channels"] == ["SR:MAG:1"]

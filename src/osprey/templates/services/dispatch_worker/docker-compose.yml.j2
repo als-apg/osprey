@@ -159,6 +159,15 @@ services:
       OSPREY_AUDIT_IDENTITY: dispatch-worker-{{ i }}
       OSPREY_AUDIT_DIR: {{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
 
+      # WHO this worker is to the control system. Per worker, from the same
+      # loop index as the audit identity above, so a write traced to
+      # `osprey-dispatch-<i>` names the one container that made it. The
+      # entrypoint's root phase renames the image's `osprey` account to this
+      # name, using the module mounted read-only below, before it drops
+      # privileges.
+      OSPREY_CONTROL_IDENTITY: osprey-dispatch-{{ i }}
+      OSPREY_CONTROL_IDENTITY_MODULE: {{ control_identity_container_path }}
+
       # WHERE this worker reads the control-context tree, mounted read-only
       # below. A dispatch run writes as the OWNER on its job — a person, whose
       # terminal may have narrowed them to another machine since the trigger was
@@ -341,6 +350,11 @@ services:
       # compose_generator from the same `agent_data.base_dir` the writer
       # resolves its own record path against.
       - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
+
+      # The control-identity module, staged into this build context by
+      # compose_generator byte for byte from the packaged source. Read-only:
+      # the entrypoint runs it as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity.py:{{ control_identity_container_path }}:ro
 {{- net.network(services.dispatch_worker) }}
 {#- The probe runs INSIDE this container, so `localhost` is right in both modes
     -- its own loopback on the compose bridge, the host's under `host` -- and

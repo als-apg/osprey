@@ -420,10 +420,13 @@ config:
   # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
   # on save. Pinned entries are never pruned. 0 keeps everything.
   control_system.channel_read_artifact_retention: 20
-  # Pattern detection: every control-system operation in generated code is
-  # caught for approval, direct library calls included (epics.caput, .put()).
-  # Extend the framework's patterns for a custom library; `override` REPLACES
-  # them and drops that circumvention coverage.
+  # Pattern detection: raw client puts in generated code (epics.caput,
+  # PV.put(), and the other client libraries' write calls) are denied by the
+  # approval hook and refused at runtime; osprey.runtime.write_channel is the
+  # write that asks for approval. PVAccess puts (p4p, pvaPy) still ask and are
+  # limits-checked until the connector writes PVAccess. Extend the framework's
+  # patterns for a custom library; `override` REPLACES them and drops that
+  # circumvention coverage.
   # control_system.patterns.mode: extend
   # control_system.patterns.write: ['my_custom_cs_lib\.write\(']
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']

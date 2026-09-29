@@ -9,7 +9,8 @@ has to behave the same way at its edges, because the agent, the plans and the
 safety layers on top of it are written against that behaviour rather than against any
 one control system. This page states those contracts: how large array values are
 returned, how a write reports whether it actually took effect and which gates it
-must pass first, and what an archiver's historical data has to look like. For the
+must pass first, where a connector makes its client put, and what an archiver's
+historical data has to look like. For the
 day-to-day task of picking and configuring a connector, see
 :doc:`/how-to/control-systems/use-connectors`.
 
@@ -208,6 +209,51 @@ is a separate, complementary layer from the **per-intent human authorization**
 at the tool boundary (the approval hook, the launch token for plans), which
 gates the *intent* once rather than every put. The approval layer cannot
 substitute for the connector's mechanical refusal.
+
+.. _connector-write-door:
+
+The write door
+~~~~~~~~~~~~~~
+
+In a readwrite executor run and in a notebook kernel, a client library's put
+entry points refuse a put that no connector is making
+(:ref:`python-executor-armed-block`). A connector marks its own put by
+holding the **write door** open around it. The base class does that for every
+connector: it wraps ``write_channel`` and ``write_multiple_channels`` --- the
+latter is what ``write_channels`` reaches --- and, after the write-posture
+check has passed, opens the door around the original method. A write refused
+by the posture check never opens it.
+
+The door is a context variable
+(``osprey_connectors.control_system.write_door``), so it reaches only code
+that shares the context that opened it. That makes one rule for a connector's
+implementation:
+
+- **Make the client put in the calling context, or inside**
+  ``asyncio.to_thread``. ``asyncio.to_thread`` copies the context into its
+  worker thread, and a task created while the door is open inherits it too.
+- **Not behind** ``loop.run_in_executor``, a raw executor ``submit`` or a bare
+  ``threading.Thread``. Each starts from a fresh context, sees the door
+  closed, and the put is refused with reason ``RAW_CLIENT_WRITE``.
+
+A put made from a client-library callback thread the library started itself
+--- pyepics' preemptive callbacks, for one --- carries no door either, and is
+refused the same way.
+
+The door records who is making a put; it does not decide whether the put is
+allowed. The connector's own gates below do that. Two paths hold the door
+open for code that is not a shipped connector's own put, and are accepted as
+**cooperative bypasses**:
+
+- pyepics with ``PREEMPTIVE_CALLBACK=False`` runs callbacks while a thread
+  polls, including the poll inside a connector's waiting put, so a put made
+  from such a callback runs inside the open door.
+- A connector subclass written by the user is wrapped like a shipped one, so
+  its ``write_channel`` puts inside the open door.
+
+``osprey_connectors`` imports nothing from ``osprey`` for this. The door
+module is standard-library only, because the guard that reads it runs in
+executor subprocesses and kernels where ``osprey`` may not be importable.
 
 .. _limits-checking-config:
 

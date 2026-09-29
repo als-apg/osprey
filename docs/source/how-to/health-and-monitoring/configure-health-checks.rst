@@ -153,6 +153,27 @@ time, because the two would be one fact in two homes.
    reports the archive as **stale** — a ``warning``, never an ``error``, and
    an honest answer: the store is reachable, it is simply not being written.
 
+Which account each card and worker writes as
+--------------------------------------------
+
+The control system records the account name a write arrives under. The built-in
+``web_terminals`` category needs no configuration: it asks every web-terminal
+card and every dispatch worker which name its process runs as (``ca_user`` on
+its ``/health``) and compares that with the name your config intends, one row
+each.
+
+- A card behind a login wall (``auth.method: password`` or ``oidc``) should run
+  as its roster ``control_identity``. Every other card runs as ``osprey``.
+- Dispatch worker *i* should run as ``osprey-dispatch-<i>``.
+
+A row is an ``error`` when the name differs, or when the image is too old to
+report one while a name other than ``osprey`` is expected — that image ignores
+the setting, so rebuild and redeploy. It is a ``warning`` when the container
+started without root and so could not apply the name (``/health`` then carries
+``control_identity_skipped``), or when the process does not answer. Workers on
+a bridge network publish no host port, so their rows are ``skip`` rows; check
+those with ``docker exec <worker> whoami``.
+
 Checks that need real Python
 ----------------------------
 

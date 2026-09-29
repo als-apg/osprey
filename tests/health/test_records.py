@@ -62,6 +62,7 @@ class TestPolicySets:
                 "channel_finder",
                 "graphdb",
                 "web_panels",
+                "web_terminals",
                 "reach",
                 "archive",
             }

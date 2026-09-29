@@ -18,6 +18,15 @@
 {% set protocol_name = 'Control System' %}
 {% set protocol_long = 'Control System' %}
 {% endif %}
+{% set raw_put_refusal -%}
+A raw client put is not a slower route to the same write: the Python executor
+(`execute`, `execute_file`) and the notebook kernels refuse it at runtime with
+`RAW_CLIENT_WRITE`, in readwrite runs too, and approving the run does not
+change that. Write through `write_channel(address, value)`, or
+`write_channels({address: value, ...})` for several channels at once — those
+are the calls that carry limits checking, write confirmation, approval and the
+audit record.
+{%- endset %}
 # Control System Safety — {{ protocol_long }}
 
 When writing Python code that interacts with the control system, you MUST use
@@ -36,25 +45,32 @@ write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
 {% if cs_type in ('epics', 'virtual_accelerator') %}
 ```python
-# DO NOT use these — they bypass safety controls
+# DO NOT use these — read and write through osprey.runtime instead
 import epics
 epics.caget("SR:DIAG:BPM:01:POSITION:X")   # Bypasses audit logging
-epics.caput("SR:MAG:QF:01:CURRENT:SP", 150)  # Bypasses limits + approval
+epics.caput("SR:MAG:QF:01:CURRENT:SP", 150)  # Refused at runtime: RAW_CLIENT_WRITE
 from epics import PV
 pv = PV("SR:MAG:QF:01:CURRENT:SP")
-pv.put(150)  # Bypasses all safety layers
+pv.put(150)  # Refused at runtime: RAW_CLIENT_WRITE
 ```
 
-The same prohibition covers pvAccess (PVA) through the `p4p` library — every
-client flavor, not just the threaded one:
+{{ raw_put_refusal }}
+
+pvAccess (PVA) through the `p4p` library is the one exception to that
+refusal, for writes only. `write_channel` does not write pvAccess channels
+yet, so a raw PVA put is how a PVA channel is written: it asks for approval
+like any write, and wherever limits checking is on each put is checked
+against the limits before it reaches the network, with no route around that.
+Use it only for a channel served over pvAccess — a Channel Access channel
+goes through `write_channel`. Reads still go through `read_channel`, every
+client flavor alike:
 
 ```python
-# DO NOT use these — they bypass safety controls
-from p4p.client.thread import Context      # Bypasses all safety layers
-from p4p.client.asyncio import Context     # Same bypass, async client flavor
+from p4p.client.thread import Context      # A raw client: reads skip audit
+from p4p.client.asyncio import Context     # Same client, async flavor
 ctxt = Context("pva")
-ctxt.get("SR:CAM:01:IMAGE")                 # Bypasses audit logging
-ctxt.put("SR:MAG:QF:01:CURRENT:SP", 150)    # Bypasses limits + approval
+ctxt.get("SR:CAM:01:IMAGE")                 # DO NOT: bypasses audit logging; use read_channel
+ctxt.put("SR:DIAG:PVA:01:GAIN:SP", 2.0)     # PVA channel only: approval + limits check
 ctxt.rpc("SR:SVC:ORBIT", request)           # Not approvable — refused at runtime
 ```
 
@@ -65,24 +81,28 @@ and wherever limits checking is enabled. Use `write_channel` for the write
 you actually need.
 {% elif cs_type == 'doocs' %}
 ```python
-# DO NOT use these — they bypass safety controls
+# DO NOT use these — read and write through osprey.runtime instead
 import doocs4py
 doocs4py.get("FACILITY/DEVICE/LOCATION/PROPERTY")           # Bypasses audit logging
-doocs4py.set("FACILITY/DEVICE/LOCATION/SETPOINT", 150.0)    # Bypasses limits + approval
+doocs4py.set("FACILITY/DEVICE/LOCATION/SETPOINT", 150.0)    # Refused at runtime: RAW_CLIENT_WRITE
 address = doocs4py.Address("FACILITY/DEVICE/LOCATION/PROPERTY")
 doocs4py.subscribe(address, callback)                       # Bypasses audit logging
 ```
+
+{{ raw_put_refusal }}
 {% elif cs_type == 'tango' %}
 ```python
-# DO NOT use these — they bypass safety controls
+# DO NOT use these — read and write through osprey.runtime instead
 import tango
 device = tango.DeviceProxy("sys/tg_test/1")
 device.read_attribute("Position")     # Bypasses audit logging
-device.write_attribute("Current", 150)  # Bypasses limits + approval
+device.write_attribute("Current", 150)  # Refused at runtime: RAW_CLIENT_WRITE
 from PyTango import DeviceProxy
 dev = DeviceProxy("sys/tg_test/1")
-dev.write_attribute("Setpoint", 150)  # Bypasses all safety layers
+dev.write_attribute("Setpoint", 150)  # Refused at runtime: RAW_CLIENT_WRITE
 ```
+
+{{ raw_put_refusal }}
 {% elif cs_type == 'opcua' %}
 ```python
 # DO NOT use these — they bypass safety controls

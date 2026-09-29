@@ -23,10 +23,13 @@ from osprey.services.python_executor.execution.net_guard import render_net_guard
 # are named separately because they are the rows the guard waits for: they are
 # patched when the script imports their module, not before it runs.
 from osprey.services.python_executor.write_surface import (
+    _ARMED_BLOCKED,
+    _ARMED_RPC,
     _FRAMEWORK_WRITE_TARGETS,
     _READONLY_WRITE_TARGETS,
 )
 from osprey.utils.logger import get_logger
+from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
 
 logger = get_logger("execution_wrapper")
 
@@ -39,7 +42,8 @@ logger = get_logger("execution_wrapper")
 READONLY_REFUSAL = (
     "readonly execution mode: control-system writes are refused — "
     "resubmit with execution_mode='readwrite' (human approval required) "
-    "if the write is intended"
+    "if the write is intended, and write through "
+    "osprey.runtime.write_channel(address, value)"
 )
 
 #: The substring every readonly refusal message carries, whichever layer
@@ -54,6 +58,12 @@ READONLY_REFUSAL = (
 #: A test pins the connector's message against this constant, so rewording
 #: either side without the other fails rather than silently stopping the alert.
 READONLY_REFUSAL_MARKER = "readonly execution mode"
+
+#: File in the execution folder where a readwrite run records every channel
+#: ``osprey.runtime`` attempted to write, one ``{"channel": <address>}`` JSON
+#: object per line. Appended per attempt, so a killed run leaves the list of
+#: the writes it reached.
+WRITES_LEDGER_FILENAME = "writes.jsonl"
 
 #: Refusal prefix the filesystem guard carries in a readonly run. It embeds
 #: :data:`READONLY_REFUSAL_MARKER` so that a write refused into the render zone
@@ -70,6 +80,86 @@ READONLY_FS_REFUSAL_PREFIX = f"Refused ({READONLY_REFUSAL_MARKER}):"
 #: :meth:`ExecutionWrapper._get_filesystem_guard` for what that costs and why it
 #: is still the right trade.
 READWRITE_FS_REFUSAL_PREFIX = DEFAULT_DENYLIST_PREFIX
+
+#: Source of the raw-put block the readonly guard embeds. Read by path rather
+#: than imported, so that emitting the guard never imports ``osprey.runtime``.
+_RAW_PUT_BLOCK_SOURCE = Path(__file__).resolve().parents[3] / "runtime" / "raw_put_block.py"
+
+#: Filename the embedded block is compiled under, so a traceback through it
+#: names the module it came from.
+_RAW_PUT_BLOCK_FILENAME = "osprey/runtime/raw_put_block.py"
+
+#: Refusal a PVAccess ``rpc`` raises in a limits-checked readwrite run. An rpc
+#: carries an arbitrary payload and no channel value, so no connector write can
+#: stand in for it and no limit can bound it.
+P4P_RPC_REFUSAL = "rpc is not mediated and cannot be approved — use the supervised write path"
+
+#: Refusal a Tango command raises in a limits-checked readwrite run: a command
+#: is an action on the device, not a channel value a limit could bound.
+TANGO_COMMAND_REFUSAL = (
+    "Tango command refused in a limits-checked run: a command carries no value to bound"
+)
+
+#: The rpc refusal texts the armed block receives, keyed by dotted prefix. The
+#: block picks the text keyed by the longest prefix of ``dotted.attr``, so these
+#: three keys cover every row of :data:`_ARMED_RPC`; a row they did not cover
+#: would make the install raise rather than refuse with nothing to say.
+ARMED_RPC_REFUSALS: dict[str, str] = {
+    "p4p": P4P_RPC_REFUSAL,
+    "tango": TANGO_COMMAND_REFUSAL,
+    "PyTango": TANGO_COMMAND_REFUSAL,
+}
+
+
+def _armed_rows(table: dict[tuple[str, str], str]) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Group a ``(dotted, attr)``-keyed write-surface table into install rows.
+
+    Rows keep the table's order: first by the first appearance of each dotted
+    owner, then each owner's attributes as the table lists them.
+    """
+    rows: dict[str, list[str]] = {}
+    for dotted, attr in table:
+        rows.setdefault(dotted, []).append(attr)
+    return tuple((dotted, tuple(attrs)) for dotted, attrs in rows.items())
+
+
+def armed_contract(*, refuse_rpc: bool) -> dict:
+    """The keyword arguments of ``raw_put_block.install("armed", ...)``.
+
+    One place computes them, so every process that arms the block — the
+    executor's generated script and the notebook kernel alike — refuses the
+    same client entry points with the same marker.
+    """
+    return {
+        "blocked_targets": _armed_rows(_ARMED_BLOCKED),
+        "rpc_targets": _armed_rows(_ARMED_RPC),
+        "refuse_rpc": bool(refuse_rpc),
+        "marker": RAW_CLIENT_WRITE_MARKER,
+        "rpc_refusals": dict(ARMED_RPC_REFUSALS),
+    }
+
+
+def _embedded_raw_put_block(comment: Iterable[str], mode: str, contract: dict) -> str:
+    """Script lines that run ``raw_put_block.install(mode, **contract)`` in a private namespace.
+
+    The block's *source* is embedded and executed rather than imported, so the
+    script holds in an interpreter where ``osprey`` cannot be imported and no
+    name the block defines leaks into the user code. *contract* is emitted as
+    literals, one keyword per line.
+    """
+    source = _RAW_PUT_BLOCK_SOURCE.read_text(encoding="utf-8")
+    return "\n".join(
+        (
+            *comment,
+            "_ns = {}",
+            f'exec(compile({source!r}, {_RAW_PUT_BLOCK_FILENAME!r}, "exec"), _ns)',
+            '_ns["install"](',
+            f'    "{mode}",',
+            *(f"    {name}={value!r}," for name, value in contract.items()),
+            ")",
+            "del _ns",
+        )
+    )
 
 
 class ExecutionWrapper:
@@ -91,7 +181,6 @@ class ExecutionWrapper:
         protected_roots: Iterable[str | Path] = (),
         permitted_roots: Iterable[str | Path] = (),
         perimeter_denied_ports: Iterable[int] = (),
-        step_read_timeout_s: float | None = None,
         secret_roots: Iterable[str | Path] = (),
     ):
         """
@@ -144,17 +233,6 @@ class ExecutionWrapper:
                 (:meth:`_get_net_guard`); a non-empty set puts the guard in
                 front of user code in **every** execution mode, because the
                 perimeter is orthogonal to the write posture.
-            step_read_timeout_s: Ceiling on the fresh read a ``max_step`` check
-                makes, in seconds. Resolved by the parent
-                (:func:`osprey.mcp_server.python_executor.executor._step_read_timeout_seconds`)
-                from the block of the connector the run's control target
-                selects, and passed as a literal for the same reason the guard
-                roots are: the sandbox holds no config, and a child deriving
-                the budget for itself would read the deployment's baseline
-                block rather than the one its own connector reads. ``None`` —
-                what a caller that knows no deployment gets — takes the
-                connectors package's own default, which fails closed just as
-                quickly.
         """
         self.limits_validator = limits_validator
         self.execution_mode = execution_mode
@@ -162,13 +240,6 @@ class ExecutionWrapper:
         self.permitted_roots = tuple(str(root) for root in permitted_roots)
         self.secret_roots = tuple(str(root) for root in secret_roots)
         self.perimeter_denied_ports = tuple(perimeter_denied_ports)
-        if step_read_timeout_s is None:
-            from osprey_connectors.control_system.limits_validator import (
-                DEFAULT_STEP_READ_TIMEOUT_SECONDS,
-            )
-
-            step_read_timeout_s = DEFAULT_STEP_READ_TIMEOUT_SECONDS
-        self.step_read_timeout_s = float(step_read_timeout_s)
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -185,8 +256,11 @@ class ExecutionWrapper:
         # Build wrapper components
         imports = self._get_imports()
         environment_setup = self._get_environment_setup(execution_folder)
+        write_ledger_observer = self._get_write_ledger_observer(execution_folder)
         limits_checking = self._get_limits_checking_monkeypatch()
+        pva_limits_guard = self._get_pva_limits_guard()
         readonly_guard = self._get_readonly_guard()
+        armed_block = self._get_armed_block()
         filesystem_guard = self._get_filesystem_guard(execution_folder)
         net_guard = self._get_net_guard()
         metadata_init = self._get_metadata_init()
@@ -200,8 +274,11 @@ class ExecutionWrapper:
             [
                 imports,
                 environment_setup,
+                write_ledger_observer,
                 limits_checking,
+                pva_limits_guard,
                 readonly_guard,
+                armed_block,
                 filesystem_guard,
                 net_guard,
                 metadata_init,
@@ -319,8 +396,53 @@ if not _execution_dir.exists():
 
         return textwrap.dedent(setup).strip()
 
+    def _get_write_ledger_observer(self, execution_folder: Path | None) -> str:
+        """Generate the write-ledger observer registration; empty for a readonly run.
+
+        A readwrite run registers an ``osprey.runtime`` write observer that
+        appends ``{"channel": <address>}`` to :data:`WRITES_LEDGER_FILENAME` in
+        the execution folder on every ``attempt`` phase. Each line is written
+        and closed on its own, so the file holds every attempt made before the
+        child was killed. A readonly run cannot write through the runtime, and a
+        run without an execution folder has nowhere for the parent to read the
+        ledger from, so neither gets the section. Without an importable
+        ``osprey.runtime`` there is no runtime write to record, and the section
+        does nothing.
+        """
+        if self.execution_mode == "readonly" or execution_folder is None:
+            return ""
+        ledger_path = Path(execution_folder) / WRITES_LEDGER_FILENAME
+        return textwrap.dedent(
+            f"""
+            # Write ledger: every channel osprey.runtime attempts to write
+            try:
+                import osprey.runtime as _write_ledger_runtime
+
+                _write_ledger_path = r"{ledger_path}"
+
+                def _write_ledger_observer(address, phase):
+                    if phase != "attempt":
+                        return
+                    with open(_write_ledger_path, "a", encoding="utf-8") as _ledger:
+                        _ledger.write(json.dumps({{"channel": str(address)}}) + "\\n")
+
+                _write_ledger_runtime._register_write_observer(_write_ledger_observer)
+            except ImportError:
+                pass
+            """
+        ).strip()
+
     def _get_limits_checking_monkeypatch(self) -> str:
-        """Generate monkeypatch code with embedded validator config."""
+        """Rebuild the run's limits validator and hand it to ``osprey.runtime``.
+
+        The sandbox holds no config, so the limits database and the policy
+        travel in the generated source as literals. The rebuilt validator is
+        injected into ``osprey.runtime``, so ``write_channel`` checks the same
+        limits the parent resolved for this run's control target. Direct client
+        puts are not wrapped here: in a readwrite run the armed raw-put block
+        (:meth:`_get_armed_block`) refuses them before they reach the network,
+        except the PVAccess puts :meth:`_get_pva_limits_guard` checks.
+        """
         if self.limits_validator is None:
             return ""  # No limits checking
 
@@ -338,27 +460,15 @@ if not _execution_dir.exists():
 
         db_json = json.dumps(limits_db_serialized)
         policy_json = json.dumps(self.limits_validator.policy)
-        # Embedded as a literal for the same reason the database and the policy
-        # are: the sandbox holds no config, so every number the guard applies
-        # has to travel in the generated source. The parent resolved it from
-        # the connector block this run's control target selects
-        # (`control_system.connector.<type>.step_read_timeout_s`), so a
-        # script's step check and that connector's own read use one budget.
-        step_read_timeout = self.step_read_timeout_s
 
         return textwrap.dedent(
             f"""
-            # Runtime Channel Limits Checking (Monkeypatch with Embedded Config)
+            # Runtime Channel Limits Checking (Embedded Config)
             try:
                 import json
                 from osprey.connectors.control_system.limits_validator import (
                     LimitsValidator, ChannelLimitsConfig
                 )
-
-                from osprey.errors import ChannelLimitsViolationError
-
-                # This deployment's `max_step` fresh-read budget, in seconds.
-                _step_read_timeout = {step_read_timeout}
 
                 # Deserialize embedded config
                 _limits_db_raw = json.loads('''{db_json}''')
@@ -387,125 +497,41 @@ if not _execution_dir.exists():
                     print("✅ Injected limits validator into osprey.runtime")
                 except ImportError:
                     print("ℹ️  osprey.runtime not available for limits injection")
+            except Exception as e:
+                print(f"⚠️  Limits checking setup failed: {{e}}")
+                import traceback
+                traceback.print_exc()
+        """
+        ).strip()
 
+    def _get_pva_limits_guard(self) -> str:
+        """Limits-check raw PVAccess puts in a readwrite run; empty otherwise.
+
+        The connector reads PVAccess but does not write it yet, so a raw
+        ``p4p`` or ``pvaccess`` put is the one PVAccess write route a readwrite
+        run has, and the armed raw-put block lets it through
+        (:data:`_ARMED_CHECKED`) instead of refusing it. It keeps the check it
+        had before that block existed: every put is validated against the
+        run's limits before it reaches the network. With no limits validator
+        there is nothing to check against, and a readonly run refuses these
+        puts outright, so both emit nothing.
+
+        Emitted after :meth:`_get_limits_checking_monkeypatch`, whose
+        ``_limits_validator`` it reads; if that setup failed the guard installs
+        nothing and says so. The p4p flavours and pvaPy are each patched in
+        their own ``try`` so one missing client does not skip the rest.
+        """
+        if self.limits_validator is None or self.execution_mode != "readwrite":
+            return ""
+        return textwrap.dedent(
+            """
+            # PVAccess puts: limits-checked, not refused, until the connector
+            # writes PVAccess (write_surface._ARMED_CHECKED).
+            if "_limits_validator" not in globals():
+                print("⚠️  PVAccess limits guard not installed: limits checking setup failed")
+            else:
                 import inspect as _inspect
                 import json as _json
-
-                # pyepics spells a write three ways - caput(), PV.put() and
-                # ca.put() - and the first two reach the network through the
-                # third. Guarding the choke point alone validates every
-                # spelling exactly once and pays for one max_step read, where
-                # a wrapper per spelling validated the same write at each layer
-                # it passed and still left a direct ca.put() unchecked.
-                try:
-                    from epics import ca as _epics_ca
-
-                    _original_ca_put = _epics_ca.put
-                    _original_ca_get = _epics_ca.get
-                    _original_ca_name = _epics_ca.name
-
-                    def _ca_current_value(_chid):
-                        '''Read a channel's present value for the max_step check.
-
-                        The script's OWN Channel Access client, captured before
-                        the guard is installed - the validator holds no client
-                        and must not reach for one. The read goes through the
-                        very channel id the put is going through, so the step
-                        is measured over the channel being written. A client
-                        that cannot read answers None, which fails the step
-                        check closed.
-                        '''
-                        try:
-                            return _original_ca_get(_chid, timeout=_step_read_timeout)
-                        except Exception:
-                            return None
-
-                    def _checked_ca_put(chid, value, *args, **kwargs):
-                        '''Limits-checked wrapper for epics.ca.put()
-
-                        A chid is opaque, so the channel the limits database is
-                        keyed by has to be asked for by name - validating the
-                        chid itself would look up a channel no database has
-                        heard of.
-
-                        A refusal here leaves pyepics' own pre-put state as
-                        it found it: ``PV.put`` coerces an enum string to its
-                        index and sets ``_put_complete`` before it reaches
-                        ca.put, and neither is rolled back.
-                        '''
-                        _limits_validator.validate(
-                            _original_ca_name(chid),
-                            value,
-                            read_current=lambda _address: _ca_current_value(chid),
-                        )  # Raises if invalid
-                        return _original_ca_put(chid, value, *args, **kwargs)
-
-                    _epics_ca.put = _checked_ca_put
-                    print("✅ Monkeypatched epics.ca.put()")
-
-                except ImportError:
-                    print("ℹ️  pyepics not available - EPICS limits checking disabled")
-
-                # --- aioca. A second Channel Access client, and a separate
-                # library: an `await aioca.caput(...)` never passes through
-                # epics.ca.put, so the pyepics choke point above leaves it
-                # unchecked. aioca's package namespace re-exports what
-                # `aioca._catools` defines, so both spellings are rebound to
-                # the same wrapper - patching only the re-export would leave
-                # `from aioca._catools import caput` unguarded and would also
-                # break the array form, whose per-pair re-entry goes through
-                # the submodule global.
-                try:
-                    import aioca as _aioca
-                    from aioca import _catools as _aioca_catools
-
-                    _orig_aioca_caput = _aioca_catools.caput
-                    _orig_aioca_caget = _aioca_catools.caget
-
-                    async def _checked_aioca_caput(pv, value, *args, **kwargs):
-                        '''Limits-checked wrapper for aioca.caput().
-
-                        A non-str ``pv`` is aioca's array form, which aioca
-                        dispatches to ``caput_array``. That function writes
-                        each pair by calling the module-global ``caput`` -
-                        this wrapper, since it is bound there - so forwarding
-                        the sequence unchanged is what gets every pair
-                        validated, once, under its own channel's limits.
-                        Validating the sequence here instead would check a
-                        list of values against one channel's limits and refuse
-                        the write for the wrong reason.
-
-                        The guard is a coroutine, so unlike the synchronous
-                        clients it can await the max_step read itself and hand
-                        the validator a plain value. That read is bought only
-                        by a channel that configures max_step, and a read that
-                        fails answers None, which fails the step check closed.
-                        '''
-                        if not isinstance(pv, str):
-                            return await _orig_aioca_caput(pv, value, *args, **kwargs)
-
-                        _cfg = _limits_validator.get_limits_config(pv)
-                        _current = None
-                        if _cfg and _cfg['max_step'] is not None:
-                            try:
-                                _current = await _orig_aioca_caget(
-                                    pv, timeout=_step_read_timeout
-                                )
-                            except Exception:
-                                _current = None
-
-                        _limits_validator.validate(
-                            pv, value, read_current=lambda _address: _current
-                        )  # Raises if invalid
-                        return await _orig_aioca_caput(pv, value, *args, **kwargs)
-
-                    _aioca.caput = _checked_aioca_caput
-                    _aioca_catools.caput = _checked_aioca_caput
-                    print("✅ Monkeypatched aioca.caput()")
-                except ImportError:
-                    print("ℹ️  aioca not available - aioca limits checking disabled")
-                except Exception as _aioca_error:
-                    print(f"⚠️  aioca guard failed: {{_aioca_error}}")
 
                 # p4p / PVAccess clients: p4p ships parallel Context classes per
                 # concurrency flavor, so each one is imported and patched in its
@@ -550,7 +576,7 @@ if not _execution_dir.exists():
                     The JSON string is the spelling that has to be read out of
                     p4p's own put() rather than its docstring: the flavour
                     client does ``json.loads`` on a payload whose first
-                    character is '{{' INSIDE put(), after this guard has
+                    character is '{' INSIDE put(), after this guard has
                     already run. Left as a str it fails the validator's
                     ``float()`` and skips every check, and p4p then decodes it
                     into the very number that was never checked. So it is
@@ -578,7 +604,7 @@ if not _execution_dir.exists():
                             "p4p put with a builder callable cannot be "
                             "limits-checked; pass the value itself"
                         )
-                    if isinstance(_value, (str, bytes)) and _value[:1] in ('{{', b'{{'):
+                    if isinstance(_value, (str, bytes)) and _value[:1] in ('{', b'{'):
                         try:
                             _value = _json.loads(_value)
                         except ValueError as _json_error:
@@ -660,21 +686,12 @@ if not _execution_dir.exists():
                         )
                     return _names_seq
 
-                def _p4p_blocked_rpc(self, *args, **kwargs):
-                    '''Unconditional refusal for p4p Context.rpc().
-
-                    Limits semantics cannot apply to an arbitrary rpc payload,
-                    so refusal is the only honest parity. It is defined once
-                    here rather than per class because the raw base refuses
-                    with the same function the flavours do.
-                    '''
-                    raise RuntimeError(
-                        "rpc is not mediated and cannot be approved — "
-                        "use the supervised write path"
-                    )
-
                 def _p4p_install_guard(_context_cls):
-                    '''Limits-check put() and refuse rpc() on one p4p Context class.'''
+                    '''Limits-check put() on one p4p Context class.
+
+                    rpc() is not touched here: the armed raw-put block refuses
+                    it in a limits-checked run, beside the Tango commands.
+                    '''
                     if hasattr(_context_cls, 'put'):
                         _original_p4p_put = _context_cls.put
 
@@ -687,14 +704,11 @@ if not _execution_dir.exists():
 
                         _context_cls.put = _p4p_checked_put
 
-                    if hasattr(_context_cls, 'rpc'):
-                        _context_cls.rpc = _p4p_blocked_rpc
-
                 try:
                     from p4p.client.thread import Context as _P4PThreadContext
 
                     _p4p_install_guard(_P4PThreadContext)
-                    print("✅ Monkeypatched p4p.client.thread Context.put()/.rpc()")
+                    print("✅ Monkeypatched p4p.client.thread Context.put()")
                 except ImportError:
                     print(
                         "ℹ️  p4p.client.thread not available - "
@@ -703,33 +717,33 @@ if not _execution_dir.exists():
                 except Exception as _p4p_error:
                     # One flavor failing must NOT skip the remaining flavors,
                     # so this stops short of the outer swallow-all handler.
-                    print(f"⚠️  p4p.client.thread guard failed: {{_p4p_error}}")
+                    print(f"⚠️  p4p.client.thread guard failed: {_p4p_error}")
 
                 try:
                     from p4p.client.asyncio import Context as _P4PAsyncioContext
 
                     _p4p_install_guard(_P4PAsyncioContext)
-                    print("✅ Monkeypatched p4p.client.asyncio Context.put()/.rpc()")
+                    print("✅ Monkeypatched p4p.client.asyncio Context.put()")
                 except ImportError:
                     print(
                         "ℹ️  p4p.client.asyncio not available - "
                         "PVA limits checking disabled"
                     )
                 except Exception as _p4p_error:
-                    print(f"⚠️  p4p.client.asyncio guard failed: {{_p4p_error}}")
+                    print(f"⚠️  p4p.client.asyncio guard failed: {_p4p_error}")
 
                 try:
                     from p4p.client.cothread import Context as _P4PCothreadContext
 
                     _p4p_install_guard(_P4PCothreadContext)
-                    print("✅ Monkeypatched p4p.client.cothread Context.put()/.rpc()")
+                    print("✅ Monkeypatched p4p.client.cothread Context.put()")
                 except ImportError:
                     print(
                         "ℹ️  p4p.client.cothread not available - "
                         "PVA limits checking disabled"
                     )
                 except Exception as _p4p_error:
-                    print(f"⚠️  p4p.client.cothread guard failed: {{_p4p_error}}")
+                    print(f"⚠️  p4p.client.cothread guard failed: {_p4p_error}")
 
                 # --- p4p's raw Context: the base every flavour above
                 # subclasses, and an object a script can drive on its own. A
@@ -784,17 +798,14 @@ if not _execution_dir.exists():
 
                         _P4PRawContext.put = _raw_gated_put
 
-                    if hasattr(_P4PRawContext, 'rpc'):
-                        _P4PRawContext.rpc = _p4p_blocked_rpc
-
-                    print("✅ Monkeypatched p4p.client.raw Context.put()/.rpc()")
+                    print("✅ Monkeypatched p4p.client.raw Context.put()")
                 except ImportError:
                     print(
                         "ℹ️  p4p.client.raw not available - "
                         "PVA limits checking disabled"
                     )
                 except Exception as _p4p_error:
-                    print(f"⚠️  p4p.client.raw guard failed: {{_p4p_error}}")
+                    print(f"⚠️  p4p.client.raw guard failed: {_p4p_error}")
 
                 # --- pvaPy. A PVAccess client of its own, not a p4p spelling:
                 # a ``pvaccess.Channel`` put never passes through a p4p
@@ -948,612 +959,9 @@ if not _execution_dir.exists():
                 except ImportError:
                     print("ℹ️  pvaccess not available - pvaPy limits checking disabled")
                 except Exception as _pva_error:
-                    print(f"⚠️  pvaccess guard failed: {{_pva_error}}")
+                    print(f"⚠️  pvaccess guard failed: {_pva_error}")
 
-                # --- Tango. Its writes carry the attribute name only; the
-                # channel a limits database is keyed by is the full
-                # ``device/attribute`` address, so it is rebuilt from the
-                # proxy's own device name. Each client below gets its OWN
-                # try/except for the same reason the p4p flavours do: one
-                # client absent or broken must not skip the ones after it.
-                try:
-                    import tango as _tango
-
-                    def _tango_channel(_proxy, _attr):
-                        '''The device/attribute address a write is bounded under.
-
-                        PyTango takes the attribute as a name or as an object
-                        carrying one -- an ``AttributeInfo``, a
-                        ``DeviceAttribute``. Interpolating the object builds an
-                        address the limits database has never heard of, which
-                        on a deployment that allows unlisted channels is a
-                        write that passes with no bound applied, so the
-                        argument is reduced to its name first.
-                        '''
-                        _name = getattr(_attr, 'name', _attr)
-                        return f"{{_proxy.dev_name()}}/{{_name}}"
-
-                    def _tango_current_value(_proxy):
-                        '''A reader for the max_step check, bound to the writing proxy.
-
-                        The step is measured over the same DeviceProxy the
-                        write goes through. The address the validator holds is
-                        the full device/attribute form built above, so the
-                        attribute name is its last segment.
-                        '''
-                        if not hasattr(_proxy, 'read_attribute'):
-                            return None
-
-                        def _read(_address):
-                            _attr = _proxy.read_attribute(_address.rsplit('/', 1)[-1])
-                            return getattr(_attr, 'value', _attr)
-
-                        return _read
-
-                    def _tango_pairs(_name_val):
-                        '''Normalise write_attributes' argument to (name, value) pairs.
-
-                        A shape that cannot be paired up fails CLOSED — the
-                        write raises rather than reaching the device
-                        unvalidated, which is the same trade the p4p batch
-                        guard makes.
-                        '''
-                        _pairs = []
-                        for _item in _name_val:
-                            try:
-                                _attr, _value = _item
-                            except (TypeError, ValueError) as _shape_error:
-                                raise ValueError(
-                                    "tango write_attributes requires (attribute, value) "
-                                    "pairs so each write can be limits-checked"
-                                ) from _shape_error
-                            _pairs.append((_attr, _value))
-                        return _pairs
-
-                    def _tango_checked_write(_original):
-                        '''Wrap a DeviceProxy spelling that writes ONE attribute.
-
-                        Every ``(attribute, value)`` spelling shares this
-                        shape: the value is bounded against the full
-                        device/attribute address, and whatever the original
-                        answers -- nothing, a request id, a read-back
-                        attribute -- is passed back untouched.
-                        '''
-
-                        def _checked(self, attr_name, value, *args, **kwargs):
-                            _limits_validator.validate(
-                                _tango_channel(self, attr_name),
-                                value,
-                                read_current=_tango_current_value(self),
-                            )
-                            return _original(self, attr_name, value, *args, **kwargs)
-
-                        return _checked
-
-                    def _tango_checked_write_many(_original):
-                        '''Wrap a DeviceProxy spelling that writes MANY attributes.
-
-                        Every pair is bounded before any of them is written,
-                        and the answer is passed back untouched. PyTango names
-                        the pairs ``name_val`` on some spellings and
-                        ``attr_values`` on others, so they are taken
-                        positionally or under either name and forwarded the way
-                        they arrived; a guard that accepted one spelling would
-                        break the other with a TypeError naming its own
-                        internals.
-                        '''
-
-                        def _checked(self, *args, **kwargs):
-                            _keyword = None
-                            if args:
-                                _name_val = args[0]
-                            else:
-                                for _spelling in ('name_val', 'attr_values'):
-                                    if _spelling in kwargs:
-                                        _keyword = _spelling
-                                        break
-                                if _keyword is None:
-                                    raise ValueError(
-                                        "tango write_attributes requires (attribute, "
-                                        "value) pairs so each write can be "
-                                        "limits-checked"
-                                    )
-                                _name_val = kwargs[_keyword]
-                            _pairs = _tango_pairs(_name_val)
-                            _read_current = _tango_current_value(self)
-                            for _attr, _value in _pairs:
-                                _limits_validator.validate(
-                                    _tango_channel(self, _attr),
-                                    _value,
-                                    read_current=_read_current,
-                                )
-                            # The materialised pairs, not the argument: a
-                            # generator was consumed by the check above, and
-                            # forwarding it would write nothing at all.
-                            if _keyword is None:
-                                return _original(self, _pairs, *args[1:], **kwargs)
-                            _forwarded = dict(kwargs)
-                            _forwarded[_keyword] = _pairs
-                            return _original(self, **_forwarded)
-
-                        return _checked
-
-                    # An ``AttributeProxy`` addresses one attribute for its
-                    # whole life, so its writes carry a value alone. The
-                    # channel address is rebuilt from the device proxy behind
-                    # it and the attribute's own name.
-                    def _tango_attribute_channel(_proxy):
-                        return f"{{_proxy.get_device_proxy().dev_name()}}/{{_proxy.name()}}"
-
-                    def _tango_attribute_current_value(_proxy):
-                        '''A reader for the max_step check, bound to the writing proxy.
-
-                        The proxy already points at the attribute being
-                        written, so the address the validator passes names
-                        that same channel and nothing is looked up from it.
-                        '''
-                        if not hasattr(_proxy, 'read'):
-                            return None
-
-                        def _read(_address):
-                            _value = _proxy.read()
-                            return getattr(_value, 'value', _value)
-
-                        return _read
-
-                    def _tango_checked_attribute_write(_original):
-                        '''Wrap an AttributeProxy spelling that writes its attribute.'''
-
-                        def _checked(self, value, *args, **kwargs):
-                            _limits_validator.validate(
-                                _tango_attribute_channel(self),
-                                value,
-                                read_current=_tango_attribute_current_value(self),
-                            )
-                            return _original(self, value, *args, **kwargs)
-
-                        return _checked
-
-                    def _tango_wrap_on(_class_name, _spellings):
-                        '''Install a limits-checked wrapper per spelling the class carries.
-
-                        Answers the names installed, so the success line can
-                        say what this binding actually had; a tango without
-                        the class answers an empty list.
-                        '''
-                        _cls = getattr(_tango, _class_name, None)
-                        _installed = []
-                        if _cls is not None:
-                            for _name, _wrap in _spellings:
-                                if hasattr(_cls, _name):
-                                    setattr(_cls, _name, _wrap(getattr(_cls, _name)))
-                                    _installed.append(_name)
-                        return _installed
-
-                    # A Tango COMMAND is not a channel write. It names an
-                    # operation on the device, and its argument is whatever
-                    # that command's own signature says - a mode string, a
-                    # struct, nothing at all. There is no channel address to
-                    # look the limits up under and no number to bound, so a
-                    # limits-checked run cannot approve one; a check that
-                    # let it through would mean nothing. Both spellings
-                    # refuse outright, argument or not, which is the posture
-                    # the p4p guard takes for rpc().
-                    def _tango_refuse_command(self, *args, **kwargs):
-                        '''Unconditional refusal for a Tango command call.'''
-                        raise RuntimeError(
-                            "Tango command refused in a limits-checked run: "
-                            "a command carries no value to bound"
-                        )
-
-                    # A group write fans one value out to every device the
-                    # group matched - there is no single channel address to
-                    # look limits up under and no one device to bound the
-                    # step against, so it refuses in range or not.
-                    def _tango_refuse_group_write(self, *args, **kwargs):
-                        '''Unconditional refusal for a Group attribute write.'''
-                        raise RuntimeError(
-                            "Tango group write refused in a limits-checked "
-                            "run: a group write fans one value out to many "
-                            "devices and is not limits-checked"
-                        )
-
-                    def _tango_refuse_on(_class_name, _spellings):
-                        '''Install a refusal per spelling the named class carries.
-
-                        Answers the names installed, so the success line can
-                        say what this binding actually had; a tango without
-                        the class answers an empty list.
-                        '''
-                        _cls = getattr(_tango, _class_name, None)
-                        _installed = []
-                        if _cls is not None:
-                            for _name, _refusal in _spellings:
-                                if hasattr(_cls, _name):
-                                    setattr(_cls, _name, _refusal)
-                                    _installed.append(_name)
-                        return _installed
-
-                    _tango_commands = (
-                        ('command_inout', _tango_refuse_command),
-                        ('command_inout_asynch', _tango_refuse_command),
-                    )
-                    # Every attribute-write spelling DeviceProxy carries.
-                    # The asynchronous and write-read spellings drive the same
-                    # device with the same value as the plain write, so each
-                    # one is checked; a spelling left out is a live unchecked
-                    # write under a guard reporting itself installed.
-                    _tango_device_writes = (
-                        ('write_attribute', _tango_checked_write),
-                        ('write_attribute_asynch', _tango_checked_write),
-                        ('write_read_attribute', _tango_checked_write),
-                        ('write_attributes', _tango_checked_write_many),
-                        ('write_attributes_asynch', _tango_checked_write_many),
-                        ('write_read_attributes', _tango_checked_write_many),
-                    )
-                    _tango_attribute_writes = (
-                        ('write', _tango_checked_attribute_write),
-                        ('write_asynch', _tango_checked_attribute_write),
-                        ('write_read', _tango_checked_attribute_write),
-                    )
-                    _tango_wrapped = []
-                    _tango_attribute_wrapped = []
-                    _tango_refused = []
-                    _tango_refused_base = []
-
-                    if hasattr(_tango, "DeviceProxy"):
-                        _tango_wrapped = _tango_wrap_on('DeviceProxy', _tango_device_writes)
-
-                        _tango_refused = _tango_refuse_on('DeviceProxy', _tango_commands)
-
-                        # PyTango DEFINES both spellings on the base class
-                        # ``Connection``; ``DeviceProxy`` only inherits them.
-                        # Patching the subclass installs a shadow in
-                        # ``DeviceProxy.__dict__`` and leaves the original
-                        # reachable on the definer, so an unbound
-                        # ``tango.Connection.command_inout(proxy, 'On')`` would
-                        # still drive the device with the refusal installed.
-                        # Refusing on the definer closes that spelling, and
-                        # every other Connection subclass with it.
-                        _tango_refused_base = _tango_refuse_on('Connection', _tango_commands)
-
-                        if not _tango_wrapped and not _tango_refused:
-                            print(
-                                "⚠️  tango guard failed: DeviceProxy has no write "
-                                "or command method"
-                            )
-                    else:
-                        # The success line is the operator's only evidence the
-                        # guard is on. A tango without a DeviceProxy wrapped
-                        # nothing on it, and must not report it guarded.
-                        print("⚠️  tango guard failed: no DeviceProxy class")
-
-                    # ``tango.AttributeProxy`` is its own class, bound to one
-                    # attribute rather than to a device, so neither install
-                    # above reaches it. It is patched on its own, outside the
-                    # DeviceProxy branch: an AttributeProxy is a write surface
-                    # whether or not a DeviceProxy sits beside it. Its writes
-                    # forward to the DeviceProxy methods wrapped above, so a
-                    # value is bounded twice and a max_step channel is read
-                    # twice; the outer check is kept deliberately, because it
-                    # is the only one left if the DeviceProxy install fails.
-                    _tango_attribute_wrapped = _tango_wrap_on(
-                        'AttributeProxy', _tango_attribute_writes
-                    )
-
-                    # ``tango.Group`` is not a Connection subclass. It is a
-                    # separate pure-Python class carrying its own commands AND
-                    # its own attribute writes, so neither install above
-                    # reaches it. It is patched on its own, outside the
-                    # DeviceProxy branch: a Group is a write surface whether
-                    # or not a DeviceProxy sits beside it.
-                    _tango_refused_group = _tango_refuse_on(
-                        'Group',
-                        _tango_commands
-                        + (
-                            ('write_attribute', _tango_refuse_group_write),
-                            ('write_attribute_asynch', _tango_refuse_group_write),
-                        ),
-                    )
-
-                    # The success line is the operator's only evidence the
-                    # guard is on, so it names what this binding actually
-                    # carried, class by class, rather than what the block can
-                    # install.
-                    _tango_report = [
-                        _tango_label + ", ".join(_n + "()" for _n in _tango_names)
-                        for _tango_label, _tango_names in (
-                            ("wrapped on DeviceProxy: ", _tango_wrapped),
-                            ("wrapped on AttributeProxy: ", _tango_attribute_wrapped),
-                            ("refused on DeviceProxy: ", _tango_refused),
-                            ("refused on Connection: ", _tango_refused_base),
-                            ("refused on Group: ", _tango_refused_group),
-                        )
-                        if _tango_names
-                    ]
-                    if _tango_report:
-                        print("✅ Monkeypatched tango: " + "; ".join(_tango_report))
-                except ImportError:
-                    print("ℹ️  tango not available - Tango limits checking disabled")
-                except Exception as _tango_error:
-                    print(f"⚠️  tango guard failed: {{_tango_error}}")
-
-                # --- DOOCS. ``doocs4py.set`` is the call the shipped DOOCS
-                # connector writes through, so a readwrite script naming it
-                # reaches the same hardware the mediated path does.
-                try:
-                    import doocs4py as _doocs4py
-
-                    def _doocs_current_value(_address):
-                        '''A reader for the max_step check, over doocs4py itself.
-
-                        ``get()`` answers an EqData, which carries the number
-                        in ``get_data()`` — the same unwrapping the shipped
-                        DOOCS connector does.
-                        '''
-                        _current = _doocs4py.get(_address)
-                        _get_data = getattr(_current, 'get_data', None)
-                        return _get_data() if _get_data is not None else _current
-
-                    _doocs_reader = (
-                        _doocs_current_value if hasattr(_doocs4py, "get") else None
-                    )
-
-                    if hasattr(_doocs4py, "set"):
-                        _orig_doocs_set = _doocs4py.set
-
-                        def _checked_doocs_set(address, value, *args, **kwargs):
-                            '''Limits-checked wrapper for doocs4py.set().'''
-                            _limits_validator.validate(
-                                address, value, read_current=_doocs_reader
-                            )
-                            return _orig_doocs_set(address, value, *args, **kwargs)
-
-                        _doocs4py.set = _checked_doocs_set
-
-                    print("✅ Monkeypatched doocs4py.set()")
-                except ImportError:
-                    print("ℹ️  doocs4py not available - DOOCS limits checking disabled")
-                except Exception as _doocs_error:
-                    print(f"⚠️  doocs4py guard failed: {{_doocs_error}}")
-
-                # --- caproto. Write entry points in three modules, one per
-                # concurrency flavor: the sync client's module-level functions,
-                # the threading client's PV and Batch classes, and the asyncio
-                # client's own PV. Each module is imported and patched in its
-                # OWN try/except - a flavor missing from this environment must
-                # not take the guards for the others with it.
-                def _caproto_scalar(_response):
-                    '''The number in a caproto read response.
-
-                    caproto answers a read with a response object whose
-                    ``data`` is an array, even for a scalar channel; a stub or
-                    a bare value answers itself.
-                    '''
-                    _data = getattr(_response, 'data', _response)
-                    try:
-                        return _data[0]
-                    except (TypeError, IndexError, KeyError):
-                        return _data
-
-                try:
-                    import caproto.sync.client as _caproto_sync
-
-                    def _caproto_sync_current_value(_address):
-                        '''A reader for the max_step check, over caproto's own client.
-
-                        The step-read ceiling is passed explicitly rather than
-                        left to caproto's own default, so a channel that never
-                        answers fails the check closed quickly instead of
-                        holding the write open.
-                        '''
-                        return _caproto_scalar(
-                            _caproto_sync.read(_address, timeout=_step_read_timeout)
-                        )
-
-                    _caproto_sync_reader = (
-                        _caproto_sync_current_value
-                        if hasattr(_caproto_sync, "read")
-                        else None
-                    )
-
-                    # Both module-level spellings lead with the channel name
-                    # and the value, and ``read_write_read`` differs only in
-                    # reading the channel back afterwards - it drives the
-                    # channel with the same value, so it is bounded the same
-                    # way. The pair is taken positionally or under the names
-                    # caproto gives it, and the call is forwarded exactly as
-                    # it arrived.
-                    def _caproto_sync_checked(_original):
-                        '''Wrap a sync-client spelling that writes a channel.'''
-
-                        def _checked(*args, **kwargs):
-                            _pv_name = args[0] if args else kwargs.get('pv_name')
-                            _data = args[1] if len(args) > 1 else kwargs.get('data')
-                            if _pv_name is None:
-                                raise ValueError(
-                                    "caproto write requires a channel name so "
-                                    "the write can be limits-checked"
-                                )
-                            _limits_validator.validate(
-                                _pv_name, _data, read_current=_caproto_sync_reader
-                            )
-                            return _original(*args, **kwargs)
-
-                        return _checked
-
-                    _caproto_sync_wrapped = []
-                    for _caproto_name in ('write', 'read_write_read'):
-                        if hasattr(_caproto_sync, _caproto_name):
-                            setattr(
-                                _caproto_sync,
-                                _caproto_name,
-                                _caproto_sync_checked(
-                                    getattr(_caproto_sync, _caproto_name)
-                                ),
-                            )
-                            _caproto_sync_wrapped.append(_caproto_name)
-
-                    # The success line is the operator's only evidence the
-                    # guard is on, so it names what this binding actually
-                    # carried rather than what the block can install.
-                    if _caproto_sync_wrapped:
-                        print(
-                            "✅ Monkeypatched caproto.sync.client: "
-                            + ", ".join(_n + "()" for _n in _caproto_sync_wrapped)
-                        )
-                    else:
-                        print(
-                            "⚠️  caproto.sync.client guard failed: "
-                            "no write function"
-                        )
-                except ImportError:
-                    print(
-                        "ℹ️  caproto.sync.client not available - "
-                        "caproto limits checking disabled"
-                    )
-                except Exception as _caproto_error:
-                    print(f"⚠️  caproto.sync.client guard failed: {{_caproto_error}}")
-
-                try:
-                    import caproto.threading.client as _caproto_threading
-
-                    def _caproto_pv_current_value(_pv):
-                        '''A reader for the max_step check, bound to the writing PV.
-
-                        The step-read ceiling is passed explicitly rather than
-                        left to the client context's own timeout, which a
-                        script is free to set to None.
-                        '''
-                        if not hasattr(_pv, 'read'):
-                            return None
-
-                        def _read(_address):
-                            return _caproto_scalar(
-                                _pv.read(timeout=_step_read_timeout)
-                            )
-
-                        return _read
-
-                    _caproto_threading_wrapped = []
-                    _CaprotoPV = getattr(_caproto_threading, 'PV', None)
-                    _CaprotoBatch = getattr(_caproto_threading, 'Batch', None)
-
-                    if _CaprotoPV is not None and hasattr(_CaprotoPV, "write"):
-                        _orig_caproto_pv_write = _CaprotoPV.write
-
-                        def _checked_caproto_pv_write(self, data, *args, **kwargs):
-                            '''Limits-checked wrapper for caproto threading PV.write().'''
-                            _limits_validator.validate(
-                                self.name, data, read_current=_caproto_pv_current_value(self)
-                            )
-                            return _orig_caproto_pv_write(self, data, *args, **kwargs)
-
-                        _CaprotoPV.write = _checked_caproto_pv_write
-                        _caproto_threading_wrapped.append('PV.write')
-
-                    # A ``Batch`` groups requests it is handed and sends them
-                    # together, so its write carries the PV to drive rather
-                    # than being bound to one. The channel is that PV's own
-                    # name and the step is measured over that PV's own read -
-                    # the same two answers the PV.write wrapper uses, taken
-                    # from the argument instead of from ``self``.
-                    if _CaprotoBatch is not None and hasattr(_CaprotoBatch, "write"):
-                        _orig_caproto_batch_write = _CaprotoBatch.write
-
-                        def _checked_caproto_batch_write(self, *args, **kwargs):
-                            '''Limits-checked wrapper for caproto threading Batch.write().'''
-                            _pv = args[0] if args else kwargs.get('pv')
-                            _data = args[1] if len(args) > 1 else kwargs.get('data')
-                            if _pv is None:
-                                raise ValueError(
-                                    "caproto Batch.write requires a pv so the "
-                                    "write can be limits-checked"
-                                )
-                            _limits_validator.validate(
-                                getattr(_pv, 'name', _pv),
-                                _data,
-                                read_current=_caproto_pv_current_value(_pv),
-                            )
-                            return _orig_caproto_batch_write(self, *args, **kwargs)
-
-                        _CaprotoBatch.write = _checked_caproto_batch_write
-                        _caproto_threading_wrapped.append('Batch.write')
-
-                    if _caproto_threading_wrapped:
-                        print(
-                            "✅ Monkeypatched caproto.threading.client: "
-                            + ", ".join(_n + "()" for _n in _caproto_threading_wrapped)
-                        )
-                    else:
-                        print(
-                            "⚠️  caproto.threading.client guard failed: "
-                            "no write method"
-                        )
-                except ImportError:
-                    print(
-                        "ℹ️  caproto.threading.client not available - "
-                        "caproto limits checking disabled"
-                    )
-                except Exception as _caproto_error:
-                    print(f"⚠️  caproto.threading.client guard failed: {{_caproto_error}}")
-
-                try:
-                    import caproto.asyncio.client as _caproto_asyncio
-
-                    _CaprotoAsyncPV = getattr(_caproto_asyncio, 'PV', None)
-
-                    if _CaprotoAsyncPV is not None and hasattr(_CaprotoAsyncPV, "write"):
-                        _orig_caproto_async_write = _CaprotoAsyncPV.write
-
-                        async def _checked_caproto_async_write(self, data, *args, **kwargs):
-                            '''Limits-checked wrapper for caproto asyncio PV.write().
-
-                            The guard is a coroutine, so unlike the synchronous
-                            clients it can await the max_step read itself and
-                            hand the validator a plain value. That read is
-                            bought only by a channel that configures max_step,
-                            and a read that fails answers None, which fails the
-                            step check closed. The ceiling is passed explicitly
-                            rather than left to the client context's own
-                            timeout, which a script is free to set to None.
-                            '''
-                            _cfg = _limits_validator.get_limits_config(self.name)
-                            _current = None
-                            if _cfg and _cfg['max_step'] is not None:
-                                try:
-                                    _current = _caproto_scalar(
-                                        await self.read(timeout=_step_read_timeout)
-                                    )
-                                except Exception:
-                                    _current = None
-
-                            _limits_validator.validate(
-                                self.name, data, read_current=lambda _address: _current
-                            )
-                            return await _orig_caproto_async_write(
-                                self, data, *args, **kwargs
-                            )
-
-                        _CaprotoAsyncPV.write = _checked_caproto_async_write
-                        print("✅ Monkeypatched caproto.asyncio.client PV.write()")
-                    else:
-                        print(
-                            "⚠️  caproto.asyncio.client guard failed: "
-                            "no PV.write method"
-                        )
-                except ImportError:
-                    print(
-                        "ℹ️  caproto.asyncio.client not available - "
-                        "caproto limits checking disabled"
-                    )
-                except Exception as _caproto_error:
-                    print(f"⚠️  caproto.asyncio.client guard failed: {{_caproto_error}}")
-            except Exception as e:
-                print(f"⚠️  Limits checking setup failed: {{e}}")
-                import traceback
-                traceback.print_exc()
-        """
+            """
         ).strip()
 
     def _get_readonly_guard(self) -> str:
@@ -1570,37 +978,14 @@ if not _execution_dir.exists():
         validator: a deployment with limits checking off is exactly the one
         with nothing else standing behind the regex.
 
-        The table covers three kinds of route: the control-system client
-        libraries themselves, the process-spawning surface that could shell out
-        to ``caput``, and ``ctypes``, which reaches Channel Access without
-        importing any client package at all. The ``ctypes`` rows are gated
-        rather than refused outright, because a readonly run reads through
-        ``osprey.runtime`` and its EPICS connector is pyepics, which reaches
-        Channel Access by loading ``libca`` through ``ctypes``: a load is let
-        through only while pyepics' own ``initialize_libca`` is on the stack,
-        and the handle it gets back has its put entry points refused, so the
-        raw route through the library is closed like every other spelling.
-        Every other load refuses, pyepics present or not. Each patched
-        attribute is also
-        followed back to the module that defined it, so a write a package
-        merely re-exports refuses under both of its spellings. That step is
-        what covers the defining modules no table can enumerate — PyTango
-        defines its writes in ``tango.device_proxy`` and ``tango.connection``
-        and binds them onto ``DeviceProxy``, and every binding has its own
-        such layout; the one row that does name a private module
-        (``aioca._catools``) is belt-and-braces for the single library whose
-        second spelling is known.
-
-        The two halves of the table are patched at different moments. The
-        client and escape rows are resolved and refused before the user code
-        runs, because a readonly script may not import a client at all and
-        because a client module may load a shared library while it executes.
-        The two acquisition-framework rows are refused when their module is
-        imported, through a ``sys.meta_path`` finder that wraps the located
-        loader, because those are the rows a readonly script is allowed to
-        import and a script that imports neither should not pay for them. A
-        framework already imported when the guard installs is patched on the
-        spot.
+        The guard itself is :mod:`osprey.runtime.raw_put_block`. Its *source*
+        is read by path and embedded, then executed in a private namespace, so
+        the script stays self-contained — it holds in an interpreter where
+        ``osprey`` cannot be imported — no guard name leaks into the user code,
+        and this process never imports ``osprey.runtime``, whose package import
+        registers an exit handler. The tables are emitted as literals read from
+        this module's globals at emission time; the framework rows are the
+        deferred half, patched when the script imports their module.
 
         The connector side of the same contract lives in
         ``osprey_connectors.control_system.base`` (refuses ``write_channel``
@@ -1611,300 +996,46 @@ if not _execution_dir.exists():
             return ""
         deferred = _FRAMEWORK_WRITE_TARGETS
         eager = tuple(row for row in _READONLY_WRITE_TARGETS if row not in deferred)
+        return _embedded_raw_put_block(
+            (
+                "# Readonly run: refuse every control-system write entry point, and",
+                "# every route out of Python that could reach one. Installed before",
+                "# user code, so an alias bound later resolves here.",
+            ),
+            "readonly",
+            {"eager_targets": eager, "deferred_targets": deferred, "refusal": READONLY_REFUSAL},
+        )
 
-        guard = f"""
-            # Readonly run: refuse every control-system write entry point, and
-            # every route out of Python that could reach one. Installed before
-            # user code, so an alias bound later resolves here.
-            import importlib as _osprey_importlib
-            import sys as _osprey_sys
+    def _get_armed_block(self) -> str:
+        """Generate the readwrite-run raw-put block; empty for a readonly run.
 
-            # CPython resolves ``platform.uname().processor`` lazily, by
-            # shelling out to ``uname -p`` on first read — and h5py reads it
-            # while ``import at`` initialises its type layer, so the subprocess
-            # refusal below would kill the import of a pure-simulation library.
-            # Resolve it once now, while spawning is still allowed; the cached
-            # value answers every later lookup without touching subprocess.
-            import platform as _osprey_platform
+        A readwrite run may write, but only through the connector, which checks
+        limits and records the write. A raw client put — ``epics.caput``, a caproto
+        ``PV.write``, a Tango ``write_attribute`` — is a route around that,
+        so every entry point in :data:`_ARMED_BLOCKED` is replaced with one that
+        calls through only while a connector holds the write door open and
+        otherwise refuses with :data:`RAW_CLIENT_WRITE_MARKER`. With a limits
+        validator the rpc rows of :data:`_ARMED_RPC` refuse as well: an rpc or a
+        Tango command carries no value a limit could bound.
 
-            _osprey_platform.processor()
-            del _osprey_platform
-
-            _osprey_eager_targets = {eager!r}
-            _osprey_deferred_targets = {deferred!r}
-
-
-            def _osprey_readonly_refuse(*_args, **_kwargs):
-                raise RuntimeError("@@REFUSAL@@")
-
-
-            # The shared-library loaders are the one refusal with an exception:
-            # pyepics, which ``osprey.runtime`` reads through, reaches Channel
-            # Access by loading ``libca`` via ``ctypes``. A load is permitted
-            # only while pyepics' own ``initialize_libca`` is on the stack —
-            # matched by code object, not by name, so a same-named function
-            # opens nothing — and the handle it returns has its put entry
-            # points refused, so the raw route through the library is closed
-            # as every other spelling is. Absent pyepics, every load refuses.
-            _osprey_gated_loader_rows = ("ctypes", "ctypes.LibraryLoader")
-            _osprey_handle_put_symbols = ("ca_array_put", "ca_array_put_callback")
-
-
-            def _osprey_pyepics_is_loading(_sys=_osprey_sys, _max_depth=8):
-                \"\"\"True while ``epics.ca.initialize_libca`` is a near caller.\"\"\"
-                _code = getattr(
-                    getattr(_sys.modules.get("epics.ca"), "initialize_libca", None),
-                    "__code__",
-                    None,
-                )
-                if _code is None:
-                    return False
-                # Frame 0 is this function, frame 1 the gated loader.
-                _frame = _sys._getframe(2)
-                for _ in range(_max_depth):
-                    if _frame is None:
-                        return False
-                    if _frame.f_code is _code:
-                        return True
-                    _frame = _frame.f_back
-                return False
-
-
-            def _osprey_gate_loader(_original):
-                def _osprey_gated_load(*_args, **_kwargs):
-                    if not _osprey_pyepics_is_loading():
-                        _osprey_readonly_refuse()
-                    _handle = _original(*_args, **_kwargs)
-                    try:
-                        for _symbol in _osprey_handle_put_symbols:
-                            setattr(_handle, _symbol, _osprey_readonly_refuse)
-                    except Exception:
-                        # A handle whose put symbols cannot be closed is not
-                        # handed out at all.
-                        _osprey_readonly_refuse()
-                    return _handle
-
-                return _osprey_gated_load
-
-
-            def _osprey_patch_row(_osprey_dotted, _osprey_attrs, _osprey_obj):
-                \"\"\"Refuse every attribute of one row on the object it resolved to.\"\"\"
-                try:
-                    for _osprey_attr in _osprey_attrs:
-                        if not hasattr(_osprey_obj, _osprey_attr):
-                            continue
-                        _osprey_original = getattr(_osprey_obj, _osprey_attr)
-                        if _osprey_dotted in _osprey_gated_loader_rows:
-                            _osprey_replacement = _osprey_gate_loader(_osprey_original)
-                        else:
-                            _osprey_replacement = _osprey_readonly_refuse
-                        setattr(_osprey_obj, _osprey_attr, _osprey_replacement)
-                        # A re-export leaves a second spelling behind that no
-                        # table can name for every binding: PyTango defines
-                        # its writes in ``tango.device_proxy`` and
-                        # ``tango.connection`` and binds them onto
-                        # ``DeviceProxy``, so patching the class attribute
-                        # alone leaves the module-level function writing.
-                        # Follow the original back to the module that defined
-                        # it and refuse there too. The identity check is what
-                        # makes this safe to run generically: ``__module__``
-                        # and ``__name__`` are metadata a decorator or a rebind
-                        # can leave pointing at a module holding something else
-                        # entirely, and replacing an attribute on a name match
-                        # alone could silently refuse an unrelated read.
-                        try:
-                            _osprey_home = _osprey_sys.modules.get(
-                                getattr(_osprey_original, "__module__", None)
-                            )
-                            _osprey_name = getattr(_osprey_original, "__name__", None)
-                            if (
-                                _osprey_home is not None
-                                and isinstance(_osprey_name, str)
-                                and getattr(_osprey_home, _osprey_name, None)
-                                is _osprey_original
-                            ):
-                                setattr(_osprey_home, _osprey_name, _osprey_replacement)
-                        except Exception as _osprey_home_error:
-                            # Secondary, best-effort step: the attribute the
-                            # table names already refuses. A failure here — an
-                            # unhashable ``__module__``, a module ``__getattr__``
-                            # that raises — must name the attribute and let the
-                            # REST of the row be patched, so it is caught here
-                            # rather than at the row level.
-                            print(
-                                "⚠️  readonly guard "
-                                f"({{_osprey_dotted}}.{{_osprey_attr}}) "
-                                f"defining-module step failed: {{_osprey_home_error}}"
-                            )
-                    # pvaPy spells one typed setter per scalar and array type
-                    # (putDouble, putScalarArray, ...). Enumerating them would
-                    # go stale against the binding; the prefix will not. Three
-                    # writes sit outside that prefix — asyncPut, parsePut and
-                    # parsePutGet — and they reach the machine exactly as the
-                    # rest do, so they are swept with them.
-                    if _osprey_dotted == "pvaccess.Channel":
-                        for _osprey_attr in dir(_osprey_obj):
-                            if _osprey_attr.startswith(
-                                ("put", "asyncPut", "parsePut")
-                            ):
-                                setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
-                except Exception as _osprey_guard_error:
-                    # A target that cannot be patched must not stop the ones
-                    # after it, and the operator needs to know which one.
-                    print(
-                        f"⚠️  readonly guard ({{_osprey_dotted}}) failed: {{_osprey_guard_error}}"
-                    )
-
-
-            def _osprey_resolve(dotted):
-                \"\"\"Import the longest importable prefix of *dotted*, then walk attributes.
-
-                One spelling for modules, module attributes and classes alike.
-                Returns None when the target is not present, which is the
-                ordinary case for most of the table — an uninstalled library,
-                or an optional flavour of an installed one. That case has to
-                stay SILENT: it is true on every ordinary deployment, and a
-                warning per absent target would print on every readonly run.
-                \"\"\"
-                parts = dotted.split(".")
-                for _cut in range(len(parts), 0, -1):
-                    try:
-                        obj = _osprey_importlib.import_module(".".join(parts[:_cut]))
-                    except ImportError:
-                        continue
-                    for _attr in parts[_cut:]:
-                        try:
-                            obj = getattr(obj, _attr)
-                        except AttributeError:
-                            # An importable parent without the child: the
-                            # target does not exist here either.
-                            return None
-                    return obj
-                return None
-
-
-            # The client and escape rows are resolved before the loader is
-            # gated, in table order, because a client module may load a shared
-            # library while it executes: ``epicscorelibs.ca.cadef`` loads
-            # ``libca`` through ``ctypes.CDLL`` in its module body, and that
-            # row precedes the ``ctypes`` rows.
-            for _osprey_dotted, _osprey_attrs in _osprey_eager_targets:
-                try:
-                    _osprey_obj = _osprey_resolve(_osprey_dotted)
-                except Exception as _osprey_guard_error:
-                    print(
-                        f"⚠️  readonly guard ({{_osprey_dotted}}) failed: {{_osprey_guard_error}}"
-                    )
-                    continue
-                if _osprey_obj is None:
-                    continue
-                _osprey_patch_row(_osprey_dotted, _osprey_attrs, _osprey_obj)
-
-
-            # The framework rows wait for the script's own import. Each row is
-            # indexed under every module prefix of its dotted name, so it is
-            # reconsidered as each module on its path finishes executing; a key
-            # that never names a module simply never fires.
-            _osprey_rows_by_module = {{}}
-            for _osprey_dotted, _osprey_attrs in _osprey_deferred_targets:
-                _osprey_parts = _osprey_dotted.split(".")
-                for _osprey_cut in range(1, len(_osprey_parts) + 1):
-                    _osprey_rows_by_module.setdefault(
-                        ".".join(_osprey_parts[:_osprey_cut]), []
-                    ).append((_osprey_dotted, _osprey_attrs))
-
-
-            def _osprey_walk(module, fullname, dotted):
-                \"\"\"Walk the rest of *dotted* off *module*; None when it is not there.\"\"\"
-                obj = module
-                for _attr in dotted.split(".")[len(fullname.split(".")):]:
-                    try:
-                        obj = getattr(obj, _attr)
-                    except AttributeError:
-                        return None
-                return obj
-
-
-            def _osprey_patch_module(fullname, module):
-                for _dotted, _attrs in _osprey_rows_by_module.get(fullname, ()):
-                    _obj = _osprey_walk(module, fullname, _dotted)
-                    if _obj is not None:
-                        _osprey_patch_row(_dotted, _attrs, _obj)
-
-
-            class _OspreyReadonlyGuardLoader:
-                \"\"\"Run the located loader, then refuse the writes its module defines.\"\"\"
-
-                _osprey_readonly_guard = True
-
-                def __init__(self, loader):
-                    self._osprey_loader = loader
-
-                def create_module(self, spec):
-                    return self._osprey_loader.create_module(spec)
-
-                def exec_module(self, module):
-                    self._osprey_loader.exec_module(module)
-                    try:
-                        _osprey_patch_module(module.__name__, module)
-                    except Exception as _error:
-                        print(f"⚠️  readonly guard ({{module.__name__}}) failed: {{_error}}")
-
-                def __getattr__(self, name):
-                    # Everything else a loader answers (get_code, is_package,
-                    # get_source, ...) is the located loader's answer.
-                    if name == "_osprey_loader":
-                        raise AttributeError(name)
-                    return getattr(self._osprey_loader, name)
-
-
-            class _OspreyReadonlyGuardFinder:
-                \"\"\"Wrap the loader of every module a deferred write target lives in.\"\"\"
-
-                _osprey_readonly_guard = True
-
-                def find_spec(self, fullname, path, target=None):
-                    if fullname not in _osprey_rows_by_module:
-                        return None
-                    for _finder in _osprey_sys.meta_path:
-                        # Every guard finder is skipped, not only this one: two
-                        # guards delegating to each other would never return.
-                        if getattr(_finder, "_osprey_readonly_guard", False):
-                            continue
-                        _find_spec = getattr(_finder, "find_spec", None)
-                        if _find_spec is None:
-                            continue
-                        _spec = _find_spec(fullname, path, target)
-                        if _spec is not None:
-                            break
-                    else:
-                        return None
-                    _loader = _spec.loader
-                    # A namespace package or a legacy loader carries no write
-                    # target's definition; wrapping it would change how the
-                    # module is created.
-                    if (
-                        _loader is not None
-                        and hasattr(_loader, "exec_module")
-                        and not getattr(_loader, "_osprey_readonly_guard", False)
-                    ):
-                        _spec.loader = _OspreyReadonlyGuardLoader(_loader)
-                    return _spec
-
-
-            _osprey_sys.meta_path.insert(0, _OspreyReadonlyGuardFinder())
-            for _osprey_name in list(_osprey_sys.modules):
-                if _osprey_name in _osprey_rows_by_module:
-                    _osprey_module = _osprey_sys.modules.get(_osprey_name)
-                    if _osprey_module is not None:
-                        _osprey_patch_module(_osprey_name, _osprey_module)
-
-            # The remaining ``_osprey_`` names are the import hook's state:
-            # dropping them would break a patch the script has not triggered yet.
-            del _osprey_importlib, _osprey_eager_targets, _osprey_deferred_targets
-            del _osprey_resolve
+        It occupies the readonly guard's slot — exactly one of the two is
+        emitted — and is independent of the limits validator, which only
+        decides ``refuse_rpc``. The source is embedded and executed in a private
+        namespace exactly as :meth:`_get_readonly_guard` does it. The install is
+        not wrapped in ``try``: a block that cannot install aborts the script
+        before the user code runs, rather than letting it run unguarded.
         """
-        return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
+        if self.execution_mode != "readwrite":
+            return ""
+        return _embedded_raw_put_block(
+            (
+                "# Readwrite run: a raw client put that no connector let through is",
+                "# refused, so every write goes through the connector's checks.",
+                "# Installed before user code, so an alias bound later resolves here.",
+            ),
+            "armed",
+            armed_contract(refuse_rpc=self.limits_validator is not None),
+        )
 
     def _get_filesystem_guard(self, execution_folder: Path | None) -> str:
         """Generate the runtime filesystem guard. Emitted in EVERY mode.

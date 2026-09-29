@@ -2626,8 +2626,9 @@ keys:
     note: >-
       The roster, as a LIST — one entry per terminal. A list has no dotted paths
       below it, so the per-entry keys (`name`, `index`, `persona`,
-      `display_name`) never enter the union and carry no entries here; they are
-      normalized by one function, which is what the evidence anchors on.
+      `display_name`, `control_identity`) never enter the union and carry no
+      entries here; they are normalized by one function, which is what the
+      evidence anchors on.
     default: []
 
 # ---------------------------------------------------------------------------
