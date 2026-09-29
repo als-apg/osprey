@@ -244,7 +244,7 @@ def test_the_test_results_table_prints_through_the_renderer(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A step that left JUnit results gets them summarised under its pass line."""
-    (tmp_path / "check_results.xml").write_text(_JUNIT_XML)
+    (tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME).write_text(_JUNIT_XML)
 
     build_lifecycle._run_lifecycle_phase("post_build", [_echo_step("checks")], tmp_path, tmp_path)
 
@@ -262,7 +262,7 @@ def test_the_test_results_table_survives_the_verbose_reporter(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The table is the step's report, so ``--verbose`` does not swallow it."""
-    (tmp_path / "check_results.xml").write_text(_JUNIT_XML)
+    (tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME).write_text(_JUNIT_XML)
 
     build_lifecycle._run_lifecycle_phase("post_build", [_echo_step("checks")], tmp_path, tmp_path)
 
@@ -273,11 +273,45 @@ def test_results_that_are_absent_or_unreadable_print_nothing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Most steps leave no test results, and a half-written file is not an error."""
-    build_lifecycle._format_junit_summary(tmp_path / "check_results.xml")
-    (tmp_path / "check_results.xml").write_text("<testsuites>")
-    build_lifecycle._format_junit_summary(tmp_path / "check_results.xml")
+    build_lifecycle._format_junit_summary(tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME)
+    (tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME).write_text("<testsuites>")
+    build_lifecycle._format_junit_summary(tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME)
 
     assert capsys.readouterr().out == ""
+
+
+def test_the_results_file_is_named_once() -> None:
+    """The results file name is spelled in one place, the constant's assignment."""
+    source = Path(build_lifecycle.__file__).read_text(encoding="utf-8")
+
+    assert source.count(f'"{build_lifecycle.JUNIT_RESULTS_FILENAME}"') == 1
+
+
+def test_a_step_that_writes_results_at_the_project_root_gets_the_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The results file is read from the project root whatever the step's cwd."""
+    default_cwd = tmp_path / "cwd"
+    project_path = tmp_path / "project"
+    default_cwd.mkdir()
+    project_path.mkdir()
+    (tmp_path / "junit.xml").write_text(_JUNIT_XML)
+    step = LifecycleStep(
+        name="tests",
+        run=(
+            f"cp {tmp_path / 'junit.xml'} {{project_root}}/{build_lifecycle.JUNIT_RESULTS_FILENAME}"
+        ),
+        timeout=30,
+    )
+
+    build_lifecycle._run_lifecycle_phase(
+        "validate", [step], default_cwd, project_path, abort_on_failure=False
+    )
+
+    printed = capsys.readouterr().out
+    assert "Integration Test Results" in printed
+    assert "reads_config" in printed
+    assert not (default_cwd / build_lifecycle.JUNIT_RESULTS_FILENAME).exists()
 
 
 def test_the_module_owns_no_console_of_its_own() -> None:
