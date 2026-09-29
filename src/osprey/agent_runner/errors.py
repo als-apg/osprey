@@ -21,6 +21,14 @@ class AgentRunError(RuntimeError):
         self.error_type = error_type
 
 
+def from_sdk_error(exc: BaseException) -> AgentRunError:
+    """The :class:`AgentRunError` a caller sees for the agent SDK error *exc*.
+
+    Raise it ``from exc`` so the SDK error stays its ``__cause__``.
+    """
+    return AgentRunError(str(exc), error_type=type(exc).__name__)
+
+
 class McpNotReadyError(RuntimeError):
     """An MCP server the run requires was not connected before the first turn,
     so the run was refused rather than started without its tools.

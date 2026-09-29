@@ -43,7 +43,7 @@ try:
 except ImportError:
     HAS_SDK = False
 
-from osprey.agent_runner.errors import AgentRunError
+from osprey.agent_runner.errors import from_sdk_error
 from osprey.agent_runner.events import translate_message
 from osprey.agent_runner.primitives import (
     SDKWorkflowResult,
@@ -87,7 +87,7 @@ async def _query_messages(
             async for message in client.receive_response():
                 yield message
     except ClaudeSDKError as exc:
-        raise AgentRunError(str(exc), error_type=type(exc).__name__) from exc
+        raise from_sdk_error(exc) from exc
 
 
 def _require_sdk(entry_point: str) -> None:

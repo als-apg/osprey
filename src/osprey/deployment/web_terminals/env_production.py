@@ -373,13 +373,7 @@ def personas_needing_telemetry_vars(
     :return: The map the web-terminal render emits per-user lines from.
     """
     needing: dict[str, tuple[str, ...]] = {}
-    for persona_name, entry in _referenced_persona_entries(config):
-        config_yml = _persona_config_yml(Path(project_root), entry)
-        if config_yml is None or not config_yml.is_file():
-            continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is None:
-            continue
+    for persona_name, persona_config in _readable_persona_configs(config, Path(project_root)):
         names = telemetry_delivered_vars(persona_config)
         if names:
             needing[persona_name] = names
@@ -461,6 +455,25 @@ def _load_config_yml(path: Path) -> dict | None:
     return loaded if isinstance(loaded, dict) else None
 
 
+def _readable_persona_configs(config: dict, project_root: Path) -> list[tuple[str, dict]]:
+    """``(persona_name, loaded config.yml)`` for every persona this roster runs.
+
+    A persona whose project names no ``config.yml``, or one that cannot be read
+    as a mapping, is skipped silently: :func:`_claude_code_auth_secret_vars`
+    warns about the same unreadable project already, and saying it again per
+    deploy would read as a separate problem.
+    """
+    configs: list[tuple[str, dict]] = []
+    for persona_name, entry in _referenced_persona_entries(config):
+        config_yml = _persona_config_yml(project_root, entry)
+        if config_yml is None or not config_yml.is_file():
+            continue
+        persona_config = _load_config_yml(config_yml)
+        if persona_config is not None:
+            configs.append((persona_name, persona_config))
+    return configs
+
+
 def _telemetry_references(
     config: dict, project_root: Path, *, enabled_only: bool
 ) -> list[_TelemetryReference]:
@@ -495,16 +508,7 @@ def _telemetry_references(
                 )
             )
 
-    for persona_name, entry in _referenced_persona_entries(config):
-        config_yml = _persona_config_yml(project_root, entry)
-        if config_yml is None or not config_yml.is_file():
-            # Silent, unlike _claude_code_auth_secret_vars: that function warns
-            # about the same unreadable project already, and saying it twice
-            # per deploy would read as two separate problems.
-            continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is None:
-            continue
+    for persona_name, persona_config in _readable_persona_configs(config, project_root):
         _record(persona_config, f"(persona {persona_name!r})")
 
     _record(config, "(deploy config)")
@@ -630,13 +634,7 @@ def _telemetry_token_requirements(config: dict, project_root: Path) -> dict[str,
         if token_env is not None:
             required.setdefault(token_env, f"claude_code.telemetry.auth.token_env {source}")
 
-    for persona_name, entry in _referenced_persona_entries(config):
-        config_yml = _persona_config_yml(project_root, entry)
-        if config_yml is None or not config_yml.is_file():
-            continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is None:
-            continue
+    for persona_name, persona_config in _readable_persona_configs(config, project_root):
         _record(persona_config, f"(persona {persona_name!r})")
 
     _record(config, "(deploy config)")
@@ -941,16 +939,7 @@ def _provider_endpoint_vars(
     catalog = catalog if isinstance(catalog, dict) else {}
     referenced = _referenced_persona_names(config)
 
-    for persona_name, entry in _referenced_persona_entries(config):
-        config_yml = _persona_config_yml(project_root, entry)
-        if config_yml is None or not config_yml.is_file():
-            # Silent: _claude_code_auth_secret_vars warns about the same
-            # unreadable project already, and saying it twice per deploy would
-            # read as two separate problems.
-            continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is None:
-            continue
+    for persona_name, persona_config in _readable_persona_configs(config, project_root):
         _record(persona_config, f"(persona {persona_name!r})", enforce=True)
 
     # Under a catalog the per-user containers run persona projects, so the
