@@ -13,7 +13,9 @@ from then on. It writes, under ``--out``:
   fingerprint additions (the deck machine's tune and chromaticity readbacks);
 * ``records/groups.yaml`` -- one group per machine family and per machine
   system;
-* ``limits.yaml`` -- three records, each teaching one limits shape.
+* ``limits.yaml`` -- three records, each teaching one limits shape;
+* ``measurement/SR.yaml`` -- the deck machine's measurement kinds, groups,
+  instruments and pyAML step and settle keys.
 
 Output is deterministic: records sorted by id (places in tree order), UTF-8
 YAML, one scalar per line. Run it with the project interpreter
@@ -89,6 +91,7 @@ def _load_sibling(stem: str) -> Any:
 
 _limits = _load_sibling("_limits")
 _models = _load_sibling("_models")
+_measurement = _load_sibling("_measurement")
 
 
 def files(records: _records.Records) -> dict[str, str]:
@@ -102,6 +105,7 @@ def files(records: _records.Records) -> dict[str, str]:
         "records/channels.yaml": dump(records.channels),
         "records/groups.yaml": dump(records.groups),
         "limits.yaml": _limits.text(),
+        _measurement.path(): dump(_measurement.build_measurement()),
     }
 
 
