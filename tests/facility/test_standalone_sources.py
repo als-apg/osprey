@@ -3,7 +3,8 @@
 The demo generator writes one tree into the control-assistant preset and the
 two standalone presets. The three committed trees are byte-equal except the
 standalones' ``identity.yaml``, which adds the facility name, and the files
-only the control-assistant preset carries.
+only the control-assistant preset carries. Hello-world's tree is hand-authored
+and holds the channels its tutorial names.
 """
 
 from __future__ import annotations
@@ -26,11 +27,21 @@ STANDALONES = {
     "ariel_standalone": APPS / "ariel_standalone/data/facility",
     "channel_finder_standalone": APPS / "channel_finder_standalone/data/facility",
 }
+HELLO_WORLD = APPS / "hello_world/data/facility"
 VA_BINDINGS = APPS / "control_assistant/data/simulation/va_bindings.json"
 CF_STANDALONE_ADDRESSES = REPO_ROOT / "tests/facility/golden/cf_standalone_addresses.json"
 
 #: The directories only the control-assistant tree carries.
 OMITTED = ("measurement/",)
+
+#: The addresses the hello-world tutorial names.
+HELLO_WORLD_ADDRESSES = [
+    "SR:BEAM:CURRENT",
+    "SR:MAG:CORR:01:CURRENT:SP",
+    "SR:MAG:QD:01:CURRENT:SP",
+    "SR:MAG:QF:01:CURRENT:RB",
+    "SR:MAG:QF:01:CURRENT:SP",
+]
 
 
 def tree(root: Path) -> dict[str, bytes]:
@@ -112,3 +123,30 @@ def test_paired_readbacks_start_at_their_setpoint_value() -> None:
     assert len(unpaired) == 148
     assert sum(":BPM:" in address for address in unpaired) == 144
     assert all(wiring[address]["default"] == 0.0 for address in unpaired)
+
+
+def test_hello_world_tree_builds_with_the_tutorial_channels() -> None:
+    document = build_facility(HELLO_WORLD, project_name="hello")
+    assert [channel["id"] for channel in document["channels"]] == HELLO_WORLD_ADDRESSES
+    setpoints = [c["id"] for c in document["channels"] if c.get("role") == "setpoint"]
+    assert setpoints == [a for a in HELLO_WORLD_ADDRESSES if a.endswith(":SP")]
+
+
+def test_hello_world_limits_hold_the_three_tutorial_records() -> None:
+    limits = read_yaml((HELLO_WORLD / "limits.yaml").read_text(encoding="utf-8"))
+    assert list(limits) == ["records"]
+    assert limits["records"] == [
+        {
+            "address": "SR:MAG:QF:01:CURRENT:SP",
+            "min_value": 0.0,
+            "max_value": 300.0,
+            "writable": True,
+        },
+        {
+            "address": "SR:MAG:QD:01:CURRENT:SP",
+            "min_value": 0.0,
+            "max_value": 250.0,
+            "writable": True,
+        },
+        {"address": "SR:BEAM:CURRENT", "writable": False},
+    ]
