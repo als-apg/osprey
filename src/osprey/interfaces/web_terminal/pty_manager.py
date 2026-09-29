@@ -612,31 +612,7 @@ class PtyRegistry:
         session.start(initial_rows=rows, initial_cols=cols, extra_env=extra_env, cwd=cwd)
         return session
 
-    # ---- Session methods (kept for operator sessions and tests) ---- #
-
-    def create_session(
-        self,
-        session_id: str,
-        shell_command: str | list[str],
-        initial_rows: int = 24,
-        initial_cols: int = 80,
-        extra_env: dict[str, str] | None = None,
-        cwd: str | None = None,
-    ) -> PtySession:
-        """Create and start a new PTY session."""
-        if session_id in self._sessions:
-            self._sessions[session_id].terminate()
-
-        session = PtySession(shell_command)
-        session.start(
-            initial_rows=initial_rows,
-            initial_cols=initial_cols,
-            extra_env=extra_env,
-            cwd=cwd,
-        )
-        self._sessions[session_id] = session
-        self._env_fingerprints[session_id] = env_fingerprint(extra_env)
-        return session
+    # ---- Per-key access ---- #
 
     def get_session(self, session_id: str) -> PtySession | None:
         """Get an existing session by ID."""
