@@ -19,6 +19,7 @@ from osprey.build.claude_code_resolver import (
     ClaudeCodeModelSpec,
 )
 from osprey.build.claude_code_telemetry import (
+    _TELEMETRY_CONTENT_GATES,
     TELEMETRY_ENV_VARS,
     ObservabilityCredentialError,
     TelemetryConfigError,
@@ -26,6 +27,7 @@ from osprey.build.claude_code_telemetry import (
     _gate_is_on,
     _openobserve_host_override,
     _running_in_container,
+    telemetry_auth_token_env,
 )
 from osprey.port_layout import default_port
 
@@ -415,6 +417,123 @@ def test_no_headers_when_none_configured():
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
 
 
+# ── collector bearer token (auth.token_env) ─────────────────────
+
+_COLLECTOR_CFG = {
+    "enabled": True,
+    "backend": "generic",
+    "endpoint": "https://collector.example.org:4318",
+    "auth": {"token_env": "OTLP_TOKEN"},
+    # Content capture off: an off-host backend warns about it otherwise, and
+    # these tests assert on the warnings the token path records.
+    **dict.fromkeys(_TELEMETRY_CONTENT_GATES.values(), False),
+}
+
+
+def test_bearer_token_header_from_the_named_variable():
+    """The token handed in is sent as a bearer token."""
+    env = _build_telemetry_env(_COLLECTOR_CFG, auth_token="s3cret-token")
+    assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer s3cret-token"
+    assert telemetry_auth_token_env(_COLLECTOR_CFG) == "OTLP_TOKEN"
+
+
+def test_bearer_token_absent_at_launch_names_the_variable():
+    """No token at launch is a credential refusal naming the variable."""
+    with pytest.raises(ObservabilityCredentialError) as excinfo:
+        _build_telemetry_env(_COLLECTOR_CFG)
+    assert excinfo.value.unresolved_vars == ("OTLP_TOKEN",)
+    assert "OTLP_TOKEN" in str(excinfo.value)
+    assert "claude_code.telemetry.auth.token_env" in str(excinfo.value)
+
+
+def test_bearer_token_blank_is_refused_like_unset():
+    """Compose's ``${VAR:-}`` makes an unset variable a blank one: same fault."""
+    with pytest.raises(ObservabilityCredentialError) as excinfo:
+        _build_telemetry_env(_COLLECTOR_CFG, auth_token="  ")
+    assert excinfo.value.unresolved_vars == ("OTLP_TOKEN",)
+
+
+def test_bearer_token_deferred_at_build_omits_the_header(recwarn):
+    """A build never carries the token, so its absence there says nothing."""
+    env = _build_telemetry_env(_COLLECTOR_CFG, defer_unresolved_creds=True)
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
+    assert len(recwarn) == 0
+
+
+def test_token_env_holding_a_value_is_refused_without_echoing_it():
+    """A value where a name belongs may already be the expanded secret."""
+    cfg = {**_COLLECTOR_CFG, "auth": {"token_env": "abc.def-123"}}
+    with pytest.raises(TelemetryConfigError) as excinfo:
+        _build_telemetry_env(cfg, auth_token="x")
+    assert "abc.def-123" not in str(excinfo.value)
+    assert "claude_code.telemetry.auth.token_env" in str(excinfo.value)
+
+
+def test_token_with_a_comma_is_refused_without_echoing_it():
+    """A comma would split the comma-joined OTLP header list."""
+    with pytest.raises(ObservabilityCredentialError) as excinfo:
+        _build_telemetry_env(_COLLECTOR_CFG, auth_token="abc,X-Evil=1")
+    assert "abc,X-Evil=1" not in str(excinfo.value)
+    assert "OTLP_TOKEN" in str(excinfo.value)
+
+
+def test_auth_on_the_openobserve_backend_is_refused():
+    """The bundled store authenticates with its own account; two sources is a fault."""
+    cfg = {**_OO_CFG, "auth": {"token_env": "OTLP_TOKEN"}}
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.auth"):
+        _build_telemetry_env(cfg, auth_token="x")
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {"token_env": "OTLP_TOKEN", "username": "u"},
+        {"username": "u", "password_env": "OTLP_PASSWORD"},
+        "OTLP_TOKEN",
+    ],
+)
+def test_auth_members_other_than_token_env_are_refused(auth):
+    """The collector takes a bearer token and nothing else."""
+    cfg = {**_COLLECTOR_CFG, "auth": auth}
+    with pytest.raises(TelemetryConfigError, match="auth.token_env"):
+        telemetry_auth_token_env(cfg)
+
+
+def test_resolve_reads_the_token_from_the_supplied_environ_only(monkeypatch):
+    """A render passes no environ, so the ambient token never reaches it."""
+    monkeypatch.setenv("OTLP_TOKEN", "ambient-token")
+    spec = ClaudeCodeModelResolver.resolve(
+        {"provider": "anthropic", "telemetry": _COLLECTOR_CFG},
+        defer_unresolved_telemetry_creds=True,
+    )
+    assert spec is not None
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in spec.env_block
+
+    spec = ClaudeCodeModelResolver.resolve(
+        {"provider": "anthropic", "telemetry": _COLLECTOR_CFG},
+        environ={"OTLP_TOKEN": "handed-token"},
+    )
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer handed-token"
+
+
+def test_load_provider_spec_reads_the_token_from_the_project_env(tmp_path, monkeypatch):
+    """The runtime launch reads the token from the project's ``.env``."""
+    import yaml
+
+    from osprey.build.claude_code_resolver import load_provider_spec
+
+    monkeypatch.delenv("OTLP_TOKEN", raising=False)
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump({"claude_code": {"provider": "anthropic", "telemetry": _COLLECTOR_CFG}}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text("OTLP_TOKEN=from-dotenv\n", encoding="utf-8")
+    spec = load_provider_spec(tmp_path)
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer from-dotenv"
+
+
 # ── TELEMETRY_ENV_VARS invariants ────────────────────────────────
 
 
@@ -431,11 +550,11 @@ def test_telemetry_env_vars_covers_all_emitted_keys():
             "backend": "openobserve",
             "openobserve": {"user": "u", "password": "p"},
             "resource_attributes": "service.name=osprey",
-            "headers": {"X-Trace": "abc"},
             "content_max_length": 262144,
         },
         in_container=False,
     )
+    env.update(_build_telemetry_env(_COLLECTOR_CFG, auth_token="t"))
     assert set(env).issubset(TELEMETRY_ENV_VARS)
 
 
