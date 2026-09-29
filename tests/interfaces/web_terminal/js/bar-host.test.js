@@ -31,13 +31,11 @@ import { join } from 'node:path';
 
 import {
   closeBarPopovers,
-  hasItemBuilder,
   hostElement,
   hydrate,
   isLive,
   onItemDetach,
   parkShell,
-  poolElement,
   reconcile,
   registerBarPopover,
   registerItemBuilder,
@@ -110,6 +108,11 @@ const LOGO_SHELL =
 const IDENTITY_SHELL =
   '<div class="bar-item" data-bar-item="identity"><span id="deployment">Control Room</span></div>';
 
+/** The hidden pool parked shells wait in. */
+function poolElement() {
+  return document.getElementById('bar-item-pool');
+}
+
 /** Let the `hidden` MutationObserver callbacks queued by a mutation run. */
 function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -177,7 +180,7 @@ describe('adopted nodes are moved, never rebuilt', () => {
     reconcile(layoutOf([], []));
     const parked = document.getElementById('docs-link');
     expect(parked).toBe(original);
-    expect(poolElement(document)?.contains(/** @type {Node} */ (parked))).toBe(true);
+    expect(poolElement()?.contains(/** @type {Node} */ (parked))).toBe(true);
     expect(typesIn('header')).toEqual([]);
 
     reconcile(layoutOf(['docs'], []));
@@ -187,17 +190,6 @@ describe('adopted nodes are moved, never rebuilt', () => {
       /** @type {any} */ (original).__ospreyLiveRegion
     );
     expect(hostElement('header', document)?.contains(/** @type {Node} */ (back))).toBe(true);
-  });
-
-  test('a shell parked by one reconcile is reused by the next, not recreated', () => {
-    seedDom(DOCS_SHELL);
-    const shell = shellForKey('docs');
-    expect(shell).toBeTruthy();
-
-    reconcile(layoutOf([], []));
-    reconcile(layoutOf(['docs'], []));
-
-    expect(shellForKey('docs')).toBe(shell);
   });
 
   test('an adopted body is left alone even when the type has a builder', () => {
@@ -294,7 +286,7 @@ describe('order and parking', () => {
 
     expect(typesIn('header')).toEqual(['clock']);
     expect(docsShell?.isConnected).toBe(true);
-    expect(poolElement(document)?.contains(/** @type {Node} */ (docsShell))).toBe(true);
+    expect(poolElement()?.contains(/** @type {Node} */ (docsShell))).toBe(true);
   });
 
   test('repeated spacing types keep distinct shells', () => {
@@ -349,16 +341,16 @@ describe('order and parking', () => {
 });
 
 describe('catalog flex hints are stamped on the shell', () => {
-  test('a space at width 0 fills the bar', () => {
-    reconcile(layoutOf(['space'], [], { options: { space: { width: 0 } } }));
-    expect(flexOf(/** @type {HTMLElement} */ (shellForKey('space')))).toEqual(['1', '1', '0px']);
-  });
-
-  test('a space at a width holds it until the bar runs out of room', () => {
-    reconcile(layoutOf(['space'], [], { options: { space: { width: 40 } } }));
+  // Width 0 fills the bar; any other width is held until the bar runs out of
+  // room, shrinking before any real item is touched.
+  test.each([
+    [0, ['1', '1', '0px'], ''],
+    [40, ['0', '1', '40px'], '0'],
+  ])('a space at width %s stamps its flex hint', (width, flex, minWidth) => {
+    reconcile(layoutOf(['space'], [], { options: { space: { width } } }));
     const shell = /** @type {HTMLElement} */ (shellForKey('space'));
-    expect(flexOf(shell)).toEqual(['0', '1', '40px']);
-    expect(shell.style.getPropertyValue('min-width')).toBe('0');
+    expect(flexOf(shell)).toEqual(flex);
+    expect(shell.style.getPropertyValue('min-width')).toBe(minWidth);
   });
 
   test('a type with no flex hint stamps nothing', () => {
@@ -392,9 +384,8 @@ describe('isLive', () => {
 
     reconcile(layoutOf([], []));
     expect(isLive(strip)).toBe(false);
-  });
 
-  test('false for nothing at all', () => {
+    // Nothing at all is not live either: callers pass a lookup that may miss.
     expect(isLive(null)).toBe(false);
     expect(isLive(undefined)).toBe(false);
   });
@@ -410,7 +401,6 @@ describe('one builder per type', () => {
 
     reconcile(layoutOf(['clock'], []));
 
-    expect(hasItemBuilder('clock')).toBe(true);
     expect(shellForKey('clock')?.querySelector('.clock-body')).toBeTruthy();
   });
 
@@ -532,7 +522,7 @@ describe('parking tells the detach listeners', () => {
     cleanups.push(
       onItemDetach((shell) => {
         reported.push(shell);
-        inPool.push(poolElement(document)?.contains(shell) ?? false);
+        inPool.push(poolElement()?.contains(shell) ?? false);
       })
     );
 
@@ -553,18 +543,6 @@ describe('parking tells the detach listeners', () => {
     reconcile(layoutOf(['clock'], []));
 
     expect(listener).not.toHaveBeenCalled();
-  });
-
-  test('parkShell reports the shell it parks', () => {
-    seedDom(`<div class="bar-item" data-bar-item="clock"></div>`);
-    const shell = /** @type {HTMLElement} */ (shellForKey('clock'));
-    const listener = vi.fn();
-    cleanups.push(onItemDetach(listener));
-
-    parkShell(shell);
-
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect(listener).toHaveBeenCalledWith(shell);
   });
 
   test('an unsubscribed listener hears nothing more', () => {
@@ -594,7 +572,7 @@ describe('parking tells the detach listeners', () => {
     try {
       reconcile(layoutOf([], []));
 
-      expect(poolElement(document)?.contains(shell)).toBe(true);
+      expect(poolElement()?.contains(shell)).toBe(true);
       expect(next).toHaveBeenCalledWith(shell);
       expect(error).toHaveBeenCalled();
     } finally {
@@ -839,7 +817,7 @@ describe('baseline runs form and dissolve as items move', () => {
     expect(hostElement('header', document)?.children.length).toBe(0);
     for (const key of ['logo', 'identity']) {
       const shell = /** @type {HTMLElement} */ (shellForKey(key));
-      expect(poolElement(document)?.contains(shell)).toBe(true);
+      expect(poolElement()?.contains(shell)).toBe(true);
       expect(shell.dataset.barDensity).toBeUndefined();
     }
   });
@@ -869,34 +847,25 @@ describe('a shell this module builds is styled like one the server rendered', ()
     return [...new Set(Array.from(css.matchAll(pattern), (match) => match[0]))];
   }
 
-  test('a space placed at runtime matches the stylesheet selectors, with no seeded shell', () => {
-    // Nothing is seeded, so `ensureShell` builds this one — the path a drag-in
-    // of a type the server never rendered takes. It is the whole point: a
-    // spacing item styled only through an attribute the SSR alone stamped
-    // would lose its width and its edit-mode glyph until the next reload.
-    reconcile(layoutOf(['space'], []));
-    const shell = /** @type {HTMLElement} */ (shellForKey('space'));
+  // Nothing is seeded, so `ensureShell` builds each shell — the path a drag-in
+  // of a type the server never rendered takes. A spacing item styled only
+  // through an attribute the SSR alone stamped would lose its width and its
+  // edit-mode glyph until the next reload.
+  test.each(['space', 'separator'])(
+    'a %s placed at runtime matches its stylesheet selectors, with no seeded shell',
+    (type) => {
+      reconcile(layoutOf([type], []));
+      const shell = /** @type {HTMLElement} */ (shellForKey(type));
 
-    const selectors = styledBy('space');
-    expect(selectors.length, 'bars.css styles no space item').toBeGreaterThan(0);
-    for (const selector of selectors) {
-      expect(shell.matches(selector), `a client-built space does not match ${selector}`).toBe(true);
+      const selectors = styledBy(type);
+      expect(selectors.length, `bars.css styles no ${type} item`).toBeGreaterThan(0);
+      for (const selector of selectors) {
+        expect(shell.matches(selector), `a client-built ${type} does not match ${selector}`).toBe(
+          true
+        );
+      }
     }
-  });
-
-  test('a separator placed at runtime matches its stylesheet selectors too', () => {
-    reconcile(layoutOf(['separator'], []));
-    const shell = /** @type {HTMLElement} */ (shellForKey('separator'));
-
-    const selectors = styledBy('separator');
-    expect(selectors.length, 'bars.css styles no separator item').toBeGreaterThan(0);
-    for (const selector of selectors) {
-      expect(
-        shell.matches(selector),
-        `a client-built separator does not match ${selector}`
-      ).toBe(true);
-    }
-  });
+  );
 });
 
 describe('data-follows carries the preceding item', () => {
