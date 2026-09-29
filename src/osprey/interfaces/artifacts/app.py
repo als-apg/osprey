@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.interfaces.vendor import vendor_url
+from osprey.interfaces.vendor import html_has_plotly_bundle, vendor_url
 from osprey.port_layout import default_port
 from osprey.utils.timeseries import (
     downsample_channel_map,
@@ -1018,10 +1018,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # own code paths use, and the CDN is unreachable in offline deployments.
         content = _rewrite_plotly_cdn(content)
         if entry.artifact_type == "plot_html":
-            # Only inject the local Plotly bundle if the HTML doesn't already
-            # have one (e.g. include_plotlyjs=False). Avoid duplicates — the
-            # 4.8MB file takes ~1s through the reverse proxy per load.
-            if b"plotly-3.3.1.min.js" not in content:
+            # Inject the Plotly bundle unless the page already loads one, by
+            # script tag or inlined (include_plotlyjs=True). Avoid duplicates —
+            # the 4.8MB file takes ~1s through the reverse proxy per load.
+            if not html_has_plotly_bundle(content):
                 plotly_src = vendor_url("Plotly.js", "/static/js/vendor/plotly-3.3.1.min.js")
                 snippet = f'<script src="{plotly_src}"></script>\n' + snippet
         content = _inject_html_snippet(content, snippet)

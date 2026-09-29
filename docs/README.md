@@ -59,6 +59,12 @@ guard — pixel diffs of each rendered interface against a committed baseline
 live in the front-end **Visual** tests (regenerated with `--regen-baselines`),
 and continue to run in CI unchanged.
 
+Captures on the tutorial stack (the stack and agentic screenshots and the demo
+video) share its settings: the tutorial is pinned to the provider's Opus model,
+the agent session starts in auto permission mode, and the web terminal serves
+its front-end libraries from this checkout (fetch them once with
+`uv run osprey vendor fetch`).
+
 ## Reviewing a web-interface redesign (contact sheet)
 
 When a web interface is being restyled, the **contact-sheet renderer** boots the
@@ -101,3 +107,87 @@ theme/mode combination. To cover a new panel, seed its backing store the way
 composed sheet then pick it up unchanged. A hub card in a particular UI state is
 a `STAGED_VARIANTS` row naming a `STAGES` key, and the same key on a `DocShot`
 makes it a committed doc image.
+
+## Landing-page demo video
+
+The documentation landing page plays a short demo video: three requests to the
+agent on the `control-assistant` tutorial stack (a 3D plot, a correlation plot,
+a logbook post), recorded in the real Web Terminal and cut to a 50–80 second
+window. The agent's working time is sped up; a clock burned into every frame
+shows the real elapsed time, and a badge shows the speed-up while it applies.
+It is recorded once per theme (dark and light), and the page picks the one that
+matches the reader's theme. Like the screenshots, it is capture-only and never a
+CI gate.
+
+**What it needs.** A container runtime (every take builds and starts its own
+tutorial stack), a live Claude session on your subscription budget, `ffmpeg`
+and `ffprobe` on the `PATH`, and the development environment of this checkout
+(`uv sync --extra dev`, which provides Playwright and this checkout's `osprey`
+CLI; install the browser once with `uv run playwright install chromium`, and
+fetch the front-end libraries once with `uv run osprey vendor fetch`). The
+provider must serve an Opus model: the tutorial is pinned to it. Pick the
+provider with `OSPREY_DOCSHOTS_PROVIDER=<name>` (the preset's default
+otherwise). A missing prerequisite prints one `skipped video:` line on stderr
+and exits without recording.
+
+**Recording a take.** From the repository root:
+
+```console
+$ uv run make -C docs demo-video                          # both themes
+$ uv run make -C docs demo-video VIDEOOPTS="--theme dark" # one theme only
+```
+
+For each theme the run writes into `docs/demo-video/` (ignored by git) the video
+`osprey-demo-<theme>.mp4` and `timeline-<theme>.json` (when each scene of the
+take happened), and into `docs/source/_static/demo/` the poster
+`osprey-demo-<theme>-poster.jpg` and its entry in `manifest.json`, plus a
+git-ignored copy of the video so a local docs build plays it. The poster is the
+last frame of the rotation: the 3D plot on screen after the agent has worked.
+The page shows it before playback, without JavaScript, and whenever the video
+cannot play. The manifest records per theme the OSPREY version, the recording
+time, the video's length, the real session time it covers, the speed-up, and the
+video's and the poster's SHA-256.
+
+A take that fails (a check that does not pass, a stall, a dialog nobody can
+answer, an empty plot on screen, a browser error) is retried on a fresh stack,
+up to three takes per theme. A take's length is never a failure: the agent's
+pace changes with OSPREY and the models, so a take outside the window is kept
+and reported with a `WARNING`. Set `OSPREY_DOCSHOTS_KEEP=<dir>` to keep each
+take's Claude Code session transcripts there for diagnosis.
+
+**Reviewing a take.** Watch both MP4s end to end. Check that the gallery cards
+open as they land, that the 3D plot rotates, that the correlation plot is shown
+and is the plot attached to the logbook draft, that the approval step appears,
+that the clock and the speed-up badge read correctly, and that the poster shows
+the 3D plot. Then check both takes against the manifest:
+
+```console
+$ uv run python -m docs.screenshots upload-check
+```
+
+It fails when a take, a manifest field, a video or a poster is missing, or when
+a file does not match its SHA-256 in the manifest; it warns when a video falls
+outside the window, is over the 8 MB budget, or when the two themes were
+recorded from different OSPREY versions; and it says whether the takes are
+uploaded yet.
+
+**Publishing.** Each OSPREY release has its own release of demo videos, named
+`docs-media-vYYYY.M.P`, so every docs version plays the video recorded for it.
+Upload both videos for the version being released, a final `YYYY.M.P` or a
+pre-release such as `2026.9.0b4` (needs an authenticated `gh` CLI):
+
+```console
+$ uv run make -C docs upload-demo-video VERSION=YYYY.M.P
+```
+
+The target runs `upload-check`, creates that version's release with both videos
+in one step (or replaces the videos of that same version's release on a
+retake; it never touches another version's release), and names the release in
+`manifest.json`. Commit `docs/source/_static/demo/` (the manifest and the two
+posters); the videos themselves are never committed. The docs build downloads
+exactly the release the committed manifest names and checks each video against
+its SHA-256. When the manifest names no release yet, or the release or a video
+is missing, the landing page shows the poster; a hash mismatch or another `gh`
+error fails a deploy and is only a notice on a pull request. Between releases
+`main` keeps showing the last release's video, whose manifest and posters are
+the ones committed.

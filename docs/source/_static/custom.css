@@ -397,3 +397,55 @@ html[data-theme="dark"] {
   --sd-color-light-text: #e9ecef;
   --sd-color-light-highlight: #495057;
 }
+
+/* Landing-page demo video and its playback-speed buttons - SEARCH MARKER: osprey-demo */
+.osprey-demo video,
+.osprey-demo-poster {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The page hides the video, the note or the speed buttons with the `hidden`
+   attribute; the display rules here must not override it. */
+.osprey-demo [hidden] {
+  display: none !important;
+}
+
+.osprey-demo-source,
+.osprey-demo-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--pst-color-text-muted);
+}
+
+.osprey-demo-speed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--pst-color-text-muted);
+}
+
+.osprey-demo-speed button {
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--pst-color-text-base);
+  font: inherit;
+  cursor: pointer;
+}
+
+.osprey-demo-speed button:hover {
+  border-color: var(--pst-color-primary);
+}
+
+.osprey-demo-speed button[aria-pressed="true"] {
+  border-color: var(--pst-color-primary);
+  background: var(--pst-color-primary);
+  color: var(--pst-color-primary-text);
+}

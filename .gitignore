@@ -123,6 +123,13 @@ venv*
 *.tiff
 *.ico
 
+# Landing-page demo video: recorded takes are never committed; the docs build
+# downloads the MP4s from the release manifest.json names. The posters and
+# manifest.json are committed, so the posters must override the `*.jpg` rule.
+docs/demo-video/
+docs/source/_static/demo/*.mp4
+!docs/source/_static/demo/*-poster.jpg
+
 # Credentials
 .env
 

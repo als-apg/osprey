@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -46,6 +49,61 @@ _INSTALL_CMD = [sys.executable, "-m", "playwright", "install", "chromium"]
 _install_lock = threading.Lock()
 _install_attempted = False
 _install_error: str | None = None
+
+
+# The Plotly bundle vendored into git checkouts. The wheel ships without the
+# vendor dir, so its absence is the normal case for an installed package.
+_PLOTLY_VENDOR_REL = "artifacts/static/js/vendor/plotly-3.3.1.min.js"
+
+
+def _plotly_vendor_path() -> Path:
+    """Path of the vendored Plotly bundle under ``osprey.interfaces``."""
+    import osprey.interfaces
+
+    return Path(osprey.interfaces.__file__).parent / _PLOTLY_VENDOR_REL
+
+
+def _plotly_script_src() -> str:
+    """Script ``src`` for Plotly in a page rendered from a ``file://`` URL.
+
+    The vendored bundle when present, else the absolute CDN URL. ``vendor_url``
+    is not used: in offline mode it returns a server-relative path, which does
+    not resolve for a page loaded from disk.
+    """
+    bundle = _plotly_vendor_path()
+    if bundle.exists():
+        return bundle.resolve().as_uri()
+    from osprey.interfaces.vendor import asset_cdn_url
+
+    return asset_cdn_url("Plotly.js")
+
+
+# Total budget for loading an injected page and waiting for its plot to draw.
+_PLOTLY_BUDGET_MS = 10_000
+
+# True once the first Plotly graph has drawn — its layout is computed and no
+# transition is in flight — not merely once ``window.Plotly`` exists.
+_PLOT_DRAWN_JS = (
+    "() => { const g = document.querySelector('.js-plotly-plot'); "
+    "return !!(g && g._fullLayout && !g._transitioning); }"
+)
+
+# Resolves after two animation frames, so the drawn plot has been painted.
+_TWO_FRAMES_JS = "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+
+_HEAD_OPEN = re.compile(rb"<head\b[^>]*>", re.IGNORECASE)
+_HTML_OPEN = re.compile(rb"<html\b[^>]*>", re.IGNORECASE)
+
+
+def _inject_plotly(html: bytes, base_href: str, script_src: str) -> bytes:
+    """Insert a ``<base>`` and the Plotly ``<script>`` right after ``<head>``.
+
+    Falls back to the first child of ``<html>``, then to the start of the page.
+    """
+    tags = f'<base href="{base_href}"><script src="{script_src}"></script>'.encode()
+    match = _HEAD_OPEN.search(html) or _HTML_OPEN.search(html)
+    at = match.end() if match else 0
+    return html[:at] + tags + html[at:]
 
 
 class PlaywrightNotInstalledError(Exception):
@@ -101,15 +159,56 @@ async def _render(
     width: int,
     height: int,
 ) -> None:
-    """Screenshot *source* into *dest* with one headless Chromium page."""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        try:
-            page = await browser.new_page(viewport={"width": width, "height": height})
-            await page.goto(source.as_uri(), wait_until="networkidle")
-            await page.screenshot(path=str(dest), type=fmt, full_page=True)
-        finally:
-            await browser.close()
+    """Screenshot *source* into *dest* with one headless Chromium page.
+
+    A page that calls Plotly without loading it is rendered from a temporary
+    copy in ``dest.parent`` that loads the library, then waited on until its
+    plot has drawn. The source file itself is never modified.
+    """
+    from osprey.interfaces.vendor import html_needs_plotly
+
+    html = source.read_bytes()
+    if not html_needs_plotly(html):
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            try:
+                page = await browser.new_page(viewport={"width": width, "height": height})
+                await page.goto(source.as_uri(), wait_until="networkidle")
+                await page.screenshot(path=str(dest), type=fmt, full_page=True)
+            finally:
+                await browser.close()
+        return
+
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
+    injected = _inject_plotly(html, f"{source.parent.as_uri()}/", _plotly_script_src())
+    with tempfile.NamedTemporaryFile(suffix=".html", dir=dest.parent, delete=False) as tmp:
+        tmp.write(injected)
+    copy = Path(tmp.name)
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            try:
+                page = await browser.new_page(viewport={"width": width, "height": height})
+                started = time.monotonic()
+                try:
+                    await page.goto(copy.as_uri(), wait_until="load", timeout=_PLOTLY_BUDGET_MS)
+                    elapsed_ms = (time.monotonic() - started) * 1000
+                    # Playwright reads timeout=0 as "no timeout"; floor at 1 ms.
+                    remaining_ms = max(1, int(_PLOTLY_BUDGET_MS - elapsed_ms))
+                    await page.wait_for_function(_PLOT_DRAWN_JS, timeout=remaining_ms)
+                    await page.evaluate(_TWO_FRAMES_JS)
+                except PlaywrightTimeoutError:
+                    logger.warning(
+                        "Plotly plot in %s did not draw within %d ms; screenshotting anyway",
+                        source.name,
+                        _PLOTLY_BUDGET_MS,
+                    )
+                await page.screenshot(path=str(dest), type=fmt, full_page=True)
+            finally:
+                await browser.close()
+    finally:
+        copy.unlink(missing_ok=True)
 
 
 async def convert_html_to_image(

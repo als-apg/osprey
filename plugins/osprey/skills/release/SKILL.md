@@ -280,9 +280,12 @@ there is no CI job and no release step, so they age quietly, and a release is
 where that staleness becomes public.
 
 Read `docs/source/_static/screenshots/manifest.json`: every entry carries the
-version and timestamp of its last capture. Compare that against the UI work in
-this release. If a screen shown in the docs changed, re-capture it now, so the
-images and their captions ship with the version being released.
+version and timestamp of its last capture. Read
+`docs/source/_static/demo/manifest.json` too: per theme it carries the OSPREY
+version and recording time of the landing-page demo video, and the release its
+videos live in. Compare both against the UI work in this release. If a screen
+shown in the docs changed, re-capture it now, so the images, the video and
+their captions ship with the version being released.
 
 ```bash
 python -m docs.screenshots list      # every recipe, its kind, its output files
@@ -301,6 +304,25 @@ Two recipes are opt-in because they cost more:
 
 `channel_finder_*.png` has no recipe at all; it is hand-captured, so it can
 only be redone by hand.
+
+Refresh the landing-page demo video when the UI it shows (the Web Terminal,
+the gallery, the plots, the approval step, the logbook draft) changed visibly
+in this release. It needs containers and a live Claude session and spends real
+subscription budget, so skip it when nothing it shows has changed; the docs of
+this version then keep playing the last release's video. Each OSPREY version
+has its own release of demo videos, so record and upload to the version being
+released:
+
+```bash
+uv run make -C docs demo-video                          # both themes, a fresh stack per take
+uv run python -m docs.screenshots upload-check          # takes vs manifest, window and size warnings
+uv run make -C docs upload-demo-video VERSION=YYYY.M.P  # creates docs-media-vYYYY.M.P
+```
+
+Review both takes before the upload. The upload names the release in
+`docs/source/_static/demo/manifest.json`; that manifest and the two posters
+ride along in the release-notes PR below, and the MP4s are never committed. The
+steps are documented in the contributing guide under "Landing-page demo video".
 
 The framework itself (environments, provenance, and why it is capture-only and
 never a CI gate) is documented in the contributing guide under "Refreshing
@@ -372,6 +394,7 @@ before applying:
 | `CHANGELOG.md` | After the fold and repair, convert `## [Unreleased]` to `## [YYYY.M.P] - YYYY-MM-DD`; insert a fresh empty `## [Unreleased]` above it |
 | `changelog.d/` | Fragment files deleted by `apply`; only `README.md` remains |
 | `docs/source/_static/screenshots/` | Any images re-captured in Step 3, plus the updated `manifest.json` |
+| `docs/source/_static/demo/` | If the demo video was re-recorded in Step 3: the two posters and `manifest.json`, naming the `docs-media-vYYYY.M.P` release the upload created |
 
 Stage the fold and the rotation together: `git add -A changelog.d/ CHANGELOG.md`
 (pathspec-scoped, so the fragment deletions are included).

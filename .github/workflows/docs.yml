@@ -141,6 +141,28 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra docs
 
+    # The landing-page demo video is too large to commit: each OSPREY version's
+    # videos are assets of its own `docs-media-vYYYY.M.P` release, and the
+    # committed _static/demo/manifest.json names the release and each video's
+    # sha256. The build downloads exactly that release next to the committed
+    # posters and checks every video against its hash. A tree without the
+    # manifest (a tag that predates the video), a manifest that names no
+    # release yet, and a release or asset that does not exist cost the page its
+    # video, never the build: the page shows the poster. A hash mismatch or any
+    # other `gh` failure fails a deploy, and is only a notice on a pull request.
+    - name: Fetch demo video
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EVENT_NAME: ${{ github.event_name }}
+      run: |
+        if [ ! -f docs/source/_static/demo/manifest.json ]; then
+          echo "::notice::no demo-video manifest in this tree; the landing page shows no video."
+          exit 0
+        fi
+        strict=""
+        if [ "$EVENT_NAME" != "pull_request" ]; then strict="--strict"; fi
+        uv run python -m docs.screenshots fetch-video $strict
+
     - name: Build documentation
       run: |
         cd docs
