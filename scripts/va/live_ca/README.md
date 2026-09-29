@@ -116,9 +116,10 @@ which is what makes the green mean "the served path ran"; an image that somehow
 lacked one of the three exits 1 rather than certifying the fallback.
 
 **The tag is content-addressed.** The image is tagged with a digest of
-`pyproject.toml`, `uv.lock` and the `Containerfile`, so bumping the pcaspy
-floor or editing a build step produces a new tag rather than silently reusing a
-stale image built under the same name.
+`pyproject.toml`, `uv.lock`, the `Containerfile` and the tracked files of the
+uv workspace members under `packages/` (the image installs those from source),
+so bumping the pcaspy floor, editing a build step or changing a member produces
+a new tag rather than silently reusing a stale image built under the same name.
 
 ## It claims no host port
 
