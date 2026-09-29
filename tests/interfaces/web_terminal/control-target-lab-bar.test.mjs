@@ -365,14 +365,12 @@ describe('stylesheets', () => {
   });
 
   test('positions the bar itself, and anchors the popover before the sheet lands', () => {
-    const style = /** @type {HTMLStyleElement} */ (
-      document.getElementById(barModule.STYLE_ID)
-    );
+    expect(document.getElementById(barModule.STYLE_ID)).not.toBeNull();
     // Fixed, because the bar is not part of any layout on this page — and the
     // anchor rule is a floor under terminal.css, which carries the same one.
-    expect(style.textContent).toContain('position: fixed');
-    expect(style.textContent).toContain('.ctc-anchor');
-    expect(style.textContent).toContain('position: relative');
+    // CSS file loading is off here, so the injected floor is all that applies.
+    expect(getComputedStyle(/** @type {Element} */ (barEl())).position).toBe('fixed');
+    expect(getComputedStyle(/** @type {Element} */ (anchorEl())).position).toBe('relative');
   });
 });
 
