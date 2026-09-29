@@ -9,9 +9,10 @@ import json as _json
 import os
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 from osprey.interfaces.ariel.api.schemas import (
     DiagnosticResponse,
+    EmbeddingTableStatus,
     EntriesListResponse,
     EntryCreateRequest,
     EntryCreateResponse,
@@ -34,6 +36,7 @@ from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
+    from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 
 router = APIRouter(prefix="/api")
 logger = get_logger("ariel")
@@ -80,11 +83,11 @@ def _require_service(request: Request) -> ARIELSearchService:
         if errors:
             detail = f"{detail} Configuration errors: " + "; ".join(errors)
         raise HTTPException(status_code=503, detail=detail)
-    return service
+    return cast("ARIELSearchService", service)
 
 
 def _entry_to_response(
-    entry: dict,
+    entry: Mapping[str, Any],
     score: float | None = None,
     highlights: list[str] | None = None,
 ) -> EntryResponse:
@@ -603,7 +606,7 @@ async def _publish_or_local(
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
-        entry = {
+        entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
             "timestamp": now,
@@ -730,7 +733,7 @@ async def _store_and_link_attachments(
     """
     from osprey.services.ariel_search.attachments import generate_attachment_id
 
-    attachment_infos: list[dict[str, Any]] = []
+    attachment_infos: list[AttachmentInfo] = []
     for filename, mime_type, data in staged:
         attachment_id = generate_attachment_id()
         await service.repository.store_attachment(
@@ -882,12 +885,12 @@ async def get_status(request: Request) -> StatusResponse:
             database_uri=status.database_uri,
             entry_count=status.entry_count,
             embedding_tables=[
-                {
-                    "table_name": t.table_name,
-                    "entry_count": t.entry_count,
-                    "dimension": t.dimension,
-                    "is_active": t.is_active,
-                }
+                EmbeddingTableStatus(
+                    table_name=t.table_name,
+                    entry_count=t.entry_count,
+                    dimension=t.dimension,
+                    is_active=t.is_active,
+                )
                 for t in status.embedding_tables
             ],
             active_embedding_model=status.active_embedding_model,
