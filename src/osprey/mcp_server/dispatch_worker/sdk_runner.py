@@ -411,9 +411,9 @@ async def run_dispatch(
             run. When ``None`` (default), the system prompt is unchanged.
         surface_tools: Optional keep-list narrowing ``allowed_tools`` down to
             the subset a specific surface may use (via
-            ``tool_policy.narrow_allowed_tools``). Can only remove tools from
-            the trigger's allow set, never add one, and never touches
-            ``denied_tools`` — the deny floor is enforced independently.
+            ``osprey.agent_runner.tool_policy.narrow_allowed_tools``). Can only
+            remove tools from the trigger's allow set, never add one, and never
+            touches ``denied_tools`` — the deny floor is enforced independently.
             ``None`` or empty is a no-op (``allowed_tools`` used as-is).
         owner: The person the fire is attributed to, as the dispatcher put it
             on the wire. Exported to the agent (and every process it spawns) as
@@ -476,12 +476,12 @@ async def run_dispatch(
     # injected into os.environ by _inject_provider_env_once() at worker startup.
     from osprey.agent_runner.clean_env import build_clean_env
     from osprey.agent_runner.sdk_context import build_system_prompt
-    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
-    from osprey.mcp_server.dispatch_worker.tool_policy import (
+    from osprey.agent_runner.tool_policy import (
         make_backstop,
         make_pretooluse_hook,
         narrow_allowed_tools,
     )
+    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
     from osprey.utils.config import get_facility_timezone
 
     sdk_env = build_clean_env(project_cwd=render_dir)
@@ -620,8 +620,8 @@ async def run_dispatch(
     # without the trigger having to enumerate them. Read from the RENDER, which
     # is where the build writes ``.claude/`` and where the CLI itself loads the
     # agents from; reading the repo root instead found nothing, and an empty
-    # surface map denies every delegation (see ``tool_policy``) — fail-closed,
-    # but it silently costs dispatch its subagents.
+    # surface map denies every delegation (see ``osprey.agent_runner.tool_policy``)
+    # — fail-closed, but it silently costs dispatch its subagents.
     agent_surfaces = parse_project_agents(render_dir)
 
     # Narrow the main thread's allow set to this surface's keep-list, if any.

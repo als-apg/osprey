@@ -15,9 +15,10 @@ Two per-run enforcement layers for headless dispatch:
 
 Both are **context-aware** rather than a flat union: the main thread is held
 to the trigger's ``allowed_tools``; a subagent is held to its own declared
-``tools:`` surface (see ``agent_surfaces.parse_project_agents``). Subagent
-context is detected by ``agent_id`` presence — ``agent_type`` alone also
-appears on the main thread of ``--agent`` sessions.
+``tools:`` surface (see
+``osprey.mcp_server.dispatch_worker.agent_surfaces.parse_project_agents``).
+Subagent context is detected by ``agent_id`` presence — ``agent_type`` alone
+also appears on the main thread of ``--agent`` sessions.
 
 The hook is deny-only: an allowed call returns ``{}`` (no decision) so the
 facility's own PreToolUse safety hooks and the normal permission flow still
@@ -42,7 +43,7 @@ except ImportError:  # pragma: no cover - exercised only without the SDK
     PermissionResultAllow = object  # type: ignore[assignment,misc]
     PermissionResultDeny = object  # type: ignore[assignment,misc]
 
-logger = logging.getLogger("osprey.mcp_server.dispatch_worker.tool_policy")
+logger = logging.getLogger(__name__)
 
 # Permission-free harness tools the CLI lets an agent use without any allow
 # rule; a strict deny-only hook would otherwise starve them (TodoWrite
