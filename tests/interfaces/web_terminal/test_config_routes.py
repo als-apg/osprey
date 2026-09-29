@@ -154,6 +154,8 @@ def client(built_project):
     app.include_router(router)
     app.state.config_path = built_project / "config.yml"
     app.state.project_cwd = str(built_project)
+    # The lifespan resolves this tier flag; a routes-only app states it.
+    app.state.config_panel_enabled = True
     # The real app carries this ring; a refusal frame is only observable with it.
     app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
     with TestClient(app) as c:

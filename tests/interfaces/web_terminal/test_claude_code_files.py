@@ -247,6 +247,8 @@ class TestClaudeSetupRoutes:
         app = FastAPI()
         app.include_router(config_router)
         app.state.project_cwd = str(project_dir)
+        # The lifespan resolves this tier flag; a routes-only app states it.
+        app.state.config_panel_enabled = True
         return app
 
     def test_listing_carries_the_profile_notice_and_read_only_flags(self, app):

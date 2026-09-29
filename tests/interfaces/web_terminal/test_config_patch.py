@@ -65,6 +65,8 @@ def client(project_dir):
     app.include_router(router)
     app.state.config_path = project_dir / "config.yml"
     app.state.project_cwd = str(project_dir)
+    # The lifespan resolves this tier flag; a routes-only app states it.
+    app.state.config_panel_enabled = True
     with TestClient(app) as c:
         yield c
 
@@ -223,3 +225,53 @@ class TestHookDebugEndpoints:
 
         assert resp.status_code == 200
         assert resp.json()["entries"] == []
+
+
+class TestPanelGateFailsClosed:
+    """An app that never resolved ``web.config_panel.enabled`` is refused.
+
+    The lifespan always sets the flag; an app mounted without it (an embedder,
+    a routes-only app) has made no tier decision, and a tier gate that has no
+    decision to read refuses rather than opens.
+    """
+
+    @pytest.fixture
+    def flagless_client(self, project_dir):
+        app = FastAPI()
+        app.include_router(router)
+        app.state.config_path = project_dir / "config.yml"
+        app.state.project_cwd = str(project_dir)
+        with TestClient(app) as c:
+            yield c
+
+    @pytest.mark.parametrize(
+        "send",
+        [
+            pytest.param(lambda c: c.get("/api/config"), id="get-config"),
+            pytest.param(lambda c: c.put("/api/config", json={"raw": SAMPLE_CONFIG}), id="put"),
+            pytest.param(
+                lambda c: c.patch("/api/config", json={"updates": {"project_name": "x"}}),
+                id="patch",
+            ),
+            pytest.param(lambda c: c.get("/api/claude-setup"), id="get-claude-setup"),
+            pytest.param(
+                lambda c: c.put("/api/claude-setup", json={"path": "CLAUDE.md", "content": "x"}),
+                id="put-claude-setup",
+            ),
+            pytest.param(
+                lambda c: c.post(
+                    "/api/claude-setup", json={"path": ".claude/agents/x.md", "content": "x"}
+                ),
+                id="post-claude-setup",
+            ),
+        ],
+    )
+    def test_every_verb_is_refused_without_the_flag(self, flagless_client, project_dir, send):
+        before = (project_dir / "config.yml").read_bytes()
+
+        resp = send(flagless_client)
+
+        assert resp.status_code == 403
+        assert "web.config_panel.enabled" in resp.json()["detail"]
+        assert (project_dir / "config.yml").read_bytes() == before
+        assert not (project_dir / ".claude").exists()
