@@ -129,6 +129,18 @@ def test_blank_utility_targets_reach_the_browser_as_blank(tmp_path):
     assert body["feedback_email"] == ""
 
 
+def test_a_flagless_app_advertises_no_gated_surface(tmp_path):
+    """The Config panel and the scaffold write controls are opt-in, never default-on.
+
+    Their routes refuse when ``config_panel_enabled`` / ``scaffold_write_enabled``
+    is absent from ``app.state``, so the payload must say ``False`` too: a
+    browser told otherwise paints controls whose every request answers 403.
+    """
+    body = _panels(_make_app(tmp_path))
+    assert body["config_panel_enabled"] is False
+    assert body["scaffold_write_enabled"] is False
+
+
 # ---- workspace_has_artifacts (simple-UX chat-only first boot) ----
 
 
