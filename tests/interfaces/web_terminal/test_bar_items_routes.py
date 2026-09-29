@@ -391,19 +391,36 @@ class TestPut:
         assert not (store_dir / LAYOUT_FILENAME).exists()
 
     def test_the_ceiling_is_checked_before_the_body_is_parsed(self, client):
-        """The refusal comes from the declared size, not from the parse.
+        """An oversized body that is not even JSON is a 413, not a 422.
 
         The point of the ceiling is that an oversized save costs nothing to
-        refuse — so the handler must never reach the document at all.
+        refuse, so the size is judged before the body is parsed: were it parsed
+        first, this body would be refused as ``malformed``.
         """
-        oversized = document(0, header=[{"type": "logo", "label": "x" * MAX_REQUEST_BYTES}])
+        not_json = b"x" * (MAX_REQUEST_BYTES + 1)
+        headers = {"content-type": "application/json"}
 
-        with patch.object(
-            bar_items_routes, "_requested_rev", side_effect=AssertionError("the body was parsed")
-        ):
-            response = client.put("/api/bar-items", json=oversized)
+        declared = client.put("/api/bar-items", content=not_json, headers=headers)
 
+        assert declared.status_code == 413
+        assert error_of(declared) == "too_large"
+
+    def test_a_body_that_declares_no_length_is_measured_as_it_arrives(self, client, store_dir):
+        """A chunked request carries no ``Content-Length``, so the ceiling is
+        judged again against the bytes actually received."""
+
+        def chunks():
+            for _ in range(MAX_REQUEST_BYTES // 1024 + 1):
+                yield b"x" * 1024
+
+        response = client.put(
+            "/api/bar-items", content=chunks(), headers={"content-type": "application/json"}
+        )
+
+        assert "content-length" not in {key.lower() for key in response.request.headers}
         assert response.status_code == 413
+        assert error_of(response) == "too_large"
+        assert not (store_dir / LAYOUT_FILENAME).exists()
 
 
 class TestTheCeilingHasHeadroom:
