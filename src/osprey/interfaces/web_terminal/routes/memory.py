@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from osprey.interfaces.web_terminal.claude_memory_service import (
+    MEMORY_TRUNCATION_LIMIT,
+    MEMORY_TRUNCATION_WARNING,
     ClaudeMemoryService,
     MemoryFileExistsError,
     MemoryFileNotFoundError,
@@ -27,10 +29,15 @@ def _memory_service(request: Request) -> ClaudeMemoryService:
 
 @router.get("/api/claude-memory")
 async def list_memory_files(request: Request):
-    """List all memory files with metadata."""
+    """List all memory files with metadata and the primary file's line limits."""
     service = _memory_service(request)
     files = service.list_files()
-    return {"files": files, "count": len(files)}
+    return {
+        "files": files,
+        "count": len(files),
+        "line_limit": MEMORY_TRUNCATION_LIMIT,
+        "line_warning": MEMORY_TRUNCATION_WARNING,
+    }
 
 
 @router.get("/api/claude-memory/{filename}")
