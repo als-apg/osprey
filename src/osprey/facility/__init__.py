@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["PN_LOCAL", "fold_code"]
+__all__ = ["PN_LOCAL", "TEXTURE", "fold_code"]
 
 PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+#: The built-in model that holds every channel no other model wires.
+TEXTURE = "texture"
 
 _OUTSIDE_PN_LOCAL = re.compile(r"[^A-Za-z0-9_]")
 

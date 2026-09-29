@@ -38,10 +38,11 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.sources import AUTHORED
-from osprey.facility.validate import Validated
+from osprey.facility.validate import Validated, need, paired_nominal_error, stating_files
 from osprey.facility.wiring import element_stop
 
 __all__ = [
@@ -52,15 +53,11 @@ __all__ = [
     "resolve_groups",
 ]
 
-#: The built-in model that holds every channel no other model wires.
-TEXTURE = "texture"
-
 #: The entry-point group every simulation engine registers under.
 _ENGINE_GROUP = "osprey.simulation.engines"
 
 _MODELS_FILE = "models.yaml"
 _LIMITS_FILE = "limits.yaml"
-_FIXES_FILE = "fixes.yaml"
 _PERIODIC = "periodic"
 
 
@@ -147,9 +144,7 @@ def check_compute(validated: Validated) -> list[FacilityBuildError]:
     Raises:
         RuntimeError: The stage ran before S2 produced the document.
     """
-    document = validated.document
-    if document is None:
-        raise RuntimeError("a stage ran before the stage that produces its input")
+    document: dict[str, Any] = need(validated.document)
     raw_fixes = validated.sources.fixes if validated.sources is not None else None
     entries = raw_fixes.get("fixes") if isinstance(raw_fixes, dict) else None
     run = _Run(
@@ -186,7 +181,7 @@ def _model_conflicts(run: _Run) -> None:
                 "model-conflict",
                 "model",
                 model["name"],
-                _files(model, None, _MODELS_FILE),
+                stating_files(model, None, _MODELS_FILE),
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
@@ -203,7 +198,7 @@ def _model_conflicts(run: _Run) -> None:
                 "model-conflict",
                 "channel",
                 channel["id"],
-                _files(channel, None, _MODELS_FILE),
+                stating_files(channel, None, _MODELS_FILE),
                 f"the address is model {name}'s status channel",
                 "rename the channel; the simulator serves the status address itself",
             )
@@ -223,7 +218,7 @@ def _addresses_wired_twice(run: _Run) -> set[str]:
             "wiring-conflict",
             "channel",
             address,
-            sorted({f for record in records for f in _files(record, None, _MODELS_FILE)}),
+            sorted({f for record in records for f in stating_files(record, None, _MODELS_FILE)}),
             f"models {', '.join(names)} each wire the address",
             "wire the address in one model",
         )
@@ -285,7 +280,7 @@ def _positions(run: _Run, decks: Mapping[str, _Deck], twice: set[str]) -> dict[s
                 "wiring-conflict",
                 "device",
                 device_id,
-                _files(devices.get(device_id, {}), None, _MODELS_FILE),
+                stating_files(devices.get(device_id, {}), None, _MODELS_FILE),
                 f"models {', '.join(sorted(by_model))} each wire an element of the device",
                 "wire the device's elements in one model",
             )
@@ -358,7 +353,7 @@ def _spans(run: _Run, decks: Mapping[str, _Deck]) -> list[_Span]:
         span = place.get("span")
         if not isinstance(span, dict):
             continue
-        files = _files(place, "span", _MODELS_FILE)
+        files = stating_files(place, "span", _MODELS_FILE)
         name = str(span["model"])
         deck = decks.get(name)
         if deck is None:
@@ -431,7 +426,7 @@ def _overlaps(run: _Run, spans: Sequence[_Span], decks: Mapping[str, _Deck]) -> 
                 "span-invalid",
                 "place",
                 other.place,
-                _files(_place(run, other.place), "span", _MODELS_FILE),
+                stating_files(_place(run, other.place), "span", _MODELS_FILE),
                 f"span overlaps place {one.place}'s span in model {one.model}",
                 "make the spans of one level disjoint",
             )
@@ -486,7 +481,7 @@ def _places(run: _Run, positions: Mapping[str, _Position], spans: Sequence[_Span
                 "place-conflict",
                 "device",
                 device["id"],
-                _files(device, "place", _MODELS_FILE),
+                stating_files(device, "place", _MODELS_FILE),
                 f"layer {', '.join(layers)} states place {stated}, but the span of place "
                 f"{span.place} holds the device at s {position.s:g} in model {position.model}",
                 f"drop `place` from the layer, or add a fix `set` of place {stated}",
@@ -538,19 +533,19 @@ def _nominal_band(run: _Run) -> None:
         channel = channels[address]
         if address in defaults:
             value, record = defaults[address]
-            return value, _files(record, None, _MODELS_FILE)
+            return value, stating_files(record, None, _MODELS_FILE)
         own = seed(address)
         if "nominal" in own:
             value_type = channel.get("value_type")
             coerced = coerce(
                 own["nominal"], value_type, channel.get("options"), channel.get("shape")
             )
-            return coerced, _files(channel, "simulation", _MODELS_FILE)
+            return coerced, stating_files(channel, "simulation", _MODELS_FILE)
         setpoint = setpoint_of.get(address)
         if setpoint is not None:
             return nominal(setpoint)
         value = zero(channel.get("value_type"), channel.get("options"), channel.get("shape"))
-        return value, _files(channel, None, _MODELS_FILE)
+        return value, stating_files(channel, None, _MODELS_FILE)
 
     for readback, setpoint in sorted(setpoint_of.items()):
         own = seed(readback)
@@ -559,13 +554,14 @@ def _nominal_band(run: _Run) -> None:
         mine, _stating = nominal(readback)
         theirs = defaults[setpoint][0]
         if mine != theirs:
-            run.stop(
-                "seed-invalid",
-                "channel",
-                readback,
-                _files(channels[readback], "simulation", _MODELS_FILE),
-                f"`nominal` {own['nominal']} differs from its setpoint {setpoint}'s {theirs}",
-                f"remove `nominal` from {readback}; a paired readback starts at its setpoint's value",
+            run.errors.append(
+                paired_nominal_error(
+                    readback,
+                    own["nominal"],
+                    setpoint,
+                    theirs,
+                    stating_files(channels[readback], "simulation", _MODELS_FILE),
+                )
             )
 
     limits = run.document.get("limits")
@@ -725,24 +721,3 @@ def _section_code(place_id: str | None) -> str | None:
         return None
     token = place_id.rsplit("/", 1)[-1].strip()
     return token.upper() if token else None
-
-
-# --- helpers -------------------------------------------------------------------------
-
-
-def _files(record: Mapping[str, Any], slot: str | None, fallback: str) -> list[str]:
-    """The files that state a slot of a record, or every file of the record."""
-    provenance = record.get("provenance")
-    sources = provenance.get("sources", []) if isinstance(provenance, dict) else []
-    stating = sorted(
-        {
-            str(source["file"])
-            for source in sources
-            if slot is None or slot in source.get("fields", ())
-        }
-    )
-    if stating:
-        return stating
-    if isinstance(provenance, dict) and provenance.get("fixes"):
-        return [_FIXES_FILE]
-    return sorted({str(source["file"]) for source in sources}) or [fallback]

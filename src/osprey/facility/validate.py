@@ -39,7 +39,7 @@ import click
 
 from osprey.facility import fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
-from osprey.facility.errors import FacilityBuildError
+from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.sources import Sources, load_sources
 
 __all__ = [
@@ -53,12 +53,15 @@ __all__ = [
     "check_references",
     "check_schema",
     "known_classes",
+    "need",
     "ordered_slots",
+    "paired_nominal_error",
     "report",
     "run_stages",
     "schema_document",
     "signal_roles",
     "sort_errors",
+    "stating_files",
     "validate",
 ]
 
@@ -224,9 +227,9 @@ def run_stages(
     document = schema_document(combined.document, loaded.sources, project_name=project_name)
     validated.document = document
     checks: list[tuple[str, Stage]] = [
-        ("schema", lambda v: check_schema(_need(v.document), _need(v.sources))),
-        ("references", lambda v: check_references(_need(v.sources), _need(v.combined))),
-        ("records", lambda v: check_records(_need(v.document))),
+        ("schema", lambda v: check_schema(need(v.document), need(v.sources))),
+        ("references", lambda v: check_references(need(v.sources), need(v.combined))),
+        ("records", lambda v: check_records(need(v.document))),
         *later,
     ]
     for name, check in checks:
@@ -236,7 +239,19 @@ def run_stages(
     return StageReport(None, [], validated)
 
 
-def _need(value: Any) -> Any:
+def need(value: Any) -> Any:
+    """Return what an earlier stage produced.
+
+    Args:
+        value: A slot of ``Validated``.
+
+    Returns:
+        ``value`` itself.
+
+    Raises:
+        RuntimeError: The slot is still empty: a stage ran before the stage
+            that produces its input.
+    """
     if value is None:
         raise RuntimeError("a stage ran before the stage that produces its input")
     return value
@@ -492,15 +507,27 @@ def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, .
         and str(record.get("id")) in (sources.seeds)
     ):
         return ["seeds.yaml"]
-    return _files(record, str(rest[0]) if rest else None)
+    return stating_files(record, str(rest[0]) if rest else None)
 
 
 def _scenario_file(scenario: Mapping[str, Any]) -> str:
     return f"scenarios/{scenario.get('name')}.yaml"
 
 
-def _files(record: Mapping[str, Any], slot: str | None) -> list[str]:
-    """The files that state a slot of a combined record, fixes.yaml for a fix."""
+def stating_files(
+    record: Mapping[str, Any], slot: str | None, fallback: str = FIXES_FILE
+) -> list[str]:
+    """The files that state a slot of a combined record.
+
+    Args:
+        record: A record carrying its ``provenance`` block.
+        slot: The slot, or ``None`` for every file of the record.
+        fallback: The file named when no source states the record at all.
+
+    Returns:
+        The stating files, sorted; fixes.yaml for a slot only a fix wrote;
+        else every file of the record, or ``fallback``.
+    """
     provenance = record.get("provenance")
     sources = provenance.get("sources", []) if isinstance(provenance, dict) else []
     stating = sorted(
@@ -516,7 +543,7 @@ def _files(record: Mapping[str, Any], slot: str | None) -> list[str]:
     if fixes:
         return [FIXES_FILE]
     every = sorted({str(s["file"]) for s in sources if isinstance(s, dict)})
-    return every or [FIXES_FILE]
+    return every or [fallback]
 
 
 # --- the combined file, indexed ------------------------------------------------------
@@ -663,25 +690,25 @@ class _References:
             if "/" in pid:
                 parent = pid.rsplit("/", 1)[0]
                 if parent not in self.index.places:
-                    files = _files(place, None)
+                    files = stating_files(place, None)
                     yield from self._missing("place", pid, files, "id", "place", parent)
             span = place.get("span")
             if isinstance(span, dict) and "model" in span:
-                files = _files(place, "span")
+                files = stating_files(place, "span")
                 yield from self._missing("place", pid, files, "span.model", "model", span["model"])
 
     def _devices(self) -> Iterator[FacilityBuildError]:
         known = known_classes(self.sources.classes)
         for did, device in sorted(self.index.devices.items()):
             if "place" in device:
-                files = _files(device, "place")
+                files = stating_files(device, "place")
                 yield from self._missing("device", did, files, "place", "place", device["place"])
             cls = device.get("class")
             if cls is not None and cls not in known:
                 yield FacilityBuildError(
                     "class-unknown",
                     did,
-                    _files(device, "class"),
+                    stating_files(device, "class"),
                     "use a vocabulary class or add it to classes.yaml",
                     record_kind="device",
                     detail=f"class {cls} is in neither the vocabulary nor classes.yaml",
@@ -694,17 +721,17 @@ class _References:
             if isinstance(on, dict):
                 for kind in ("device", "place"):
                     if kind in on:
-                        files = _files(channel, "on")
+                        files = stating_files(channel, "on")
                         yield from self._missing(
                             "channel", address, files, f"on.{kind}", kind, on[kind]
                         )
             if "pair" in channel:
-                files = _files(channel, "pair")
+                files = stating_files(channel, "pair")
                 yield from self._missing(
                     "channel", address, files, "pair", "channel", channel["pair"]
                 )
             for device in channel.get("endpoint_of") or []:
-                files = _files(channel, "endpoint_of")
+                files = stating_files(channel, "endpoint_of")
                 yield from self._missing("channel", address, files, "endpoint_of", "device", device)
             simulation = channel.get("simulation")
             linear = simulation.get("linear") if isinstance(simulation, dict) else None
@@ -719,7 +746,7 @@ class _References:
                 yield FacilityBuildError(
                     "class-unknown",
                     address,
-                    _files(channel, "signal"),
+                    stating_files(channel, "signal"),
                     "use a vocabulary signal role or remove `signal`",
                     record_kind="channel",
                     detail=f"signal {signal} is not a vocabulary signal role",
@@ -728,12 +755,12 @@ class _References:
     def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
         if str(channel.get("id")) in self.sources.seeds:
             return ["seeds.yaml"]
-        return _files(channel, "simulation")
+        return stating_files(channel, "simulation")
 
     def _groups(self) -> Iterator[FacilityBuildError]:
         for gid, group in sorted(self.index.groups.items()):
             for member in group.get("members") or []:
-                files = _files(group, "members")
+                files = stating_files(group, "members")
                 yield from self._missing("group", gid, files, "members", "device", member)
 
     def _wiring(self) -> Iterator[FacilityBuildError]:
@@ -741,7 +768,7 @@ class _References:
             wid = str(entry.get("id"))
             address = entry.get("address")
             yield from self._missing(
-                "wiring", wid, _files(entry, "address"), "address", "channel", address
+                "wiring", wid, stating_files(entry, "address"), "address", "channel", address
             )
             channel = self.index.channels.get(str(address), {})
             on = channel.get("on")
@@ -755,7 +782,7 @@ class _References:
                 yield from self._missing(
                     "wiring",
                     wid,
-                    _files(entry, "slices"),
+                    stating_files(entry, "slices"),
                     "slices.device",
                     "device",
                     piece["device"],
@@ -899,7 +926,7 @@ class _Records:
             return None, str(exc)
 
     def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
-        return _files(channel, "simulation")
+        return stating_files(channel, "simulation")
 
     # --- value type, options, shape ------------------------------------------------
 
@@ -926,7 +953,7 @@ class _Records:
                 "value-invalid",
                 "channel",
                 address,
-                _files(channel, "options" if "options" in problem else "shape"),
+                stating_files(channel, "options" if "options" in problem else "shape"),
                 problem,
                 "state `options` only on bool and enum channels and `shape` only on waveforms",
             )
@@ -948,9 +975,9 @@ class _Records:
                     "channel",
                     address,
                     files,
-                    f"a {value_type} channel carries {_names(carried)}; motion, `clamp` and "
+                    f"a {value_type} channel carries {quoted_slots(carried)}; motion, `clamp` and "
                     "`linear` apply to float channels only",
-                    f"remove {_names(carried)}",
+                    f"remove {quoted_slots(carried)}",
                 )
         else:
             drift = seed.get("drift")
@@ -983,8 +1010,8 @@ class _Records:
                     "channel",
                     address,
                     files,
-                    f"a setpoint carries {_names(motion)}",
-                    f"remove {_names(motion)}; a setpoint holds the value written to it",
+                    f"a setpoint carries {quoted_slots(motion)}",
+                    f"remove {quoted_slots(motion)}; a setpoint holds the value written to it",
                 )
         if "nominal" in seed and "linear" not in seed:
             yield from self._nominal(address, seed["nominal"], files)
@@ -1095,7 +1122,7 @@ class _Records:
                         "pair-invalid",
                         "channel",
                         address,
-                        _files(channel, "pair"),
+                        stating_files(channel, "pair"),
                         f"a `pair` on a {role} channel",
                         "remove `pair`; only a setpoint names its readback",
                     )
@@ -1111,7 +1138,13 @@ class _Records:
                     "pair-invalid",
                     "channel",
                     readback,
-                    sorted({f for s in setpoints for f in _files(self.index.channels[s], "pair")}),
+                    sorted(
+                        {
+                            f
+                            for s in setpoints
+                            for f in stating_files(self.index.channels[s], "pair")
+                        }
+                    ),
                     f"the pair of setpoints {', '.join(setpoints)}",
                     "pair each setpoint with its own readback",
                 )
@@ -1119,7 +1152,7 @@ class _Records:
     def _pair(
         self, address: str, channel: Mapping[str, Any], pair: str
     ) -> Iterator[FacilityBuildError]:
-        files = _files(channel, "pair")
+        files = stating_files(channel, "pair")
         target = self.index.channels[pair]
         target_role = target.get("role", "readback")
         if target_role != "readback":
@@ -1143,8 +1176,8 @@ class _Records:
                 "channel",
                 address,
                 files,
-                f"setpoint and pair {pair} differ in {_names(differing)}",
-                f"give {address} and {pair} the same {_names(differing)}",
+                f"setpoint and pair {pair} differ in {quoted_slots(differing)}",
+                f"give {address} and {pair} the same {quoted_slots(differing)}",
             )
             return
         own = self.index.wired.get(address, set())
@@ -1185,13 +1218,12 @@ class _Records:
             channel = self.index.channels[setpoint]
             theirs = zero(self._type(setpoint), channel.get("options"), channel.get("shape"))
         if mine != theirs:
-            yield self._error(
-                "seed-invalid",
-                "channel",
+            yield paired_nominal_error(
                 readback,
+                seed["nominal"],
+                setpoint,
+                theirs,
                 self._seed_files(self.index.channels[readback]),
-                f"`nominal` {seed['nominal']} differs from its setpoint {setpoint}'s {theirs}",
-                f"remove `nominal` from {readback}; a paired readback starts at its setpoint's value",
             )
 
     # --- wiring --------------------------------------------------------------------
@@ -1205,7 +1237,7 @@ class _Records:
                     "pair-invalid",
                     "wiring",
                     wid,
-                    _files(entry, "slices"),
+                    stating_files(entry, "slices"),
                     "states both `element` and `slices`",
                     "keep one of `element` and `slices`",
                 )
@@ -1220,7 +1252,7 @@ class _Records:
                     "pair-invalid",
                     "wiring",
                     wid,
-                    _files(entry, "slices"),
+                    stating_files(entry, "slices"),
                     f"slice weight {', '.join(str(w) for w in bad)} is zero or not finite",
                     "give every slice a finite, non-zero weight",
                 )
@@ -1235,7 +1267,7 @@ class _Records:
                         "pair-invalid",
                         "wiring",
                         wid,
-                        _files(entry, "slices"),
+                        stating_files(entry, "slices"),
                         f"`endpoint_of` device {', '.join(unnamed)} is named by no slice",
                         "name each `endpoint_of` device in a slice, or remove it from `endpoint_of`",
                     )
@@ -1264,8 +1296,8 @@ class _Records:
                     "limit",
                     address,
                     files,
-                    f"{_names(bounds)} on a {value_type} channel",
-                    f"remove {_names(bounds)}; a {value_type} channel carries `writable` and "
+                    f"{quoted_slots(bounds)} on a {value_type} channel",
+                    f"remove {quoted_slots(bounds)}; a {value_type} channel carries `writable` and "
                     "`confirm` only",
                 )
             elif value_type == "int":
@@ -1316,6 +1348,31 @@ class _Records:
         if isinstance(value, dict):
             return
         yield from self._value("scenario", name, files, slot, address, value)
+
+
+def paired_nominal_error(
+    readback: str, nominal: Any, setpoint: str, theirs: Any, files: Sequence[str]
+) -> FacilityBuildError:
+    """The stop for a paired readback whose ``nominal`` is not its setpoint's value.
+
+    Args:
+        readback: The readback's address.
+        nominal: The readback's stated ``nominal``.
+        setpoint: The address of the setpoint it pairs with.
+        theirs: The setpoint's start value.
+        files: The files that state the readback's seed.
+
+    Returns:
+        A ``seed-invalid`` line naming the readback.
+    """
+    return FacilityBuildError(
+        "seed-invalid",
+        readback,
+        files,
+        f"remove `nominal` from {readback}; a paired readback starts at its setpoint's value",
+        record_kind="channel",
+        detail=f"`nominal` {nominal} differs from its setpoint {setpoint}'s {theirs}",
+    )
 
 
 def _options_problem(value_type: str, options: Any) -> str | None:
@@ -1381,7 +1438,3 @@ def _cycle_from(graph: Mapping[str, list[str]], start: str) -> list[str] | None:
         return None
 
     return walk(start)
-
-
-def _names(slots: Iterable[str]) -> str:
-    return ", ".join(f"`{slot}`" for slot in slots)
