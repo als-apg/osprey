@@ -80,15 +80,12 @@ def _every_allowed_option_value():
 class TestAbsentAndUnreadable:
     """Nothing configured, and nothing readable, both render the shipped bars."""
 
-    def test_absent_block_yields_the_shipped_default(self, tmp_path):
+    @pytest.mark.parametrize("config_file_exists", [True, False], ids=["no-key", "no-file"])
+    def test_absent_block_yields_the_shipped_default(self, tmp_path, config_file_exists):
         path = tmp_path / "config.yml"
-        path.write_text(yaml.safe_dump({"web": {"theme": "main"}}), encoding="utf-8")
+        if config_file_exists:
+            path.write_text(yaml.safe_dump({"web": {"theme": "main"}}), encoding="utf-8")
         assert _load_bar_items(path, context=_OFFERS_EVERYTHING) == DEFAULT_BAR_LAYOUT
-
-    def test_absent_config_file_yields_the_shipped_default(self, tmp_path):
-        assert (
-            _load_bar_items(tmp_path / "nope.yml", context=_OFFERS_EVERYTHING) == DEFAULT_BAR_LAYOUT
-        )
 
     def test_unreadable_config_never_raises(self, tmp_path):
         """A config read that blows up is a warning, not a failed boot."""
@@ -107,12 +104,6 @@ class TestAbsentAndUnreadable:
         assert result == DEFAULT_BAR_LAYOUT
         assert "web.bar_items" in caplog.text
 
-    def test_default_carries_this_build_s_schema_version(self, tmp_path):
-        assert (
-            _load_bar_items(tmp_path / "nope.yml", context=_OFFERS_EVERYTHING)["version"]
-            == BAR_LAYOUT_VERSION
-        )
-
 
 class TestValidBlocks:
     """A well-formed block is honoured, in both entry spellings."""
@@ -121,6 +112,8 @@ class TestValidBlocks:
         path = _write_config(tmp_path, {"header": ["logo", "space", "display"]})
         layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
         assert _types(layout["header"]) == ["logo", "space", "display"]
+        # Config is a default, not a saved document: it starts at rev 0.
+        assert layout["rev"] == 0
 
     def test_mapping_entries_keep_their_options(self, tmp_path):
         path = _write_config(tmp_path, {"status": [{"type": "clock", "options": {"zone": "utc"}}]})
@@ -138,20 +131,12 @@ class TestValidBlocks:
         path = _write_config(tmp_path, {"status": []})
         assert _load_bar_items(path, context=_OFFERS_EVERYTHING)["status"] == []
 
-    def test_status_visible_is_honoured(self, tmp_path):
-        path = _write_config(tmp_path, {"status_visible": False})
-        assert _load_bar_items(path, context=_OFFERS_EVERYTHING)["status_visible"] is False
-
-    def test_header_visible_is_honoured_on_its_own(self, tmp_path):
-        path = _write_config(tmp_path, {"header_visible": False})
+    @pytest.mark.parametrize(("hidden", "shown"), [("status", "header"), ("header", "status")])
+    def test_a_visibility_flag_is_honoured_on_its_own(self, tmp_path, hidden, shown):
+        path = _write_config(tmp_path, {f"{hidden}_visible": False})
         layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
-        assert layout["header_visible"] is False
-        assert layout["status_visible"] is True
-
-    def test_configured_document_is_unsaved(self, tmp_path):
-        """Config is a default, not a saved document: it starts at rev 0."""
-        path = _write_config(tmp_path, {"header": ["logo"]})
-        assert _load_bar_items(path, context=_OFFERS_EVERYTHING)["rev"] == 0
+        assert layout[f"{hidden}_visible"] is False
+        assert layout[f"{shown}_visible"] is True
 
     def test_the_default_document_is_not_mutated(self, tmp_path):
         """Two loads of a configured header leave the shipped default intact."""
@@ -241,24 +226,27 @@ class TestDropRules:
         assert layout["status"] == [{"type": item_type, "options": kept}]
         assert f"web.bar_items.status[0].{named}" in caplog.text
 
-    def test_an_option_the_type_does_not_take_is_dropped_with_a_warning(self, tmp_path, caplog):
+    @pytest.mark.parametrize(
+        ("item_type", "options", "kept", "named"),
+        [
+            pytest.param(
+                "clock", {"zone": "utc", "tz": "utc"}, {"zone": "utc"}, "tz", id="clock-tz"
+            ),
+            # A type that takes no options at all: every key is one it does not take.
+            pytest.param("logo", {"size": 3}, {}, "size", id="logo-size"),
+        ],
+    )
+    def test_an_option_the_type_does_not_take_is_dropped_with_a_warning(
+        self, tmp_path, caplog, item_type, options, kept, named
+    ):
+        # An empty header frees the logo the shipped header places.
         path = _write_config(
-            tmp_path, {"status": [{"type": "clock", "options": {"zone": "utc", "tz": "utc"}}]}
+            tmp_path, {"header": [], "status": [{"type": item_type, "options": options}]}
         )
         with caplog.at_level(logging.WARNING):
             layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
-        assert layout["status"] == [{"type": "clock", "options": {"zone": "utc"}}]
-        assert "web.bar_items.status[0].options.tz" in caplog.text
-
-    def test_options_on_a_type_that_takes_none_are_dropped_with_a_warning(self, tmp_path, caplog):
-        # The shipped header places the logo; an empty one frees it for the status bar.
-        path = _write_config(
-            tmp_path, {"header": [], "status": [{"type": "logo", "options": {"size": 3}}]}
-        )
-        with caplog.at_level(logging.WARNING):
-            layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
-        assert layout["status"] == [{"type": "logo", "options": {}}]
-        assert "options.size" in caplog.text
+        assert layout["status"] == [{"type": item_type, "options": kept}]
+        assert f"web.bar_items.status[0].options.{named}" in caplog.text
 
     @pytest.mark.parametrize(("item_type", "name", "value"), _every_allowed_option_value())
     def test_every_value_the_catalog_allows_is_kept(self, tmp_path, caplog, item_type, name, value):
@@ -281,19 +269,13 @@ class TestDropRules:
         assert layout["header"] == DEFAULT_BAR_LAYOUT["header"]
         assert "web.bar_items.header" in caplog.text
 
-    def test_a_non_boolean_status_visible_falls_back(self, tmp_path, caplog):
-        path = _write_config(tmp_path, {"status_visible": "yes"})
+    @pytest.mark.parametrize("flag", ["status_visible", "header_visible"])
+    def test_a_non_boolean_visibility_flag_falls_back(self, tmp_path, caplog, flag):
+        path = _write_config(tmp_path, {flag: "yes"})
         with caplog.at_level(logging.WARNING):
             layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
-        assert layout["status_visible"] is True
-        assert "web.bar_items.status_visible" in caplog.text
-
-    def test_a_non_boolean_header_visible_falls_back(self, tmp_path, caplog):
-        path = _write_config(tmp_path, {"header_visible": "yes"})
-        with caplog.at_level(logging.WARNING):
-            layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
-        assert layout["header_visible"] is True
-        assert "web.bar_items.header_visible" in caplog.text
+        assert layout[flag] is True
+        assert f"web.bar_items.{flag}" in caplog.text
 
     def test_a_host_over_the_cap_is_truncated_with_a_warning(self, tmp_path, caplog):
         path = _write_config(tmp_path, {"status": ["clock"] * (MAX_BAR_ITEMS_PER_HOST + 3)})
