@@ -143,10 +143,12 @@ def get_chat_completion(
     # Configuration setup
     if model_config is not None:
         provider = model_config.get("provider", provider)
+        if not provider:
+            raise ValueError("Provider must be specified either directly or via model_config")
         model_id = model_config.get("model_id", model_id)
         max_tokens = model_config.get("max_tokens", max_tokens)
         if provider_config is None:
-            provider_config = get_provider_config(provider) if provider else {}
+            provider_config = get_provider_config(provider)
         base_url = provider_config.get("base_url", base_url)
         api_key = provider_config.get("api_key")
     else:
@@ -181,7 +183,7 @@ def get_chat_completion(
         raise ValueError(f"API key required for {provider}")
     if provider_class.requires_base_url and not base_url:
         raise ValueError(f"Base URL required for {provider}")
-    if provider_class.requires_model_id and not model_id:
+    if not model_id:
         raise ValueError(f"Model ID required for {provider}")
 
     # Execute completion using provider adapter (LiteLLM handles proxy via env vars)
