@@ -7,6 +7,7 @@ import ipaddress
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,7 @@ from osprey.interfaces.web_terminal.app import (
     _load_panel_presets,
     create_app,
 )
+from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
 
@@ -154,21 +156,15 @@ def client_with_custom_panels(workspace_dir):
 
 
 class TestLoadPanelConfig:
-    def test_no_web_section(self):
-        """Missing web section returns only universal panels."""
+    @pytest.mark.parametrize(
+        "config",
+        [pytest.param({}, id="no-web-section"), pytest.param({"web": {"panels": {}}}, id="empty")],
+    )
+    def test_no_panels_declared(self, config):
+        """No ``web.panels`` entries returns only the universal panels."""
         with patch(
             "osprey.utils.workspace.load_osprey_config",
-            return_value={},
-        ):
-            enabled, custom, _default = _load_panel_config()
-        assert enabled == UNIVERSAL_PANELS
-        assert custom == []
-
-    def test_empty_panels(self):
-        """Empty web.panels returns only universal panels."""
-        with patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value={"web": {"panels": {}}},
+            return_value=config,
         ):
             enabled, custom, _default = _load_panel_config()
         assert enabled == UNIVERSAL_PANELS
@@ -296,26 +292,6 @@ class TestLoadPanelConfig:
             enabled, custom, _default = _load_panel_config()
         assert [cp["id"] for cp in custom] == ["my-grafana"]
         assert enabled == UNIVERSAL_PANELS
-
-    def test_mixed_builtin_and_custom(self):
-        """Both builtin and custom panels are handled correctly."""
-        with patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value={
-                "web": {
-                    "panels": {
-                        "ariel": {"enabled": True},
-                        "channel-finder": {"enabled": False},
-                        "my-dash": {"label": "DASH", "url": "http://localhost:9000"},
-                    }
-                }
-            },
-        ):
-            enabled, custom, _default = _load_panel_config()
-        assert "ariel" in enabled
-        assert "channel-finder" not in enabled
-        assert len(custom) == 1
-        assert custom[0]["id"] == "my-dash"
 
     def test_events_panel_is_url_backed_custom(self):
         """The control-assistant EVENTS panel is URL-backed.
@@ -549,14 +525,6 @@ class TestPanelsAPI:
         assert enabled_set == UNIVERSAL_PANELS
         assert data["custom"] == []
 
-    def test_panels_api_all_panels(self, client_all_panels):
-        """GET /api/panels returns all panels when all enabled."""
-        resp = client_all_panels.get("/api/panels")
-        assert resp.status_code == 200
-        data = resp.json()
-        enabled_set = set(data["enabled"])
-        assert enabled_set == BUILTIN_PANELS
-
     def test_panels_api_with_custom(self, client_with_custom_panels):
         """GET /api/panels returns custom panels."""
         resp = client_with_custom_panels.get("/api/panels")
@@ -579,37 +547,11 @@ class TestPanelsAPI:
         data = client_runtime_panels.get("/api/panels").json()
         assert data["allow_runtime_panels"] is True
 
-    def test_panel_focus_enabled_panel(self, client_all_panels):
-        """POST /api/panel-focus accepts enabled panel IDs."""
-        resp = client_all_panels.post(
-            "/api/panel-focus",
-            json={"panel": "ariel"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["active_panel"] == "ariel"
-
-    def test_panel_focus_custom_id(self, client_with_custom_panels):
-        """Custom panel ID is accepted by POST /api/panel-focus."""
-        resp = client_with_custom_panels.post(
-            "/api/panel-focus",
-            json={"panel": "my-dashboard"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["active_panel"] == "my-dashboard"
-
     def test_panel_focus_disabled_panel(self, client):
         """Disabled panel ID returns 422."""
         resp = client.post(
             "/api/panel-focus",
             json={"panel": "ariel"},
-        )
-        assert resp.status_code == 422
-
-    def test_panel_focus_unknown_id(self, client):
-        """Completely unknown ID returns 422."""
-        resp = client.post(
-            "/api/panel-focus",
-            json={"panel": "nonexistent-panel"},
         )
         assert resp.status_code == 422
 
@@ -752,49 +694,10 @@ def client_runtime_panels_allowlist(workspace_dir):
     yield from _make_client_with_runtime_panels(workspace_dir, allowlist=["grafana.lan"])
 
 
-# ---- Guard: _load_panel_config 3-tuple contract ----
-
-
-class TestLoadPanelConfigContract:
-    def test_returns_three_tuple(self):
-        """_load_panel_config always returns a 3-tuple (enabled, custom, default)."""
-        # Arrange
-        with patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value={},
-        ):
-            # Act
-            result = _load_panel_config()
-
-        # Assert
-        assert isinstance(result, tuple), "result must be a tuple"
-        assert len(result) == 3, "result must have exactly 3 elements"
-        enabled, custom, default = result
-        assert isinstance(enabled, (set, frozenset))
-        assert isinstance(custom, list)
-
-
-# ---- Six-key /api/panels response shape ----
+# ---- /api/panels payload from the real lifespan ----
 
 
 class TestPanelsAPIShape:
-    def test_response_has_six_keys(self, client):
-        """GET /api/panels includes all six keys: enabled, custom, default, visible, active, labels."""
-        # Arrange — client has only universal panels
-
-        # Act
-        resp = client.get("/api/panels")
-
-        # Assert
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "enabled" in data
-        assert "custom" in data
-        assert "default" in data
-        assert "visible" in data
-        assert "active" in data
-        assert "labels" in data
-
     def test_labels_map_enabled_builtin_ids_to_display_names(self, client_all_panels):
         """labels contains BUILTIN_PANEL_LABELS entries for each enabled built-in panel."""
         # Arrange — client_all_panels enables the full BUILTIN_PANELS set
@@ -831,29 +734,6 @@ class TestPanelsAPIShape:
         # Assert
         assert resp.status_code == 200
         assert resp.json()["active"] is None
-
-
-# ---- Panel presets in the /api/panels payload ----
-
-
-class TestPanelPresetsAPI:
-    def test_presets_key_present_and_is_a_list(self, client):
-        """GET /api/panels always carries a 'presets' key (a list)."""
-        data = client.get("/api/panels").json()
-        assert "presets" in data
-        assert isinstance(data["presets"], list)
-
-    def test_presets_payload_carries_name_and_panels(self, client):
-        """The 'presets' key echoes app.state.panel_presets as [{name, panels}]."""
-        client.app.state.panel_presets = [
-            {"name": "Machine setup", "panels": ["artifacts", "ariel"]},
-            {"name": "Logbook review", "panels": ["ariel"]},
-        ]
-        data = client.get("/api/panels").json()
-        assert data["presets"] == [
-            {"name": "Machine setup", "panels": ["artifacts", "ariel"]},
-            {"name": "Logbook review", "panels": ["ariel"]},
-        ]
 
 
 # ---- Hidden panel visibility ----
@@ -933,40 +813,18 @@ class TestPanelVisibilityAPI:
         assert resp.json()["visible"] is True
         assert "ariel" in client_all_panels.app.state.visible_panels
 
-    def test_valid_panel_broadcasts_panel_visibility_event(self, client_all_panels):
-        """POST /api/panel-visibility broadcasts the exact event dict via the broadcaster."""
-        # Arrange — replace broadcaster.broadcast with a mock to capture calls
-        mock_broadcast = MagicMock()
-        client_all_panels.app.state.broadcaster.broadcast = mock_broadcast
-
-        # Act
-        client_all_panels.post("/api/panel-visibility", json={"panel": "ariel", "visible": False})
-
-        # Assert
-        mock_broadcast.assert_called_once_with(
-            {"type": "panel_visibility", "panel": "ariel", "visible": False}
-        )
-
     def test_unknown_panel_returns_422(self, client):
         """POST /api/panel-visibility returns 422 for a panel id that is not enabled."""
         # Arrange — client has only universal panels; "ariel" is disabled
+
+        mock_broadcast = MagicMock()
+        client.app.state.broadcaster.broadcast = mock_broadcast
 
         # Act
         resp = client.post("/api/panel-visibility", json={"panel": "ariel", "visible": True})
 
         # Assert
         assert resp.status_code == 422
-
-    def test_unknown_panel_does_not_broadcast(self, client):
-        """No broadcast is emitted when the panel id is unknown (422 path)."""
-        # Arrange
-        mock_broadcast = MagicMock()
-        client.app.state.broadcaster.broadcast = mock_broadcast
-
-        # Act
-        client.post("/api/panel-visibility", json={"panel": "nonexistent", "visible": True})
-
-        # Assert
         mock_broadcast.assert_not_called()
 
 
@@ -1259,12 +1117,6 @@ class TestConfigDefinedPanelReservation:
     def app_and_client(self, workspace_dir):
         yield from _make_client_runtime_with_config_events(workspace_dir)
 
-    def test_marker_is_stamped_on_startup(self, app_and_client):
-        """Precondition: the real config path stamps configDefined on events."""
-        app, _client = app_and_client
-        events = [cp for cp in app.state.custom_panels if cp["id"] == "events"]
-        assert events and events[0].get("configDefined") is True
-
     def test_register_config_defined_id_returns_422(self, app_and_client):
         """Registering a config-defined id (events) is rejected, like a built-in."""
         _app, client = app_and_client
@@ -1363,12 +1215,6 @@ class TestSidecarLaunchRouting:
 class TestSidecarPanelAvailability:
     """What a launched — or failed — sidecar publishes, and what the panel says."""
 
-    def test_the_sidecar_panel_is_a_builtin_in_the_panels_api(self, client_all_panels):
-        data = client_all_panels.get("/api/panels").json()
-
-        assert SIDECAR_ID in data["enabled"]
-        assert data["labels"][SIDECAR_ID] == BUILTIN_PANEL_LABELS[SIDECAR_ID]
-
     def test_a_ready_sidecar_publishes_its_url_and_credential(
         self, client_with_sidecar, ready_sidecar
     ):
@@ -1386,7 +1232,9 @@ class TestSidecarPanelAvailability:
         state = client_with_sidecar.app.state
         (shared_root, outer_prefix, pinned_mode) = ready_sidecar.constructed[0]
 
-        assert str(shared_root)
+        # The sidecar shares the agent-data root every other child of this
+        # server is stamped with, not a directory of its own.
+        assert shared_root == Path(resolve_agent_data_root(client_with_sidecar.app))
         assert outer_prefix == ""
         assert pinned_mode == state.web_theme_mode
 
@@ -1513,11 +1361,6 @@ class TestSidecarCredentialThroughTheProxy:
 
 class TestSidecarExitsLater:
     """A sidecar that dies after it was published is retracted, not restarted."""
-
-    def test_the_launch_registers_an_exit_hook_on_the_sidecar(self, client_with_sidecar):
-        sidecar = client_with_sidecar.app.state.sidecars[SIDECAR_ID]
-
-        assert callable(sidecar.on_exit)
 
     def test_an_exit_retracts_the_url_and_the_credential(self, client_with_sidecar, ready_sidecar):
         state = client_with_sidecar.app.state

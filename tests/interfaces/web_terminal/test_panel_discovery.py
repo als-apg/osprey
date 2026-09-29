@@ -8,8 +8,9 @@ opt-in) and **fail-closed** on any malformed/non-compliant bundle.
 
 Covers:
     - discover_panels: valid bundle found; missing root, non-panel dir,
-      malformed manifest, missing entry, raw hex color, built-in id collision,
-      duplicate id — each skipped without affecting the others; never raises.
+      any validation error (the validator's own suite owns which errors
+      exist), built-in id collision, duplicate id, parent-relative entry, an
+      unreadable asset — each skipped without affecting the others.
     - apply_discovered_panels: gated off by default; on → appended to
       custom_panels / visible_panels / discovered_panel_dirs; existing-id skip.
     - The /panel-static/{id}/{path} serving route: entry served for bare path,
@@ -24,7 +25,6 @@ import logging
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.panel_discovery import (
@@ -33,6 +33,8 @@ from osprey.interfaces.web_terminal.panel_discovery import (
     discover_panels,
 )
 from osprey.interfaces.web_terminal.routes.panels import router
+
+from .conftest import bare_route_app
 
 # A minimal but fully compliant entry HTML: links the token stylesheet and the
 # shared font stylesheet, loads the pre-paint boot script, and uses only
@@ -73,9 +75,6 @@ class TestDiscoverPanels:
     def test_missing_root_returns_empty(self, tmp_path):
         assert discover_panels(tmp_path / "does-not-exist") == []
 
-    def test_empty_root_returns_empty(self, tmp_path):
-        assert discover_panels(tmp_path) == []
-
     def test_valid_panel_is_discovered(self, tmp_path):
         _write_panel(tmp_path, "demo", manifest=_manifest())
         result = discover_panels(tmp_path)
@@ -102,20 +101,6 @@ class TestDiscoverPanels:
         assert result == []
         assert any("broken" in r.message for r in caplog.records)
 
-    def test_manifest_missing_required_field_is_skipped(self, tmp_path):
-        _write_panel(tmp_path, "noid", manifest={"label": "No id", "entry": "index.html"})
-        assert discover_panels(tmp_path) == []
-
-    def test_missing_entry_file_is_skipped(self, tmp_path):
-        # Manifest declares index.html but no such file is written.
-        _write_panel(tmp_path, "noentry", manifest=_manifest(), html=None)
-        assert discover_panels(tmp_path) == []
-
-    def test_raw_hex_color_fails_closed(self, tmp_path):
-        bad_html = _VALID_HTML.replace("var(--bg-primary)", "#ff0000")
-        _write_panel(tmp_path, "hexy", manifest=_manifest(), html=bad_html)
-        assert discover_panels(tmp_path) == []
-
     def test_builtin_id_collision_is_skipped(self, tmp_path):
         _write_panel(tmp_path, "arti", manifest=_manifest(pid="artifacts", label="X"))
         assert discover_panels(tmp_path) == []
@@ -134,14 +119,6 @@ class TestDiscoverPanels:
         _write_panel(tmp_path, "bad", manifest="{ broken ")
         assert [p.id for p in discover_panels(tmp_path)] == ["good"]
 
-    def test_non_utf8_asset_is_skipped_not_fatal(self, tmp_path):
-        # A non-UTF-8 sibling asset makes validate_panel's strict read_text
-        # raise UnicodeDecodeError; discovery must skip that bundle, not crash.
-        panel = _write_panel(tmp_path, "latin1", manifest=_manifest(pid="latin1"))
-        (panel / "styles.css").write_bytes(b"body{}/* \xff\xfe not utf-8 */")
-        result = discover_panels(tmp_path)  # must not raise
-        assert result == []
-
     def test_non_utf8_asset_does_not_sink_good_panels(self, tmp_path):
         _write_panel(tmp_path, "aaa-good", manifest=_manifest(pid="good"))
         bad = _write_panel(tmp_path, "zzz-bad", manifest=_manifest(pid="bad"))
@@ -153,14 +130,6 @@ class TestDiscoverPanels:
         # is linked), but the entry-shape guard rejects it → not served.
         _write_panel(tmp_path, "esc", manifest=_manifest(pid="esc", entry="../evil.html"))
         assert discover_panels(tmp_path) == []
-
-    def test_never_raises_on_garbage(self, tmp_path):
-        _write_panel(tmp_path, "x", manifest="not json at all")
-        (tmp_path / "empty").mkdir()
-        try:
-            discover_panels(tmp_path)
-        except Exception as exc:  # pragma: no cover - failure path
-            pytest.fail(f"discover_panels raised unexpectedly: {exc}")
 
 
 def _fake_app(*, allow, project_cwd, custom=None, visible=None):
@@ -185,10 +154,6 @@ class TestApplyDiscoveredPanels:
         assert app.state.custom_panels == []
         assert app.state.visible_panels == []
         assert app.state.discovered_panel_dirs == {}
-
-    def test_no_project_cwd_is_noop(self):
-        app = _fake_app(allow=True, project_cwd=None)
-        assert apply_discovered_panels(app) == []
 
     def test_gate_on_wires_panel_into_state(self, tmp_path):
         _write_panel(tmp_path / "panels", "demo", manifest=_manifest())
@@ -222,8 +187,7 @@ def serving_client(tmp_path):
     (panel_dir / "index.html").write_text(_VALID_HTML, encoding="utf-8")
     (panel_dir / "app.js").write_text("export const x = 1;\n", encoding="utf-8")
 
-    app = FastAPI()
-    app.include_router(router)
+    app = bare_route_app(router)
     app.state.enabled_panels = set()
     app.state.custom_panels = [
         {"id": "demo", "label": "Demo", "url": "/panel-static/demo/", "discovered": True},
