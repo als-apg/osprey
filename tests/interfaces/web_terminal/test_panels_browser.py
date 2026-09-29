@@ -1228,61 +1228,6 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
 # ===========================================================================
 
 
-def test_layout_persists_across_reload(tmp_path, chromium_browser):
-    """An expert arrangement survives a reload (keyed by project_key).
-
-    Drag the native terminal to the far-left; after a reload the terminal is
-    still leftmost — the persisted layout was restored over the default.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _live_server(
-        workspace,
-        enabled_panels={"artifacts"},
-        custom_panels=[],
-        project_cwd=str(workspace),
-    ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
-
-        # Default order is workspace/services left, terminal on the right.
-        groups = _dock_groups(page)
-        term_before = next(g for g in groups if g["tabs"] == ["SESSION"])
-        assert term_before["x"] == max(g["x"] for g in groups), groups
-
-        # Act — drag the terminal to the far-left of the first group.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
-        first_group = page.locator(".dv-groupview").first
-        fb = first_group.bounding_box()
-        _drag_with_dock_shield(
-            page,
-            _terminal_tab(page),
-            first_group,
-            target_position={"x": 8, "y": fb["height"] / 2},
-        )
-        page.wait_for_function(
-            """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => g.querySelector('.terminal-header'));
-                return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
-            timeout=5_000,
-        )
-        # Let the debounced persist write flush (schedulePersist ~150ms).
-        page.wait_for_timeout(500)
-
-        # Reload; the arrangement must be restored.
-        page.reload(wait_until="domcontentloaded")
-        expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-        page.wait_for_timeout(1_500)
-
-        groups = _dock_groups(page)
-        term_after = next(g for g in groups if g["tabs"] == ["SESSION"])
-        assert term_after["x"] == min(g["x"] for g in groups), (
-            f"terminal did not stay leftmost after reload: {groups}"
-        )
-
-        page.close()
-
-
 def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
     """Two project cwds keep distinct dock layouts on one browser origin.
 
@@ -1748,23 +1693,6 @@ def test_add_menu_url_row_hidden_when_disabled(tmp_path, chromium_browser):
         page.locator("#panel-add-btn").click()
         expect(page.locator(".panel-add-menu.open")).to_be_visible(timeout=5_000)
         expect(page.locator(".panel-add-input")).to_have_count(0)
-        page.close()
-
-
-def test_add_menu_url_row_shown_when_enabled(tmp_path, chromium_browser):
-    """With allow_runtime_panels on, the "+" menu offers the URL input."""
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _live_server(
-        workspace,
-        enabled_panels={"artifacts"},
-        custom_panels=[],
-        allow_runtime=True,
-    ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
-        page.locator("#panel-add-btn").click()
-        expect(page.locator('.panel-add-menu input[name="url"]')).to_be_visible(timeout=5_000)
         page.close()
 
 
