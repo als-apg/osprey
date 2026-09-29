@@ -56,16 +56,6 @@ describe('the built-in panel labels come from the page', () => {
     expect(warnings).toEqual([]);
   });
 
-  test('a label the stamp renames follows the stamp, not a copy in the bundle', async () => {
-    document.documentElement.setAttribute(
-      'data-panel-labels',
-      JSON.stringify({ ...BUILTIN_PANEL_LABELS, artifacts: 'FILES' })
-    );
-    const { PANELS } = await freshCatalog();
-
-    expect(PANELS.find((p) => p.id === 'artifacts')?.label).toBe('FILES');
-  });
-
   test('without the stamp every panel wears its id, and one warning is logged', async () => {
     const { PANELS } = await freshCatalog();
 
@@ -82,14 +72,15 @@ describe('the built-in panel labels come from the page', () => {
     expect(warnings).toHaveLength(1);
   });
 
-  test('a panel the stamp does not name falls back to its id', async () => {
+  test('a label follows the stamp, and a panel the stamp does not name falls back to its id', async () => {
+    // A renamed label proves no copy of the roster rides in the bundle.
     document.documentElement.setAttribute(
       'data-panel-labels',
-      JSON.stringify({ artifacts: 'WORKSPACE' })
+      JSON.stringify({ artifacts: 'FILES' })
     );
     const { PANELS } = await freshCatalog();
 
-    expect(PANELS.find((p) => p.id === 'artifacts')?.label).toBe('WORKSPACE');
+    expect(PANELS.find((p) => p.id === 'artifacts')?.label).toBe('FILES');
     expect(PANELS.find((p) => p.id === 'okf')?.label).toBe('OKF');
     expect(warnings).toEqual([]);
   });
