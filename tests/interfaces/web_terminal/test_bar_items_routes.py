@@ -47,6 +47,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import bar_items_store
+from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
 from osprey.interfaces.web_terminal.app import (
     BAR_LAYOUT_VERSION,
     MAX_BAR_ITEMS_PER_HOST,
@@ -939,15 +940,13 @@ class TestALayoutSaveIsNotAFileChange:
                 _arm(queue, watched_workspace)
 
                 unconcealed.put("/api/bar-items", json=document(0))
-                stored = bar_items_store.read_json_object(bar_items_store.layout_path(store_dir))
+                stored = read_json_object(bar_items_store.layout_path(store_dir))
                 assert stored is not None, "the save landed in the store the watcher sees"
 
                 paths = _broadcast_paths(
                     queue,
                     until_under="agent_data/bar_items",
-                    poke=lambda: bar_items_store.write_json_atomic(
-                        bar_items_store.layout_path(store_dir), stored
-                    ),
+                    poke=lambda: write_json_atomic(bar_items_store.layout_path(store_dir), stored),
                 )
 
         assert [path for path in paths if path.startswith("agent_data/bar_items")] != []
