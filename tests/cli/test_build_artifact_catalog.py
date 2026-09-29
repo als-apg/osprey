@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.catalog import (
+    DEFAULT_CLAUDE_MD_TEMPLATE,
+    INSTRUCTIONS_OUTPUT,
+    BuildArtifact,
+    BuildArtifactCatalog,
+)
 
 
 class TestBuildArtifact:
@@ -182,3 +187,55 @@ class TestCustomRegistry:
         reg = BuildArtifactCatalog([art])
         assert reg.get("my/thing") is art
         assert reg.all_names() == ["my/thing"]
+
+
+_PERSONAS = [
+    ("CLAUDE.md.j2", "claude-md"),
+    ("CLAUDE.ariel.md.j2", "claude-md-ariel"),
+    ("CLAUDE.knowledge.md.j2", "claude-md-knowledge"),
+    ("CLAUDE.channel-finder.md.j2", "claude-md-channel-finder"),
+]
+
+
+class TestInstructionsPersona:
+    """CLAUDE.md resolves to the persona the catalog is built for."""
+
+    def test_the_default_persona_is_the_control_system_instructions(self):
+        catalog = BuildArtifactCatalog.default()
+        art = catalog.get_by_output("CLAUDE.md")
+        assert art is not None
+        assert art.canonical_name == "claude-md"
+        assert catalog.claude_md_template == DEFAULT_CLAUDE_MD_TEMPLATE
+
+    @pytest.mark.parametrize(("template", "name"), _PERSONAS)
+    def test_each_bundled_persona_resolves_claude_md(self, template, name):
+        catalog = BuildArtifactCatalog.default(claude_md_template=template)
+        art = catalog.get_by_output(INSTRUCTIONS_OUTPUT)
+        assert art is not None
+        assert art.canonical_name == name
+        for _, persona in _PERSONAS:
+            assert catalog.get(persona) is not None
+
+    def test_an_unknown_persona_is_refused_by_name(self):
+        with pytest.raises(ValueError, match=r"CLAUDE\.nope\.md\.j2") as excinfo:
+            BuildArtifactCatalog.default(claude_md_template="CLAUDE.nope.md.j2")
+        assert "CLAUDE.ariel.md.j2" in str(excinfo.value)
+
+    def test_a_second_artifact_on_one_output_is_refused(self):
+        first = BuildArtifact("my/first", "first.j2", "shared.md", "First")
+        second = BuildArtifact("my/second", "second.j2", "shared.md", "Second")
+        with pytest.raises(ValueError) as excinfo:
+            BuildArtifactCatalog([first, second])
+        assert "my/first" in str(excinfo.value)
+        assert "my/second" in str(excinfo.value)
+
+    def test_a_catalog_with_no_persona_takes_the_default_argument(self):
+        catalog = BuildArtifactCatalog([BuildArtifact("my/thing", "my.j2", "my.md", "x")])
+        assert catalog.get_by_output("CLAUDE.md") is None
+
+    def test_only_the_instructions_output_is_shared(self):
+        counts: dict[str, int] = {}
+        for art in BuildArtifactCatalog.default().all_artifacts():
+            counts[art.output_path] = counts.get(art.output_path, 0) + 1
+        shared = {path: n for path, n in counts.items() if n > 1}
+        assert shared == {INSTRUCTIONS_OUTPUT: 4}
