@@ -266,9 +266,10 @@ def _read_json_file(path: Path) -> dict | list | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        document: dict | list = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+    return document
 
 
 def _read_text_file(path: Path) -> str | None:

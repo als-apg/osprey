@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any
 
 import nbformat
 
@@ -239,7 +240,7 @@ async def build_execution_response(
         return json.dumps(result, default=str)
 
     # Build compact summary inline
-    summary = {
+    summary: dict[str, Any] = {
         "description": description,
         "status": "Failed" if has_errors else "Success",
         "output": stdout_text[:_STDOUT_PREVIEW_LIMIT],
