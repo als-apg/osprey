@@ -314,6 +314,23 @@ def test_a_step_that_writes_results_at_the_project_root_gets_the_table(
     assert not (default_cwd / build_lifecycle.JUNIT_RESULTS_FILENAME).exists()
 
 
+def test_the_profile_reference_names_the_results_file() -> None:
+    """The build profile reference states the file name the module reads."""
+    reference = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "source"
+        / "reference"
+        / "configuration"
+        / "profile.rst"
+    )
+    recipe = f"--junitxml={{project_root}}/{build_lifecycle.JUNIT_RESULTS_FILENAME}"
+
+    assert recipe in reference.read_text(encoding="utf-8"), (
+        "renaming JUNIT_RESULTS_FILENAME means updating the profile reference"
+    )
+
+
 def test_the_module_owns_no_console_of_its_own() -> None:
     """Every line here goes through the reporter or the renderer, nothing else."""
     source = Path(build_lifecycle.__file__).read_text(encoding="utf-8")

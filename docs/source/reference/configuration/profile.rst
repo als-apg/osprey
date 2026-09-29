@@ -1252,6 +1252,22 @@ also available for all steps via ``--stream``).
 project venv's ``bin/`` is prepended to ``PATH``, so ``python`` and ``pytest``
 resolve to the project's own Python.
 
+A step that writes JUnit XML to ``{project_root}/check_results.xml`` has its
+tests printed as an **Integration Test Results** table when it finishes: each
+test's name, whether it passed, failed or was skipped, and its time. The file is
+read from the project root whatever the step's ``cwd``, so name it with
+``{project_root}`` rather than relying on the working directory. A step that
+writes no such file prints no table. ``validate`` is the usual phase for a test
+run, because its failures warn instead of stopping the build:
+
+.. code-block:: yaml
+
+   lifecycle:
+     validate:
+       - name: "Integration tests"
+         run: "pytest tests/integration --junitxml={project_root}/check_results.xml"
+         timeout: 600
+
 
 Environment variables
 =====================
