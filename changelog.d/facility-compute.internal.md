@@ -12,3 +12,5 @@ repeated wired element, a declared `texture` model or a channel on a status
 address, and a nominal outside its limits band. `build_facility` runs every
 stage in memory and returns the facility file, and `validate` now runs the same
 stages. No command writes the file yet.
+A wired element missing from or repeated in its deck stops with one line naming
+the wiring record, whatever slice or role it sits on.

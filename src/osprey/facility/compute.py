@@ -21,7 +21,8 @@ place that contradicts its span (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
 (``wiring-conflict``), a declared ``texture`` model or a channel on a status
 address (``model-conflict``), and a nominal outside its limits band
-(``seed-invalid``). ``texture`` is then listed last among the models.
+(``seed-invalid``); a wired element missing from its deck is ``engine-invalid``
+naming the wiring record. ``texture`` is then listed last among the models.
 
 A span is half open, ``[from_marker, to_marker)``; with no ``to_marker`` it
 runs to the end of the deck, and on a periodic model it may wrap past the end.
@@ -41,6 +42,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.sources import AUTHORED
 from osprey.facility.validate import Validated
+from osprey.facility.wiring import element_stop
 
 __all__ = [
     "TEXTURE",
@@ -60,7 +62,6 @@ _MODELS_FILE = "models.yaml"
 _LIMITS_FILE = "limits.yaml"
 _FIXES_FILE = "fixes.yaml"
 _PERIODIC = "periodic"
-_REPEATED = "times in the deck"
 
 
 @dataclass(frozen=True)
@@ -307,17 +308,7 @@ def _locate(
     try:
         entrance, length = deck.engine.locate(deck.path, element, model=deck.name)
     except FacilityBuildError as stop:
-        if _REPEATED in stop.detail:
-            run.stop(
-                "wiring-conflict",
-                "wiring",
-                record["id"],
-                _files(record, None, _MODELS_FILE),
-                f"{stop.detail} of model {deck.name}",
-                "give the element a unique name in the deck",
-            )
-        else:
-            run.errors.append(stop)
+        run.errors.append(element_stop(stop, record, deck.name) or stop)
         return None
     return float(entrance), float(length)
 
