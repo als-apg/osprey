@@ -17,10 +17,11 @@
  * into a private key helper.
  *
  * settings.js needs a stubbed `/health`, so it lives in the sibling
- * storage-scope-settings.test.js. dock-workspace.js's layout key is exercised
- * only by the Playwright suite (its storage path runs behind a live dockview
- * instance); its derivation is the same one-line `scopedStorageKey()` call as
- * every module here.
+ * storage-scope-settings.test.js. The session pointer's key belongs to
+ * session-pointer.js and is pinned in session-pointer.test.mjs. dock-workspace.js's
+ * layout key is exercised only by the Playwright suite (its storage path runs
+ * behind a live dockview instance); its derivation is the same one-line
+ * `scopedStorageKey()` call as every module here.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -34,7 +35,6 @@ import {
   applyTourConfig,
   INVITE_DELAY_MS,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/tour.js';
-import { clearStoredSessionId } from '../../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
 import {
   initAgentAttention,
   badgePanelActivity,
@@ -188,38 +188,6 @@ describe('tour.js', () => {
     dismissInvite();
 
     expect(localStorage.getItem(BASE)).toBe('1');
-  });
-});
-
-describe('terminal.js PTY session pointer', () => {
-  const BASE = 'osprey-pty-session';
-
-  // Read, write and clear all resolve the key through one module-private
-  // helper, so pinning the clear path pins the derivation all three use. The
-  // stakes on this key are the highest in the file: a session id replayed into
-  // another persona's container would attach that persona's terminal to a PTY
-  // that is not theirs. The READ half — a bare stale id must not become this
-  // persona's auto-resume — needs initTerminal()'s xterm/WebSocket harness and
-  // is pinned where that harness lives: terminal-resume.test.mjs ('per-persona
-  // pointer scope'). test_logout_resume_browser.py proves the same round trip
-  // in a real multi-user page.
-  test('clearing removes this persona\'s pointer and leaves the shared slot alone', () => {
-    localStorage.setItem(BASE, 'someone-elses-session');
-    localStorage.setItem(`${BASE}--bob`, 'bobs-session');
-    serveAs('bob');
-
-    clearStoredSessionId();
-
-    expect(localStorage.getItem(`${BASE}--bob`)).toBe(null);
-    expect(localStorage.getItem(BASE)).toBe('someone-elses-session');
-  });
-
-  test('unscoped serving clears the legacy key unchanged', () => {
-    localStorage.setItem(BASE, 'my-session');
-
-    clearStoredSessionId();
-
-    expect(localStorage.getItem(BASE)).toBe(null);
   });
 });
 
