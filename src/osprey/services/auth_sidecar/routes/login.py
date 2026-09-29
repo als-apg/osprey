@@ -288,7 +288,7 @@ def _theme_blocks(configured: str) -> tuple[dict[str, Any], ...]:
         resolved_id = resolve_theme_id(configured, entries, defaults, config_key="web.theme")
         pinned_mode = resolve_pinned_mode(configured, entries)
         if pinned_mode is not None:
-            wanted = ((None, pinned_mode, resolved_id),)
+            wanted: tuple[tuple[str | None, str, str], ...] = ((None, pinned_mode, resolved_id),)
         else:
             family = defaults[family_of(resolved_id, entries) or _DEFAULT_THEME_FAMILY]
             wanted = (
