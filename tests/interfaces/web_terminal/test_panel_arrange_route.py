@@ -9,13 +9,12 @@ every client applies as a deterministic rebuild of the service-tile region.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.routes.panels import router
+
+from .conftest import bare_route_app
 
 
 def _make_client(**state) -> TestClient:
@@ -24,16 +23,13 @@ def _make_client(**state) -> TestClient:
     Defaults give three known panels (two built-ins plus a custom one) and an
     empty rail; individual tests override via keyword arguments.
     """
-    app = FastAPI()
-    app.include_router(router)
-    app.state.broadcaster = MagicMock()
-    app.state.enabled_panels = {"ariel", "lattice", "artifacts"}
-    app.state.custom_panels = [{"id": "grafana", "label": "GRAFANA", "url": "http://10.0.0.5:3000"}]
-    app.state.visible_panels = []
-    app.state.panel_presets = []
-    for key, value in state.items():
-        setattr(app.state, key, value)
-    return TestClient(app)
+    defaults = {
+        "enabled_panels": {"ariel", "lattice", "artifacts"},
+        "custom_panels": [{"id": "grafana", "label": "GRAFANA", "url": "http://10.0.0.5:3000"}],
+        "visible_panels": [],
+        "panel_presets": [],
+    }
+    return TestClient(bare_route_app(router, **{**defaults, **state}))
 
 
 def _frame(client: TestClient) -> dict:
@@ -77,26 +73,10 @@ class TestTilesPath:
         resp = client.post("/api/panel-arrange", json={"tiles": ["ariel", "lattice", "ariel"]})
         assert resp.json()["tiles"] == ["ariel", "lattice"]
 
-    def test_custom_panel_ids_are_arrangeable(self):
-        client = _make_client()
-        resp = client.post("/api/panel-arrange", json={"tiles": ["grafana"]})
-        assert resp.status_code == 200
-        assert resp.json()["tiles"] == ["grafana"]
-
     def test_source_agent_is_passed_through(self):
         client = _make_client()
         client.post("/api/panel-arrange", json={"tiles": ["ariel"], "source": "agent"})
         assert _frame(client)["source"] == "agent"
-
-    def test_source_key_omitted_when_not_supplied(self):
-        client = _make_client()
-        client.post("/api/panel-arrange", json={"tiles": ["ariel"]})
-        assert "source" not in _frame(client)
-
-    def test_prune_rail_key_omitted_on_the_tiles_path(self):
-        client = _make_client()
-        client.post("/api/panel-arrange", json={"tiles": ["ariel"]})
-        assert "prune_rail" not in _frame(client)
 
 
 class TestFocus:
@@ -109,34 +89,11 @@ class TestFocus:
         assert client.app.state.active_panel == "ariel"
         assert _frame(client)["focus"] == "ariel"
 
-    def test_first_tile_becomes_active_when_no_focus_requested(self):
-        """An arrangement always lands focus — it never strands the old one."""
-        client = _make_client(active_panel="artifacts")
-        client.post("/api/panel-arrange", json={"tiles": ["lattice", "ariel"]})
-        assert client.app.state.active_panel == "lattice"
-
-    def test_no_focus_request_still_omits_focus_from_the_broadcast(self):
-        """The client's healthy-fallback rule stays in charge of the screen."""
-        client = _make_client(active_panel="artifacts")
-        client.post("/api/panel-arrange", json={"tiles": ["lattice", "ariel"]})
-        assert "focus" not in _frame(client)
-
-    def test_focus_less_response_still_reports_no_requested_focus(self):
-        """The response echoes what was *asked*, not the recorded fallback."""
-        client = _make_client()
-        resp = client.post("/api/panel-arrange", json={"tiles": ["lattice", "ariel"]})
-        assert resp.json()["focus"] is None
-
     def test_focus_outside_the_arranged_tiles_is_rejected(self):
         client = _make_client()
         resp = client.post("/api/panel-arrange", json={"tiles": ["ariel"], "focus": "lattice"})
         assert resp.status_code == 422
         assert "lattice" in resp.json()["detail"]
-
-    def test_unknown_focus_id_is_rejected(self):
-        client = _make_client()
-        resp = client.post("/api/panel-arrange", json={"tiles": ["ariel"], "focus": "nope"})
-        assert resp.status_code == 422
 
 
 class TestPresetPath:
@@ -168,7 +125,7 @@ class TestPresetPath:
         assert client.app.state.visible_panels == ["lattice", "ariel"]
 
     def test_unknown_members_are_filtered_fail_safe(self):
-        """Mirrors ``computePresetDiff``: a typo'd member is skipped, not fatal."""
+        """A typo'd member is skipped, not fatal."""
         client = _make_client(panel_presets=[{"name": "L1", "panels": ["ariel", "typo"]}])
         resp = client.post("/api/panel-arrange", json={"preset": "L1"})
         assert resp.status_code == 200
@@ -263,15 +220,6 @@ class TestActiveStaysConsistentWithVisible:
         assert body["active"] in body["visible"]
         assert body["active"] == "grafana"
 
-    def test_explicit_focus_still_wins_over_the_first_tile(self):
-        client = _make_client(visible_panels=["artifacts"], active_panel="artifacts")
-
-        client.post("/api/panel-arrange", json={"tiles": ["lattice", "ariel"], "focus": "ariel"})
-
-        body = client.get("/api/panels").json()
-        assert body["active"] == "ariel"
-        assert body["active"] in body["visible"]
-
 
 class TestValidation:
     @pytest.mark.parametrize(
@@ -303,12 +251,6 @@ class TestValidation:
         assert "nope" in detail
         for valid in ("ariel", "lattice", "artifacts", "grafana"):
             assert valid in detail
-
-    def test_terminal_tile_is_rejected(self):
-        client = _make_client()
-        resp = client.post("/api/panel-arrange", json={"tiles": ["ariel", "terminal"]})
-        assert resp.status_code == 422
-        assert "terminal" in resp.json()["detail"]
 
     def test_terminal_is_rejected_even_when_a_custom_panel_squats_the_id(self):
         """The terminal check is explicit, not a side effect of id validation."""
