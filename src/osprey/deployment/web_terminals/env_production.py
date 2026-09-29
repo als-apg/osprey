@@ -199,9 +199,8 @@ _TELEMETRY_BLOCK_PATH = ("claude_code", "telemetry")
 #:   the refusal.
 #:
 #: A path this table does not name is a ``"secret"``: required when bare, never
-#: copied into ``.env.users``. Failing closed is the point — a header or a key
-#: added later may carry a credential, and ``.env.users`` is handed to every
-#: persona alike.
+#: copied into ``.env.users``. Failing closed is the point — a key added later
+#: may carry a credential, and ``.env.users`` is handed to every persona alike.
 _TELEMETRY_REFERENCE_ROLES: dict[tuple[str, ...], str] = {
     ("openobserve", "user"): "account",
     ("openobserve", "password"): "store-secret",
@@ -467,7 +466,7 @@ def _telemetry_references(
 ) -> list[_TelemetryReference]:
     """Every env-var reference in the telemetry block of every config in play.
 
-    The whole block is read — store login, endpoint, headers, resource
+    The whole block is read — store login, endpoint, resource
     attributes — so a credential cannot hide under a key this module does not
     name. The deploy config and each referenced persona project's rendered
     ``config.yml`` are read the same way :func:`_claude_code_auth_secret_vars`
@@ -562,7 +561,7 @@ def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict
     Nothing here is bound to one variable spelling or one key: every bare
     reference in the block outside the account table
     (:data:`_TELEMETRY_REFERENCE_ROLES`) is reported, whichever key holds it —
-    the store password, a collector header, the endpoint. That is why
+    the store password, a resource attribute, the endpoint. That is why
     repointing the shipped configs from the store's root password to its ingest
     service account's token (``ZO_INGEST_SA_TOKEN``) needed no edit on this
     side, while :data:`_TELEMETRY_USER_ENV_VAR` — the account NAME, which IS a
@@ -607,6 +606,41 @@ def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict
     return {
         var: ref.origin for var, ref in _telemetry_secret_requirements(config, project_root).items()
     }
+
+
+def _telemetry_token_requirements(config: dict, project_root: Path) -> dict[str, str]:
+    """``{var: origin}`` for the collector bearer tokens the configs in play name.
+
+    Read from ``claude_code.telemetry.auth.token_env`` of each referenced
+    persona's rendered ``config.yml`` and of the deploy config, walked as
+    :func:`_telemetry_references` walks them; a config whose telemetry is off
+    names none. The token reaches every exporting terminal through its own
+    compose environment, so the chain must carry it; it is never copied into
+    ``.env.users``.
+
+    :raises TelemetryConfigError: For an ``auth`` block the collector cannot
+        use.
+    """
+    required: dict[str, str] = {}
+
+    def _record(cfg: dict, source: str) -> None:
+        if not _telemetry_enabled(cfg):
+            return
+        token_env = telemetry_auth_token_env(_telemetry_block(cfg))
+        if token_env is not None:
+            required.setdefault(token_env, f"claude_code.telemetry.auth.token_env {source}")
+
+    for persona_name, entry in _referenced_persona_entries(config):
+        config_yml = _persona_config_yml(project_root, entry)
+        if config_yml is None or not config_yml.is_file():
+            continue
+        persona_config = _load_config_yml(config_yml)
+        if persona_config is None:
+            continue
+        _record(persona_config, f"(persona {persona_name!r})")
+
+    _record(config, "(deploy config)")
+    return required
 
 
 def _telemetry_secret_requirements(
@@ -1128,12 +1162,17 @@ class _MissingRequiredVars:
         telemetry_store: The subset of ``telemetry`` that is the observability
             store's login secret (the ``"store-secret"`` role of
             :data:`_TELEMETRY_REFERENCE_ROLES`).
+        collector_tokens: The subset of ``missing`` that is a telemetry
+            collector's bearer token (see :func:`_telemetry_token_requirements`),
+            which every exporting terminal receives from the chain through its
+            own compose environment.
     """
 
     missing: dict[str, str]
     endpoints: frozenset[str]
     telemetry: frozenset[str]
     telemetry_store: frozenset[str]
+    collector_tokens: frozenset[str]
 
 
 def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _MissingRequiredVars:
@@ -1170,10 +1209,18 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
     # being written into a file every persona reads.
     telemetry_refs = _telemetry_secret_requirements(config, project_root)
     telemetry_vars = {var: ref.origin for var, ref in telemetry_refs.items()}
+    # Reported, never copied, for the same reason: compose hands the collector's
+    # token to each exporting terminal from the chain, so the chain must carry it.
+    collector_tokens = _telemetry_token_requirements(config, project_root)
 
     missing = {
         var: origin
-        for var, origin in {**telemetry_vars, **required_cc_vars, **required_url_vars}.items()
+        for var, origin in {
+            **collector_tokens,
+            **telemetry_vars,
+            **required_cc_vars,
+            **required_url_vars,
+        }.items()
         if var not in dotenv
     }
     return _MissingRequiredVars(
@@ -1185,6 +1232,7 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
             for var in missing
             if var in telemetry_refs and telemetry_refs[var].role == "store-secret"
         ),
+        collector_tokens=frozenset(var for var in missing if var in collector_tokens),
     )
 
 
@@ -1273,10 +1321,14 @@ def _required_vars_refusal(
             "telemetry block that names its own fallback (${VAR:-default}) is "
             "not asked for here at all."
         )
-    # Any other telemetry secret (a collector header, an endpoint) gets its own
+    # Any other telemetry secret (an endpoint, a resource attribute) gets its own
     # note: the store note names the store's accounts, which would misdescribe it.
     other_missing = [
-        var for var in gap.missing if var in gap.telemetry and var not in gap.telemetry_store
+        var
+        for var in gap.missing
+        if var in gap.telemetry
+        and var not in gap.telemetry_store
+        and var not in gap.collector_tokens
     ]
     if other_missing:
         other_names = ", ".join(other_missing)
@@ -1287,6 +1339,20 @@ def _required_vars_refusal(
             ".env.users is handed to every persona alike, so this file never "
             "carries it; the env chain is still where it belongs, but a web "
             "terminal will not receive it from here."
+        )
+
+    # The collector's token is the one telemetry secret a terminal DOES receive
+    # from the chain, so its note says so rather than reusing the notes above.
+    collector_missing = [var for var in gap.missing if var in gap.collector_tokens]
+    collector_note = ""
+    if collector_missing:
+        collector_names = ", ".join(collector_missing)
+        collector_verb = "are" if len(collector_missing) > 1 else "is"
+        collector_note = (
+            f" Note: {collector_names} {collector_verb} the telemetry collector's bearer "
+            f"token (claude_code.telemetry.auth.token_env). Set it in {env_path}: every "
+            "terminal that exports telemetry receives it from there through its own "
+            "compose environment, never through .env.users."
         )
 
     if existing:
@@ -1308,7 +1374,7 @@ def _required_vars_refusal(
             "yourself (an existing file is never regenerated) if this deploy "
             "authenticates another way."
         )
-    return f"{opening}{telemetry_note}{shell_hint}"
+    return f"{opening}{telemetry_note}{collector_note}{shell_hint}"
 
 
 def users_env_required_problem(config: dict, project_root: str | Path) -> str | None:
