@@ -20,10 +20,33 @@ Public surface::
         AgentSession,
         AgentSessionBudgetExceeded,
         TurnResult,
+        AgentEvent,
+        TextEvent,
+        ThinkingEvent,
+        ToolUseEvent,
+        ToolResultEvent,
+        ApiErrorEvent,
+        SystemEvent,
+        ResultEvent,
+        AgentRunError,
+        McpNotReadyError,
+        HAS_SDK,
     )
 """
 
+from osprey.agent_runner.errors import AgentRunError, McpNotReadyError
+from osprey.agent_runner.events import (
+    AgentEvent,
+    ApiErrorEvent,
+    ResultEvent,
+    SystemEvent,
+    TextEvent,
+    ThinkingEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+)
 from osprey.agent_runner.primitives import (
+    HAS_SDK,
     MCP_READY_TIMEOUT_S,
     SDKWorkflowResult,
     ToolTrace,
@@ -65,6 +88,19 @@ __all__ = [
     "mcp_servers_connected",
     "mcp_snapshot_summary",
     "MCP_READY_TIMEOUT_S",
+    "HAS_SDK",
+    # event records
+    "AgentEvent",
+    "TextEvent",
+    "ThinkingEvent",
+    "ToolUseEvent",
+    "ToolResultEvent",
+    "ApiErrorEvent",
+    "SystemEvent",
+    "ResultEvent",
+    # errors
+    "AgentRunError",
+    "McpNotReadyError",
     # runner (single-turn)
     "run_query",
     # session (multi-turn)
