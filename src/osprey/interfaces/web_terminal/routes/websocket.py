@@ -562,9 +562,6 @@ def _build_extra_env(
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
     extra_env[PANEL_TOKEN_ENV] = get_web_credentials(websocket.app).panel_token
-    hooks_env = getattr(websocket.app.state, "hooks_env", {})
-    if hooks_env:
-        extra_env.update(hooks_env)
 
     # The posture ANCHORS — never the posture itself. Keyed on the pool key:
     # ``terminal_ws`` computes ``current_key = claude_session_id or
@@ -579,8 +576,9 @@ def _build_extra_env(
     # could not express "the stand-in is read-only and the simulator is not" —
     # it sandboxes the whole session — and it could only be changed by killing
     # the child, which is the conversation this feature exists to keep. A
-    # deployment-wide readonly marker still reaches the child, as it always
-    # has, through ``hooks_env`` above or the inherited environment.
+    # deployment-wide readonly marker still reaches the child through the
+    # environment it inherits: ``build_base_child_env`` copies this process's
+    # ``os.environ`` into every PTY spawn.
     #
     # What the child is handed is where to look and whose answer to read:
     # ``OSPREY_POSTURE_SESSION`` (the store key) and
