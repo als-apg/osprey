@@ -96,7 +96,7 @@
 {%- endfor -%}
 {% for entry in allow_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ],
-{#- The deny floor is DENY_DEFAULTS in osprey/cli/templates/claude_code.py,
+{#- The deny floor is DENY_DEFAULTS in osprey/agent_runner/tool_names.py,
     handed over as `deny_defaults` by config_derived_context (which both render
     paths call). Deliberately NOT re-declared here: the build lint and the
     headless read-only-floor drift test read that same constant, and a second

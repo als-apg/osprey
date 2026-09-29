@@ -16,6 +16,7 @@ import yaml
 
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
+from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
@@ -28,36 +29,6 @@ from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader
 
 logger = logging.getLogger("osprey.cli.templates")
-
-#: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
-#:
-#: This is the interactive permission layer's hard floor: entries land in
-#: ``permissions.deny``, which Claude Code refuses without ever offering an
-#: approval prompt. ``Bash`` and ``Edit`` are the two that matter most — they
-#: are the unmediated shell-out and unmediated file-patch escape hatches around
-#: every other control the profile installs.
-#:
-#: Three consumers share this one definition, and they must not fork:
-#:
-#: * ``settings.json.j2`` renders it, in this order, into ``permissions.deny``
-#:   (minus anything a facility lists under ``permissions.remove_deny``). It
-#:   arrives there as the ``deny_defaults`` context key, written by
-#:   :func:`config_derived_context` so BOTH render paths carry it.
-#: * The build lint checks that every write-capable built-in is either denied
-#:   here or gated by a ``PreToolUse`` hook rule.
-#: * ``tests/agent_runner/test_write_tools.py`` guards that the headless
-#:   read-only floor is never more permissive than this interactive one.
-#:
-#: Order is load-bearing only in that it fixes the rendered array's order;
-#: appending is always safe, reordering churns every built project's diff.
-DENY_DEFAULTS: tuple[str, ...] = (
-    "Bash",
-    "Edit",
-    "WebFetch",
-    "WebSearch",
-    "mcp__plugin_playwright_playwright__*",
-    "mcp__plugin_context7_context7__*",
-)
 
 
 def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
@@ -1753,40 +1724,14 @@ def _declared_hook_rule(entry: dict, event: str, name: str) -> dict:
     }
 
 
-#: Built-in Claude Code tools that can write — to the filesystem, or (``Bash``)
-#: to anything the shell reaches. Every generated profile must gate each of
-#: these — either by hard-denying it in ``permissions.deny`` or by matching it
-#: with a ``PreToolUse`` hook rule — so a profile can never ship able to write
-#: with no gate at all.
-#:
-#: ``Bash`` and ``Edit`` are here for the reason :data:`DENY_DEFAULTS` names
-#: them first: they are the unmediated shell-out and unmediated file-patch
-#: escape hatches around every other control the profile installs. Their only
-#: gate in a shipped preset is that :data:`DENY_DEFAULTS` denies them — and
-#: ``claude_code.permissions.remove_deny`` lets a facility take that away, which
-#: before this entry did so with no lint and no warning. Listing them here is
-#: what makes ``remove_deny: ["Bash"]`` a build failure unless something else
-#: actually gates the tool.
-#:
-#: The memory-guard hook's ``Write|MultiEdit|NotebookEdit`` matcher is what
-#: gates the other three in the shipped presets; see
-#: :func:`_lint_write_tools_are_gated`.
-_WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
-    "Bash",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-)
-
-
 def _rendered_deny_list(ctx: dict) -> list[str]:
     """Reproduce the ``permissions.deny`` array ``settings.json.j2`` will render.
 
     Mirrors the template's own three-part construction exactly:
 
-    1. the ``deny_defaults`` floor (the hoisted :data:`DENY_DEFAULTS` constant),
-       minus anything a facility lists under ``permissions.remove_deny``;
+    1. the ``deny_defaults`` floor (the hoisted
+       :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS` constant), minus
+       anything a facility lists under ``permissions.remove_deny``;
     2. the profile-authored ``permissions.deny`` entries, minus ``remove_deny``
        as well — a profile may subtract what a profile added;
     3. the ``killswitch_deny`` entries, appended last and NEVER filtered.
@@ -1931,7 +1876,7 @@ def _matcher_covers(matcher: str | None, tool: str) -> bool:
 def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     """Refuse to build a profile that can write with no gate.
 
-    Every write-capable built-in (:data:`_WRITE_CAPABLE_BUILTINS`) must be
+    Every write-capable built-in (:data:`WRITE_CAPABLE_BUILTINS`) must be
     gated in one of two ways: hard-denied in the rendered ``permissions.deny``
     floor, OR matched by a ``PreToolUse`` hook rule. Either is accepted, and the
     distinction is load-bearing: Claude Code resolves permissions ``deny`` > ``ask``
@@ -1942,9 +1887,10 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     memory-guard ``PreToolUse`` rule is what legitimately gates them instead —
     allowing the good paths and denying the rest — so the lint takes a matcher as
     sufficient. ``Bash`` and ``Edit`` have no such legitimate path and are gated
-    by :data:`DENY_DEFAULTS`; the lint is what makes removing them from that
-    floor via ``claude_code.permissions.remove_deny`` a build failure rather than
-    a silent widening.
+    by :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`; the lint is what
+    makes removing them from that floor via
+    ``claude_code.permissions.remove_deny`` a build failure rather than a silent
+    widening.
 
     An empty rendered deny floor is itself the hazard this guards against: a
     context missing ``deny_defaults`` renders an EMPTY ``permissions.deny`` array
@@ -1984,8 +1930,9 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     Raises:
         BuildProfileError: Naming the first write-capable built-in that is
             neither hard-denied nor matched by any ``PreToolUse`` rule — or
-            reporting that the setup tool has moved into :data:`DENY_DEFAULTS`,
-            where the container's capability check cannot see it.
+            reporting that the setup tool has moved into
+            :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`, where the
+            container's capability check cannot see it.
     """
     # The container's chown of `build/config.yml` is decided one step earlier,
     # from the PROFILE's own deny/remove_deny alone (build_cmd.
@@ -2007,7 +1954,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
 
     deny = _rendered_deny_list(ctx)
     matchers = _pretooluse_matchers(ctx, fw_pre_rules)
-    for tool in _WRITE_CAPABLE_BUILTINS:
+    for tool in WRITE_CAPABLE_BUILTINS:
         if tool in deny:
             continue
         covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]

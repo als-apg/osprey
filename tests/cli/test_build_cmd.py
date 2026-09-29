@@ -2432,9 +2432,10 @@ def test_matcher_covers_every_match_all_spelling(matcher) -> None:
     path. A lint that recognised only the literal ``"*"`` would refuse builds
     whose hooks genuinely do gate the tool.
     """
-    from osprey.cli.templates.claude_code import _WRITE_CAPABLE_BUILTINS, _matcher_covers
+    from osprey.agent_runner.tool_names import WRITE_CAPABLE_BUILTINS
+    from osprey.cli.templates.claude_code import _matcher_covers
 
-    for tool in _WRITE_CAPABLE_BUILTINS:
+    for tool in WRITE_CAPABLE_BUILTINS:
         assert _matcher_covers(matcher, tool), f"{matcher!r} should cover {tool}"
 
 
@@ -2480,9 +2481,9 @@ def test_write_capable_builtins_cover_the_shell_and_patch_escape_hatches() -> No
     They belong to the linted set so removing them from the floor has to be
     replaced by some other gate.
     """
-    from osprey.cli.templates.claude_code import _WRITE_CAPABLE_BUILTINS, DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 
-    assert {"Bash", "Edit"} <= set(_WRITE_CAPABLE_BUILTINS)
+    assert {"Bash", "Edit"} <= set(WRITE_CAPABLE_BUILTINS)
     # And they are still what the deny floor gates them with today.
     assert {"Bash", "Edit"} <= set(DENY_DEFAULTS)
 

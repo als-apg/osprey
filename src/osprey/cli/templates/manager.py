@@ -8,6 +8,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
+from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.build.build_tiers import (
     VALID_CHANNEL_FINDER_MODES,
     default_tier_for_mode,
@@ -401,7 +402,7 @@ class TemplateManager:
         # and it is auditable in the profile. Assigned, not setdefault, so the
         # framework wins; the build's own path (build_claude_code_context) gets
         # the same precedence from its ctx.update.
-        ctx["deny_defaults"] = list(claude_code.DENY_DEFAULTS)
+        ctx["deny_defaults"] = list(DENY_DEFAULTS)
 
         # Resolve servers and agents via the data-driven registry.
         from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers

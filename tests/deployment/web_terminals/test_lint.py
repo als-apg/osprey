@@ -5196,7 +5196,7 @@ def _open_mode_config(tmp_path, *, method: str = "none", deny: list[str] | None 
     """A one-persona roster on *method* whose rendered project ships exactly *deny*."""
     import json
 
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     project_dir = tmp_path / "als-assistant"
     (project_dir / ".claude").mkdir(parents=True)
@@ -5224,7 +5224,7 @@ def test_lint_open_mode_persona_that_may_reach_the_host_network_is_an_error(tmp_
     from a neighbour's session — and an authoring run must say so rather than
     leaving it to the start."""
     # Arrange
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     config = _open_mode_config(tmp_path, deny=[entry for entry in DENY_DEFAULTS if entry != "Bash"])
 
@@ -5282,7 +5282,7 @@ def test_lint_a_walled_deployment_is_not_asked_the_open_question(tmp_path) -> No
     behind the magic-link wall a persona with a shell is a deliberate, documented
     posture and must not be flagged."""
     # Arrange
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     config = _open_mode_config(
         tmp_path, method="token", deny=[entry for entry in DENY_DEFAULTS if entry != "Bash"]

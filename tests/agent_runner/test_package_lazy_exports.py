@@ -51,6 +51,36 @@ def _modules_added_by_import(module: str) -> set[str]:
     return set(json.loads(result.stdout))
 
 
+def test_importing_a_leaf_costs_only_that_leaf():
+    """A stdlib-only module of the package loads no sibling and no agent SDK."""
+    added = _modules_added_by_import("osprey.agent_runner.project_paths")
+
+    assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
+    assert "osprey.agent_runner.primitives" not in added
+
+
+def test_public_names_are_exactly_the_lazy_map():
+    """``__all__`` lists every lazily resolved name and nothing else."""
+    import osprey.agent_runner
+
+    assert sorted(osprey.agent_runner.__all__) == sorted(osprey.agent_runner._LAZY_EXPORTS)
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "osprey.agent_runner.tool_names",
+        "osprey.cli.templates.claude_code",
+        "osprey.deployment.web_terminals.artifacts",
+    ],
+)
+def test_reading_a_tool_name_list_loads_no_agent_sdk(module):
+    """The build and deploy layers read these lists and never start an agent."""
+    added = _modules_added_by_import(module)
+
+    assert not [name for name in added if name.split(".")[0] == "claude_agent_sdk"]
+
+
 def test_importing_the_package_loads_no_module_of_it_and_no_agent_sdk():
     """The package root resolves its exports on access, so it imports no module."""
     added = _modules_added_by_import("osprey.agent_runner")

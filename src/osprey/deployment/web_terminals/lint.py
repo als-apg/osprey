@@ -2965,8 +2965,8 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
     Returns:
         One finding naming every offender and what each is missing, or none.
     """
+    from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
     from osprey.deployment.web_terminals.artifacts import (
-        OPEN_MODE_EGRESS_TOOLS,
         ZERO_MIGRATION_OFFENDER,
         open_mode_missing_by_persona,
     )

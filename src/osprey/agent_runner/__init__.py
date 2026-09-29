@@ -6,9 +6,9 @@ report agent output. A caller outside this package reads those records and
 never handles an agent SDK type.
 
 Importing the package, or any one module of it, costs only that module. The
-agent SDK loads only when a name that needs it is first read, so build-time
-consumers of the package's non-agent modules (the build-artifact catalog) do
-not pay for it.
+build and deploy layers read the tool-name lists and path helpers here, and
+they must not load the agent SDK to do it, so every re-exported name resolves
+on first access.
 
 Public surface::
 

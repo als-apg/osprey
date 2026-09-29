@@ -30,8 +30,8 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.cli.build_profile import resolve_build_profile
-from osprey.cli.templates.claude_code import DENY_DEFAULTS
 from osprey.deployment.web_terminals.lint import (
     lint_profile_config,
     lint_web_terminals,
