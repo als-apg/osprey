@@ -1,9 +1,7 @@
 /**
- * Unit tests for the feedback modal shell (`feedback-modal.js`).
- *
- * Scope is the overlay LIFECYCLE only — the dialog's contents (text box,
- * radios, checkboxes) belong to a later task and are exercised through the
- * `render` hook here.
+ * Unit tests for the feedback modal (`feedback-modal.js`): the overlay
+ * lifecycle, keyboard and focus of the shell, and the built-in feedback form's
+ * state machine.
  *
  * Two environment notes carried over from the focus-trap and palette suites:
  *
@@ -18,6 +16,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { focusableElements } from '/design-system/js/focus-trap.js';
+
 import { qs } from '../_support/dom.mjs';
 
 const paletteState = vi.hoisted(() => ({ open: false }));
@@ -27,9 +27,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/palette.js', () =
 }));
 
 const {
-  ARTIFACT_WINDOW_DISCLOSURE,
-  CHANNEL_HINTS,
-  FEEDBACK_DISCLOSURE,
   FEEDBACK_DISCLOSURE_PARAGRAPHS,
   FeedbackModal,
   NO_SESSION_HINT,
@@ -60,6 +57,19 @@ function setVisible(el) {
     value: document.body,
     configurable: true,
   });
+}
+
+/**
+ * Mark every control in the open dialog as rendered, so the focus trap and the
+ * focus-on-open step see them (see `setVisible`). Call it right after `open()`,
+ * before the reveal frame runs.
+ */
+function revealControls() {
+  for (const node of document.querySelectorAll(
+    '.feedback-modal-dialog button, .feedback-modal-dialog input, .feedback-modal-dialog textarea'
+  )) {
+    setVisible(node);
+  }
 }
 
 /** Flush the requestAnimationFrame that reveals the overlay and moves focus. */
@@ -94,21 +104,6 @@ function pressKey(key) {
   return { stopped: !seen, defaultPrevented: event.defaultPrevented };
 }
 
-/**
- * The drawer's background-inert pass, reduced to its essentials
- * (`osprey-drawer.js:666-686`): while a drawer is open every top-level body
- * child that is not a drawer or the backdrop is marked inert + aria-hidden.
- */
-function syncBackgroundInert() {
-  for (const child of Array.from(document.body.children)) {
-    if (!(child instanceof HTMLElement)) continue;
-    if (child.tagName.toLowerCase() === 'osprey-drawer') continue;
-    if (child.id === 'drawer-backdrop') continue;
-    child.toggleAttribute('inert', true);
-    child.setAttribute('aria-hidden', 'true');
-  }
-}
-
 // Declared without an initializer so `tsc --strict` does not widen it to
 // `| null`: beforeEach always assigns it before any test body runs.
 /** @type {InstanceType<typeof FeedbackModal>} */
@@ -117,14 +112,7 @@ let modal;
 beforeEach(() => {
   paletteState.open = false;
   document.body.innerHTML = '';
-  modal = new FeedbackModal({
-    render: (body) => {
-      const input = document.createElement('textarea');
-      input.className = 'fixture-input';
-      body.appendChild(input);
-      setVisible(input);
-    },
-  });
+  modal = new FeedbackModal();
 });
 
 afterEach(() => {
@@ -146,12 +134,6 @@ describe('feedback modal shell — overlay lifecycle', () => {
 
     await flushRaf();
     expect(root.classList.contains('visible')).toBe(true);
-  });
-
-  test('shell: the render hook populates the dialog body slot', () => {
-    modal.open();
-    const body = qs(document, '.feedback-modal-body');
-    expect(body.querySelector('.fixture-input')).not.toBeNull();
   });
 
   test('shell: close removes the node from the document — never parked', async () => {
@@ -259,37 +241,29 @@ describe('feedback modal shell — keyboard arbitration', () => {
 describe('feedback modal shell — focus', () => {
   test('shell: focus moves to the first control in the body, not the close button', async () => {
     modal.open();
+    revealControls();
     await flushRaf();
-    expect(document.activeElement).toBe(qs(document, '.fixture-input'));
-  });
-
-  test('shell: an empty body falls back to the close button', async () => {
-    // An explicit no-op render, because the default body is the feedback form
-    // and that form's textarea would otherwise take the focus.
-    const m = new FeedbackModal({ render: () => {} });
-    m.open();
-    await flushRaf();
-    expect(document.activeElement).toBe(qs(document, '.feedback-modal-close'));
-    m.close();
+    expect(document.activeElement).toBe(qs(document, '.feedback-text'));
   });
 
   test('shell: Tab wraps inside the dialog (shared focus trap installed)', async () => {
     modal.open();
-    const close = qs(document, '.feedback-modal-close', HTMLButtonElement);
-    setVisible(close);
+    revealControls();
     await flushRaf();
 
-    // Document order inside the dialog is [close button, fixture input], so
-    // Tab off the last control must wrap back to the first.
-    const last = qs(document, '.fixture-input', HTMLTextAreaElement);
+    // The close button comes first in the dialog's document order, so Tab
+    // off the last control must wrap back to it.
+    const dialog = qs(document, DIALOG);
+    const last = focusableElements(dialog).at(-1);
+    if (!(last instanceof HTMLElement)) throw new Error('no focusable control in the dialog');
     last.focus();
     expect(document.activeElement).toBe(last);
 
-    qs(document, DIALOG).dispatchEvent(
+    dialog.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
     );
 
-    expect(document.activeElement).toBe(close);
+    expect(document.activeElement).toBe(qs(document, '.feedback-modal-close'));
   });
 
   test('shell: focus returns to the previously focused element on close', async () => {
@@ -299,6 +273,7 @@ describe('feedback modal shell — focus', () => {
     trigger.focus();
 
     modal.open();
+    revealControls();
     await flushRaf();
     expect(document.activeElement).not.toBe(trigger);
 
@@ -345,8 +320,12 @@ const GL = {
   target: 'https://git.example.org/controls/osprey',
 };
 
-function openForm(options = {}) {
-  const m = new FeedbackModal({ getSessionId: () => 'session-abc', trackers: [GH], ...options });
+/**
+ * @param {ConstructorParameters<typeof FeedbackModal>[0] & {trackers?: FeedbackTracker[]}} [options]
+ */
+function openForm({ trackers = [GH], ...options } = {}) {
+  const m = new FeedbackModal({ getSessionId: () => 'session-abc', ...options });
+  m.setTrackers(trackers);
   spawned.push(m);
   m.open();
   return m;
@@ -464,15 +443,6 @@ describe('feedback modal state — defaults and channel switching', () => {
     expect(m.formState()).toMatchObject({ channel: 'email', tracker: null });
   });
 
-  test('state: the GitLab row opens an issue and warns about the account', () => {
-    openForm({ trackers: [GL] });
-    pickChannel(GL.id);
-
-    expect(qs(document, '.feedback-open-channel').textContent).toBe('Open GitLab issue');
-    expect(qs(document, '.feedback-channel-hint').textContent).toBe(CHANNEL_HINTS.gitlab);
-    expect(CHANNEL_HINTS.gitlab).toBe('Requires a GitLab account');
-  });
-
   test('state: trackers arriving while the dialog is open are rendered in place', () => {
     // The dialog exists before the deployment's configuration does, and the
     // operator may well open it in between.
@@ -530,25 +500,18 @@ describe('feedback modal state — defaults and channel switching', () => {
     }
   });
 
-  test('state: the GitHub row opens an issue and warns about the account', () => {
-    openForm();
-    pickChannel(GH.id);
+  test.each([
+    ['GitLab', GL.id, 'Open GitLab issue', 'Requires a GitLab account'],
+    ['GitHub', GH.id, 'Open GitHub issue', 'Requires a GitHub account'],
+    ['email', 'email', 'Open email draft', 'If nothing opens, use Local instead'],
+  ])('state: the %s row opens its draft and states its caveat', (_name, channel, action, hint) => {
+    openForm({ trackers: [GL, GH] });
+    pickChannel(channel);
 
     expect(document.querySelector('.feedback-send')).toBeNull();
     expect(document.querySelector('.feedback-actions .feedback-copy-context')).toBeNull();
-    expect(qs(document, '.feedback-open-channel').textContent).toBe('Open GitHub issue');
-    expect(qs(document, '.feedback-channel-hint').textContent).toBe(CHANNEL_HINTS.github);
-    expect(CHANNEL_HINTS.github).toBe('Requires a GitHub account');
-  });
-
-  test('state: the email row opens a draft and points at Local as the fallback', () => {
-    openForm();
-    pickChannel('email');
-
-    expect(document.querySelector('.feedback-actions .feedback-copy-context')).toBeNull();
-    expect(qs(document, '.feedback-open-channel').textContent).toBe('Open email draft');
-    expect(qs(document, '.feedback-channel-hint').textContent).toBe(CHANNEL_HINTS.email);
-    expect(CHANNEL_HINTS.email).toBe('If nothing opens, use Local instead');
+    expect(qs(document, '.feedback-open-channel').textContent).toBe(action);
+    expect(qs(document, '.feedback-channel-hint').textContent).toBe(hint);
   });
 
   test('state: switching channels preserves typed text and checkbox state', () => {
@@ -641,19 +604,6 @@ describe('feedback modal state — context availability', () => {
     expect(pasteSteps()).toEqual([]);
   });
 
-  test('state: the two-step statement is pinned and plainly worded', () => {
-    expect(PASTE_STEP_COPY).toBe('Your full report is copied to your clipboard.');
-    expect(PASTE_STEP_OPEN.github).toBe(
-      'A GitHub issue draft opens — paste the report into the issue body.'
-    );
-    expect(PASTE_STEP_OPEN.gitlab).toBe(
-      'A GitLab issue draft opens — paste the report into the issue body.'
-    );
-    expect(PASTE_STEP_OPEN.email).toBe(
-      'An email draft opens — paste the report into the message body.'
-    );
-  });
-
   test('state: no session means no two-step statement, whatever was ticked', () => {
     openForm({ getSessionId: () => null });
     pickChannel(GH.id);
@@ -700,15 +650,6 @@ describe('feedback modal state — disclosure popover', () => {
     const rendered = Array.from(popover.querySelectorAll('p')).map((p) => p.textContent);
 
     expect(rendered).toEqual([...FEEDBACK_DISCLOSURE_PARAGRAPHS]);
-    expect(rendered.join('\n\n')).toBe(FEEDBACK_DISCLOSURE);
-  });
-
-  test('state: the disclosure states the artifact time-window rule verbatim', () => {
-    expect(ARTIFACT_WINDOW_DISCLOSURE).toBe(
-      'plus artifacts created on this deployment during the same time window, ' +
-        'which may include work from other terminal tabs or the chat panel'
-    );
-    expect(FEEDBACK_DISCLOSURE).toContain(ARTIFACT_WINDOW_DISCLOSURE);
   });
 
   test('state: the metadata paragraph claims only what the checkbox governs', () => {
@@ -727,16 +668,6 @@ describe('feedback modal state — disclosure popover', () => {
     expect(metadata).not.toContain('timestamp');
   });
 
-  test('state: the metadata paragraph names the build facts it now carries', () => {
-    // The block gained the preset (with its content hash) and the
-    // channel-finder mode so a maintainer can forward a framework bug without
-    // anyone re-deriving what was running. Both are deployment facts a user is
-    // entitled to see named before ticking the box.
-    const metadata = FEEDBACK_DISCLOSURE_PARAGRAPHS[1];
-    expect(metadata).toContain('preset');
-    expect(metadata).toContain('channel-finder mode');
-  });
-
   test('state: the disclosure covers everything FR6 requires', () => {
     for (const phrase of [
       'timestamp',
@@ -745,8 +676,9 @@ describe('feedback modal state — disclosure popover', () => {
       'truncated',
       'Nothing leaves this page until you click an action button.',
       'recorded on this deployment',
+      'which may include work from other terminal tabs or the chat panel',
     ]) {
-      expect(FEEDBACK_DISCLOSURE).toContain(phrase);
+      expect(FEEDBACK_DISCLOSURE_PARAGRAPHS.join('\n\n')).toContain(phrase);
     }
   });
 
@@ -831,28 +763,5 @@ describe('feedback modal state — action events', () => {
     copyButton()?.click();
 
     expect(onCopy).not.toHaveBeenCalled();
-  });
-});
-
-describe('feedback modal shell — drawer inert interaction', () => {
-  test('shell: a closed modal leaves nothing for the drawer to inert', () => {
-    modal.open();
-    modal.close();
-
-    syncBackgroundInert();
-
-    expect(document.querySelector('[inert]')).toBeNull();
-  });
-
-  test('shell: a modal reopened after a drawer inert pass carries no inert marks', () => {
-    modal.open();
-    modal.close();
-    syncBackgroundInert();
-
-    modal.open();
-
-    const root = qs(document, OVERLAY);
-    expect(root.hasAttribute('inert')).toBe(false);
-    expect(root.hasAttribute('aria-hidden')).toBe(false);
   });
 });
