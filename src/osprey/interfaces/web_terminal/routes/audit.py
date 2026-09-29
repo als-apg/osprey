@@ -118,9 +118,9 @@ def identity_dir() -> Path:
     """This container's own ledger directory.
 
     Resolved through the writer's two seams so the reader can only ever read
-    where the writer writes: ``tests/interfaces/web_terminal/test_audit_routes.py``
-    pins it against ``ledger_path(...).parent`` rather than against a second
-    literal, because two literals that agree today are two literals.
+    where the writer writes. It is pinned against ``ledger_path(...).parent``
+    rather than against a second literal, because two literals that agree
+    today are two literals.
 
     ``audit_dir`` is reached through the module (``writer.audit_dir()``) rather
     than bound here by a from-import, so the writer's single documented test
