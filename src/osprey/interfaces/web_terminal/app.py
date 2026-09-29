@@ -667,9 +667,8 @@ def renderable_bar_layout(layout: dict, *, context: dict) -> dict:
         context: The deployment facts from :func:`bar_availability_context`.
 
     Returns:
-        *layout* itself when it drops nothing, so a caller can tell the
-        shipped constant from a copy of it; otherwise a new document sharing
-        every key but the filtered host lists. Never mutates *layout*.
+        *layout* itself when it drops nothing; otherwise a new document
+        sharing every key but the filtered host lists. Never mutates *layout*.
     """
     filtered: dict = {}
     for host in BAR_HOSTS:
