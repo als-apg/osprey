@@ -54,6 +54,7 @@ import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from starlette.websockets import WebSocketState
+from websockets.asyncio.client import connect as _WebSocketConnect
 
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.interfaces.common_middleware import (
@@ -134,14 +135,20 @@ _PANEL_STATE_MAP = {
 } | {panel_id: panel_url_state_attr(panel_id) for panel_id in SIDECAR_PANELS}
 
 
-def _resolve_panel_url(request: Request, panel_id: str) -> str | None:
-    """Map a panel ID to its internal server URL, or ``None`` if unavailable."""
+def _resolve_panel_url(scope: Request | WebSocket, panel_id: str) -> str | None:
+    """Map a panel ID to its internal server URL, or ``None`` if unavailable.
+
+    Args:
+        scope: The request or websocket being proxied; only ``app.state`` is
+            read, so both connection kinds answer the same way.
+        panel_id: The panel id from the proxied URL.
+    """
     attr = _PANEL_STATE_MAP.get(panel_id)
     if attr:
-        return getattr(request.app.state, attr, None)
+        return getattr(scope.app.state, attr, None)
 
     # Custom panels: look up by ID in the custom panels list.
-    for cp in getattr(request.app.state, "custom_panels", []):
+    for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             url = cp.get("url", "")
             return url if url else None
@@ -165,6 +172,20 @@ def _panel_is_config_defined(scope: Request | WebSocket, panel_id: str) -> bool:
         if cp.get("id") == panel_id:
             return bool(cp.get("configDefined"))
     return False
+
+
+class _RedirectRefusingConnect(_WebSocketConnect):
+    """An upstream websocket handshake that follows no redirect.
+
+    A handshake carrying the operator secret or a panel credential follows no
+    redirect: ``websockets`` re-sends ``additional_headers`` verbatim to every
+    redirect target, so following one could carry the credential off the host
+    the gate vouched for. The redirect surfaces as the exception it raised.
+    """
+
+    def process_redirect(self, exc: Exception) -> Exception | str:
+        """Decline every redirect by returning the exception unchanged."""
+        return exc
 
 
 #: The panel id the event dispatcher is published under.
@@ -1598,17 +1619,13 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     # each target — the ws↔ws analogue of the httpx redirect leak the HTTP path
     # guards against. When the secret is being carried, refuse to follow any
     # redirect so it cannot ride one off the loopback host the gate vouched for.
-    connector = websockets.connect(
+    connect_type = _RedirectRefusingConnect if upstream_headers else websockets.connect
+    connector = connect_type(
         target,
         additional_headers=upstream_headers or None,
         subprotocols=offered or None,
         open_timeout=UPSTREAM_OPEN_TIMEOUT,
     )
-    if upstream_headers:
-        # ``process_redirect`` returns the new URI to follow a redirect, or the
-        # exception to refuse it; returning the exception unchanged declines
-        # every redirect and surfaces it instead of chasing it with the secret.
-        connector.process_redirect = lambda exc: exc
 
     client_gone = False
     try:
