@@ -7,6 +7,7 @@ import ipaddress
 import json
 import threading
 import time
+from contextlib import nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -134,13 +135,38 @@ def _stub_sidecar_class(script):
     return _StubSidecar
 
 
-def _make_client(workspace_dir, enabled_panels=None, custom_panels=None, sidecar_script=None):
-    """Create a TestClient with the given panel config."""
+def _config_reader(values):
+    """A ``get_config_value`` stand-in answering *values*, else the caller's default."""
+
+    def _get(path, default=None, _config_path=None):
+        return values.get(path, default)
+
+    return _get
+
+
+def _make_client(
+    workspace_dir,
+    enabled_panels=None,
+    custom_panels=None,
+    sidecar_script=None,
+    config_values: dict | None = None,
+):
+    """Create a TestClient with the given panel config.
+
+    *config_values* maps dotted config keys to what ``get_config_value`` returns
+    for them; every other key resolves to the default its reader passes.
+    """
     if enabled_panels is None:
         enabled_panels = set(UNIVERSAL_PANELS)
     if custom_panels is None:
         custom_panels = []
+    config_patch = (
+        patch("osprey.utils.config.get_config_value", side_effect=_config_reader(config_values))
+        if config_values is not None
+        else nullcontext()
+    )
     with (
+        config_patch,
         patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(sidecar_script or SidecarScript())),
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -1346,6 +1372,99 @@ def _stub_app():
     return SimpleNamespace(state=SimpleNamespace(sidecars={}, panel_auth_headers={}))
 
 
+class TestSidecarReadyTimeout:
+    """How long a sidecar launch waits, and where that number comes from."""
+
+    KEY = "web.sidecar_ready_timeout_s"
+
+    def _warnings_naming_the_key(self, caplog):
+        return [
+            r for r in caplog.records if r.levelname == "WARNING" and self.KEY in r.getMessage()
+        ]
+
+    def _launch(self, workspace_dir, value, script):
+        for client in _make_client(
+            workspace_dir,
+            enabled_panels={SIDECAR_ID} | set(UNIVERSAL_PANELS),
+            sidecar_script=script,
+            config_values={self.KEY: value},
+        ):
+            return getattr(client.app.state, f"{SIDECAR_ID}_server_url")
+
+    def test_an_unset_key_waits_the_default(self, client_with_sidecar, ready_sidecar):
+        assert client_with_sidecar.app.state.sidecar_ready_timeout_s == 60.0
+        assert ready_sidecar.waited == [60.0]
+
+    def test_the_configured_wait_reaches_the_sidecar(self, workspace_dir, ready_sidecar):
+        url = self._launch(workspace_dir, 240, ready_sidecar)
+
+        assert ready_sidecar.waited == [240.0]
+        assert url == ready_sidecar.url
+
+    def test_a_numeric_string_is_read_as_seconds(self, workspace_dir, ready_sidecar, caplog):
+        self._launch(workspace_dir, "90", ready_sidecar)
+
+        assert ready_sidecar.waited == [90.0]
+        assert self._warnings_naming_the_key(caplog) == []
+
+    @pytest.mark.parametrize(
+        "value", [0, -5, True, "soon", float("nan"), float("inf"), [60]], ids=repr
+    )
+    def test_an_unusable_value_is_refused_by_name(
+        self, workspace_dir, ready_sidecar, caplog, value
+    ):
+        url = self._launch(workspace_dir, value, ready_sidecar)
+
+        assert ready_sidecar.waited == [60.0]
+        assert url == ready_sidecar.url
+        warnings = self._warnings_naming_the_key(caplog)
+        assert len(warnings) == 1
+        assert repr(value) in warnings[0].getMessage()
+
+    def test_a_null_value_waits_the_default_quietly(self, workspace_dir, ready_sidecar, caplog):
+        self._launch(workspace_dir, None, ready_sidecar)
+
+        assert ready_sidecar.waited == [60.0]
+        assert self._warnings_naming_the_key(caplog) == []
+
+    def test_a_config_read_that_raises_waits_the_default(
+        self, workspace_dir, ready_sidecar, caplog
+    ):
+        def _reader(path, default=None, _config_path=None):
+            if path == self.KEY:
+                raise RuntimeError("config unreadable")
+            return default
+
+        with (
+            patch("osprey.utils.config.get_config_value", side_effect=_reader),
+            patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(ready_sidecar)),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_panel_config",
+                return_value=({SIDECAR_ID} | set(UNIVERSAL_PANELS), [], None),
+            ),
+        ):
+            with TestClient(create_app(shell_command="echo")) as client:
+                assert client.get("/api/panels").status_code == 200
+
+        assert ready_sidecar.waited == [60.0]
+        assert len(self._warnings_naming_the_key(caplog)) == 1
+
+    def test_every_launch_reads_the_wait_from_app_state(self, client_with_sidecar, ready_sidecar):
+        """The seam the relaunch path relies on: one attribute, read per launch."""
+        app = client_with_sidecar.app
+        app.state.sidecar_ready_timeout_s = 7.5
+
+        asyncio.run(web_terminal_app._launch_sidecar(app, SIDECAR_ID))
+        assert ready_sidecar.waited[-1] == 7.5
+
+        asyncio.run(web_terminal_app._relaunch_sidecar(app, SIDECAR_ID, None))
+        assert ready_sidecar.waited[-1] == 7.5
+
+
 class TestSidecarLaunchRouting:
     """Which launcher each built-in panel id reaches.
 
@@ -1407,7 +1526,7 @@ class TestSidecarPanelAvailability:
         assert state.panel_auth_headers[SIDECAR_ID] == ready_sidecar.auth_headers
         assert state.sidecars[SIDECAR_ID] is not None
         assert ready_sidecar.spawned == 1
-        assert ready_sidecar.waited == [web_terminal_app.SIDECAR_READY_TIMEOUT]
+        assert ready_sidecar.waited == [web_terminal_app.DEFAULT_SIDECAR_READY_TIMEOUT_S]
 
     def test_the_sidecar_is_built_from_the_app_s_own_root_prefix_and_theme(
         self, client_with_sidecar, ready_sidecar
@@ -1717,7 +1836,7 @@ class TestSidecarStartsAgain:
             assert _start(client).status_code == 202
             _settle(client, lambda b: b["state"] == "running")
 
-        timeout = web_terminal_app.SIDECAR_READY_TIMEOUT
+        timeout = web_terminal_app.DEFAULT_SIDECAR_READY_TIMEOUT_S
         assert script.waited == [timeout, timeout]
 
     def test_the_dead_sidecar_is_stopped_before_its_replacement_starts(

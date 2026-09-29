@@ -2700,6 +2700,17 @@ keys:
       default 5. Third of the trio, same lifespan block and same `\s*` rule as
       `web.chat_turn_timeout_s`.
     default: 5
+  web.sidecar_ready_timeout_s:
+    rendered: false
+    evidence: 'SIDECAR_READY_TIMEOUT_KEY = "web\.sidecar_ready_timeout_s"'
+    note: >-
+      Hidden key, commented in control-assistant, unset in the other presets.
+      Seconds the web terminal waits, at startup and on every relaunch, for a
+      panel sidecar (the JUPYTER tab's server) to answer before it greys the
+      tab; resolved once in the lifespan; a value that is not a positive number
+      is refused with a warning and the default applies. Documented in
+      reference/configuration/config.rst.
+    default: 60.0
   web.bar_items:
     rendered: false
     evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"bar_items"\s*\)'
