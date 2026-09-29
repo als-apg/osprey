@@ -106,6 +106,11 @@ Available Providers
 - **OpenAI (proxied)**: Speaks the OpenAI Chat Completions API. Osprey
   automatically starts a local translation proxy to bridge the protocols.
 
+The Protocol column is what each provider's adapter class declares as
+``api_protocol``. A class registered through ``ProviderRegistration`` declares
+its own. An ``api_protocol`` key in the provider's ``providers.yml`` entry
+overrides the declaration either way.
+
 **Images** and **Thinking** say whether images and the model's thinking reach
 the model on that route. An Anthropic-native route carries both. A proxied
 route carries images when the provider declares it, and never carries
@@ -133,6 +138,9 @@ Set the API key as an environment variable before running Osprey:
    export STANFORD_API_KEY="..."
 
 Ollama and vLLM run locally and do not require an API key.
+``osprey web`` checks the provider's key before launch and stops when it is
+missing, unless the provider needs none or, like direct ``anthropic``, offers
+an interactive login. That case launches with a warning.
 
 ``als-apg`` ships the endpoint of the gateway it fronts,
 ``https://llm.als.lbl.gov``, so the key is all a deployment needs. A site that
@@ -420,8 +428,11 @@ proxy in Anthropic mode), add ``api_protocol: anthropic`` to its
 ``api_protocol`` takes exactly two values, ``anthropic`` and ``openai``.
 Anything else — including a capitalised ``Anthropic`` — is refused when the
 provider is resolved, naming the provider and the two accepted values. Leave
-the key out and the provider is treated as OpenAI, which is what all but the
-Anthropic-native built-ins are.
+the key out, and a provider with an adapter class follows the class's
+declaration (the Protocol column above); a config-only entry is treated as
+OpenAI. ``api_protocol: openai`` on an Anthropic-native built-in sends it
+through the translation proxy, for a gateway whose Claude models are served
+only on its OpenAI route.
 
 .. _what-the-translated-route-does-not-carry:
 
@@ -548,7 +559,7 @@ deployment unhealthy. The rendered result in ``build/config.yml``:
 
 The framework automatically:
 
-- Detects that ``my-provider`` is not a built-in Anthropic-native provider.
+- Finds no adapter class and no ``api_protocol`` for ``my-provider``, so treats it as OpenAI.
 - Starts the translation proxy to bridge Anthropic → OpenAI protocols.
 - Reads the OSPREY agent's auth token from ``MY_PROVIDER_API_KEY``. The launcher
   derives that variable name from the provider's own name — uppercased, dashes to

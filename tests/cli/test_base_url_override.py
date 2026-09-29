@@ -144,14 +144,30 @@ class TestV1StripSurvivesTheOverride:
 class TestProxyUpstreamFollowsTheOverride:
     """upstream_base_url stays the single source the launch paths start the proxy from."""
 
-    def test_builtin_providers_are_native_so_no_upstream_is_set(self):
-        """Built-ins skip the translation proxy — overriding the URL must not change that."""
+    def test_anthropic_native_builtins_set_no_upstream(self):
+        """An Anthropic-native built-in skips the translation proxy; overriding the URL does
+        not change that."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "cborg"},
             api_providers={"cborg": {"base_url": f"{FACILITY_GATEWAY}/v1"}},
         )
         assert spec.needs_proxy is False
         assert spec.upstream_base_url is None
+
+    def test_explicit_openai_on_a_native_builtin_sets_the_upstream(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "cborg"},
+            api_providers={
+                "cborg": {
+                    "base_url": f"{FACILITY_GATEWAY}/v1",
+                    "api_protocol": "openai",
+                    **_served(),
+                }
+            },
+        )
+        assert spec.needs_proxy is True
+        assert spec.upstream_base_url == f"{FACILITY_GATEWAY}/v1"
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_custom_proxy_upstream_keeps_v1_from_the_same_resolved_url(self):
         spec = ClaudeCodeModelResolver.resolve(
@@ -331,11 +347,14 @@ class TestEnvVarParityWithProviderAdapters:
     not the other, which reads as "the override didn't work" with nothing in
     any log to say why.
 
-    Deriving one table from the other would force :mod:`osprey.build` to import
-    the adapter classes, defeating the registry's lazy loading (the point of
-    which is to keep air-gapped machines from triggering import side effects).
-    The duplication is therefore deliberate, and a guard is the honest way to
-    hold it together.
+    The override variable is the one column both tables still state. Deriving
+    it from the adapters would force :mod:`osprey.build` to import the adapter
+    classes, defeating the registry's lazy loading (the point of which is to
+    keep air-gapped machines from triggering import side effects); the key
+    column, by contrast, comes from the registry's entry per provider
+    (``PROVIDER_API_KEYS``), which is data and needs no adapter import. This
+    duplication is therefore deliberate, and a guard is the honest way to hold
+    it together.
     """
 
     def test_every_claude_code_provider_has_an_adapter(self):

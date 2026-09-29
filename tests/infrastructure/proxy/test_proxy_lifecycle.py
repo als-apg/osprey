@@ -10,11 +10,20 @@ lane never leaks a "running" proxy between tests.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import types
 from unittest.mock import MagicMock
 
 import pytest
 
 import osprey.infrastructure.proxy.lifecycle as lifecycle
+from osprey.models.provider_registry import (
+    _BUILTIN_PROVIDERS,
+    ProviderRegistry,
+    get_provider_registry,
+    reset_provider_registry,
+)
 
 
 @pytest.fixture
@@ -108,6 +117,78 @@ class TestIsProxyNeeded:
         """Nine of the twelve proxied built-ins declare nothing and are OpenAI."""
         api = {"custom": {"base_url": "https://gateway.example.org/v1"}}
         assert lifecycle.is_proxy_needed("custom", api_providers=api) is True
+
+    @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
+    def test_explicit_openai_on_a_native_provider_routes_through_the_proxy(self, provider):
+        api = {provider: {"api_protocol": "openai"}}
+        assert lifecycle.is_proxy_needed(provider, api_providers=api) is True
+
+    def test_every_builtin_follows_its_adapters_declaration(self):
+        for name in _BUILTIN_PROVIDERS:
+            needed = lifecycle.is_proxy_needed(name)
+            cls = get_provider_registry().get_provider(name)
+            assert cls is not None, name
+            assert needed is (cls.api_protocol != "anthropic"), name
+
+
+class TestTheProxyDecisionReadsTheRegistry:
+    """The declared protocol comes from the provider registry singleton."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_registry(self):
+        reset_provider_registry()
+        yield
+        reset_provider_registry()
+
+    @staticmethod
+    def _register(monkeypatch, name: str, api_protocol: str) -> None:
+        """Register a stand-in adapter for *name* declaring *api_protocol*."""
+        module = types.ModuleType("site_gateway_adapter")
+        module.SiteGatewayAdapter = type(
+            "SiteGatewayAdapter", (), {"name": name, "api_protocol": api_protocol}
+        )
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+        get_provider_registry().register_provider(name, module.__name__, "SiteGatewayAdapter")
+
+    def test_the_builtin_decision_imports_no_adapter(self, monkeypatch):
+        def refuse(_self, name, _entry):
+            raise AssertionError(f"imported the adapter for {name}")
+
+        monkeypatch.setattr(ProviderRegistry, "_load", refuse)
+        for name in _BUILTIN_PROVIDERS:
+            lifecycle.is_proxy_needed(name)
+
+    def test_a_registered_adapter_declaring_anthropic_skips_the_proxy(self, monkeypatch):
+        self._register(monkeypatch, "site-gateway", "anthropic")
+        assert lifecycle.is_proxy_needed("site-gateway") is False
+
+    def test_a_registration_over_a_builtin_name_is_honoured(self, monkeypatch):
+        self._register(monkeypatch, "openai", "anthropic")
+        assert lifecycle.is_proxy_needed("openai") is False
+
+    def test_config_wins_over_a_registered_declaration(self, monkeypatch):
+        self._register(monkeypatch, "site-gateway", "openai")
+        api = {"site-gateway": {"api_protocol": "anthropic"}}
+        assert lifecycle.is_proxy_needed("site-gateway", api_providers=api) is False
+
+
+def test_resolution_imports_no_adapter_module():
+    """Resolving a launch never imports an adapter module or LiteLLM."""
+    script = """
+import sys
+from osprey.build.claude_code_resolver import ClaudeCodeModelResolver as R
+served = {"models": ["m"], "default_model": "m"}
+for p in ("anthropic", "cborg", "als-apg"):
+    R.resolve({"provider": p}, {p: {}})
+R.resolve({"provider": "openai"}, {"openai": {"base_url": "https://x/v1", **served}})
+R.resolve({"provider": "my-gw"}, {"my-gw": {"base_url": "https://x/v1", **served}})
+loaded = [m for m in sys.modules if m == "litellm" or m.startswith("osprey.models.providers.")]
+print(loaded)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "[]", result.stdout + result.stderr
 
 
 # ---------------------------------------------------------------------------
