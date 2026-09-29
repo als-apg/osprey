@@ -7,7 +7,7 @@ must be facility-neutral: no default archiver URL, and no site-specific string
 anywhere in the migrated source.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -15,6 +15,7 @@ import defusedxml.ElementTree as ET
 
 from osprey.mcp_server.phoebus import plt_generator
 from osprey.mcp_server.phoebus.models import (
+    AnnotationConfig,
     LineStyle,
     PlotConfig,
     PointType,
@@ -185,3 +186,83 @@ def test_default_time_window_is_facility_local(tmp_path, monkeypatch):
     expected = datetime.now(tokyo).replace(tzinfo=None)
     assert abs((end - expected).total_seconds()) < 60
     assert abs((end - start).total_seconds() - 24 * 3600) < 1
+
+
+def _zone_away_from_host() -> ZoneInfo:
+    """Return a zone whose wall-clock differs from the host clock by hours.
+
+    The file-name stamp must be shown to follow the facility zone and not the host clock, so
+    the two must differ by more than the test tolerance on any host. UTC+14 is used unless the
+    host already runs at +14 h; the closest real host offset to +14 h is +13:45, fifteen
+    minutes away.
+    """
+    host_offset = datetime.now().astimezone().utcoffset()
+    if host_offset == timedelta(hours=14):
+        return ZoneInfo("Etc/GMT+12")
+    return ZoneInfo("Etc/GMT-14")
+
+
+def _patch_zone(monkeypatch, zone) -> None:
+    monkeypatch.setattr(
+        "osprey.mcp_server.phoebus.plt_generator.get_facility_timezone",
+        lambda: zone,
+    )
+
+
+def test_aware_time_range_is_written_in_the_facility_zone(tmp_path, monkeypatch):
+    """An aware range is converted to facility wall-clock before it is written."""
+    _patch_zone(monkeypatch, ZoneInfo("Asia/Tokyo"))
+    config = _minimal_config(
+        time_range=TimeRange(
+            start=datetime(2026, 1, 15, 20, 0, tzinfo=UTC),
+            end=datetime(2026, 1, 15, 22, 0, tzinfo=UTC),
+        )
+    )
+    plt_path = plt_generator.create_plt_from_config(config, workspace_dir=tmp_path)
+    root = ET.fromstring(Path(plt_path).read_text())
+
+    assert root.find("start").text == "2026-01-16 05:00:00.000"
+    assert root.find("end").text == "2026-01-16 07:00:00.999"
+
+
+def test_naive_time_range_is_read_as_facility_wall_clock(tmp_path, monkeypatch):
+    """A naive time keeps its digits; a string in the same range passes through."""
+    _patch_zone(monkeypatch, ZoneInfo("Asia/Tokyo"))
+    config = _minimal_config(time_range=TimeRange(start=datetime(2026, 1, 15, 20, 0), end="now"))
+    plt_path = plt_generator.create_plt_from_config(config, workspace_dir=tmp_path)
+    root = ET.fromstring(Path(plt_path).read_text())
+
+    assert root.find("start").text == "2026-01-15 20:00:00.000"
+    assert root.find("end").text == "now"
+
+
+def test_annotation_times_are_facility_wall_clock(tmp_path, monkeypatch):
+    """Aware annotation times convert, naive ones keep their digits, strings pass through."""
+    _patch_zone(monkeypatch, ZoneInfo("Asia/Tokyo"))
+    positions = [
+        datetime(2026, 1, 15, 21, 0, tzinfo=UTC),
+        datetime(2026, 1, 15, 21, 0),
+        "-1 hours",
+    ]
+    config = _minimal_config(
+        annotations=[
+            AnnotationConfig(text=f"a{i}", time_position=pos, value_position=1.0)
+            for i, pos in enumerate(positions)
+        ]
+    )
+    plt_path = plt_generator.create_plt_from_config(config, workspace_dir=tmp_path)
+    root = ET.fromstring(Path(plt_path).read_text())
+
+    times = [el.text for el in root.findall("annotations/annotation/time")]
+    assert times == ["2026-01-16 06:00:00.000", "2026-01-15 21:00:00.000", "-1 hours"]
+
+
+def test_file_name_is_stamped_in_the_facility_zone(tmp_path, monkeypatch):
+    """The file-name stamp is facility wall-clock, not the host clock."""
+    zone = _zone_away_from_host()
+    _patch_zone(monkeypatch, zone)
+    plt_path = plt_generator.create_plt_from_config(_minimal_config(), workspace_dir=tmp_path)
+
+    stamp = datetime.strptime(Path(plt_path).name[:15], "%Y%m%d_%H%M%S")
+    expected = datetime.now(zone).replace(tzinfo=None)
+    assert abs((stamp - expected).total_seconds()) < 120
