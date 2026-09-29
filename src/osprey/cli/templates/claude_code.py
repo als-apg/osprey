@@ -14,7 +14,10 @@ from typing import Any
 
 import yaml
 
-from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.catalog import (
+    DEFAULT_CLAUDE_MD_TEMPLATE,
+    BuildArtifactCatalog,
+)
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
@@ -580,7 +583,7 @@ def build_claude_code_context(
     # `None` for a project built from a profile that records no preset.
     manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
     preset = None
-    claude_md_template = "CLAUDE.md.j2"
+    claude_md_template = DEFAULT_CLAUDE_MD_TEMPLATE
     artifacts: dict[str, list[str]] = {}
     if manifest_path.exists():
         try:
@@ -588,7 +591,7 @@ def build_claude_code_context(
             creation = manifest_data.get("creation", {})
             manifest_mod.note_retired_creation_keys(creation)
             preset = creation.get("template")
-            claude_md_template = creation.get("claude_md_template", "CLAUDE.md.j2")
+            claude_md_template = manifest_mod.recorded_claude_md_template(manifest_data)
             artifacts = manifest_data.get("artifacts", {})
         except (json.JSONDecodeError, OSError):
             pass
@@ -1043,14 +1046,21 @@ def is_user_owned(rel_path: str, ctx: dict) -> bool:
     write would not raise: it would quietly hand a user-owned artifact back to
     regen.
 
+    ``CLAUDE.md`` is owned under the canonical name of the persona the
+    deployment renders, never under another persona's name.
+
     Args:
         rel_path: Relative path from project root (e.g. ".claude/rules/safety.md")
-        ctx: Template context (must contain "user_owned" key)
+        ctx: Template context. Must contain ``user_owned``; ``claude_md_template``
+            picks which persona's name owns ``CLAUDE.md`` (default persona when
+            absent).
     """
     user_owned = ctx.get("user_owned", [])
     if not user_owned:
         return False
-    registry = BuildArtifactCatalog.default()
+    registry = BuildArtifactCatalog.default(
+        claude_md_template=ctx.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE
+    )
     art = registry.get_by_output(rel_path)
     if art is not None and art.canonical_name in user_owned:
         return True
@@ -2077,22 +2087,19 @@ def create_claude_code_integration(
         files_created += 1
 
     # 2. Render CLAUDE.md template -> CLAUDE.md
-    # The template filename is selected by the build profile via the
-    # `claude_md_template` field (default "CLAUDE.md.j2"). Presets that want
-    # a different persona override it to e.g. "CLAUDE.ariel.md.j2".
-    claude_md_template_name = ctx.get("claude_md_template", "CLAUDE.md.j2")
-    claude_md_j2 = claude_code_dir / claude_md_template_name
-    claude_md_static = claude_code_dir / "CLAUDE.md"
+    # The catalog resolves CLAUDE.md to the profile's `claude_md_template:`
+    # persona, and an unknown one is refused there by name.
+    instructions = BuildArtifactCatalog.default(
+        claude_md_template=ctx.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE
+    ).get_by_output("CLAUDE.md")
+    assert instructions is not None, "the default catalog always carries a CLAUDE.md persona"
     if not is_user_owned("CLAUDE.md", ctx):
-        if claude_md_j2.exists():
-            render_template(
-                jinja_env,
-                f"claude_code/{claude_md_template_name}",
-                ctx,
-                project_dir / "CLAUDE.md",
-            )
-        elif claude_md_static.exists():
-            shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
+        render_template(
+            jinja_env,
+            f"claude_code/{instructions.template_path}",
+            ctx,
+            project_dir / "CLAUDE.md",
+        )
         files_created += 1
 
     # 2b. Create facility.md -- user-owned artifact

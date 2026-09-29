@@ -12,7 +12,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.catalog import (
+    DEFAULT_CLAUDE_MD_TEMPLATE,
+    BuildArtifactCatalog,
+)
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
 from osprey.errors import BuildProfileError
@@ -537,7 +540,7 @@ def generate_manifest(
     # re-render against the same persona (e.g. CLAUDE.ariel.md.j2 for the
     # ARIEL standalone preset). Default is the control-system persona.
     claude_md_template = context.get("claude_md_template")
-    if claude_md_template and claude_md_template != "CLAUDE.md.j2":
+    if claude_md_template and claude_md_template != DEFAULT_CLAUDE_MD_TEMPLATE:
         creation_block["claude_md_template"] = claude_md_template
 
     manifest_data: dict[str, Any] = {
@@ -605,6 +608,32 @@ def load_project_manifest(project_dir: Path) -> dict[str, Any] | None:
         return None
     note_retired_creation_keys(data.get("creation"))
     return data
+
+
+def recorded_claude_md_template(manifest: dict[str, Any] | None) -> str:
+    """Return the ``CLAUDE.md`` persona a built project's manifest records.
+
+    Reads what :func:`generate_manifest` writes: ``creation.claude_md_template``.
+    The default persona is recorded by leaving the key out, so a missing
+    manifest, a missing or malformed ``creation`` block, or an absent or empty
+    key all mean the default persona.
+
+    Args:
+        manifest: A parsed project manifest, as :func:`load_project_manifest`
+            returns it, or ``None``.
+
+    Returns:
+        The persona template name, e.g. ``"CLAUDE.ariel.md.j2"``.
+    """
+    if manifest is None:
+        return DEFAULT_CLAUDE_MD_TEMPLATE
+    creation = manifest.get("creation")
+    if not isinstance(creation, dict):
+        return DEFAULT_CLAUDE_MD_TEMPLATE
+    value = creation.get("claude_md_template")
+    if isinstance(value, str) and value:
+        return value
+    return DEFAULT_CLAUDE_MD_TEMPLATE
 
 
 def manifest_profile_path(project_dir: Path) -> Path | None:

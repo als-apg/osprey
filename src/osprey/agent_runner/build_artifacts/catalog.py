@@ -43,6 +43,14 @@ class BuildArtifact:
     is_directory: bool = False
 
 
+#: The one output path several artifacts render, one per persona. Which of them
+#: a deployment renders is the profile's ``claude_md_template:``.
+INSTRUCTIONS_OUTPUT = "CLAUDE.md"
+
+#: The persona a deployment renders when its profile names none.
+DEFAULT_CLAUDE_MD_TEMPLATE = "CLAUDE.md.j2"
+
+
 def _get_default_artifacts() -> list[BuildArtifact]:
     """Return the declarative list of all known build artifacts."""
     return [
@@ -513,28 +521,68 @@ class BuildArtifactCatalog:
         artifact = catalog.get("agents/channel-finder")
         for name in catalog.all_names():
             print(name)
+        BuildArtifactCatalog.default(claude_md_template="CLAUDE.ariel.md.j2")
     """
 
-    def __init__(self, artifacts: list[BuildArtifact]) -> None:
+    def __init__(
+        self,
+        artifacts: list[BuildArtifact],
+        *,
+        claude_md_template: str = DEFAULT_CLAUDE_MD_TEMPLATE,
+    ) -> None:
         self._by_name: dict[str, BuildArtifact] = {a.canonical_name: a for a in artifacts}
-        # First registration wins when multiple templates emit the same output
-        # path (e.g. alternate CLAUDE.md personas). `_by_output` is used by
-        # consumers that want the canonical/default artifact for a given output.
+        self._claude_md_template = claude_md_template
+        # An output path has exactly one artifact, except CLAUDE.md, which has one
+        # per persona and resolves to the persona the catalog was built for.
         self._by_output: dict[str, BuildArtifact] = {}
+        personas: list[BuildArtifact] = []
         for a in artifacts:
-            self._by_output.setdefault(a.output_path, a)
+            if a.output_path == INSTRUCTIONS_OUTPUT:
+                personas.append(a)
+                continue
+            existing = self._by_output.get(a.output_path)
+            if existing is not None:
+                raise ValueError(
+                    f"Build artifacts '{existing.canonical_name}' and '{a.canonical_name}' "
+                    f"both render '{a.output_path}'; an output path has one artifact"
+                )
+            self._by_output[a.output_path] = a
+        if personas:
+            chosen = next((a for a in personas if a.template_path == claude_md_template), None)
+            if chosen is None:
+                known = ", ".join(sorted(a.template_path for a in personas))
+                raise ValueError(
+                    f"claude_md_template '{claude_md_template}' is not a bundled "
+                    f"CLAUDE.md persona; name one of: {known}"
+                )
+            self._by_output[INSTRUCTIONS_OUTPUT] = chosen
 
     @classmethod
-    def default(cls) -> BuildArtifactCatalog:
-        """Create a catalog populated with the default artifact list."""
-        return cls(_get_default_artifacts())
+    def default(
+        cls, *, claude_md_template: str = DEFAULT_CLAUDE_MD_TEMPLATE
+    ) -> BuildArtifactCatalog:
+        """Create a catalog populated with the default artifact list.
+
+        Args:
+            claude_md_template: The persona template ``CLAUDE.md`` resolves to,
+                as the profile's ``claude_md_template:`` names it.
+        """
+        return cls(_get_default_artifacts(), claude_md_template=claude_md_template)
+
+    @property
+    def claude_md_template(self) -> str:
+        """The persona this catalog resolves ``CLAUDE.md`` to."""
+        return self._claude_md_template
 
     def get(self, name: str) -> BuildArtifact | None:
         """Look up an artifact by canonical name."""
         return self._by_name.get(name)
 
     def get_by_output(self, output_path: str) -> BuildArtifact | None:
-        """Look up an artifact by its output path (relative to project root)."""
+        """Look up an artifact by its output path (relative to project root).
+
+        For ``CLAUDE.md`` the answer is the persona this catalog was built for.
+        """
         return self._by_output.get(output_path)
 
     def all_artifacts(self) -> list[BuildArtifact]:
