@@ -150,39 +150,6 @@ def _require_session_uuid(session_id: str | None) -> None:
         )
 
 
-def _holds_a_chat_pool_entry(app, session_id: str) -> bool:
-    """Whether the chat pool holds an entry under *session_id* right now.
-
-    Deliberately **not** a liveness check: ``get_chat_session`` reads the
-    pool's session map and a dead-but-unreaped entry answers ``True``. That is
-    the right answer for both callers — such a key still names a chat the
-    operator can address, and terminating it evicts the corpse, which is what
-    wants to happen anyway.
-
-    It is also the *narrower* of this module's two chat probes. The map it
-    reads is one of two places a chat can live: a creation still inside
-    ``start()`` sits in the pool's ``_pending`` and is invisible here, which on
-    the first prompt of a chat is the ordinary state rather than a corner case.
-    :func:`_chat_pool_answers_to` is the one that sees both, and it is what the
-    addressability gate asks.
-
-    The Simple-mode chat surface (``POST /api/chat``) keys its pool on the
-    caller-supplied ``chat_id`` and spawns the child under that key, so the
-    pool key and the audit session id are the same string. Membership is read
-    through the registry's own read-only accessor — never the pool's internals
-    — so a probe cannot refresh an entry's idle clock or evict anything.
-
-    Absent or unfamiliar registries answer ``False`` rather than raising: the
-    caller is an existence gate, and a registry that cannot be asked simply has
-    no chat session to offer.
-    """
-    registry = getattr(app.state, "operator_registry", None)
-    getter = getattr(registry, "get_chat_session", None)
-    if not callable(getter):
-        return False
-    return getter(session_id) is not None
-
-
 def _chat_is_busy(app, session_id: str) -> bool:
     """Whether the chat pooled under *session_id* is mid-turn right now.
 
@@ -204,9 +171,9 @@ def _chat_is_busy(app, session_id: str) -> bool:
 def _chat_pool_answers_to(app, session_id: str) -> bool:
     """Whether the chat pool would answer to *session_id* at all.
 
-    The *addressability* probe, and deliberately a wider question than
-    :func:`_holds_a_chat_pool_entry`: it also says ``True`` while a creation is
-    still inside ``start()``. That window is not a corner case on this surface
+    The *addressability* probe, and deliberately wider than a look at the
+    pool's session map: it also says ``True`` while a creation is still inside
+    ``start()``. That window is not a corner case on this surface
     — it is the first prompt of a chat, the moment the child is being armed
     with tools — and answering ``False`` there refuses the operator's toggle
     with a 409 that stores nothing, on a session that is starting in front of
@@ -215,16 +182,12 @@ def _chat_pool_answers_to(app, session_id: str) -> bool:
 
     Reached through the registry's own read-only facade
     (:meth:`~osprey.interfaces.web_terminal.operator_session.OperatorRegistry.has_chat_key`),
-    so a probe disturbs no LRU order and creates nothing. A registry that
-    predates the facade — a hand-rolled double, say — falls back to the
-    narrower session-map probe rather than raising, the same tolerance the rest
-    of this surface grants an unfamiliar registry.
+    so a probe disturbs no LRU order and creates nothing. An app with no
+    operator registry has no chat to offer and answers ``False``.
     """
     registry = getattr(app.state, "operator_registry", None)
     prober = getattr(registry, "has_chat_key", None)
-    if callable(prober):
-        return bool(prober(session_id))
-    return _holds_a_chat_pool_entry(app, session_id)
+    return bool(prober(session_id)) if callable(prober) else False
 
 
 def _record_available() -> bool:
