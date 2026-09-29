@@ -187,7 +187,7 @@ export function createScaffoldDataActions(domain, callbacks) {
       await registerUntrackedFile(canonicalName);
       await reloadFull();
     } catch (e) {
-      callbacks.onLoadError(`Register failed: ${messageOf(e)}`);
+      callbacks.onLoadError(messageOf(e));
     }
   }
 
@@ -197,7 +197,7 @@ export function createScaffoldDataActions(domain, callbacks) {
       const deleted = await deleteUntrackedFile(canonicalName);
       if (deleted) await reloadFull();
     } catch (e) {
-      callbacks.onLoadError(`Delete failed: ${messageOf(e)}`);
+      callbacks.onLoadError(messageOf(e));
     }
   }
 

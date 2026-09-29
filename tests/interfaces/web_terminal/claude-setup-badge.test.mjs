@@ -441,7 +441,7 @@ describe('refused write', () => {
     expect(gallery.errorEl.textContent).toBe(`Scaffold failed: ${CLAIM_REFUSAL_DETAIL}`);
   });
 
-  test('an ordinary failure still says which action broke', async () => {
+  test('an ordinary failure names the action once, with the status', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }))
@@ -451,6 +451,6 @@ describe('refused write', () => {
 
     await saveOverride();
 
-    expect(gallery.errorEl.textContent).toContain('Save failed');
+    expect(gallery.errorEl.textContent).toBe('Save failed (HTTP 500)');
   });
 });

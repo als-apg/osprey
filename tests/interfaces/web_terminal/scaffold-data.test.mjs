@@ -238,15 +238,6 @@ describe('registerUntrackedFile', () => {
     }));
   });
 
-  test('falls back to a generic HTTP-status message when the error body has no detail', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      json: () => Promise.reject(new Error('not json')),
-    }));
-
-    await expect(registerUntrackedFile('x')).rejects.toThrow('Register failed (HTTP 500)');
-  });
 });
 
 describe('deleteUntrackedFile', () => {
@@ -347,14 +338,14 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
     expect(callbacks.onLoadError).not.toHaveBeenCalled();
   });
 
-  test('registerUntracked() fires onLoadError with a "Register failed" prefix when the register call fails', async () => {
-    stubFetchRoutes({
-      '/api/scaffold/untracked/register': {
-        ok: false,
-        status: 400,
-        json: () => Promise.resolve({ detail: 'name already tracked' }),
-      },
-    });
+  test.each([
+    ['the server detail', { ok: false, status: 400, json: () => Promise.resolve({ detail: 'name already tracked' }) },
+      'Register failed: name already tracked'],
+    ['the status when the body has no detail',
+      { ok: false, status: 500, json: () => Promise.reject(new Error('not json')) },
+      'Register failed (HTTP 500)'],
+  ])('registerUntracked() reports a failed register, naming the action once, with %s', async (_label, response, message) => {
+    stubFetchRoutes({ '/api/scaffold/untracked/register': response });
 
     const callbacks = makeCallbacks();
     const actions = createScaffoldDataActions(makeState(), callbacks);
@@ -362,7 +353,7 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
     await actions.registerUntracked('dup');
 
     expect(callbacks.onLoaded).not.toHaveBeenCalled();
-    expect(callbacks.onLoadError).toHaveBeenCalledWith('Register failed: name already tracked');
+    expect(callbacks.onLoadError).toHaveBeenCalledWith(message);
   });
 
   test('deleteUntracked() neither reloads nor fires a callback when the operator declines the confirmation', async () => {

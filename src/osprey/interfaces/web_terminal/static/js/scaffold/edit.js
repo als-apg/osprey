@@ -67,19 +67,18 @@ export function createScaffoldGalleryEdit(gallery) {
    * refusal names the channel that owns the change instead ("'settings-json'
    * belongs to the profile's `config:` keys (...). NOTHING WAS WRITTEN."), and
    * that sentence is the operator's only pointer to where the edit does belong.
-   * `apiRequest` already carries the server's `detail` through as the Error
-   * message, so this only has to keep it intact and say which action broke.
+   * `apiRequest`'s Error message is already the whole line — the action, then
+   * the server's `detail` or the HTTP status — so this keeps it intact.
    *
-   * @param {string} prefix   What was being attempted ("Save failed", ...).
    * @param {unknown} e       The caught rejection.
    * @returns {void}
    */
-  function showWriteError(prefix, e) {
+  function showWriteError(e) {
     const message = e instanceof Error ? e.message : String(e);
     if (!gallery.errorEl) return;
     gallery.errorEl.classList.remove('prompts-error--notice');
     gallery.errorEl.style.display = 'flex';
-    gallery.errorEl.textContent = `${prefix}: ${message}`;
+    gallery.errorEl.textContent = message;
   }
 
   /**
@@ -118,7 +117,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
       await reloadAndReopen();
     } catch (e) {
-      showWriteError('Scaffold failed', e);
+      showWriteError(e);
     }
   }
 
@@ -159,7 +158,7 @@ export function createScaffoldGalleryEdit(gallery) {
         gallery.openDetail(updated, 'edit');
       }
     } catch (e) {
-      showWriteError('Scaffold failed', e);
+      showWriteError(e);
     }
   }
 
@@ -227,7 +226,7 @@ export function createScaffoldGalleryEdit(gallery) {
         );
       }
     } catch (e) {
-      showWriteError('Save failed', e);
+      showWriteError(e);
     }
   }
 
@@ -243,7 +242,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
       await reloadAndReopen();
     } catch (e) {
-      showWriteError('Reset failed', e);
+      showWriteError(e);
     }
   }
 

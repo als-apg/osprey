@@ -138,7 +138,7 @@ export function createScaffoldGalleryDetail(gallery) {
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        alert(`Failed to create: ${message}`);
+        alert(message);
       });
   }
 
