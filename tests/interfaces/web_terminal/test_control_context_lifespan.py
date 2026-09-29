@@ -530,3 +530,97 @@ async def test_a_refused_switch_moves_neither_target_nor_generation(
     assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
     assert stored.last_switch["generation"] is None
     assert not path.exists()
+
+
+def switchable_config() -> dict:
+    """A render on which ``va`` is an eligible switch away from ``live``.
+
+    Both connector blocks carry gateways and a probe channel, the live gateway
+    is acknowledged, and the archiver is real, so the gate has no rung left to
+    refuse on once no execution is in flight and no server has reported.
+    """
+    from osprey.mcp_server.control_system import target_eligibility
+
+    gateway = {"address": "gw.example.org", "port": 5064, "use_name_server": False}
+    local = {"address": "localhost", "port": 5074, "use_name_server": True}
+    return {
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {
+                "epics": {
+                    "probe_channel": "LIVE:PROBE:CHANNEL",
+                    "gateways": {"read_only": dict(gateway), "write_access": dict(gateway)},
+                },
+                "virtual_accelerator": {
+                    "probe_channel": "VA:PROBE:CHANNEL",
+                    "gateways": {"read_only": dict(local), "write_access": dict(local)},
+                },
+            },
+            "target_switch": {target_eligibility.ACK_LEAF: "gw.example.org"},
+        },
+        "archiver": {"type": "epics_archiver"},
+    }
+
+
+async def test_an_eligible_request_is_applied_with_a_mint(
+    control_context_root, write_control_context, liveness
+):
+    """The applied terminus: target and generation move together, once.
+
+    A switch that lands without a new generation leaves every write bound to
+    the old target admissible on the new one; a switch that mints without
+    moving the target refuses every write for nothing.
+    """
+    liveness.add(OTHER_TERMINAL_PID)
+    write_control_context(control_context_root, target="live", generation=6)
+    path = file_request(OTHER_TERMINAL_PID, "va", request_id="r-7", session="agent-7")
+    task = make_task(make_app())
+    task._rendered_config = switchable_config  # type: ignore[method-assign]
+
+    await task.tick_once()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("va", 7)
+    assert stored.last_switch is not None
+    assert stored.last_switch["request_id"] == "r-7"
+    assert stored.last_switch["status"] == control_context.SWITCH_APPLIED
+    assert stored.last_switch["generation"] == 7
+    assert stored.last_switch["requested_by"] == "agent-7"
+    assert not path.exists()
+
+
+async def test_a_gate_that_raises_is_refused_as_internal_error(
+    control_context_root, write_control_context, liveness, monkeypatch
+):
+    """A verdict that cannot be taken is a refusal the requester can read.
+
+    Without it the request file stays unanswered and the requester waits out
+    its TTL for an outcome nobody will write; with a mint it would be a switch
+    no gate ever allowed.
+    """
+    from osprey.mcp_server.control_system import target_eligibility
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("the gate is broken")
+
+    monkeypatch.setattr(target_eligibility, "evaluate_switch", explode)
+    liveness.add(OTHER_TERMINAL_PID)
+    write_control_context(control_context_root, target="live", generation=6)
+    path = file_request(OTHER_TERMINAL_PID, "va", request_id="r-8")
+    task = make_task(make_app())
+    task._rendered_config = switchable_config  # type: ignore[method-assign]
+
+    await task.tick_once()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("live", 6)
+    assert stored.last_switch is not None
+    assert stored.last_switch["request_id"] == "r-8"
+    assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
+    assert stored.last_switch["reason"] == "internal_error"
+    assert "RuntimeError: the gate is broken" in stored.last_switch["detail"]
+    assert stored.last_switch["generation"] is None
+    assert not path.exists()
