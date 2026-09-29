@@ -2043,3 +2043,94 @@ def test_a_store_secret_and_a_collector_secret_each_get_their_own_note(tmp_path,
     assert problem is not None
     assert "Note: ZO_INGEST_SA_TOKEN is an observability-store credential" in problem
     assert "Note: RELAY_KEY is referenced from the telemetry block" in problem
+
+
+# ---------------------------------------------------------------------------
+# The variables a terminal's telemetry block needs delivered to its container
+#
+# The collector's token first, then every referenced variable, minus the two
+# names every terminal already receives by a fixed route.
+# ---------------------------------------------------------------------------
+
+
+def _telemetry_config(block: dict) -> dict:
+    return {"claude_code": {"provider": "anthropic", "telemetry": block}}
+
+
+_COLLECTOR_TELEMETRY = {
+    "enabled": True,
+    "backend": "generic",
+    "endpoint": "${OTLP_ENDPOINT:-https://collector.example.org}",
+    "resource_attributes": {"site": "${SITE_NAME}"},
+    "auth": {"token_env": "OTLP_TOKEN"},
+}
+
+
+def test_telemetry_delivered_vars_is_the_token_then_every_reference():
+    """The token name leads; references follow in walk order."""
+    assert env_production.telemetry_delivered_vars(_telemetry_config(_COLLECTOR_TELEMETRY)) == (
+        "OTLP_TOKEN",
+        "OTLP_ENDPOINT",
+        "SITE_NAME",
+    )
+
+
+def test_telemetry_delivered_vars_is_empty_when_telemetry_is_off():
+    """A block the builder discards needs nothing delivered."""
+    block = {**_COLLECTOR_TELEMETRY, "enabled": False}
+    assert env_production.telemetry_delivered_vars(_telemetry_config(block)) == ()
+
+
+def test_telemetry_delivered_vars_never_repeats_a_fixed_route_name():
+    """The ingest token and the account name already reach every terminal."""
+    block = {
+        "enabled": True,
+        "backend": "generic",
+        "endpoint": "https://collector.example.org",
+        "resource_attributes": {
+            "ingest": "${ZO_INGEST_SA_TOKEN}",
+            "account": "${ZO_INGEST_USER_EMAIL:-x}",
+        },
+    }
+    assert env_production.telemetry_delivered_vars(_telemetry_config(block)) == ()
+
+
+def test_the_shipped_openobserve_block_delivers_nothing_beyond_the_fixed_routes():
+    """The control-assistant preset's block adds no line to any service."""
+    assert env_production.telemetry_delivered_vars(_telemetry_config(_shipped_block())) == ()
+
+
+def test_telemetry_delivered_vars_refuses_a_value_in_place_of_a_name():
+    """A token value where the name belongs is refused, never echoed."""
+    block = {**_COLLECTOR_TELEMETRY, "auth": {"token_env": "abc.def-123"}}
+    with pytest.raises(ValueError, match="auth.token_env") as excinfo:
+        env_production.telemetry_delivered_vars(_telemetry_config(block))
+    assert "abc.def-123" not in str(excinfo.value)
+
+
+def test_personas_needing_telemetry_vars_maps_each_persona_to_its_list(tmp_path):
+    """Each persona answers with its own names; one exporting nothing is absent."""
+    config = _persona_config(
+        tmp_path, {"ops": "anthropic", "physics": "anthropic", "viewer": "anthropic"}
+    )
+    blocks = {
+        "ops": {**_COLLECTOR_TELEMETRY},
+        "physics": {
+            "enabled": True,
+            "backend": "generic",
+            "endpoint": "https://collector.example.org",
+            "auth": {"token_env": "PHYSICS_COLLECTOR_TOKEN"},
+        },
+        "viewer": {**_COLLECTOR_TELEMETRY, "enabled": False},
+    }
+    for persona, block in blocks.items():
+        config_yml = tmp_path / f"{persona}-proj" / "config.yml"
+        config_yml.write_text(
+            yaml.safe_dump({"project_name": f"{persona}-proj", **_telemetry_config(block)}),
+            encoding="utf-8",
+        )
+
+    assert env_production.personas_needing_telemetry_vars(config, tmp_path) == {
+        "ops": ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME"),
+        "physics": ("PHYSICS_COLLECTOR_TOKEN",),
+    }

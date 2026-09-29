@@ -31,6 +31,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     terminal_secret_var,
 )
+from osprey.deployment.web_terminals.env_production import personas_needing_telemetry_vars
 from osprey.deployment.web_terminals.personas import (
     as_dict,
     config_needs_launch_token_for,
@@ -1048,6 +1049,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "launch_token_personas": launch_token_personas_by_lane,
         "graphdb_personas": personas_needing_graphdb_password(config, root),
         "archiver_password_personas": personas_needing_archiver_password(config, root),
+        "telemetry_vars_personas": personas_needing_telemetry_vars(config, root),
         "facility_bundle_personas": personas_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see

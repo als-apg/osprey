@@ -15,8 +15,10 @@ from pathlib import Path
 
 import yaml
 
+from osprey.build.claude_code_telemetry import telemetry_auth_token_env
 from osprey.cli.output import report_fact
 from osprey.deployment.errors import ComposeInterpolationError
+from osprey.deployment.openobserve_provision import INGEST_TOKEN_VAR
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     effective_persona,
@@ -228,6 +230,12 @@ _TELEMETRY_REFERENCE_ROLES: dict[tuple[str, ...], str] = {
 #: the templates at the ingest token needed no change on that side.
 _TELEMETRY_USER_ENV_VAR = "ZO_INGEST_USER_EMAIL"
 
+#: The telemetry variables every terminal already receives by a fixed route:
+#: the ingest token through its own unconditional compose line, the account
+#: name through ``.env.users``. A persona's telemetry block may reference them,
+#: and its per-persona list (:func:`telemetry_delivered_vars`) never repeats them.
+_TELEMETRY_FIXED_ROUTE_VARS: frozenset[str] = frozenset({INGEST_TOKEN_VAR, _TELEMETRY_USER_ENV_VAR})
+
 
 def _env_reference(value: object) -> tuple[str, bool] | None:
     """Read a config value that IS an env-var reference.
@@ -318,6 +326,65 @@ def _telemetry_enabled(cfg: dict) -> bool:
     nothing, so the credentials underneath it are decoration.
     """
     return bool(_telemetry_block(cfg).get("enabled"))
+
+
+def telemetry_delivered_vars(cfg: dict) -> tuple[str, ...]:
+    """The variables a terminal running this config needs for its telemetry.
+
+    The collector's bearer token first (the variable
+    ``claude_code.telemetry.auth.token_env`` names), then every variable the
+    telemetry block references, in walk order, each once. A persona's
+    ``config.yml`` keeps those references verbatim and the loader resolves them
+    inside the container, so a variable that never reaches the container leaves
+    a bare reference unresolved and a defaulted one silently on its default.
+    The names in :data:`_TELEMETRY_FIXED_ROUTE_VARS` are left out: every
+    terminal receives them already.
+
+    :param cfg: One project's config.
+    :return: The names, or ``()`` when the config's telemetry is off.
+    :raises TelemetryConfigError: For an ``auth`` block the collector cannot
+        use (a :class:`ValueError`, reported by the deploy gate like any other
+        config refusal).
+    """
+    if not _telemetry_enabled(cfg):
+        return ()
+    block = _telemetry_block(cfg)
+    names: list[str] = []
+    token_env = telemetry_auth_token_env(block)
+    if token_env is not None:
+        names.append(token_env)
+    for _path, var, _has_default in _block_references(block):
+        if var in names or var in _TELEMETRY_FIXED_ROUTE_VARS:
+            continue
+        names.append(var)
+    return tuple(names)
+
+
+def personas_needing_telemetry_vars(
+    config: dict, project_root: str | Path
+) -> dict[str, tuple[str, ...]]:
+    """``{persona_name: names}`` for every persona whose terminal needs telemetry variables.
+
+    The referenced personas are walked as :func:`_telemetry_references` walks
+    them; a persona whose project cannot be read contributes nothing, and one
+    whose :func:`telemetry_delivered_vars` is empty is left out.
+
+    :param config: Raw deploy config.
+    :param project_root: Project root the persona projects resolve against.
+    :return: The map the web-terminal render emits per-user lines from.
+    """
+    needing: dict[str, tuple[str, ...]] = {}
+    for persona_name, entry in _referenced_persona_entries(config):
+        config_yml = _persona_config_yml(Path(project_root), entry)
+        if config_yml is None or not config_yml.is_file():
+            continue
+        persona_config = _load_config_yml(config_yml)
+        if persona_config is None:
+            continue
+        names = telemetry_delivered_vars(persona_config)
+        if names:
+            needing[persona_name] = names
+    return needing
 
 
 def _referenced_persona_names(config: dict) -> list[str]:
