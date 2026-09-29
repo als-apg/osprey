@@ -271,7 +271,15 @@ describe('palette.js recent commands', () => {
     return new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  /** A deps bundle with one action and a config fetch that hits no network. */
+  // The palette's one network read, answered here so nothing dials out.
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (!url.endsWith('/api/config')) throw new Error(`unstubbed fetch: ${url}`);
+      return { ok: true, status: 200, json: async () => ({ sections: {} }) };
+    }));
+  });
+
+  /** A deps bundle with one action. */
   function makeDeps() {
     return {
       getHiddenPanels: () => [],
@@ -282,7 +290,6 @@ describe('palette.js recent commands', () => {
       applyPreset: vi.fn(),
       revealSetting: vi.fn(),
       actions: [{ label: 'Restart terminal', run: vi.fn() }],
-      fetchConfig: () => Promise.resolve({ sections: {} }),
     };
   }
 
