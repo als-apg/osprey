@@ -2653,6 +2653,54 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert _protected_records(audit_zone) == []
 
 
+class TestUnclaimDeletesTheStoredPath:
+    """``delete_file`` removes the file the ownership record names.
+
+    A record keeps the path its claim was made against, and every other read
+    and write already honours it; the delete has to judge and unlink that same
+    path, or it removes a file the record does not name and leaves the one it
+    does.
+    """
+
+    def _owned_at(self, project_dir: Path, volume_dir: Path, name: str, stored: str) -> Path:
+        target = project_dir / stored
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Stored\n", encoding="utf-8")
+        _plant_store_record(volume_dir, name, stored, "# Stored\n")
+        return target
+
+    def test_the_stored_path_is_removed_and_the_derived_one_is_not(
+        self, container_project, volume_dir
+    ):
+        stored = self._owned_at(
+            container_project, volume_dir, "agents/renamed", ".claude/agents/elsewhere.md"
+        )
+        derived = container_project / ".claude" / "agents" / "renamed.md"
+        derived.write_text("# Somebody else's file\n", encoding="utf-8")
+
+        outcome = ScaffoldGalleryService(container_project).unoverride(
+            "agents/renamed", delete_file=True
+        )
+
+        assert outcome["deleted_file"] is True
+        assert not stored.exists()
+        assert derived.read_text(encoding="utf-8") == "# Somebody else's file\n"
+
+    def test_a_stored_path_in_the_protected_set_is_refused(
+        self, container_project, volume_dir, audit_zone
+    ):
+        stored = self._owned_at(
+            container_project, volume_dir, "agents/sneaky", ".claude/rules/sneaky.md"
+        )
+
+        with pytest.raises(ProtectedArtifactError, match="NOTHING WAS DELETED"):
+            ScaffoldGalleryService(container_project).unoverride("agents/sneaky", delete_file=True)
+
+        assert stored.exists()
+        assert "agents/sneaky" in ScaffoldGalleryService(container_project)._user_owned
+        assert len(_protected_records(audit_zone)) == 1
+
+
 class TestLinkedWritesAreJudgedOnTheResolvedFile:
     """A name is not a file: the guard follows the link before it answers.
 

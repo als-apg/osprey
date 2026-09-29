@@ -954,6 +954,10 @@ class ScaffoldGalleryService:
             }
 
         is_custom = self._registry.get(name) is None
+        # The file the ownership record names — the one every read and save of
+        # this artifact already uses — is the one judged and removed. Taken
+        # before the release, which retires the record.
+        out_rel = self._stored_output_path(name)
 
         if delete_file and is_custom:
             # The one branch below that removes a file from disk. Refused here
@@ -962,7 +966,6 @@ class ScaffoldGalleryService:
             # ownership record and still promised that nothing happened.
             # Releasing WITHOUT deleting stays open — it changes no file, and
             # the protected set is about who writes the bytes.
-            out_rel = self._canonical_to_path(name)
             self._require_writable(name, out_rel, outcome="NOTHING WAS DELETED")
 
         self._record_release(name)
@@ -972,7 +975,7 @@ class ScaffoldGalleryService:
         message: str | None = None
         if delete_file and is_custom:
             # Custom artifact (no framework template) — delete the file
-            out = self.project_dir / self._canonical_to_path(name)
+            out = self.project_dir / out_rel
             if out.exists():
                 out.unlink()
                 deleted = True
