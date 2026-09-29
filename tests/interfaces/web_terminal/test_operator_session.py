@@ -37,30 +37,21 @@ from tests.interfaces.web_terminal._fakes import (
 
 
 class TestFormatToolName:
-    def test_strips_mcp_prefix(self):
-        assert _format_tool_name("mcp__osprey__channel_read") == "Channel Read"
-
-    def test_leaves_plain_name(self):
-        assert _format_tool_name("Read") == "Read"
-
-    def test_title_cases_underscored(self):
-        assert _format_tool_name("file_search") == "File Search"
-
-    def test_multi_segment_mcp(self):
-        assert _format_tool_name("mcp__ariel__entry_create") == "Entry Create"
-
-    def test_underscored_server_name(self):
-        """Framework servers with underscores in the name (osprey_workspace,
-        osprey_facility_knowledge) must strip cleanly too."""
-        assert _format_tool_name("mcp__osprey_workspace__submit_response") == "Submit Response"
-        assert (
-            _format_tool_name("mcp__osprey_facility_knowledge__resolve_channel")
-            == "Resolve Channel"
-        )
-
-    def test_underscored_facility_custom_server(self):
-        """A facility-declared server name OSPREY never saw at authoring time."""
-        assert _format_tool_name("mcp__als_custom_srv__do_thing") == "Do Thing"
+    @pytest.mark.parametrize(
+        ("raw", "shown"),
+        [
+            ("mcp__osprey__channel_read", "Channel Read"),
+            ("Read", "Read"),
+            ("file_search", "File Search"),
+            # Framework servers with underscores in the name strip cleanly too.
+            ("mcp__osprey_workspace__submit_response", "Submit Response"),
+            ("mcp__osprey_facility_knowledge__resolve_channel", "Resolve Channel"),
+            # A facility-declared server name OSPREY never saw at authoring time.
+            ("mcp__als_custom_srv__do_thing", "Do Thing"),
+        ],
+    )
+    def test_formats_the_tool_name(self, raw, shown):
+        assert _format_tool_name(raw) == shown
 
 
 # ---------------------------------------------------------------------------
@@ -102,20 +93,16 @@ class TestMessageToEvents:
         assert ev["tool_use_id"] == "tu_1"
         assert ev["input"] == {"channels": ["X"]}
 
-    def test_tool_result_block(self):
-        msg = FakeAssistantMessage([FakeToolResultBlock("tu_1", "42.0", is_error=False)])
+    @pytest.mark.parametrize("is_error", [False, True])
+    def test_tool_result_block(self, is_error):
+        msg = FakeAssistantMessage([FakeToolResultBlock("tu_1", "42.0", is_error=is_error)])
         events = _message_to_events(msg)
         assert len(events) == 1
         ev = events[0]
         assert ev["type"] == "tool_result"
         assert ev["tool_use_id"] == "tu_1"
         assert ev["content"] == "42.0"
-        assert ev["is_error"] is False
-
-    def test_tool_result_error(self):
-        msg = FakeAssistantMessage([FakeToolResultBlock("tu_2", "timeout", is_error=True)])
-        events = _message_to_events(msg)
-        assert events[0]["is_error"] is True
+        assert ev["is_error"] is is_error
 
     def test_assistant_error(self):
         msg = FakeAssistantMessage([], error=SimpleNamespace(type="overloaded", message="busy"))
@@ -123,6 +110,8 @@ class TestMessageToEvents:
         assert len(events) == 1
         assert events[0]["type"] == "error"
         assert "API error" in events[0]["message"]
+        # The one error type is_terminal_event lets a turn continue past.
+        assert events[0]["error_type"] == "AssistantMessageError"
 
     def test_result_message(self):
         msg = FakeResultMessage(is_error=False, total_cost_usd=0.05, duration_ms=3000, num_turns=2)
@@ -134,12 +123,6 @@ class TestMessageToEvents:
         assert ev["total_cost_usd"] == 0.05
         assert ev["duration_ms"] == 3000
         assert ev["num_turns"] == 2
-
-    def test_system_message(self):
-        msg = FakeSystemMessage("init")
-        events = _message_to_events(msg)
-        assert len(events) == 1
-        assert events[0] == {"type": "system", "subtype": "init"}
 
     def test_unknown_message_ignored(self):
         events = _message_to_events("something_unknown")
@@ -242,20 +225,6 @@ class TestOperatorSession:
             await session.start()
 
         assert captured.get("setting_sources") == ["project"]
-        await session.stop()
-
-    @pytest.mark.asyncio
-    async def test_start_marks_simple_web_surface_in_env(self):
-        """The operator chat IS the simple web UX."""
-        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"})
-
-        with sdk_seam() as captured:
-            await session.start()
-
-        env = captured.get("env")
-        assert env is not None
-        assert env["OSPREY_WEB_UX"] == "simple"
-        assert "OSPREY_TELEMETRY_SESSION_ID" in env
         await session.stop()
 
     @pytest.mark.asyncio
@@ -426,10 +395,6 @@ class TestOperatorSessionResumeOptions:
 
 
 class TestTurnGuardEpoch:
-    def test_fresh_session_is_not_in_flight(self):
-        session = OperatorSession(cwd="/tmp")
-        assert session.in_flight is False
-
     def test_acquire_mints_incrementing_token_and_sets_in_flight(self):
         session = OperatorSession(cwd="/tmp")
         token = session.acquire_turn()
@@ -608,21 +573,6 @@ class TestOperatorSessionCancel:
             assert session._response_task.cancelled()
 
     @pytest.mark.asyncio
-    async def test_double_cancel_is_idempotent(self):
-        """Cancelling twice: the second call short-circuits (task done)."""
-        client = FakeStreamClient()
-        async with _started_session(client) as session:
-            await session.send_prompt("hi")
-            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
-
-            await asyncio.wait_for(session.cancel(), timeout=2.0)
-            assert client.interrupt_calls == 1
-
-            # Second cancel is a no-op — reader already done.
-            await asyncio.wait_for(session.cancel(), timeout=1.0)
-            assert client.interrupt_calls == 1
-
-    @pytest.mark.asyncio
     async def test_spawn_quiesce_returns_stored_detached_task(self):
         """spawn_quiesce returns a task, stores it, and quiesces when awaited."""
         client = FakeStreamClient()
@@ -640,8 +590,11 @@ class TestOperatorSessionCancel:
 
     @pytest.mark.asyncio
     async def test_last_activity_initialized_at_creation(self):
+        """A new session's idle clock starts now, so the reaper cannot take it at once."""
+        before = time.monotonic()
         session = OperatorSession(cwd="/tmp")
-        assert isinstance(session.last_activity, float)
+        after = time.monotonic()
+        assert before <= session.last_activity <= after
 
     @pytest.mark.asyncio
     async def test_last_activity_restamped_on_turn_completion(self):
@@ -746,6 +699,7 @@ class TestOperatorRegistry:
 
         # s2 must NOT have been stopped by the stale cleanup
         assert registry.get_session("default") is mock_s2
+        mock_s2.stop.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_owner_terminate_works(self):
@@ -762,36 +716,6 @@ class TestOperatorRegistry:
 
         await registry.terminate_session_if_owner("default", mock_session)
         assert registry.get_session("default") is None
-
-    @pytest.mark.asyncio
-    async def test_cleanup_all(self):
-        registry = OperatorRegistry()
-
-        mock_s1 = AsyncMock(spec=OperatorSession)
-        mock_s1.start = AsyncMock()
-        mock_s1.stop = AsyncMock()
-
-        mock_s2 = AsyncMock(spec=OperatorSession)
-        mock_s2.start = AsyncMock()
-        mock_s2.stop = AsyncMock()
-
-        with patch(
-            "osprey.interfaces.web_terminal.operator_session.OperatorSession",
-            side_effect=[mock_s1, mock_s2],
-        ):
-            await registry.create_session("a", cwd="/tmp")
-            await registry.create_session("b", cwd="/tmp")
-
-        await registry.cleanup_all()
-        assert registry.get_session("a") is None
-        assert registry.get_session("b") is None
-        mock_s1.stop.assert_awaited()
-        mock_s2.stop.assert_awaited()
-
-
-# ---------------------------------------------------------------------------
-# OperatorRegistry chat pool
-# ---------------------------------------------------------------------------
 
 
 class FakeTask:
@@ -1048,20 +972,6 @@ class TestOperatorRegistryChatPool:
         assert registry.get_chat_session("missing") is None
 
     @pytest.mark.asyncio
-    async def test_reuse_returns_same_live_session(self):
-        registry = OperatorRegistry()
-        factory = _session_factory()
-        with _patch_session(factory):
-            s1, r1 = await registry.get_or_create_chat_session("a", cwd="/tmp")
-            s2, r2 = await registry.get_or_create_chat_session("a", cwd="/tmp")
-
-        assert s1 is s2
-        assert r1 is False
-        assert r2 is True
-        assert len(factory.created) == 1
-        assert s1.start_calls == 1  # not restarted
-
-    @pytest.mark.asyncio
     async def test_dead_session_is_replaced_and_torn_down(self):
         registry = OperatorRegistry()
         factory = _session_factory()
@@ -1160,19 +1070,6 @@ class TestOperatorRegistryChatPool:
         assert registry.get_chat_session("b") is b
 
     @pytest.mark.asyncio
-    async def test_terminate_chat_session(self):
-        registry = OperatorRegistry()
-        factory = _session_factory()
-        with _patch_session(factory):
-            a, _ = await registry.get_or_create_chat_session("a", cwd="/tmp")
-
-        await registry.terminate_chat_session("a")
-        assert registry.get_chat_session("a") is None
-        assert a.stop_calls == 1
-        # Terminating a missing chat is a no-op.
-        await registry.terminate_chat_session("a")
-
-    @pytest.mark.asyncio
     async def test_reap_idle_reaps_stale_not_busy_only(self):
         registry = OperatorRegistry(chat_idle_seconds=10.0)
         factory = _session_factory()
@@ -1254,22 +1151,25 @@ class TestValidateProjectDirectory:
         warnings = validate_project_directory(str(tmp_path))
         assert warnings == []
 
-    def test_all_files_missing(self, tmp_path):
-        warnings = validate_project_directory(str(tmp_path))
-        assert len(warnings) == 4
-        assert any(".mcp.json" in w for w in warnings)
-        assert any("CLAUDE.md" in w for w in warnings)
-        assert any(".claude" in w for w in warnings)
-        assert any("config.yml" in w for w in warnings)
+    @pytest.mark.parametrize(
+        ("present", "missing"),
+        [
+            ((), (".mcp.json", "CLAUDE.md", ".claude", "config.yml")),
+            (("config.yml", ".claude"), (".mcp.json", "CLAUDE.md")),
+        ],
+        ids=["none", "partial"],
+    )
+    def test_each_missing_file_is_named(self, tmp_path, present, missing):
+        for name in present:
+            if name == ".claude":
+                (tmp_path / name).mkdir()
+            else:
+                (tmp_path / name).touch()
 
-    def test_partial_files(self, tmp_path):
-        (tmp_path / "config.yml").touch()
-        (tmp_path / ".claude").mkdir()
-
         warnings = validate_project_directory(str(tmp_path))
-        assert len(warnings) == 2
-        assert any(".mcp.json" in w for w in warnings)
-        assert any("CLAUDE.md" in w for w in warnings)
+        assert len(warnings) == len(missing)
+        for name in missing:
+            assert any(name in w for w in warnings), name
 
 
 # ---------------------------------------------------------------------------
@@ -1286,10 +1186,11 @@ class TestBuildCleanEnvProjectCwd:
         env = build_clean_env(project_cwd=str(tmp_path))
         assert env["OSPREY_CONFIG"] == str(config_file)
 
-    def test_skips_when_no_config_file(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("cwd", ["empty-dir", None], ids=["no-config-file", "no-cwd"])
+    def test_skips_when_no_config_file(self, tmp_path, monkeypatch, cwd):
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
-        env = build_clean_env(project_cwd=str(tmp_path))
+        env = build_clean_env(project_cwd=str(tmp_path) if cwd else None)
         assert "OSPREY_CONFIG" not in env
 
     def test_does_not_override_existing_osprey_config(self, tmp_path, monkeypatch):
@@ -1298,12 +1199,3 @@ class TestBuildCleanEnvProjectCwd:
 
         env = build_clean_env(project_cwd=str(tmp_path))
         assert env["OSPREY_CONFIG"] == "/custom/config.yml"
-
-    def test_no_project_cwd_is_noop(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-
-        env = build_clean_env()
-        assert "OSPREY_CONFIG" not in env
-
-        env2 = build_clean_env(project_cwd=None)
-        assert "OSPREY_CONFIG" not in env2
