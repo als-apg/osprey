@@ -359,7 +359,7 @@ class _FakeUpstreamSocket:
 
 
 class _FakeConnect:
-    """Stands in for ``websockets.connect``, recording the handshake arguments."""
+    """Stands in for a websocket connect type, recording the handshake arguments."""
 
     def __init__(self):
         self.target = None
@@ -429,8 +429,12 @@ class TestPanelLaunchCredentialInjection:
 
     @staticmethod
     def _connect(client, path):
+        """Open *path*; the one fake records whichever connect type the proxy used."""
         fake = _FakeConnect()
-        with patch("websockets.connect", fake):
+        with (
+            patch("websockets.connect", fake),
+            patch("osprey.interfaces.web_terminal.routes.proxy._RedirectRefusingConnect", fake),
+        ):
             with client.websocket_connect(path):
                 pass
         return fake

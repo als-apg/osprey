@@ -45,6 +45,7 @@ a real caller does, and which way is load-bearing per test:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from unittest.mock import AsyncMock, patch
 
@@ -560,7 +561,7 @@ class TestSecretInjection:
         app, _client = panels_app
         fake = _FakeConnect()
 
-        with patch("websockets.connect", fake):
+        with _patch_connect(fake):
             with _cookie_client(app).websocket_connect(
                 "/panel/trusted/ws/stream", headers={"origin": "http://testserver"}
             ):
@@ -998,7 +999,7 @@ class TestResponseBoundary:
         app, _client = panels_app
         fake = _FakeConnect()
 
-        with patch("websockets.connect", fake):
+        with _patch_connect(fake):
             with _cookie_client(app).websocket_connect(
                 "/panel/trusted/ws/stream", headers={"origin": "http://testserver"}
             ) as session:
@@ -1404,11 +1405,12 @@ class _FakeUpstreamSocket:
 
 
 class _FakeConnect:
-    """Stands in for ``websockets.connect``, recording the handshake arguments."""
+    """Stands in for a websocket connect type, recording the handshake arguments."""
 
     def __init__(self):
         self.target = None
         self.kwargs = None
+        self.refuses_redirects = False
 
     def __call__(self, target, **kwargs):
         self.target = target
@@ -1422,17 +1424,41 @@ class _FakeConnect:
         return False
 
 
+@contextlib.contextmanager
+def _patch_connect(fake):
+    """Replace both connect types the WS proxy picks from with one *fake*."""
+    with (
+        patch("websockets.connect", fake),
+        patch("osprey.interfaces.web_terminal.routes.proxy._RedirectRefusingConnect", fake),
+    ):
+        yield fake
+
+
 class TestWebSocketBoundary:
     """The WS upstream handshake carries the secret, or nothing at all."""
 
     def _connect(self, client, path):
-        fake = _FakeConnect()
-        with patch("websockets.connect", fake):
+        """Open *path* and return the fake the upstream handshake went through.
+
+        The plain ``websockets.connect`` and the proxy's redirect-refusing type
+        are both replaced, so the returned fake says which of the two the
+        handshake used (``refuses_redirects``) and nothing reaches a socket.
+        """
+        plain, refusing = _FakeConnect(), _FakeConnect()
+        refusing.refuses_redirects = True
+        with (
+            patch("websockets.connect", plain),
+            patch(
+                "osprey.interfaces.web_terminal.routes.proxy._RedirectRefusingConnect",
+                refusing,
+            ),
+        ):
             with client.websocket_connect(
                 path, headers={"X-Osprey-Terminal-Secret": OPERATOR_SECRET}
             ):
                 pass
-        return fake
+        assert (plain.target is None) != (refusing.target is None)
+        return refusing if refusing.target is not None else plain
 
     def test_trusted_panel_ws_carries_secret(self, panels_app):
         _app, client = panels_app
@@ -1445,14 +1471,20 @@ class TestWebSocketBoundary:
         """Carrying the secret, the handshake must not follow a redirect off loopback."""
         _app, client = panels_app
 
+        import websockets.asyncio.client
+
+        from osprey.interfaces.web_terminal.routes.proxy import _RedirectRefusingConnect
+
         fake = self._connect(client, "/panel/trusted/ws/stream")
 
-        # process_redirect returning the exception unchanged declines the
-        # redirect, so additional_headers never rides one to a new origin.
-        override = getattr(fake, "process_redirect", None)
-        assert callable(override)
+        assert fake.refuses_redirects
+        # Asserted against the real type, not the fake: process_redirect
+        # returning the exception unchanged declines the redirect, so
+        # additional_headers never rides one to a new origin. Building a
+        # connect opens nothing until it is awaited.
+        assert issubclass(_RedirectRefusingConnect, websockets.asyncio.client.connect)
         sentinel = RuntimeError("redirect")
-        assert override(sentinel) is sentinel
+        assert _RedirectRefusingConnect("ws://127.0.0.1:9/").process_redirect(sentinel) is sentinel
 
     def test_registered_panel_ws_carries_no_headers(self, panels_app):
         _app, client = panels_app
@@ -1461,7 +1493,7 @@ class TestWebSocketBoundary:
 
         assert fake.kwargs["additional_headers"] is None
         # No secret in flight → the default redirect handling is left in place.
-        assert getattr(fake, "process_redirect", None) is None
+        assert not fake.refuses_redirects
 
     def test_upstream_handshake_outlasts_a_kernel_start(self, panels_app):
         """The upstream open timeout covers a handshake the panel holds on purpose.
@@ -1491,7 +1523,7 @@ class TestWebSocketBoundary:
         fake = self._connect(client, "/panel/facility/ws/stream")
 
         assert fake.kwargs["additional_headers"] is None
-        assert getattr(fake, "process_redirect", None) is None
+        assert not fake.refuses_redirects
 
     def test_real_websockets_exposes_process_redirect(self):
         """The redirect refusal above is only real if the library still has the hook.
