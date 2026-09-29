@@ -81,6 +81,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NoReturn
 
+from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
 from osprey.cli.output import fail, note, report
 from osprey.deployment.compose_generator import (
     compose_base_cmd,
@@ -1309,7 +1310,7 @@ def _discover_orphan_volumes(
         env=env,
     )
     prefix = f"{project}_"
-    suffixes = ("-claude-config", "-agent-data")
+    suffixes = (CLAUDE_CONFIG_VOLUME_SUFFIX, "-agent-data")
     orphans: dict[str, list[str]] = {}
     for line in result.stdout.splitlines():
         name = line.strip()

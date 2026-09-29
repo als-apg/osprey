@@ -48,6 +48,12 @@ logger = get_logger("agent_runner.claude_state")
 #: Claude Code's per-machine state file, relative to the config dir / HOME.
 CLAUDE_STATE_FILENAME = ".claude.json"
 
+#: Each web-terminal user's named volume holding this state is ``<user>`` plus
+#: this suffix. Deployed hosts hold volumes under exactly this name, so a
+#: different value would give every user an empty volume and detach their
+#: existing state.
+CLAUDE_CONFIG_VOLUME_SUFFIX = "-claude-config"
+
 #: The one auth shape whose interactive session prompts for key approval.
 #: Token-auth providers (``ANTHROPIC_AUTH_TOKEN``) never see the prompt.
 _PROMPTED_AUTH_ENV_VAR = "ANTHROPIC_API_KEY"

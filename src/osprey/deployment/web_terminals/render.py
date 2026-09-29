@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_env_prefix
 from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
@@ -1037,6 +1038,11 @@ def render_web_terminals(
                 # time the container is recreated, with nothing to see at
                 # mount time or in any log.
                 "container_agent_data_dir": container_agent_data_dir,
+                # The template consumes this finished name at both of its
+                # sites, the service's mount and the top-level `volumes:` key,
+                # so the two cannot be spelled apart; the name is live state on
+                # every deployed host.
+                "claude_config_volume": f"{entry['name']}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
                 "extra_mounts": entry["extra_mounts"],
                 # This user's audit identity, and the two ends of the bind that
                 # gives it somewhere to write. All three are derived from the

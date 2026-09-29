@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.channel_roster import RosterAbsenceReason, RosterResult, registered_channels
 from osprey.cli import output
@@ -755,7 +756,7 @@ def resolve_user_volume_names(config, user):
     :rtype: tuple[str, str]
     """
     project = resolve_project_name(config or {})
-    return f"{project}_{user}-claude-config", f"{project}_{user}-agent-data"
+    return f"{project}_{user}{CLAUDE_CONFIG_VOLUME_SUFFIX}", f"{project}_{user}-agent-data"
 
 
 def repo_relative_mount_source(
@@ -1169,7 +1170,7 @@ def _resolve_archive_render_context(config):
             terminals.append(
                 {
                     "user": user,
-                    "volume": f"{user}-claude-config",
+                    "volume": f"{user}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
                     "agent_data_volume": f"{user}-agent-data",
                 }
             )
