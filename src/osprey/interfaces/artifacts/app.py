@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from itertools import chain
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -1027,7 +1028,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
         app.state.focused_artifact_id = req.artifact_id
         _write_focus_file()
-        event = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
+        event: dict[str, Any] = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
         if req.fullscreen:
             event["fullscreen"] = True
         broadcaster.broadcast(event)
