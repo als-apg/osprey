@@ -467,14 +467,7 @@ class TestListArtifacts:
 
 
 class TestGetContent:
-    """Tests for get_content, get_framework_content, get_override_content."""
-
-    def test_get_content_framework(self, service):
-        """Framework artifact returns non-empty content with source='framework'."""
-        result = service.get_content(SAFE_ARTIFACT)
-        assert result["source"] == "framework"
-        assert isinstance(result["content"], str)
-        assert len(result["content"]) > 0
+    """Tests for get_content and get_framework_content."""
 
     def test_get_content_user_owned(self, service, project_dir):
         """After claim + modify, get_content returns the user's version."""
@@ -487,31 +480,38 @@ class TestGetContent:
         assert result["source"] == "user-owned"
         assert result["content"] == custom
 
-    def test_get_framework_content_renders(self, service):
-        """get_framework_content returns non-empty rendered content."""
-        content = service.get_framework_content(SAFE_ARTIFACT)
-        assert isinstance(content, str)
-        assert len(content) > 0
+    def test_get_content_reads_disk_for_framework_artifacts(self, project_dir):
+        """A framework artifact is read off disk, not re-rendered from its template.
+
+        The render resolves env-var placeholders the template still carries, so
+        a re-render would show the operator text the agent is not reading. A
+        marker written onto the disk copy is present only if the read went
+        there.
+        """
+        art = BuildArtifactCatalog.default().get(SAFE_ARTIFACT)
+        disk_path = project_dir / art.output_path
+        marker = "# DISK-MARKER-12345\n"
+        disk_path.write_text(marker + disk_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = ScaffoldGalleryService(project_dir).get_content(SAFE_ARTIFACT)
+
+        assert result["content"].startswith(marker)
+        assert result["source"] == "framework"
+
+    def test_get_content_falls_back_to_render_when_file_missing(self, project_dir):
+        """With the disk copy gone, the framework render is what there is to show."""
+        art = BuildArtifactCatalog.default().get(SAFE_ARTIFACT)
+        (project_dir / art.output_path).unlink()
+
+        result = ScaffoldGalleryService(project_dir).get_content(SAFE_ARTIFACT)
+
+        assert result["source"] == "framework"
+        assert result["content"]
 
     def test_get_framework_content_unknown(self, service):
         """Unknown artifact name raises KeyError."""
         with pytest.raises(KeyError, match="Unknown artifact"):
             service.get_framework_content("nonexistent/artifact")
-
-    def test_get_override_content_not_owned(self, service):
-        """Non-owned artifact returns None."""
-        result = service.get_override_content(SAFE_ARTIFACT)
-        assert result is None
-
-    def test_get_override_content_exists(self, service, project_dir):
-        """After claiming, get_override_content returns file content."""
-        scaffold_result = service.scaffold_override(WRITABLE_ARTIFACT)
-        expected_content = scaffold_result["content"]
-
-        svc = ScaffoldGalleryService(project_dir)
-        content = svc.get_override_content(WRITABLE_ARTIFACT)
-        assert content is not None
-        assert content == expected_content
 
 
 # ===========================================================================
