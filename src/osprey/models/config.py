@@ -41,8 +41,9 @@ def get_model_config(model_name: str, config_path: str | None = None) -> dict[st
     from osprey_connectors.config import _get_configurable
 
     configurable = _get_configurable(config_path)
-    model_configs = configurable.get("model_configs", {})
-    return model_configs.get(model_name, {})
+    section = configurable.get("model_configs")
+    entry = section.get(model_name) if isinstance(section, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 def get_provider_config(provider_name: str, config_path: str | None = None) -> dict[str, Any]:
@@ -58,8 +59,9 @@ def get_provider_config(provider_name: str, config_path: str | None = None) -> d
     from osprey_connectors.config import _get_configurable
 
     configurable = _get_configurable(config_path)
-    provider_configs = configurable.get("provider_configs", {})
-    return provider_configs.get(provider_name, {})
+    section = configurable.get("provider_configs")
+    entry = section.get(provider_name) if isinstance(section, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 def main_model_id(config: Mapping[str, Any], provider: str) -> str:
