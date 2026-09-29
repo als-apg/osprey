@@ -217,6 +217,39 @@ enums:
         description: Internal interlock channel 2 readback.
       internal_interlock_3_status:
         description: Internal interlock channel 3 readback.
+      frequency_setpoint:
+        description: Commanded frequency.
+        aliases: [frequency setpoint, set frequency, commanded frequency, frequency demand]
+      frequency_readback:
+        description: Measured frequency.
+        aliases: [frequency readback, measured frequency, frequency reading]
+      tuner_position_setpoint:
+        description: Commanded tuner position.
+        aliases: [tuner setpoint, tuner position setpoint, set tuner position]
+      tuner_position_readback:
+        description: Measured tuner position.
+        aliases: [tuner readback, tuner position, measured tuner position]
+      temperature_readback:
+        description: Measured temperature.
+        aliases: [temperature, temperature readback, measured temperature, temperature reading]
+      voltage_setpoint:
+        description: Commanded voltage.
+        aliases: [voltage setpoint, set voltage, commanded voltage, voltage demand]
+      voltage_readback:
+        description: Measured voltage.
+        aliases: [measured voltage, voltage reading, readback voltage]
+      voltage_golden_readback:
+        description: Stored golden voltage reference.
+        aliases: [golden voltage, voltage golden reference, reference voltage]
+      power_readback:
+        description: Measured power.
+        aliases: [power readback, measured power, power reading, net power]
+      dose_rate_readback:
+        description: Measured radiation dose rate.
+        aliases: [dose rate, dose rate readback, radiation dose rate, radiation level]
+      position_offset:
+        description: Stored offset subtracted from a measured position.
+        aliases: [position offset, offset, beam position offset, position calibration offset]
 
   property_name_enum:
     description: >-

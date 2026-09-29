@@ -37,6 +37,23 @@ VOCABULARY = REPO_ROOT / "src/osprey/facility/schema/_generated/vocabulary.json"
 
 _NARAD_PROPERTY = "https://narad.example.org/property/"
 
+#: The general quantity roles the demo's channels need beyond the seed roles.
+NEW_ROLES = frozenset(
+    {
+        "dose_rate_readback",
+        "frequency_readback",
+        "frequency_setpoint",
+        "position_offset",
+        "power_readback",
+        "temperature_readback",
+        "tuner_position_readback",
+        "tuner_position_setpoint",
+        "voltage_golden_readback",
+        "voltage_readback",
+        "voltage_setpoint",
+    }
+)
+
 
 @cache
 def generator() -> ModuleType:
@@ -206,6 +223,14 @@ def test_every_fingerprint_channel_carries_the_role_its_ttl_signal_means() -> No
     signals = {c["signal"] for c in channels.values() if "signal" in c}
     assert signals <= roles
     assert not signals & {binding["signal"] for binding in bindings.values()}
+
+
+def test_the_first_vocabulary_roles_are_left_as_they_were() -> None:
+    roles = [role["name"] for role in _json(VOCABULARY)["signal_roles"]]
+    for name in ("current_setpoint", "status", "valve_open_command", "gradient_readback"):
+        assert name in roles
+    assert len(roles) == 89 + len(NEW_ROLES)
+    assert NEW_ROLES <= set(roles)
 
 
 def test_every_channel_is_on_its_ttl_device() -> None:

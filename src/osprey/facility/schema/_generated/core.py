@@ -449,6 +449,50 @@ class SignalRoleEnum(str, Enum):
     """
     Internal interlock channel 3 readback.
     """
+    frequency_setpoint = "frequency_setpoint"
+    """
+    Commanded frequency.
+    """
+    frequency_readback = "frequency_readback"
+    """
+    Measured frequency.
+    """
+    tuner_position_setpoint = "tuner_position_setpoint"
+    """
+    Commanded tuner position.
+    """
+    tuner_position_readback = "tuner_position_readback"
+    """
+    Measured tuner position.
+    """
+    temperature_readback = "temperature_readback"
+    """
+    Measured temperature.
+    """
+    voltage_setpoint = "voltage_setpoint"
+    """
+    Commanded voltage.
+    """
+    voltage_readback = "voltage_readback"
+    """
+    Measured voltage.
+    """
+    voltage_golden_readback = "voltage_golden_readback"
+    """
+    Stored golden voltage reference.
+    """
+    power_readback = "power_readback"
+    """
+    Measured power.
+    """
+    dose_rate_readback = "dose_rate_readback"
+    """
+    Measured radiation dose rate.
+    """
+    position_offset = "position_offset"
+    """
+    Stored offset subtracted from a measured position.
+    """
 
 
 class PropertyNameEnum(str, Enum):
