@@ -15,8 +15,10 @@ from osprey.agent_runner.project_paths import claude_project_dir
 
 logger = logging.getLogger(__name__)
 
-# Maximum line count at which MEMORY.md gets truncated in Claude's context
+#: The line count after which Claude Code stops loading ``MEMORY.md`` into the agent's context.
 MEMORY_TRUNCATION_LIMIT = 200
+#: The line count at which the Memory tab starts warning that ``MEMORY.md`` is close to that limit.
+MEMORY_TRUNCATION_WARNING = 180
 
 
 class MemoryFileNotFoundError(Exception):
