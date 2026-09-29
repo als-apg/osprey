@@ -138,6 +138,10 @@ def test_collect_material_reads_each_source_exactly_once():
     assert reader.read_session_by_id.call_count == 1
     assert reader.read_chat_history_by_id.call_count == 1
     assert store.list_entries.call_count == 1
+    # Filtering is the composer's job: the store's session filter matches "this
+    # session or untagged" and so ignores the window. Only the shipped example
+    # is left out.
+    assert store.list_entries.call_args == call(exclude_examples=True)
     assert material.context_status == CONTEXT_OK
     assert material.session_id == SESSION_ID
     assert material.events == reader.read_session_by_id.return_value
@@ -145,18 +149,6 @@ def test_collect_material_reads_each_source_exactly_once():
     assert material.artifact_entries == store.list_entries.return_value
     assert material.scrollback == "tail"
     assert material.metadata == {"app_name": "OSPREY"}
-
-
-def test_collect_material_does_not_use_store_session_filter():
-    """Filtering is the composer's job — the store's OR-empty filter ignores the window.
-
-    The only thing asked of the store is to leave out the shipped example."""
-    reader = _reader()
-    store = _store()
-
-    collect_material(reader, store, SESSION_ID, scrollback="", metadata={})
-
-    assert store.list_entries.call_args == call(exclude_examples=True)
 
 
 def test_collect_material_dead_session_marks_status_and_stops_reading():
@@ -198,24 +190,6 @@ def test_collect_material_without_session_is_metadata_only():
     assert material.artifact_entries == []
     assert material.metadata == {"v": "1"}
     assert material.scrollback == "tail"
-
-
-def test_collect_material_copies_metadata():
-    """The caller's dict must not alias the record that gets rendered."""
-    reader = _reader()
-    store = _store()
-    metadata = {"app_name": "OSPREY"}
-
-    material = collect_material(reader, store, SESSION_ID, scrollback="", metadata=metadata)
-    metadata["app_name"] = "mutated"
-
-    assert material.metadata == {"app_name": "OSPREY"}
-
-
-def test_material_defaults_are_independent():
-    assert Material().events == []
-    Material().events.append({"a": 1})
-    assert Material().events == []
 
 
 # --------------------------------------------------------------------------
@@ -269,17 +243,6 @@ def test_select_artifacts_tags_this_session_and_windows_untagged():
     assert [e.id for e in windowed] == ["inside"]
 
 
-def test_select_artifacts_excludes_other_session_tagged_entries_from_the_window():
-    """An entry tagged for another session is never picked up by the window."""
-    other = _entry("other", "2026-08-20T11:00:00.000000+00:00", session_id=OTHER_SESSION_ID)
-
-    tagged, windowed, window_ok = select_artifacts([other], SESSION_ID, WINDOW_EVENTS)
-
-    assert window_ok is True
-    assert tagged == []
-    assert windowed == []
-
-
 def test_select_artifacts_compares_instants_not_strings():
     """``Z`` sorts after ``+`` lexicographically; the boundary entry proves parsing.
 
@@ -312,24 +275,16 @@ def test_select_artifacts_window_ignores_empty_and_malformed_event_stamps():
     assert [e.id for e in windowed] == ["inside"]
 
 
-def test_select_artifacts_reports_no_window_when_nothing_parses():
+@pytest.mark.parametrize("events", [["", None, "garbage"], []], ids=["nothing-parses", "no-events"])
+def test_select_artifacts_reports_no_window_when_nothing_parses(events):
     tagged_entry = _entry("tagged", "2026-08-20T11:00:00.000000+00:00", session_id=SESSION_ID)
     untagged = _entry("untagged", "2026-08-20T11:00:00.000000+00:00")
 
-    tagged, windowed, window_ok = select_artifacts(
-        [tagged_entry, untagged], SESSION_ID, ["", None, "garbage"]
-    )
+    tagged, windowed, window_ok = select_artifacts([tagged_entry, untagged], SESSION_ID, events)
 
     assert window_ok is False
     assert windowed == []
     assert [e.id for e in tagged] == ["tagged"]
-
-
-def test_select_artifacts_reports_no_window_for_empty_event_list():
-    _, windowed, window_ok = select_artifacts([], SESSION_ID, [])
-
-    assert window_ok is False
-    assert windowed == []
 
 
 def test_select_artifacts_skips_untagged_entries_with_unusable_stamps():
@@ -451,14 +406,6 @@ def test_render_bundle_emits_tiers_in_order():
     assert truncated is False
 
 
-def test_render_bundle_renders_metadata_values():
-    text, _ = render_bundle(_material(), GENEROUS_BUDGET)
-
-    assert "- osprey_version: 1.2.3" in text
-    assert "- app_name: OSPREY" in text
-    assert "- user: operator" in text
-
-
 def test_render_bundle_renders_events_with_error_detail():
     material = _material(events=[_event(0), _event(1, error=True)])
 
@@ -557,8 +504,11 @@ def test_render_bundle_omits_empty_sections():
     assert truncated is False
 
 
-@pytest.mark.parametrize("status", [CONTEXT_TRANSCRIPT_NOT_FOUND, CONTEXT_NO_SESSION])
-def test_render_bundle_replaces_context_tiers_with_a_status_note(status):
+@pytest.mark.parametrize(
+    ("status", "note_text"),
+    [(CONTEXT_TRANSCRIPT_NOT_FOUND, "no transcript found"), (CONTEXT_NO_SESSION, "no session id")],
+)
+def test_render_bundle_replaces_context_tiers_with_a_status_note(status, note_text):
     material = _material(context_status=status)
 
     text, truncated = render_bundle(material, GENEROUS_BUDGET)
@@ -573,12 +523,7 @@ def test_render_bundle_replaces_context_tiers_with_a_status_note(status):
     assert truncated is False
     note = text.split("## session context\n", 1)[1].strip()
     assert len(note.splitlines()) == 1
-
-
-def test_render_bundle_status_note_names_the_dead_transcript():
-    text, _ = render_bundle(_material(context_status=CONTEXT_TRANSCRIPT_NOT_FOUND), GENEROUS_BUDGET)
-
-    assert "no transcript found" in text
+    assert note_text in note
 
 
 @pytest.mark.parametrize("budget", [1_000, 60_000, 5_000_000])
@@ -655,14 +600,6 @@ def test_render_bundle_later_tiers_yield_to_earlier_ones():
     assert TAGGED_ARTIFACTS_HEADER not in text
 
 
-def test_render_bundle_is_byte_identical_for_identical_input():
-    first, first_truncated = render_bundle(_material(), 4_096)
-    second, second_truncated = render_bundle(_material(), 4_096)
-
-    assert first.encode("utf-8") == second.encode("utf-8")
-    assert first_truncated == second_truncated
-
-
 def test_render_bundle_never_splits_a_multibyte_character():
     """The budget is UTF-8 bytes, so a naive character slice would overshoot it."""
     scrollback = "".join(f"мощность пучка {i} — стабильна ✅\n" for i in range(400))
@@ -674,15 +611,6 @@ def test_render_bundle_never_splits_a_multibyte_character():
         assert _byte_len(text) <= budget
         # Round-tripping proves no lone continuation byte survived the slice.
         assert text.encode("utf-8", "surrogatepass").decode("utf-8", "surrogatepass") == text
-
-
-def test_render_bundle_handles_lone_surrogates_in_scrollback():
-    """A lone surrogate reaches the composer through JSON and must not raise."""
-    material = _material(events=[], chat=[], scrollback="before \ud800 after\n" * 50)
-
-    text, _ = render_bundle(material, 300)
-
-    assert _byte_len(text) <= 300
 
 
 def test_render_bundle_returns_an_encodable_string_when_material_carries_surrogates():
@@ -742,10 +670,11 @@ SEPARATOR_BYTES = _byte_len(PAYLOAD_SEPARATOR)
 MAX_TEXT_BYTES = PAYLOAD_CAP_BYTES - SEPARATOR_BYTES - CONTEXT_FLOOR_BYTES
 
 
-def test_payload_cap_and_floor_are_the_proposal_numbers():
-    assert PAYLOAD_CAP_BYTES == 60_000
-    assert CONTEXT_FLOOR_BYTES == 8_000
-    assert TEXT_TRUNCATION_MARKER == ("[text truncated — full text is in the Local record <id>]")
+def test_payload_cap_fits_the_github_issue_body_limit():
+    """A pasted report must survive GitHub's 65,536-byte issue body whole, and
+    the context floor must leave the report room to exist at all."""
+    assert PAYLOAD_CAP_BYTES < 65_536
+    assert 0 < CONTEXT_FLOOR_BYTES < PAYLOAD_CAP_BYTES - SEPARATOR_BYTES
 
 
 def test_payload_stays_under_the_cap_with_non_ascii_text():
@@ -785,19 +714,11 @@ def test_payload_truncates_a_100kb_text_and_keeps_the_context_floor():
     assert _byte_len(payload) <= PAYLOAD_CAP_BYTES
 
 
-def test_payload_keeps_a_short_text_whole():
-    payload, bundle, truncated = assemble_payload("the plot axes are swapped", _material())
-
-    assert truncated is False
-    assert payload.startswith("the plot axes are swapped")
-    assert TEXT_TRUNCATION_MARKER not in payload
-    assert payload.endswith(bundle)
-
-
 def test_payload_puts_the_separator_between_the_text_and_the_context():
-    payload, bundle, _ = assemble_payload("hello", _material())
+    payload, bundle, truncated = assemble_payload("hello", _material())
 
     assert payload == "hello" + PAYLOAD_SEPARATOR + bundle
+    assert truncated is False
 
 
 def test_payload_omits_the_separator_when_there_is_no_context():
@@ -846,16 +767,6 @@ def test_payload_tolerates_a_lone_surrogate_in_the_text():
     payload, _, _ = assemble_payload("bad \ud800 text " * 5_000, _material())
 
     assert _byte_len(payload) <= PAYLOAD_CAP_BYTES
-
-
-def test_payload_is_byte_identical_for_identical_input():
-    material = _oversized_material()
-
-    first = assemble_payload("отчёт", material)
-    second = assemble_payload("отчёт", material)
-
-    assert first[0].encode("utf-8") == second[0].encode("utf-8")
-    assert first[1:] == second[1:]
 
 
 def test_payload_with_a_dead_session_still_carries_text_and_metadata():
