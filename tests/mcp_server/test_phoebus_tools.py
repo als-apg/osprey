@@ -124,6 +124,9 @@ async def test_snapshot_success_writes_png(tmp_path):
     # registration headers were threaded into the saved artifact data
     saved = fake_store.save_data.call_args.kwargs["data"]
     assert saved["scale"] == "1.0" and saved["origin_x"] == "10.0"
+    hint = fake_store.save_data.call_args.kwargs["access_details"]["view_hint"]
+    assert hint.endswith("with your file-reading tool to view the snapshot.")
+    assert str(written[0]) in hint
 
 
 async def test_snapshot_bridge_error():
@@ -132,6 +135,29 @@ async def test_snapshot_bridge_error():
         with assert_raises_error(error_type="phoebus_error") as ctx:
             await _fn("phoebus_snapshot")(widget="Setpoint")
     assert "not rendered" in ctx["envelope"]["error_message"]
+
+
+async def test_snapshot_store_failure_still_names_the_file(tmp_path):
+    headers = {"X-Bridge-Origin-X": "10.0", "X-Bridge-Origin-Y": "20.0", "X-Bridge-Scale": "1.0"}
+    png = b"\x89PNG\r\n\x1a\nfake"
+    fake_store = MagicMock()
+    fake_store.save_data.side_effect = RuntimeError("store down")
+
+    with (
+        patch(f"{_MOD}._snapshot_dir", return_value=tmp_path),
+        patch(f"{_MOD}._http_get_bytes", return_value=(200, headers, png)),
+        patch("osprey.stores.artifact_store.get_artifact_store", return_value=fake_store),
+    ):
+        result = await _fn("phoebus_snapshot")(widget="Setpoint", display="active", dpi=2.0)
+
+    data = extract_response_dict(result)
+    assert data["status"] == "success"
+    written = list(tmp_path.glob("phoebus_Setpoint_*.png"))
+    assert len(written) == 1
+    assert data["filepath"] == str(written[0])
+    assert data["view_hint"] == (
+        f"Open {data['filepath']} with your file-reading tool to view the snapshot."
+    )
 
 
 # ── drive ──────────────────────────────────────────────────────────────────

@@ -91,6 +91,9 @@ async def test_screenshot_full_mode(tmp_path, monkeypatch):
     assert data["summary"]["mode"] == "full"
     assert data["summary"]["dimensions"] == "2560x1440"
     assert "screenshots" in data["summary"]["filepath"]
+    assert data["access_details"]["view_hint"] == (
+        f"Open {filepath_holder[0]} with your file-reading tool to view the screenshot."
+    )
 
 
 async def test_screenshot_region_mode(tmp_path, monkeypatch):

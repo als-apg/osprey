@@ -655,8 +655,8 @@ async def phoebus_snapshot(
         dpi: Scale factor — 1.0 native, 2.0 HiDPI. Must be in (0, 8].
 
     Returns:
-        JSON artifact response including the saved file path. Use the Read tool on
-        that path to view the snapshot. While the control target differs from the
+        JSON artifact response including the saved file path. Open that path with
+        your file-reading tool to view the snapshot. While the control target differs from the
         deployment baseline, one informational line naming both targets precedes
         that JSON (see the module docstring).
     """
@@ -723,7 +723,7 @@ async def phoebus_snapshot(
             },
             access_details={
                 "file_format": "PNG",
-                "view_hint": f"Use Read tool on {fpath} to view the snapshot.",
+                "view_hint": f"Open {fpath} with your file-reading tool to view the snapshot.",
             },
             category="screenshot",
         )
@@ -740,7 +740,7 @@ async def phoebus_snapshot(
                     "status": "success",
                     "filepath": str(fpath),
                     "bytes": len(content),
-                    "view_hint": f"Use Read tool on {fpath} to view the snapshot.",
+                    "view_hint": f"Open {fpath} with your file-reading tool to view the snapshot.",
                 }
             ),
         )

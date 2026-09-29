@@ -437,8 +437,8 @@ def _save_image_reading(store, address: str, value, summary: dict, np, png_bytes
                 ),
             },
             "view_hint": (
-                "Use the Read tool on the PNG beside this entry's data_file (the same path "
-                "with a .png extension) to view the image."
+                "Open the PNG beside this entry's data_file (the same path with a .png "
+                "extension) with your file-reading tool to view the image."
             ),
         },
         category="channel_values",
@@ -460,7 +460,7 @@ def _save_image_reading(store, address: str, value, summary: dict, np, png_bytes
     }
     png_path = _agent_path_for(store, entry)
     if png_path:
-        handle["view_hint"] = f"Use the Read tool on {png_path} to view the image."
+        handle["view_hint"] = f"Open {png_path} with your file-reading tool to view the image."
     return handle
 
 

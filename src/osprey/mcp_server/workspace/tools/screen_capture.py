@@ -70,8 +70,8 @@ async def screenshot_capture(
                   capture_YYYYMMDD_HHMMSS.
 
     Returns:
-        JSON with status, file path, and image dimensions. Use the Read tool
-        on the returned path to view the screenshot.
+        JSON with status, file path, and image dimensions. Open the returned
+        path with your file-reading tool to view the screenshot.
     """
     valid_modes = ("full", "display", "region", "window")
     if mode not in valid_modes:
@@ -141,7 +141,7 @@ async def screenshot_capture(
             },
             access_details={
                 "file_format": "PNG",
-                "view_hint": f"Use Read tool on {info.filepath} to view the screenshot.",
+                "view_hint": f"Open {info.filepath} with your file-reading tool to view the screenshot.",
             },
             category="screenshot",
         )
