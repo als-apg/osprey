@@ -36,20 +36,22 @@ if TYPE_CHECKING:
 # SDK imports — keep module importable even when SDK is absent.
 try:
     from claude_agent_sdk import (  # type: ignore[assignment]
-        AssistantMessage,
         ClaudeAgentOptions,
         ResultMessage,
         SystemMessage,
-        TextBlock,
-        ToolResultBlock,
-        ToolUseBlock,
-        UserMessage,
     )
 
     HAS_SDK = True
 except ImportError:
     HAS_SDK = False
 
+from osprey.agent_runner.events import (
+    AgentEvent,
+    TextEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+    translate_message,
+)
 from osprey.infrastructure.proxy.lifecycle import start_proxy
 
 logger = logging.getLogger(__name__)
@@ -523,6 +525,44 @@ def combined_text(result: SDKWorkflowResult) -> str:
     return " ".join(parts).lower()
 
 
+def _record_event(
+    event: AgentEvent,
+    text_blocks: list[str],
+    tool_traces: list[ToolTrace],
+    pending: dict[str, ToolTrace],
+) -> None:
+    """Fold one event record into a run's text and tool traces.
+
+    Text is appended to *text_blocks*. A tool call becomes a :class:`ToolTrace`
+    on *tool_traces* and waits in *pending* under its ``tool_use_id``; a tool
+    result fills in the pending trace it names, and is dropped when none is
+    pending. Every other record carries nothing for these accumulators.
+
+    Args:
+        event: One record from :func:`~osprey.agent_runner.events.translate_message`.
+        text_blocks: The run's assistant text, in order.
+        tool_traces: The run's tool calls, in order.
+        pending: ``tool_use_id`` → the trace awaiting its result.
+    """
+    if isinstance(event, TextEvent):
+        text_blocks.append(event.text)
+    elif isinstance(event, ToolUseEvent):
+        trace = ToolTrace(
+            name=event.name,
+            input=event.input,
+            tool_use_id=event.tool_use_id,
+            parent_tool_use_id=event.parent_tool_use_id,
+        )
+        tool_traces.append(trace)
+        pending[event.tool_use_id] = trace
+    elif isinstance(event, ToolResultEvent):
+        matched = pending.get(event.tool_use_id)
+        if matched is None:
+            return
+        matched.result = event.text
+        matched.is_error = event.is_error
+
+
 def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTrace]) -> None:
     """Match a ToolResultBlock to its pending ToolTrace and populate result/is_error.
 
@@ -535,18 +575,13 @@ def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTra
         block: The tool result block to ingest.
         pending_tools: Map of tool_use_id to the ToolTrace awaiting its result.
     """
-    matched = pending_tools.get(block.tool_use_id)
-    if matched is None:
-        return
-    if isinstance(block.content, str):
-        matched.result = block.content
-    elif isinstance(block.content, list):
-        texts = []
-        for item in block.content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                texts.append(item.get("text", ""))
-        matched.result = "\n".join(texts) if texts else str(block.content)
-    matched.is_error = bool(block.is_error)
+    event = ToolResultEvent(
+        tool_use_id=block.tool_use_id,
+        content=block.content,
+        is_error=bool(block.is_error),
+        parent_tool_use_id=None,
+    )
+    _record_event(event, [], [], pending_tools)
 
 
 # ---------------------------------------------------------------------------
@@ -665,33 +700,13 @@ async def _drain_response(
     # purely local to this drain, reset for each response stream.
     pending_tools: dict[str, ToolTrace] = {}
     async for message in client.receive_response():
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    workflow.text_blocks.append(block.text)
-                elif isinstance(block, ToolUseBlock):
-                    trace = ToolTrace(
-                        name=block.name,
-                        input=block.input,
-                        tool_use_id=block.id,
-                        parent_tool_use_id=message.parent_tool_use_id,
-                    )
-                    workflow.tool_traces.append(trace)
-                    pending_tools[block.id] = trace
-                elif isinstance(block, ToolResultBlock):
-                    _ingest_tool_result(block, pending_tools)
-
-        elif isinstance(message, UserMessage):
-            if isinstance(message.content, list):
-                for block in message.content:
-                    if isinstance(block, ToolResultBlock):
-                        _ingest_tool_result(block, pending_tools)
-
-        elif isinstance(message, SystemMessage):
+        if isinstance(message, SystemMessage):
             workflow.system_messages.append(message)
-
         elif isinstance(message, ResultMessage):
             workflow.result = message
+        else:
+            for event in translate_message(message):
+                _record_event(event, workflow.text_blocks, workflow.tool_traces, pending_tools)
 
 
 # ---------------------------------------------------------------------------
