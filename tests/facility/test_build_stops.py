@@ -295,6 +295,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("wiring_conflict__device_two_models", "wiring-conflict", "a device wired in two models"),
     ("wiring_conflict__address_twice", "wiring-conflict", "an address wired twice"),
     (
+        "wiring_conflict__address_twice_on_device",
+        "wiring-conflict",
+        "an address on a device wired twice",
+    ),
+    (
         "wiring_conflict__repeated_element",
         "wiring-conflict",
         "a wired `element` repeated in its deck",
@@ -1184,6 +1189,20 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: wiring-conflict: channel TUNE:X — models LINE, SR each wire the address; "
+            "fix: wire the address in one model"
+        ),
+    ),
+    "wiring_conflict__address_twice_on_device": (
+        _deck(
+            append(
+                "records/channels.yaml",
+                {"id": "QD2:SP", "role": "setpoint", "on": {"device": "SR/QD"}},
+            ),
+            wire("SR", {"address": "QD2:SP", "element": "QD", "engine": SETTING}),
+            wire("LINE", {"address": "QD2:SP", "element": "Q1", "engine": SETTING}),
+        ),
+        (
+            "facility: wiring-conflict: channel QD2:SP — models LINE, SR each wire the address; "
             "fix: wire the address in one model"
         ),
     ),

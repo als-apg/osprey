@@ -158,9 +158,9 @@ def check_compute(validated: Validated) -> list[FacilityBuildError]:
         [e for e in entries or [] if isinstance(e, dict)],
     )
     _model_conflicts(run)
-    _addresses_wired_twice(run)
+    twice = _addresses_wired_twice(run)
     decks = _prepare_decks(run)
-    positions = _positions(run, decks)
+    positions = _positions(run, decks, twice)
     spans = _spans(run, decks)
     if run.errors:
         return run.errors
@@ -209,7 +209,8 @@ def _model_conflicts(run: _Run) -> None:
             )
 
 
-def _addresses_wired_twice(run: _Run) -> None:
+def _addresses_wired_twice(run: _Run) -> set[str]:
+    """Stop on each address more than one wiring record names; return those addresses."""
     wired: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for model in run.document.get("models", []):
         for record in model.get("wiring", []):
@@ -226,6 +227,7 @@ def _addresses_wired_twice(run: _Run) -> None:
             f"models {', '.join(names)} each wire the address",
             "wire the address in one model",
         )
+    return {address for address, records in wired.items() if len(records) > 1}
 
 
 def _prepare_decks(run: _Run) -> dict[str, _Deck]:
@@ -250,8 +252,12 @@ def _prepare_decks(run: _Run) -> dict[str, _Deck]:
 # --- positions -----------------------------------------------------------------------
 
 
-def _positions(run: _Run, decks: Mapping[str, _Deck]) -> dict[str, _Position]:
-    """Each wired device's model, s and length."""
+def _positions(run: _Run, decks: Mapping[str, _Deck], twice: set[str]) -> dict[str, _Position]:
+    """Each wired device's model, s and length.
+
+    A record whose address is wired twice places no device: its address has
+    already stopped the build with its own line.
+    """
     channels = {c["id"]: c for c in run.document.get("channels", [])}
     located: dict[tuple[str, str], tuple[float, float] | None] = {}
     elements: dict[str, dict[str, dict[str, tuple[float, float]]]] = defaultdict(
@@ -262,6 +268,8 @@ def _positions(run: _Run, decks: Mapping[str, _Deck]) -> dict[str, _Position]:
         if deck is None:
             continue
         for record in model.get("wiring", []):
+            if record["address"] in twice:
+                continue
             for element, device in _wired_elements(record, channels.get(record["address"])):
                 key = (deck.name, element)
                 if key not in located:
