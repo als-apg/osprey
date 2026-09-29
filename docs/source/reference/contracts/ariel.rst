@@ -65,6 +65,12 @@ OSPREY agent selects the appropriate tool based on the user's query.
    * - ``entry_create``
      - Create a new logbook entry
 
+Search and ``browse`` results carry the first ``ariel.entry_text.listing_chars``
+characters of each entry's ``raw_text``, and ``entries_by_ids`` the first
+``ariel.entry_text.read_chars``. An entry cut there also carries
+``raw_text_truncated: true`` and its full ``raw_text_length``. ``entry_get``
+returns the whole entry. See :ref:`config-ariel-entry-text`.
+
 **Source:** :file:`src/osprey/mcp_server/ariel/tools/`
 
 
