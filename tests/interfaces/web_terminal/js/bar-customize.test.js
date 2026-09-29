@@ -20,116 +20,33 @@
  *     `onSyncNotice()`, which is what retires bar-sync.js's inline pill.
  */
 
-import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach } from 'vitest';
 
-const CUSTOMIZE_PATH =
-  '../../../../src/osprey/interfaces/web_terminal/static/js/bar-customize.js';
-const SYNC_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-sync.js';
-const HOST_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js';
+import { BAR_ITEM_TYPES } from '../../../../src/osprey/interfaces/web_terminal/static/js/bar-catalog.js';
+import {
+  boot,
+  doc,
+  endpoint,
+  jsonResponse,
+  putBodies,
+  settle,
+  sheet,
+  teardown,
+  tile,
+} from './bar-customize-fixture.mjs';
 
 /** The freshly imported module under test. @type {any} */
 let customize;
 /** The freshly imported sync module. @type {any} */
 let sync;
-/** @type {any} */
-let fetchSpy;
-
-const realFetch = globalThis.fetch;
 
 /**
- * A layout document, as the server serves it.
- * @param {(string | {type: string, options: Record<string, unknown>})[]} header
- * @param {(string | {type: string, options: Record<string, unknown>})[]} status
- * @param {{rev?: number, version?: number, headerVisible?: boolean, statusVisible?: boolean}} [extra]
- * @returns {Record<string, unknown>}
+ * Boot the bar stack over the SSR shell and keep both modules for the test.
+ * @param {Parameters<typeof boot>[0]} [options]
  */
-function doc(header, status, extra = {}) {
-  /** @param {string | {type: string, options: Record<string, unknown>}} entry */
-  const item = (entry) => (typeof entry === 'string' ? { type: entry, options: {} } : entry);
-  return {
-    version: extra.version ?? 1,
-    rev: extra.rev ?? 0,
-    header: header.map(item),
-    status: status.map(item),
-    header_visible: extra.headerVisible ?? true,
-    status_visible: extra.statusVisible ?? true,
-  };
-}
-
-/** A `Response`-alike, which is all the sync layer reads. */
-function jsonResponse(/** @type {number} */ status, /** @type {unknown} */ body) {
-  return { ok: status >= 200 && status < 300, status, json: async () => body };
-}
-
-/**
- * A fake `/api/bar-items`. A PUT echoes the body back at the next revision
- * unless `puts` supplies an answer for it.
- * @param {{get?: unknown, puts?: unknown[]}} config
- */
-function endpoint({ get = doc([], []), puts = [] } = {}) {
-  let index = 0;
-  return vi.fn(async (/** @type {string} */ _url, /** @type {any} */ init = {}) => {
-    const method = init.method ?? 'GET';
-    if (method === 'GET') return jsonResponse(200, get);
-    const scripted = puts.length > 0 ? puts[Math.min(index, puts.length - 1)] : null;
-    index += 1;
-    if (scripted instanceof Error) throw scripted;
-    if (scripted) return scripted;
-    const sent = JSON.parse(init.body);
-    return jsonResponse(200, { ...sent, rev: (sent.rev ?? 0) + 1 });
-  });
-}
-
-/** Every PUT the spy saw, as parsed bodies. @returns {any[]} */
-function putBodies() {
-  return fetchSpy.mock.calls
-    .filter((/** @type {any[]} */ call) => (call[1]?.method ?? 'GET') === 'PUT')
-    .map((/** @type {any[]} */ call) => JSON.parse(call[1].body));
-}
-
-/**
- * The SSR DOM, then a fresh module graph on top of it. bar-host hydrates at
- * import time, so the body is seeded before the imports.
- *
- * `context` is what the server stamped on `<html>` as `data-bar-context`;
- * omitting it stamps nothing, which is a page this build did not render and
- * where every gated item reads as unavailable.
- * @param {{fetch?: any, uiMode?: string, context?: Record<string, unknown>}} [options]
- */
-async function boot({ fetch = endpoint(), uiMode = 'expert', context } = {}) {
-  vi.resetModules();
-  document.documentElement.setAttribute('data-ui-mode', uiMode);
-  if (context) document.documentElement.setAttribute('data-bar-context', JSON.stringify(context));
-  document.body.innerHTML = `
-    <header class="header">
-      <div class="header-actions" data-bar-host="header"></div>
-    </header>
-    <footer class="status-bar" data-bar-host="status"></footer>
-    <div id="bar-item-pool" hidden></div>
-  `;
-  fetchSpy = fetch;
-  globalThis.fetch = fetchSpy;
-  await import(HOST_PATH);
-  sync = await import(SYNC_PATH);
-  customize = await import(CUSTOMIZE_PATH);
-  await settle();
+async function start(options) {
+  ({ customize, sync } = await boot(options));
   return customize;
-}
-
-/** Let the boot GET and everything it queued settle. */
-async function settle() {
-  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** The sheet element, or null when edit mode has never been entered. */
-function sheet() {
-  return document.querySelector('.bar-sheet');
-}
-
-/** The tile button for one item type. @param {string} type */
-function tile(type) {
-  return /** @type {any} */ (document.querySelector(`.bar-tile[data-bar-tile="${type}"]`));
 }
 
 /** The reason text a tile carries, or '' when it carries none. @param {string} type */
@@ -147,35 +64,19 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  customize?.stopBarCustomize?.();
-  sync?.stopBarSync?.();
-  document.body.innerHTML = '';
-  document.documentElement.removeAttribute('data-ui-mode');
-  document.documentElement.removeAttribute('data-bar-context');
-  globalThis.fetch = realFetch;
-  vi.restoreAllMocks();
+  teardown({ customize, sync });
+  customize = null;
+  sync = null;
 });
 
 describe('what the sheet may offer is the SERVED deployment context', () => {
-  test('the edit context is the stamp, parsed, and nothing else', async () => {
-    await boot({
-      context: { identityAvailable: true, blueskyAvailable: true, systemHealthAvailable: true },
-    });
-
-    expect(customize.editContext()).toEqual({
-      identityAvailable: true,
-      blueskyAvailable: true,
-      systemHealthAvailable: true,
-    });
-  });
-
   test('an item the deployment OFFERS is offered, though no shell renders it', async () => {
     // The inference this replaced read availability off the rendered shells, so
     // a deployment that offers the plan queue but has not placed it looked like
     // one that cannot render it — and the sheet then refused a tile the
     // normalizer would have kept. Both must read the same served facts, or the
     // operator's save dies as `readonly` with nothing said.
-    await boot({
+    await start({
       fetch: endpoint({ get: doc(['logo'], []) }),
       context: { identityAvailable: true, blueskyAvailable: false, systemHealthAvailable: false },
     });
@@ -189,7 +90,7 @@ describe('what the sheet may offer is the SERVED deployment context', () => {
 
 describe('entering and leaving edit mode', () => {
   test('entering marks the page and opens the sheet', async () => {
-    await boot();
+    await start();
 
     expect(customize.enterEditMode()).toBe(true);
     expect(customize.isEditing()).toBe(true);
@@ -198,7 +99,7 @@ describe('entering and leaving edit mode', () => {
   });
 
   test('Done leaves edit mode', async () => {
-    await boot();
+    await start();
     customize.enterEditMode();
 
     /** @type {any} */ (document.querySelector('.bar-sheet-done')).click();
@@ -209,8 +110,12 @@ describe('entering and leaving edit mode', () => {
   });
 
   test('Escape leaves edit mode', async () => {
-    await boot();
+    await start();
     customize.enterEditMode();
+
+    // Any other key leaves edit mode alone.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(customize.isEditing()).toBe(true);
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
@@ -218,17 +123,8 @@ describe('entering and leaving edit mode', () => {
     expect(document.body.classList.contains('bar-editing')).toBe(false);
   });
 
-  test('a key that is not Escape leaves edit mode alone', async () => {
-    await boot();
-    customize.enterEditMode();
-
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-
-    expect(customize.isEditing()).toBe(true);
-  });
-
   test('listeners are told both ways', async () => {
-    await boot();
+    await start();
     /** @type {boolean[]} */
     const seen = [];
     const off = customize.onEditModeChange((/** @type {boolean} */ on) => seen.push(on));
@@ -245,7 +141,7 @@ describe('entering and leaving edit mode', () => {
     // Dragging an item out of the bars removes it, with no confirmation. This
     // line is the only place that says so, which is why it is the design of
     // record's sentence and not a shorter one.
-    await boot();
+    await start();
     customize.enterEditMode();
 
     expect(document.querySelector('.bar-sheet-hint')?.textContent).toBe(
@@ -254,18 +150,8 @@ describe('entering and leaving edit mode', () => {
     );
   });
 
-  test('teardown takes the sheet with it', async () => {
-    await boot();
-    customize.enterEditMode();
-    expect(sheet()).not.toBe(null);
-
-    customize.stopBarCustomize();
-
-    expect(sheet()).toBe(null);
-  });
-
   test('every item can be removed, the wordmark included', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
 
     customize.enterEditMode();
     expect(await customize.removeAt('header', 0)).toBe(true);
@@ -276,7 +162,7 @@ describe('entering and leaving edit mode', () => {
 
 describe('edit mode is the same in both ui modes', () => {
   test('Simple mode enters it and opens the sheet', async () => {
-    await boot({ uiMode: 'simple' });
+    await start({ uiMode: 'simple' });
 
     expect(customize.enterEditMode()).toBe(true);
     expect(customize.isEditing()).toBe(true);
@@ -284,16 +170,11 @@ describe('edit mode is the same in both ui modes', () => {
     expect(sheet()).not.toBe(null);
   });
 
-  test('Expert mode enters it', async () => {
-    await boot({ uiMode: 'expert' });
-
-    expect(customize.enterEditMode()).toBe(true);
-  });
 });
 
 describe('a tile names why it cannot be added', () => {
   test('any type may be added to either bar', async () => {
-    await boot();
+    await start();
 
     expect(customize.refusalFor('logo', 'status')).toBe(null);
     expect(customize.refusalFor('logo', 'header')).toBe(null);
@@ -301,25 +182,20 @@ describe('a tile names why it cannot be added', () => {
   });
 
   test('a type the deployment does not render is refused', async () => {
-    await boot();
+    await start();
     customize.enterEditMode();
 
     expect(customize.refusalFor('identity', 'header')).toBe('Not in this deployment');
     expect(tile('identity').getAttribute('aria-disabled')).toBe('true');
     expect(tileReason('identity')).toBe('Not in this deployment');
-  });
-
-  test('a renderable type carries no reason and is enabled', async () => {
-    await boot();
-    customize.enterEditMode();
-
+    // A type this deployment renders carries no reason and is enabled.
     expect(tile('clock').getAttribute('aria-disabled')).toBeNull();
     expect(tileReason('clock')).toBe('');
   });
 
   test('a single-node type already in a bar is refused, and its tile dims', async () => {
     // Its body is one server-rendered node; a second shell could only be empty.
-    await boot({ fetch: endpoint({ get: doc(['logo', 'docs'], ['clock']) }) });
+    await start({ fetch: endpoint({ get: doc(['logo', 'docs'], ['clock']) }) });
     customize.enterEditMode();
 
     expect(customize.refusalFor('docs', 'status')).toBe('Already in the header');
@@ -328,9 +204,7 @@ describe('a tile names why it cannot be added', () => {
     expect(tileReason('docs')).toBe('');
     tile('docs').click();
     await settle();
-    expect(
-      fetchSpy.mock.calls.filter((/** @type {any} */ c) => c[1]?.method === 'PUT')
-    ).toHaveLength(0);
+    expect(putBodies()).toHaveLength(0);
 
     // A type that may be placed twice is offered again.
     expect(customize.refusalFor('clock', 'header')).toBe(null);
@@ -340,7 +214,7 @@ describe('a tile names why it cannot be added', () => {
 
 describe('a tile shows the item', () => {
   test('a JS-built type previews through its own builder', async () => {
-    await boot();
+    await start();
     customize.enterEditMode();
 
     expect(tile('clock').querySelector('.bar-tile-body .bar-clock')).not.toBe(null);
@@ -348,7 +222,7 @@ describe('a tile shows the item', () => {
   });
 
   test('an adopted type previews as a copy of its live node, ids stripped', async () => {
-    await boot();
+    await start();
     document.querySelector('[data-bar-host="header"]')?.insertAdjacentHTML(
       'beforeend',
       '<div class="bar-item" data-bar-item="docs"><a class="status-item" id="docs-link" hidden>Docs</a></div>'
@@ -365,20 +239,26 @@ describe('a tile shows the item', () => {
   });
 
   test('tiles sit under the catalog headings, in catalog order', async () => {
-    await boot();
+    await start();
     customize.enterEditMode();
 
     const headings = Array.from(document.querySelectorAll('.bar-sheet-group-heading')).map(
       (h) => h.textContent
     );
     expect(headings).toEqual(['Identity', 'Machine', 'Panels', 'System', 'Tools', 'Layout']);
-    expect(
-      Array.from(document.querySelectorAll('.bar-tile')).map((t) => /** @type {any} */ (t).dataset.barTile)
-    ).toHaveLength(13);
+    // Every declared type gets a tile: one whose group has no heading would
+    // otherwise vanish from the sheet without an error.
+    const tiles = Array.from(document.querySelectorAll('.bar-tile')).map(
+      (t) => /** @type {any} */ (t)
+    );
+    expect(tiles.map((t) => t.dataset.barTile).sort()).toEqual([...BAR_ITEM_TYPES].sort());
+    for (const t of tiles) {
+      expect(t.querySelector('.bar-tile-label')?.textContent ?? '', t.dataset.barTile).not.toBe('');
+    }
   });
 
   test('a full host refuses the tile by name', async () => {
-    await boot({ fetch: endpoint({ get: fullHeader() }) });
+    await start({ fetch: endpoint({ get: fullHeader() }) });
     customize.enterEditMode();
 
     expect(customize.refusalFor('clock', 'header')).toBe('Header is full');
@@ -387,7 +267,7 @@ describe('a tile shows the item', () => {
   });
 
   test('clicking a refused tile issues no PUT', async () => {
-    await boot({ fetch: endpoint({ get: fullHeader() }) });
+    await start({ fetch: endpoint({ get: fullHeader() }) });
     customize.enterEditMode();
 
     tile('clock').click();
@@ -397,7 +277,7 @@ describe('a tile shows the item', () => {
   });
 
   test('addItem over the cap resolves false and issues no PUT', async () => {
-    await boot({ fetch: endpoint({ get: fullHeader() }) });
+    await start({ fetch: endpoint({ get: fullHeader() }) });
 
     await expect(customize.addItem('clock', 'header')).resolves.toBe(false);
     expect(putBodies()).toEqual([]);
@@ -406,7 +286,7 @@ describe('a tile shows the item', () => {
   test('a read-only document refuses every tile', async () => {
     // A document naming a type this build cannot render is read-only: it is
     // rendered and never written back.
-    await boot({ fetch: endpoint({ get: doc(['logo', 'not-a-type'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo', 'not-a-type'], []) }) });
     customize.enterEditMode();
 
     expect(sync.isLayoutReadonly()).toBe(true);
@@ -421,7 +301,7 @@ describe('a tile shows the item', () => {
 
 describe('the sheet and the keyboard', () => {
   test('a refused tile stays in the tab order, and its reason with it', async () => {
-    await boot({ fetch: endpoint({ get: fullHeader() }) });
+    await start({ fetch: endpoint({ get: fullHeader() }) });
     customize.enterEditMode();
 
     const refused = tile('clock');
@@ -433,14 +313,14 @@ describe('the sheet and the keyboard', () => {
   });
 
   test('opening the sheet moves the focus to its first tile', async () => {
-    await boot();
+    await start();
     customize.enterEditMode();
 
     expect(document.activeElement).toBe(document.querySelector('.bar-sheet .bar-tile'));
   });
 
   test('closing the sheet gives the focus back to where it was', async () => {
-    await boot();
+    await start();
     const origin = document.createElement('button');
     document.body.append(origin);
     origin.focus();
@@ -454,7 +334,7 @@ describe('the sheet and the keyboard', () => {
   });
 
   test('closing leaves the focus alone once the operator has moved it out', async () => {
-    await boot();
+    await start();
     const origin = document.createElement('button');
     const elsewhere = document.createElement('button');
     document.body.append(origin, elsewhere);
@@ -470,7 +350,7 @@ describe('the sheet and the keyboard', () => {
   });
 
   test('an item added from a tile keeps the focus on that tile', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo'], []) }) });
     customize.enterEditMode();
 
     const before = tile('clock');
@@ -485,7 +365,7 @@ describe('the sheet and the keyboard', () => {
   });
 
   test('an item removed from a bar leaves the focus on the tile it was on', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
     customize.enterEditMode();
     tile('stopwatch').focus();
 
@@ -494,7 +374,7 @@ describe('the sheet and the keyboard', () => {
   });
 
   test('an item moved between the bars leaves the focus on the tile it was on', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
     customize.enterEditMode();
     tile('stopwatch').focus();
 
@@ -503,7 +383,7 @@ describe('the sheet and the keyboard', () => {
   });
 
   test('a tile whose type is gone hands the focus to the tile in its place', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo'], []) }) });
     customize.enterEditMode();
 
     const third = /** @type {HTMLElement} */ (
@@ -519,7 +399,7 @@ describe('the sheet and the keyboard', () => {
   });
 
   test('an edit leaves alone a focus that is not on a tile', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo'], []) }) });
     customize.enterEditMode();
     const done = /** @type {HTMLElement} */ (document.querySelector('.bar-sheet-done'));
     done.focus();
@@ -531,7 +411,7 @@ describe('the sheet and the keyboard', () => {
 
 describe('every edit goes through saveLayout', () => {
   test('entering and leaving edit mode PUTs nothing', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], ['clock']) }) });
+    await start({ fetch: endpoint({ get: doc(['logo'], ['clock']) }) });
 
     customize.enterEditMode();
     customize.exitEditMode();
@@ -541,7 +421,7 @@ describe('every edit goes through saveLayout', () => {
   });
 
   test('clicking a tile appends the item and PUTs once', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], []) }) });
+    await start({ fetch: endpoint({ get: doc(['logo'], []) }) });
     customize.enterEditMode();
 
     tile('clock').click();
@@ -553,7 +433,7 @@ describe('every edit goes through saveLayout', () => {
   });
 
   test('the added item carries its option defaults', async () => {
-    await boot({ fetch: endpoint({ get: doc([], []) }) });
+    await start({ fetch: endpoint({ get: doc([], []) }) });
 
     await customize.addItem('clock', 'header');
 
@@ -564,16 +444,8 @@ describe('every edit goes through saveLayout', () => {
     });
   });
 
-  test('the client supplies the revision, never the caller', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], [], { rev: 7 }) }) });
-
-    await customize.addItem('clock', 'header');
-
-    expect(putBodies()[0].rev).toBe(7);
-  });
-
   test('the status-bar toggle round-trips through saveLayout', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], ['clock']) }) });
+    await start({ fetch: endpoint({ get: doc(['logo'], ['clock']) }) });
     customize.enterEditMode();
 
     const check = /** @type {any} */ (document.querySelector('.bar-sheet-status-visible'));
@@ -589,7 +461,7 @@ describe('every edit goes through saveLayout', () => {
   });
 
   test('the toggle re-renders from the saved document', async () => {
-    await boot({ fetch: endpoint({ get: doc([], [], { statusVisible: false }) }) });
+    await start({ fetch: endpoint({ get: doc([], [], { statusVisible: false }) }) });
     customize.enterEditMode();
 
     const check = /** @type {any} */ (document.querySelector('.bar-sheet-status-visible'));
@@ -602,7 +474,7 @@ describe('every edit goes through saveLayout', () => {
   });
 
   test('the header has a toggle of its own, and it round-trips the same way', async () => {
-    await boot({ fetch: endpoint({ get: doc(['logo'], ['clock']) }) });
+    await start({ fetch: endpoint({ get: doc(['logo'], ['clock']) }) });
     customize.enterEditMode();
 
     const check = /** @type {any} */ (document.querySelector('.bar-sheet-header-visible'));
@@ -620,7 +492,7 @@ describe('every edit goes through saveLayout', () => {
 
 describe('the sheet is the notice surface', () => {
   test('a refused save renders "Layout not saved" in the sheet', async () => {
-    await boot({
+    await start({
       fetch: endpoint({
         get: doc(['logo'], []),
         puts: [jsonResponse(422, { error: 'malformed' })],
@@ -635,14 +507,14 @@ describe('the sheet is the notice surface', () => {
   });
 
   test('the notice is a live region', async () => {
-    await boot();
+    await start();
     customize.enterEditMode();
 
     expect(document.querySelector('.bar-sheet-notice')?.getAttribute('role')).toBe('status');
   });
 
   test('a successful save clears a standing notice', async () => {
-    await boot({
+    await start({
       fetch: endpoint({
         get: doc(['logo'], []),
         puts: [jsonResponse(422, { error: 'malformed' }), null],

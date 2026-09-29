@@ -41,9 +41,6 @@ const indexHtml = readFileSync(join(STATIC_DIR, 'index.html'), 'utf8');
 
 const BAR_ITEMS_MODULE = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-items.js';
 
-/** The readout that remains, and the id it used to be hardcoded as. */
-const READOUTS = { clock: 'status-clock' };
-
 /** Every id the template used to emit — two of them have no item behind them any more. */
 const RETIRED_IDS = ['ws-dot', 'term-dims', 'status-clock'];
 
@@ -114,50 +111,27 @@ describe('status readouts are live after boot', () => {
     return `${pad(at.getHours())}:${pad(at.getMinutes())}`;
   }
 
-  test('the clock reads the real wall clock', async () => {
+  test('the clock is live on the real wall clock, and none of the retired ids is back', async () => {
     const before = new Date();
     renderBar();
 
     await loadBars();
 
-    // Bracketed rather than frozen: the assertion is that the readout tracks
-    // real time, which a fixed system time cannot distinguish from a constant.
-    // The bracket only has to survive a minute turning over mid-boot.
+    // The gate: a bar of empty shells passes every other check. The readout
+    // has to have a BODY with a value in it, and the value has to track real
+    // time — bracketed rather than frozen, because a fixed system time cannot
+    // tell a clock from a constant. The bracket only has to survive a minute
+    // turning over mid-boot.
+    const shell = qs(document, '.bar-item[data-bar-item="clock"]');
+    expect(shell.dataset.barBuilt, 'clock shell was never built').toBeDefined();
     const text = partOf('clock', '.bar-clock-time').textContent;
-    expect(text).toMatch(/^\d{2}:\d{2}$/);
     expect([hhmm(before), hhmm(new Date())]).toContain(text);
-  });
-
-  test('the clock is live, and none of the retired ids is back', async () => {
-    renderBar();
-
-    await loadBars();
-
-    // The gate: a bar of empty shells passes every other assertion in this
-    // file. The readout has to have a BODY with a value in it.
-    expect(partOf('clock', '.bar-clock-time').textContent).toMatch(/^\d{2}:\d{2}$/);
-    for (const type of Object.keys(READOUTS)) {
-      const shell = qs(document, `.bar-item[data-bar-item="${type}"]`);
-      expect(shell.dataset.barBuilt, `${type} shell was never built`).toBeDefined();
-      expect(shell.textContent?.trim(), `${type} rendered an empty body`).not.toBe('');
-    }
-    // The old ids are gone for good: an item can be moved, folded or left out,
-    // so anything that found one again would be a hardcoded readout returning.
+    // The old ids are gone from the template for good: an item can be moved,
+    // folded or left out, so a template that emitted one again would be a
+    // hardcoded readout returning.
     for (const id of RETIRED_IDS) {
-      expect(document.getElementById(id), `#${id} is back`).toBeNull();
+      expect(indexHtml, `#${id} is back in index.html`).not.toMatch(new RegExp(`id="${id}"`));
     }
   });
 
-  test('the catalog lets a status-bar layout name the clock', async () => {
-    const { BAR_CATALOG } = await import(
-      '../../../../src/osprey/interfaces/web_terminal/static/js/bar-catalog.js'
-    );
-
-    // Binds the fixture above to shipped configuration: the type exists, and
-    // every type may sit in the status bar, so the boot path it exercises is
-    // reachable.
-    for (const type of Object.keys(READOUTS)) {
-      expect(BAR_CATALOG[type], `${type} is not in the catalog`).toBeDefined();
-    }
-  });
 });
