@@ -52,6 +52,15 @@ _DRAIN_SHUTDOWN_SECONDS = 5.0
 
 _DRAIN_THREAD_NAME = "osprey-lifecycle-drain"
 
+JUNIT_RESULTS_FILENAME = "check_results.xml"
+"""File a lifecycle step writes JUnit XML to, at the project root, to get a results table.
+
+Read after every step of every phase, from the project root whatever the
+step's ``cwd``, and printed as the Integration Test Results table when it
+parses. The build profile reference states this name to profile authors, so
+renaming it is a documented change.
+"""
+
 
 def _format_junit_summary(xml_path: Path) -> None:
     """Parse JUnit XML and print a summary table of the test results.
@@ -201,7 +210,8 @@ def _run_lifecycle_phase(
         phase_name: Phase name for display (pre_build, post_build, validate).
         steps: List of LifecycleStep objects.
         default_cwd: Default working directory for steps without explicit cwd.
-        project_path: Project root path for {project_root} substitution.
+        project_path: Project root path, substituted for `{project_root}` and the
+            directory the JUnit results file is read from.
         abort_on_failure: If True, raise BuildProfileError on failure.
             If False, warn and continue (used for validate phase).
         stream: If True, stream stdout/stderr in real-time instead of capturing.
@@ -237,6 +247,8 @@ def _run_lifecycle_phase(
             f"{mcp_servers_dir}{os.pathsep}{existing}" if existing else str(mcp_servers_dir)
         )
         logger.info("Prepended _mcp_servers to lifecycle PYTHONPATH: %s", mcp_servers_dir)
+
+    junit_results = project_path / JUNIT_RESULTS_FILENAME
 
     # Phase record: what the build is doing right now, in the same voice as the
     # phases around it, and silenced with the rest of the record under
@@ -303,14 +315,14 @@ def _run_lifecycle_phase(
                         # No cause under the summary: the child's own output is
                         # already on the screen above it, streamed line by line.
                         fail(msg)
-                        _format_junit_summary(project_path / "check_results.xml")
+                        _format_junit_summary(junit_results)
                         raise BuildProfileError(msg)
                     else:
                         warn(msg)
                 else:
                     report(f"  ✓ {step.name} ({elapsed:.1f}s)", style=Styles.SUCCESS)
                 # Show JUnit summary if test results were produced
-                _format_junit_summary(project_path / "check_results.xml")
+                _format_junit_summary(junit_results)
             else:
                 # Quiet mode: capture output, show one-line summary
                 result = subprocess.run(
@@ -333,7 +345,7 @@ def _run_lifecycle_phase(
                         # summary rather than run into it: nobody streamed it,
                         # so this is the operator's only sight of it.
                         fail(headline, output)
-                        _format_junit_summary(project_path / "check_results.xml")
+                        _format_junit_summary(junit_results)
                         raise BuildProfileError(msg)
                     else:
                         warn(headline, output)
@@ -346,7 +358,7 @@ def _run_lifecycle_phase(
                             success_msg += f": {summary}"
                     report(success_msg, style=Styles.SUCCESS)
                 # Show JUnit summary if test results were produced
-                _format_junit_summary(project_path / "check_results.xml")
+                _format_junit_summary(junit_results)
 
         except subprocess.TimeoutExpired as e:
             elapsed = time.monotonic() - t0
@@ -372,11 +384,11 @@ def _run_lifecycle_phase(
                 msg += f"\n  {cause}"
             if abort_on_failure:
                 fail(headline, cause)
-                _format_junit_summary(project_path / "check_results.xml")
+                _format_junit_summary(junit_results)
                 raise BuildProfileError(msg) from None
             else:
                 warn(headline, cause)
-            _format_junit_summary(project_path / "check_results.xml")
+            _format_junit_summary(junit_results)
         except OSError as exc:
             msg = f"Lifecycle {phase_name} step '{step.name}' failed to start"
             if abort_on_failure:
