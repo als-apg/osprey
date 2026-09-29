@@ -288,7 +288,7 @@ def coerce_store_ceiling(value: object, default: int = DEFAULT_FEEDBACK_MAX_STOR
     """
     if value is None:
         return default
-    if not isinstance(value, bool):
+    if not isinstance(value, bool) and isinstance(value, (int, float, str)):
         try:
             ceiling = int(value)
         except (TypeError, ValueError, OverflowError):

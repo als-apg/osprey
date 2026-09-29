@@ -384,8 +384,10 @@ def _control_system_section(config_path: Path | None) -> Any:
 
 def _pid_or_none(value: object) -> int | None:
     """Coerce a record field to ``int``, or ``None`` when it is not a number."""
+    if not isinstance(value, (int, float, str)):
+        return None
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)
     except (TypeError, ValueError):
         return None
 
@@ -412,7 +414,13 @@ def _read_effort_level(config_path: Path | None) -> str | None:
         return None
     try:
         config = yaml.safe_load(Path(config_path).read_text()) or {}
-        return config.get("claude_code", {}).get("effort")
+        if not isinstance(config, dict):
+            return None
+        section = config.get("claude_code", {})
+        if not isinstance(section, dict):
+            return None
+        effort = section.get("effort")
+        return effort if isinstance(effort, str) else None
     except Exception:
         return None
 
@@ -2759,7 +2767,7 @@ def _fleet_realign(reports: Sequence[Any]) -> dict[str, Any] | None:
     server finished realigning afterwards. Ordering by time alone would let that
     newer ``done`` hide the toggle that has not taken effect.
     """
-    blocks = [
+    blocks: list[dict[str, Any]] = [
         block
         for block in (report.last_posture_realign for report in reports)
         if isinstance(block, dict)
@@ -2767,7 +2775,8 @@ def _fleet_realign(reports: Sequence[Any]) -> dict[str, Any] | None:
     if not blocks:
         return None
     pending = [block for block in blocks if block.get("state") == REALIGN_PENDING]
-    return dict(max(pending or blocks, key=lambda block: _stamp_epoch(block.get("at"))))
+    latest = max(pending or blocks, key=lambda block: _stamp_epoch(block.get("at")))
+    return dict(latest)
 
 
 def _execution_rows() -> list[dict[str, Any]]:

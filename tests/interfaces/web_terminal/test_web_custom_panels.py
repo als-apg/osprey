@@ -680,6 +680,12 @@ _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getad
 _HOST_ADDRS_TARGET = HOST_ADDRS_TARGET
 
 
+def test_normalize_ip_refuses_a_non_string_address():
+    """``getaddrinfo`` types ``sockaddr[0]`` as ``str | int``; a non-string is
+    not an IP literal, so the address check refuses it rather than crashing."""
+    assert panels_module._normalize_ip(0) is None
+
+
 @pytest.mark.parametrize("run", ["first", "second"])
 def test_host_interface_probe_is_memoized_and_its_cache_does_not_leak(run):
     """The own-address probe runs once per TTL window, and once per test.

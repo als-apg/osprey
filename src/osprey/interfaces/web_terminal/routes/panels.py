@@ -1081,7 +1081,7 @@ def _allowlist_matches(host: str, port: int | None, scheme: str, allowlist: list
     return False
 
 
-def _normalize_ip(raw_addr: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+def _normalize_ip(raw_addr: str | int) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse one resolved address into a comparable :mod:`ipaddress` object.
 
     A scope id (``fe80::1%en0``, as ``getsockname`` reports it on a link-local
@@ -1090,11 +1090,15 @@ def _normalize_ip(raw_addr: str) -> ipaddress.IPv4Address | ipaddress.IPv6Addres
     they meet.
 
     Args:
-        raw_addr: The address string from a ``sockaddr``.
+        raw_addr: The address from a ``sockaddr``, typed ``str | int`` as
+            ``getaddrinfo`` reports it.
 
     Returns:
-        The parsed address, or ``None`` when the string is not an IP literal.
+        The parsed address, or ``None`` when the value is not a string or the
+        string is not an IP literal.
     """
+    if not isinstance(raw_addr, str):
+        return None
     try:
         ip = ipaddress.ip_address(raw_addr.split("%", 1)[0])
     except ValueError:
