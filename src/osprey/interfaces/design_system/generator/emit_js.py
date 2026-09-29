@@ -278,7 +278,7 @@ def _default_family(tree: TokenTree, defaults: dict[str, dict[str, str]]) -> str
     flagged = default_flagged_stem(tree)
     if flagged is not None:
         family = tree.theme_metadata[flagged].get("family")
-        if family in defaults:
+        if isinstance(family, str) and family in defaults:
             return family
     return next(iter(defaults), None)
 
