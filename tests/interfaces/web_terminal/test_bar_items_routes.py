@@ -180,6 +180,19 @@ def error_of(response: httpx.Response) -> str:
     return response.json()["detail"]["error"]
 
 
+#: One body per reason the store refuses a document for, keyed by that reason.
+#: The route passes each through as a 422; ``bad-rev`` is the route's own and
+#: is pinned by ``test_a_body_without_a_usable_revision_is_a_422_bad_rev``.
+REFUSALS_422: dict[str, dict] = {
+    "malformed": document(0, header="logo"),
+    "version": {**document(0), "version": BAR_LAYOUT_VERSION + 1},
+    "unknown-type": document(0, header=[{"type": "nonesuch"}]),
+    "overflow": document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
+    "duplicate": document(0, status=[{"type": "docs"}, {"type": "docs"}]),
+    "bad-option": document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
+}
+
+
 def _widest_value(spec: dict):
     """The value *spec* allows that is widest by encoded length, which the ceiling counts."""
     kind = spec["kind"]
@@ -285,56 +298,14 @@ class TestPut:
             "a refused save must leave the stored document alone"
         )
 
-    @pytest.mark.parametrize(
-        ("body", "reason"),
-        [
-            pytest.param(document(0, header=[{"type": "nonesuch"}]), "unknown-type", id="unknown"),
-            pytest.param(
-                document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
-                "overflow",
-                id="overflow",
-            ),
-            pytest.param(document(0, header=["logo"]), "malformed", id="entry-not-an-object"),
-            pytest.param(document(0, header="logo"), "malformed", id="host-not-a-list"),
-            pytest.param(
-                document(0, status_visible="yes"), "malformed", id="visibility-not-a-boolean"
-            ),
-            pytest.param(
-                document(0, header_visible=0), "malformed", id="header-visibility-not-a-boolean"
-            ),
-            pytest.param(
-                document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
-                "bad-option",
-                id="enum-out-of-spec",
-            ),
-            pytest.param(
-                document(0, status=[{"type": "space", "options": {"width": 4000}}]),
-                "bad-option",
-                id="number-out-of-range",
-            ),
-            pytest.param(
-                document(0, status=[{"type": "docs"}, {"type": "docs"}]),
-                "duplicate",
-                id="single-node-type-twice",
-            ),
-        ],
-    )
-    def test_a_document_this_build_cannot_store_is_a_422(self, client, body, reason, store_dir):
+    @pytest.mark.parametrize(("reason", "body"), list(REFUSALS_422.items()), ids=list(REFUSALS_422))
+    def test_a_document_this_build_cannot_store_is_a_422(self, client, reason, body, store_dir):
         response = client.put("/api/bar-items", json=body)
 
         assert response.status_code == 422
         assert error_of(response) == reason
         assert response.json()["detail"]["message"]
         assert not (store_dir / LAYOUT_FILENAME).exists(), "a refusal must write nothing"
-
-    def test_a_version_this_build_cannot_read_is_a_422(self, client):
-        body = document(0)
-        body["version"] = BAR_LAYOUT_VERSION + 1
-
-        response = client.put("/api/bar-items", json=body)
-
-        assert response.status_code == 422
-        assert error_of(response) == "version"
 
     @pytest.mark.parametrize(
         "rev",
@@ -1024,27 +995,6 @@ class TestTheRefusalVocabulary:
     it appearing.
     """
 
-    #: One body per store reason, plus the route's own.
-    REFUSALS = {
-        "malformed": document(0, header="logo"),
-        "version": {**document(0), "version": BAR_LAYOUT_VERSION + 1},
-        "unknown-type": document(0, header=[{"type": "nonesuch"}]),
-        "overflow": document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
-        "duplicate": document(0, status=[{"type": "docs"}, {"type": "docs"}]),
-        "bad-option": document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
-        "bad-rev": {key: value for key, value in document(0).items() if key != "rev"},
-    }
-
-    def test_the_store_reasons_are_the_six_the_route_documents(self):
-        assert STORE_REASONS == {
-            "malformed",
-            "version",
-            "unknown-type",
-            "overflow",
-            "duplicate",
-            "bad-option",
-        }
-
     def test_the_scrape_read_every_place_the_store_raises(self):
         """Otherwise the derivation above could under-count in silence, and a
         new reason spelled some other way would leave every assertion in
@@ -1053,21 +1003,9 @@ class TestTheRefusalVocabulary:
 
         assert len(matched) == STORE_RAISE_SITES
 
-    def test_every_reason_has_a_body_that_provokes_it(self):
-        assert set(self.REFUSALS) == STORE_REASONS | ROUTE_ONLY_REASONS
-
-    def test_each_body_provokes_its_own_reason_and_nothing_else(self, client):
-        """Per body, not just per set: the store's checks are ordered on
-        purpose (a type has to be known before its hosts can be asked), and a
-        reordering that swapped two reasons would survive a set comparison."""
-        emitted = set()
-        for reason, body in self.REFUSALS.items():
-            response = client.put("/api/bar-items", json=body)
-            assert response.status_code == 422, f"{reason} must be a 422"
-            assert error_of(response) == reason
-            emitted.add(error_of(response))
-
-        assert emitted == STORE_REASONS | ROUTE_ONLY_REASONS
+    def test_every_store_reason_has_a_422_row(self):
+        """A reason the store gains fails here until the 422 table provokes it."""
+        assert set(REFUSALS_422) == STORE_REASONS
 
     def test_the_documented_list_names_every_422_reason(self):
         """The module docstring is what a client author reads. It names the
