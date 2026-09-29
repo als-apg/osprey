@@ -5264,6 +5264,88 @@ def test_the_shipped_config_and_the_container_env_name_the_same_variable() -> No
     assert declared_vars <= delivered
 
 
+_COLLECTOR_VARS = ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME")
+
+
+def test_a_persona_exporting_to_a_collector_gets_its_token_and_every_referenced_variable() -> None:
+    """The token first, then each referenced variable, one `${VAR:-}` line each."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(), telemetry_vars_personas={"readwrite": _COLLECTOR_VARS}
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    lines = [f"{name}=${{{name}:-}}" for name in _COLLECTOR_VARS]
+    assert all(line in alice_env for line in lines)
+    positions = [alice_env.index(line) for line in lines]
+    assert positions == sorted(positions)
+    assert positions[0] == alice_env.index(_INGEST_TOKEN_LINE) + 1
+
+
+def test_a_persona_without_telemetry_variables_gets_no_extra_line() -> None:
+    """Only the persona that names the variables receives them."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(), telemetry_vars_personas={"readwrite": _COLLECTOR_VARS}
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any(line.startswith(_COLLECTOR_VARS) for line in bob_env)
+
+
+def test_the_collector_variables_are_interpolated_never_written() -> None:
+    """Compose resolves each reference from the deploy `.env`; no value is rendered."""
+    # Act
+    rendered = render_web_terminals(
+        _events_persona_config(), telemetry_vars_personas={"readwrite": ("OTLP_TOKEN",)}
+    )["docker-compose.web.yml"]
+
+    # Assert
+    assert "OTLP_TOKEN=${OTLP_TOKEN:-}" in rendered
+    assert re.search(r"OTLP_TOKEN=[^$]", rendered) is None
+
+
+def test_a_persona_less_entry_is_answered_from_the_deploy_config() -> None:
+    """The zero-migration path reads the telemetry block of the deploy config itself."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["claude_code"] = {
+        "telemetry": {
+            "enabled": True,
+            "backend": "generic",
+            "endpoint": "https://collector.example.org:4318",
+            "auth": {"token_env": "OTLP_TOKEN"},
+        }
+    }
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    assert "OTLP_TOKEN=${OTLP_TOKEN:-}" in compose["services"]["web-alice"]["environment"]
+
+
+def test_an_openobserve_deployment_renders_no_extra_telemetry_line() -> None:
+    """The fixed routes already deliver the shipped block's two variables."""
+    for config in (_events_persona_config(), _config(["alice"])):
+        # Act
+        compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+        # Assert
+        for name, service in compose["services"].items():
+            if not name.startswith("web-"):
+                continue
+            env = service.get("environment") or []
+            assert env.count(_INGEST_TOKEN_LINE) == 1
+            assert not any(line.startswith("ZO_INGEST_USER_EMAIL=") for line in env)
+
+
 # ---------------------------------------------------------------------------
 # Per-user operator secret carrier (PLAN Task 5.1)
 #

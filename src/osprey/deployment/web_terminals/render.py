@@ -35,6 +35,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
 )
+from osprey.deployment.web_terminals.env_production import telemetry_delivered_vars
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
@@ -767,6 +768,7 @@ def render_web_terminals(
     ariel_mirror_personas: set[str] | None = None,
     ariel_mirror_gid: int | None = None,
     archiver_password_personas: dict[str, str] | None = None,
+    telemetry_vars_personas: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
 ) -> dict[str, str]:
@@ -904,6 +906,17 @@ def render_web_terminals(
             fails with "Environment variable '…' is not set" while the same
             project works on the single-user host path, which reads the whole
             deploy ``.env``. ``None`` emits no line.
+        telemetry_vars_personas: ``{persona_name: names}`` for the personas
+            whose telemetry block needs variables no fixed route delivers,
+            resolved from disk by
+            :func:`osprey.deployment.web_terminals.env_production.personas_needing_telemetry_vars`.
+            Same placement and same reason as ``archiver_password_personas``:
+            the names are the persona's own (the collector's bearer token that
+            ``claude_code.telemetry.auth.token_env`` names, and every variable
+            the block references), and each becomes one ``${VAR:-}`` line in
+            the user's ``environment:`` block. Without it the agent refuses to
+            start on an unset token, and a defaulted reference silently takes
+            its default. ``None`` emits no line.
         phoebus_handle_personas: Persona names whose project runs a Phoebus
             MCP server and does not set ``phoebus.require_handle: false`` (see
             :func:`osprey.deployment.web_terminals.personas.personas_needing_phoebus_handles`).
@@ -1213,6 +1226,15 @@ def render_web_terminals(
                     (archiver_password_personas or {}).get(entry["persona"])
                     if entry.get("persona")
                     else config_archiver_password_env(root)
+                ),
+                # The NAMES of the variables this user's telemetry block needs
+                # (see the `telemetry_vars_personas` arg), or () for none.
+                # Persona-less entries are answered from this same config, with
+                # no disk read, exactly as above.
+                "telemetry_vars": (
+                    (telemetry_vars_personas or {}).get(entry["persona"], ())
+                    if entry.get("persona")
+                    else telemetry_delivered_vars(root)
                 ),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the

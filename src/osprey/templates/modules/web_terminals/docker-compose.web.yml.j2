@@ -1160,6 +1160,18 @@ services:
          token fails where it is visible rather than shipping an agent whose
          telemetry is silently dropped. #}
       - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
+{%- for name in svc.telemetry_vars %}
+      {#- The variables this persona's telemetry block needs: the collector's
+         bearer token (`claude_code.telemetry.auth.token_env`) plus every
+         variable the block references, except the two every terminal already
+         receives by a fixed route (the ingest token above, the account name
+         through `.env.users`). Per-user because the names are the persona's
+         own. `${VAR:-}` keeps every value in the deploy `.env`, out of this
+         rendered file. An empty token is refused at agent start by name, and a
+         defaulted reference falls back to its default inside the container
+         exactly as it would on the host. #}
+      - {{ name }}={{ "${" ~ name ~ ":-}" }}
+{%- endfor %}
 {%- if svc.display_name %}
       {#- Human-facing window/tab title. tojson quotes the WHOLE `KEY=value` as
          one double-quoted YAML scalar (never just the value — the compose
