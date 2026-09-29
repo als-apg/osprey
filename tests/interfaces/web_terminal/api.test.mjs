@@ -152,6 +152,14 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
     ).rejects.toHaveProperty('message', 'Save failed (HTTP 502)');
   });
 
+  test('a network failure names the action too', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+
+    await expect(
+      api.apiRequest('/api/config', { method: 'PUT', errorPrefix: 'Save failed' })
+    ).rejects.toHaveProperty('message', 'Save failed: Failed to fetch');
+  });
+
   test('an OK response without a JSON body (e.g. empty DELETE) resolves to null', async () => {
     vi.stubGlobal(
       'fetch',

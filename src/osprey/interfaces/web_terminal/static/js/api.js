@@ -400,8 +400,9 @@ export async function fetchJSON(url) {
  * doesn't: serializes `json` as the request body, and on a non-OK response
  * throws an Error whose message is the whole operator-facing line, naming the
  * action once: `"<errorPrefix>: <detail>"` when the error body carries the
- * server's `detail`, else `"<errorPrefix> (HTTP <status>)"`. Callers show the
- * message as it is. Resolves with the parsed JSON response body (null when the
+ * server's `detail`, else `"<errorPrefix> (HTTP <status>)"`, and
+ * `"<errorPrefix>: <reason>"` when the request never got an answer. Callers
+ * show the message as it is. Resolves with the parsed JSON response body (null when the
  * body isn't JSON, e.g. empty DELETE responses).
  * @param {string} url
  * @param {{method?: string, json?: any, errorPrefix?: string}} [opts]
@@ -414,7 +415,13 @@ export async function apiRequest(url, { method = 'POST', json, errorPrefix = 'Re
     init.headers = { 'Content-Type': 'application/json' };
     init.body = JSON.stringify(json);
   }
-  const resp = await fetch(withPrefix(url), init);
+  let resp;
+  try {
+    resp = await fetch(withPrefix(url), init);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`${errorPrefix}: ${reason}`, { cause: err });
+  }
   if (!resp.ok) {
     const detail = await resp.json().catch(() => ({}));
     throw new Error(
