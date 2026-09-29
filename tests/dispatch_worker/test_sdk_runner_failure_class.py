@@ -71,7 +71,7 @@ def _result_message(
     rm.subtype = subtype
     rm.result = result
     rm.api_error_status = api_error_status
-    rm.cost_usd = cost_usd
+    rm.total_cost_usd = cost_usd
     rm.num_turns = num_turns
     return rm
 

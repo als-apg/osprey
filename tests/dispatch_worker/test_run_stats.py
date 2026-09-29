@@ -110,7 +110,7 @@ def _stub_osprey_helpers(monkeypatch):
 
 def _result_message(cost_usd: float, num_turns: int) -> ResultMessage:
     rm = MagicMock(spec=ResultMessage)
-    rm.cost_usd = cost_usd
+    rm.total_cost_usd = cost_usd
     rm.num_turns = num_turns
     return rm
 

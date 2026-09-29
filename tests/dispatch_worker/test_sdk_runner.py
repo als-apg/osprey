@@ -10,7 +10,7 @@ result dict and onto an event queue. These tests:
   * yield real ``AssistantMessage``/``TextBlock`` instances (so the runner's
     ``isinstance`` checks hold) and a ``MagicMock(spec=ResultMessage)`` for the
     result message — ``MagicMock(spec=X)`` passes ``isinstance(..., X)`` and lets
-    us set the ``cost_usd``/``num_turns`` attributes the runner reads via getattr.
+    us set the ``total_cost_usd``/``num_turns`` attributes the runner reads via getattr.
 """
 
 from __future__ import annotations
@@ -61,9 +61,9 @@ def _stub_osprey_helpers(monkeypatch, tmp_path):
 
 
 def _result_message(cost_usd: float, num_turns: int) -> ResultMessage:
-    """A ResultMessage stand-in that passes isinstance and exposes cost_usd."""
+    """A ResultMessage stand-in that passes isinstance and exposes total_cost_usd."""
     rm = MagicMock(spec=ResultMessage)
-    rm.cost_usd = cost_usd
+    rm.total_cost_usd = cost_usd
     rm.num_turns = num_turns
     return rm
 
@@ -98,6 +98,32 @@ async def test_happy_path(monkeypatch):
     assert "done" in types
     text_event = next(e for e in events if e["type"] == "text")
     assert text_event["content"] == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_the_record_carries_the_cost_the_agent_reports(monkeypatch):
+    """The cost is read from the field the agent SDK's result message defines."""
+
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=2,
+            session_id="s",
+            total_cost_usd=0.25,
+        )
+
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
+
+    assert result["cost_usd"] == 0.25
+    events = await _drain(queue)
+    assert {"type": "result", "cost_usd": 0.25, "num_turns": 2} in events
 
 
 @pytest.mark.asyncio
