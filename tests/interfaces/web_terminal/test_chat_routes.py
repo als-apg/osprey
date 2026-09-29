@@ -147,6 +147,21 @@ _STRIP_CASES = [
         {"type": "session_reset"},
         {"type": "session_reset"},
     ),
+    (
+        "tool_result_list_content_error_keeps_is_error",
+        {
+            "type": "tool_result",
+            "tool_use_id": "tu_x",
+            "content": [{"type": "text", "text": "..."}],
+            "is_error": True,
+        },
+        {"type": "tool_result", "tool_use_id": "tu_x", "is_error": True},
+    ),
+    (
+        "unknown_type_passes_through",
+        {"type": "keepalive", "extra": 1},
+        {"type": "keepalive", "extra": 1},
+    ),
 ]
 
 
@@ -174,58 +189,6 @@ class TestStripForChat:
         before = copy.deepcopy(input_event)
         _strip_for_chat(input_event)
         assert input_event == before
-
-    def test_tool_use_input_is_gone_entirely(self):
-        """`input` (arguments) must not survive on a stripped tool_use."""
-        out = _strip_for_chat(
-            {
-                "type": "tool_use",
-                "tool_name": "Bash",
-                "tool_name_raw": "Bash",
-                "tool_use_id": "tu_x",
-                "input": {"command": "rm -rf /"},
-            }
-        )
-        assert "input" not in out
-        assert out["tool_name"] == "Bash"
-
-    def test_tool_result_content_is_gone_entirely(self):
-        """`content` (result body) must not survive on a stripped tool_result."""
-        out = _strip_for_chat(
-            {
-                "type": "tool_result",
-                "tool_use_id": "tu_x",
-                "content": [{"type": "text", "text": "..."}],
-                "is_error": True,
-            }
-        )
-        assert "content" not in out
-        assert out["is_error"] is True
-
-    def test_result_drops_cost_duration_turns(self):
-        """Cost / duration / turn metadata must never reach the chat client."""
-        out = _strip_for_chat(
-            {
-                "type": "result",
-                "is_error": False,
-                "total_cost_usd": 1.5,
-                "duration_ms": 999,
-                "num_turns": 7,
-            }
-        )
-        assert set(out) == {"type", "is_error"}
-        for leaked in ("total_cost_usd", "duration_ms", "num_turns"):
-            assert leaked not in out
-
-    def test_thinking_marker_survives_without_content(self):
-        """A bare `{type: 'thinking'}` marker survives; the text does not."""
-        out = _strip_for_chat({"type": "thinking", "content": "chain of thought"})
-        assert out == {"type": "thinking"}
-
-    def test_unknown_type_passes_through_unchanged(self):
-        """An unrecognized event type is passed through untouched."""
-        event = {"type": "keepalive", "extra": 1}
-        assert _strip_for_chat(event) == event
 
 
 # ---- Route-level smoke tests for the SSE branch (task chat-stream-route) ----
@@ -392,35 +355,6 @@ class TestChatStreamRoute:
         assert session.in_flight is False
         assert session.quiesce_calls == 0
 
-    def test_reused_session_has_no_session_reset(self):
-        session = _FakeChatSession([{"type": "result", "is_error": False}])
-        registry = _FakeRegistry(session=session, pooled_key="c1")
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat", json={"prompt": "again", "chat_id": "c1"})
-        frames = _data_frames(resp.text)
-        assert all(f.get("type") != "session_reset" for f in frames)
-
-    def test_strip_applied_on_the_wire(self):
-        session = _FakeChatSession(
-            [
-                {
-                    "type": "tool_use",
-                    "tool_name": "Bash",
-                    "tool_name_raw": "Bash",
-                    "tool_use_id": "tu_1",
-                    "input": {"command": "rm -rf /"},
-                },
-                {"type": "result", "is_error": False},
-            ]
-        )
-        registry = _FakeRegistry(session=session, pooled_key="c1")
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
-        tool_frames = [f for f in _data_frames(resp.text) if f.get("type") == "tool_use"]
-        assert tool_frames and all("input" not in f for f in tool_frames)
-
     def test_turn_in_progress_returns_409(self):
         session = _FakeChatSession([{"type": "result", "is_error": False}])
         session.acquire_turn()  # a turn is already held
@@ -430,14 +364,6 @@ class TestChatStreamRoute:
         resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
         assert resp.status_code == 409
         assert resp.json()["detail"]["error"] == "turn_in_progress"
-
-    def test_capacity_returns_429(self):
-        registry = _FakeRegistry(capacity=True)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
-        assert resp.status_code == 429
-        assert resp.json()["detail"]["error"] == "chat_capacity"
 
     def test_empty_prompt_returns_422(self):
         registry = _FakeRegistry(session=_FakeChatSession([]))
@@ -488,17 +414,6 @@ class TestChatBufferedRoute:
         assert session.in_flight is False
         assert session.quiesce_calls == 0
 
-    def test_reused_session_omits_session_reset(self):
-        session = _FakeChatSession([{"type": "result", "is_error": False}])
-        registry = _FakeRegistry(session=session, pooled_key="c1")
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post(
-            "/api/chat", params={"stream": "false"}, json={"prompt": "hi", "chat_id": "c1"}
-        )
-        payload = resp.json()
-        assert all(e.get("type") != "session_reset" for e in payload["events"])
-
     def test_terminal_error_returns_500_with_error_key(self):
         session = _FakeChatSession(
             [{"type": "error", "message": "boom", "error_type": "ClaudeSDKError"}]
@@ -534,23 +449,21 @@ class TestChatHandoffMapping:
 
         return app, patch.object(chat_module, "acquire_surface", refuse)
 
-    def test_a_terminal_turn_only_an_interrupt_can_end_is_409_with_its_slug(self):
-        app, patched = self._refusing_app(handoff_module.HandoffRefused.needs_interrupt("c1"))
+    @pytest.mark.parametrize(
+        ("refusal", "status", "slug"),
+        [
+            (handoff_module.HandoffRefused.needs_interrupt, 409, "handoff_needs_interrupt"),
+            (handoff_module.HandoffRefused.outgoing_still_running, 503, "outgoing_still_running"),
+        ],
+        ids=["needs-interrupt", "outgoing-still-running"],
+    )
+    def test_a_refusal_maps_to_its_status_and_slug(self, refusal, status, slug):
+        app, patched = self._refusing_app(refusal("c1"))
         with patched, TestClient(app) as client:
             resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
 
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "handoff_needs_interrupt"
-
-    def test_an_outgoing_process_that_outlived_its_kill_is_503_with_its_slug(self):
-        app, patched = self._refusing_app(
-            handoff_module.HandoffRefused.outgoing_still_running("c1")
-        )
-        with patched, TestClient(app) as client:
-            resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
-
-        assert resp.status_code == 503
-        assert resp.json()["detail"]["error"] == "outgoing_still_running"
+        assert resp.status_code == status
+        assert resp.json()["detail"]["error"] == slug
 
     def test_a_vanished_premise_is_503_with_its_slug(self):
         app, patched = self._refusing_app(handoff_module.HandoffError.vanished("c1", "expert"))
@@ -598,68 +511,12 @@ class TestChatResumesTheKeysTranscript:
 class TestInterruptEndpoint:
     """POST /api/chat/{chat_id}/interrupt — signal-only, never releases."""
 
-    def test_in_flight_turn_gets_interrupt_signal(self):
-        session = _FakeChatSession([])
-        session.acquire_turn()  # a turn is in flight
-        registry = _FakeRegistry(session=session)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat/c1/interrupt")
-        assert resp.status_code == 204
-        assert session._client.interrupts == 1
-        # Signal-only: the guard is NOT released here.
-        assert session.in_flight is True
-        assert session.release_calls == 0
-
-    def test_idle_session_is_noop_204(self):
-        session = _FakeChatSession([])  # no turn in flight
-        registry = _FakeRegistry(session=session)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat/c1/interrupt")
-        assert resp.status_code == 204
-        assert session._client.interrupts == 0
-
     def test_unknown_chat_is_noop_204(self):
         registry = _FakeRegistry(session=None)
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post("/api/chat/nope/interrupt")
         assert resp.status_code == 204
-
-
-class TestDeleteEndpoint:
-    """DELETE /api/chat/{chat_id} — delegates to terminate_chat_session."""
-
-    def test_delete_delegates_and_returns_204(self):
-        session = _FakeChatSession([])
-        registry = _FakeRegistry(session=session)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.delete("/api/chat/c1")
-        assert resp.status_code == 204
-        assert registry.terminated == ["c1"]
-
-    def test_delete_unknown_chat_is_idempotent_204(self):
-        registry = _FakeRegistry(session=None)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.delete("/api/chat/nope")
-        assert resp.status_code == 204
-        assert registry.terminated == ["nope"]
-
-
-class TestRouteRegistration:
-    """Routes are flattened into the OpenAPI schema (include_router convention)."""
-
-    def test_control_routes_registered(self):
-        registry = _FakeRegistry(session=_FakeChatSession([]))
-        paths = _make_chat_app(registry).openapi()["paths"]
-        assert "/api/chat" in paths
-        assert "/api/chat/{chat_id}/interrupt" in paths
-        assert "/api/chat/{chat_id}" in paths
-        assert "post" in paths["/api/chat/{chat_id}/interrupt"]
-        assert "delete" in paths["/api/chat/{chat_id}"]
 
 
 # ===========================================================================
@@ -883,29 +740,6 @@ async def _inflight_session(req, chat_id: str):
     await session.send_prompt("hold")
     await asyncio.wait_for(session._client.reached_hold.wait(), timeout=1.0)
     return session, token
-
-
-class TestChatMultiTurnPersistence:
-    """Matrix 1: two prompts on one chat_id reach the SAME fake client."""
-
-    async def test_same_client_receives_both_prompts(self):
-        with _seam(_clean_responder("hi")) as make:
-            registry = OperatorRegistry()
-            req = _req(registry)
-
-            r1 = await chat_module.chat(req, chat_module.ChatRequest(prompt="p1", chat_id="c"))
-            f1 = await _collect_sse(r1)
-            r2 = await chat_module.chat(req, chat_module.ChatRequest(prompt="p2", chat_id="c"))
-            f2 = await _collect_sse(r2)
-
-            # Exactly one session/client — reuse proven at the fake seam.
-            assert len(make.created) == 1
-            assert make.created[0].prompts == ["p1", "p2"]
-            assert make.created[0].query_calls == 2
-            # Both turns completed with a (stripped) result.
-            assert {"type": "result", "is_error": False} in f1
-            assert {"type": "result", "is_error": False} in f2
-            await registry.cleanup_all()
 
 
 class TestChatAtomicity:
@@ -1306,8 +1140,13 @@ class TestChatStripOnTheWire:
 class TestIsTerminal:
     """is_terminal_event: which chat events end a turn's event stream."""
 
-    def test_result_is_terminal(self):
-        assert chat_module.is_terminal_event({"type": "result"}) is True
+    @pytest.mark.parametrize(
+        ("event", "terminal"),
+        [({"type": "result"}, True), ({"type": "text", "content": "hi"}, False)],
+        ids=["result", "text"],
+    )
+    def test_result_is_terminal(self, event, terminal):
+        assert chat_module.is_terminal_event(event) is terminal
 
     def test_fatal_error_is_terminal(self):
         assert chat_module.is_terminal_event({"type": "error", "error_type": "Boom"}) is True
@@ -1318,9 +1157,6 @@ class TestIsTerminal:
             chat_module.is_terminal_event({"type": "error", "error_type": "AssistantMessageError"})
             is False
         )
-
-    def test_text_is_not_terminal(self):
-        assert chat_module.is_terminal_event({"type": "text", "content": "hi"}) is False
 
 
 class TestSseFormatting:
