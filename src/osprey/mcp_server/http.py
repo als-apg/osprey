@@ -124,7 +124,10 @@ _PANEL_TOKEN_LATCH: str | None = None
 
 
 def reset_panel_token_latch() -> None:
-    """Forget the last panel token :func:`_panel_auth_headers` saw (tests only)."""
+    """Forget the last panel token :func:`_panel_auth_headers` saw.
+
+    The latch is process state: one caller's token is otherwise sent by the next.
+    """
     global _PANEL_TOKEN_LATCH
     _PANEL_TOKEN_LATCH = None
 
