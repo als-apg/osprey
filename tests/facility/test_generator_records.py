@@ -225,6 +225,11 @@ def test_every_fingerprint_channel_carries_the_role_its_ttl_signal_means() -> No
     assert not signals & {binding["signal"] for binding in bindings.values()}
 
 
+def test_every_ttl_signal_has_a_vocabulary_role() -> None:
+    table = records_module().SIGNAL_ROLE
+    assert {binding["signal"] for binding in ttl_bindings().values()} <= set(table)
+
+
 def test_the_first_vocabulary_roles_are_left_as_they_were() -> None:
     roles = [role["name"] for role in _json(VOCABULARY)["signal_roles"]]
     for name in ("current_setpoint", "status", "valve_open_command", "gradient_readback"):
