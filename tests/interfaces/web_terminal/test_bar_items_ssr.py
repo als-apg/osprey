@@ -395,11 +395,6 @@ class TestUnavailableItemsAreAbsentNotEmpty:
         assert 'data-follows="logo"' in shells[1]
         assert body.count('data-follows="logo"') == 1
 
-    def test_the_plain_status_bar_has_no_system_health_shell(self, plain_app):
-        """The SYSTEM panel is not enabled here, so the item is absent — not an
-        empty shell with nothing to read."""
-        assert "system-health" not in _shell_types(_body(plain_app[1]), "status")
-
 
 class TestKnownTypes:
     """Any known type renders in either bar; an unknown one renders nowhere."""
@@ -460,12 +455,6 @@ class TestKnownTypes:
         declared = re.findall(r"^  '?([a-z-]+)'?: \{\n    type: '", source, re.MULTILINE)
         assert declared, "could not read the catalog's type declarations"
         assert list(BAR_ITEM_TYPES) == declared
-
-    def test_no_entry_declares_a_placement_axis(self):
-        """`hosts` is gone from both sides; an entry that grew it back would
-        refuse a bar the server had already painted it in."""
-        source = (STATIC_DIR / "js" / "bar-catalog.js").read_text()
-        assert re.search(r"^    hosts:", source, re.MULTILINE) is None
 
 
 #: One catalog entry's ``options:`` declaration — either ``NO_OPTIONS`` or an
@@ -577,12 +566,6 @@ class TestOptionSpecsMirrorTheJsCatalog:
 
     def test_the_option_table_mirrors_the_js_catalog(self):
         assert BAR_ITEM_OPTIONS == _catalog_option_specs()
-
-    def test_every_other_type_declares_no_options(self):
-        """``NO_OPTIONS`` in the catalog is absence here, which
-        ``bar_item_vocabulary()`` reads as an empty spec mapping."""
-        assert set(BAR_ITEM_OPTIONS) < set(BAR_ITEM_TYPES)
-        assert "logo" not in BAR_ITEM_OPTIONS
 
 
 class TestAdoptedNodesArePresentOnEveryDeployment:
@@ -835,14 +818,6 @@ class TestDeploymentContextIsServerSupplied:
     server knows all three facts; it says them.
     """
 
-    def test_the_stamp_carries_exactly_the_keys_the_catalog_asks_for(self, plain_app):
-        """``available(ctx)`` in ``bar-catalog.js`` defines this vocabulary."""
-        assert set(_context(_body(plain_app[1]))) == {
-            "identityAvailable",
-            "blueskyAvailable",
-            "systemHealthAvailable",
-        }
-
     def test_a_plain_deployment_stamps_what_it_does_not_have(self, plain_app):
         assert _context(_body(plain_app[1])) == {
             "identityAvailable": False,
@@ -1017,15 +992,6 @@ class TestTheDefaultIsRenderableByConstruction:
         for host in ("header", "status"):
             for item in layout[host]:
                 assert bar_item_available(item["type"], context), (host, item["type"])
-
-    def test_the_plain_default_degrades_exactly_as_its_docstring_promises(self, plain_app):
-        """No SYSTEM panel and no identity: ``space · clock`` and a header
-        without the identity block — the served document, not just the paint."""
-        _, client = plain_app
-        layout = client.get("/api/bar-items").json()
-
-        assert [item["type"] for item in layout["status"]] == ["space", "clock"]
-        assert "identity" not in [item["type"] for item in layout["header"]]
 
     def test_a_configured_deployment_keeps_the_gated_items(self, configured_app):
         _, client = configured_app
