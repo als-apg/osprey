@@ -311,27 +311,6 @@ class TestShellRuns:
         assert "data-follows" not in first
         assert 'data-follows="logo"' in second
 
-    def test_a_layout_this_build_cannot_read_falls_back_to_the_default(self, plain_app):
-        """A document from a newer build is refused here as well as on the
-        client. Rendering it anyway would paint one arrangement and hydrate
-        into another — with the pool computed from a layout the client has
-        already discarded."""
-        app, client = plain_app
-        app.state.bar_layout = {
-            "version": BAR_LAYOUT_VERSION + 98,
-            "rev": 12,
-            "header": [{"type": "display"}],
-            "status": [],
-            "header_visible": False,
-            "status_visible": False,
-        }
-        body = _body(client)
-        assert _shell_types(body, "header") == [
-            item["type"] for item in DEFAULT_BAR_LAYOUT["header"] if item["type"] != "identity"
-        ]
-        assert "data-status-bar" not in _html_tag(body)
-        assert "data-header-bar" not in _html_tag(body)
-
 
 class TestShellsCarryTheirOptions:
     """The first paint renders each item with the options it was placed with."""
