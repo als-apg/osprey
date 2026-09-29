@@ -27,9 +27,6 @@ from osprey.facility.validate import Validated, need
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
-#: The entry-point group every simulation engine registers under.
-_ENGINE_GROUP = "osprey.simulation.engines"
-
 _MODELS_FILE = "models.yaml"
 
 
@@ -60,6 +57,8 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     Raises:
         RuntimeError: The stage ran before S2 produced the document.
     """
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
     document: dict[str, Any] = need(validated.document)
     channels: dict[str, dict[str, Any]] = {c["id"]: c for c in document.get("channels", [])}
     limits: dict[str, dict[str, Any]] = {
@@ -70,7 +69,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
         for channel in channels.values()
         if _role(channel) == "setpoint"
     }
-    engines = metadata.entry_points(group=_ENGINE_GROUP)
+    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
     errors: list[FacilityBuildError] = []
     for model in document.get("models", []):
         if "deck" not in model:
@@ -89,6 +88,8 @@ def _fill_model(
     limits: Mapping[str, Mapping[str, Any]],
     setpoint_of: Mapping[str, str],
 ) -> list[FacilityBuildError]:
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
     name = model["engine"]
     if name not in engines.names:
         return [
@@ -98,7 +99,7 @@ def _fill_model(
                 _sources(model),
                 "install the engine's package, or name an engine the environment registers",
                 record_kind="model",
-                detail=f"engine {name} is not registered under {_ENGINE_GROUP}",
+                detail=f"engine {name} is not registered under {ENTRY_POINT_GROUP}",
             )
         ]
     engine = engines[name].load()
