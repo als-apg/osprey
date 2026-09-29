@@ -576,6 +576,35 @@ async def test_a_hookless_deployment_still_waits_on_a_busy_chat_for_the_expert()
     assert_released(app)
 
 
+@pytest.mark.usefixtures("disk")
+async def test_a_channel_that_closes_mid_wait_tears_nothing_down():
+    """The chat wait's own channel probe ends it: the terminal socket suite cannot see this.
+
+    A socket that leaves is also cancelled by its server, so the websocket
+    suite passes without the probe; this is the proof the chat wait asks the
+    caller's channel on its own.
+    """
+    app = make_app()
+    chat = Chat(busy=True)
+    chats(app).sessions[KEY] = chat
+    closed = asyncio.Event()
+    token = ChannelToken(closed.is_set)
+    spawn = pty_spawner(app)
+
+    task = asyncio.create_task(acquire_surface(app, KEY, "expert", token, spawn=spawn))
+    await ticks(app, 5)
+    closed.set()
+    with pytest.raises(ChannelClosed):
+        await task
+
+    assert chat.teardowns == 0 and chat.cancels == 0
+    assert chats(app).terminated == []
+    assert spawn.calls == []
+    assert chats(app).get(KEY) is chat
+    assert live_entries(app) == 1
+    assert_released(app)
+
+
 # ---------------------------------------------------------------------------
 # The turn-state store and the resume id
 # ---------------------------------------------------------------------------
