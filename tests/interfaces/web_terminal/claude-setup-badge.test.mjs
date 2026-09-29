@@ -13,8 +13,7 @@
  *     while reading rather than only when a save comes back refused;
  *   - the controls that would attempt a refused write (Edit, Save, the
  *     ownership button) rendered disabled, and the editors rendered
- *     un-typeable -- including settings.json, whose Preview offers no
- *     editable control at all;
+ *     un-typeable;
  *   - the panel copy that says what to do instead of saving here;
  *   - and, because the server is the enforcement and the client only mirrors
  *     it, the 403 refusal detail reaching the error banner verbatim when a
@@ -34,7 +33,6 @@ import { qs } from '../_support/dom.mjs';
 
 import { createScaffoldGalleryCards } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/cards.js';
 import { createScaffoldGalleryDetail } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js';
-import { createScaffoldGalleryDetailContent } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js';
 import { createScaffoldGalleryEditForm } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
 import { createScaffoldGalleryEdit } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit.js';
 
@@ -90,6 +88,32 @@ function withoutReadOnlyKey(artifact) {
   const copy = { ...artifact };
   delete copy.read_only;
   return copy;
+}
+
+/**
+ * The two shapes a writable artifact arrives in: flagged `read_only: false`,
+ * and the transitional payload with no `read_only` key at all. Absent must
+ * read as writable.
+ * @type {Array<[string, any]>}
+ */
+const WRITABLE_SHAPES = [
+  ['read_only: false', WRITABLE],
+  ['no read_only key', withoutReadOnlyKey(WRITABLE)],
+];
+
+/**
+ * An edit-form host for `artifact` whose content GET answers `content`.
+ * @param {any} artifact
+ * @param {string} content
+ */
+function editFormGallery(artifact, content) {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ content }) })));
+  return /** @type {any} */ ({
+    selectedArtifact: artifact,
+    editDirty: false,
+    detailContentEl: document.createElement('div'),
+    renderDetailModes: vi.fn(),
+  });
 }
 
 /** @param {Partial<any>} [overrides] */
@@ -168,15 +192,18 @@ afterEach(() => {
 });
 
 describe('read-only badge', () => {
-  test('renders on a reserved artifact card, and not on a writable one', () => {
+  test('renders on a reserved artifact card, with the tint', () => {
     const reservedCard = renderCard(RESERVED, 'config');
-    const writableCard = renderCard(WRITABLE);
 
     expect(qs(reservedCard, '.prompts-badge.read-only')).toBeTruthy();
     expect(reservedCard.classList.contains('prompts-card-readonly')).toBe(true);
+  });
 
-    expect(writableCard.querySelector('.prompts-badge.read-only')).toBeNull();
-    expect(writableCard.classList.contains('prompts-card-readonly')).toBe(false);
+  test.each(WRITABLE_SHAPES)('stays off a writable card (%s)', (_label, artifact) => {
+    const card = renderCard(artifact);
+
+    expect(card.querySelector('.prompts-badge.read-only')).toBeNull();
+    expect(card.classList.contains('prompts-card-readonly')).toBe(false);
   });
 
   test('does not displace the ownership badge -- the two say different things', () => {
@@ -207,28 +234,12 @@ describe('read-only badge', () => {
       .toBeTruthy();
   });
 
-  test('stays off an artifact whose payload carries no read_only key at all', () => {
-    // The transitional shape: until the service stamps the flag, every entry
-    // arrives without it. Absent must read as writable, not as unknown --
-    // a badge on everything would be worse than a badge on nothing.
-    const noFlag = withoutReadOnlyKey(WRITABLE);
-    const card = renderCard(noFlag);
-
-    expect(card.querySelector('.prompts-badge.read-only')).toBeNull();
-    expect(card.classList.contains('prompts-card-readonly')).toBe(false);
-  });
-
   test('repeats in the detail header of a reserved artifact', () => {
     const { gallery } = openDetail(RESERVED);
 
     expect(qs(gallery.detailHeaderEl, '.prompts-badge.read-only')).toBeTruthy();
   });
 
-  test('is absent from the detail header of a writable artifact', () => {
-    const { gallery } = openDetail(WRITABLE);
-
-    expect(gallery.detailHeaderEl.querySelector('.prompts-badge.read-only')).toBeNull();
-  });
 });
 
 describe('disabled write controls', () => {
@@ -244,17 +255,6 @@ describe('disabled write controls', () => {
     const saveBtn = /** @type {HTMLButtonElement} */ (qs(gallery.detailModesEl, '.prompts-save-btn'));
     expect(saveBtn.disabled).toBe(true);
     expect(saveBtn.title).toMatch(/build profile/i);
-  });
-
-  test('the save control still enables on a dirty writable artifact', () => {
-    const { gallery, detail } = openDetail(WRITABLE);
-    gallery.detailMode = 'edit';
-    gallery.editDirty = true;
-    detail.renderDetailModes();
-
-    const saveBtn = /** @type {HTMLButtonElement} */ (qs(gallery.detailModesEl, '.prompts-save-btn'));
-    expect(saveBtn.disabled).toBe(false);
-    expect(saveBtn.title).toBe('');
   });
 
   test('the Edit tab is disabled for a reserved artifact but Preview stays open', () => {
@@ -282,11 +282,10 @@ describe('disabled write controls', () => {
     expect(ownerBtn.disabled).toBe(true);
   });
 
-  test('an artifact with no read_only key keeps every control live', () => {
-    const noFlag = withoutReadOnlyKey(WRITABLE);
-    const { gallery, detail } = openDetail(noFlag);
-    // Save only renders in edit mode (or in settings.json's dirty Preview), so
-    // this has to be a real edit session to have a save control to assert on.
+  test.each(WRITABLE_SHAPES)('a writable artifact (%s) keeps every control live and unmarked', (_label, artifact) => {
+    const { gallery, detail } = openDetail(artifact);
+    // Save only renders in edit mode, so this has to be a real edit session to
+    // have a save control to assert on.
     gallery.detailMode = 'edit';
     gallery.editDirty = true;
     detail.renderDetailModes();
@@ -304,53 +303,18 @@ describe('disabled write controls', () => {
 
     expect(editBtn.disabled).toBe(false);
     expect(saveBtn.disabled).toBe(false);
+    expect(saveBtn.title).toBe('');
     expect(ownerBtn.disabled).toBe(false);
     expect(gallery.detailHeaderEl.querySelector('.prompts-readonly-note')).toBeNull();
+    expect(gallery.detailHeaderEl.querySelector('.prompts-badge.read-only')).toBeNull();
   });
 
-  test('an artifact with no read_only key renders a typeable editor', () => {
-    const noFlag = withoutReadOnlyKey(WRITABLE);
-    const gallery = /** @type {any} */ ({
-      selectedArtifact: noFlag,
-      editDirty: false,
-      detailContentEl: document.createElement('div'),
-      renderDetailModes: vi.fn(),
-    });
-    const { renderPlainTextEditor } = createScaffoldGalleryEditForm(gallery);
-    renderPlainTextEditor('# Reviewer\n');
-
-    const textarea = /** @type {HTMLTextAreaElement} */ (
-      qs(gallery.detailContentEl, '.prompts-edit-textarea')
-    );
-    expect(textarea.readOnly).toBe(false);
-  });
-
-  test('the Edit tab and ownership button stay live for a writable artifact', () => {
-    const { gallery } = openDetail(WRITABLE);
-
-    const editBtn = /** @type {HTMLButtonElement} */ (
-      Array.from(gallery.detailModesEl.querySelectorAll('.prompts-mode-btn'))
-        .find((b) => b.textContent === 'Edit')
-    );
-    const ownerBtn = /** @type {HTMLButtonElement} */ (
-      qs(gallery.detailHeaderEl, '.prompts-ownership-btn')
-    );
-
-    expect(editBtn.disabled).toBe(false);
-    expect(ownerBtn.disabled).toBe(false);
-  });
 });
 
 describe('read-only editors', () => {
   test('the plain-text editor is not typeable for a reserved artifact', async () => {
-    const gallery = /** @type {any} */ ({
-      selectedArtifact: RESERVED,
-      editDirty: false,
-      detailContentEl: document.createElement('div'),
-      renderDetailModes: vi.fn(),
-    });
-    const { renderPlainTextEditor } = createScaffoldGalleryEditForm(gallery);
-    renderPlainTextEditor('{"permissions": {}}');
+    const gallery = editFormGallery(RESERVED, '{"permissions": {}}');
+    await createScaffoldGalleryEditForm(gallery).renderEdit();
 
     const textarea = /** @type {HTMLTextAreaElement} */ (
       qs(gallery.detailContentEl, '.prompts-edit-textarea')
@@ -359,15 +323,9 @@ describe('read-only editors', () => {
     expect(textarea.classList.contains('prompts-edit-readonly')).toBe(true);
   });
 
-  test('the plain-text editor stays typeable for a writable artifact', () => {
-    const gallery = /** @type {any} */ ({
-      selectedArtifact: WRITABLE,
-      editDirty: false,
-      detailContentEl: document.createElement('div'),
-      renderDetailModes: vi.fn(),
-    });
-    const { renderPlainTextEditor } = createScaffoldGalleryEditForm(gallery);
-    renderPlainTextEditor('# Reviewer\n');
+  test.each(WRITABLE_SHAPES)('the plain-text editor stays typeable for a writable artifact (%s)', async (_label, artifact) => {
+    const gallery = editFormGallery(artifact, '# Reviewer\n');
+    await createScaffoldGalleryEditForm(gallery).renderEdit();
 
     const textarea = /** @type {HTMLTextAreaElement} */ (
       qs(gallery.detailContentEl, '.prompts-edit-textarea')
@@ -375,15 +333,12 @@ describe('read-only editors', () => {
     expect(textarea.readOnly).toBe(false);
   });
 
-  test('the front-matter form disables its fields for a reserved artifact', () => {
-    const gallery = /** @type {any} */ ({
-      selectedArtifact: { ...RESERVED, name: 'reviewer', language: 'markdown' },
-      editDirty: false,
-      detailContentEl: document.createElement('div'),
-      renderDetailModes: vi.fn(),
-    });
-    const { renderFrontMatterForm } = createScaffoldGalleryEditForm(gallery);
-    renderFrontMatterForm('', { name: 'reviewer', model: 'opus' }, 'body');
+  test('the front-matter form disables its fields for a reserved artifact', async () => {
+    const gallery = editFormGallery(
+      { ...RESERVED, name: 'reviewer', language: 'markdown' },
+      '---\nname: reviewer\nmodel: opus\n---\nbody'
+    );
+    await createScaffoldGalleryEditForm(gallery).renderEdit();
 
     const inputs = /** @type {HTMLInputElement[]} */ (
       Array.from(gallery.detailContentEl.querySelectorAll('.prompts-fm-field input, .prompts-fm-field select'))
@@ -397,31 +352,6 @@ describe('read-only editors', () => {
     expect(bodyTextarea.readOnly).toBe(true);
   });
 
-  test("settings.json's Preview always renders read-only", async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({ content: '{"model": "opus"}', language: 'json' }),
-      }))
-    );
-    const gallery = /** @type {any} */ ({
-      selectedArtifact: RESERVED,
-      detailContentEl: document.createElement('div'),
-      editDirty: false,
-      renderDetailModes: vi.fn(),
-    });
-    const { renderPreview } = createScaffoldGalleryDetailContent(gallery);
-
-    await renderPreview();
-
-    // The read-only structured view renders and nothing in it accepts input,
-    // so saveOverride has nothing to pull edits out of and the dirty flag the
-    // Save button reads never flips.
-    expect(qs(gallery.detailContentEl, '.config-structured-view')).toBeTruthy();
-    expect(gallery.detailContentEl.querySelectorAll('input, select, textarea')).toHaveLength(0);
-    expect(gallery.editDirty).toBe(false);
-  });
 });
 
 describe('panel copy', () => {
@@ -433,11 +363,6 @@ describe('panel copy', () => {
     expect(note.textContent).toMatch(/rebuild/i);
   });
 
-  test('no such copy on a writable artifact', () => {
-    const { gallery } = openDetail(WRITABLE);
-
-    expect(gallery.detailHeaderEl.querySelector('.prompts-readonly-note')).toBeNull();
-  });
 });
 
 describe('refused write', () => {
