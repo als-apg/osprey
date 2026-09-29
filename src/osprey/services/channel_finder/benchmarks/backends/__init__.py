@@ -5,7 +5,7 @@ benchmark. The Backend protocol lets us run the same model through either
 harness so cell scores attribute cleanly.
 
 Backends (the harness axis):
-    sdk    — claude_agent_sdk.query() (Anthropic-native tool-use loop)
+    sdk    — osprey.agent_runner.run_query() as the channel-finder agent (tool-use loop)
     react  — manual ReAct loop on top of litellm.acompletion()
     direct — single MCP tool call, no outer agent loop. Only valid for
              the ``in_context`` paradigm, whose ask_channels tool already
