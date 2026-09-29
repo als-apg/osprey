@@ -1352,7 +1352,7 @@ services:
       - {{ svc.archiver_password_env }}={{ "${" ~ svc.archiver_password_env ~ ":-}" }}
 {%- endif %}
     volumes:
-      - {{ svc.user }}-claude-config:/data/claude-config
+      - {{ svc.claude_config_volume }}:/data/claude-config
       {#- Mount target comes from render.py's _container_agent_data_dir, which
          reads `agent_data.base_dir` — the same key the agent inside this
          container resolves its own agent-data root from. Never a literal: a
@@ -1590,7 +1590,7 @@ services:
 
 volumes:
 {% for svc in services %}
-  {{ svc.user }}-claude-config:
+  {{ svc.claude_config_volume }}:
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
   {{ svc.user }}-agent-data:
