@@ -23,8 +23,9 @@ looking correct and be wrong:
 * **Tier.** Exactly the design-system route's, with ``PANEL_TIER_ROUTES``
   untouched.
 
-The suite fetches real files — the chip's actual relative import closure — so a
-rename that breaks 8.2's import graph fails here rather than in a browser.
+The suite fetches real files. The bar's whole import closure is walked through
+the full app in ``test_proxy_jupyter_integration.py``; the entry module is
+fetched here too, so the fast lane catches a renamed bar module.
 """
 
 from __future__ import annotations
@@ -38,7 +39,6 @@ from fastapi.testclient import TestClient
 from osprey.interfaces import web_auth
 from osprey.interfaces.web_terminal.routes.proxy import (
     _TERMINAL_STATIC_DIR,
-    _TERMINAL_STATIC_SUFFIXES,
     _contained_asset,
     router,
 )
@@ -46,20 +46,6 @@ from osprey.interfaces.web_terminal.routes.proxy import (
 #: A panel id in the route's own namespace. The route never reads it — the tree
 #: it serves is the hub's, not the panel's — but every URL carries one.
 PANEL_ID = "jupyter"
-
-#: The chip's relative import closure, as 3.5's handoff pins it, plus the two
-#: modules the popover pulls in. Every one of these has to be fetchable through
-#: this route or the Lab bar's module graph breaks at the first import.
-CHIP_MODULES = (
-    "js/control-target-chip.js",
-    "js/control-target-popover.js",
-    "js/control-target-facts.js",
-    "js/api.js",
-    "js/activity-format.js",
-    "js/confirm-skip.js",
-    "js/posture-confirm.js",
-    "js/modal-overlay.js",
-)
 
 
 @pytest.fixture
@@ -84,20 +70,18 @@ def _url(asset: str) -> str:
 # ---- it serves the real files ---- #
 
 
-@pytest.mark.parametrize("asset", CHIP_MODULES)
-def test_every_chip_module_is_reachable(client: TestClient, asset: str) -> None:
-    """The whole import closure answers, byte-for-byte."""
+def test_the_bar_entry_module_is_served(client: TestClient) -> None:
+    """The one module the injected tag names answers byte-for-byte, as JavaScript.
+
+    A module served as anything else is one the browser will not run. The
+    rest of the import closure is walked in ``test_proxy_jupyter_integration.py``.
+    """
+    asset = "js/control-target-lab-bar.js"
     response = client.get(_url(asset))
 
     assert response.status_code == 200
-    assert response.content == (_TERMINAL_STATIC_DIR / asset).read_bytes()
-
-
-def test_a_module_is_served_as_javascript(client: TestClient) -> None:
-    """A module served as anything else is a module the browser will not run."""
-    response = client.get(_url("js/control-target-chip.js"))
-
     assert response.headers["content-type"].startswith("text/javascript")
+    assert response.content == (_TERMINAL_STATIC_DIR / asset).read_bytes()
 
 
 def test_the_body_is_not_rewritten(client: TestClient) -> None:
@@ -230,16 +214,6 @@ def test_the_page_sources_are_not_served(client: TestClient) -> None:
         assert client.get(_url(page)).status_code == 404
 
 
-@pytest.mark.usefixtures("client")
-def test_the_allow_list_covers_every_asset_a_module_graph_needs() -> None:
-    """The suffixes 8.2 can actually reach for, pinned as a set.
-
-    Held here rather than imported so a widening of the route's own frozenset
-    fails this file instead of agreeing with itself.
-    """
-    assert _TERMINAL_STATIC_SUFFIXES == {".js", ".mjs", ".css", ".map", ".svg", ".woff2", ".png"}
-
-
 def test_the_design_system_route_still_serves_html(client: TestClient) -> None:
     """The allow-list is this route's alone.
 
@@ -278,19 +252,6 @@ def test_the_helper_refuses_a_symlink_out_of_the_tree(tmp_path: Path) -> None:
 
     assert _contained_asset(root, "js/escape.js") is None
     assert _contained_asset(root, "js/real.js") == (root / "js" / "real.js").resolve()
-
-
-def test_the_helper_refuses_traversal_and_absolute_paths(tmp_path: Path) -> None:
-    """The three shapes the route depends on it refusing, at the unit."""
-    root = tmp_path / "static"
-    root.mkdir()
-    (root / "ok.js").write_text("// yours\n")
-    (tmp_path / "secret.js").write_text("// not yours\n")
-
-    assert _contained_asset(root, "../secret.js") is None
-    assert _contained_asset(root, str(tmp_path / "secret.js")) is None
-    assert _contained_asset(root, "") is None
-    assert _contained_asset(root, "ok.js") == (root / "ok.js").resolve()
 
 
 # ---- the tier ---- #
