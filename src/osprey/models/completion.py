@@ -19,7 +19,7 @@ Key capabilities include:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, create_model
 
@@ -53,12 +53,12 @@ def _convert_typed_dict_to_pydantic(typed_dict_cls) -> type[BaseModel]:
 
     annotations = getattr(typed_dict_cls, "__annotations__", {})
 
-    field_definitions = {}
+    field_definitions: dict[str, Any] = {}
     for field_name, field_type in annotations.items():
         field_definitions[field_name] = (field_type, Field(description=f"Field {field_name}"))
 
     model_name = f"{typed_dict_cls.__name__}Pydantic"
-    pydantic_model = create_model(model_name, **field_definitions)
+    pydantic_model: type[BaseModel] = create_model(model_name, **field_definitions)
 
     return pydantic_model
 
@@ -189,7 +189,7 @@ def get_chat_completion(
     # Execute completion using provider adapter (LiteLLM handles proxy via env vars)
     provider_instance = provider_class()
 
-    completion_kwargs = {
+    completion_kwargs: dict[str, Any] = {
         "enable_thinking": enable_thinking,
         "budget_tokens": budget_tokens,
         "output_format": output_model,
@@ -214,7 +214,7 @@ def get_chat_completion(
     # Log API call for transparency and debugging
     from osprey.models.logging import log_api_call
 
-    log_message = message if message else chat_request.to_single_string()
+    log_message = chat_request.to_single_string() if chat_request is not None else message
 
     log_api_call(
         message=log_message,

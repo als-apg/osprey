@@ -276,7 +276,7 @@ class ProviderRegistry:
         """Import the provider module and cache the class."""
         try:
             module = importlib.import_module(entry.module_path)
-            cls = getattr(module, entry.class_name)
+            cls: type[BaseProvider] = getattr(module, entry.class_name)
             self._providers[name] = cls
             logger.debug("Loaded provider: %s (%s.%s)", name, entry.module_path, entry.class_name)
             return cls

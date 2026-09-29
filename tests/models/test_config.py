@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.models.config import main_model_id, provider_requests_per_minute
+from osprey.models.config import (
+    get_model_config,
+    get_provider_config,
+    main_model_id,
+    provider_requests_per_minute,
+)
 
 
 def _config(*, provider="als-apg", default_model=None, entry_default="claude-haiku-4-5-20251001"):
@@ -63,3 +68,15 @@ def test_a_malformed_cap_is_refused_naming_the_key(value):
     with pytest.raises(ValueError) as excinfo:
         provider_requests_per_minute(_gateway(requests_per_minute=value), "gw")
     assert "api.providers.gw.requests_per_minute" in str(excinfo.value)
+
+
+def test_a_non_mapping_config_entry_reads_as_absent(monkeypatch):
+    import osprey_connectors.config as connectors_config
+
+    monkeypatch.setattr(
+        connectors_config,
+        "_get_configurable",
+        lambda config_path=None: {"model_configs": "oops", "provider_configs": {"p": "oops"}},
+    )
+    assert get_model_config("m") == {}
+    assert get_provider_config("p") == {}

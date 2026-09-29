@@ -197,7 +197,7 @@ def execute_litellm_completion(
     max_tokens: int = 1024,
     temperature: float = 0.0,
     **kwargs,
-) -> str | BaseModel | list:
+) -> str | BaseModel | list | dict:
     """Execute chat completion using LiteLLM.
 
     This is the core completion function that handles all provider-specific
@@ -212,7 +212,8 @@ def execute_litellm_completion(
     :param temperature: Sampling temperature (not sent for a model the provider's
         accepts_temperature answers False for)
     :param kwargs: Additional arguments (enable_thinking, budget_tokens, output_format, etc.)
-    :return: Response text, Pydantic model instance, or list of content blocks
+    :return: Response text, Pydantic model instance, dict for a TypedDict output, or list
+        of content blocks
     """
     # Pop chat_request and tools from kwargs (passed through from get_chat_completion)
     chat_request = kwargs.pop("chat_request", None)
@@ -448,9 +449,8 @@ def _supports_native_structured_output(litellm_model: str, provider: str) -> boo
     from osprey.models.provider_registry import get_provider_registry
 
     provider_class = get_provider_registry().get_provider(provider)
-    declared = getattr(provider_class, "supports_native_structured_output", None)
-    if declared is not None:
-        return declared
+    if provider_class is not None and provider_class.supports_native_structured_output is not None:
+        return provider_class.supports_native_structured_output
 
     try:
         return litellm.supports_response_schema(model=litellm_model)
@@ -613,7 +613,8 @@ def _execute_ollama_completion(
 
     # Extract content - works correctly even with thinking field present
     data = response.json()
-    return data["message"]["content"]
+    content: str = data["message"]["content"]
+    return content
 
 
 def _execute_ollama_structured_output(

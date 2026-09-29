@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 import openai
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from osprey.utils.logger import get_logger
 
@@ -160,7 +160,9 @@ You must respond with valid JSON that matches this schema:
 {json.dumps(schema, indent=2)}
 
 Respond ONLY with the JSON object, no additional text or markdown formatting."""
-            messages = [{"role": "user", "content": structured_message}]
+            messages: list[ChatCompletionMessageParam] = [
+                {"role": "user", "content": structured_message}
+            ]
         else:
             messages = [{"role": "user", "content": message}]
 
