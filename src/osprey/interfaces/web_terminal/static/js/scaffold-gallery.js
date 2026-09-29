@@ -27,7 +27,6 @@ import {
   BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
   CONFIG_NAMES,
-  configureMarked,
 } from './scaffold/utils.js';
 import {
   resetFetchCache,
@@ -428,8 +427,6 @@ export function initScaffoldGallery() {
     document.getElementById('settings-drawer')
   );
   if (!drawer) return;
-
-  configureMarked();
 
   const behaviorPanel = document.getElementById('tab-behavior');
   const safetyPanel = document.getElementById('tab-safety');
