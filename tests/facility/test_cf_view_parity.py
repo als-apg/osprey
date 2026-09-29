@@ -1,8 +1,9 @@
 """Channel-finder view parity against the frozen pre-LINE goldens.
 
 The goldens under ``tests/facility/golden/`` are captured from the demo's
-committed sources by ``scripts/facility_demo/fingerprint.py``; each names the
-command that rewrites it in its ``_reproduce`` line. This module's loader
+committed sources by ``scripts/facility_demo/fingerprint.py`` (the limits
+golden by ``scripts/facility_demo/_limits.py``); each names the command that
+rewrites it in its ``_reproduce`` line. This module's loader
 reads them, and the tests below hold the frozen invariants every later
 comparison relies on: the fingerprint's size, role split and pinned sha256,
 the in_context size, the standalone address set, the limits projection and
@@ -121,13 +122,13 @@ def test_standalone_address_set_is_frozen() -> None:
     assert addresses == sorted(set(addresses))
 
 
-def test_limits_cover_every_address_and_open_only_the_setpoints() -> None:
+def test_limits_name_only_setpoints_of_the_fingerprint() -> None:
     golden = load_golden("limits.json")
     channels = golden["channels"]
-    assert golden["count"] == len(channels)
-    assert set(channels) == fingerprint_addresses()
+    assert "defaults" not in golden
+    assert golden["count"] == len(channels) == 3
     setpoints = {row["address"] for row in fingerprint_rows() if row["role"] == "setpoint"}
-    assert {address for address, record in channels.items() if record["writable"]} == setpoints
+    assert set(channels) <= setpoints
     assert all(
         list(record) == ["min_value", "max_value", "max_step", "writable", "confirm"]
         for record in channels.values()
