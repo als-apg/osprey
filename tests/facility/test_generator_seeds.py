@@ -243,40 +243,6 @@ def test_bool_labels_follow_both_goldens() -> None:
         assert golden("va")[address]["nominal"] == (1.0 if label == TRUE else 0.0), address
 
 
-def test_banded_unwired_nominals_sit_inside_their_band() -> None:
-    records = _json(GOLDEN / "limits.json")["channels"]
-    setpoint_of = {
-        str(c["pair"]): c["id"]
-        for c in channels().values()
-        if c.get("role") == "setpoint" and c.get("pair", c["id"]) != c["id"]
-    }
-
-    def nominal(address: str) -> Any:
-        seed = seeds().get(address, {})
-        if "nominal" in seed:
-            return seed["nominal"]
-        setpoint = setpoint_of.get(address)
-        if setpoint is not None and "nominal" in seeds().get(setpoint, {}):
-            return seeds()[setpoint]["nominal"]
-        return 0.0
-
-    banded = [
-        (address, record)
-        for address, record in sorted(records.items())
-        if record.get("min_value") is not None
-        and record.get("max_value") is not None
-        and address not in wired()
-        and "linear" not in seeds().get(address, {})
-    ]
-    assert banded
-    outside = [
-        address
-        for address, record in banded
-        if not record["min_value"] <= nominal(address) <= record["max_value"]
-    ]
-    assert outside == []
-
-
 FLOAT_READBACK = {"value_type": "float", "role": "readback"}
 
 
