@@ -209,8 +209,8 @@ def test_write_record_files_under_a_caller_supplied_id(tmp_path: Path) -> None:
 )
 def test_write_record_refuses_an_id_without_the_header_prefix(tmp_path: Path, bad_id: str) -> None:
     # The id IS the header's filename stem: without the prefix the header files
-    # somewhere HEADER_GLOB cannot see, so the submission disappears from
-    # list_headers and the pruner while its context becomes a prunable orphan.
+    # somewhere HEADER_GLOB cannot see, so the submission disappears from every
+    # store reader and the pruner while its context becomes a prunable orphan.
     feedback_dir = tmp_path / "feedback"
 
     with pytest.raises(ValueError, match="must start with"):
@@ -233,73 +233,6 @@ def test_write_record_mints_its_own_id_when_none_is_supplied(
     assert ID_RE.match(record_id), record_id
     assert record_id.startswith("fb-1755712345678-")
     assert (feedback_dir / feedback_store.header_filename(record_id)).is_file()
-
-
-# ── list_headers ───────────────────────────────────────────────────────────
-
-
-def test_list_headers_tolerates_a_missing_directory(tmp_path: Path) -> None:
-    assert feedback_store.list_headers(tmp_path / "never-created") == []
-
-
-def test_list_headers_reads_only_headers_ignoring_contexts_and_temp_files(
-    tmp_path: Path,
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    feedback_dir.mkdir()
-    (feedback_dir / "fb-1755712345678-aaaaaaaa.json").write_text(
-        json.dumps({"id": "fb-1755712345678-aaaaaaaa", "channel": "local"})
-    )
-    (feedback_dir / "ctx-1755712345678-aaaaaaaa.json").write_text(
-        json.dumps({"id": "fb-1755712345678-aaaaaaaa", "context": {"big": "payload"}})
-    )
-    (feedback_dir / ".fb-1755712345679-bbbbbbbb.json.xyz.tmp").write_text("{partial")
-    (feedback_dir / "notes.txt").write_text("unrelated")
-
-    headers = feedback_store.list_headers(feedback_dir)
-
-    assert [h["id"] for h in headers] == ["fb-1755712345678-aaaaaaaa"]
-    assert headers[0]["channel"] == "local"
-
-
-def test_list_headers_sorts_by_id(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    feedback_dir.mkdir()
-    for stem in (
-        "fb-1755712345680-cccccccc",
-        "fb-1755712345678-aaaaaaaa",
-        "fb-1755712345679-bbbbbbbb",
-    ):
-        (feedback_dir / f"{stem}.json").write_text(json.dumps({"id": stem}))
-
-    assert [h["id"] for h in feedback_store.list_headers(feedback_dir)] == [
-        "fb-1755712345678-aaaaaaaa",
-        "fb-1755712345679-bbbbbbbb",
-        "fb-1755712345680-cccccccc",
-    ]
-
-
-def test_list_headers_skips_unreadable_documents(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    feedback_dir.mkdir()
-    (feedback_dir / "fb-1755712345678-aaaaaaaa.json").write_text(
-        json.dumps({"id": "fb-1755712345678-aaaaaaaa"})
-    )
-    (feedback_dir / "fb-1755712345679-bbbbbbbb.json").write_text("{ truncated")
-    (feedback_dir / "fb-1755712345680-cccccccc.json").write_text(json.dumps(["not", "a", "dict"]))
-
-    assert [h["id"] for h in feedback_store.list_headers(feedback_dir)] == [
-        "fb-1755712345678-aaaaaaaa"
-    ]
-
-
-def test_list_headers_returns_empty_for_a_file_where_the_directory_should_be(
-    tmp_path: Path,
-) -> None:
-    not_a_dir = tmp_path / "feedback"
-    not_a_dir.write_text("oops")
-
-    assert feedback_store.list_headers(not_a_dir) == []
 
 
 # ── prune_store ────────────────────────────────────────────────────────────
