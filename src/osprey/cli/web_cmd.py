@@ -887,27 +887,25 @@ def _resolve_web_shell_command(
     Both are argv, written as a string or as a list, and both go through
     :func:`~osprey.utils.shell_resolver.normalize_shell_command`, which resolves
     argv[0] and passes the harness's own arguments through.
-      3. ``claude_code.cli_version`` pin via ``build_claude_launch_argv()``
-      4. bare ``claude`` (current default)
+      3. ``claude_code.cli_version`` pin: the launcher's pinned default
+      4. the launcher's unpinned default
 
-    For the default (bare ``claude``) case, ``claude`` is resolved to an
-    absolute path so a stripped PATH (systemd unit / container entrypoint) still
-    finds it, while the launcher's appended flags — notably
-    ``--setting-sources project`` — are preserved. A pinned ``npx …`` prefix is
-    left to PATH lookup unchanged. Always returns ``list[str]`` so downstream
-    consumers can unpack safely.
+    The launcher builds the default
+    (:func:`~osprey.agent_runner.launcher.build_claude_launch_argv`) and
+    resolves its bare program name
+    (:func:`~osprey.agent_runner.launcher.resolve_cli_name`), so a stripped
+    PATH still finds the CLI and the launcher's appended flags are preserved;
+    a pinned ``npx …`` prefix is left to PATH lookup. Always returns
+    ``list[str]`` so downstream consumers can unpack safely.
     """
-    from osprey.agent_runner.launcher import build_claude_launch_argv
-    from osprey.utils.shell_resolver import normalize_shell_command, resolve_shell_command
+    from osprey.agent_runner.launcher import build_claude_launch_argv, resolve_cli_name
+    from osprey.utils.shell_resolver import normalize_shell_command
 
     if shell_override:
         return normalize_shell_command(shell_override)
     if wt_config.get("shell"):
         return normalize_shell_command(wt_config["shell"])
-    argv = build_claude_launch_argv(cc_config)
-    if argv[0] == "claude":
-        return [resolve_shell_command(argv[0]), *argv[1:]]
-    return argv  # pinned ["npx", "-y", ...] — leave to PATH lookup
+    return resolve_cli_name(build_claude_launch_argv(cc_config))
 
 
 # -- CLI -------------------------------------------------------------------

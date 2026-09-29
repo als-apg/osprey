@@ -5,9 +5,18 @@ argv prefix for both the unpinned and pinned cases, and that
 ``parse_claude_version()`` extracts semver from realistic CLI output.
 """
 
+from unittest.mock import patch
+
 import pytest
 
-from osprey.agent_runner.launcher import build_claude_launch_argv, parse_claude_version
+from osprey.agent_runner.launcher import (
+    CLI_NAME,
+    build_claude_launch_argv,
+    parse_claude_version,
+    resolve_cli_name,
+)
+
+_RESOLVER = "osprey.utils.shell_resolver.resolve_shell_command"
 
 
 class TestBuildClaudeLaunchArgv:
@@ -97,3 +106,39 @@ class TestParseClaudeVersion:
 
     def test_returns_none_for_empty(self):
         assert parse_claude_version("") is None
+
+
+class TestResolveCliName:
+    """The bare program name is resolved to an absolute path; nothing else is."""
+
+    def test_bare_name_is_resolved_and_flags_kept(self):
+        with patch(_RESOLVER, return_value="/abs/claude") as resolver:
+            argv = resolve_cli_name(build_claude_launch_argv({}))
+        assert argv == ["/abs/claude", "--setting-sources", "project"]
+        resolver.assert_called_once_with("claude")
+
+    def test_pinned_prefix_is_left_to_path_lookup(self):
+        pinned = build_claude_launch_argv({"cli_version": "2.1.146"})
+        with patch(_RESOLVER) as resolver:
+            argv = resolve_cli_name(pinned)
+        assert argv == pinned
+        assert argv is not pinned
+        resolver.assert_not_called()
+
+    def test_foreign_argv_is_untouched(self):
+        with patch(_RESOLVER) as resolver:
+            argv = resolve_cli_name(["/bin/bash", "-l"])
+        assert argv == ["/bin/bash", "-l"]
+        resolver.assert_not_called()
+
+    def test_unresolvable_name_raises_file_not_found(self):
+        with patch(_RESOLVER, side_effect=FileNotFoundError("x")):
+            with pytest.raises(FileNotFoundError):
+                resolve_cli_name(build_claude_launch_argv({}))
+
+    def test_empty_argv_is_refused(self):
+        with pytest.raises(ValueError, match="resolve_cli_name"):
+            resolve_cli_name([])
+
+    def test_cli_name_is_what_an_unpinned_launch_runs(self):
+        assert build_claude_launch_argv({})[0] == CLI_NAME == "claude"

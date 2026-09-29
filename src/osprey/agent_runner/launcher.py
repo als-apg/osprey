@@ -28,6 +28,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+#: The program an unpinned launch runs, found on PATH.
+CLI_NAME = "claude"
+
 _VERSION_RE = re.compile(r"\b(\d+\.\d+\.\d+(?:[-+.][0-9A-Za-z.-]+)?)\b")
 
 #: The npm package a pinned launch runs through ``npx``. Spelled once so the
@@ -76,7 +79,7 @@ def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[s
     """
     cli_version = None if no_pin else cc_config.get("cli_version")
     if cli_version is None:
-        base = ["claude"]
+        base = [CLI_NAME]
     elif not isinstance(cli_version, str) or not cli_version.strip():
         raise ValueError(
             "claude_code.cli_version must be a non-empty string "
@@ -85,6 +88,38 @@ def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[s
     else:
         base = ["npx", "-y", f"{_CLI_PACKAGE}@{cli_version.strip()}"]
     return base + _SETTING_SOURCES_ARGS
+
+
+def resolve_cli_name(argv: Sequence[str]) -> list[str]:
+    """Resolve the bare CLI name at the head of a launch argv to an absolute path.
+
+    A stripped PATH (a systemd unit, a container entrypoint) must still find the
+    CLI, so an argv that starts with :data:`CLI_NAME` gets its program resolved
+    while every flag the launcher appended — notably ``--setting-sources
+    project`` — is preserved. Any other argv comes back as a new, equal list: a
+    pinned ``npx …`` prefix is left to the PATH lookup, and an argv that names
+    some other program is not this function's to touch.
+
+    Args:
+        argv: A launch argv, normally one :func:`build_claude_launch_argv`
+            returned.
+
+    Returns:
+        A new argv list.
+
+    Raises:
+        ValueError: If ``argv`` is empty.
+        FileNotFoundError: From
+            :func:`osprey.utils.shell_resolver.resolve_shell_command` when the
+            CLI cannot be found.
+    """
+    from osprey.utils.shell_resolver import resolve_shell_command
+
+    if not argv:
+        raise ValueError("resolve_cli_name() needs a non-empty argv")
+    if argv[0] == CLI_NAME:
+        return [resolve_shell_command(argv[0]), *argv[1:]]
+    return list(argv)
 
 
 def parse_claude_version(version_output: str) -> str | None:
