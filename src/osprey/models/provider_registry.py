@@ -221,12 +221,9 @@ class ProviderRegistry:
         """
         result: dict[str, str | None] = {}
         for name, entry in list(self._entries.items()):
-            if entry.api_protocol is not None:
-                result[name] = entry.key_env_var
+            if entry.api_protocol is None and self.get_provider(name) is None:
                 continue
-            cls = self.get_provider(name)
-            if cls is not None:
-                result[name] = cls.api_key_env_var
+            result[name] = self.api_key_env_var(name)
         return result
 
     def load_providers(
