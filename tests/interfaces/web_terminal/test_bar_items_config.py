@@ -16,13 +16,11 @@ resolved document really does reach ``app.state.bar_layout`` — the seam
 from __future__ import annotations
 
 import logging
-from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
     BAR_ITEM_GATES,
@@ -32,7 +30,6 @@ from osprey.interfaces.web_terminal.app import (
     MAX_BAR_ITEMS_PER_HOST,
     _load_bar_items,
     bar_availability_context,
-    create_app,
     effective_bar_layout,
     renderable_bar_layout,
 )
@@ -301,53 +298,20 @@ class TestDropRules:
 class TestLifespanWiring:
     """The resolved document reaches the seam the renderer reads."""
 
-    @contextmanager
-    def _app(self, tmp_path: Path, bar_items: object | None):
-        web_section: dict = {} if bar_items is None else {"bar_items": bar_items}
-        project_dir = tmp_path / "project"
-        project_dir.mkdir(exist_ok=True)
-        # Both places the lifespan reaches for an agent-data root are pointed
-        # at tmp, the way ``test_bar_items_routes.py`` does it: the watched
-        # tree through ``watch_dir``, and the stores through the resolver. Left
-        # alone, either lands under the repository's own ``var/agent_data``,
-        # which the session guard in ``tests/conftest.py`` rightly refuses.
-        watch_dir = tmp_path / "_watch"
-        watch_dir.mkdir(exist_ok=True)
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(watch_dir)},
-            ),
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_ui_config",
-                return_value=web_section,
-            ),
-            patch(
-                "osprey.utils.workspace.resolve_shared_data_root",
-                return_value=tmp_path / "agent_data",
-            ),
-        ):
-            app = create_app(shell_command="echo", project_dir=project_dir)
-            with TestClient(app):
-                yield app
-
-    def test_configured_layout_lands_on_app_state(self, tmp_path):
-        with self._app(tmp_path, {"header": ["logo", "display"]}) as app:
+    def test_configured_layout_lands_on_app_state(self, bar_items_app):
+        with bar_items_app(web={"bar_items": {"header": ["logo", "display"]}}) as client:
+            app = client.app
             assert _types(app.state.bar_layout["header"]) == ["logo", "display"]
             assert effective_bar_layout(app) is app.state.bar_layout
 
-    def test_the_default_is_filtered_by_what_the_deployment_renders(self, tmp_path):
+    def test_the_default_is_filtered_by_what_the_deployment_renders(self, bar_items_app):
         """No SYSTEM panel and no user: the rev-0 document the lifespan leaves
         on state names neither ``system-health`` nor ``identity``, so the
         browser's normalizer has nothing to drop and nothing to latch on."""
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_panel_config",
-                return_value=({"artifacts"}, [], None),
-            ),
-            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "", "OSPREY_WEB_APP_NAME": ""}),
-            self._app(tmp_path, None) as app,
-        ):
+        with bar_items_app(
+            web={}, env={"OSPREY_TERMINAL_USER": "", "OSPREY_WEB_APP_NAME": ""}
+        ) as client:
+            app = client.app
             layout = app.state.bar_layout
             assert _types(layout["status"]) == ["space", "clock"]
             assert "identity" not in _types(layout["header"])
