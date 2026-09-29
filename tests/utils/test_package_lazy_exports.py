@@ -21,6 +21,7 @@ import pytest
 #: Every package whose public names are resolved through a ``_LAZY_EXPORTS`` map.
 LAZY_EXPORT_PACKAGES = (
     "osprey",
+    "osprey.agent_runner",
     "osprey.dispatch",
     "osprey.health",
     "osprey.interfaces.web_terminal",
