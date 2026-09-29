@@ -112,7 +112,10 @@ class WriteOutcome(StrEnum):
     connector-host IPC) reads it and none re-derives a verdict of its own.
 
     * ``REFUSED`` — nothing was written; ``refusal_reason`` says why.
-    * ``FAILED`` — the value was sent and the control system did not take it.
+    * ``FAILED`` — the write did not take: the value was sent and the control
+      system did not take it, or the channel could not be reached and nothing
+      was sent (``error_message`` says which). Either way the channel was not
+      changed by this write, and nothing is re-read.
     * ``CONFIRMED`` — a re-read of the channel holds the value sent, in any
       alarm state. Alarm state is reported, never raised on.
     * ``MISMATCH`` — the re-read holds a different value (a clamped or rounded

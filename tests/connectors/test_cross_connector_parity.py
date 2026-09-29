@@ -10,12 +10,11 @@ each name their expected outcome exactly once, in ``_SCENARIOS``, and every
 connector is driven through the same row. A connector that drifts fails its
 row against the shared expectation, not against a private copy of it.
 
-One row has one exemption, named in ``_NO_FAILED_OUTCOME``: EPICS has no
-``failed``. Channel Access gives no signal for "sent, and not taken" — a put
-either is refused by access security (``refused``), goes unacknowledged
-(``unconfirmed``), or fails in a way whose outcome is unknown, which is raised
-rather than reported as a verdict. That is pinned by its own test below
-instead of being quietly skipped.
+EPICS reaches ``failed`` one way: a put to a channel that never connected.
+Nothing was sent, which is known — the verdict pyepics' ``caput`` returned as
+``None`` — so the row is reported and a batch carries on past it. A put that
+fails in a way pvapy does not name leaves the outcome unknown and is still
+raised rather than reported; that is pinned by its own test below.
 
 Each connector reaches the scenarios through its own seam, and the seams are
 deliberately the ones the connector authors left:
@@ -222,8 +221,9 @@ async def _run_epics(scenario: Scenario, monkeypatch) -> WriteRun:
     """Drive EPICSConnector through ``scenario``.
 
     The record takes the put; a put hook that leaves a different number
-    behind is the channel that did not keep it, and a failing read of it is
-    the confirming read that raises.
+    behind is the channel that did not keep it, a failing read of it is the
+    confirming read that raises, and a channel that never connects is the put
+    that fails.
     """
     pvaccess = FakePvaccess()
     served = pvaccess.serve("SR:CH", record(0.0))
@@ -239,6 +239,12 @@ async def _run_epics(scenario: Scenario, monkeypatch) -> WriteRun:
             return None
 
         pvaccess.get_hooks["SR:CH"] = failing_read
+    if scenario is PUT_FAILS:
+        # The channel never connects, so the put is never issued.
+        def unreachable():
+            raise FakePvaException("Channel SR:CH timed out.")
+
+        pvaccess.introspection_hooks["SR:CH"] = unreachable
 
     connector = _epics_connector(monkeypatch, pvaccess)
     result = await connector.write_channel("SR:CH", VALUE_SENT, confirm=_confirm_argument(scenario))
@@ -371,15 +377,10 @@ _DRIVERS = {
     "tango": _run_tango,
 }
 
-#: Connectors whose protocol has no "sent, and not taken" signal — see the
-#: module docstring and :class:`TestEpicsHasNoFailedOutcome`.
-_NO_FAILED_OUTCOME = {"epics"}
-
 _MATRIX = [
     pytest.param(name, scenario, id=f"{scenario.name}-{name}")
     for scenario in _SCENARIOS
     for name in _DRIVERS
-    if not (scenario is PUT_FAILS and name in _NO_FAILED_OUTCOME)
 ]
 
 
@@ -429,14 +430,14 @@ class TestWriteOutcomeParity:
         assert run.confirming_reads == scenario.confirming_reads
 
 
-class TestEpicsHasNoFailedOutcome:
-    """The EPICS answer to ``put_fails``: a raise, never a verdict it cannot vouch for.
+class TestEpicsUnknownPutFailure:
+    """An EPICS put whose outcome is unknown: a raise, never a verdict it cannot vouch for.
 
-    A put that fails in a way pvapy does not name leaves the outcome unknown,
-    so it propagates as raised. It is not dressed up as ``failed`` (which
-    would claim the control system saw the value and declined it) nor as
-    ``refused`` (which would claim nothing was written), and nothing is
-    re-read after it.
+    ``failed`` is reported only when nothing was sent (the channel never
+    connected — a row of the matrix above). A put that fails in a way pvapy
+    does not name leaves the outcome unknown, so it propagates as raised. It
+    is not dressed up as ``failed`` nor as ``refused`` (which would claim
+    nothing was written), and nothing is re-read after it.
     """
 
     async def test_an_unrecognized_put_failure_is_raised_and_not_re_read(self, monkeypatch):

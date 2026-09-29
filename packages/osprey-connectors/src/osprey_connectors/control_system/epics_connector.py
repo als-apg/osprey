@@ -21,6 +21,7 @@ import os
 import queue
 import re
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime
@@ -87,6 +88,9 @@ _VALUE_REQUEST = "field(value)"
 # 1.5 s completes under a 0.5 s channel timeout), so the connector enforces
 # its own deadline around it; see :meth:`EPICSConnector._put`.
 _CONFIRMING_PUT_REQUEST = "record[block=true]field(value)"
+
+#: How long a monitor waits before retrying a display fetch that failed.
+_DISPLAY_RETRY_S = 5.0
 
 # What a monitor asks for, per transport, for the same reason as the reads.
 _CA_MONITOR_REQUEST = _CA_READ_REQUEST
@@ -491,6 +495,9 @@ def _channel_value(
     fields = _top_fields(obj)
     if display and "display" not in fields:
         fields["display"] = display
+    if provider == "ca" and kind is None and "value" in fields:
+        value_type = structure.get("value") if isinstance(structure, dict) else None
+        fields["value"] = _unsigned_chars(fields["value"], value_type)
 
     timestamp = _timestamp(fields)
     raw_metadata: dict[str, Any] = {"provider": provider, "nt_type": kind}
@@ -527,6 +534,149 @@ def _put_value(value: Any) -> Any:
     if callable(tolist) and not isinstance(value, (str, bytes)):
         return tolist()
     return value
+
+
+# pvapy's scalar types by name. ``str()`` of a ``pvaccess.ScalarType`` is the
+# bare name (``"DOUBLE"``), which is what these sets hold.
+_FLOAT_TYPES = frozenset({"DOUBLE", "FLOAT"})
+_INTEGER_TYPES = frozenset({"BYTE", "UBYTE", "SHORT", "USHORT", "INT", "UINT", "LONG", "ULONG"})
+# Channel Access has one 8-bit type, DBR_CHAR, which pvapy's CA provider hands
+# over as a signed BYTE whatever the record's FTVL says.
+_CHAR_TYPES = frozenset({"BYTE", "UBYTE"})
+
+
+def _type_name(value_type: Any) -> str | None:
+    """The scalar type name of an introspection entry, or ``None`` for a container."""
+    if value_type is None or isinstance(value_type, dict | list | tuple):
+        return None
+    return str(value_type).rsplit(".", 1)[-1]
+
+
+def _is_char_array(value_type: Any) -> bool:
+    """True for a Channel Access char array (a ``waveform`` of FTVL CHAR or UCHAR)."""
+    return (
+        isinstance(value_type, list)
+        and len(value_type) == 1
+        and _type_name(value_type[0]) in _CHAR_TYPES
+    )
+
+
+class _UnwritableValue(ValueError):
+    """The value cannot be represented in the channel's type; nothing was sent."""
+
+
+class _NothingSent(ConnectionError):
+    """A write that is KNOWN not to have left the connector.
+
+    Raised by :meth:`EPICSConnector._put` when the channel never connected,
+    when the write's deadline passed before the put was issued, or when an
+    earlier put to the same channel was still waiting for the IOC. The caller
+    reports it as ``FAILED`` — never ``UNCONFIRMED``, which would claim a
+    value was sent.
+    """
+
+
+def _char_array_payload(payload: Any, nelm: int | None) -> list[int]:
+    """What a Channel Access char array is written with: signed bytes.
+
+    A ``str`` is encoded as UTF-8 and NUL-terminated, then cut to the record's
+    ``NELM`` when that is known — what pyepics did for a string put to a char
+    waveform. ``bytes`` and integer sequences are written as they are. Every
+    element must fit a byte (-128..255); unsigned values above 127 go over the
+    wire as their signed equivalent, since DBR_CHAR carries 8 bits either way
+    and pvapy's CA provider only accepts the signed range.
+    """
+    if isinstance(payload, str):
+        data: list[Any] = [*payload.encode("utf-8"), 0]
+        if nelm:
+            data = data[:nelm]
+    elif isinstance(payload, bytes | bytearray):
+        data = list(payload)
+    elif isinstance(payload, list):
+        data = payload
+    else:
+        data = [payload]
+    signed: list[int] = []
+    for element in data:
+        if isinstance(element, float) and element.is_integer():
+            element = int(element)
+        if isinstance(element, bool) or not isinstance(element, int) or not -128 <= element <= 255:
+            raise _UnwritableValue(f"{element!r} does not fit a char array element (-128..255)")
+        signed.append(element - 256 if element > 127 else element)
+    return signed
+
+
+def _typed_payload(value: Any, value_type: Any, pvaccess: Any, nelm: int | None) -> Any:
+    """What to hand ``Channel.put`` so the IOC receives exactly ``value``.
+
+    ``value_type`` is the channel's ``value`` entry from
+    ``Channel.getIntrospectionDict()`` (``None`` when unknown).
+
+    pvapy's scalar put overloads convert a Python number to text with six
+    significant digits before parsing it into the channel's type, so
+    ``put(1.2345678901234567)`` stores 1.23457 and ``put(499654321.5)``
+    stores 499654000. A PvObject is written exactly — but only when its type
+    is the channel's own: a DOUBLE PvObject put to a ``longout`` succeeds and
+    changes nothing. So a number goes out as:
+
+    * floating-point channel — a PvObject of the channel's own type (exact);
+    * integer or enum channel — a Python ``int`` (its text is exact), and a
+      float with a fractional part is refused rather than truncated;
+    * string channel — ``str(number)``, the shortest exact spelling;
+    * char array — see :func:`_char_array_payload`.
+
+    Everything else (text, bools, lists, an unknown type) goes out as before.
+
+    Raises:
+        _UnwritableValue: The value cannot be represented in the channel's type.
+    """
+    payload = _put_value(value)
+    if _is_char_array(value_type):
+        return _char_array_payload(payload, nelm)
+    if isinstance(payload, bool) or not isinstance(payload, int | float):
+        return payload
+    name = _type_name(value_type)
+    if name in _FLOAT_TYPES:
+        return pvaccess.PvObject({"value": value_type}, {"value": float(payload)})
+    if name == "STRING":
+        return str(payload)
+    if name in _INTEGER_TYPES or isinstance(value_type, dict):
+        if isinstance(payload, float):
+            if not payload.is_integer():
+                raise _UnwritableValue(
+                    f"{payload!r} is not a whole number, and the channel holds integers"
+                )
+            return int(payload)
+    return payload
+
+
+def _unsigned_chars(value: Any, value_type: Any) -> Any:
+    """A Channel Access char value as the unsigned bytes pyepics reported.
+
+    DBR_CHAR is ``epicsUInt8`` on the wire; pvapy's CA provider hands it over
+    as a signed BYTE, so ``[200, 65, 255]`` would read as ``[-56, 65, -1]``.
+    pyepics read FTVL CHAR and UCHAR alike as unsigned (``c_ubyte``), and so
+    does this.
+    """
+    dtype = getattr(value, "dtype", None)
+    if dtype is not None and str(dtype) == "int8" and hasattr(value, "view"):
+        return value.view("uint8")
+    if (
+        _type_name(value_type) in _CHAR_TYPES
+        and isinstance(value, int)
+        and not isinstance(value, bool)
+    ):
+        return value & 0xFF
+    return value
+
+
+def _char_array_text(value: Any) -> str | None:
+    """A char array's bytes as text, up to the first NUL; ``None`` if not a char array."""
+    dtype = getattr(value, "dtype", None)
+    if dtype is None or str(dtype) not in ("uint8", "int8") or not hasattr(value, "tobytes"):
+        return None
+    raw = bytes(value.view("uint8").tobytes()) if str(dtype) == "int8" else bytes(value.tobytes())
+    return raw.split(b"\0", 1)[0].decode("utf-8", errors="replace")
 
 
 class _EpicsWorkers:
@@ -593,6 +743,49 @@ class _EpicsWorkers:
 
 
 _workers = _EpicsWorkers(max_workers=min(32, (os.cpu_count() or 1) + 4))
+
+
+def _backstop(timeout: float) -> float:
+    """The outer deadline on an offloaded pvapy call bounded by ``timeout``.
+
+    Each pvapy call a connector makes is bounded by the channel timeout, but
+    one operation may make up to three of them in a row (waiting out another
+    caller's connect, the get, a display get) and may queue for a worker
+    first. This is the backstop that guarantees the loop never awaits a
+    pvapy call forever — not the budget the call is expected to use.
+    """
+    return 3.0 * float(timeout) + 1.0
+
+
+def _retrieve(future: "asyncio.Future[Any]") -> None:
+    """Done-callback that marks a late outcome as seen, so it is never logged."""
+    if not future.cancelled():
+        future.exception()
+
+
+class _ChannelEntry:
+    """One cached pvapy Channel and what the connector learned about it.
+
+    ``connect_lock`` serializes the FIRST use of the channel (and every use
+    while it is disconnected): pvapy does not survive concurrent first use —
+    measured against pvapy 5.6.0, of 14 threads calling ``get`` on one fresh
+    Channel, one returned and the rest never did. Once the channel has
+    answered and is connected, calls go straight through.
+
+    ``value_type`` is the ``value`` entry of the channel's introspection —
+    what a write must be converted to — and ``nelm`` a char array's element
+    count; both are learned on the first write.
+    """
+
+    __slots__ = ("channel", "connect_lock", "nelm", "typed", "used", "value_type")
+
+    def __init__(self, channel: Any) -> None:
+        self.channel = channel
+        self.connect_lock = threading.Lock()
+        self.used = False
+        self.typed = False
+        self.value_type: Any = None
+        self.nelm: int | None = None
 
 
 class _ChannelSubscription:
@@ -684,10 +877,13 @@ class EPICSConnector(ControlSystemConnector):
         self._step_read_timeout = DEFAULT_STEP_READ_TIMEOUT_SECONDS
         self._subscriptions: dict[str, _ChannelSubscription] = {}
         # pvapy Channels, one per (address, provider), reused by every read and
-        # put: a first connect costs ~0.1 s, and one Channel serves concurrent
-        # gets from many threads. Guarded by a lock so two threads reading a
-        # new address at once build one Channel, not two.
-        self._channels: dict[tuple[str, bool], Any] = {}
+        # put: a first connect costs ~0.1 s, and one connected Channel serves
+        # concurrent gets from many threads. Guarded by a lock so two threads
+        # reading a new address at once build one Channel, not two; each
+        # entry's own lock then serializes the channel's first use.
+        self._channels: dict[tuple[str, bool], _ChannelEntry] = {}
+        # The confirming put in flight per CA address, if any; see _put().
+        self._inflight_puts: dict[str, concurrent.futures.Future[Any]] = {}
         # Channel Access display metadata per address; see _ca_display().
         self._ca_displays: dict[str, dict[str, Any]] = {}
         self._channels_lock = threading.Lock()
@@ -939,21 +1135,77 @@ class EPICSConnector(ControlSystemConnector):
         return self._pvaccess
 
     @staticmethod
-    async def _offload(fn: Callable[..., _T], *args: Any) -> _T:
-        """Await ``fn(*args)`` run on a pvapy worker (see :class:`_EpicsWorkers`)."""
-        future: concurrent.futures.Future[_T] = _workers.submit(fn, *args)
-        return await asyncio.wrap_future(future)
+    async def _offload(
+        fn: Callable[..., _T], *args: Any, deadline: float | None = None, what: str = ""
+    ) -> _T:
+        """Await ``fn(*args)`` run on a pvapy worker (see :class:`_EpicsWorkers`).
 
-    def _channel(self, channel_address: str, pva: bool) -> Any:
-        """The cached pvapy Channel for this address and provider (thread-safe)."""
+        With a ``deadline`` (seconds), a call that has not finished by then
+        raises ConnectionError naming ``what``; the worker is left to finish
+        and its late outcome is discarded. Every read-side call passes one
+        (:func:`_backstop`), so no caller awaits pvapy forever.
+        """
+        future: concurrent.futures.Future[_T] = _workers.submit(fn, *args)
+        wrapped = asyncio.wrap_future(future)
+        if deadline is None:
+            return await wrapped
+        try:
+            return await asyncio.wait_for(asyncio.shield(wrapped), deadline)
+        except TimeoutError:
+            if wrapped.done():  # the call's own TimeoutError, not the deadline
+                return wrapped.result()
+            wrapped.add_done_callback(_retrieve)
+            raise ConnectionError(
+                f"{what or 'EPICS call'} did not complete within {deadline:.1f}s"
+            ) from None
+
+    def _entry(self, channel_address: str, pva: bool) -> _ChannelEntry:
+        """The cached channel entry for this address and provider (thread-safe)."""
         pvaccess = self._require_client(channel_address)
         key = (channel_address, pva)
         with self._channels_lock:
-            channel = self._channels.get(key)
-            if channel is None:
+            entry = self._channels.get(key)
+            if entry is None:
                 channel = pvaccess.Channel(channel_address, pvaccess.PVA if pva else pvaccess.CA)
-                self._channels[key] = channel
-        return channel
+                entry = _ChannelEntry(channel)
+                self._channels[key] = entry
+        return entry
+
+    def _channel(self, channel_address: str, pva: bool) -> Any:
+        """The cached pvapy Channel for this address and provider (thread-safe)."""
+        return self._entry(channel_address, pva).channel
+
+    def _use(
+        self, channel_address: str, pva: bool, timeout: float, call: Callable[[Any], _T]
+    ) -> _T:
+        """Run ``call(channel)`` on the cached channel, serializing its first use.
+
+        A channel that has answered before and is connected is used directly.
+        Otherwise the caller takes the entry's connect lock — waiting at most
+        ``timeout`` for another caller's connect to finish — and makes its
+        call under it, so exactly one thread drives a connect at a time (see
+        :class:`_ChannelEntry`). Callers still waiting when the connect
+        succeeds then go straight through.
+
+        Raises:
+            ConnectionError: Another caller's connect outlasted ``timeout``.
+        """
+        entry = self._entry(channel_address, pva)
+        channel = entry.channel
+        if entry.used and channel.isConnected():
+            return call(channel)
+        if not entry.connect_lock.acquire(timeout=max(float(timeout), 0.0)):
+            protocol = "PVA" if pva else "CA"
+            raise ConnectionError(
+                f"Failed to connect to {protocol} channel '{channel_address}' "
+                f"(timeout after {timeout}s): its connect did not complete"
+            )
+        try:
+            result = call(channel)
+            entry.used = True
+            return result
+        finally:
+            entry.connect_lock.release()
 
     def _classify(self, exc: BaseException) -> str | None:
         """:func:`_classify_client_error` against this connector's pvaccess module."""
@@ -974,10 +1226,13 @@ class EPICSConnector(ControlSystemConnector):
         connector-invalidation logic treat an outage the same on both
         transports. Every other failure propagates unchanged.
         """
-        channel = self._channel(channel_address, pva)
-        try:
+
+        def get(channel: Any) -> Any:
             channel.setTimeout(float(timeout))
             return channel.get(request)
+
+        try:
+            return self._use(channel_address, pva, timeout, get)
         except Exception as exc:
             if self._classify(exc) == _UNREACHABLE:
                 protocol = "PVA" if pva else "CA"
@@ -1015,6 +1270,11 @@ class EPICSConnector(ControlSystemConnector):
             self._ca_displays[channel_address] = display
         return display
 
+    def _has_ca_display(self, channel_address: str) -> bool:
+        """True once this channel's display metadata has been fetched and cached."""
+        with self._channels_lock:
+            return channel_address in self._ca_displays
+
     # ------------------------------------------------------------------
     # Reads
     # ------------------------------------------------------------------
@@ -1042,10 +1302,15 @@ class EPICSConnector(ControlSystemConnector):
             ValueError: If a PVA channel serves a compressed NTNDArray
         """
         timeout = timeout or self._timeout
+        what = f"Read of channel '{channel_address}'"
 
         if self._is_pva_channel(channel_address):
-            return await self._offload(self._read_channel_pva, channel_address, timeout)
-        return await self._offload(self._read_channel_ca, channel_address, timeout)
+            reader = self._read_channel_pva
+        else:
+            reader = self._read_channel_ca
+        return await self._offload(
+            reader, channel_address, timeout, deadline=_backstop(timeout), what=what
+        )
 
     def _read_channel_ca(self, channel_address: str, timeout: float) -> ChannelValue:
         """Synchronous Channel Access read (runs on a pvapy worker)."""
@@ -1175,13 +1440,35 @@ class EPICSConnector(ControlSystemConnector):
                 return e
             return None
 
-        validation_error = await self._offload(_validate)
+        # A validation that never answers has not said yes: past its backstop
+        # the write is refused like any other check that could not be made.
+        try:
+            validation_error = await self._offload(
+                _validate,
+                deadline=_backstop(self._step_read_timeout),
+                what=f"Limits validation of '{channel_address}'",
+            )
+        except ConnectionError as e:
+            validation_error = e
         if validation_error is not None:
             return self._validation_refusal(channel_address, value, validation_error)
 
         # Step 3: The put.
         try:
             acknowledged = await self._put(channel_address, value, confirm=confirm, timeout=timeout)
+        except _NothingSent as e:
+            # Known: the value never left the connector. The channel is
+            # unreachable (or still busy), which is a verdict on this row, not
+            # a fault of the connector — a batch goes on to the next write.
+            logger.warning(f"EPICS write not sent: {channel_address}: {e}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=f"Write to '{channel_address}' failed; nothing was sent: {e}",
+            )
+        except _UnwritableValue as e:
+            return self._validation_refusal(channel_address, value, e)
         except Exception as e:
             if self._classify(e) != _ACCESS_DENIED:
                 # Every other put error stays a raised failure: it leaves the
@@ -1244,21 +1531,28 @@ class EPICSConnector(ControlSystemConnector):
         alarm_status, alarm_severity = _readback_alarm_fields(observed)
         metadata = getattr(observed, "metadata", None)
         enum_label = getattr(metadata, "enum_label", None) if metadata is not None else None
+        observed_value = observed.value
+        if isinstance(value, str):
+            # Text written to a char array reads back as its bytes; compare
+            # (and report) it as the text it spells.
+            text = _char_array_text(observed_value)
+            if text is not None:
+                observed_value = text
 
-        if values_match(value, observed.value, enum_label=enum_label):
-            logger.debug(f"EPICS write confirmed: {channel_address} = {observed.value}")
+        if values_match(value, observed_value, enum_label=enum_label):
+            logger.debug(f"EPICS write confirmed: {channel_address} = {observed_value}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.CONFIRMED,
-                observed_value=observed.value,
+                observed_value=observed_value,
                 alarm_status=alarm_status,
                 alarm_severity=alarm_severity,
             )
 
         logger.warning(
             f"EPICS write mismatch on {channel_address}: sent {value}, "
-            f"channel holds {observed.value}"
+            f"channel holds {observed_value}"
         )
         return ChannelWriteResult(
             channel_address=channel_address,
@@ -1267,10 +1561,10 @@ class EPICSConnector(ControlSystemConnector):
             # No error_message: both values are on the result, and the raising
             # path composes "sent X, channel holds Y" from them — a message set
             # here would take that wording's place.
-            observed_value=observed.value,
+            observed_value=observed_value,
             alarm_status=alarm_status,
             alarm_severity=alarm_severity,
-            notes=f"Channel holds {observed.value}, sent {value}",
+            notes=f"Channel holds {observed_value}, sent {value}",
         )
 
     async def _put(
@@ -1278,84 +1572,191 @@ class EPICSConnector(ControlSystemConnector):
     ) -> bool:
         """Put ``value`` over Channel Access; True unless an awaited ack never came.
 
-        A write nobody asked to confirm uses pvapy's plain ``put``, which
-        returns once the value is sent (``Channel.setTimeout`` bounds its
-        connect) and answers True.
+        Both kinds of put run on a pvapy worker under one deadline,
+        ``timeout``, which covers connecting, the put and — for a confirming
+        put — the IOC's put-callback (:data:`_CONFIRMING_PUT_REQUEST`), which
+        pvapy's blocking put waits for with no deadline of its own. Past the
+        deadline the answer is False: the value was sent and nothing
+        acknowledged it, which the caller reports as UNCONFIRMED. The put
+        itself cannot be interrupted (it is a blocking C call) and is left to
+        finish on its worker; see :class:`_EpicsWorkers`.
 
-        A confirming write waits for the IOC's put-callback
-        (:data:`_CONFIRMING_PUT_REQUEST`): the read that follows would otherwise
-        race the record's own processing. pvapy's blocking put has no deadline
-        of its own, so the loop waits at most ``timeout`` for it. Past that,
-        the answer is False — the value was sent and nothing acknowledged it,
-        which the caller reports as UNCONFIRMED. The put itself cannot be
-        interrupted (it is a blocking C call) and is left to finish on its
-        worker, which stays busy until the IOC answers; see
-        :class:`_EpicsWorkers`, whose threads nobody ever joins.
+        "Sent" is only claimed once it is true. The channel is connected, and
+        its type learned (:meth:`_put_target`), BEFORE the put is issued, and
+        "sent" and "abandoned" are decided under one lock, so either the put
+        was issued (and the deadline reports it unacknowledged) or it never
+        will be — and then :class:`_NothingSent` is raised.
 
-        "Sent" is only claimed once it is true. The channel is connected (by a
-        get, bounded by the channel timeout) BEFORE the put is issued, and a
-        deadline that passes while still connecting raises ConnectionError: a
-        value that never left cannot be reported as unacknowledged.
+        One confirming put per channel at a time. pvapy's blocking put holds
+        the GIL while it waits behind another blocking put pending on the same
+        Channel — measured: a retry against a record whose put-callback takes
+        1.5 s froze every Python thread, the event loop included, for 1.3 s,
+        and queued retries against a 30 s record hung the process. So a
+        confirming put to a channel whose previous one is still awaiting the
+        IOC waits for it on the loop, within its own deadline, and never
+        enters pvapy while it does; if the deadline passes first, nothing was
+        sent. A plain put does not wait: pvapy sends it without blocking even
+        behind a pending put-callback.
+
+        Pinned against a real IOC in tests/connectors/test_epics_soft_ioc.py.
+        ``Channel.asyncPut`` was measured as the alternative and rejected:
+        destroying a Channel shortly after an asyncPut completes aborts the
+        process (``epicsEvent::invalidSemaphore``), and destroying one later
+        holds the GIL for ~0.7 s — and channels are dropped on disconnect.
 
         Raises:
-            ConnectionError: The channel did not connect in time.
+            _NothingSent: The value is known not to have been sent.
+            _UnwritableValue: The value does not fit the channel's type.
+            ConnectionError: The channel failed after the value was sent.
             Exception: Any other pvapy failure, unchanged — including the
                 access-security denial, which the caller classifies.
         """
-        payload = _put_value(value)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + float(timeout)
+        if confirm:
+            await self._wait_for_inflight_put(channel_address, deadline, timeout)
 
-        if not confirm:
-
-            def _plain_put() -> None:
-                channel = self._channel(channel_address, False)
-                channel.setTimeout(float(timeout))
-                channel.put(payload)
-
-            await self._offload(self._translating(channel_address, timeout, _plain_put))
-            return True
-
-        # "sent" and "abandoned" are decided under one lock, so a deadline that
-        # passes while the channel is still connecting and a connect that
-        # completes just after it cannot both win: either the put was issued
-        # (and the deadline reports it unacknowledged) or it never will be.
         gate = threading.Lock()
         state = {"sent": False, "abandoned": False}
 
-        def _blocking_put() -> None:
-            channel = self._channel(channel_address, False)
+        def _issue() -> None:
+            entry = self._put_target(channel_address, timeout)
+            payload = self._payload(entry, channel_address, value, timeout)
+            channel = entry.channel
             channel.setTimeout(float(timeout))
-            if not channel.isConnected():
-                channel.get(_VALUE_REQUEST)  # connect, bounded by the channel timeout
             with gate:
                 if state["abandoned"]:
                     return  # the caller already reported that nothing was sent
                 state["sent"] = True
-            channel.put(payload, _CONFIRMING_PUT_REQUEST)
+            if confirm:
+                channel.put(payload, _CONFIRMING_PUT_REQUEST)
+            else:
+                channel.put(payload)
 
-        put_done = asyncio.ensure_future(
-            self._offload(self._translating(channel_address, timeout, _blocking_put))
-        )
+        issued = _workers.submit(self._translating(channel_address, timeout, _issue))
+        if confirm:
+            self._track_inflight_put(channel_address, issued)
+        put_done = asyncio.wrap_future(issued)
         try:
             # shield: a deadline must not cancel the future the worker settles.
-            await asyncio.wait_for(asyncio.shield(put_done), timeout)
+            await asyncio.wait_for(asyncio.shield(put_done), max(deadline - loop.time(), 0.0))
         except TimeoutError:
-            # Retrieve the late outcome so it is never logged as unhandled.
-            put_done.add_done_callback(lambda f: f.cancelled() or f.exception())
+            if put_done.done():  # the put's own TimeoutError, not the deadline
+                put_done.result()
+                return True
+            put_done.add_done_callback(_retrieve)
             with gate:
                 was_sent = state["sent"]
                 state["abandoned"] = not was_sent
             if not was_sent:
-                raise ConnectionError(
-                    f"Failed to connect to CA channel '{channel_address}' "
-                    f"(timeout after {timeout}s); no value was sent"
+                raise _NothingSent(
+                    f"channel '{channel_address}' did not connect within {timeout}s"
                 ) from None
             return False
+        except ConnectionError as exc:
+            if not state["sent"]:
+                raise _NothingSent(str(exc)) from exc
+            raise
         return True
+
+    async def _wait_for_inflight_put(
+        self, channel_address: str, deadline: float, timeout: float
+    ) -> None:
+        """Wait, on the loop, until no confirming put to this channel is in flight.
+
+        Raises:
+            _NothingSent: The earlier put was still pending at ``deadline``.
+        """
+        loop = asyncio.get_running_loop()
+        while True:
+            with self._channels_lock:
+                pending = self._inflight_puts.get(channel_address)
+            if pending is None or pending.done():
+                return
+            waiter = asyncio.wrap_future(pending)
+            try:
+                await asyncio.wait_for(asyncio.shield(waiter), max(deadline - loop.time(), 0.0))
+            except TimeoutError:
+                if waiter.done():  # the earlier put's own failure: it settled
+                    continue
+                waiter.add_done_callback(_retrieve)
+                raise _NothingSent(
+                    f"an earlier write to '{channel_address}' was still waiting for the IOC's "
+                    f"put-callback after {timeout}s"
+                ) from None
+            except Exception:  # the earlier put's failure belongs to its own caller
+                pass
+
+    def _track_inflight_put(
+        self, channel_address: str, issued: "concurrent.futures.Future[Any]"
+    ) -> None:
+        """Record ``issued`` as this channel's confirming put until it settles."""
+        with self._channels_lock:
+            self._inflight_puts[channel_address] = issued
+
+        def _clear(future: "concurrent.futures.Future[Any]") -> None:
+            with self._channels_lock:
+                if self._inflight_puts.get(channel_address) is future:
+                    del self._inflight_puts[channel_address]
+
+        issued.add_done_callback(_clear)
+
+    def _put_target(self, channel_address: str, timeout: float) -> _ChannelEntry:
+        """The connected CA channel entry a put goes to, with its value type known.
+
+        Connecting by introspection costs one round trip on the first write
+        of a channel (and after it disconnects) and none after; the type it
+        returns is what :func:`_typed_payload` converts the value to.
+        """
+        entry = self._entry(channel_address, False)
+        if entry.typed and entry.channel.isConnected():
+            return entry
+
+        def introspect(channel: Any) -> Any:
+            channel.setTimeout(float(timeout))
+            return channel.getIntrospectionDict()
+
+        structure = self._use(channel_address, False, timeout, introspect)
+        entry.value_type = structure.get("value") if isinstance(structure, dict) else None
+        entry.typed = True
+        return entry
+
+    def _payload(
+        self, entry: _ChannelEntry, channel_address: str, value: Any, timeout: float
+    ) -> Any:
+        """``value`` converted for the channel ``entry`` describes (on a pvapy worker)."""
+        nelm = None
+        if isinstance(value, str) and _is_char_array(entry.value_type):
+            if entry.nelm is None:
+                entry.nelm = self._char_array_nelm(channel_address, timeout)
+            nelm = entry.nelm
+        return _typed_payload(value, entry.value_type, self._pvaccess, nelm)
+
+    def _char_array_nelm(self, channel_address: str, timeout: float) -> int | None:
+        """A char array record's ``NELM``, or ``None`` when it cannot be read.
+
+        An over-long put is rejected by the IOC ("Invalid element count
+        requested"), so text is cut to fit before it is sent.
+        """
+        record = channel_address.split(".", 1)[0]
+        try:
+            nelm = self._get(f"{record}.NELM", False, _VALUE_REQUEST, timeout)["value"]
+        except Exception as exc:  # an enrichment: without it the IOC decides
+            logger.debug(f"Could not read NELM of '{record}': {exc}")
+            return None
+        # NELM is a DBF_ULONG, which Channel Access serves as a DOUBLE.
+        if isinstance(nelm, int | float) and not isinstance(nelm, bool) and nelm >= 1:
+            return int(nelm)
+        return None
 
     def _translating(
         self, channel_address: str, timeout: float, call: Callable[[], None]
     ) -> Callable[[], None]:
-        """Wrap a blocking put so an unreachable channel raises ConnectionError."""
+        """Wrap a blocking put so an unreachable channel raises ConnectionError.
+
+        Only pvapy's own "timed out" text is translated; a ConnectionError the
+        connector raised itself (a connect that did not complete) passes as is.
+        """
 
         def run() -> None:
             try:
@@ -1385,7 +1786,13 @@ class EPICSConnector(ControlSystemConnector):
         reported as unconfirmed: what the channel holds is unknown, not
         different.
         """
-        observed = await self._offload(self._read_channel_ca, channel_address, timeout)
+        observed = await self._offload(
+            self._read_channel_ca,
+            channel_address,
+            timeout,
+            deadline=_backstop(timeout),
+            what=f"Confirming read of '{channel_address}'",
+        )
         if observed.value is None:
             raise TimeoutError(f"confirming read of '{channel_address}' timed out after {timeout}s")
         return observed
@@ -1427,7 +1834,28 @@ class EPICSConnector(ControlSystemConnector):
         """
         loop = asyncio.get_running_loop()
         pva = self._is_pva_channel(channel_address)
-        return await self._offload(self._start_monitor, channel_address, callback, loop, pva)
+        started: asyncio.Future[str] = asyncio.wrap_future(
+            _workers.submit(self._start_monitor, channel_address, callback, loop, pva)
+        )
+        deadline = _backstop(self._timeout)
+        try:
+            return await asyncio.wait_for(asyncio.shield(started), deadline)
+        except TimeoutError:
+            if started.done():  # the subscribe's own TimeoutError, not the deadline
+                return started.result()
+
+            # A monitor that starts after its caller gave up would run unowned.
+            def _stop_late(future: "asyncio.Future[str]") -> None:
+                if future.cancelled() or future.exception() is not None:
+                    return
+                late = self._subscriptions.pop(future.result(), None)
+                if late is not None:
+                    _workers.submit(late.close)
+
+            started.add_done_callback(_stop_late)
+            raise ConnectionError(
+                f"Subscribing to '{channel_address}' did not complete within {deadline:.1f}s"
+            ) from None
 
     def _start_monitor(
         self,
@@ -1452,11 +1880,45 @@ class EPICSConnector(ControlSystemConnector):
         pvaccess = self._require_client(channel_address)
         display = {} if pva else self._ca_display(channel_address, self._timeout)
         provider = "pva" if pva else "ca"
+        # A display fetch that failed here is retried — off pvapy's callback
+        # thread, at most one at a time and every _DISPLAY_RETRY_S — until it
+        # succeeds, so a monitor opened while the IOC was slow does not report
+        # empty units for the rest of its life.
+        display_state: dict[str, Any] = {
+            "display": display,
+            "known": pva or self._has_ca_display(channel_address),
+            "fetching": False,
+            "retry_at": 0.0,
+        }
+        state_lock = threading.Lock()
+
+        def refresh_display() -> None:
+            fetched = self._ca_display(channel_address, self._timeout)
+            with state_lock:
+                if self._has_ca_display(channel_address):
+                    display_state["display"] = fetched
+                    display_state["known"] = True
+                display_state["fetching"] = False
+                display_state["retry_at"] = time.monotonic() + _DISPLAY_RETRY_S
+
+        def current_display() -> dict[str, Any]:
+            with state_lock:
+                if (
+                    not display_state["known"]
+                    and not display_state["fetching"]
+                    and time.monotonic() >= display_state["retry_at"]
+                ):
+                    display_state["fetching"] = True
+                    _workers.submit(refresh_display)
+                current: dict[str, Any] = display_state["display"]
+                return current
 
         def monitor_callback(update: Any) -> None:
             """Convert a pvapy monitor update to our format, on pvapy's thread."""
             try:
-                channel_value = _channel_value(channel_address, update, provider, display=display)
+                channel_value = _channel_value(
+                    channel_address, update, provider, display=current_display()
+                )
             except Exception as exc:
                 logger.warning(f"Dropping {provider.upper()} update for '{channel_address}': {exc}")
                 return
@@ -1491,7 +1953,15 @@ class EPICSConnector(ControlSystemConnector):
         if subscription is None:
             return
         # On a pvapy worker like every other pvapy call (see _EpicsWorkers).
-        await self._offload(subscription.close)
+        try:
+            await self._offload(
+                subscription.close,
+                deadline=_backstop(self._timeout),
+                what=f"Unsubscribing '{subscription_id}'",
+            )
+        except ConnectionError as exc:  # the handle is already forgotten
+            logger.warning(str(exc))
+            return
         logger.debug(f"EPICS subscription removed: {subscription_id}")
 
     # ------------------------------------------------------------------
@@ -1528,7 +1998,13 @@ class EPICSConnector(ControlSystemConnector):
         cached after the first read anyway).
         """
         if self._is_pva_channel(channel_address):
-            return await self._offload(self._read_metadata_pva, channel_address, self._timeout)
+            return await self._offload(
+                self._read_metadata_pva,
+                channel_address,
+                self._timeout,
+                deadline=_backstop(self._timeout),
+                what=f"Metadata read of '{channel_address}'",
+            )
 
         channel_value = await self.read_channel(channel_address)
         return channel_value.metadata
@@ -1551,7 +2027,13 @@ class EPICSConnector(ControlSystemConnector):
         timeout = self._timeout
         try:
             if self._is_pva_channel(channel_address):
-                await self._offload(self._read_metadata_pva, channel_address, timeout)
+                await self._offload(
+                    self._read_metadata_pva,
+                    channel_address,
+                    timeout,
+                    deadline=_backstop(timeout),
+                    what=f"Validation of '{channel_address}'",
+                )
             else:
                 await self.read_channel(channel_address, timeout=timeout)
             return True

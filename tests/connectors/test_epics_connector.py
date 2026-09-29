@@ -35,7 +35,6 @@ from tests.connectors._epics_fakes import (
     CA_DISPLAY_REQUEST,
     CA_READ_REQUEST,
     CONFIRMING_PUT_REQUEST,
-    VALUE_REQUEST,
     FakePvaccess,
     FakePvaException,
     ca_connector,
@@ -442,22 +441,19 @@ class TestWriteConfirmation:
     async def test_a_deadline_passing_while_still_connecting_sends_nothing(self):
         """ "Sent" is claimed only once it is true.
 
-        The channel is connected by a get before the put is issued; a deadline
-        that passes during that get is a connection failure, and the put that
-        would have followed it is abandoned — never issued late.
+        The channel is connected (by introspection) before the put is issued; a
+        deadline that passes during that connect is a known non-write —
+        ``failed``, nothing sent — and the put that would have followed it is
+        abandoned, never issued late.
         """
+        connector = _write_connector()
+        connector._pvaccess.introspection_hooks["SR:CH"] = lambda: time.sleep(0.5)
 
-        def slow_connect(request):
-            if request == VALUE_REQUEST:
-                time.sleep(0.5)
-            return None
-
-        connector = _write_connector(get_hook=slow_connect)
-
-        with pytest.raises(ConnectionError, match="no value was sent"):
-            await connector.write_channel("SR:CH", 5.0, confirm=True, timeout=0.15)
+        result = await connector.write_channel("SR:CH", 5.0, confirm=True, timeout=0.15)
         await asyncio.sleep(0.6)  # let the stalled connect finish on its worker
 
+        assert result.outcome is WriteOutcome.FAILED
+        assert "nothing was sent" in result.error_message
         assert connector._pvaccess.calls("put") == []
 
     @pytest.mark.asyncio
@@ -548,7 +544,7 @@ class TestThePut:
         await connector.write_channel("SR:CH", 5.0)
 
         ops = [(entry["op"], entry["request"]) for entry in connector._pvaccess.log]
-        assert ops[:2] == [("get", VALUE_REQUEST), ("put", CONFIRMING_PUT_REQUEST)]
+        assert ops[:2] == [("introspect", None), ("put", CONFIRMING_PUT_REQUEST)]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -705,7 +701,7 @@ class TestSubscribe:
 
         sub_id = await connector.subscribe("SR:CH", lambda value: None)
 
-        read_channel = connector._channels[("SR:CH", False)]
+        read_channel = connector._channels[("SR:CH", False)].channel
         monitor_channel = connector._subscriptions[sub_id].channel
         assert monitor_channel is not read_channel
         assert monitor_channel.monitor_request == CA_READ_REQUEST
@@ -1068,3 +1064,262 @@ class TestConfirmingReadAlarmReporting:
         assert result.alarm_status is None
         assert result.alarm_severity is None
         assert result.observed_value is None
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: exact writes, one confirming put per channel, first-use
+# serialization, FAILED when nothing was sent, char arrays, backstops
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestExactNumericWrites:
+    """pvapy's scalar put keeps six significant digits; a typed PvObject keeps all."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [1.2345678901234567, 499654321.5, 1.0000001])
+    @pytest.mark.parametrize("confirm", [True, False])
+    async def test_a_float_goes_out_as_a_pvobject_of_the_channels_own_type(self, value, confirm):
+        connector = _write_connector(observed=0.0)
+
+        await connector.write_channel("SR:CH", value, confirm=confirm)
+
+        (put,) = connector._pvaccess.calls("put")
+        assert put["pv_type"] == "DOUBLE"
+        assert put["value"] == value  # the full double, not its six-digit text
+        assert connector._pvaccess.served["SR:CH"]["value"] == value
+
+    @pytest.mark.asyncio
+    async def test_a_whole_float_to_an_integer_channel_goes_out_as_an_int(self):
+        connector = _write_connector(fields=record(0))
+
+        result = await connector.write_channel("SR:CH", 123456789.0)
+
+        (put,) = connector._pvaccess.calls("put")
+        assert put["value"] == 123456789
+        assert type(put["value"]) is int
+        assert result.outcome is WriteOutcome.CONFIRMED
+
+    @pytest.mark.asyncio
+    async def test_a_fraction_to_an_integer_channel_is_refused_unsent(self):
+        connector = _write_connector(fields=record(0))
+
+        result = await connector.write_channel("SR:CH", 1.5)
+
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "VALIDATION_ERROR"
+        assert connector._pvaccess.calls("put") == []
+
+    @pytest.mark.asyncio
+    async def test_a_float_to_a_string_channel_is_spelled_exactly(self):
+        connector = _write_connector(fields=record("x"))
+
+        await connector.write_channel("SR:CH", 1.2345678901234567, confirm=False)
+
+        (put,) = connector._pvaccess.calls("put")
+        assert put["value"] == "1.2345678901234567"
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestOneConfirmingPutPerChannel:
+    """A retry never enters pvapy behind a pending put-callback on the same channel."""
+
+    @pytest.mark.asyncio
+    async def test_a_retry_behind_a_pending_put_fails_unsent_within_its_deadline(self):
+        connector = _write_connector(put_hook=lambda _sent, _request: time.sleep(0.8))
+        connector._pvaccess.serve("SR:OTHER", record(2.0))
+
+        first = await connector.write_channel("SR:CH", 5.0, confirm=True, timeout=0.2)
+        start = time.monotonic()
+        retry, other = await asyncio.gather(
+            connector.write_channel("SR:CH", 5.0, confirm=True, timeout=0.2),
+            connector.read_channel("SR:OTHER", timeout=1.0),
+        )
+        elapsed = time.monotonic() - start
+
+        assert first.outcome is WriteOutcome.UNCONFIRMED
+        assert retry.outcome is WriteOutcome.FAILED
+        assert "still waiting" in retry.error_message
+        assert elapsed < 0.4
+        assert other.value == 2.0
+        assert len(connector._pvaccess.calls("put")) == 1  # the retry was never sent
+        await asyncio.sleep(0.8)  # let the first put finish on its worker
+
+    @pytest.mark.asyncio
+    async def test_a_put_after_the_pending_one_settles_goes_through(self):
+        connector = _write_connector(put_hook=lambda _sent, _request: time.sleep(0.3))
+
+        await connector.write_channel("SR:CH", 5.0, confirm=True, timeout=0.1)
+        second = await connector.write_channel("SR:CH", 5.0, confirm=True, timeout=1.0)
+
+        assert second.outcome is not WriteOutcome.FAILED
+        assert len(connector._pvaccess.calls("put")) == 2
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestNothingSentIsFailed:
+    """A channel that never connected is a known non-write: FAILED, and a batch goes on."""
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_channel_is_a_failed_write(self):
+        connector = _write_connector()
+
+        result = await connector.write_channel("SR:NOPE", 5.0, timeout=0.2)
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert "nothing was sent" in result.error_message
+        assert result.refusal_reason is None
+        assert connector._pvaccess.calls("put") == []
+
+    @pytest.mark.asyncio
+    async def test_a_dead_channel_mid_batch_keeps_every_row(self):
+        connector = _write_connector(observed=0.0)
+        connector._pvaccess.serve("SR:LAST", record(0.0))
+
+        results = await connector.write_multiple_channels(
+            [("SR:CH", 5.0), ("SR:NOPE", 1.0), ("SR:LAST", 3.0)], timeout=0.2, confirm=True
+        )
+
+        assert [r.outcome for r in results] == [
+            WriteOutcome.CONFIRMED,
+            WriteOutcome.FAILED,
+            WriteOutcome.CONFIRMED,
+        ]
+        assert connector._pvaccess.served["SR:LAST"]["value"] == 3.0
+
+
+class TestFirstUseIsSerialized:
+    """pvapy hangs or fails when many threads make a fresh Channel's first call at once."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_first_reads_all_succeed(self):
+        connector = _served()
+        pvaccess = connector._pvaccess
+        in_flight = {"n": 0, "max": 0}
+
+        def first_use_is_fragile(_request):
+            (channel,) = pvaccess.channels_for("SR:CH")
+            if channel.connected:
+                return None
+            in_flight["n"] += 1
+            in_flight["max"] = max(in_flight["max"], in_flight["n"])
+            try:
+                if in_flight["n"] > 1:
+                    raise FakePvaException("Channel SR:CH timed out.")
+                time.sleep(0.05)
+                return None
+            finally:
+                in_flight["n"] -= 1
+
+        pvaccess.get_hooks["SR:CH"] = first_use_is_fragile
+
+        results = await asyncio.gather(*[connector.read_channel("SR:CH") for _ in range(14)])
+
+        assert [r.value for r in results] == [1.0] * 14
+        assert in_flight["max"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_monitor_retries_display_metadata_that_first_failed(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey_connectors.control_system.epics_connector._DISPLAY_RETRY_S", 0.0
+        )
+        connector = _served(fields=record(1.0, units="mA"))
+        failures = {"left": 1}
+
+        def display_fails_once(request):
+            if request == CA_DISPLAY_REQUEST and failures["left"]:
+                failures["left"] -= 1
+                raise FakePvaException("Channel SR:CH timed out.")
+            return None
+
+        connector._pvaccess.get_hooks["SR:CH"] = display_fails_once
+        received = []
+
+        await connector.subscribe("SR:CH", received.append)
+        (monitor,) = [c for c in connector._pvaccess.channels_for("SR:CH") if c.monitoring]
+        await asyncio.sleep(0.1)  # the retry the first update scheduled
+        monitor.fire(record(2.0, units="mA"))
+        await asyncio.sleep(0.05)
+
+        assert received[0].metadata.units == ""  # the fetch had failed
+        assert received[-1].metadata.units == "mA"  # ... and was retried
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestCharArrays:
+    """A Channel Access char waveform: text in as bytes, bytes out unsigned."""
+
+    @staticmethod
+    def _char_connector(nelm=16):
+        connector = _write_connector(fields=record(np.array([], dtype=np.int8)))
+        if nelm is not None:
+            connector._pvaccess.serve("SR:CH.NELM", record(float(nelm)))
+        return connector
+
+    @pytest.mark.asyncio
+    async def test_text_is_written_as_nul_terminated_bytes_and_confirmed_as_text(self):
+        connector = self._char_connector()
+        served = connector._pvaccess.served["SR:CH"]
+        connector._pvaccess.put_hooks["SR:CH"] = lambda sent, _request: served.update(
+            value=np.array(sent, dtype=np.int8)
+        )
+
+        result = await connector.write_channel("SR:CH", "hello")
+
+        (put,) = connector._pvaccess.calls("put")
+        assert put["value"] == [*b"hello", 0]
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == "hello"
+
+    @pytest.mark.asyncio
+    async def test_text_is_cut_to_nelm(self):
+        connector = self._char_connector(nelm=4)
+
+        await connector.write_channel("SR:CH", "hello", confirm=False)
+
+        (put,) = connector._pvaccess.calls("put")
+        assert put["value"] == list(b"hell")
+
+    @pytest.mark.asyncio
+    async def test_unsigned_bytes_go_out_signed(self):
+        connector = self._char_connector()
+
+        await connector.write_channel("SR:CH", [200, 65, 255], confirm=False)
+
+        (put,) = connector._pvaccess.calls("put")
+        assert put["value"] == [-56, 65, -1]
+
+    @pytest.mark.asyncio
+    async def test_a_ca_char_array_reads_unsigned(self):
+        connector = _served(fields=record(np.array([-56, 65, -1], dtype=np.int8)))
+
+        value = (await connector.read_channel("SR:CH")).value
+
+        assert value.dtype == np.uint8
+        assert value.tolist() == [200, 65, 255]
+
+    @pytest.mark.asyncio
+    async def test_a_pva_byte_array_stays_as_served(self):
+        address = "SR:CAM1:IMAGE"
+        pvaccess = FakePvaccess()
+        pvaccess.serve(address, record(np.array([-56, 65], dtype=np.int8)))
+        connector = ca_connector(pvaccess, globs=("SR:CAM*:IMAGE",))
+
+        value = (await connector.read_channel(address)).value
+
+        assert value.tolist() == [-56, 65]
+
+
+class TestBackstops:
+    """No offloaded pvapy call is awaited forever."""
+
+    @pytest.mark.asyncio
+    async def test_a_read_that_never_returns_is_a_connection_error(self):
+        connector = _served(timeout=0.1)
+        connector._pvaccess.get_hooks["SR:CH"] = lambda _request: time.sleep(2.0)
+
+        start = time.monotonic()
+        with pytest.raises(ConnectionError, match="did not complete"):
+            await connector.read_channel("SR:CH")
+
+        assert time.monotonic() - start < 1.6  # the 1.3 s backstop, not the 2 s hang

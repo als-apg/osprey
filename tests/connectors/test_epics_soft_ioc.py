@@ -51,6 +51,10 @@ CA_TIMEOUT_S = 5.0
 #: DLY1 of the slow ``seq`` record: how long its put-callback takes to fire.
 SLOW_DELAY_S = 1.5
 SCENARIO_TIMEOUT_S = 60.0
+#: NELM of the char waveforms.
+CHAR_NELM = 16
+#: Values with more than the six significant digits pvapy's scalar put keeps.
+PRECISE_FLOATS = (1.2345678901234567, 499654321.5, 1.0000001, -0.000123456789012345)
 #: How long a scenario's interpreter may take to exit once its connector has
 #: disconnected. pvapy, on macOS, suspends forever any thread that used it and
 #: then exits; the connector's never-exiting daemon workers are what keep that
@@ -78,6 +82,13 @@ def _database(prefix: str) -> str:
         f'record(seq, "{prefix}:SLOW") {{ field(DLY1, "{SLOW_DELAY_S}")'
         f' field(DOL1, "{prefix}:SLOW.VAL") field(LNK1, "{prefix}:SLOWRB PP") }}\n'
         f'record(ao, "{prefix}:SLOWRB") {{ }}\n'
+        f'record(longout, "{prefix}:LONG") {{ }}\n'
+        # Channel Access has no 64-bit integer: an int64out is served as a DOUBLE.
+        f'record(int64out, "{prefix}:I64") {{ }}\n'
+        f'record(stringout, "{prefix}:TEXT") {{ }}\n'
+        f'record(waveform, "{prefix}:DWF") {{ field(FTVL, "DOUBLE") field(NELM, "4") }}\n'
+        f'record(waveform, "{prefix}:CHARS") {{ field(FTVL, "CHAR") field(NELM, "{CHAR_NELM}") }}\n'
+        f'record(waveform, "{prefix}:UCHARS") {{ field(FTVL, "UCHAR") field(NELM, "{CHAR_NELM}") }}\n'
     )
 
 
@@ -310,14 +321,172 @@ async def scenario_unreachable(prefix: str) -> dict[str, Any]:
     try:
         for name, call in (
             ("read", lambda: connector.read_channel(f"{prefix}:NOPE", timeout=1.0)),
-            ("write", lambda: connector.write_channel(f"{prefix}:NOPE", 1.0, timeout=1.0)),
         ):
             try:
                 await call()
                 out[name] = "no error"
             except Exception as exc:
                 out[name] = type(exc).__name__
+        write = await connector.write_channel(f"{prefix}:NOPE", 1.0, timeout=1.0)
+        out["write"] = {"outcome": write.outcome.value, "error_message": write.error_message}
+        batch = await connector.write_multiple_channels(
+            [(f"{prefix}:SP", 2.0), (f"{prefix}:NOPE", 1.0), (f"{prefix}:SP", 3.0)],
+            timeout=1.0,
+            confirm=True,
+        )
+        out["batch"] = [result.outcome.value for result in batch]
         out["valid"] = await connector.validate_channel(f"{prefix}:NOPE")
+    finally:
+        await connector.disconnect()
+    return out
+
+
+async def scenario_precision(prefix: str) -> dict[str, Any]:
+    """Every scalar numeric write reaches the IOC exactly, on both put paths."""
+    connector = await _connector()
+    out: dict[str, Any] = {"floats": []}
+    try:
+        for value in PRECISE_FLOATS:
+            for confirm in (True, False):
+                result = await connector.write_channel(f"{prefix}:SP", value, confirm=confirm)
+                held = (await connector.read_channel(f"{prefix}:SP")).value
+                out["floats"].append(
+                    {
+                        "sent": value,
+                        "confirm": confirm,
+                        "outcome": result.outcome.value,
+                        "held": held,
+                    }
+                )
+        cases = {
+            "long_max": (f"{prefix}:LONG", 2**31 - 1),
+            "long_min": (f"{prefix}:LONG", -(2**31)),
+            "long_from_whole_float": (f"{prefix}:LONG", 123456789.0),
+            "long_fraction": (f"{prefix}:LONG", 1.5),
+            "int64_2_53": (f"{prefix}:I64", 2**53),
+            "int64_big_float": (f"{prefix}:I64", 1234567890123.0),
+            "text_from_float": (f"{prefix}:TEXT", 1.2345678901234567),
+            "enum_index": (f"{prefix}:MODE", 2),
+            "enum_label": (f"{prefix}:MODE", "OFF"),
+            "array": (f"{prefix}:DWF", [1.2345678901234567, 499654321.5]),
+        }
+        for name, (address, value) in cases.items():
+            result = await connector.write_channel(address, value, confirm=True)
+            held = (await connector.read_channel(address)).value
+            out[name] = {
+                "outcome": result.outcome.value,
+                "refusal_reason": result.refusal_reason,
+                "held": held.tolist() if hasattr(held, "tolist") else held,
+            }
+    finally:
+        await connector.disconnect()
+    return out
+
+
+async def scenario_retry(prefix: str) -> dict[str, Any]:
+    """A retry while the first put's callback is still pending stalls nothing."""
+    connector = await _connector()
+    lags: list[float] = []
+
+    async def beat() -> None:
+        loop = asyncio.get_running_loop()
+        while True:
+            before = loop.time()
+            await asyncio.sleep(0.01)
+            lags.append(loop.time() - before - 0.01)
+
+    out: dict[str, Any] = {}
+    try:
+        await connector.read_channel(f"{prefix}:SLOW")
+        await connector.read_channel(f"{prefix}:SP")
+        beating = asyncio.create_task(beat())
+
+        async def timed(name: str, call) -> None:
+            start = time.monotonic()
+            result = await call
+            out[name] = {"elapsed_s": time.monotonic() - start, "result": result}
+
+        def write(value: float, timeout: float):
+            async def run():
+                r = await connector.write_channel(
+                    f"{prefix}:SLOW", value, timeout=timeout, confirm=True
+                )
+                return {"outcome": r.outcome.value, "error_message": r.error_message}
+
+            return run()
+
+        async def read_sp():
+            return (await connector.read_channel(f"{prefix}:SP", timeout=1.0)).value
+
+        await timed("first", write(11.0, 0.5))
+        # The agent retries the UNCONFIRMED write while the IOC still works on it,
+        # and an unrelated read runs meanwhile.
+        await asyncio.gather(
+            timed("retry", write(12.0, 0.5)),
+            timed("retry_again", write(13.0, 0.3)),
+            timed("read", read_sp()),
+        )
+        await asyncio.sleep(SLOW_DELAY_S + 0.5)  # the first put-callback lands
+        await timed("after", write(14.0, CA_TIMEOUT_S))
+        beating.cancel()
+        out["max_loop_lag_s"] = max(lags)
+        out["slow_after"] = (await connector.read_channel(f"{prefix}:SLOW")).value
+    finally:
+        await connector.disconnect()
+    return out
+
+
+async def scenario_concurrent(prefix: str) -> dict[str, Any]:
+    """Many callers racing the first use of fresh channels all get their answer."""
+    connector = await _connector()
+    try:
+        start = time.monotonic()
+        reads = await asyncio.gather(
+            *[connector.read_channel(f"{prefix}:RB") for _ in range(14)], return_exceptions=True
+        )
+        elapsed = time.monotonic() - start
+        # A write racing reads of the same fresh channel, and a monitor racing both.
+        received: list[Any] = []
+        mixed = await asyncio.gather(
+            connector.write_channel(f"{prefix}:LONG", 42, confirm=True),
+            *[connector.read_channel(f"{prefix}:LONG") for _ in range(5)],
+            connector.subscribe(f"{prefix}:TEXT", received.append),
+            *[connector.read_channel(f"{prefix}:TEXT") for _ in range(5)],
+            return_exceptions=True,
+        )
+        return {
+            "reads": [r.value if not isinstance(r, Exception) else repr(r) for r in reads],
+            "elapsed_s": elapsed,
+            "mixed_errors": [repr(r) for r in mixed if isinstance(r, Exception)],
+            "write": mixed[0].outcome.value if not isinstance(mixed[0], Exception) else None,
+        }
+    finally:
+        await connector.disconnect()
+
+
+async def scenario_chars(prefix: str) -> dict[str, Any]:
+    """Char waveforms: text is written as bytes, and bytes read back unsigned."""
+    connector = await _connector()
+    out: dict[str, Any] = {}
+    try:
+        for record_name in ("CHARS", "UCHARS"):
+            address = f"{prefix}:{record_name}"
+            text = await connector.write_channel(address, "hello", confirm=True)
+            held = (await connector.read_channel(address)).value
+            out[f"{record_name}_text"] = {
+                "outcome": text.outcome.value,
+                "observed": text.observed_value,
+                "held": held.tolist(),
+                "dtype": str(held.dtype),
+            }
+            await connector.write_channel(address, [200, 65, 255], confirm=True)
+            held = (await connector.read_channel(address)).value
+            out[f"{record_name}_bytes"] = {"held": held.tolist(), "dtype": str(held.dtype)}
+            long_text = await connector.write_channel(address, "x" * 40, confirm=True)
+            out[f"{record_name}_long"] = {
+                "outcome": long_text.outcome.value,
+                "observed": long_text.observed_value,
+            }
     finally:
         await connector.disconnect()
     return out
@@ -455,9 +624,80 @@ def test_access_security_denial_is_a_control_system_refusal(read_only_ioc, prefi
 
 
 def test_unreachable_channel_is_a_connection_error(ioc, prefix, tmp_path):
+    """A read raises; a write is a FAILED row — nothing was sent — and a batch goes on."""
     seen = _drive(tmp_path, ioc.port, "unreachable", prefix)
 
-    assert seen == {"read": "ConnectionError", "write": "ConnectionError", "valid": False}
+    assert seen["read"] == "ConnectionError"
+    assert seen["write"]["outcome"] == "failed"
+    assert "nothing was sent" in seen["write"]["error_message"]
+    assert seen["batch"] == ["confirmed", "failed", "confirmed"]
+    assert seen["valid"] is False
+
+
+def test_numeric_writes_reach_the_ioc_exactly(ioc, prefix, tmp_path):
+    """No six-significant-digit rounding on either put path, for any numeric record."""
+    seen = _drive(tmp_path, ioc.port, "precision", prefix)
+
+    for case in seen["floats"]:
+        assert case["held"] == case["sent"], case  # exact, not approximately
+        assert case["outcome"] == ("confirmed" if case["confirm"] else "unrequested")
+    assert seen["long_max"] == {"outcome": "confirmed", "refusal_reason": None, "held": 2**31 - 1}
+    assert seen["long_min"]["held"] == -(2**31)
+    assert seen["long_from_whole_float"]["held"] == 123456789
+    # A fraction is not truncated into an integer record: nothing is sent.
+    assert seen["long_fraction"]["outcome"] == "refused"
+    assert seen["long_fraction"]["refusal_reason"] == "VALIDATION_ERROR"
+    assert seen["int64_2_53"]["held"] == 2**53
+    assert seen["int64_big_float"]["held"] == 1234567890123.0
+    assert seen["text_from_float"]["held"] == "1.2345678901234567"
+    assert seen["enum_index"]["held"] == 2
+    assert seen["enum_label"]["held"] == 0
+    assert seen["array"]["held"] == [1.2345678901234567, 499654321.5]
+
+
+def test_a_retry_behind_a_pending_put_callback_stalls_nothing(ioc, prefix, tmp_path):
+    """A second confirming put waits on the loop, within its own deadline, unsent."""
+    seen = _drive(tmp_path, ioc.port, "retry", prefix)
+
+    assert seen["first"]["result"]["outcome"] == "unconfirmed"
+    for name, deadline in (("retry", 0.5), ("retry_again", 0.3)):
+        retry = seen[name]
+        assert retry["result"]["outcome"] == "failed", retry
+        assert "still waiting" in retry["result"]["error_message"]
+        assert retry["elapsed_s"] < deadline + 0.2, retry
+    assert seen["read"]["result"] == pytest.approx(1.5, abs=10)  # it answered ...
+    assert seen["read"]["elapsed_s"] < 0.2  # ... at once
+    assert seen["max_loop_lag_s"] < 0.1
+    # Once the IOC has answered, the channel takes writes again.
+    assert seen["after"]["result"]["outcome"] == "confirmed"
+    assert seen["slow_after"] == 14.0
+
+
+def test_concurrent_first_use_of_a_channel_succeeds(ioc, prefix, tmp_path):
+    seen = _drive(tmp_path, ioc.port, "concurrent", prefix)
+
+    assert seen["reads"] == [7.0] * 14
+    assert seen["elapsed_s"] < CA_TIMEOUT_S
+    assert seen["mixed_errors"] == []
+    assert seen["write"] == "confirmed"
+
+
+def test_char_waveforms_take_text_and_read_unsigned(ioc, prefix, tmp_path):
+    seen = _drive(tmp_path, ioc.port, "chars", prefix)
+
+    hello = [*b"hello", 0]
+    for record_name in ("CHARS", "UCHARS"):
+        text = seen[f"{record_name}_text"]
+        assert text["outcome"] == "confirmed", text
+        assert text["observed"] == "hello"
+        assert text["held"] == hello
+        assert text["dtype"] == "uint8"
+        # pyepics read DBR_CHAR unsigned for FTVL CHAR and UCHAR alike.
+        assert seen[f"{record_name}_bytes"] == {"held": [200, 65, 255], "dtype": "uint8"}
+        # Text longer than NELM is cut to fit; the readback shows what was kept.
+        long_text = seen[f"{record_name}_long"]
+        assert long_text["outcome"] == "mismatch"
+        assert long_text["observed"] == "x" * CHAR_NELM
 
 
 def test_subscribe_delivers_updates_on_the_loop(ioc, prefix, tmp_path):

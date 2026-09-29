@@ -15,13 +15,17 @@ that a call "didn't raise".
 What the fake models, because the connector depends on it:
 
 * **Channels** — ``get(request)``, ``put(value[, request])``, ``setTimeout``,
-  ``isConnected``, and the monitor quartet ``subscribe`` / ``startMonitor`` /
+  ``isConnected``, ``getIntrospectionDict`` (the connector's connect-before-put,
+  spelled with the scalar type names pvapy uses), and the monitor quartet ``subscribe`` / ``startMonitor`` /
   ``stopMonitor`` / ``unsubscribe``. A channel nobody serves raises the exact
   text pvapy raises for it (``"Channel X timed out."``).
 * **pvRequests** — ``field(a,b)`` returns only the top-level fields named, and
   ``field()`` returns them all, so the Channel Access split read (value, alarm
   and timestamp in one get, ``display`` in another) and PVA's field-limited
   metadata get behave as they do against a server.
+* **Typed puts** — ``PvObject(structure, values)`` and the scalar type
+  constants (``DOUBLE``, ``INT``, ...). A put of a PvObject is logged with the
+  plain value it carries under ``value`` and its type under ``pv_type``.
 * **Results** — a :class:`FakePvObject` exposing what the connector calls on a
   pvapy ``PvObject``: ``keys()``, ``obj[name]``, ``getStructureDict()`` and
   ``toDict()``. A union is spelled as pvapy spells it, a ``(value_dict,
@@ -197,6 +201,46 @@ class FakePvObject:
         return {k: v for k, v in self._fields.items() if not isinstance(v, Unconvertible)}
 
 
+_NUMPY_TYPES = {
+    "int8": "BYTE",
+    "uint8": "UBYTE",
+    "int16": "SHORT",
+    "uint16": "USHORT",
+    "int32": "INT",
+    "uint32": "UINT",
+    "int64": "LONG",
+    "uint64": "ULONG",
+    "float32": "FLOAT",
+    "float64": "DOUBLE",
+}
+
+
+def pvapy_type_of(value: Any) -> Any:
+    """What ``getIntrospectionDict`` reports for a served field value.
+
+    Scalars by pvapy's type names, arrays as a one-element list, structures as
+    dicts — an enum's ``value`` is ``{index: INT, choices: [STRING]}``.
+    """
+    if isinstance(value, dict):
+        return {key: pvapy_type_of(item) for key, item in value.items()}
+    dtype = getattr(value, "dtype", None)
+    if dtype is not None and getattr(value, "ndim", 0) >= 1:
+        return [_NUMPY_TYPES.get(str(dtype), "DOUBLE")]
+    if isinstance(value, list | tuple):
+        return [pvapy_type_of(value[0]) if value else "DOUBLE"]
+    if isinstance(value, bool):
+        return "BOOLEAN"
+    if isinstance(value, int):
+        return "INT"
+    if isinstance(value, float):
+        return "DOUBLE"
+    if isinstance(value, str):
+        return "STRING"
+    if dtype is not None:
+        return _NUMPY_TYPES.get(str(dtype), "DOUBLE")
+    return "DOUBLE"
+
+
 _FIELD_LIST = re.compile(r"field\(([^)]*)\)")
 
 
@@ -341,6 +385,21 @@ class FakeChannel:
 
     # -- get / put --------------------------------------------------------
 
+    def getIntrospectionDict(self) -> dict[str, Any]:  # pvapy's spelling
+        """The record's field types, as pvapy names them; connects the channel."""
+        module = self.module
+        module._note("introspect", self, None)
+        hook = module.introspection_hooks.get(self.address)
+        if hook is not None:
+            answer = hook()
+            if answer is not None:
+                self.connected = True
+                return answer
+        if self.address not in module.served and self.address in module.get_hooks:
+            self.connected = True
+            return {"value": "DOUBLE"}
+        return {key: pvapy_type_of(value) for key, value in self._record().items()}
+
     def get(self, request: str = "field(value)") -> FakePvObject:
         module = self.module
         module._note("get", self, request)
@@ -354,7 +413,11 @@ class FakeChannel:
 
     def put(self, value: Any, request: str | None = None) -> None:
         module = self.module
-        module._note("put", self, request, value=value)
+        pv_type = None
+        if isinstance(value, FakePvObject):
+            pv_type = value.getStructureDict().get("value")
+            value = value["value"]
+        module._note("put", self, request, value=value, pv_type=pv_type)
         hook = module.put_hooks.get(self.address)
         if hook is not None:
             hook(value, request)
@@ -418,12 +481,30 @@ class FakePvaccess(types.ModuleType):
     CA = "CA"
     PVA = "PVA"
     PvaException = FakePvaException
+    BOOLEAN = "BOOLEAN"
+    BYTE = "BYTE"
+    UBYTE = "UBYTE"
+    SHORT = "SHORT"
+    USHORT = "USHORT"
+    INT = "INT"
+    UINT = "UINT"
+    LONG = "LONG"
+    ULONG = "ULONG"
+    FLOAT = "FLOAT"
+    DOUBLE = "DOUBLE"
+    STRING = "STRING"
+
+    @staticmethod
+    def PvObject(structure: dict[str, Any], values: dict[str, Any]) -> FakePvObject:
+        """pvapy's ``PvObject(structure, values)``: typed by ``structure``."""
+        return FakePvObject(values, structure=structure)
 
     def __init__(self) -> None:
         super().__init__("pvaccess")
         self.served: dict[str, dict[str, Any]] = {}
         self.get_hooks: dict[str, Callable[[str], Any]] = {}
         self.put_hooks: dict[str, Callable[[Any, str | None], None]] = {}
+        self.introspection_hooks: dict[str, Callable[[], Any]] = {}
         self.monitor_errors: dict[str, BaseException] = {}
         self.channels: list[FakeChannel] = []
         self.log: list[dict[str, Any]] = []
