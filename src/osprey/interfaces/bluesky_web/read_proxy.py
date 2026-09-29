@@ -129,7 +129,9 @@ async def _forward_get(request: Request, path: str) -> JSONResponse:
 
     # multi_items(), not a dict: repeated query keys are preserved exactly as
     # they arrived, which is what "forwarded unchanged" has always meant here.
-    params = [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+    params = httpx.QueryParams(
+        [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+    )
 
     try:
         response = await client.get(f"{bridge_url}{path}", params=params)

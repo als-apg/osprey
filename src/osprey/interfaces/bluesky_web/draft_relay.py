@@ -89,7 +89,9 @@ async def _relay(request: Request, method: str) -> JSONResponse:
 
     # multi_items(), not a dict: repeated query keys are preserved exactly as
     # they arrived. The lane addresses the sidecar and is stripped.
-    params = [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+    params = httpx.QueryParams(
+        [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+    )
 
     try:
         response = await client.request(
