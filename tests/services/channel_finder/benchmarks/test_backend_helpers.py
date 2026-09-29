@@ -1,8 +1,9 @@
 """Unit tests for pure helpers in the benchmark backends.
 
 Covers the provider-free text-extraction helper, the deterministic
-early-return branches of the LiteLLM endpoint resolver, and how the ReAct
-backend arms the shared rate limiter at construction. The provider-driving
+early-return branches of the LiteLLM endpoint resolver, how the ReAct
+backend arms the shared rate limiter at construction, and what the SDK
+backend sends and scores around a stubbed query. The provider-driving
 ``run_query`` paths are the human-babysat benchmark surface and are not
 unit-tested here.
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
@@ -21,6 +23,7 @@ from osprey.services.channel_finder.benchmarks.backends.react_backend import (
     ReactBackend,
     _resolve_litellm_endpoint,
 )
+from osprey.services.channel_finder.benchmarks.sdk import SDKWorkflowResult, ToolTrace
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter, get_rate_limiter
 
 
@@ -180,3 +183,39 @@ class TestGraphIsSdkOnly:
     def test_auto_sends_a_graph_project_to_the_sdk_backend(self, tmp_path: Path):
         backend = create_backend("auto", _graph_project(tmp_path), "anthropic/claude-haiku-4-5")
         assert isinstance(backend, SdkBackend)
+
+
+_RUN_SDK_QUERY = "osprey.services.channel_finder.benchmarks.backends.sdk_backend.run_sdk_query"
+
+
+class TestSdkBackend:
+    """What the SDK backend sends to the query and what it scores from the result."""
+
+    async def test_scores_the_agent_text_not_the_tool_output(self, tmp_path: Path):
+        result = SDKWorkflowResult(
+            text_blocks=["Use SR:A"],
+            tool_traces=[
+                ToolTrace(name="mcp__channel-finder__query", input={}, result="SR:B SR:C"),
+            ],
+        )
+        backend = SdkBackend(tmp_path, "als-apg/claude-haiku-4-5-20251001", 5, 0.2)
+        with patch(_RUN_SDK_QUERY, new=AsyncMock(return_value=result)):
+            output = await backend.run_query("q", "hierarchical")
+
+        assert output.response_text == "use sr:a"
+        assert output.tool_traces[0].result == "SR:B SR:C"
+
+    async def test_sends_the_bare_wire_id_and_its_provider(self, tmp_path: Path):
+        backend = SdkBackend(tmp_path, "als-apg/claude-haiku-4-5-20251001", 5, 0.2)
+        query = AsyncMock(return_value=SDKWorkflowResult())
+        with patch(_RUN_SDK_QUERY, new=query):
+            await backend.run_query("q", "hierarchical")
+
+        query.assert_awaited_once_with(
+            tmp_path,
+            "q",
+            model="claude-haiku-4-5-20251001",
+            provider="als-apg",
+            max_turns=5,
+            max_budget_usd=0.2,
+        )
