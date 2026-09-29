@@ -1,47 +1,29 @@
 """Tests for the panel proxy's outer-prefix rewriting.
 
 Multi-user deployments mount each user's Web Terminal at ``/u/<user>/``. The
-panel proxy's ``_rewrite_content`` and its ``x-forwarded-prefix`` header must
-account for that outer prefix in addition to the existing ``/panel/<id>``
-prefix, so a panel's internal assets/APIs resolve under ``/u/<user>/`` rather
-than escaping to the un-prefixed origin. Empty prefix (no
-``OSPREY_TERMINAL_USER``) must remain byte-identical to pre-refactor behavior.
+panel proxy's body rewrite must account for that outer prefix in addition to
+the ``/panel/<id>`` prefix, so a panel's internal assets/APIs resolve under
+``/u/<user>/`` rather than escaping to the un-prefixed origin; with no
+``OSPREY_TERMINAL_USER`` the rewrite yields bare ``/panel/<id>/...`` paths.
+The forwarded-prefix header is pinned in ``test_proxy.py``.
 The module also covers the prefixes a single panel adds to the fixed list.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
 from osprey.interfaces.web_terminal.routes.proxy import (
     _panel_rewrite_prefixes,
     _path_rewrite_prefix,
     _rewrite_content,
 )
 
-
-def _make_client(workspace_dir, custom_panels):
-    """Create a TestClient with custom panels configured."""
-    enabled = set(UNIVERSAL_PANELS)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled, custom_panels, None),
-        ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield app, c
+from ._proxy_fakes import panel_app
 
 
 @pytest.fixture
@@ -57,7 +39,7 @@ def app_and_client(workspace_dir):
     custom = [
         {"id": "my-dash", "label": "DASH", "url": "http://localhost:9000"},
     ]
-    yield from _make_client(workspace_dir, custom)
+    yield from panel_app(workspace_dir, custom)
 
 
 _PVINFO_PANEL = {
@@ -72,7 +54,7 @@ _PVINFO_PANEL = {
 @pytest.fixture
 def pvinfo_app_and_client(workspace_dir):
     """App + client with one config-defined panel hosted under ``/pvinfo/``."""
-    yield from _make_client(workspace_dir, [dict(_PVINFO_PANEL)])
+    yield from panel_app(workspace_dir, [dict(_PVINFO_PANEL)])
 
 
 #: An SPA's ``index.html`` as served by a backend hosted under ``/pvinfo/``.
@@ -98,7 +80,7 @@ def _proxy_body(app, client, url, body, content_type):
 
     # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
     # and the body asserts on the ones this test is about.
-    async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+    async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
         return httpx.Response(status_code=200, text=body, headers={"content-type": content_type})
 
     app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
@@ -107,74 +89,8 @@ def _proxy_body(app, client, url, body, content_type):
     return resp.text
 
 
-class TestRewriteContentPrefix:
-    """Unit-level: ``_rewrite_content`` honors the outer per-user prefix."""
-
-    def test_prefix_applied_with_outer_prefix(self):
-        body = 'var x = "/static/js/foo.js";'
-        result = _rewrite_content(body, "my-dash", outer_prefix="/u/alice")
-        assert '"/u/alice/panel/my-dash/static/js/foo.js"' in result
-
-    def test_prefix_empty_matches_unprefixed_output(self):
-        """Empty outer prefix ⇒ byte-identical to the pre-refactor output."""
-        body = 'var x = "/static/js/foo.js";'
-        result = _rewrite_content(body, "my-dash", outer_prefix="")
-        assert result == 'var x = "/panel/my-dash/static/js/foo.js";'
-
-    def test_default_outer_prefix_is_empty(self):
-        """Omitting outer_prefix must match explicit empty-string behavior."""
-        body = 'var x = "/static/js/foo.js";'
-        assert _rewrite_content(body, "my-dash") == _rewrite_content(
-            body, "my-dash", outer_prefix=""
-        )
-
-
 class TestProxyPrefixIntegration:
     """End-to-end through the proxy route: outer prefix sourced from OSPREY_TERMINAL_USER."""
-
-    def test_x_forwarded_prefix_with_user(self, app_and_client, monkeypatch):
-        app, client = app_and_client
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-
-        captured_headers = {}
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            captured_headers.update(headers)
-            return httpx.Response(
-                status_code=200,
-                json={"ok": True},
-                headers={"content-type": "application/json"},
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/my-dash/api/status")
-        assert resp.status_code == 200
-        assert captured_headers.get("x-forwarded-prefix") == "/u/alice/panel/my-dash"
-
-    def test_x_forwarded_prefix_empty_user(self, app_and_client, monkeypatch):
-        app, client = app_and_client
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-
-        captured_headers = {}
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            captured_headers.update(headers)
-            return httpx.Response(
-                status_code=200,
-                json={"ok": True},
-                headers={"content-type": "application/json"},
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/my-dash/api/status")
-        assert resp.status_code == 200
-        assert captured_headers.get("x-forwarded-prefix") == "/panel/my-dash"
 
     def test_rewritten_body_carries_outer_prefix(self, app_and_client, monkeypatch):
         app, client = app_and_client
@@ -184,7 +100,7 @@ class TestProxyPrefixIntegration:
 
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
         # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=js_body,
@@ -206,7 +122,7 @@ class TestProxyPrefixIntegration:
 
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
         # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=js_body,
@@ -289,7 +205,7 @@ class TestPanelBundleRewriteCollisions:
         for panel_id, panel_path in (("bluesky", "/bluesky/"), ("events", "/dashboard")):
             for path in bodies:
                 body = path.read_text()
-                if _rewrite_content(body, panel_id) != _rewrite_content(
+                if _rewrite_content(body, panel_id, "") != _rewrite_content(
                     body, panel_id, "", (panel_path,)
                 ):
                     changed.append(f"{panel_id} {panel_path!r}: {path.name}")
@@ -344,7 +260,7 @@ class TestPanelPathIsARewritePrefix:
 
     def test_a_runtime_panel_contributes_no_prefix(self, workspace_dir):
         panel = {k: v for k, v in _PVINFO_PANEL.items() if k != "configDefined"}
-        for app, client in _make_client(workspace_dir, [panel]):
+        for app, client in panel_app(workspace_dir, [panel]):
             assert _panel_rewrite_prefixes(SimpleNamespace(app=app), "pvinfo") == ()
             text = _proxy_body(app, client, "/panel/pvinfo/pvinfo/", _SPA_INDEX, "text/html")
             for ref in _SPA_REFERENCES:
@@ -352,7 +268,7 @@ class TestPanelPathIsARewritePrefix:
 
     def _declared(self, workspace_dir, **extra):
         """A client whose ``pvinfo`` panel carries ``extra`` on top of its path."""
-        return _make_client(workspace_dir, [{**_PVINFO_PANEL, **extra}])
+        return panel_app(workspace_dir, [{**_PVINFO_PANEL, **extra}])
 
     _JS_BODY = 'const base="/pvinfo";fetch("/pvinfo/api/x");'
 
@@ -398,20 +314,8 @@ class TestPanelPathIsARewritePrefix:
         monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
         panel = {k: v for k, v in _PVINFO_PANEL.items() if k != "configDefined"}
         panel["rewritePrefixes"] = ["/pvinfo"]
-        for app, client in _make_client(workspace_dir, [panel]):
+        for app, client in panel_app(workspace_dir, [panel]):
             text = _proxy_body(
                 app, client, "/panel/pvinfo/pvinfo/app.js", self._JS_BODY, "text/javascript"
             )
         assert text == self._JS_BODY
-
-    def test_a_default_path_panel_is_unchanged(self, app_and_client, monkeypatch):
-        app, client = app_and_client
-        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
-        text = _proxy_body(
-            app,
-            client,
-            "/panel/my-dash/static/js/gallery.js",
-            'var x = "/static/js/foo.js";',
-            "application/javascript",
-        )
-        assert text == 'var x = "/panel/my-dash/static/js/foo.js";'
