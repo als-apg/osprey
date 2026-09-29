@@ -6,6 +6,8 @@ contract here and gets first billing.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -48,14 +50,29 @@ class TestFileContentTraversal:
         assert resp.status_code == 403
         assert resp.json()["detail"] == "Path traversal blocked"
 
-    def test_in_workspace_file_is_served(self, client, workspace):
-        (workspace / "notes.md").write_text("# hello")
-        resp = client.get("/api/files/content/notes.md")
+    @pytest.mark.parametrize("rel", ["notes.md", "scripts/analysis.py"])
+    def test_in_workspace_file_is_served(self, client, workspace, rel):
+        target = workspace / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# hello")
+        resp = client.get(f"/api/files/content/{rel}")
         assert resp.status_code == 200
         data = resp.json()
+        assert data["path"] == rel
         assert data["content"] == "# hello"
-        assert data["extension"] == ".md"
+        assert data["extension"] == Path(rel).suffix
         assert data["size"] == len("# hello")
+
+    def test_encoded_dotdot_is_blocked_with_403(self, client, tmp_path):
+        """An encoded ``..`` reaches the route decoded; the file it names exists
+        outside the workspace, so only the containment check stands between the
+        request and its bytes."""
+        (tmp_path / "secret.txt").write_text("top secret")
+
+        resp = client.get("/api/files/content/..%2Fsecret.txt")
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Path traversal blocked"
 
 
 class TestFileContentErrors:
@@ -92,6 +109,7 @@ class TestFileTree:
         resp = client.get("/api/files/tree")
         assert resp.status_code == 200
         tree = resp.json()
+        assert tree["type"] == "directory"
         children = {c["name"]: c for c in tree["children"]}
 
         assert ".hidden" not in children
@@ -110,6 +128,27 @@ class TestFileTree:
         resp = client.get("/api/files/tree?session_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
         assert resp.status_code == 200
         assert resp.json()["children"] == []
+
+    def test_a_valid_session_id_scopes_the_tree(self, client, workspace):
+        session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        session_dir = workspace / "sessions" / session_id
+        session_dir.mkdir(parents=True)
+        (session_dir / "test.txt").write_text("scoped content")
+        (workspace / "base_file.txt").write_text("base content")
+
+        resp = client.get(f"/api/files/tree?session_id={session_id}")
+
+        assert resp.status_code == 200
+        names = [c["name"] for c in resp.json()["children"]]
+        assert names == ["test.txt"]
+
+    def test_a_traversal_shaped_session_id_falls_back_to_the_base(self, client, workspace):
+        (workspace / "base_file.txt").write_text("safe")
+
+        resp = client.get("/api/files/tree?session_id=../../../etc")
+
+        assert resp.status_code == 200
+        assert "base_file.txt" in [c["name"] for c in resp.json()["children"]]
 
     def test_directories_sort_before_files(self, client, workspace):
         (workspace / "zebra_dir").mkdir()
