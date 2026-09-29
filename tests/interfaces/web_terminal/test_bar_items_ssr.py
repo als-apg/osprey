@@ -571,16 +571,6 @@ class TestOptionSpecsMirrorTheJsCatalog:
 class TestAdoptedNodesArePresentOnEveryDeployment:
     """The FR6 invariant, in both fixtures and in both layouts."""
 
-    def test_plain_deployment_renders_its_universal_ids(self, plain_app):
-        body = _body(plain_app[1])
-        for element_id in _UNIVERSAL_IDS:
-            assert _has_id(body, element_id), element_id
-
-    def test_configured_deployment_adds_identity(self, configured_app):
-        body = _body(configured_app[1])
-        for element_id in (*_UNIVERSAL_IDS, *_IDENTITY_IDS):
-            assert _has_id(body, element_id), element_id
-
     @pytest.mark.parametrize("fixture", ["plain_app", "configured_app"])
     def test_a_layout_naming_none_of_them_still_resolves_every_one(self, fixture, request):
         """Nothing is subtracted: what leaves the bars lands in the pool."""
@@ -619,20 +609,22 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
         # shell, never an adopted node.
         assert pool.index('<div class="bar-item"') < pool.index('id="docs-link"')
 
+    @pytest.mark.parametrize("layout", ["default", "doubled"])
     @pytest.mark.parametrize("fixture", ["plain_app", "configured_app"])
-    def test_every_adopted_node_is_rendered_exactly_once(self, fixture, request):
+    def test_every_adopted_node_is_rendered_exactly_once(self, fixture, layout, request):
         """A duplicated id is worse than a missing one — getElementById picks
-        one silently. Asserted under a layout that names every adopted type
-        twice, in both hosts."""
+        one silently. Asserted under the deployment's own layout and under one
+        that names every adopted type twice, in both hosts."""
         app, client = request.getfixturevalue(fixture)
-        doubled = [{"type": item_type} for item_type in ADOPTED_BAR_ITEM_TYPES] * 2
-        app.state.bar_layout = {
-            "version": 1,
-            "rev": 1,
-            "header": doubled,
-            "status": doubled,
-            "status_visible": True,
-        }
+        if layout == "doubled":
+            doubled = [{"type": item_type} for item_type in ADOPTED_BAR_ITEM_TYPES] * 2
+            app.state.bar_layout = {
+                "version": 1,
+                "rev": 1,
+                "header": doubled,
+                "status": doubled,
+                "status_visible": True,
+            }
         body = _body(client)
         expected = list(_UNIVERSAL_IDS)
         if fixture == "configured_app":
@@ -696,9 +688,6 @@ class TestNothingIsAddedThatTheDeploymentWouldNotRender:
 class TestStatusBarStamp:
     """``html[data-status-bar="hidden"]`` — a pre-paint fact, like the theme."""
 
-    def test_absent_while_the_bar_is_shown(self, plain_app):
-        assert "data-status-bar" not in _html_tag(_body(plain_app[1]))
-
     def test_stamped_when_the_layout_hides_the_bar(self, configured_app):
         app, client = configured_app
         app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "status_visible": False}
@@ -710,7 +699,7 @@ class TestStatusBarStamp:
             item["type"] for item in DEFAULT_BAR_LAYOUT["status"]
         ]
 
-    @pytest.mark.parametrize("stored", [False, None, 0, "", "false"])
+    @pytest.mark.parametrize("stored", [True, False, None, 0, "", "false"])
     def test_the_flag_is_coerced_not_identity_compared(self, plain_app, stored):
         """The document is JSON from a store: `null` (a key written but never
         set) and `0` both reach here meaning "not visible" to every other
@@ -726,9 +715,6 @@ class TestStatusBarStamp:
 class TestHeaderBarStamp:
     """``html[data-header-bar="hidden"]`` — the header goes the same way."""
 
-    def test_absent_while_the_bar_is_shown(self, plain_app):
-        assert "data-header-bar" not in _html_tag(_body(plain_app[1]))
-
     def test_stamped_when_the_layout_hides_the_bar(self, configured_app):
         app, client = configured_app
         app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "header_visible": False}
@@ -741,7 +727,7 @@ class TestHeaderBarStamp:
             item["type"] for item in DEFAULT_BAR_LAYOUT["header"]
         ]
 
-    @pytest.mark.parametrize("stored", [False, None, 0, "", "false"])
+    @pytest.mark.parametrize("stored", [True, False, None, 0, "", "false"])
     def test_the_flag_is_coerced_not_identity_compared(self, plain_app, stored):
         app, client = plain_app
         app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "header_visible": stored}
@@ -835,14 +821,6 @@ class TestDeploymentContextIsServerSupplied:
         }
         assert "system-health" in _shell_types(body, "status")
 
-    def test_no_shell_for_an_item_this_deployment_cannot_render(self, plain_app):
-        """An unavailable item is ABSENT, not empty: a single-user deployment
-        paints no ``identity`` shell — an empty box on first paint that the
-        client would only take away again."""
-        app, client = plain_app
-        app.state.bar_layout = _LAYOUT_WITH_IDENTITY
-        assert _shell_types(_body(client), "header") == ["logo"]
-
     def test_the_same_item_renders_once_the_deployment_has_an_identity(self, configured_app):
         app, client = configured_app
         app.state.bar_layout = _LAYOUT_WITH_IDENTITY
@@ -856,6 +834,7 @@ class TestDeploymentContextIsServerSupplied:
         app, client = plain_app
         app.state.bar_layout = _LAYOUT_WITH_IDENTITY
         body = _body(client)
+        assert _shell_types(body, "header") == ["logo"]
         assert 'data-bar-item="identity"' not in body
 
     def test_a_second_copy_of_a_single_node_type_renders_no_shell(self, plain_app):
