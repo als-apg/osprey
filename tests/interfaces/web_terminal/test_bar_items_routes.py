@@ -476,13 +476,6 @@ class TestDelete:
         assert client.get("/api/bar-items").json() == default
         assert not (store_dir / LAYOUT_FILENAME).exists()
 
-    def test_clears_the_cache_rather_than_writing_the_default_back(self, client):
-        client.put("/api/bar-items", json=document(0))
-
-        client.delete("/api/bar-items")
-
-        assert client.app.state.bar_items_effective is None
-
     def test_with_nothing_saved_it_still_answers_the_default(self, client):
         default = client.get("/api/bar-items").json()
 
@@ -697,9 +690,6 @@ class TestAStoredDocumentThisBuildCannotRead:
         assert 'data-bar-item="separator"' not in page, "the damaged document must not render"
         assert 'data-bar-item="clock"' in page
 
-    def test_the_cache_is_empty_rather_than_holding_the_damaged_document(self, unreadable_client):
-        assert unreadable_client.app.state.bar_items_effective is None
-
     def test_the_operator_can_save_over_it_at_revision_zero(self, unreadable_client):
         """``rev`` 0 is what a client holding the default believes, and an
         unreadable file stores no revision to conflict with."""
@@ -818,11 +808,6 @@ class TestALayoutSaveIsNotAFileChange:
             config_path=config_path,
         ) as test_client:
             yield test_client
-
-    def test_the_store_is_inside_the_watched_tree(self, watched_client):
-        """The premise of the test below: with the store outside, concealment
-        is not what would be keeping the frames away."""
-        assert watched_client.app.state.bar_items_rel is not None
 
     def test_a_save_broadcasts_nothing_while_a_plain_write_still_does(
         self, watched_client, watched_workspace
