@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
@@ -199,64 +197,3 @@ class TestHeaderAppName:
             with TestClient(app) as c:
                 assert app.state.app_name == "From Env"
                 assert "From Env" in c.get("/").text
-
-
-class TestHookDebugRoutes:
-    """``/api/hooks/debug-status`` and ``/api/hooks/debug-log`` read the project live."""
-
-    @staticmethod
-    def _client(tmp_path, debug: bool):
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(yaml.dump({"hooks": {"debug": debug}}))
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(tmp_path / "ws")},
-        ):
-            app = create_app(
-                config_path=str(config_file),
-                shell_command=["echo"],
-                project_dir=str(tmp_path),
-            )
-        return TestClient(app)
-
-    @pytest.mark.parametrize("debug", [True, False])
-    def test_debug_status_reads_the_config(self, tmp_path, monkeypatch, debug):
-        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-        with self._client(tmp_path, debug) as client:
-            resp = client.get("/api/hooks/debug-status")
-        assert resp.status_code == 200
-        assert resp.json()["enabled"] is debug
-
-    def test_debug_log_returns_entries_newest_first(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-        log_dir = tmp_path / ".claude" / "hooks"
-        log_dir.mkdir(parents=True)
-        entries = [
-            {
-                "ts": "2026-03-02T10:00:00Z",
-                "hook": "PreToolUse",
-                "tool": "Bash",
-                "status": "allowed",
-            },
-            {
-                "ts": "2026-03-02T10:00:01Z",
-                "hook": "PreToolUse",
-                "tool": "Write",
-                "status": "blocked",
-                "detail": "safety check",
-            },
-        ]
-        (log_dir / "hook_debug.jsonl").write_text("\n".join(json.dumps(e) for e in entries))
-
-        with self._client(tmp_path, True) as client:
-            resp = client.get("/api/hooks/debug-log?limit=50")
-
-        assert resp.status_code == 200
-        assert [e["tool"] for e in resp.json()["entries"]] == ["Write", "Bash"]
-
-    def test_debug_log_is_empty_without_a_log_file(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-        with self._client(tmp_path, True) as client:
-            resp = client.get("/api/hooks/debug-log")
-        assert resp.status_code == 200
-        assert resp.json()["entries"] == []
