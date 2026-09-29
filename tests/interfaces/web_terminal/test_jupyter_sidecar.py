@@ -676,11 +676,13 @@ def test_stop_reports_no_exit_and_fires_no_callback(
 
 
 #: A stand-in sidecar: hands its stderr to a child in its own session, the way a
-#: kernel inherits it, then idles until it is signalled.
+#: kernel inherits it, then idles until it is signalled. The child's pid is
+#: published with a rename, so the file never exists without its content.
 _ORPHAN_SCRIPT = (
-    "import subprocess, sys, time\n"
+    "import os, subprocess, sys, time\n"
     "child = subprocess.Popen(['sleep', '3600'], start_new_session=True)\n"
-    "open(sys.argv[1], 'w').write(str(child.pid))\n"
+    "open(sys.argv[1] + '.tmp', 'w').write(str(child.pid))\n"
+    "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
     "time.sleep(3600)\n"
 )
 
@@ -704,6 +706,7 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         deadline = time.monotonic() + 10
         while not pid_file.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
+        assert pid_file.exists(), "the stand-in never reported its orphan"
         orphan = int(pid_file.read_text())
         assert _alive(orphan)
 
@@ -716,6 +719,10 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         assert time.monotonic() - started < jupyter_sidecar._STOP_GRACE + 5
         assert _alive(orphan), "the orphan is the test's own; stop() must not need it gone"
     finally:
+        # The orphan lives in its own session, so neither the group signal nor
+        # the reap reaches it: it is killed here whichever assertion failed.
+        if orphan is None and pid_file.exists():
+            orphan = int(pid_file.read_text())
         if orphan is not None and _alive(orphan):
             os.kill(orphan, signal.SIGKILL)
         sidecar.stop()
