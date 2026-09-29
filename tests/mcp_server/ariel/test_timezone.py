@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from osprey.mcp_server.ariel.server import parse_date_filters, serialize_entry
+from osprey.services.ariel_search.models import DEFAULT_LISTING_TEXT_CHARS
 
 TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST → stable offset
 
@@ -44,7 +45,7 @@ def test_serialize_entry_renders_timestamp_in_facility_zone():
         "source_system": "elog",
         "raw_text": "hello",
     }
-    out = serialize_entry(entry)
+    out = serialize_entry(entry, text_limit=DEFAULT_LISTING_TEXT_CHARS)
     # UTC midnight rendered in Tokyo (+09:00) → 09:00+09:00 on the same date.
     assert out["timestamp"].endswith("+09:00")
     assert "T09:00:00" in out["timestamp"]
