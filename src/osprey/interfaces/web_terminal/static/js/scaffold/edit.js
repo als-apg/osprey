@@ -20,7 +20,7 @@
  * @module scaffold/edit
  */
 
-import { apiRequest } from './data.js';
+import { apiRequest } from '../api.js';
 
 /**
  * `detailContentEl` grows `_frontMatterFields`/`_bodyTextarea` when the
@@ -130,7 +130,7 @@ export function createScaffoldGalleryEdit(gallery) {
       + 'disk and the framework version takes over again.'
     )) return;
 
-    await unoverrideArtifact(true);
+    await unoverrideArtifact();
   }
 
   /** @returns {Promise<void>} */
@@ -231,18 +231,9 @@ export function createScaffoldGalleryEdit(gallery) {
     }
   }
 
-  /**
-   * @param {boolean} [skipConfirm]
-   * @returns {Promise<void>}
-   */
-  async function unoverrideArtifact(skipConfirm = false) {
+  /** @returns {Promise<void>} */
+  async function unoverrideArtifact() {
     if (!gallery.selectedArtifact) return;
-
-    if (!skipConfirm) {
-      if (!confirm('Reset to the framework default? Your project copy is deleted from disk.')) {
-        return;
-      }
-    }
 
     try {
       await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override?delete_file=true`, {
@@ -301,8 +292,6 @@ export function createScaffoldGalleryEdit(gallery) {
     handleEditFramework,
     discardEdits,
     saveOverride,
-    unoverrideArtifact,
-    reloadAndReopen,
     closeDetail,
   };
 }

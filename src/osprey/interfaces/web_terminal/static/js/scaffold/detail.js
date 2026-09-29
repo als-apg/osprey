@@ -28,7 +28,8 @@
  */
 
 import { escapeHtml } from '/design-system/js/dom.js';
-import { resetFetchCache, apiRequest } from './data.js';
+import { apiRequest } from '../api.js';
+import { resetFetchCache } from './data.js';
 import { createScaffoldGalleryDetailContent } from './detail-content.js';
 import { READ_ONLY_REASON, createReadOnlyBadge } from './utils.js';
 import { scaffoldWritesEnabled, WRITES_DISABLED_REASON } from './write-gate.js';
