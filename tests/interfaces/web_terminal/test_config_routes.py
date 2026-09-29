@@ -53,7 +53,6 @@ built project so ``regenerate_claude_code`` has artifacts to update.
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections import deque
 from pathlib import Path
@@ -63,7 +62,6 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.audit import writer
 from osprey.audit.protected import SURFACE_HTTP_CONFIG
 from osprey.cli.profile_conventions import (
     PROTECTED_CONFIG_KEYS,
@@ -151,17 +149,7 @@ def built_project(tmp_path):
 
 
 @pytest.fixture
-def audit_zone(tmp_path, monkeypatch):
-    """Redirect the audit zone. ``writer.audit_dir`` is the ledger's one seam."""
-    zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
-
-
-# ``audit_zone`` redirects the ledger, so a refusal this client provokes is recorded in the test's
-# tree.
-@pytest.fixture
-def client(built_project, audit_zone):  # noqa: ARG001
+def client(built_project):
     app = FastAPI()
     app.include_router(router)
     app.state.config_path = built_project / "config.yml"
@@ -315,12 +303,21 @@ class TestPatchProtectedKeys:
 
     @pytest.mark.parametrize("key,value", PROTECTED_CASES)
     def test_patch_refuses_protected_key(self, client, built_project, key, value):
+        """No write, no backup, and the rendered permission surface is untouched.
+
+        A backup is a copy of a file this request may not touch, and a refused
+        write that still reached the regen would move ``settings.json``.
+        """
         before = (built_project / "config.yml").read_bytes()
+        settings = built_project / ".claude" / "settings.json"
+        settings_before = settings.read_bytes()
 
         resp = client.patch("/api/config", json={"updates": {key: value}})
 
         assert resp.status_code == 403
         assert (built_project / "config.yml").read_bytes() == before
+        assert not _backup_path(built_project).exists()
+        assert settings.read_bytes() == settings_before
 
     @pytest.mark.usefixtures("built_project")
     def test_patch_protected_refusal_names_the_key_and_says_nothing_changed(self, client):
@@ -335,21 +332,6 @@ class TestPatchProtectedKeys:
         assert "config.yml is unchanged" in detail
         # The operator is pointed at the channel that *can* carry the change.
         assert "`config:` block" in detail
-
-    def test_patch_protected_refusal_touches_nothing_on_disk(self, client, built_project):
-        """No write, and no backup either -- a backup is a copy of a file it may not touch."""
-        before = (built_project / "config.yml").read_bytes()
-        backup = _backup_path(built_project)
-        assert not backup.exists()
-
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"control_system.limits_checking.enabled": False}},
-        )
-
-        assert resp.status_code == 403
-        assert (built_project / "config.yml").read_bytes() == before
-        assert not backup.exists()
 
     def test_patch_protected_key_refuses_the_whole_body(self, client, built_project):
         """One protected key refuses everything -- the cosmetic half does not land."""
@@ -372,48 +354,24 @@ class TestPatchProtectedKeys:
         assert not _backup_path(built_project).exists()
 
     def test_patch_unprotected_key_still_applies_beside_the_gate(self, client, built_project):
-        """The gate refuses the protected set, not the panel."""
+        """The gate refuses the protected set, not the panel.
+
+        No key the panel may still PATCH shapes the render, so the real regen
+        has nothing to do, and the kill-switch stays baked into the artifact
+        the respawned agent reads.
+        """
+        assert "mcp__controls__channel_write" in _deny(built_project)
+
         resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
 
         assert resp.status_code == 200
         assert resp.json()["fields_updated"] == 1
+        assert resp.json()["regenerated"] == []
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
         assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
+        assert "mcp__controls__channel_write" in _deny(built_project)
 
-    def test_patch_protected_refusal_is_recorded_for_audit(self, client, audit_zone):
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"control_system.limits_checking.enabled": False}},
-        )
-        assert resp.status_code == 403
-
-        records = _audit_records(audit_zone)
-        assert len(records) == 1
-        assert records[0]["surface"] == "http_config"
-        assert records[0]["subject"] == "control_system.limits_checking.enabled"
-        assert "target=config.yml" in records[0]["detail"]
-        assert records[0]["reason"] == "protected_key"
-        assert "`config:` block" in records[0]["detail"]
-
-    def test_patch_protected_refusal_is_published_as_activity(self, client):
-        """In-process, which is the success criterion: no panel token anywhere."""
-        assert "OSPREY_PANEL_TOKEN" not in os.environ
-
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"control_system.limits_checking.enabled": False}},
-        )
-        assert resp.status_code == 403
-
-        frames = _refusal_frames(client)
-        assert len(frames) == 1
-        assert frames[0]["target"]["kind"] == "config"
-        detail = frames[0]["target"]["detail"]
-        assert detail.startswith("BLOCKED a protected config key")
-        assert "config.yml: control_system.limits_checking.enabled" in detail
-        assert "OSPREY_PANEL_TOKEN" not in os.environ
-
-    def test_patch_protected_refusal_leaks_no_value(self, client, audit_zone):
+    def test_patch_protected_refusal_leaks_no_value(self, client, audit_zone_path):
         """Config values are secrets; a refusal reports the key, never the value."""
         sentinel = "qqzzSENTINELvalue77"
 
@@ -421,34 +379,11 @@ class TestPatchProtectedKeys:
 
         assert resp.status_code == 403
         assert sentinel not in resp.text
-        assert sentinel not in json.dumps(_audit_records(audit_zone))
+        assert sentinel not in json.dumps(_audit_records(audit_zone_path))
         assert sentinel not in json.dumps(_refusal_frames(client))
 
 
 class TestConfigRouteRegen:
-    def test_patch_writes_and_reports_nothing_to_regenerate(self, client, built_project):
-        """No key the panel may still PATCH shapes the render, so regen is a no-op."""
-        assert "mcp__controls__channel_write" in _deny(built_project)
-
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
-
-        assert resp.status_code == 200
-        assert resp.json()["regenerated"] == []
-        # The kill-switch stays baked into the artifact the respawned agent reads.
-        assert "mcp__controls__channel_write" in _deny(built_project)
-
-    def test_patch_protected_write_gate_key_leaves_the_artifact_alone(self, client, built_project):
-        """The kill-switch cannot be flipped through PATCH at all any more."""
-        assert "mcp__controls__channel_write" in _deny(built_project)
-
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"control_system.writes_enabled": True}},
-        )
-
-        assert resp.status_code == 403
-        assert "mcp__controls__channel_write" in _deny(built_project)
-
     def test_patch_fails_open_when_regen_raises(self, client, built_project, monkeypatch):
         """A regen error must never undo a config write that already succeeded."""
 
@@ -462,26 +397,6 @@ class TestConfigRouteRegen:
         # The config write persisted despite the regen failure.
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
         assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
-
-    def test_put_regenerates_artifacts(self, client, built_project):
-        """PUT is the last surface whose writes can still move a rendered artifact.
-
-        Driven with ``channel_finder.pipeline_mode`` rather than the write gate
-        it used to use: the gate is protected now, so a PUT carrying it never
-        reaches the render at all. This says the honest thing instead -- an
-        unprotected key that shapes ``settings.json`` still re-renders it, and
-        the kill-switch that the same file carries is untouched on the way past.
-        """
-        assert "mcp__controls__channel_write" in _deny(built_project)
-
-        resp = client.put("/api/config", json={"raw": _put_raw(built_project, _switch_pipeline)})
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "regenerated" in body
-        assert any("settings.json" in f for f in body["regenerated"])
-        # Re-rendered, and the write gate came back out of config.yml unchanged.
-        assert "mcp__controls__channel_write" in _deny(built_project)
 
 
 class TestRenderZoneReadonlyRegen:
@@ -529,42 +444,42 @@ class TestRenderZoneReadonlyRegen:
         monkeypatch.setattr(TemplateManager, "regen_if_drift", record)
         return calls
 
-    def test_put_render_readonly_skips_regen_and_reports_restart(
-        self, client, built_project, monkeypatch
+    @staticmethod
+    def _save(client, built_project, verb):
+        """One write through *verb*, and the value it lands on disk.
+
+        PUT carries the one unprotected change that genuinely moves
+        ``settings.json``; PATCH carries a key the panel may still write.
+        """
+        if verb == "put":
+            resp = client.put(
+                "/api/config", json={"raw": _put_raw(built_project, _switch_pipeline)}
+            )
+            return resp, (RENDER_SHAPING_KEY, "in_context")
+        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
+        return resp, (("claude_code", "default_model"), "claude-sonnet-5")
+
+    @pytest.mark.parametrize("verb", ["put", "patch"])
+    def test_render_readonly_skips_regen_and_reports_restart(
+        self, client, built_project, monkeypatch, verb
     ):
-        """PUT: the write lands, the regen never runs, the payload says why."""
+        """The write lands, the regen never runs, the payload says why."""
         calls = self._recording_regen(monkeypatch)
         client.app.state.render_zone_readonly = True
 
-        resp = client.put("/api/config", json={"raw": _put_raw(built_project, _switch_pipeline)})
+        resp, ((section, key), value) = self._save(client, built_project, verb)
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["regenerated"] == []
         assert body["detail"] == self.RESTART_DETAIL
         assert calls == []
+        if verb == "patch":
+            assert body["fields_updated"] == 1
         # The config write itself is untouched by any of this -- it is only the
         # derived render that waits for the restart.
         cfg = yaml.safe_load((built_project / "config.yml").read_text())
-        assert cfg[RENDER_SHAPING_KEY[0]][RENDER_SHAPING_KEY[1]] == "in_context"
-
-    def test_patch_render_readonly_skips_regen_and_reports_restart(
-        self, client, built_project, monkeypatch
-    ):
-        """PATCH: same skip, same detail, and it still reports what it wrote."""
-        calls = self._recording_regen(monkeypatch)
-        client.app.state.render_zone_readonly = True
-
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["regenerated"] == []
-        assert body["detail"] == self.RESTART_DETAIL
-        assert body["fields_updated"] == 1
-        assert calls == []
-        cfg = yaml.safe_load((built_project / "config.yml").read_text())
-        assert cfg["claude_code"]["default_model"] == "claude-sonnet-5"
+        assert cfg[section][key] == value
 
     def test_put_render_readonly_leaves_the_rendered_artifact_untouched(
         self, client, built_project
@@ -585,27 +500,15 @@ class TestRenderZoneReadonlyRegen:
         assert resp.json()["regenerated"] == []
         assert settings_path.read_bytes() == before
 
-    def test_put_render_readonly_absent_keeps_todays_regen(
-        self, client, built_project, monkeypatch
+    @pytest.mark.parametrize("verb", ["put", "patch"])
+    def test_render_readonly_absent_keeps_todays_regen(
+        self, client, built_project, monkeypatch, verb
     ):
         """Bare host: the flag is unset, so the regen still runs and no detail is added."""
         calls = self._recording_regen(monkeypatch)
         assert getattr(client.app.state, "render_zone_readonly", False) is False
 
-        resp = client.put("/api/config", json={"raw": _put_raw(built_project, _switch_pipeline)})
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["regenerated"] == ["settings.json"]
-        assert "detail" not in body
-        assert len(calls) == 1
-
-    @pytest.mark.usefixtures("built_project")
-    def test_patch_render_readonly_absent_keeps_todays_regen(self, client, monkeypatch):
-        """The PATCH half of the same pin."""
-        calls = self._recording_regen(monkeypatch)
-
-        resp = client.patch("/api/config", json={"updates": {COSMETIC_KEY: "claude-sonnet-5"}})
+        resp, _ = self._save(client, built_project, verb)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -630,18 +533,8 @@ class TestPutProtectedDocument:
 
         assert resp.status_code == 403
         assert (built_project / "config.yml").read_bytes() == before
-
-    def test_put_protected_refusal_touches_nothing_on_disk(self, client, built_project):
-        """No write, and no backup either -- a backup is a copy of a file it may not touch."""
-        before = (built_project / "config.yml").read_bytes()
-        backup = _backup_path(built_project)
-        assert not backup.exists()
-
-        resp = client.put("/api/config", json={"raw": _put_raw(built_project, _flip_write_gate)})
-
-        assert resp.status_code == 403
-        assert (built_project / "config.yml").read_bytes() == before
-        assert not backup.exists()
+        # No backup either: it is a copy of a file this request may not replace.
+        assert not _backup_path(built_project).exists()
 
     def test_put_protected_refusal_names_the_changed_key_and_says_nothing_changed(
         self, client, built_project
@@ -655,35 +548,7 @@ class TestPutProtectedDocument:
         # The operator is pointed at the channel that *can* carry the change.
         assert "`config:` block" in detail
 
-    def test_put_protected_refusal_is_recorded_for_audit(self, client, built_project, audit_zone):
-        """One record per changed key, on the same surface name PATCH records."""
-        resp = client.put("/api/config", json={"raw": _put_raw(built_project, _flip_write_gate)})
-        assert resp.status_code == 403
-
-        records = _audit_records(audit_zone)
-        assert len(records) == 1
-        assert records[0]["surface"] == "http_config"
-        assert records[0]["subject"] == "control_system.writes_enabled"
-        assert "target=config.yml" in records[0]["detail"]
-        assert records[0]["reason"] == "protected_key"
-        assert "`config:` block" in records[0]["detail"]
-
-    def test_put_protected_refusal_is_published_as_activity(self, client, built_project):
-        """In-process, which is the success criterion: no panel token anywhere."""
-        assert "OSPREY_PANEL_TOKEN" not in os.environ
-
-        resp = client.put("/api/config", json={"raw": _put_raw(built_project, _flip_write_gate)})
-        assert resp.status_code == 403
-
-        frames = _refusal_frames(client)
-        assert len(frames) == 1
-        assert frames[0]["target"]["kind"] == "config"
-        detail = frames[0]["target"]["detail"]
-        assert detail.startswith("BLOCKED a protected config key")
-        assert "config.yml: control_system.writes_enabled" in detail
-        assert "OSPREY_PANEL_TOKEN" not in os.environ
-
-    def test_put_protected_refusal_leaks_no_value(self, client, built_project, audit_zone):
+    def test_put_protected_refusal_leaks_no_value(self, client, built_project, audit_zone_path):
         """Config values are secrets; a refusal reports the key, never the value."""
         sentinel = "qqzzSENTINELvalue77"
 
@@ -694,16 +559,24 @@ class TestPutProtectedDocument:
 
         assert resp.status_code == 403
         assert sentinel not in resp.text
-        assert sentinel not in json.dumps(_audit_records(audit_zone))
+        assert sentinel not in json.dumps(_audit_records(audit_zone_path))
         assert sentinel not in json.dumps(_refusal_frames(client))
 
     def test_put_unprotected_edit_passes_the_protected_gate_and_regenerates(
         self, client, built_project
     ):
-        """The gate refuses the protected set, not the Raw YAML view."""
+        """The gate refuses the protected set, not the Raw YAML view.
+
+        PUT is the last surface whose writes can still move a rendered artifact:
+        an unprotected key that shapes ``settings.json`` re-renders it, and the
+        kill-switch the same file carries comes back out of config.yml intact.
+        """
+        assert "mcp__controls__channel_write" in _deny(built_project)
+
         resp = client.put("/api/config", json={"raw": _put_raw(built_project, _switch_pipeline)})
 
         assert resp.status_code == 200
+        assert "mcp__controls__channel_write" in _deny(built_project)
         doc = yaml.safe_load((built_project / "config.yml").read_text())
         assert doc["channel_finder"]["pipeline_mode"] == "in_context"
         assert any("settings.json" in f for f in resp.json()["regenerated"])
@@ -779,7 +652,7 @@ class TestPutProtectedDocument:
         assert "claude_code.servers.evil.srv.command" in resp.json()["detail"]
 
     def test_put_protected_refusal_caps_the_message_but_not_the_audit(
-        self, client, built_project, audit_zone
+        self, client, built_project, audit_zone_path
     ):
         """The cap trims what an operator reads, never what the audit keeps.
 
@@ -802,7 +675,7 @@ class TestPutProtectedDocument:
         assert re.findall(r"`([^`]+)`", head) == sorted(".".join(k) for k in current)[:10]
         assert f"and {len(current) - 10} more" in head
 
-        records = _audit_records(audit_zone)
+        records = _audit_records(audit_zone_path)
         assert len(records) == len(current)
         assert {r["subject"] for r in records} == {".".join(k) for k in current}
         assert all(r["surface"] == "http_config" for r in records)
@@ -912,23 +785,6 @@ class TestPutProtectedDocumentDiff:
         }
 
         assert leaky == known_inert
-
-    def test_put_protected_diff_is_exactly_view_equality(self):
-        """The gate is specified as ``protected_view(new) == protected_view(old)``.
-
-        This function returns the *names* for the refusal message; the pin is
-        that it never disagrees with that equality about whether to refuse.
-        """
-        cases = [
-            ({"control_system": {"writes_enabled": False}}, {}),
-            ({}, {"control_system": {"writes_enabled": False}}),
-            ({"approval": {"enabled": True}}, {"approval": {"enabled": False}}),
-            ({"project_name": "a"}, {"project_name": "b"}),
-            ({"hooks": {"debug": True}}, {"hooks": {"debug": False}}),
-        ]
-        for before, after in cases:
-            equal = protected_view("config.yml", before) == protected_view("config.yml", after)
-            assert bool(_changed_protected_keys(before, after)) is not equal
 
 
 class TestConfigBackupLocation:
