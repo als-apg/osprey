@@ -78,6 +78,13 @@ _MANIFEST_PATH = "src/osprey/profiles/config_key_manifest.yml"
 #: bridge's keys, and a section name missing from this tuple turns its keys into
 #: prose the sweep never looks at. The anchored dot keeps ``phoebus_drive`` and
 #: the other underscore spellings out.
+#:
+#: ``audit`` joins because the reference page documents
+#: ``audit.tool_call.enabled`` and ``audit.tool_call.max_inline_bytes``, and
+#: without the entry those literals are prose the sweep never checks.
+#:
+#: ``screen_capture`` earns its place the same way, now that the reference
+#: documents ``screen_capture.output_dir``.
 _SECTIONS = (
     "facility",
     "deployment",
@@ -98,6 +105,8 @@ _SECTIONS = (
     "file_paths",
     "ariel",
     "phoebus",
+    "audit",
+    "screen_capture",
 )
 
 #: An RST inline literal: ``like this``. Content may not span lines or contain
