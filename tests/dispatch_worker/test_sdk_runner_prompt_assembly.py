@@ -1,4 +1,4 @@
-"""Prompt-assembly: routing input-file seam items into the SDK user message.
+"""Prompt-assembly: routing input-file seam items into the agent's user message.
 
 ``run_dispatch`` pops the per-run input-file seam once, inlines ``image/*``
 inputs as base64 image content blocks in the user message, and appends a
@@ -14,8 +14,8 @@ mechanism-only descriptor line for every input file. These tests pin:
   * the hygiene invariant: ``content_b64`` never enters the prompt text or any
     log record (the sdk_runner base64-redacting logging filter).
 
-Hermetic: fake seam data, no real SDK — ``query`` is monkeypatched with a fake
-async generator that drains the streamed prompt to capture the user message.
+Hermetic: fake seam data, no real SDK — ``stream_query`` is monkeypatched with a
+fake async generator that captures the prompt it is handed.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from unittest.mock import MagicMock
+from typing import Any
 
 import pytest
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
+from osprey.agent_runner import ResultEvent, TextEvent
 from osprey.mcp_server.dispatch_worker import sdk_runner
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"solid-red-square-body" * 8
@@ -51,31 +51,38 @@ def _stub_osprey_helpers(monkeypatch):
     )
 
 
-def _result_message(cost_usd: float = 0.1, num_turns: int = 1) -> ResultMessage:
-    rm = MagicMock(spec=ResultMessage)
-    rm.total_cost_usd = cost_usd
-    rm.num_turns = num_turns
-    return rm
+def _result(**overrides: Any) -> ResultEvent:
+    """A successful result record; any field can be overridden."""
+    fields: dict[str, Any] = {
+        "subtype": "success",
+        "is_error": False,
+        "num_turns": 1,
+        "duration_ms": 0,
+        "session_id": "s",
+        "total_cost_usd": 0.1,
+        "usage": None,
+        "result": None,
+        "api_error_status": None,
+    }
+    fields.update(overrides)
+    return ResultEvent(**fields)
 
 
-async def _capture_user_message(monkeypatch, prompt: str, seam: list[dict], run_id: str = "run-1"):
-    """Run run_dispatch with a seam preset; return the streamed user message dict."""
+async def _capture_user_content(monkeypatch, prompt: str, seam: list[dict], run_id: str = "run-1"):
+    """Run run_dispatch with a seam preset; return the user content it sent."""
     from osprey.mcp_server.dispatch_worker import dispatch_api
 
     monkeypatch.setattr(dispatch_api, "_run_input_seam", {run_id: seam})
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        messages = []
-        async for m in prompt:
-            messages.append(m)
-        captured["messages"] = messages
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message()
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["content"] = prompt
+        yield TextEvent(text="ok", parent_tool_use_id=None)
+        yield _result()
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     await sdk_runner.run_dispatch(prompt, ["Read"], event_queue=asyncio.Queue(), run_id=run_id)
-    return captured["messages"][0]
+    return captured["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +216,8 @@ def test_content_block_b64_redacted_from_logs(caplog):
 def test_content_block_b64_absent_from_logs_during_run(monkeypatch, caplog):
     """A full run that inlines an image logs nothing containing the b64 payload."""
     with caplog.at_level(logging.DEBUG, logger=sdk_runner.logger.name):
-        msg = asyncio.run(
-            _capture_user_message(
+        content = asyncio.run(
+            _capture_user_content(
                 monkeypatch,
                 "look",
                 [
@@ -224,7 +231,7 @@ def test_content_block_b64_absent_from_logs_during_run(monkeypatch, caplog):
             )
         )
     # The image reached the message content ...
-    assert msg["message"]["content"][0]["source"]["data"] == PNG_B64
+    assert content[0]["source"]["data"] == PNG_B64
     # ... but never a log record.
     assert PNG_B64 not in caplog.text
 
@@ -235,9 +242,9 @@ def test_content_block_b64_absent_from_logs_during_run(monkeypatch, caplog):
 
 
 def test_prompt_stream_inlines_image_and_appends_descriptor(monkeypatch):
-    """run_dispatch streams one user message with the image block + descriptor."""
-    msg = asyncio.run(
-        _capture_user_message(
+    """run_dispatch sends one user turn with the image block + descriptor."""
+    content = asyncio.run(
+        _capture_user_content(
             monkeypatch,
             "hello",
             [
@@ -256,8 +263,6 @@ def test_prompt_stream_inlines_image_and_appends_descriptor(monkeypatch):
             ],
         )
     )
-    assert msg["type"] == "user"
-    content = msg["message"]["content"]
     assert isinstance(content, list)
     assert content[0]["type"] == "image"
     assert content[0]["source"]["media_type"] == "image/png"
@@ -273,7 +278,7 @@ def test_prompt_stream_pops_seam_once(monkeypatch):
     from osprey.mcp_server.dispatch_worker import dispatch_api
 
     asyncio.run(
-        _capture_user_message(
+        _capture_user_content(
             monkeypatch,
             "hello",
             [{"filename": "p.png", "mime": "image/png", "entry_id": None, "content_b64": PNG_B64}],
@@ -286,12 +291,11 @@ def test_prompt_stream_no_run_id_leaves_content_plain(monkeypatch):
     """A run without a run_id has no seam — content is the untouched prompt."""
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        async for m in prompt:
-            captured.setdefault("messages", []).append(m)
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        yield _result_message()
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["content"] = prompt
+        yield TextEvent(text="ok", parent_tool_use_id=None)
+        yield _result()
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
     asyncio.run(sdk_runner.run_dispatch("plain prompt", ["Read"], event_queue=asyncio.Queue()))
-    assert captured["messages"][0]["message"]["content"] == "plain prompt"
+    assert captured["content"] == "plain prompt"

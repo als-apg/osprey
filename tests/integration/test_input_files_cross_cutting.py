@@ -21,7 +21,7 @@ belong to neither single unit's test module:
    record -> the dispatcher's ``/dispatch/{id}`` poll body as a top-level error
    carrying the same ``error_code``.
 
-Hermetic: FastAPI/Starlette ``TestClient`` and direct calls, fake ``query`` and
+Hermetic: FastAPI/Starlette ``TestClient`` and direct calls, fake ``stream_query`` and
 ``dispatch_to_worker`` stand-ins, tmp-rooted artifact stores — no network, no
 real SDK, no real worker.
 """
@@ -32,13 +32,13 @@ import base64
 import json
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 from pydantic import BaseModel
 from starlette.testclient import TestClient
 
+from osprey.agent_runner import ResultEvent, TextEvent
 from osprey.bridges.core.pipeline import (
     MAX_FILES,
     MAX_TOTAL_BYTES,
@@ -182,28 +182,26 @@ async def test_input_files_content_b64_absent_from_worker_record_and_logs(
     persisted: dict = {}
     monkeypatch.setattr(dispatch_api, "_persist_run", lambda rid, r: persisted.update(r))
 
-    # Fake SDK generator: drain the streamed prompt to capture the user message,
-    # then return a normal completion.
+    # Fake agent runner stream: capture the user content it is handed, then
+    # return a normal completion.
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        messages = []
-        async for m in prompt:
-            messages.append(m)
-        captured["user_message"] = messages[0]
-        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
-        # Spec'd mock passes the isinstance(message, ResultMessage) branch; set the
-        # exact fields run_dispatch reads for a clean (non-error) completion.
-        rm = MagicMock(spec=ResultMessage)
-        rm.num_turns = 1
-        rm.total_cost_usd = None
-        rm.is_error = False
-        rm.subtype = "success"
-        rm.result = "ok"
-        rm.api_error_status = None
-        yield rm
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["user_content"] = prompt
+        yield TextEvent(text="ok", parent_tool_use_id=None)
+        yield ResultEvent(
+            subtype="success",
+            is_error=False,
+            num_turns=1,
+            duration_ms=0,
+            session_id="s",
+            total_cost_usd=None,
+            usage=None,
+            result="ok",
+            api_error_status=None,
+        )
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     req = DispatchRequest(
         prompt="describe this",
@@ -216,7 +214,7 @@ async def test_input_files_content_b64_absent_from_worker_record_and_logs(
         await dispatch_api._run_dispatch_task("run-leak", req)
 
     # The image reached the model — its bytes ride source.data of an image block.
-    content = captured["user_message"]["message"]["content"]
+    content = captured["user_content"]
     assert isinstance(content, list)
     image_block = content[0]
     assert image_block["type"] == "image"
