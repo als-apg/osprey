@@ -2063,12 +2063,12 @@ def _create_lifespan(
         # permission surface is rendered from.
         #
         # Resolved once here and read back as
-        # ``getattr(app.state, "config_panel_enabled", True)``, so an app built
-        # without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. Fails OPEN, deliberately:
-        # the default posture is the panel every single-user deployment has
-        # always had, and an unreadable config must not silently take an
-        # operator's own config editor away.
+        # ``getattr(app.state, "config_panel_enabled", False)``: an app that
+        # skipped this lifespan has made no tier decision, and the routes
+        # refuse it. The config read itself fails OPEN, deliberately: an
+        # absent key is the panel every single-user deployment has always had,
+        # and an unreadable config must not silently take an operator's own
+        # config editor away.
         app.state.config_panel_enabled = resolve_config_flag(
             "web.config_panel.enabled",
             True,
@@ -2086,11 +2086,11 @@ def _create_lifespan(
         # `ui_mode: simple` was: a client-only guard is undone by curl.
         #
         # Resolved once here and read back as
-        # ``getattr(app.state, "scaffold_write_enabled", True)``, so an app
-        # built without this lifespan (the route unit suites) behaves like a
-        # deployment that never mentioned the key. Fails OPEN, deliberately:
-        # the default posture is the gallery every single-user deployment has
-        # always had, and a config-read error must not silently revoke it.
+        # ``getattr(app.state, "scaffold_write_enabled", False)``: an app that
+        # skipped this lifespan has made no tier decision, and the write routes
+        # refuse it. The config read itself fails OPEN, deliberately: an absent
+        # key is the gallery every single-user deployment has always had, and a
+        # config-read error must not silently revoke it.
         app.state.scaffold_write_enabled = resolve_config_flag(
             "web.scaffold_gallery.write_enabled",
             True,
