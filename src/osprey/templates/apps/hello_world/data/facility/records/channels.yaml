@@ -1,0 +1,29 @@
+- id: SR:BEAM:CURRENT
+  unit: mA
+  names:
+  - beam current
+  description: Stored beam current, a measurement
+- id: SR:MAG:CORR:01:CURRENT:SP
+  role: setpoint
+  unit: A
+  names:
+  - corrector 1 current setpoint
+  description: Corrector 1 current setpoint
+- id: SR:MAG:QD:01:CURRENT:SP
+  role: setpoint
+  unit: A
+  names:
+  - defocusing quadrupole current setpoint
+  description: Defocusing quadrupole current setpoint
+- id: SR:MAG:QF:01:CURRENT:RB
+  unit: A
+  names:
+  - focusing quadrupole current readback
+  description: Focusing quadrupole current readback
+- id: SR:MAG:QF:01:CURRENT:SP
+  role: setpoint
+  pair: SR:MAG:QF:01:CURRENT:RB
+  unit: A
+  names:
+  - focusing quadrupole current setpoint
+  description: Focusing quadrupole current setpoint
