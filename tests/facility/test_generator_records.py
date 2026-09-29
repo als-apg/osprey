@@ -33,6 +33,7 @@ DEMO_TTL = CA_DATA / "demo_machine.ttl"
 TIER1_IN_CONTEXT = CA_DATA / "channel_databases/tiers/tier1/in_context.json"
 TIER3_HIERARCHICAL = CA_DATA / "channel_databases/tiers/tier3/hierarchical.json"
 VA_BINDINGS = CA_DATA / "simulation/va_bindings.json"
+MIDDLE_LAYER = CA_DATA / "channel_databases/tiers/tier3/middle_layer.json"
 VOCABULARY = REPO_ROOT / "src/osprey/facility/schema/_generated/vocabulary.json"
 
 _NARAD_PROPERTY = "https://narad.example.org/property/"
@@ -236,6 +237,58 @@ def test_the_first_vocabulary_roles_are_left_as_they_were() -> None:
         assert name in roles
     assert len(roles) == 89 + len(NEW_ROLES)
     assert NEW_ROLES <= set(roles)
+
+
+def test_every_bound_setpoint_pairs_with_its_binding_readback() -> None:
+    channels = records_by_id("channel")
+    bound = [b for b in _json(VA_BINDINGS)["bindings"] if b["readback_address"]]
+    assert len(bound) == 348
+    for binding in bound:
+        assert channels[binding["setpoint_address"]]["pair"] == binding["readback_address"]
+
+
+def test_pairs_name_the_same_device_readback_and_only_setpoints_carry_one() -> None:
+    channels = records_by_id("channel")
+    for address, channel in channels.items():
+        if channel.get("role", "readback") != "setpoint":
+            assert "pair" not in channel, address
+            continue
+        rb = address.removesuffix(":SP") + ":RB"
+        if address.endswith(":SP") and rb in channels:
+            assert channel["pair"] == rb, address
+            assert channels[rb].get("role", "readback") == "readback", address
+            assert channels[rb]["on"] == channel["on"], address
+        else:
+            assert "pair" not in channel, address
+
+
+@cache
+def leaf_units() -> dict[str, str]:
+    """Address -> the middle-layer leaf's HWUnits, for every leaf naming one."""
+    units = {}
+    for machine, machine_node in _json(MIDDLE_LAYER).items():
+        if machine.startswith("_"):
+            continue
+        for family, family_node in machine_node.items():
+            if family.startswith("_"):
+                continue
+            for field, field_node in family_node.items():
+                if field.startswith("_"):
+                    continue
+                for subfield, leaf in field_node.items():
+                    if subfield.startswith("_") or not leaf.get("HWUnits"):
+                        continue
+                    for address in leaf["ChannelNames"]:
+                        units[address] = leaf["HWUnits"]
+    return units
+
+
+def test_every_channel_carries_its_leaf_unit() -> None:
+    channels = records_by_id("channel")
+    units = leaf_units()
+    assert units
+    assert {a: c["unit"] for a, c in channels.items() if "unit" in c} == units
+    assert channels["SR:MAG:QF:01:CURRENT:SP"]["unit"] == "A"
 
 
 def test_every_channel_is_on_its_ttl_device() -> None:

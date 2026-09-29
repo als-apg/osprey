@@ -9,8 +9,9 @@ Every record comes from one of the demo's committed sources:
 * the tier-1 in_context database -- the addresses tagged ``in_context``;
 * the tier-3 hierarchical database -- each channel's value type, and the
   machine, system, family, field and subfield descriptions;
-* the tier-3 middle-layer database -- the machine and family labels, and each
-  device's common name, ``DeviceList`` and ``ElementList`` entries;
+* the tier-3 middle-layer database -- the machine and family labels, each
+  device's common name, ``DeviceList`` and ``ElementList`` entries, and each
+  channel's unit;
 * the virtual accelerator's bindings -- which devices a model wires, so only
   the others carry a hand place;
 * the committed deck -- the sector holding the RF cavity element;
@@ -32,6 +33,12 @@ from functools import cache
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+
+from osprey.channel_roster.records import (
+    ADDRESS_SEPARATOR,
+    READBACK_SUBFIELD,
+    WRITE_SUBFIELD,
+)
 
 
 def _sibling(name: str) -> ModuleType:
@@ -417,6 +424,27 @@ def _column_owners(family_node: dict[str, Any], by_address: dict[str, str], size
     return [str(owner) for owner in owners]
 
 
+def _readback_address(address: str) -> str | None:
+    """The same-device readback address the roster pairs a setpoint address with."""
+    prefix, separator, subfield = address.rpartition(ADDRESS_SEPARATOR)
+    if not separator or subfield != WRITE_SUBFIELD:
+        return None
+    return prefix + separator + READBACK_SUBFIELD
+
+
+def _units() -> dict[str, str]:
+    """Address -> its middle-layer leaf's ``HWUnits``, for every leaf stating one."""
+    units: dict[str, str] = {}
+    for _machine, machine_node in _children(_json(MIDDLE_LAYER)):
+        for _family, family_node in _children(machine_node):
+            for _field, field_node in _children(family_node):
+                for _subfield, leaf in _children(field_node):
+                    if leaf.get("HWUnits"):
+                        for address in leaf["ChannelNames"]:
+                            units[address] = leaf["HWUnits"]
+    return units
+
+
 def _hand_place(device: TtlDevice, setup: dict[str, Any]) -> str:
     """The place an unwired device is authored in."""
     if device.machine != DECK_MACHINE:
@@ -483,16 +511,23 @@ def _channels() -> list[dict[str, Any]]:
     names = fp._in_context_names()
     value_types = fp._value_types()
     in_context = {row["address"] for row in _json(fp.TIER1_IN_CONTEXT)["channels"]}
+    units = _units()
     channels = []
     for device in ttl_devices():
+        readbacks = {b.address for b in device.bindings if b.role == "readback"}
         for binding in device.bindings:
             record: dict[str, Any] = {"id": binding.address}
             if binding.role == "setpoint":
                 record["role"] = "setpoint"
+                pair = _readback_address(binding.address)
+                if pair in readbacks:
+                    record["pair"] = pair
             record["on"] = {"device": device.id}
             role = signal_role(binding.ttl_signal)
             if role is not None:
                 record["signal"] = role
+            if binding.address in units:
+                record["unit"] = units[binding.address]
             if value_types[binding.address] != "float":
                 record["value_type"] = value_types[binding.address]
             record["names"] = list(names[binding.address])
