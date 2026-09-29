@@ -465,7 +465,7 @@ def _pipeline_type(request: Request) -> str:
     instead of quietly serving some other paradigm's data.
     """
     pipeline_type = getattr(request.app.state, "pipeline_type", None)
-    if pipeline_type not in VALID_CHANNEL_FINDER_MODES:
+    if not isinstance(pipeline_type, str) or pipeline_type not in VALID_CHANNEL_FINDER_MODES:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -1440,13 +1440,14 @@ def _get_database(request: Request):
 
 def _get_db_path(request: Request) -> str:
     """Get the database file path for the active pipeline type."""
-    return _get_database(request).db_path
+    db_path: str = _get_database(request).db_path
+    return db_path
 
 
 def _get_facility_name(request: Request) -> str:
     """Get the facility name for the active pipeline type."""
     pt = _pipeline_type(request)
-    facility_names = getattr(request.app.state, "facility_names", {})
+    facility_names: dict[str, str] = getattr(request.app.state, "facility_names", {})
     return facility_names.get(pt, "")
 
 

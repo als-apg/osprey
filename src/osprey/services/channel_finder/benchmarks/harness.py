@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 OLLAMA_OPENAI_BASE = os.environ.get("OLLAMA_OPENAI_BASE", "http://localhost:11434/v1")
 
 
-def _litellm_call_kwargs(model: str) -> dict:
+def _litellm_call_kwargs(model: str) -> dict[str, str]:
     """Resolve LiteLLM routing for the benchmark model string.
 
     Returns a kwargs dict with ``model`` and optionally ``api_base`` /

@@ -70,6 +70,27 @@ def test_context_loads_flat_database(tmp_path, monkeypatch):
     assert len(reg.database.get_all_channels()) == 2
 
 
+def test_context_loads_template_database_by_default(tmp_path, monkeypatch):
+    from osprey.services.channel_finder.databases import template
+
+    monkeypatch.chdir(tmp_path)
+    db_data = [{"channel": "CH1", "address": "PV:CH1", "description": "Channel 1"}]
+    db_file = tmp_path / "test_db.json"
+    db_file.write_text(json.dumps(db_data))
+    config = (
+        _MINIMAL_MODEL_CONFIG
+        + "channel_finder:\n"
+        + "  pipelines:\n"
+        + "    in_context:\n"
+        + "      database:\n"
+        + f'        path: "{db_file}"\n'
+    )
+    (tmp_path / "config.yml").write_text(config)
+    initialize_cf_ic_context()
+    reg = get_cf_ic_context()
+    assert isinstance(reg.database, template.ChannelDatabase)
+
+
 def test_context_facility_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + 'facility:\n  name: "ERF"\n')
