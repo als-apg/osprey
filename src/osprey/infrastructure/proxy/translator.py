@@ -162,7 +162,7 @@ def _convert_messages(
             # The Anthropic API carries the system prompt in the top-level
             # ``system`` field, but some clients put a ``role: system`` entry in
             # the array. Hoist it into an OpenAI system message rather than
-            # dropping it on the floor and silently losing the instruction (#285).
+            # dropping it on the floor and silently losing the instruction.
             text = _system_text(content)
             if text:
                 openai_messages.append({"role": "system", "content": text})
