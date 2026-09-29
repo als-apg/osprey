@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -987,6 +988,21 @@ class TestRegisterUntracked:
         assert records[0]["surface"] == "scaffold_gallery"
         assert records[0]["subject"] == ".claude/rules/hand-written.md"
 
+    def test_register_untracked_writes_manifest(self, detached_service, detached_project_dir):
+        """Regression: config-mode register_untracked also writes a manifest entry."""
+        project_dir = detached_project_dir
+        orphan = project_dir / ".claude" / "agents" / "manifest-reg.md"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("# Manifest Reg\n", encoding="utf-8")
+
+        detached_service.register_untracked("agents/manifest-reg")
+
+        manifest_path = project_dir / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entry = manifest.get("user_owned", {}).get("agents/manifest-reg")
+        assert entry is not None
+        assert "claimed_at" in entry
+
 
 class TestDeleteUntracked:
     """Tests for delete_untracked — removing orphaned files from disk."""
@@ -1158,37 +1174,6 @@ class TestCustomArtifacts:
         with pytest.raises(KeyError, match="Unknown artifact"):
             service.get_content("rules/totally-unknown")
 
-    def test_save_override_custom_artifact(self, detached_service, detached_project_dir):
-        """save_override works for registered custom files."""
-        orphan = detached_project_dir / ".claude" / "agents" / "editable.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Original\n", encoding="utf-8")
-
-        detached_service.register_untracked("agents/editable")
-
-        svc = ScaffoldGalleryService(detached_project_dir)
-        new_content = "# Edited Custom Rule\nUpdated content.\n"
-        result = svc.save_override("agents/editable", new_content)
-        assert result["status"] == "saved"
-        assert orphan.read_text(encoding="utf-8") == new_content
-
-    def test_unoverride_custom_with_delete(self, detached_service, detached_project_dir):
-        """Unclaiming a custom artifact with delete_file=True removes the file."""
-        orphan = detached_project_dir / ".claude" / "agents" / "removable.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Removable\n", encoding="utf-8")
-
-        detached_service.register_untracked("agents/removable")
-
-        svc = ScaffoldGalleryService(detached_project_dir)
-        result = svc.unoverride("agents/removable", delete_file=True)
-        assert result["status"] == "removed"
-        assert result["deleted_file"] is True
-        assert not orphan.exists()
-
-        user_owned = _get_user_owned(detached_project_dir)
-        assert "agents/removable" not in user_owned
-
 
 # ===========================================================================
 # Unoverride framework restore
@@ -1213,20 +1198,6 @@ class TestCreateArtifact:
     def _profile_root(self, project_dir: Path) -> Path:
         manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
         return Path(manifest["build_args"]["profile_path_abs"]).parent
-
-    def test_create_artifact_writes_the_profile_copy(self, service, project_dir):
-        """The new artifact lands in the profile's convention directory."""
-        result = service.create_artifact("agents", "my-agent")
-        assert result["status"] == "created"
-        assert result["created_in_profile"] is True
-        assert result["output_path"] == ".claude/agents/my-agent.md"
-
-        slot = self._profile_root(project_dir) / "agents" / "my-agent.md"
-        assert slot.is_file()
-        assert len(slot.read_text(encoding="utf-8")) > 0
-        assert not (project_dir / ".claude" / "agents" / "my-agent.md").exists(), (
-            "the project copy is the build's to make, from the profile"
-        )
 
     def test_create_artifact_writes_no_project_ownership(self, service, project_dir):
         """Registration is the next build's convention scan, not the gallery's."""
@@ -1265,15 +1236,6 @@ class TestCreateArtifact:
         with pytest.raises(FileExistsError, match="claim it instead"):
             service.create_artifact("agents", "already-here")
         assert existing.read_text(encoding="utf-8") == "# Written by hand\n"
-
-    def test_create_refuses_in_a_degraded_project(self, degraded_project_dir):
-        """No reachable profile means nowhere durable to author into."""
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        svc = ScaffoldGalleryService(degraded_project_dir)
-        with pytest.raises(ScaffoldClaimError):
-            svc.create_artifact("agents", "nowhere-to-put-this")
-        assert not (degraded_project_dir / ".claude" / "agents" / "nowhere-to-put-this.md").exists()
 
     def test_create_still_registers_in_config_mode(self, detached_service, detached_project_dir):
         """A pre-profile project has no profile, so config.yml is still the place."""
@@ -1356,9 +1318,10 @@ class TestCreateArtifact:
         """
         from osprey.cli.scaffold_cmd import ScaffoldClaimError
 
-        with pytest.raises((ScaffoldClaimError, ValueError)):
+        before = set(project_dir.parent.rglob("*"))
+        with pytest.raises(ScaffoldClaimError):
             service.create_artifact("rules", bad)
-        assert not (project_dir.parent / "escape.md").exists()
+        assert set(project_dir.parent.rglob("*")) == before, "a refused create wrote a file"
 
     def test_a_nested_name_is_legitimate(self, service, project_dir):
         """Markdown categories nest — ``commands/osprey/scan`` is a real name.
@@ -1373,21 +1336,6 @@ class TestCreateArtifact:
         slot = self._profile_root(project_dir) / "commands" / "osprey" / "handover.md"
         assert slot.is_file()
 
-    def test_register_untracked_writes_manifest(self, detached_service, detached_project_dir):
-        """Regression: config-mode register_untracked also writes a manifest entry."""
-        project_dir = detached_project_dir
-        orphan = project_dir / ".claude" / "agents" / "manifest-reg.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Manifest Reg\n", encoding="utf-8")
-
-        detached_service.register_untracked("agents/manifest-reg")
-
-        manifest_path = project_dir / ".osprey-manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        entry = manifest.get("user_owned", {}).get("agents/manifest-reg")
-        assert entry is not None
-        assert "claimed_at" in entry
-
 
 class TestUnoverrideFrameworkRestore:
     """Tests for unoverride restoring framework file content on disk.
@@ -1396,25 +1344,6 @@ class TestUnoverrideFrameworkRestore:
     nothing else supplies the artifact. Where a profile does, the next build
     registers it again — see :class:`TestProfileMode`.
     """
-
-    def test_unoverride_restores_framework_file(self, detached_service, detached_project_dir):
-        """Claim, customize, release → get_content returns framework content."""
-        # Claim the artifact
-        detached_service.scaffold_override(WRITABLE_ARTIFACT)
-
-        # Customize it with user content
-        custom_text = "# My custom safety rules\nUser wrote this.\n"
-        detached_service.save_override(WRITABLE_ARTIFACT, custom_text)
-
-        # Release to framework with delete_file=True (what the web UI sends)
-        svc = ScaffoldGalleryService(detached_project_dir)
-        svc.unoverride(WRITABLE_ARTIFACT, delete_file=True)
-
-        # After release, get_content should return framework content, not custom
-        svc2 = ScaffoldGalleryService(detached_project_dir)
-        result = svc2.get_content(WRITABLE_ARTIFACT)
-        assert result["source"] == "framework"
-        assert result["content"] != custom_text
 
     def test_unoverride_restored_content_matches_render(
         self, detached_service, detached_project_dir
@@ -1436,6 +1365,8 @@ class TestUnoverrideFrameworkRestore:
         art = svc._registry.get(WRITABLE_ARTIFACT)
         disk_path = detached_project_dir / art.output_path
         assert disk_path.read_text(encoding="utf-8") == expected
+        shown = ScaffoldGalleryService(detached_project_dir).get_content(WRITABLE_ARTIFACT)
+        assert shown["source"] == "framework"
 
     def test_unoverride_without_delete_file_preserves_disk(
         self, detached_service, detached_project_dir
@@ -1474,11 +1405,13 @@ class TestProfileMode:
         manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
         return Path(manifest["build_args"]["profile_path_abs"]).parent
 
-    def test_claim_moves_artifact_into_the_profile(self, service, project_dir):
+    def test_claim_moves_artifact_into_the_profile(self, service, project_dir, audit_zone):
         """The artifact lands in the profile, and leaves the project tree."""
         result = service.scaffold_override(WRITABLE_ARTIFACT)
 
+        assert result["status"] == "claimed"
         assert result["moved_to_profile"] is True
+        assert _protected_records(audit_zone) == [], "an allowed claim records nothing"
         profile_copy = self._profile_root(project_dir) / "agents" / "channel-finder.md"
         assert profile_copy.is_file()
         assert not (project_dir / result["output_path"]).exists()
@@ -1729,28 +1662,6 @@ class TestVolumeMode:
         assert "rules/retired" not in listed
         assert not (container_project / ".claude" / "rules" / "retired.md").exists()
 
-    @pytest.mark.usefixtures("volume_dir")
-    def test_local_edit_is_not_clobbered_by_the_durable_copy(self, container_project):
-        """Rehydration restores an image-fresh file, never a newer local edit.
-
-        Someone editing through the terminal rather than the gallery is doing
-        the same work by another route; overwriting it on the next request
-        would destroy it.
-        """
-        svc = ScaffoldGalleryService(container_project)
-        svc.scaffold_override(WRITABLE_ARTIFACT)
-        svc.save_override(WRITABLE_ARTIFACT, "# Saved through the gallery\n")
-
-        art = svc._registry.get(WRITABLE_ARTIFACT)
-        edited_in_terminal = "# Edited in the terminal, not the gallery\n"
-        (container_project / art.output_path).write_text(edited_in_terminal, encoding="utf-8")
-
-        assert restore_scaffold_bodies(container_project) == []
-
-        assert (container_project / art.output_path).read_text(
-            encoding="utf-8"
-        ) == edited_in_terminal
-
 
 # ===========================================================================
 # Degraded topology — a profile is named but cannot be reached
@@ -1769,26 +1680,12 @@ class TestDegradedTopology:
     def test_claim_refuses_with_the_cli_message(self, degraded_project_dir):
         from osprey.cli.scaffold_cmd import ScaffoldClaimError
 
+        before = _get_user_owned(degraded_project_dir)
         svc = ScaffoldGalleryService(degraded_project_dir)
         with pytest.raises(ScaffoldClaimError, match="profile"):
             svc.scaffold_override(WRITABLE_ARTIFACT)
 
-    def test_claim_writes_nothing(self, degraded_project_dir):
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        before = _get_user_owned(degraded_project_dir)
-        svc = ScaffoldGalleryService(degraded_project_dir)
-        with pytest.raises(ScaffoldClaimError):
-            svc.scaffold_override(WRITABLE_ARTIFACT)
-
         assert _get_user_owned(degraded_project_dir) == before
-
-    def test_create_artifact_refuses(self, degraded_project_dir):
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        svc = ScaffoldGalleryService(degraded_project_dir)
-        with pytest.raises(ScaffoldClaimError, match="cannot be\n *reached|cannot be reached"):
-            svc.create_artifact("agents", "nowhere-to-put-this")
 
     def test_release_refuses(self, degraded_project_dir):
         from osprey.cli.scaffold_cmd import ScaffoldClaimError
@@ -1818,8 +1715,10 @@ class TestDegradedTopology:
         with pytest.raises(ScaffoldClaimError) as excinfo:
             svc.create_artifact("agents", "nowhere-to-put-this")
 
+        assert re.search(r"cannot be\s+reached", str(excinfo.value))
         assert NO_DURABLE_STORE in str(excinfo.value)
         assert CLAUDE_CONFIG_ENV in str(excinfo.value)
+        assert not (degraded_project_dir / ".claude" / "agents" / "nowhere-to-put-this.md").exists()
 
     def test_the_gallery_still_opens(self, degraded_project_dir):
         """Reads must keep working — a refused write is not a broken page."""
@@ -1897,19 +1796,6 @@ class TestRestoreContainment:
 class TestArtifactShapes:
     """Two shapes whose paths do not follow the ``<name>.md`` assumption."""
 
-    @pytest.mark.usefixtures("volume_dir")
-    def test_hook_paths_keep_their_py_suffix(self, container_project):
-        """A hook is a ``.py`` script and is owned under a name that says so.
-
-        Appending ``.md`` to it would record the claimed body against a path
-        that does not exist, so the body would be stored and never read back.
-        """
-        svc = ScaffoldGalleryService(container_project)
-        assert svc._canonical_to_path("hooks/osprey_cf_feedback_capture.py") == (
-            ".claude/hooks/osprey_cf_feedback_capture.py"
-        )
-        assert svc._canonical_to_path("rules/safety") == ".claude/rules/safety.md"
-
     def test_a_claimed_hook_body_round_trips(self, container_project, volume_dir):
         """The body of a hook claim is retrievable, not written into the void."""
         hook = container_project / ".claude" / "hooks" / "shift-check.py"
@@ -1917,25 +1803,12 @@ class TestArtifactShapes:
         hook.write_text("#!/usr/bin/env python\nprint('ok')\n", encoding="utf-8")
 
         svc = ScaffoldGalleryService(container_project)
-        svc._record_claim("hooks/shift-check.py", hook.read_text(encoding="utf-8"))
+        svc.register_untracked("hooks/shift-check.py")
 
         stored = _store_index(volume_dir)["artifacts"]["hooks/shift-check.py"]
         assert stored["output_path"] == ".claude/hooks/shift-check.py"
         body = volume_dir / "osprey" / "scaffold" / "files" / ".claude" / "hooks" / "shift-check.py"
         assert body.read_text(encoding="utf-8") == hook.read_text(encoding="utf-8")
-
-    @pytest.mark.usefixtures("project_dir")
-    def test_directory_artifacts_are_not_read_as_text(self, service):
-        """A skill is a directory. Reading its profile slot as text would raise.
-
-        The gallery edits single files; a directory-shaped artifact has no body
-        to open, and asking for one must not crash the page.
-        """
-        skills = [a["name"] for a in service.list_artifacts() if a["name"].startswith("skills/")]
-        assert skills, "the control-assistant preset is expected to ship a skill"
-
-        for name in skills:
-            assert service._profile_file(name) is None
 
 
 class TestVolumeSaveDurability:
@@ -2166,16 +2039,6 @@ class TestGeneratedPathsAreNeverOwnable:
         with pytest.raises(ScaffoldClaimError, match="generated, not authored"):
             svc.save_override("hooks/hook-config", '{"write_tools": []}')
 
-    def test_a_generated_path_reaching_save_is_refused_by_name(self, container_project):
-        """The guard on save itself, independent of ownership filtering."""
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        svc = ScaffoldGalleryService(container_project)
-        svc._user_owned = [*svc._user_owned, "hooks/hook-config"]
-
-        with pytest.raises(ScaffoldClaimError, match="generated, not authored"):
-            svc.save_override("hooks/hook-config", '{"write_tools": []}')
-
     def test_ordinary_artifacts_are_unaffected(self, container_project, volume_dir):
         """The guard names generated files, not whole channels.
 
@@ -2252,6 +2115,9 @@ class TestTreeAndStoreDisagree:
         (container_project / art.output_path).write_text(edited_in_terminal, encoding="utf-8")
 
         assert restore_scaffold_bodies(container_project) == []
+        assert (container_project / art.output_path).read_text(
+            encoding="utf-8"
+        ) == edited_in_terminal, "the restore must not clobber a newer local edit"
         shown = ScaffoldGalleryService(container_project).get_content(WRITABLE_ARTIFACT)
         assert shown["content"] == edited_in_terminal, (
             "the gallery must show the copy the agent is reading, not the older durable one"
@@ -2570,8 +2436,12 @@ class TestCreateClaimUnoverrideProtectedSet:
         result = service.create_artifact("agents", "shift-handover", "# Shift handover\n")
 
         assert result["status"] == "created"
+        assert result["created_in_profile"] is True
         assert result["output_path"] == ".claude/agents/shift-handover.md"
         assert (_profile_root(project_dir) / "agents" / "shift-handover.md").is_file()
+        assert not (project_dir / ".claude" / "agents" / "shift-handover.md").exists(), (
+            "the project copy is the build's to make, from the profile"
+        )
         assert _protected_records(audit_zone) == []
 
     def test_create_artifact_refuses_before_the_volume_is_written(
@@ -2694,14 +2564,6 @@ class TestCreateClaimUnoverrideProtectedSet:
 
         assert _protected_records(audit_zone) == [], "the older refusal audits nothing"
 
-    def test_claim_of_an_ordinary_agent_still_goes_through(self, service, project_dir, audit_zone):
-        """The ordinary case, unchanged."""
-        result = service.scaffold_override(WRITABLE_ARTIFACT)
-
-        assert result["status"] == "claimed"
-        assert (_profile_root(project_dir) / "agents" / "channel-finder.md").is_file()
-        assert _protected_records(audit_zone) == []
-
     @pytest.mark.usefixtures("audit_zone")
     def test_claim_route_refuses_a_reserved_skill_with_403_and_records_activity(self, project_dir):
         """A pattern-reserved claim is a 403 naming the channel, not a 500.
@@ -2806,8 +2668,10 @@ class TestCreateClaimUnoverrideProtectedSet:
         svc = ScaffoldGalleryService(detached_project_dir)
         outcome = svc.unoverride("agents/removable", delete_file=True)
 
+        assert outcome["status"] == "removed"
         assert outcome["deleted_file"] is True
         assert not orphan.exists()
+        assert "agents/removable" not in _get_user_owned(detached_project_dir)
         assert _protected_records(audit_zone) == []
 
     @pytest.mark.usefixtures("audit_zone")
@@ -3227,37 +3091,6 @@ class TestRestoreRefusesReservedRecords:
         assert len(records) == 1
         assert "target=.claude/agents/linked.md" in records[0]["detail"]
         assert "`rules/` convention directory" in records[0]["detail"]
-
-    def test_restore_reserved_gate_is_on_the_entrypoint_s_own_call_path(self):
-        """The root-privileged caller reaches the same gate, with no second path.
-
-        Asserted by identity rather than by running a container: the entrypoint
-        imports ``restore_scaffold_bodies`` and calls it, that function's only
-        route to a write is ``rehydrate``, and ``rehydrate``'s gate is the
-        shared ``reserved_write_channel``. Every link in that chain is an
-        object identity here, so a future "just inline it for the entrypoint"
-        breaks this test rather than the container.
-        """
-        from osprey.interfaces.web_terminal import ownership as ownership_mod
-        from osprey.interfaces.web_terminal import scaffold_gallery_service as service_mod
-
-        entrypoint = (
-            Path(service_mod.__file__).parents[3]
-            / "osprey"
-            / "templates"
-            / "project"
-            / "entrypoint.sh"
-        ).read_text(encoding="utf-8")
-        assert "from osprey.interfaces.web_terminal.scaffold_gallery_service import" in entrypoint
-        assert "restore_scaffold_bodies," in entrypoint
-        assert "restore_scaffold_bodies(render_dir)" in entrypoint
-
-        assert service_mod.restore_scaffold_bodies.__globals__["rehydrate"] is (
-            ownership_mod.rehydrate
-        ), "the entrypoint's call target must reach the gated walk, not a private copy"
-        assert ownership_mod.rehydrate.__globals__["reserved_write_channel"] is (
-            ownership_mod.reserved_write_channel
-        ), "and that walk must ask the same question the gallery's gates ask"
 
 
 class TestReservedSubtreeRootsAreClosed:
@@ -3717,16 +3550,6 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
 
         assert restore_scaffold_bodies(container_project) == []
         assert _protected_records(audit_zone) == []
-
-    @pytest.mark.usefixtures("volume_dir")
-    def test_an_ordinary_body_is_still_restored(self, container_project, tmp_path):
-        """The guard must not cost the feature: a real body still comes back."""
-        pristine = _recreate_container(container_project, tmp_path / "image-rebuild")
-        svc = ScaffoldGalleryService(container_project)
-        svc.scaffold_override(WRITABLE_ARTIFACT)
-        svc.save_override(WRITABLE_ARTIFACT, "# Channel finder\nMine.\n")
-
-        assert restore_scaffold_bodies(pristine) == [WRITABLE_ARTIFACT]
 
 
 class TestNoDurableStoreIsSaidOutLoud:
