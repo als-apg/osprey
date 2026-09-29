@@ -57,6 +57,23 @@ _VERSION_PROBE_TIMEOUT_S = 5.0
 # pass setting_sources=["project"]; this keeps the subprocess paths consistent.
 _SETTING_SOURCES_ARGS = ["--setting-sources", "project"]
 
+# The conversation flags :func:`build_session_argv` appends to a launch prefix.
+_RESUME_FLAG = "--resume"
+_SESSION_ID_FLAG = "--session-id"
+_PRINT_FLAG = "--print"
+_EFFORT_FLAG = "--effort"
+
+#: What ``--resume <id>`` prints before exiting 1 when no transcript for the id
+#: exists. A caller that resumes a conversation watches the child's early output
+#: for it (:class:`NoConversationWatch`) to tell a missing transcript from any
+#: other exit.
+NO_CONVERSATION_MARKER = b"No conversation found with session ID"
+
+#: How much of a ``--resume`` child's output is searched for the marker. The
+#: verdict is the first thing the CLI prints, so anything beyond the first
+#: few kilobytes is a session that resumed and is now doing real work.
+NO_CONVERSATION_SCAN_LIMIT = 16 * 1024
+
 
 def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[str]:
     """Return the argv prefix used to launch Claude Code.
@@ -120,6 +137,76 @@ def resolve_cli_name(argv: Sequence[str]) -> list[str]:
     if argv[0] == CLI_NAME:
         return [resolve_shell_command(argv[0]), *argv[1:]]
     return list(argv)
+
+
+def build_session_argv(
+    base: Sequence[str],
+    *,
+    resume_id: str | None = None,
+    session_id: str | None = None,
+    print_mode: bool = False,
+    effort: str | None = None,
+    prompt: str | None = None,
+) -> list[str]:
+    """Extend a launch prefix with the conversation flags, as a new list.
+
+    The flags follow ``base`` in a fixed order: ``--resume <resume_id>`` or
+    ``--session-id <session_id>``, then ``--print``, then ``--effort <effort>``,
+    then ``prompt``. The prompt is last because the CLI reads one trailing
+    positional as the opening message. An empty ``resume_id``, ``session_id``
+    or ``effort`` adds no flag; an empty ``prompt`` is still passed.
+
+    Args:
+        base: The launch prefix, normally one :func:`build_claude_launch_argv`
+            returned (resolved or not). It is never mutated.
+        resume_id: The conversation to resume.
+        session_id: The id a new conversation is forced onto.
+        print_mode: Run non-interactively and print the answer.
+        effort: The reasoning effort level.
+        prompt: The opening message.
+
+    Returns:
+        A new argv list.
+
+    Raises:
+        ValueError: If both ``resume_id`` and ``session_id`` are given; a child
+            either resumes a transcript or starts one under a forced id.
+    """
+    if resume_id and session_id:
+        raise ValueError("build_session_argv() takes resume_id or session_id, not both")
+    argv = list(base)
+    if resume_id:
+        argv.extend([_RESUME_FLAG, resume_id])
+    elif session_id:
+        argv.extend([_SESSION_ID_FLAG, session_id])
+    if print_mode:
+        argv.append(_PRINT_FLAG)
+    if effort:
+        argv.extend([_EFFORT_FLAG, effort])
+    if prompt is not None:
+        argv.append(prompt)
+    return argv
+
+
+class NoConversationWatch:
+    """Watch a ``--resume`` child's early output for :data:`NO_CONVERSATION_MARKER`.
+
+    Only the first :data:`NO_CONVERSATION_SCAN_LIMIT` bytes are searched; the
+    chunk that crosses the limit is still scanned whole, and a marker split
+    across two chunks is still found.
+    """
+
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+        #: Whether the marker has been seen. Once true it stays true.
+        self.found = False
+
+    def feed(self, data: bytes) -> None:
+        """Add one chunk of the child's output to the scan."""
+        if self.found or len(self._buffer) >= NO_CONVERSATION_SCAN_LIMIT:
+            return
+        self._buffer.extend(data)
+        self.found = NO_CONVERSATION_MARKER in self._buffer
 
 
 def parse_claude_version(version_output: str) -> str | None:

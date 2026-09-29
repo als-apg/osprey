@@ -11,7 +11,11 @@ import pytest
 
 from osprey.agent_runner.launcher import (
     CLI_NAME,
+    NO_CONVERSATION_MARKER,
+    NO_CONVERSATION_SCAN_LIMIT,
+    NoConversationWatch,
     build_claude_launch_argv,
+    build_session_argv,
     parse_claude_version,
     resolve_cli_name,
 )
@@ -142,3 +146,112 @@ class TestResolveCliName:
 
     def test_cli_name_is_what_an_unpinned_launch_runs(self):
         assert build_claude_launch_argv({})[0] == CLI_NAME == "claude"
+
+
+_PREFIX = ["claude", "--setting-sources", "project"]
+_PINNED = ["npx", "-y", "@anthropic-ai/claude-code@2.1.146", "--setting-sources", "project"]
+
+
+class TestBuildSessionArgv:
+    """The conversation flags extend the launch prefix in one fixed order."""
+
+    @pytest.mark.parametrize(
+        "base,kwargs,expected",
+        [
+            (
+                build_claude_launch_argv({}),
+                {"session_id": "k", "effort": "high"},
+                [*_PREFIX, "--session-id", "k", "--effort", "high"],
+            ),
+            (
+                build_claude_launch_argv({"cli_version": "2.1.146"}),
+                {"resume_id": "r"},
+                [*_PINNED, "--resume", "r"],
+            ),
+            (
+                build_claude_launch_argv({}),
+                {
+                    "resume_id": "abc123",
+                    "print_mode": True,
+                    "effort": "high",
+                    "prompt": "what is the beam current",
+                },
+                [
+                    *_PREFIX,
+                    "--resume",
+                    "abc123",
+                    "--print",
+                    "--effort",
+                    "high",
+                    "what is the beam current",
+                ],
+            ),
+            (
+                build_claude_launch_argv({"cli_version": "2.1.146"}, no_pin=True),
+                {"print_mode": True, "prompt": "hello"},
+                [*_PREFIX, "--print", "hello"],
+            ),
+            (
+                ["/abs/claude", "--setting-sources", "project"],
+                {"resume_id": "r"},
+                ["/abs/claude", "--setting-sources", "project", "--resume", "r"],
+            ),
+        ],
+        ids=["new-session-effort", "pinned-resume", "chat", "no-pin-print", "resolved-pty"],
+    )
+    def test_parity_table(self, base, kwargs, expected):
+        assert build_session_argv(base, **kwargs) == expected
+
+    def test_base_is_not_mutated(self):
+        base = build_claude_launch_argv({})
+        before = list(base)
+        argv = build_session_argv(base, resume_id="r", print_mode=True, effort="high", prompt="p")
+        assert base == before
+        assert argv is not base
+
+    def test_resume_and_session_id_together_are_refused(self):
+        with pytest.raises(ValueError):
+            build_session_argv(_PREFIX, resume_id="r", session_id="k")
+
+    def test_empty_resume_and_effort_are_omitted(self):
+        assert build_session_argv(_PREFIX, resume_id="", effort="") == _PREFIX
+
+    def test_empty_prompt_is_still_the_last_positional(self):
+        argv = build_session_argv(_PREFIX, prompt="")
+        assert argv == [*_PREFIX, ""]
+
+
+class TestNoConversationWatch:
+    """The CLI's no-conversation verdict is found only in the child's early output."""
+
+    def test_marker_in_one_chunk_is_found(self):
+        watch = NoConversationWatch()
+        watch.feed(b"Error: " + NO_CONVERSATION_MARKER + b" abc\n")
+        assert watch.found is True
+
+    def test_marker_split_across_chunks_is_found(self):
+        watch = NoConversationWatch()
+        half = len(NO_CONVERSATION_MARKER) // 2
+        watch.feed(NO_CONVERSATION_MARKER[:half])
+        assert watch.found is False
+        watch.feed(NO_CONVERSATION_MARKER[half:])
+        assert watch.found is True
+
+    def test_marker_after_the_scan_limit_is_not_found(self):
+        watch = NoConversationWatch()
+        watch.feed(b"x" * NO_CONVERSATION_SCAN_LIMIT)
+        watch.feed(NO_CONVERSATION_MARKER)
+        assert watch.found is False
+
+    def test_the_chunk_crossing_the_limit_is_scanned_whole(self):
+        watch = NoConversationWatch()
+        watch.feed(b"x" * (NO_CONVERSATION_SCAN_LIMIT - 1))
+        watch.feed(b"yy" + NO_CONVERSATION_MARKER)
+        assert watch.found is True
+
+    def test_found_stays_true(self):
+        watch = NoConversationWatch()
+        watch.feed(NO_CONVERSATION_MARKER)
+        watch.feed(b"z" * (2 * NO_CONVERSATION_SCAN_LIMIT))
+        watch.feed(b"more output")
+        assert watch.found is True
