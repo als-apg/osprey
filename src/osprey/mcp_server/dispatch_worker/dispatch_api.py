@@ -231,7 +231,7 @@ def _inject_provider_env_once() -> None:
             # SDK CLI. Start the proxy from spec.upstream_base_url — the OpenAI
             # root *with* /v1 — NOT os.environ["ANTHROPIC_BASE_URL"], which the
             # resolver strips of /v1 for Claude Code; sourcing the upstream from
-            # the env var would forward to a /v1-less endpoint (issue #312).
+            # the env var would forward to a /v1-less endpoint.
             if spec.needs_proxy and spec.upstream_base_url:
                 from osprey.infrastructure.proxy.lifecycle import start_proxy
                 from osprey.models.spend_attribution import declared_header_names

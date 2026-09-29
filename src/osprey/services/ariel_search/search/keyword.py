@@ -361,11 +361,9 @@ def has_boolean_operators(search_text: str) -> bool:
 
     A word in :data:`ALLOWED_OPERATORS` or its ``tsquery`` symbol routes the
     query to ``websearch_to_tsquery``. :func:`build_tsquery` asks this function
-    for its path, so the two cannot disagree.
-
-    Public because the search service asks the same question one layer up, when
-    it decides whether to resolve an expansion at all -- the two must never
-    disagree about which queries take that path.
+    for its path, and so does the search service one layer up when it decides
+    whether to resolve an expansion at all, so no two callers disagree about
+    which queries take that path.
 
     Args:
         search_text: The parsed keyword search text.
