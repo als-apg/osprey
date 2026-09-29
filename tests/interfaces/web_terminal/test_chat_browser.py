@@ -747,11 +747,16 @@ def test_streamed_markdown_renders_in_chat_card(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.flaky(
-    reruns=2, only_rerun=["AssertionError"]
-)  # browser timing under load; passes in isolation
 def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
-    """A second prompt in the same page-load reuses the session; both show."""
+    """A second prompt sent the moment the input comes back reaches the same session.
+
+    The input is re-enabled when the turn's terminal frame arrives, so that is
+    the moment the operator may type again — and the server must already
+    accept the next turn then, not a beat later. The second prompt is sent
+    with no server-side barrier in between: a guard still held when the
+    browser says the turn is over answers 409, and the operator reads "a turn
+    is already running" for a turn that has finished.
+    """
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["first question"] = [("text", "first answer"), ("result",)]
         _PLANS["second question"] = [("text", "second answer"), ("result",)]
@@ -761,7 +766,6 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
             "first answer", timeout=10_000
         )
-        # Turn must end (input re-enabled) before the second turn is submitted.
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled()
 
         _send(page, "second question")
@@ -769,10 +773,13 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
             "second answer", timeout=10_000
         )
 
-        # Both exchanges are on screen...
+        # Both exchanges are on screen, and nothing was refused on the way.
         expect(page.locator(f"{_OP} .op-entry.operator")).to_have_count(2)
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_have_count(2)
-        # ...and the SDK seam saw both prompts, in order (one reused session).
+        expect(page.locator(f"{_OP} .op-system")).to_have_count(0)
+        # One chat session held both turns, and it saw both prompts in order.
+        state = requests.get(f"{base_url}/__test__/chat-state").json()
+        assert state["n"] == 1, state
         assert _OBSERVED_PROMPTS == ["first question", "second question"]
 
         page.close()
