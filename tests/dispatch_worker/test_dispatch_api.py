@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.mcp_server.dispatch_worker import dispatch_api
 
 _TOKEN = "test-secret-token"
@@ -184,6 +185,13 @@ def test_dispatch_rejects_wildcard_denied_tool(client):
 def test_is_denied_matrix(tool, expected):
     """The server-side denylist matcher: exact entries + '*'-suffix prefixes."""
     assert dispatch_api._is_denied(tool) is expected
+
+
+@pytest.mark.parametrize("entry", sorted(DISPATCH_DENIED_TOOLS))
+def test_the_worker_denies_every_entry_of_the_dispatch_floor(entry):
+    """The worker reads the shared dispatch floor, not a copy of it."""
+    probe = entry[:-1] + "probe" if entry.endswith("*") else entry
+    assert dispatch_api._is_denied(probe)
 
 
 def test_dispatch_denied_tool_schedules_no_run(client):

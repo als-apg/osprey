@@ -45,6 +45,7 @@ from osprey.agent_runner.artifact_resolve import (
     load_run_record,
     resolve_single_run_artifact,
 )
+from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.mcp_server.dispatch_worker import (
     counters,
     failure_class,
@@ -302,29 +303,6 @@ async def _limit_request_body(request: Request, call_next):
 
 _bearer_scheme = HTTPBearer()
 
-# Server-side tool denylist — tools that must NEVER be used by headless dispatch.
-# Defense-in-depth: the event dispatcher already restricts tools via triggers.yml,
-# but the worker blocks dangerous tools regardless of what the trigger requests.
-DENIED_TOOLS: set[str] = {
-    "WebFetch",
-    "WebSearch",
-    "mcp__plugin_playwright_playwright__*",
-    # Arbitrary shell access from a headless, unattended run is never warranted —
-    # the safety story is the per-trigger allowlist + MCP tools, not a raw shell.
-    # ``Bash`` runs commands; ``BashOutput`` reads a background shell's output;
-    # ``KillShell`` (the current CLI name; older builds used ``KillBash``) kills
-    # one. Deny all three.
-    "Bash",
-    "BashOutput",
-    "KillShell",
-    "KillBash",
-    # A job may not fire jobs. ``trigger_config`` already refuses the whole
-    # ``mcp__event_dispatcher__`` prefix when the triggers file is loaded; this
-    # entry is the run-time floor, which holds whatever a dispatch request asks
-    # for and whether or not the dispatcher is wired into the render at all.
-    "mcp__event_dispatcher__manual_fire",
-}
-
 
 def _is_denied(tool: str) -> bool:
     """Return True if ``tool`` is on the denylist.
@@ -333,7 +311,7 @@ def _is_denied(tool: str) -> bool:
     every ``mcp__plugin_playwright_playwright__<name>`` tool); all other entries
     match exactly.
     """
-    return matches_denylist(tool, DENIED_TOOLS)
+    return matches_denylist(tool, DISPATCH_DENIED_TOOLS)
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +692,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 allowed_tools=request.allowed_tools,
                 max_turns=request.max_turns,
                 event_queue=queue,
-                denied_tools=DENIED_TOOLS,
+                denied_tools=DISPATCH_DENIED_TOOLS,
                 run_id=run_id,
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,

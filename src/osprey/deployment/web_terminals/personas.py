@@ -37,6 +37,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
 from osprey.bluesky_bridge_connection import (
     LANE_KEYS,
     LANE_ONE,
@@ -2994,12 +2995,6 @@ def resolve_personas(
 # ---------------------------------------------------------------------------
 
 
-#: The exact ``permissions.deny`` entry that blocks the agent's shell wholesale.
-#: A *scoped* deny (``Bash(rm:*)``) constrains one command family and leaves the
-#: shell otherwise usable, so only this literal counts as "Bash is denied".
-_BASH_DENY_ENTRY = "Bash"
-
-
 def settings_json_denies(project_dir: Any, tools: Iterable[str]) -> bool:
     """True if ``<project_dir>/.claude/settings.json`` denies every tool in *tools*.
 
@@ -3028,7 +3023,7 @@ def settings_json_denies(project_dir: Any, tools: Iterable[str]) -> bool:
     usable, and a wildcard entry such as
     ``mcp__plugin_playwright_playwright__*`` is compared as the literal string
     the artifact carries. Callers therefore spell each tool exactly as
-    :data:`~osprey.cli.templates.claude_code.DENY_DEFAULTS` spells it, which is
+    :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS` spells it, which is
     what the ``settings.json.j2`` template writes.
 
     Fails **closed**: an artifact that cannot be read and parsed into a
@@ -3122,7 +3117,7 @@ def settings_json_denies_bash(project_dir: Any) -> bool:
     The one-tool case of :func:`settings_json_denies`, kept under its own name
     because the Bash/launch-token guard asks exactly this question in four
     places and reads better for saying so. Only the exact ``"Bash"`` entry
-    counts (see :data:`_BASH_DENY_ENTRY`); every other property — reading the
+    counts (see :data:`~osprey.agent_runner.tool_names.BASH_DENY_ENTRY`); every other property — reading the
     shipped artifact rather than the config, and failing closed on one it
     cannot parse — belongs to :func:`settings_json_denies` and is described
     there.
@@ -3135,7 +3130,7 @@ def settings_json_denies_bash(project_dir: Any) -> bool:
         ``True`` only when the artifact was read, parsed, and lists ``"Bash"``
         in ``permissions.deny``; ``False`` in every other case.
     """
-    return settings_json_denies(project_dir, (_BASH_DENY_ENTRY,))
+    return settings_json_denies(project_dir, (BASH_DENY_ENTRY,))
 
 
 def personas_not_denying(config: Any, project_root: Any, tools: Iterable[str]) -> set[str]:
@@ -3233,4 +3228,4 @@ def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
         The subset of referenced persona names whose rendered
         ``.claude/settings.json`` does not deny the shell.
     """
-    return personas_not_denying(config, project_root, (_BASH_DENY_ENTRY,))
+    return personas_not_denying(config, project_root, (BASH_DENY_ENTRY,))

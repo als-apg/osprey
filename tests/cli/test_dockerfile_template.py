@@ -1057,8 +1057,8 @@ class TestSetupCapabilityConditional:
         """
         from fnmatch import fnmatchcase
 
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
         from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
-        from osprey.cli.templates.claude_code import DENY_DEFAULTS
 
         assert not [e for e in DENY_DEFAULTS if fnmatchcase(SETUP_PATCH_TOOL, e)]
 

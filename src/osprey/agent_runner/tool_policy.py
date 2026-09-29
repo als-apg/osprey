@@ -74,7 +74,7 @@ def narrow_allowed_tools(trigger_tools: list[str], surface_tools: list[str] | No
 
     This is a pure intersection (keep-list) operation: it can only REMOVE
     tools from ``trigger_tools``, never add one. It does not touch
-    ``DENIED_TOOLS`` — the deny floor is enforced independently downstream
+    ``DISPATCH_DENIED_TOOLS`` — the deny floor is enforced independently downstream
     (denylist checks run before, and separately from, the narrowed allow
     set), so narrowing can never re-enable a tool the denylist blocks.
 

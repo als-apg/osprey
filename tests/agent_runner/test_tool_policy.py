@@ -435,7 +435,7 @@ class TestNarrowAllowedTools:
         # Act
         result = await hook(_main_input("Bash"), "t1", None)
 
-        # Assert — still denied: DENIED_TOOLS is checked first, independent of
+        # Assert — still denied: the denylist is checked first, independent of
         # whatever narrow_allowed_tools computed.
         assert _decision(result) == "deny"
 
@@ -456,28 +456,29 @@ class TestNarrowAllowedTools:
 
 
 class TestServerDenylistFloor:
-    """The worker's own ``DENIED_TOOLS`` floor, and the hook built from it.
+    """The worker's own ``DISPATCH_DENIED_TOOLS`` floor, and the hook built from it.
 
     ``tool_policy`` takes the denylist as an argument; the list itself lives in
-    ``dispatch_api``. These tests pin the two together for the dispatcher's
+    ``osprey.agent_runner.tool_names``. These tests pin the two together for the dispatcher's
     firing tool, which must be unreachable from a dispatch job.
     """
 
     def test_the_dispatchers_firing_tool_is_on_the_server_denylist(self):
         # Arrange / Act
+        from osprey.agent_runner import tool_names
         from osprey.mcp_server.dispatch_worker import dispatch_api
 
         # Assert — a job cannot fire jobs, whatever a trigger asks for
-        assert "mcp__event_dispatcher__manual_fire" in dispatch_api.DENIED_TOOLS
+        assert "mcp__event_dispatcher__manual_fire" in tool_names.DISPATCH_DENIED_TOOLS
         assert dispatch_api._is_denied("mcp__event_dispatcher__manual_fire") is True
 
     async def test_the_hook_denies_the_firing_tool_under_the_server_denylist(self):
         # Arrange — the trigger names it and the run is built with the server's
         # own denylist, which is how a real dispatch run is wired.
-        from osprey.mcp_server.dispatch_worker import dispatch_api
+        from osprey.agent_runner import tool_names
 
         tool = "mcp__event_dispatcher__manual_fire"
-        hook = make_pretooluse_hook([tool], SURFACES, sorted(dispatch_api.DENIED_TOOLS))
+        hook = make_pretooluse_hook([tool], SURFACES, sorted(tool_names.DISPATCH_DENIED_TOOLS))
 
         # Act
         result = await hook(_main_input(tool), "t1", None)

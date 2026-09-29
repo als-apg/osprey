@@ -397,7 +397,7 @@ async def run_dispatch(
         max_turns: Maximum number of agentic turns (default 25).
         denied_tools: Hard denylist enforced at the permission layer regardless
             of ``allowed_tools`` (defense-in-depth; the worker threads its
-            ``DENIED_TOOLS`` here). Entries ending in ``*`` match by prefix.
+            ``DISPATCH_DENIED_TOOLS`` here). Entries ending in ``*`` match by prefix.
         run_id: Dispatch run id. Exported to the agent (and the MCP tool
             subprocesses it spawns) as ``OSPREY_DISPATCH_RUN_ID`` so every
             artifact saved during the run is attributed to it.

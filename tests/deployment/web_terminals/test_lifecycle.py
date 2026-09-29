@@ -17,7 +17,7 @@ import pytest
 import yaml
 from ruamel.yaml import YAML
 
-from osprey.cli.templates.claude_code import DENY_DEFAULTS
+from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
