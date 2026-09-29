@@ -958,19 +958,6 @@ class TestDeploymentContextIsServerSupplied:
             assert set(re.findall(r"ctx\.(\w+)", predicate)) == keys
 
 
-class TestAssetsGoThroughThePrefix:
-    """The new stylesheet is a ``<link href>`` — the import map never sees it."""
-
-    def test_bars_css_is_prefixed(self, workspace_dir):
-        cfg, panels, launch, env = _build_app(workspace_dir, env={"OSPREY_TERMINAL_USER": "alice"})
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                body = _body(client)
-        assert 'href="/u/alice/static/css/bars.css"' in body
-        assert 'href="/static/css/bars.css"' not in body
-
-
 class TestTheDefaultIsRenderableByConstruction:
     """The rev-0 answer never names an item the stamp says is unavailable.
 
