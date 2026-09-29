@@ -717,6 +717,16 @@
       "name": "dc_supply_ok_status"
     },
     {
+      "aliases": [
+        "dose rate",
+        "dose rate readback",
+        "radiation dose rate",
+        "radiation level"
+      ],
+      "description": "Measured radiation dose rate.",
+      "name": "dose_rate_readback"
+    },
+    {
       "aliases": [],
       "description": "External interlock channel 1 readback.",
       "name": "external_interlock_1_status"
@@ -761,6 +771,25 @@
       "aliases": [],
       "description": "Filament warm-up / runtime timeout readback.",
       "name": "filament_timeout_status"
+    },
+    {
+      "aliases": [
+        "frequency readback",
+        "measured frequency",
+        "frequency reading"
+      ],
+      "description": "Measured frequency.",
+      "name": "frequency_readback"
+    },
+    {
+      "aliases": [
+        "frequency setpoint",
+        "set frequency",
+        "commanded frequency",
+        "frequency demand"
+      ],
+      "description": "Commanded frequency.",
+      "name": "frequency_setpoint"
     },
     {
       "aliases": [
@@ -904,6 +933,16 @@
       "name": "plug_interlock_status"
     },
     {
+      "aliases": [
+        "position offset",
+        "offset",
+        "beam position offset",
+        "position calibration offset"
+      ],
+      "description": "Stored offset subtracted from a measured position.",
+      "name": "position_offset"
+    },
+    {
       "aliases": [],
       "description": "Horizontal-position error readback (delta from golden reference).",
       "name": "position_x_error_readback"
@@ -982,6 +1021,16 @@
       "aliases": [],
       "description": "Power-on (energised) state readback of a powered device.",
       "name": "power_on_status"
+    },
+    {
+      "aliases": [
+        "power readback",
+        "measured power",
+        "power reading",
+        "net power"
+      ],
+      "description": "Measured power.",
+      "name": "power_readback"
     },
     {
       "aliases": [
@@ -1139,9 +1188,37 @@
       "name": "status"
     },
     {
+      "aliases": [
+        "temperature",
+        "temperature readback",
+        "measured temperature",
+        "temperature reading"
+      ],
+      "description": "Measured temperature.",
+      "name": "temperature_readback"
+    },
+    {
       "aliases": [],
       "description": "Thermal/over-temperature interlock flag readback.",
       "name": "thermal_status"
+    },
+    {
+      "aliases": [
+        "tuner readback",
+        "tuner position",
+        "measured tuner position"
+      ],
+      "description": "Measured tuner position.",
+      "name": "tuner_position_readback"
+    },
+    {
+      "aliases": [
+        "tuner setpoint",
+        "tuner position setpoint",
+        "set tuner position"
+      ],
+      "description": "Commanded tuner position.",
+      "name": "tuner_position_setpoint"
     },
     {
       "aliases": [
@@ -1179,6 +1256,34 @@
       "aliases": [],
       "description": "Upstream-side limit-switch state readback for a vacuum valve.",
       "name": "valve_upstream_status"
+    },
+    {
+      "aliases": [
+        "golden voltage",
+        "voltage golden reference",
+        "reference voltage"
+      ],
+      "description": "Stored golden voltage reference.",
+      "name": "voltage_golden_readback"
+    },
+    {
+      "aliases": [
+        "measured voltage",
+        "voltage reading",
+        "readback voltage"
+      ],
+      "description": "Measured voltage.",
+      "name": "voltage_readback"
+    },
+    {
+      "aliases": [
+        "voltage setpoint",
+        "set voltage",
+        "commanded voltage",
+        "voltage demand"
+      ],
+      "description": "Commanded voltage.",
+      "name": "voltage_setpoint"
     }
   ]
 }

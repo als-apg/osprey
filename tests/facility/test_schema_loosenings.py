@@ -275,7 +275,7 @@ def test_vocabulary_keeps_the_seed_class_tree_and_signal_roles(vocabulary: dict)
     assert tree == seed_tree
     seed_roles = seed["enums"]["semantic_signal_enum"]["permissible_values"]
     roles = vocabulary["enums"]["signal_role_enum"]["permissible_values"]
-    assert list(roles) == list(seed_roles)
+    assert list(roles)[: len(seed_roles)] == list(seed_roles)
 
 
 def test_vocabulary_carries_aliases_and_property_names(vocabulary: dict) -> None:
