@@ -1,9 +1,5 @@
 /* OSPREY Web Terminal — Connection Helpers */
 
-/** @typedef {'connected'|'connecting'|'disconnected'} ConnState */
-/** @typedef {{ ws: ConnState, sse: ConnState }} ConnectionState */
-/** @typedef {(state: ConnectionState) => void} StateListener */
-
 /**
  * @typedef {object} WebSocketHandlers
  * @property {(ws: WebSocket) => void} [onOpen]
@@ -19,55 +15,6 @@
  * @property {() => void} [onError]
  * @property {() => void} [onOpen]
  */
-
-/** @type {ConnState} */
-let wsState = 'disconnected';
-/** @type {ConnState} */
-let sseState = 'disconnected';
-
-/** @type {StateListener[]} */
-const stateListeners = [];
-
-function notifyStateChange() {
-  // Iterate a COPY: a listener is allowed to unsubscribe itself (or another
-  // listener) from inside the callback, and splicing the live array mid-`for`
-  // silently skips the next entry. Bar items dispose on detach, so this is a
-  // reachable path, not a hypothetical one.
-  for (const fn of Array.from(stateListeners)) fn({ ws: wsState, sse: sseState });
-}
-
-/**
- * Subscribe to connection-state changes.
- *
- * Returns its own unsubscribe, which is the house rule for every
- * attach-scoped subscription in this interface: a subscriber that lives only
- * as long as a mounted piece of UI must be handed the way to stop, at the
- * moment it starts, by the API it subscribed to. The bar items are the reason
- * — an item folded into the overflow pool has to stop listening or it keeps a
- * dead node updating forever — but the rule is not theirs alone.
- *
- * Idempotent: calling the returned function more than once is a no-op, and
- * callers that ignore the return value behave exactly as before.
- * @param {StateListener} fn
- * @returns {() => void} unsubscribe
- */
-export function onConnectionStateChange(fn) {
-  stateListeners.push(fn);
-  return () => {
-    const at = stateListeners.indexOf(fn);
-    if (at !== -1) stateListeners.splice(at, 1);
-  };
-}
-
-/**
- * The current state of both channels, readable without waiting for a
- * transition. A subscriber that starts mid-session would otherwise render
- * nothing until the next reconnect; this is what lets it paint on attach.
- * @returns {ConnectionState}
- */
-export function getConnectionState() {
-  return { ws: wsState, sse: sseState };
-}
 
 /**
  * Prepend the per-user URL prefix (`window.__OSPREY_PREFIX__`, e.g.
@@ -240,16 +187,12 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError, onRe
 
   function connect() {
     if (stopped || sessionExpired) return;
-    wsState = 'connecting';
-    notifyStateChange();
 
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       attempt = 0;
-      wsState = 'connected';
-      notifyStateChange();
       if (onOpen) onOpen(/** @type {WebSocket} */ (ws));
     };
 
@@ -258,8 +201,6 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError, onRe
     };
 
     ws.onclose = (e) => {
-      wsState = 'disconnected';
-      notifyStateChange();
       if (onClose) onClose(e);
       if (isRefusalCloseCode(e.code)) {
         // The session survived — the server said so by refusing — so the
@@ -369,15 +310,11 @@ function openSharedStream(url) {
 
   function connect() {
     if (stopped || sessionExpired) return;
-    sseState = 'connecting';
-    notifyStateChange();
 
     es = new EventSource(withPrefix(url));
 
     es.onopen = () => {
       attempt = 0;
-      sseState = 'connected';
-      notifyStateChange();
       for (const sub of subscribers) if (sub.onOpen) sub.onOpen();
     };
 
@@ -392,8 +329,6 @@ function openSharedStream(url) {
     };
 
     es.onerror = () => {
-      sseState = 'disconnected';
-      notifyStateChange();
       for (const sub of subscribers) if (sub.onError) sub.onError();
       // readyState 2 is CLOSED (spec constant): the browser has given up on
       // this source for good, so reconnection is ours from here. While
@@ -423,8 +358,6 @@ function openSharedStream(url) {
       reconnectTimer = null;
     }
     if (es) es.close();
-    sseState = 'disconnected';
-    notifyStateChange();
   }
 
   /**

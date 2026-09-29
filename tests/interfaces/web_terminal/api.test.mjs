@@ -8,8 +8,6 @@
  *   - fetchJSON(url): 2xx -> parsed JSON; non-2xx -> throws `HTTP <s>: <t>`
  *   - apiRequest(url, opts): mutating-verb helper -- json body wiring, server
  *     `detail` extraction on error, errorPrefix fallback, null on empty body
- *   - onConnectionStateChange / getConnectionState: initial shape and that a
- *     registered listener is stored and fires on the next state transition
  *   - per-user URL prefix: wsUrl/fetchJSON/createEventSource read
  *     `window.__OSPREY_PREFIX__` (the multi-user prefix contract) and
  *     prepend it to root-absolute paths only, are a no-op when the prefix is
@@ -23,7 +21,7 @@
  *     agent still running) end the reconnect loop and reach the caller as
  *     onRefused; every other close code reconnects exactly as before
  *
- * Module isolation: api.js keeps `wsState`/`sseState`/`stateListeners` as
+ * Module isolation: api.js keeps `sessionExpired`/`sharedStreams` as
  * module-private state that no init() resets. `vi.resetModules()` plus a fresh
  * dynamic `import()` per test gives each test a never-before-touched module
  * instance, so there is no shared state to leak by construction.
@@ -688,40 +686,6 @@ describe('createWebSocket: refusal close codes are terminal', () => {
     vi.advanceTimersByTime(60000);
     expect(sockets).toHaveLength(1);
     expect(onRefused).not.toHaveBeenCalled();
-  });
-});
-
-describe('connection state: initial shape and listener registration', () => {
-  test('getConnectionState reports both channels disconnected before any connection', () => {
-    expect(api.getConnectionState()).toEqual({ ws: 'disconnected', sse: 'disconnected' });
-  });
-
-  test('a listener registered via onConnectionStateChange fires on the next state transition with the current state', () => {
-    const listener = vi.fn();
-    api.onConnectionStateChange(listener);
-    // No transition has happened yet, so the listener has not been invoked.
-    expect(listener).not.toHaveBeenCalled();
-
-    // createEventSource's connect() runs synchronously: it flips sseState to
-    // 'connecting' and drives notifyStateChange -> the registered listener,
-    // then constructs `new EventSource(url)`. happy-dom does not provide an
-    // EventSource, so stub a minimal, side-effect-free constructor that lets
-    // connect() finish; the notification we assert on has already fired by
-    // then. `close` is what the returned handle's stop() calls.
-    vi.stubGlobal(
-      'EventSource',
-      class {
-        close() {}
-      }
-    );
-    const source = api.createEventSource('/events');
-    try {
-      expect(listener).toHaveBeenCalled();
-      expect(listener).toHaveBeenLastCalledWith({ ws: 'disconnected', sse: 'connecting' });
-      expect(api.getConnectionState()).toEqual({ ws: 'disconnected', sse: 'connecting' });
-    } finally {
-      source.stop();
-    }
   });
 });
 
