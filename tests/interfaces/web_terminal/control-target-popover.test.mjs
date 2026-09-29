@@ -36,9 +36,8 @@
  *   `skipped`;
  * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
  *
- * Seams: `fetch` is stubbed the way the other suites here stub it, and the
- * chip's SSE factory is injected,
- * since happy-dom has no EventSource. Both modules hold module-private state
+ * Seams: `fetch` is stubbed the way the other suites here stub it, and
+ * `EventSource` is stubbed as a class, since happy-dom has none. Both modules hold module-private state
  * with no reset API beyond their teardowns, so each test gets fresh instances
  * via vi.resetModules() + dynamic import — same pattern as
  * control-target-chip.test.mjs.
@@ -193,9 +192,14 @@ function mountFixture() {
     <div id="outside"></div>`;
 }
 
-/** The injected SSE factory: happy-dom has no EventSource. */
-function fakeEventSourceFactory() {
-  return /** @type {any} */ (() => ({ stop: () => {} }));
+/** happy-dom has no EventSource; the chip's stream opens against this one. */
+class FakeEventSource {
+  /** @param {string} url */
+  constructor(url) {
+    this.url = url;
+    this.readyState = 1;
+  }
+  close() {}
 }
 
 /** Drain the microtask/timer queue the async handlers chain through. */
@@ -209,7 +213,7 @@ async function flush() {
  */
 async function boot(payload) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+  chipModule.initControlTargetChip();
   popoverModule.initControlTargetPopover();
   await flush();
 }
@@ -277,6 +281,7 @@ beforeEach(async () => {
   vi.resetModules();
   served = viewOf();
   stubFetch();
+  vi.stubGlobal('EventSource', FakeEventSource);
   mountFixture();
   // The don't-ask-again waivers persist in localStorage; no test inherits
   // another's.

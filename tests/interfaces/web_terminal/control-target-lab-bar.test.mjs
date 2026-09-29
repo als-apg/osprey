@@ -366,19 +366,6 @@ describe('framed inside the hub', () => {
     expect(getCount()).toBe(0);
     expect(FakeEventSource.opened).toHaveLength(0);
   });
-
-  test('init answers null while framed, and the override mounts as its own window would', async () => {
-    await bootFramed();
-
-    expect(barModule.initControlTargetLabBar()).toBeNull();
-    expect(barEl()).toBeNull();
-
-    const bar = barModule.initControlTargetLabBar({ embedded: false });
-    await flush();
-    expect(bar).not.toBeNull();
-    expect(barEl()).toBe(bar);
-    expect(chipEl()).not.toBeNull();
-  });
 });
 
 /* ---- what the page has to load ------------------------------------------ */

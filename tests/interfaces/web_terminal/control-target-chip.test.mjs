@@ -44,13 +44,11 @@
  * - every request goes through api.js's `withPrefix`, so the multi-user
  *   per-user mount is covered.
  *
- * Seams: nothing is mocked — the module reaches no other page module, which is
- * itself asserted below. `fetch` is stubbed the way the other suites here stub
- * it; the SSE factory is injected the way session.js's `wireActivityStrip`
- * injects it, since happy-dom has no EventSource. Module-private state (the
- * mounted chip, the last payload) has no reset API, so each test gets a fresh
- * module instance via vi.resetModules() + dynamic import — same pattern as
- * posture-badge.test.mjs.
+ * Seams: nothing is mocked. `fetch` is stubbed the way the other suites here
+ * stub it, and `EventSource` is stubbed as a class, since happy-dom has none —
+ * so the chip's frames arrive through api.js's real shared stream. Module
+ * state is isolated by vi.resetModules() + dynamic import per test and the
+ * module's own teardown export.
  */
 
 import { readFileSync } from 'node:fs';
@@ -254,17 +252,27 @@ function mountFixtureWithoutShell() {
   document.querySelector('[data-bar-item="control-target"]')?.remove();
 }
 
-/** The injected SSE factory: records what was subscribed, drives it by hand. */
-/** @type {{url: string|null, onMessage: ((data: any) => void)|null, stopped: number}} */
-let stream;
-
-function fakeEventSourceFactory() {
-  stream = { url: null, onMessage: null, stopped: 0 };
-  return /** @type {any} */ ((/** @type {string} */ url, /** @type {any} */ handlers) => {
-    stream.url = url;
-    stream.onMessage = handlers?.onMessage ?? null;
-    return { stop: () => { stream.stopped += 1; } };
-  });
+/**
+ * happy-dom ships no EventSource. A class stub keeps api.js's shared-stream
+ * path real: frames are delivered as the browser would, as `onmessage` with a
+ * string payload api.js parses, and the socket closes when the last
+ * subscriber stops.
+ */
+class FakeEventSource {
+  /** @type {FakeEventSource[]} */
+  static opened = [];
+  /** @param {string} url */
+  constructor(url) {
+    this.url = url;
+    this.readyState = 1;
+    this.closed = false;
+    /** @type {((e: {data: string}) => void)|null} */
+    this.onmessage = null;
+    FakeEventSource.opened.push(this);
+  }
+  close() {
+    this.closed = true;
+  }
 }
 
 /** Drain the microtask/timer queue the async handlers chain through. */
@@ -279,10 +287,7 @@ async function flush() {
  */
 async function boot(payload, opts = {}) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip({
-    host: opts.host,
-    eventSourceFactory: fakeEventSourceFactory(),
-  });
+  chipModule.initControlTargetChip({ host: opts.host });
   await flush();
 }
 
@@ -292,12 +297,15 @@ const anchorEl = () => /** @type {HTMLElement|null} */ (document.querySelector('
 const shortText = () => document.querySelector('.ctc-short')?.textContent ?? '';
 const stateText = () => document.querySelector('.ctc-state')?.textContent ?? '';
 
-/** Fire one agent-activity frame at the chip's subscription. */
+/** Deliver one frame on the page's event stream, as the browser would. */
 function pushFrame(/** @type {any} */ frame) {
-  stream.onMessage?.(frame);
+  const data = typeof frame === 'string' ? frame : JSON.stringify(frame);
+  FakeEventSource.opened.at(-1)?.onmessage?.({ data });
 }
 
 beforeEach(async () => {
+  FakeEventSource.opened = [];
+  vi.stubGlobal('EventSource', FakeEventSource);
   vi.resetModules();
   served = viewOf();
   stubFetch();
@@ -369,7 +377,7 @@ describe('mount', () => {
 
   test('is idempotent — a second init re-renders rather than mounting twice', async () => {
     await boot();
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    chipModule.initControlTargetChip();
     await flush();
     expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
     expect(document.querySelectorAll('.ctc-anchor')).toHaveLength(1);
@@ -386,7 +394,7 @@ describe('mount', () => {
     shell.className = 'bar-item';
     shell.dataset.barItem = 'control-target';
     actions.prepend(shell);
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    chipModule.initControlTargetChip();
     await flush();
 
     // Moved, not rebuilt: the popover hangs its listeners on this exact node
@@ -422,7 +430,7 @@ describe('mount', () => {
 
   test('does nothing at all on a page with no header and no host', async () => {
     document.body.innerHTML = '<div id="elsewhere"></div>';
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    chipModule.initControlTargetChip();
     await flush();
     expect(chipEl()).toBeNull();
     expect(anchorEl()).toBeNull();
@@ -654,20 +662,13 @@ describe('active row', () => {
 describe('refetch hints', () => {
   test('subscribes to the shared panel event stream, once', async () => {
     await boot();
-    expect(stream.url).toBe('/api/files/events');
-    // api.js shares one socket per URL across the page's modules, so the chip
-    // must not open a second — and a second init must not subscribe again.
-    const first = stream;
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    expect(FakeEventSource.opened).toHaveLength(1);
+    expect(FakeEventSource.opened[0].url).toBe('/api/files/events');
+    // A second init must not subscribe again: api.js would share the socket,
+    // so what a second subscription costs is a second read per frame.
+    chipModule.initControlTargetChip();
     await flush();
-    expect(stream.url).toBeNull();
-    expect(first.stopped).toBe(0);
-  });
-
-  test('the pushed control_context frame triggers a re-read', async () => {
-    // The normal path: the owning terminal watches the record and every
-    // server report and pushes this on any change, whoever caused it.
-    await boot();
+    expect(FakeEventSource.opened).toHaveLength(1);
     const before = getCount();
     pushFrame({ type: 'control_context' });
     await flush();
@@ -1015,7 +1016,7 @@ describe('polling', () => {
     await boot();
     chipModule.markPending('r-1');
     chipModule.teardownControlTargetChip();
-    expect(stream.stopped).toBe(1);
+    expect(FakeEventSource.opened[0].closed).toBe(true);
     expect(chipEl()).toBeNull();
     expect(anchorEl()).toBeNull();
 

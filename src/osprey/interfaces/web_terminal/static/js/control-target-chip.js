@@ -296,11 +296,9 @@ let mounted = false;
  * Idempotent: a second call re-renders rather than mounting a second chip, and
  * re-homes the existing anchor if the host turned up after a fallback mount.
  *
- * @param {{host?: HTMLElement|null, eventSourceFactory?: typeof createEventSource}} [opts]
- *   `eventSourceFactory` is injectable for tests the way session.js's
- *   `wireActivityStrip` injects it — happy-dom has no EventSource.
+ * @param {{host?: HTMLElement|null}} [opts]
  */
-export function initControlTargetChip({ host, eventSourceFactory = createEventSource } = {}) {
+export function initControlTargetChip({ host } = {}) {
   const mountPoint = /** @type {HTMLElement|null} */ (
     host ??
       document.querySelector('[data-bar-item="control-target"]') ??
@@ -325,7 +323,7 @@ export function initControlTargetChip({ host, eventSourceFactory = createEventSo
     mountPoint.appendChild(anchor);
   }
 
-  if (!sse) sse = subscribeRefetchHints(eventSourceFactory);
+  if (!sse) sse = subscribeRefetchHints();
 
   void refetch();
 }
@@ -687,10 +685,9 @@ function stopFastPolling() {
  * cap. Its own subscription rather than a seam through panel-manager,
  * following session.js's `wireActivityStrip`: the chip must work on a page
  * where no panel workspace ever boots.
- * @param {typeof createEventSource} factory
  */
-function subscribeRefetchHints(factory) {
-  return factory('/api/files/events', {
+function subscribeRefetchHints() {
+  return createEventSource('/api/files/events', {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
       if (!isRefetchHint(data)) return;
