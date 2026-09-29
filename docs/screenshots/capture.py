@@ -718,7 +718,7 @@ def _isolated_claude_config(project_dir: Path) -> Path:
     and holds the tool call it interrupted; no capture can answer it, so it is
     recorded as acknowledged, as Claude Code records it once an operator has.
     """
-    from osprey.deployment.claude_state_seed import seed_claude_state
+    from osprey.agent_runner.claude_state import seed_claude_state
 
     config_dir = Path(tempfile.mkdtemp(prefix="osprey-docshot-claude-"))
     seed_claude_state(

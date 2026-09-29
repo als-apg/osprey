@@ -11,7 +11,8 @@ operator dropped into a deployment OSPREY rendered they are noise at best,
 and the trust dialog is a genuine defect: Claude Code applies a project's
 ``permissions.allow`` rules only after the folder is trusted, so the render's
 carefully-built allow list is inert until the operator clicks through a dialog
-they have no context to evaluate.
+they have no context to evaluate. Every key this module writes is Claude
+Code's own state, which is why it lives in the harness adapter.
 
 This module writes the state Claude Code would have recorded had the operator
 answered, once, from the container entrypoint's root phase — the same phase
@@ -23,7 +24,7 @@ mechanism; ``theme`` never needs seeding because skipping onboarding lands on
 Claude Code's default); ``customApiKeyResponses`` is observed app state, so
 that one seed is best-effort by design.
 
-The contract, asserted in ``tests/deployment/test_claude_state_seed.py``:
+The contract, asserted in ``tests/agent_runner/test_claude_state.py``:
 
 - **Merge-only**: a key that exists is never rewritten, so a returning
   operator's volume keeps every choice they made.
@@ -42,7 +43,7 @@ from pathlib import Path
 
 from osprey.utils.logger import get_logger
 
-logger = get_logger("deployment.claude_state_seed")
+logger = get_logger("agent_runner.claude_state")
 
 #: Claude Code's per-machine state file, relative to the config dir / HOME.
 CLAUDE_STATE_FILENAME = ".claude.json"
