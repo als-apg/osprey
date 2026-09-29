@@ -17,26 +17,31 @@ import json
 import logging
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from claude_agent_sdk import (
+        CanUseTool,
         ClaudeAgentOptions,
         ClaudeSDKClient,
+        HookCallback,
+        McpServerConfig,
         PermissionMode,
         ResultMessage,
         SettingSource,
         SystemMessage,
         ToolResultBlock,
     )
+    from claude_agent_sdk.types import SystemPromptFile, SystemPromptPreset
 
 # SDK imports — keep module importable even when SDK is absent.
 try:
     from claude_agent_sdk import (  # type: ignore[assignment]
         ClaudeAgentOptions,
+        HookMatcher,
         ResultMessage,
         SystemMessage,
     )
@@ -439,7 +444,7 @@ class SDKWorkflowResult:
 _FALLBACK_MODEL = "claude-sonnet-5"
 
 
-def resolve_default_model(project_dir: Path) -> str:
+def resolve_default_model(project_dir: Path, *, provider: str | None = None) -> str:
     """The project's main model id.
 
     Reads ``config.yml`` and returns the deployment's main model —
@@ -451,12 +456,14 @@ def resolve_default_model(project_dir: Path) -> str:
 
     Args:
         project_dir: Path to an initialized OSPREY project.
+        provider: When given, overrides ``claude_code.provider`` in the loaded
+            config before resolving — used by cross-provider model sweeps.
 
     Returns:
         Model identifier string suitable for passing to the Claude Agent SDK
         ``model=`` argument.
     """
-    spec = _resolve_project_spec(project_dir)
+    spec = _resolve_project_spec(project_dir, provider=provider)
     if spec is not None:
         model_id: str = spec.default_model_id
         return model_id
@@ -595,88 +602,153 @@ def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTra
 def build_agent_options(
     project_dir: Path,
     *,
-    disallowed_tools: list[str],
-    max_turns: int = 25,
-    max_budget_usd: float = 2.0,
+    disallowed_tools: Sequence[str],
+    max_turns: int | None = 25,
+    max_budget_usd: float | None = 2.0,
     model: str | None = None,
-    permission_mode: PermissionMode = "bypassPermissions",
+    permission_mode: PermissionMode | None = "bypassPermissions",
     setting_sources: list[SettingSource] | None = None,
+    allowed_tools: Sequence[str] = (),
+    system_prompt: str | SystemPromptPreset | SystemPromptFile | None = None,
+    env: Mapping[str, str] | None = None,
+    provider: str | None = None,
+    mcp_servers: Mapping[str, McpServerConfig] | Path | None = None,
+    session_id: str | None = None,
+    resume: str | None = None,
+    can_use_tool: CanUseTool | None = None,
+    pre_tool_use_hooks: Sequence[HookCallback] = (),
+    stderr: Callable[[str], None] | None = None,
 ) -> ClaudeAgentOptions:
-    """Build ``ClaudeAgentOptions`` routed to a project's configured provider.
+    """Build ``ClaudeAgentOptions`` for a run in *project_dir*.
 
-    Resolves the model and provider env, and — for non-native (OpenAI-protocol)
-    providers — starts the in-process translation proxy and repoints
-    ``ANTHROPIC_BASE_URL`` at it. The proxy upstream comes from
-    ``spec.upstream_base_url`` (the OpenAI root *with* its ``/v1``), NOT from
-    ``env["ANTHROPIC_BASE_URL"]`` which the resolver strips of ``/v1`` for Claude
-    Code; sourcing the upstream from the env var would forward to a ``/v1``-less
-    ``…/chat/completions`` (issue #312).
+    Who routes the run is decided by *env*. Without one, the builder routes it
+    to the project's configured provider: it resolves the provider env and the
+    model and — for non-native (OpenAI-protocol) providers — starts the
+    in-process translation proxy and repoints ``ANTHROPIC_BASE_URL`` at it. The
+    proxy upstream comes from ``spec.upstream_base_url`` (the OpenAI root *with*
+    its ``/v1``), NOT from ``env["ANTHROPIC_BASE_URL"]`` which the resolver
+    strips of ``/v1`` for Claude Code; sourcing the upstream from the env var
+    would forward to a ``/v1``-less ``…/chat/completions``. With an *env*, the
+    caller has already routed the run: that env is used verbatim, nothing is read
+    from the project's provider config, and ``model=None`` stays ``None`` so the
+    CLI takes the model the env names.
+
+    Every option left at its default produces the same options as a builder
+    that knew only the first seven parameters.
 
     Args:
-        project_dir: Path to an initialized OSPREY project.
+        project_dir: Path to an initialized OSPREY project; the agent's ``cwd``.
         disallowed_tools: Tool names forbidden at the SDK level (forwarded as
             ``--disallowedTools``; the architectural read-only guard).
-        max_turns: Maximum agentic turns before the SDK stops a response.
-        max_budget_usd: Budget ceiling passed to the SDK (literal, not scaled).
-        model: Model id; when ``None``, the project's main model.
+        max_turns: Maximum agentic turns before the SDK stops a response;
+            ``None`` sets no cap.
+        max_budget_usd: Budget ceiling passed to the SDK (literal, not scaled);
+            ``None`` sets no ceiling.
+        model: Model id. When ``None``, the project's main model if the builder
+            routes the run, else whatever model *env* names.
         permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
-            read-only headless path; ``"default"`` when an approval callback
-            should mediate tool use.
+            read-only headless path; ``None`` leaves the CLI's own default, under
+            which *can_use_tool* is consulted.
         setting_sources: Which settings layers the SDK loads. ``None`` (the
             default) means the project's own ``.claude`` settings — its hooks,
             agents and permissions — which is right for every path that runs
             *as* the deployment. Pass ``[]`` for a run that must not adopt the
             target project's settings, such as a reviewer pointed at a project
             it is only reading.
+        allowed_tools: Tool names the agent may use without asking.
+        system_prompt: The agent's system prompt: a string, or an SDK preset or
+            file reference.
+        env: The complete environment for the agent process, when the caller
+            has routed the run itself.
+        provider: Overrides ``claude_code.provider`` while the builder routes
+            the run — used by cross-provider sweeps.
+        mcp_servers: MCP servers to load: a name → config mapping, or the path
+            of an ``.mcp.json`` file. ``None`` leaves the project's own.
+        session_id: The id to give a new transcript.
+        resume: The id of an existing transcript to continue.
+        can_use_tool: Callback the CLI asks before each tool use it has not been
+            told to allow.
+        pre_tool_use_hooks: Callbacks run before every tool use.
+        stderr: Sink for each line the agent process writes to stderr.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
 
     Raises:
         ImportError: When ``claude_agent_sdk`` is not installed.
+        ValueError: When *env* and *provider* are both given, or *session_id*
+            and *resume* are.
     """
     if not HAS_SDK:
         raise ImportError(
             "claude_agent_sdk is required to build agent options. "
             "Install it with: pip install claude-agent-sdk"
         )
-
-    resolved_model = model if model is not None else resolve_default_model(project_dir)
-    env = sdk_env(project_dir)
-
-    spec = _resolve_project_spec(project_dir)
-    if spec and spec.needs_proxy and spec.upstream_base_url:
-        auth_token = env.get(spec.auth_env_var)
-        if not auth_token:
-            # A missing token otherwise surfaces only as an opaque proxy 401
-            # mid-query; warn early naming the var and provider.
-            logger.warning(
-                "Auth token %s missing for provider '%s' — proxied requests may "
-                "fail to authenticate (set the provider secret in the project .env)",
-                spec.auth_env_var,
-                spec.provider,
-            )
-        from osprey.models.spend_attribution import declared_header_names
-
-        port = start_proxy(
-            spec.upstream_base_url,
-            auth_token,
-            provider=spec.provider,
-            forward_headers=declared_header_names(env),
-            supports_images=spec.supports_images,
+    if env is not None and provider is not None:
+        raise ValueError(
+            "env and provider are exclusive: a caller that supplies env has already "
+            "chosen the provider"
         )
-        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+    if session_id is not None and resume is not None:
+        raise ValueError(
+            "session_id and resume are exclusive: resume names the transcript to "
+            "continue, so it already fixes the id"
+        )
 
-    return ClaudeAgentOptions(
+    if env is not None:
+        run_env = dict(env)
+        resolved_model = model
+    else:
+        run_env = sdk_env(project_dir, provider=provider)
+        resolved_model = (
+            model if model is not None else resolve_default_model(project_dir, provider=provider)
+        )
+        spec = _resolve_project_spec(project_dir, provider=provider)
+        if spec and spec.needs_proxy and spec.upstream_base_url:
+            auth_token = run_env.get(spec.auth_env_var)
+            if not auth_token:
+                # A missing token otherwise surfaces only as an opaque proxy 401
+                # mid-query; warn early naming the var and provider.
+                logger.warning(
+                    "Auth token %s missing for provider '%s' — proxied requests may "
+                    "fail to authenticate (set the provider secret in the project .env)",
+                    spec.auth_env_var,
+                    spec.provider,
+                )
+            from osprey.models.spend_attribution import declared_header_names
+
+            port = start_proxy(
+                spec.upstream_base_url,
+                auth_token,
+                provider=spec.provider,
+                forward_headers=declared_header_names(run_env),
+                supports_images=spec.supports_images,
+            )
+            run_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+
+    options = ClaudeAgentOptions(
         model=resolved_model,
         cwd=str(project_dir),
         permission_mode=permission_mode,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        env=env,
+        env=run_env,
         setting_sources=["project"] if setting_sources is None else setting_sources,
-        disallowed_tools=disallowed_tools,
+        disallowed_tools=list(disallowed_tools),
+        allowed_tools=list(allowed_tools),
+        system_prompt=system_prompt,
+        session_id=session_id,
+        resume=resume,
+        can_use_tool=can_use_tool,
+        stderr=stderr,
     )
+    if mcp_servers is not None:
+        options.mcp_servers = (
+            str(mcp_servers) if isinstance(mcp_servers, Path) else dict(mcp_servers)
+        )
+    if pre_tool_use_hooks:
+        options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}
+    return options
 
 
 async def _drain_response(

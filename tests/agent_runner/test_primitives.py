@@ -602,3 +602,219 @@ class TestTheReadinessBarrierStopsOnEveryTerminalMcpStatus:
 
     def test_the_terminal_statuses_are_the_three_final_ones(self) -> None:
         assert primitives._MCP_TERMINAL_STATUSES == frozenset({"connected", "failed", "needs-auth"})
+
+
+# ---------------------------------------------------------------------------
+# build_agent_options: every option a caller sets reaches the agent options
+# ---------------------------------------------------------------------------
+
+
+class _RoutedSpec:
+    """The slice of a resolved provider spec the options builder reads."""
+
+    def __init__(self, *, needs_proxy: bool = False, provider: str = "anthropic") -> None:
+        self.needs_proxy = needs_proxy
+        self.auth_env_var = "ANTHROPIC_AUTH_TOKEN"
+        self.upstream_base_url = "https://gateway.example/v1" if needs_proxy else None
+        self.provider = provider
+        self.supports_images = None
+        self.default_model_id = f"{provider}-main"
+
+
+async def _hook(
+    _input: Any, _tool_use_id: str | None, _context: Any
+) -> dict[str, Any]:  # pragma: no cover - never invoked
+    return {}
+
+
+async def _can_use_tool(
+    _name: str, _input: dict[str, Any], _context: Any
+) -> Any:  # pragma: no cover - never invoked
+    return None
+
+
+def _stderr_sink(_line: str) -> None:  # pragma: no cover - never invoked
+    return None
+
+
+class TestBuildAgentOptions:
+    _ROUTED_ENV = {"CLAUDECODE": "", "ANTHROPIC_BASE_URL": "https://api.example"}
+
+    @pytest.fixture()
+    def routing(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+        """Stub the project-routing lookups; each stub records its calls."""
+        from unittest.mock import MagicMock
+
+        stubs = {
+            "sdk_env": MagicMock(side_effect=lambda *_a, **_k: dict(self._ROUTED_ENV)),
+            "resolve_default_model": MagicMock(return_value="main-model"),
+            "_resolve_project_spec": MagicMock(return_value=_RoutedSpec()),
+            "start_proxy": MagicMock(return_value=8123),
+        }
+        for name, stub in stubs.items():
+            monkeypatch.setattr(primitives, name, stub)
+        return stubs
+
+    @pytest.mark.usefixtures("routing")
+    def test_defaults_build_exactly_the_options_osprey_query_always_got(
+        self, tmp_path: Path
+    ) -> None:
+        from claude_agent_sdk import ClaudeAgentOptions
+
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=["Write"])
+
+        assert options == ClaudeAgentOptions(
+            model="main-model",
+            cwd=str(tmp_path),
+            permission_mode="bypassPermissions",
+            max_turns=25,
+            max_budget_usd=2.0,
+            env=dict(self._ROUTED_ENV),
+            setting_sources=["project"],
+            disallowed_tools=["Write"],
+        )
+
+    @pytest.mark.parametrize(
+        ("kwargs", "field_name", "expected"),
+        [
+            ({"allowed_tools": ("Read", "mcp__x__*")}, "allowed_tools", ["Read", "mcp__x__*"]),
+            ({"system_prompt": "be terse"}, "system_prompt", "be terse"),
+            ({"session_id": "sid-1"}, "session_id", "sid-1"),
+            ({"resume": "sid-0"}, "resume", "sid-0"),
+            ({"stderr": _stderr_sink}, "stderr", _stderr_sink),
+            ({"can_use_tool": _can_use_tool}, "can_use_tool", _can_use_tool),
+            (
+                {"mcp_servers": {"cf": {"command": "cf-mcp"}}},
+                "mcp_servers",
+                {"cf": {"command": "cf-mcp"}},
+            ),
+            ({"mcp_servers": Path("/p/.mcp.json")}, "mcp_servers", "/p/.mcp.json"),
+            ({"max_turns": None}, "max_turns", None),
+            ({"max_budget_usd": None}, "max_budget_usd", None),
+            ({"permission_mode": None}, "permission_mode", None),
+        ],
+        ids=[
+            "allowed_tools",
+            "system_prompt",
+            "session_id",
+            "resume",
+            "stderr",
+            "can_use_tool",
+            "mcp_servers-mapping",
+            "mcp_servers-path",
+            "max_turns-omitted",
+            "max_budget_usd-omitted",
+            "permission_mode-omitted",
+        ],
+    )
+    @pytest.mark.usefixtures("routing")
+    def test_each_option_reaches_the_agent_options(
+        self,
+        tmp_path: Path,
+        kwargs: dict[str, Any],
+        field_name: str,
+        expected: Any,
+    ) -> None:
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[], **kwargs)
+
+        assert getattr(options, field_name) == expected
+
+    @pytest.mark.usefixtures("routing")
+    def test_a_preset_system_prompt_reaches_the_agent_options(self, tmp_path: Path) -> None:
+        preset = {"type": "preset", "preset": "claude_code", "append": "Answer briefly."}
+
+        options = primitives.build_agent_options(
+            tmp_path,
+            disallowed_tools=[],
+            system_prompt=preset,  # type: ignore[arg-type]
+        )
+
+        assert options.system_prompt == preset
+
+    @pytest.mark.usefixtures("routing")
+    def test_pre_tool_use_hooks_become_one_unscoped_matcher(self, tmp_path: Path) -> None:
+        options = primitives.build_agent_options(
+            tmp_path, disallowed_tools=[], pre_tool_use_hooks=[_hook]
+        )
+
+        assert options.hooks is not None
+        assert list(options.hooks) == ["PreToolUse"]
+        [matcher] = options.hooks["PreToolUse"]
+        assert matcher.matcher is None
+        assert matcher.hooks == [_hook]
+
+    @pytest.mark.usefixtures("routing")
+    def test_no_hooks_leave_the_hooks_field_unset(self, tmp_path: Path) -> None:
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[])
+
+        assert options.hooks is None
+
+    def test_a_caller_env_is_used_verbatim_and_nothing_is_resolved(
+        self, tmp_path: Path, routing: dict[str, Any]
+    ) -> None:
+        env = {"ANTHROPIC_BASE_URL": "https://caller.example", "ANTHROPIC_MODEL": "m-x"}
+
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[], env=env)
+
+        assert options.env == env
+        assert options.env is not env
+        assert options.model is None
+        for name in ("sdk_env", "resolve_default_model", "_resolve_project_spec", "start_proxy"):
+            routing[name].assert_not_called()
+
+    def test_a_provider_override_routes_env_model_and_proxy_through_that_provider(
+        self, tmp_path: Path, routing: dict[str, Any]
+    ) -> None:
+        routing["sdk_env"].side_effect = lambda *_a, **_k: {
+            "CLAUDECODE": "",
+            "ANTHROPIC_BASE_URL": "https://gateway.example",
+            "ANTHROPIC_AUTH_TOKEN": "sk-gw",
+        }
+        routing["resolve_default_model"].return_value = "argo-main"
+        routing["_resolve_project_spec"].return_value = _RoutedSpec(
+            needs_proxy=True, provider="argo"
+        )
+
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[], provider="argo")
+
+        routing["sdk_env"].assert_called_once_with(tmp_path, provider="argo")
+        routing["resolve_default_model"].assert_called_once_with(tmp_path, provider="argo")
+        routing["_resolve_project_spec"].assert_called_once_with(tmp_path, provider="argo")
+        routing["start_proxy"].assert_called_once_with(
+            "https://gateway.example/v1",
+            "sk-gw",
+            provider="argo",
+            forward_headers=frozenset(),
+            supports_images=None,
+        )
+        assert options.model == "argo-main"
+        assert options.env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8123"
+
+    @pytest.mark.usefixtures("routing")
+    def test_env_and_provider_together_are_refused(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="env and provider are exclusive"):
+            primitives.build_agent_options(
+                tmp_path, disallowed_tools=[], env={"A": "1"}, provider="argo"
+            )
+
+    @pytest.mark.usefixtures("routing")
+    def test_session_id_and_resume_together_are_refused(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="session_id and resume are exclusive"):
+            primitives.build_agent_options(
+                tmp_path, disallowed_tools=[], session_id="new", resume="old"
+            )
+
+    def test_resolve_default_model_honours_a_provider_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[str | None] = []
+
+        def _spec(_project_dir: Path, *, provider: str | None = None) -> _RoutedSpec:
+            seen.append(provider)
+            return _RoutedSpec(provider=provider or "anthropic")
+
+        monkeypatch.setattr(primitives, "_resolve_project_spec", _spec)
+
+        assert primitives.resolve_default_model(tmp_path) == "anthropic-main"
+        assert primitives.resolve_default_model(tmp_path, provider="argo") == "argo-main"
+        assert seen == [None, "argo"]
