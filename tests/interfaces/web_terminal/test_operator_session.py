@@ -513,6 +513,40 @@ async def _started_session(client):
             await session.stop()
 
 
+class _OneTurnClient(FakeStreamClient):
+    """Answers each prompt with one text block and a terminal result."""
+
+    async def receive_response(self):
+        yield FakeAssistantMessage([FakeTextBlock("done")])
+        yield FakeResultMessage()
+
+
+class TestRunTurnReleasesAtTheTerminalEvent:
+    """The turn is free the moment its terminal event reaches the consumer.
+
+    A client that sees the final frame may send its next prompt before the
+    consumer resumes the generator; that prompt must find the guard released,
+    not a ``turn_in_progress`` left over from a turn that has already ended.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_follow_up_turn_can_start_as_the_terminal_event_is_seen(self):
+        async with _started_session(_OneTurnClient()) as session:
+            token = session.acquire_turn()
+            turn = session.run_turn("hi", token, timeout_s=5.0)
+            follow_up = None
+            async for event in turn:
+                if event["type"] == "result":
+                    follow_up = session.acquire_turn()
+                    break
+            await turn.aclose()
+
+            assert follow_up is not None
+            # The ended turn's own release cannot clear the follow-up's guard.
+            assert session.in_flight is True
+            assert session.release_turn(follow_up) is True
+
+
 class TestOperatorSessionCancel:
     @pytest.mark.asyncio
     async def test_idle_cancel_is_noop_no_interrupt(self):
