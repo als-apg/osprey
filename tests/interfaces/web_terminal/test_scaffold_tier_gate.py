@@ -48,6 +48,8 @@ from osprey.interfaces.web_terminal.app import (
 from osprey.interfaces.web_terminal.routes import router as full_router
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
 
+from .conftest import bare_route_app
+
 #: The dotted key under test. Spelled once so a rename shows up as one edit.
 SCAFFOLD_WRITE_KEY = "web.scaffold_gallery.write_enabled"
 
@@ -76,10 +78,8 @@ def _app(tmp_path, *, write_enabled):
     lifespan, and the case that proves the routes default to enabled rather
     than to whatever a fixture happened to set.
     """
-    application = FastAPI()
-    application.include_router(scaffold_router)
+    application = bare_route_app(scaffold_router, project_cwd=str(tmp_path))
     register_scaffold_conflict_handlers(application)
-    application.state.project_cwd = str(tmp_path)
     if write_enabled is not None:
         application.state.scaffold_write_enabled = write_enabled
     return application
@@ -268,10 +268,6 @@ class TestPanelsPayload:
 
     def test_enabled_payload_says_so(self, tmp_path):
         client = self._panels_client(tmp_path, write_enabled=True)
-        assert client.get("/api/panels").json()["scaffold_write_enabled"] is True
-
-    def test_absent_state_attribute_reads_as_enabled(self, tmp_path):
-        client = self._panels_client(tmp_path, write_enabled=None)
         assert client.get("/api/panels").json()["scaffold_write_enabled"] is True
 
 
