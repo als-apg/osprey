@@ -48,11 +48,14 @@ import { stampPanelLabels } from './panel-labels-fixture.mjs';
 // engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
 // default, which is exactly what the real getDockApi returns with no dockview
 // shell — every test that does not opt in keeps running in fallback mode.
-const { getDockApi, openTerminalPanel, closeTerminalPanel, dockState } = vi.hoisted(() => ({
+const {
+  getDockApi, openTerminalPanel, closeTerminalPanel, resetDockLayout, dockState,
+} = vi.hoisted(() => ({
   dockState: { api: /** @type {any} */ (null) },
   getDockApi: vi.fn(() => /** @type {any} */ (null)),
   openTerminalPanel: vi.fn(),
   closeTerminalPanel: vi.fn(),
+  resetDockLayout: vi.fn(),
 }));
 getDockApi.mockImplementation(() => dockState.api);
 
@@ -60,6 +63,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   getDockApi,
   openTerminalPanel,
   closeTerminalPanel,
+  resetDockLayout,
   // Pulled in by dock-iframe.js on the transitive import chain; a mock must
   // supply them or they resolve to undefined.
   defaultServiceWidth: () => 600,
@@ -2300,7 +2304,9 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Restart terminal', 'New session', 'Close terminal tile']);
+    expect(menuLabels()).toEqual([
+      'Restart terminal', 'New session', 'Reset layout', 'Close terminal tile',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('SESSION actions');
 
     /** @type {HTMLElement} */ (menuRow('Restart terminal')).click();
@@ -2322,18 +2328,26 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     rightClick(entry('terminal'));
     /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
+
+    // Reset puts the current view's default arrangement back.
+    rightClick(entry('terminal'));
+    /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
+    expect(resetDockLayout).toHaveBeenCalledTimes(1);
   });
 
-  test('simple mode keeps only the close row on the terminal menu', async () => {
+  test('simple mode keeps only the layout rows on the terminal menu', async () => {
     await bootWorkspace({ mode: 'simple' });
 
     // The tile hosts the operator console there, so the two PTY verbs would
-    // act on a surface the operator cannot see and are withheld; the tile
-    // itself closes exactly as in expert.
+    // act on a surface the operator cannot see and are withheld; the layout
+    // resets and the tile closes exactly as in expert.
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Close terminal tile']);
+    expect(menuLabels()).toEqual(['Reset layout', 'Close terminal tile']);
+    /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
+    expect(resetDockLayout).toHaveBeenCalledTimes(1);
+    rightClick(entry('terminal'));
     /** @type {HTMLElement} */ (menuRow('Close terminal tile')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
   });

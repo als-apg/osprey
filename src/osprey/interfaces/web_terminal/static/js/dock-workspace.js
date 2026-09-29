@@ -619,8 +619,7 @@ async function initPersistence(api) {
 
 /**
  * Clear the current view's stored layout and restore its default arrangement
- * live. Exposed for a "Reset layout" control (not yet bound to any chrome); the
- * browser suite exercises it as the canonical reset path.
+ * live — the "Reset layout" row of the terminal tile's menu.
  */
 export function resetDockLayout() {
   const mode = currentUiMode();
