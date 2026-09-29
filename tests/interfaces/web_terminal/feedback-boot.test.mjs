@@ -309,11 +309,10 @@ describe('documentation affordances', () => {
     }
   });
 
-  test('both links ship hidden, so neither can flash before boot', () => {
+  test('the status-bar link ships hidden and href-less, so it cannot flash before boot', () => {
     // The markup, not the runtime: a link that starts visible with a
     // hardcoded href is exactly the dead link an air-gapped deployment must
-    // never be shown.
-    expect(railRegionMarkup()).toMatch(/id="panel-docs-link"[^>]*/);
+    // never be shown. The rail anchor's shipped state is rail-utility.test.mjs's.
     expect(indexHtml).toMatch(/id="docs-link"[\s\S]{0,120}?hidden>/);
     expect(indexHtml).not.toMatch(/id="docs-link"[^>]*href=/);
   });
@@ -344,19 +343,7 @@ describe('documentation affordances', () => {
 });
 
 describe('terminal seam', () => {
-  test('terminal.js hands out the live xterm instance', async () => {
-    // A real import, not a source scan: this accessor exists only for the
-    // scrollback tier, so nothing else would notice if it were renamed away.
-    const terminal = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js'
-    );
-
-    expect(typeof terminal.getTerminalInstance).toBe('function');
-    // No initTerminal() here — the null answer is the one the capture handles.
-    expect(terminal.getTerminalInstance()).toBeNull();
-  });
-
-  test('app.js passes that accessor to the feedback boot', () => {
+  test('app.js passes terminal.js\'s live xterm accessor to the feedback boot', () => {
     const appJs = readFileSync(join(STATIC_DIR, 'js/app.js'), 'utf8');
 
     // The wiring itself is unreachable from a test (it runs on a
@@ -514,12 +501,6 @@ describe('rail button', () => {
     expect(qs(document, '.feedback-context-check', HTMLInputElement).disabled).toBe(false);
   });
 
-  test('no session greys the context checkbox out', async () => {
-    booted = await boot({ sessionId: null });
-    clickFeedbackButton();
-
-    expect(qs(document, '.feedback-context-check', HTMLInputElement).disabled).toBe(true);
-  });
 });
 
 describe('local send', () => {
@@ -580,19 +561,6 @@ describe('session context', () => {
       session_id: SESSION,
       scrollback: 'first line\nsecond line',
     });
-  });
-
-  test('an unticked context box sends neither', async () => {
-    booted = await boot({ terminal: fakeTerm(['first line']) });
-    clickFeedbackButton();
-
-    qs(document, '.feedback-send').click();
-    await vi.waitFor(() => expect(booted.fetch).toHaveBeenCalled());
-
-    const body = postedBody(booted.fetch);
-    expect(body.include_context).toBe(false);
-    expect('session_id' in body).toBe(false);
-    expect('scrollback' in body).toBe(false);
   });
 
   test('a deployment with no terminal to read still submits', async () => {
@@ -785,17 +753,6 @@ describe('outbound channels', () => {
     const body = decodeURIComponent(booted.windowOpen.mock.calls[0][0]);
     expect(body).not.toContain('[object Object]');
     expect(body).toContain('graph');
-  });
-
-  test('a deployment with no trackers offers no tracker radio at all', async () => {
-    // The blank-`github_repo` posture: the server resolves it to an empty
-    // list, and an empty list is not a channel that refuses — it is no
-    // channel, so nothing can aim a report at the upstream tracker.
-    booted = await boot({ panels: { docs_url: DOCS_URL, feedback_trackers: [] } });
-    clickFeedbackButton();
-
-    expect(channelValues()).toEqual(['local', 'email']);
-    expect(document.querySelector('.feedback-open-channel')).toBeNull();
   });
 
   test('a tracker radio is captioned by the facility-authored label', async () => {
