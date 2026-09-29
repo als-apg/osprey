@@ -33,6 +33,7 @@ from osprey.audit.envelope import POSTURE_SOURCE_APP
 from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, record_protected_refusal
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import load_project_manifest, recorded_claude_md_template
 from osprey.interfaces.web_terminal.ownership import (
     OwnershipMode,
     OwnershipStore,
@@ -152,7 +153,9 @@ class ScaffoldGalleryService:
 
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
-        self._registry = BuildArtifactCatalog.default()
+        self._registry = BuildArtifactCatalog.default(
+            claude_md_template=recorded_claude_md_template(load_project_manifest(project_dir))
+        )
         self._ownership = resolve_ownership(project_dir)
         self._manager: TemplateManager | None = None
         self._ctx: dict[str, Any] | None = None

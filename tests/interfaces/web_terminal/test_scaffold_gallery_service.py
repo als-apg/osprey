@@ -3849,3 +3849,49 @@ class TestNoDurableStoreIsSaidOutLoud:
             service._require_durable_config_surface()
 
         assert NO_DURABLE_STORE in str(excinfo.value)
+
+
+# ===========================================================================
+# CLAUDE.md persona
+# ===========================================================================
+
+
+def _record_persona(project_dir: Path, template: str) -> None:
+    """Stamp ``creation.claude_md_template`` into the render's manifest.
+
+    The key is the one ``generate_manifest`` writes for a non-default persona,
+    and the only thing the gallery reads to choose which persona ``CLAUDE.md``
+    is.
+    """
+    manifest_path = project_dir / ".osprey-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.setdefault("creation", {})["claude_md_template"] = template
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
+class TestInstructionsPersona:
+    """The gallery names and renders the persona the deployment records."""
+
+    @pytest.fixture()
+    def persona_service(self, project_dir):
+        _record_persona(project_dir, "CLAUDE.ariel.md.j2")
+        return ScaffoldGalleryService(project_dir)
+
+    def test_list_names_the_recorded_persona(self, persona_service):
+        by_name = {a["name"]: a for a in persona_service.list_artifacts()}
+        art = by_name["claude-md-ariel"]
+        catalog_art = BuildArtifactCatalog.default().get("claude-md-ariel")
+        assert catalog_art is not None
+        assert art["output_path"] == "CLAUDE.md"
+        assert art["category"] == "config"
+        assert art["description"] == catalog_art.description
+        assert "claude-md" not in by_name
+
+    def test_framework_content_renders_the_recorded_persona(self, persona_service):
+        content = persona_service.get_framework_content("claude-md-ariel")
+        assert "Logbook Research Assistant" in content
+
+    def test_an_unstamped_render_lists_the_default_persona(self, service):
+        names = {a["name"] for a in service.list_artifacts()}
+        assert "claude-md" in names
+        assert "claude-md-ariel" not in names
