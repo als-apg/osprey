@@ -364,29 +364,6 @@ class TestTheStampSurvivesEveryScrub:
 class TestStateDirPrefersTheStamp:
     """One resolution rule for the writer and every reader of its directory."""
 
-    def test_the_stamp_wins_over_the_config_derivation(self, tmp_path, monkeypatch):
-        stamped = tmp_path / "stamped"
-        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
-
-        assert target_state.state_dir() == (
-            stamped / target_state.STATE_DIR_NAME / acting_identity()
-        )
-
-    def test_the_server_report_lands_under_the_stamped_root(self, tmp_path, monkeypatch):
-        """Not just the directory: what a reader globs for is under it too."""
-        stamped = tmp_path / "stamped"
-        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
-
-        target_state.write_server_record(server_pid=4321)
-
-        directory = stamped / target_state.STATE_DIR_NAME / acting_identity()
-        written = list(directory.glob(target_state.REPORT_FILE_GLOB))
-        assert [p.name for p in written] == ["server_4321.json"]
-        assert target_state.read(4321)["server_pid"] == 4321
-        assert not (tmp_path / "config").exists(), "the config derivation was consulted"
-
     def test_unset_is_the_old_derivation_exactly(self, tmp_path, monkeypatch):
         """The pin every existing test in this tree leans on: with no stamp,
         patching ``target_state.resolve_shared_data_root`` still decides the

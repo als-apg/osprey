@@ -405,22 +405,6 @@ class TestNoRecordLocation:
 
         assert posture_store.recorded_posture() == {}
 
-    def test_the_next_read_answers_once_the_root_is_back(self, tmp_path, monkeypatch):
-        """Nothing is cached against a root that did not resolve."""
-        monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
-        monkeypatch.setattr(
-            posture_store, "resolve_shared_data_root", _raise_no_root, raising=False
-        )
-        posture_store.invalidate_cache()
-        assert posture_store.recorded_posture() == {}
-
-        root = tmp_path / "recovered"
-        state_dir_under(root).mkdir(parents=True)
-        write_control_context(root, posture={"standin": SANDBOX})
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-
-        assert recorded_posture() == {"standin": SANDBOX}
-
 
 def _raise_no_root() -> Path:
     raise RuntimeError("no project root")

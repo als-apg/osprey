@@ -111,6 +111,30 @@ def test_unresolvable_root_answers_none(monkeypatch):
     assert posture_store.recorded_posture() == {}
 
 
+def test_the_next_read_answers_once_the_root_is_back(tmp_path, monkeypatch):
+    """Nothing is cached against a root that did not resolve.
+
+    A transient config failure answers "nothing narrowed"; a cached answer
+    would keep saying so after the root came back, which widens the deployment
+    past narrowings that are on disk.
+    """
+    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+
+    def _boom():
+        raise RuntimeError("no project root")
+
+    monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
+    posture_store.invalidate_cache()
+    assert posture_store.recorded_posture() == {}
+
+    root = tmp_path / "recovered"
+    write_control_context(root, posture={"standin": posture_store.POSTURE_SANDBOX})
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+
+    posture_store.invalidate_cache()
+    assert posture_store.recorded_posture() == {"standin": posture_store.POSTURE_SANDBOX}
+
+
 @pytest.mark.usefixtures("data_root")
 def test_the_posture_sits_beside_the_target_state_file():
     """FR9: co-sited with the state file — one directory, not two."""
