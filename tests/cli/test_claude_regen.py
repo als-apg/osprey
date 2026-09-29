@@ -20,6 +20,7 @@ import yaml
 from osprey.agent_runner.provider_env import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import recorded_claude_md_template
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -56,6 +57,51 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
         artifacts=manager._effective_artifacts(bundle, kwargs.get("artifacts")),
     )
     return project
+
+
+_BUNDLED_PERSONAS = {
+    "CLAUDE.md.j2",
+    "CLAUDE.ariel.md.j2",
+    "CLAUDE.knowledge.md.j2",
+    "CLAUDE.channel-finder.md.j2",
+}
+
+
+def _persona_project(manager: TemplateManager, tmp_path: Path, name: str, recorded: str) -> Path:
+    """A project whose manifest records ``recorded`` as its ``CLAUDE.md`` persona.
+
+    Mirrors what a build does with a profile's ``claude_md_template:``: the key
+    goes into the render context and into the manifest context. The render uses
+    the recorded persona when it is bundled and the default otherwise, so a
+    project recorded with an unknown persona can still be built.
+    """
+    render = recorded if recorded in _BUNDLED_PERSONAS else "CLAUDE.md.j2"
+    project = manager.create_project(
+        project_name=name,
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical", "claude_md_template": render},
+        data_root=_bundle_data_root("control_assistant"),
+    )
+    manager.generate_manifest(
+        project,
+        name,
+        "control-assistant",
+        {"claude_md_template": recorded},
+        artifacts=manager._effective_artifacts("control_assistant", None),
+    )
+    return project
+
+
+def _own(project_dir: Path, name: str) -> None:
+    """Append ``name`` to ``scaffold.user_owned`` in the project's config.yml."""
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+    if "scaffold" not in config:
+        config["scaffold"] = {}
+    user_owned = config["scaffold"].get("user_owned", [])
+    user_owned.append(name)
+    config["scaffold"]["user_owned"] = user_owned
+    (project_dir / "config.yml").write_text(yaml.dump(config))
 
 
 # Hook modules that are shipped into .claude/hooks/ as importable support code
@@ -1565,6 +1611,85 @@ class TestUserOwned:
         if agents_dir.exists():
             agent_files = list(agents_dir.glob("*.md"))
             assert len(agent_files) > 0
+
+
+class TestInstructionsPersona:
+    """CLAUDE.md is the persona the manifest records, for render and ownership alike."""
+
+    _OPERATOR = "# Operator's instructions\n"
+
+    def test_the_recorded_persona_reads_back_from_the_manifest(self, tmp_path):
+        for manifest in (
+            None,
+            {},
+            {"creation": {}},
+            {"creation": "x"},
+            {"creation": {"claude_md_template": ""}},
+        ):
+            assert recorded_claude_md_template(manifest) == "CLAUDE.md.j2"
+        recorded = {"creation": {"claude_md_template": "CLAUDE.ariel.md.j2"}}
+        assert recorded_claude_md_template(recorded) == "CLAUDE.ariel.md.j2"
+
+        manager = TemplateManager()
+        project_dir = _persona_project(manager, tmp_path, "persona-ctx", "CLAUDE.ariel.md.j2")
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        assert ctx["claude_md_template"] == "CLAUDE.ariel.md.j2"
+
+    def test_regen_renders_the_recorded_persona(self, tmp_path):
+        manager = TemplateManager()
+        project_dir = _persona_project(manager, tmp_path, "persona-render", "CLAUDE.ariel.md.j2")
+        manager.regenerate_claude_code(project_dir)
+        text = (project_dir / "CLAUDE.md").read_text()
+        assert "Logbook Research Assistant" in text
+        assert "Control System Assistant" not in text
+
+    def test_regen_keeps_a_claimed_alternate_persona(self, tmp_path):
+        manager = TemplateManager()
+        project_dir = _persona_project(manager, tmp_path, "persona-owned", "CLAUDE.ariel.md.j2")
+        claude_md = project_dir / "CLAUDE.md"
+        claude_md.write_text(self._OPERATOR)
+        _own(project_dir, "claude-md-ariel")
+
+        manager.regenerate_claude_code(project_dir)
+
+        assert claude_md.read_text() == self._OPERATOR
+
+    def test_another_personas_name_does_not_own_claude_md(self, tmp_path):
+        manager = TemplateManager()
+        project_dir = _persona_project(manager, tmp_path, "persona-other", "CLAUDE.ariel.md.j2")
+        claude_md = project_dir / "CLAUDE.md"
+        claude_md.write_text(self._OPERATOR)
+        _own(project_dir, "claude-md")
+
+        manager.regenerate_claude_code(project_dir)
+
+        assert "Logbook Research Assistant" in claude_md.read_text()
+
+    def test_an_unknown_recorded_persona_fails_the_regen_by_name(self, tmp_path):
+        manager = TemplateManager()
+        project_dir = _persona_project(manager, tmp_path, "persona-unknown", "CLAUDE.nope.md.j2")
+        claude_md = project_dir / "CLAUDE.md"
+        before = claude_md.read_text()
+
+        with pytest.raises(ValueError, match=r"CLAUDE\.nope\.md\.j2"):
+            manager.regenerate_claude_code(project_dir)
+
+        assert claude_md.read_text() == before
+
+    def test_dry_run_keeps_a_claimed_alternate_persona(self, tmp_path):
+        manager = TemplateManager()
+        project_dir = _persona_project(manager, tmp_path, "persona-dry", "CLAUDE.ariel.md.j2")
+        claude_md = project_dir / "CLAUDE.md"
+        claude_md.write_text(self._OPERATOR)
+        _own(project_dir, "claude-md-ariel")
+        manager.regenerate_claude_code(project_dir)
+
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+
+        assert "CLAUDE.md" not in result["changed"]
 
 
 class TestSettingsJsonValidity:
