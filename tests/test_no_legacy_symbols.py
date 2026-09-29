@@ -116,12 +116,10 @@ LEGACY_SUBSTRINGS = (
     # thing a session's is retired. Nothing here was ever released, so the old
     # names are deleted rather than aliased.
     #
-    # The bare ``session_store`` and ``session_target`` substrings are
-    # deliberately NOT gated. ``web_auth.py``'s ``SessionStore`` is the
-    # browser's session store, a genuinely different thing, and
-    # ``test_posture_get_contract.py`` must spell ``session_target`` and
-    # ``session_target_label`` to assert the posture payload no longer answers
-    # them. Both would need the per-file exclusions this module refuses to have.
+    # The bare ``session_store`` substring is deliberately NOT gated:
+    # ``web_auth.py``'s ``SessionStore`` is the browser's session store, a
+    # genuinely different thing, and gating it would need the per-file
+    # exclusions this module refuses to have.
     "session_control_target",
     "osprey_connectors.session_store",
     "osprey_connectors/session_store",
