@@ -8,13 +8,15 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Ten parts of that file are gathered here — the facility this deployment
+Twelve parts of that file are gathered here — the facility this deployment
 belongs to (``facility:``), the diagnostic suite (``health:``), the browser
 UI's documentation and feedback settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), the full tool-call record (``audit.tool_call:``), the
-links from an answer to a logbook entry (``ariel.entry_url_template``), the
-signals the agent exports (``claude_code.telemetry.signals``), the Phoebus
+links from an answer to a logbook entry (``ariel.entry_url_template``), how
+much of each logbook entry the agent reads (``ariel.entry_text``), the
+signals the agent exports (``claude_code.telemetry.signals``), the collector
+token the agent sends (``claude_code.telemetry.auth.token_env``), the Phoebus
 display bridge (``phoebus:``), and the deployment keys that decide which
 container image each service runs and how ``${VAR}`` placeholders in the
 compose files are filled in. Settings that only
@@ -896,6 +898,34 @@ A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
 ARIEL server reads the key from the loaded configuration, so a change lands
 after ``osprey build`` and a restart of the stack.
+
+.. _config-ariel-entry-text:
+
+``ariel.entry_text:`` — how much of each entry the agent reads
+--------------------------------------------------------------
+
+``ariel.entry_text.listing_chars`` (default 500) sets how many characters of
+each entry's text ``keyword_search``, ``semantic_search``, ``hybrid_search``
+and ``browse`` return. ``ariel.entry_text.read_chars`` (default 1000) sets the
+same for ``entries_by_ids``. ``entry_get`` is never cut.
+
+.. code-block:: yaml
+
+   config:
+     ariel.entry_text.listing_chars: 800
+     ariel.entry_text.read_chars: 4000
+
+A cut entry keeps the start of its text in ``raw_text`` and adds
+``raw_text_truncated: true`` and ``raw_text_length``, the full length. An entry
+that fits carries neither field. The agent is told to call ``entry_get`` for
+the rest.
+
+Each value must be a positive whole number, and ``read_chars`` may not be below
+``listing_chars``. Anything else is refused when the configuration is parsed:
+the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
+keys are read at startup, so a change lands after ``osprey build`` and a
+restart. When choosing a value, the question is whether the part of an entry
+the agent needs routinely runs past 500 characters.
 
 .. _config-telemetry-signals:
 
