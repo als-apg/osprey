@@ -337,9 +337,10 @@ async def get_panels(request: Request):
     # so this payload must not advertise the panel in any form: the client reads
     # the flag to decide whether to render the Config tab at all, and a tab
     # rendered against a refusing surface is a dead control, not a gated one.
-    # Default True mirrors app.coerce_config_flag's default for the key — a
-    # literal here for the same routes->app import-cycle reason as ui_mode.
-    config_panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+    # An app that never resolved the key reads as disabled, the same fail-closed
+    # posture the Config routes' gate takes; a literal here for the same
+    # routes->app import-cycle reason as ui_mode.
+    config_panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", False))
     # Whether the scaffold gallery's write surface is live
     # (web.scaffold_gallery.write_enabled). `false` means every write/delete
     # verb under /api/scaffold answers 403, so the browser must stop painting
