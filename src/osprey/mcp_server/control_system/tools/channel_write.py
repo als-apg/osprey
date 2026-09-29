@@ -123,6 +123,7 @@ from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import control_context
+from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
@@ -785,14 +786,15 @@ async def channel_write(
                     "violation_type": getattr(exc, "violation_type", "unknown"),
                     "reason": getattr(exc, "violation_reason", str(exc)),
                 }
-                if getattr(exc, "min_value", None) is not None:
-                    violation["min_value"] = exc.min_value
-                if getattr(exc, "max_value", None) is not None:
-                    violation["max_value"] = exc.max_value
-                if getattr(exc, "max_step", None) is not None:
-                    violation["max_step"] = exc.max_step
-                if getattr(exc, "current_value", None) is not None:
-                    violation["current_value"] = exc.current_value
+                if isinstance(exc, ChannelLimitsViolationError):
+                    if exc.min_value is not None:
+                        violation["min_value"] = exc.min_value
+                    if exc.max_value is not None:
+                        violation["max_value"] = exc.max_value
+                    if exc.max_step is not None:
+                        violation["max_step"] = exc.max_step
+                    if exc.current_value is not None:
+                        violation["current_value"] = exc.current_value
                 violations.append(violation)
 
     if full_record:

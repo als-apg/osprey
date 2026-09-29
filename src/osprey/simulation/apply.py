@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
@@ -49,6 +49,8 @@ if TYPE_CHECKING:
     from osprey.simulation.machine import BpmErrorSpec, Scenario, ScenarioLogEntry
 
 logger = get_logger("simulation_apply")
+
+_T = TypeVar("_T")
 
 
 def _config_file(project_dir: Path) -> Path:
@@ -90,7 +92,7 @@ def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Pat
     return machine_path
 
 
-def _run_coro(make_coro: Callable[[], Coroutine]):
+def _run_coro(make_coro: Callable[[], Coroutine[Any, Any, _T]]) -> _T:
     """Run an async coroutine to completion from this sync function.
 
     ``apply_scenarios`` is a sync API (the CLI calls it directly), but it is also
