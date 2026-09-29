@@ -2,10 +2,14 @@
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
+
+if TYPE_CHECKING:
+    from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_read")
 
@@ -464,7 +468,7 @@ def _save_image_reading(store, address: str, value, summary: dict, np, png_bytes
     return handle
 
 
-def _agent_path_for(store, entry) -> str | None:
+def _agent_path_for(store: "ArtifactStore", entry: "ArtifactEntry") -> str | None:
     """Agent-facing path of the entry's primary file, or None when unresolvable.
 
     Reported the way the rest of the repo reports file paths - relative to the

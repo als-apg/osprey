@@ -325,7 +325,7 @@ class _AttributedReader:
     :class:`ConnectionError` carries it.
     """
 
-    def __init__(self, stream: Any) -> None:
+    def __init__(self, stream: asyncio.StreamReader) -> None:
         self._stream = stream
         self._reason: str | None = None
 
@@ -1440,9 +1440,9 @@ class ConnectorHostManager:
             candidate = await self._launch(target, derivation, probe_channel, first_child=not probe)
         except SwitchError as exc:
             read_derivation = self._read_role_fallback(derivation, exc)
-            if read_derivation is None:
-                raise
             dead = derivation.selected_endpoint()
+            if read_derivation is None or dead is None:
+                raise
             logger.warning(
                 "The %r gateway for target %r at %s:%s failed its readiness probe; "
                 "retrying through the %r gateway so the session can reach the target. "
