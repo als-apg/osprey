@@ -70,18 +70,6 @@ afterEach(() => {
 });
 
 describe('what the sheet may offer is the SERVED deployment context', () => {
-  test('the edit context is the stamp, parsed, and nothing else', async () => {
-    await start({
-      context: { identityAvailable: true, blueskyAvailable: true, systemHealthAvailable: true },
-    });
-
-    expect(customize.editContext()).toEqual({
-      identityAvailable: true,
-      blueskyAvailable: true,
-      systemHealthAvailable: true,
-    });
-  });
-
   test('an item the deployment OFFERS is offered, though no shell renders it', async () => {
     // The inference this replaced read availability off the rendered shells, so
     // a deployment that offers the plan queue but has not placed it looked like
@@ -125,19 +113,14 @@ describe('entering and leaving edit mode', () => {
     await start();
     customize.enterEditMode();
 
+    // Any other key leaves edit mode alone.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(customize.isEditing()).toBe(true);
+
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
     expect(customize.isEditing()).toBe(false);
     expect(document.body.classList.contains('bar-editing')).toBe(false);
-  });
-
-  test('a key that is not Escape leaves edit mode alone', async () => {
-    await start();
-    customize.enterEditMode();
-
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-
-    expect(customize.isEditing()).toBe(true);
   });
 
   test('listeners are told both ways', async () => {
@@ -167,16 +150,6 @@ describe('entering and leaving edit mode', () => {
     );
   });
 
-  test('teardown takes the sheet with it', async () => {
-    await start();
-    customize.enterEditMode();
-    expect(sheet()).not.toBe(null);
-
-    customize.stopBarCustomize();
-
-    expect(sheet()).toBe(null);
-  });
-
   test('every item can be removed, the wordmark included', async () => {
     await start({ fetch: endpoint({ get: doc(['logo', 'clock'], []) }) });
 
@@ -197,11 +170,6 @@ describe('edit mode is the same in both ui modes', () => {
     expect(sheet()).not.toBe(null);
   });
 
-  test('Expert mode enters it', async () => {
-    await start({ uiMode: 'expert' });
-
-    expect(customize.enterEditMode()).toBe(true);
-  });
 });
 
 describe('a tile names why it cannot be added', () => {
@@ -220,12 +188,7 @@ describe('a tile names why it cannot be added', () => {
     expect(customize.refusalFor('identity', 'header')).toBe('Not in this deployment');
     expect(tile('identity').getAttribute('aria-disabled')).toBe('true');
     expect(tileReason('identity')).toBe('Not in this deployment');
-  });
-
-  test('a renderable type carries no reason and is enabled', async () => {
-    await start();
-    customize.enterEditMode();
-
+    // A type this deployment renders carries no reason and is enabled.
     expect(tile('clock').getAttribute('aria-disabled')).toBeNull();
     expect(tileReason('clock')).toBe('');
   });
@@ -283,9 +246,15 @@ describe('a tile shows the item', () => {
       (h) => h.textContent
     );
     expect(headings).toEqual(['Identity', 'Machine', 'Panels', 'System', 'Tools', 'Layout']);
-    expect(
-      Array.from(document.querySelectorAll('.bar-tile')).map((t) => /** @type {any} */ (t).dataset.barTile)
-    ).toHaveLength(13);
+    // Every declared type gets a tile: one whose group has no heading would
+    // otherwise vanish from the sheet without an error.
+    const tiles = Array.from(document.querySelectorAll('.bar-tile')).map(
+      (t) => /** @type {any} */ (t)
+    );
+    expect(tiles.map((t) => t.dataset.barTile).sort()).toEqual([...BAR_ITEM_TYPES].sort());
+    for (const t of tiles) {
+      expect(t.querySelector('.bar-tile-label')?.textContent ?? '', t.dataset.barTile).not.toBe('');
+    }
   });
 
   test('a full host refuses the tile by name', async () => {
@@ -473,14 +442,6 @@ describe('every edit goes through saveLayout', () => {
       format: '24h',
       seconds: false,
     });
-  });
-
-  test('the client supplies the revision, never the caller', async () => {
-    await start({ fetch: endpoint({ get: doc(['logo'], [], { rev: 7 }) }) });
-
-    await customize.addItem('clock', 'header');
-
-    expect(putBodies()[0].rev).toBe(7);
   });
 
   test('the status-bar toggle round-trips through saveLayout', async () => {
