@@ -17,7 +17,8 @@ A switch never begins by giving up what works. The order is fixed:
 2. spawn child **B** and read its post-connect report;
 3. **verify** that report against the derivation (:mod:`target_eligibility`);
 4. **probe** B: a real read of the destination's ``probe_channel``, in B, over
-   the control system B just connected to;
+   the control system B just connected to, bounded by
+   ``control_system.target_switch.probe_timeout_s`` (default 5);
 5. only then touch child **A**: refuse new work on it, drain it for at most
    ``control_system.target_switch.drain_timeout_s`` (default 5), kill it;
 6. take the generation the record's owner minted for this move, publish the
@@ -104,6 +105,7 @@ import asyncio
 import contextlib
 import copy
 import logging
+import math
 import os
 import signal
 import subprocess
@@ -185,9 +187,11 @@ CHILD_MODULE = "osprey_connectors.ipc.host"
 DRAIN_TIMEOUT_KEY = "drain_timeout_s"
 DEFAULT_DRAIN_TIMEOUT_S = 5.0
 
-#: Bound on the readiness probe run against a freshly spawned child. Not a
-#: config key: it is a property of the switch, not of a deployment, and the
-#: deployment's own tuning surface is the drain timeout above.
+#: ``control_system.target_switch.probe_timeout_s`` and its default: the bound
+#: on the readiness probe run against a freshly spawned child. The deployment
+#: owns it beside the drain timeout, because how long a first read through a
+#: gateway takes is a fact of the facility's network.
+PROBE_TIMEOUT_KEY = "probe_timeout_s"
 DEFAULT_PROBE_TIMEOUT_S = 5.0
 
 #: Bound on "process started and answered its init frame". Generous, because it
@@ -828,7 +832,7 @@ class ConnectorHostManager:
             to the child verbatim, so parent and child cannot disagree about
             what was configured.
         drain_timeout_s: Overrides ``control_system.target_switch.drain_timeout_s``.
-        probe_timeout_s: Bound on the readiness probe.
+        probe_timeout_s: Overrides ``control_system.target_switch.probe_timeout_s``.
         spawn_timeout_s: Bound on "spawned and answered its init frame".
         python_executable: Interpreter used for the child; defaults to this one.
     """
@@ -838,7 +842,7 @@ class ConnectorHostManager:
         config: MCPServerConfig,
         *,
         drain_timeout_s: float | None = None,
-        probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_S,
+        probe_timeout_s: float | None = None,
         spawn_timeout_s: float = DEFAULT_SPAWN_TIMEOUT_S,
         terminate_grace_s: float = TERMINATE_GRACE_S,
         python_executable: str | None = None,
@@ -859,7 +863,7 @@ class ConnectorHostManager:
         #: constant computed at start.
         self._display: dict[str, dict[str, Any]] | None = None
         self._drain_override = drain_timeout_s
-        self._probe_timeout_s = probe_timeout_s
+        self._probe_override = probe_timeout_s
         self._spawn_timeout_s = spawn_timeout_s
         self._terminate_grace_s = terminate_grace_s
         self._python = python_executable or sys.executable
@@ -949,7 +953,7 @@ class ConnectorHostManager:
         """
         return target_state.applying_bound_s(
             spawn_timeout_s=self._spawn_timeout_s,
-            probe_timeout_s=self._probe_timeout_s,
+            probe_timeout_s=self._probe_timeout(),
             drain_timeout_s=self._drain_timeout(),
             fallback_retry=fallback_retry,
         )
@@ -1797,11 +1801,12 @@ class ConnectorHostManager:
                     verification=verification,
                 )
             if probe_channel:
+                probe_timeout = self._probe_timeout()
                 try:
                     await channel.request(
                         "spawn_probe",
-                        {"channel": probe_channel, "timeout": self._probe_timeout_s},
-                        self._probe_timeout_s + 1.0,
+                        {"channel": probe_channel, "timeout": probe_timeout},
+                        probe_timeout + 1.0,
                         STAGE_PROBE,
                     )
                 except SwitchError as exc:
@@ -1962,12 +1967,16 @@ class ConnectorHostManager:
 
     # -- config ------------------------------------------------------------
 
+    def _target_switch_value(self, key: str) -> Any:
+        """The ``control_system.target_switch`` leaf *key*, or ``None`` when unset."""
+        section = self._config.control_system
+        switch = section.get("target_switch") if isinstance(section, dict) else None
+        return switch.get(key) if isinstance(switch, dict) else None
+
     def _drain_timeout(self) -> float:
         if self._drain_override is not None:
             return max(float(self._drain_override), 0.0)
-        section = self._config.control_system
-        switch = section.get("target_switch") if isinstance(section, dict) else None
-        value = switch.get(DRAIN_TIMEOUT_KEY) if isinstance(switch, dict) else None
+        value = self._target_switch_value(DRAIN_TIMEOUT_KEY)
         if value is None:
             return DEFAULT_DRAIN_TIMEOUT_S
         try:
@@ -1980,6 +1989,41 @@ class ConnectorHostManager:
                 DEFAULT_DRAIN_TIMEOUT_S,
             )
             return DEFAULT_DRAIN_TIMEOUT_S
+
+    def _probe_timeout(self) -> float:
+        """The readiness-probe bound: the override, then the config key, then the default.
+
+        Unlike the drain, a value that is not positive is not clamped to zero:
+        the child refuses a probe bound that is not positive, so zero would make
+        every probed switch fail. It is logged and replaced by the default.
+        """
+        if self._probe_override is not None:
+            return float(self._probe_override)
+        value = self._target_switch_value(PROBE_TIMEOUT_KEY)
+        if value is None:
+            return DEFAULT_PROBE_TIMEOUT_S
+        seconds = _positive_seconds(value)
+        if seconds is not None:
+            return seconds
+        logger.warning(
+            "control_system.target_switch.%s is %r, which is not a positive number of seconds;"
+            " using %ss",
+            PROBE_TIMEOUT_KEY,
+            value,
+            DEFAULT_PROBE_TIMEOUT_S,
+        )
+        return DEFAULT_PROBE_TIMEOUT_S
+
+
+def _positive_seconds(value: Any) -> float | None:
+    """*value* as a positive, finite number of seconds, or ``None`` when it is not one."""
+    if isinstance(value, bool):
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if math.isfinite(seconds) and seconds > 0 else None
 
 
 def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:

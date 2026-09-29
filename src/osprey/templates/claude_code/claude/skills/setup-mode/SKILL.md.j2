@@ -140,6 +140,7 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 | `approval.default_policy` / `approval.tools.<tool>` | Hot | Per-tool approval policy; hooks re-read on each call |
 | `control_system.type` | Cold | Requires MCP server restart. To change target for this session, use `control_target_set` (run-time switch, asks for approval) — do not rebuild to switch target |
 | `control_system.target_switch.drain_timeout_s` | Cold | Read when a switch drains in-flight work, from the config the server cached at launch — requires MCP server restart |
+| `control_system.target_switch.probe_timeout_s` | Cold | Read when a switch probes the new connection, from the config the server cached at launch — requires MCP server restart |
 | `control_system.target_switch.probe_interval_s` | Cold | The target prober reads its interval once at server start — requires MCP server restart |
 | `control_system.target_switch.live_gateway_acknowledged` | Cold | The operator's acknowledgment that the named live gateway is the real machine — requires MCP server restart before the live target is switchable |
 | `control_system.connector.<target>.probe_channel` | Cold | Like every other `control_system.connector.*` key: read when the connector is built — requires MCP server restart |
