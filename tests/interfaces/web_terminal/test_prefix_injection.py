@@ -25,16 +25,20 @@ shape asserted here is load-bearing.
 
 from __future__ import annotations
 
-import os
+import json
+import re
 import string
+import uuid
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 from osprey.interfaces.web_terminal.app import compute_url_prefix, create_app
+from tests.interfaces.web_terminal._fakes import FakePtySession
 
 # (page id, request path) -- both served HTML documents in scope.
 _PAGES = [
@@ -62,14 +66,9 @@ def workspace_dir(tmp_path):
 class TestComputeUrlPrefix:
     """Unit-level coverage of the shared prefix helper."""
 
-    def test_set_from_env(self):
-        with patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}):
-            assert compute_url_prefix() == "/u/alice"
-
     def test_empty_when_unset(self):
-        with patch.dict("os.environ", {}, clear=False):
-            os.environ.pop("OSPREY_TERMINAL_USER", None)
-            assert compute_url_prefix() == ""
+        # The area conftest unsets OSPREY_TERMINAL_USER for every test.
+        assert compute_url_prefix() == ""
 
     def test_empty_when_blank(self):
         with patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "   "}):
@@ -158,7 +157,7 @@ class TestAMountMustBeSpellable:
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "renée"}),
             pytest.raises(ValueError, match="OSPREY_TERMINAL_USER"),
         ):
-            create_app(shell_command="echo")
+            create_app(shell_command=["echo"])
 
 
 class TestPrefixInjection:
@@ -176,7 +175,7 @@ class TestPrefixInjection:
             ),
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
         ):
-            app = create_app(shell_command="echo")
+            app = create_app(shell_command=["echo"])
             with TestClient(app) as c:
                 resp = c.get(path)
                 assert resp.status_code == 200
@@ -192,6 +191,9 @@ class TestPrefixInjection:
                 if first_module_idx != -1:
                     assert prefix_idx < first_module_idx
                     assert importmap_idx < first_module_idx
+
+                # Relative URLs resolve against the page, never a <base>.
+                assert "<base" not in body.lower()
 
                 # root_path must stay empty even with a prefix configured: see
                 # test_static_mount_served_on_bare_path_when_prefix_set below.
@@ -217,27 +219,15 @@ class TestPrefixInjection:
             ),
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
         ):
-            app = create_app(shell_command="echo")
+            app = create_app(shell_command=["echo"])
             assert app.root_path == ""  # never the prefix — see create_app note
             with TestClient(app) as c:
                 # The bare paths nginx actually forwards must serve the assets.
                 assert c.get("/static/js/app.js").status_code == 200
                 assert c.get("/design-system/js/theme-boot.js").status_code == 200
-
-    def test_no_base_href_introduced(self, workspace_dir):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
-            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as c:
-                for _, path in _PAGES:
-                    body = c.get(path).text
-                    assert "<base" not in body.lower()
+                # The literal prefixed form is never tolerated: nginx does not send
+                # it, and a route that answered it would mask the bare-path fix.
+                assert c.get("/u/alice/static/js/app.js").status_code == 404
 
 
 class TestHeadAssetAndEntrypointPrefixing:
@@ -255,7 +245,7 @@ class TestHeadAssetAndEntrypointPrefixing:
             ),
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
         ):
-            app = create_app(shell_command="echo")
+            app = create_app(shell_command=["echo"])
             with TestClient(app) as c:
                 body = c.get(path).text
 
@@ -271,6 +261,11 @@ class TestHeadAssetAndEntrypointPrefixing:
                     assert f'src="/u/alice{entrypoint}"' in body
                     assert f'src="{entrypoint}"' not in body
 
+                # Every root-absolute asset link goes through ``prefixed()``, the
+                # stylesheets included, not only the three named above.
+                unprefixed = re.findall(r'(?:href|src)="/(?:static|design-system)/[^"]*"', body)
+                assert unprefixed == []
+
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_empty_prefix_head_assets_and_entrypoint_unchanged(self, workspace_dir, page_id, path):
         cfg = {"watch_dir": str(workspace_dir)}
@@ -278,7 +273,7 @@ class TestHeadAssetAndEntrypointPrefixing:
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value=cfg,
         ):
-            app = create_app(shell_command="echo")
+            app = create_app(shell_command=["echo"])
             with TestClient(app) as c:
                 body = c.get(path).text
 
@@ -302,7 +297,7 @@ class TestPrefixEmptyWhenUnset:
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value=cfg,
         ):
-            app = create_app(shell_command="echo")
+            app = create_app(shell_command=["echo"])
             with TestClient(app) as c:
                 resp = c.get(path)
                 assert resp.status_code == 200
@@ -314,3 +309,64 @@ class TestPrefixEmptyWhenUnset:
                 assert "<base" not in body.lower()
 
                 assert app.root_path == ""
+
+
+# ---- The websocket route under a prefix ----
+
+
+def _recv_json(ws, msg_type: str, max_frames: int = 30) -> dict:
+    """Receive frames until a JSON message of ``msg_type`` arrives."""
+    for _ in range(max_frames):
+        raw = ws.receive()
+        if "text" in raw:
+            data = json.loads(raw["text"])
+            if data.get("type") == msg_type:
+                return data
+    raise AssertionError(f"'{msg_type}' not received within {max_frames} frames")
+
+
+@pytest.fixture
+def ws_client(workspace_dir, tmp_path, monkeypatch):
+    """The app under ``/u/alice``, with no PTY or transcript poller behind it.
+
+    ``mode=resume`` with an id that has no transcript on disk is answered
+    ``transcript_missing`` before any spawn, so the frame the handshake test
+    waits for always arrives and nothing is launched.
+    """
+    monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
+    with (
+        patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"watch_dir": str(workspace_dir)},
+        ),
+        patch(
+            "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session",
+            return_value=None,
+        ),
+    ):
+        app = create_app(shell_command=["echo"], project_dir=str(tmp_path))
+        with TestClient(app) as client:
+            app.state.pty_registry._spawn_session = lambda *_a, **_kw: FakePtySession()
+            yield client
+
+
+class TestWebSocketUnderPrefix:
+    """``/ws/terminal`` is a plain route, not a Mount: it is registered at its
+    bare path only, which is the path nginx forwards after stripping the prefix."""
+
+    def test_bare_ws_path_completes_handshake_under_prefix(self, ws_client):
+        session_id = str(uuid.uuid4())
+        url = f"/ws/terminal?session_id={session_id}&mode=resume"
+        with ws_client.websocket_connect(url) as ws:
+            ws.send_json({"type": "resize", "cols": 80, "rows": 24})
+            msg = _recv_json(ws, "transcript_missing")
+            assert msg["session_id"] == session_id
+
+    def test_literal_prefixed_ws_path_is_not_routed(self, ws_client):
+        """The router closes an unmatched websocket with a normal close (1000);
+        an auth or origin refusal would surface differently."""
+        url = f"/u/alice/ws/terminal?session_id={uuid.uuid4()}&mode=resume"
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with ws_client.websocket_connect(url):
+                pass
+        assert closed.value.code == 1000
