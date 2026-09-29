@@ -1,7 +1,9 @@
 """OSPREY headless agent-run primitives.
 
-Provides the shared dataclasses, env helpers, and MCP readiness barrier used
-by both the ``osprey query`` CLI command and the SDK-based E2E test suite.
+The Claude adapter: option building, provider routing, the MCP readiness
+barrier, single-prompt and multi-turn runs, and the plain event records that
+report agent output. A caller outside this package reads those records and
+never handles an agent SDK type.
 
 Public surface::
 
@@ -15,6 +17,7 @@ Public surface::
         expected_mcp_servers,
         await_mcp_ready,
         run_query,
+        stream_query,
         agent_session,
         run_turns,
         AgentSession,
@@ -59,7 +62,7 @@ from osprey.agent_runner.primitives import (
     resolve_default_model,
     sdk_env,
 )
-from osprey.agent_runner.runner import run_query
+from osprey.agent_runner.runner import run_query, stream_query
 from osprey.agent_runner.session import (
     AgentSession,
     AgentSessionBudgetExceeded,
@@ -103,6 +106,7 @@ __all__ = [
     "McpNotReadyError",
     # runner (single-turn)
     "run_query",
+    "stream_query",
     # session (multi-turn)
     "agent_session",
     "run_turns",
