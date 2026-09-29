@@ -668,7 +668,7 @@ def _attributed(record: dict[str, Any], owner: str | None) -> dict[str, Any]:
 
 
 async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
-    queue = asyncio.Queue()
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     _queues[run_id] = queue
 
     logger.info(
