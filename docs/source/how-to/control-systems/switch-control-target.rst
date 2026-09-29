@@ -358,11 +358,14 @@ unreachable — and the roster says so by name. Naming the live machine's probe
 channel is therefore a deliberate act by whoever knows the facility — the same
 posture as the acknowledgment key above.
 
-Two more keys bound the switch itself, both under
-``control_system.target_switch:``: ``drain_timeout_s`` (default 5) is how long
-work already in flight gets to finish on the old target before it is torn down
-regardless, and ``probe_interval_s`` (default 30) is how often the background
-reachability check runs.
+Three more keys bound the switch itself, all under
+``control_system.target_switch:``: ``probe_timeout_s`` (default 5) is how long
+the new connection gets to read the target's ``probe_channel`` before the
+switch is refused and the deployment stays where it was — raise it where a
+first read through your gateway takes longer; ``drain_timeout_s`` (default 5)
+is how long work already in flight gets to finish on the old target before it
+is torn down regardless; and ``probe_interval_s`` (default 30) is how often the
+background reachability check runs.
 
 .. note::
 
