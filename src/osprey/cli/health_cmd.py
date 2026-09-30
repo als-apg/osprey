@@ -97,7 +97,7 @@ def _quiet_run_logs(*, as_json: bool, verbose: bool) -> Iterator[None]:
             logging.getLogger(name).setLevel(level)
 
 
-def _resolve_anchors(project_path: Path) -> tuple[Path, Path, Path]:
+def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
     """Resolve the config, repo-root and ``.env`` anchors for a stance directory.
 
     Under the four-zone layout no single directory answers the whole question:

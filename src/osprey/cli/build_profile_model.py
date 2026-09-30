@@ -1212,7 +1212,7 @@ class BuildProfile:
         # dropped entry seeds no ports, which is what an entry that cannot be
         # built deserves.
         for user in normalize_users(users_raw if isinstance(users_raw, list) else [], strict=False):
-            index = user.get("index")
+            index = user["index"]
             try:
                 allocation = allocate_ports(base_ports, index)
             except ValueError:

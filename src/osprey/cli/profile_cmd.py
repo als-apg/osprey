@@ -1838,11 +1838,11 @@ def _materialize_profile_directory(
         if FACILITY_RULE_NAME in resolved.rules:
             rules_dir = target / FACILITY_RULE_DIR
             fresh = not rules_dir.exists()
-            written = ensure_profile_facility_rule(
+            moved = ensure_profile_facility_rule(
                 target, build_dir=None, enabled_agents=resolved.agents
             )
-            if written:
-                logger.debug("  %s", written)
+            if moved:
+                logger.debug("  %s", moved)
                 if fresh:
                     # This run created the directory, so this run owns it: a
                     # failure below removes it again rather than leaving half a

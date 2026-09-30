@@ -661,6 +661,7 @@ def generate(
     if do_validate:
         console.print("\nValidating generated databases...", style=Styles.INFO)
 
+        from osprey.services.channel_finder.core.base_database import BaseDatabase
         from osprey.services.channel_finder.databases.flat import ChannelDatabase
         from osprey.services.channel_finder.databases.hierarchical import (
             HierarchicalChannelDatabase,
@@ -669,7 +670,7 @@ def generate(
             MiddleLayerDatabase,
         )
 
-        validators = {
+        validators: dict[str, type[BaseDatabase]] = {
             "in_context.json": ChannelDatabase,
             "hierarchical.json": HierarchicalChannelDatabase,
             "middle_layer.json": MiddleLayerDatabase,
