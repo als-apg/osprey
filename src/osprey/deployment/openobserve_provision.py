@@ -50,13 +50,15 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 
-from osprey.build.claude_code_telemetry import openobserve_published_port
+from osprey.build.claude_code_telemetry import OPENOBSERVE_LISTEN_PORT, openobserve_published_port
 from osprey.cli import output
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, MutableMapping
+    from collections.abc import Iterable, Mapping, MutableMapping
+
+    from osprey.deployment.host_ports import HostPortBinding
 
 logger = get_logger("deployment.openobserve")
 
@@ -199,6 +201,63 @@ def store_base_url(config: Mapping[str, Any]) -> str:
     """
     bind = (config.get("deployment") or {}).get("bind_address", DEFAULT_BIND_ADDRESS)
     return f"http://{dial_address(bind)}:{openobserve_published_port(config)}"
+
+
+class PublishMismatch(NamedTuple):
+    """The one disagreement this module's start check refuses.
+
+    :param configured: The port every reader of the store's address dials.
+    :param published: The host port the compose file publishes the store's
+        listen port on.
+    :param compose_file: The compose file that publishes it there.
+    """
+
+    configured: int
+    published: int
+    compose_file: str
+
+
+def store_publish_mismatch(
+    config: Mapping[str, Any], bindings: Iterable[HostPortBinding]
+) -> PublishMismatch | None:
+    """Where the compose file publishes the store somewhere its clients do not dial.
+
+    The config is the side that wins. The compose binding is rendered from
+    ``services.openobserve.port``, and the agent's exporter, ``osprey health``,
+    the reach projection into attached renders and this provisioner all read
+    that key, so a compose file that says otherwise is the one out of step.
+
+    Only bindings of the store's listen port are compared: an extra port
+    published on the store neither satisfies nor trips the check. A store that
+    publishes no listen-port binding has no second address to disagree with.
+
+    Args:
+        config: The rendered project config.
+        bindings: The published host-port bindings of the compose files this
+            start runs (:func:`~osprey.deployment.host_ports.parse_host_port_bindings`).
+
+    Returns:
+        The mismatch, or ``None`` when the store is not deployed, publishes no
+        listen-port binding, or publishes one on the configured port.
+
+    Raises:
+        ValueError: The configured port cannot be read (see
+            :func:`~osprey.build.claude_code_telemetry.openobserve_published_port`).
+    """
+    if not store_deployed(config):
+        return None
+    listen = [
+        binding
+        for binding in bindings
+        if binding.service == SERVICE and binding.container_port == OPENOBSERVE_LISTEN_PORT
+    ]
+    if not listen:
+        return None
+    configured = openobserve_published_port(config)
+    if any(binding.host_port == configured for binding in listen):
+        return None
+    first = listen[0]
+    return PublishMismatch(configured, first.host_port, first.compose_file)
 
 
 def store_org(config: Mapping[str, Any]) -> str:

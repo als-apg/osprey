@@ -4605,6 +4605,19 @@ def test_deploy_up_removes_orphan_terminals_before_the_host_port_preflight(
     assert "ariel" in out
 
 
+def test_deploy_up_checks_the_store_port_right_after_the_host_port_preflight(monkeypatch, tmp_path):
+    order: list[str] = []
+    _record_web_deploy(monkeypatch, tmp_path, order, {"enabled": True, "image_source": "local"})
+    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
+    monkeypatch.setattr(
+        container_lifecycle, "_preflight_store_address", lambda config, files: order.append("store")
+    )
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert order == ["ports", "store", "web_up"]
+
+
 def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_path):
     order: list[str] = []
     monkeypatch.chdir(tmp_path)
