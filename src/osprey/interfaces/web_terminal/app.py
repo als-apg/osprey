@@ -1134,13 +1134,13 @@ class PrivilegeGates:
             (``/api/config`` and ``/api/claude-setup``) is live.
         scaffold_write_enabled: Whether the scaffold gallery's write and delete
             routes under ``/api/scaffold`` are live.
-        unreadable_config: The resolved config file that exists but could not
-            be read, or ``None``.
+        config_unreadable_path: The resolved config file that exists but
+            could not be read, or ``None``.
     """
 
     config_panel_enabled: bool
     scaffold_write_enabled: bool
-    unreadable_config: Path | None = None
+    config_unreadable_path: Path | None = None
 
 
 def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
@@ -2254,7 +2254,7 @@ def _create_lifespan(
         gates = resolve_privilege_gates(resolved_config_path)
         app.state.config_panel_enabled = gates.config_panel_enabled
         app.state.scaffold_write_enabled = gates.scaffold_write_enabled
-        app.state.config_unreadable_path = gates.unreadable_config
+        app.state.config_unreadable_path = gates.config_unreadable_path
 
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the

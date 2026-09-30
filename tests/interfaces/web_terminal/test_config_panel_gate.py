@@ -403,7 +403,7 @@ class TestResolvePrivilegeGates:
             gates = resolve_privilege_gates(None)
 
         assert gates == PrivilegeGates(True, True)
-        assert gates.unreadable_config is None
+        assert gates.config_unreadable_path is None
 
     @pytest.mark.parametrize(
         ("value", "variable", "expected"),
@@ -453,7 +453,7 @@ class TestResolvePrivilegeGates:
 
         assert gates.config_panel_enabled is False
         assert gates.scaffold_write_enabled is False
-        assert gates.unreadable_config == config_file
+        assert gates.config_unreadable_path == config_file
 
     def test_the_failure_is_one_error_naming_the_file_and_both_surfaces(self, tmp_path, caplog):
         config_file = tmp_path / "config.yml"
@@ -482,7 +482,7 @@ class TestResolvePrivilegeGates:
             gates = resolve_privilege_gates(config_file)
 
         assert gates.config_panel_enabled is True
-        assert gates.unreadable_config is None
+        assert gates.config_unreadable_path is None
         assert any(
             CONFIG_PANEL_KEY in record.message and record.levelno == logging.WARNING
             for record in caplog.records
