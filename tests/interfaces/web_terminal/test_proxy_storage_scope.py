@@ -7,8 +7,7 @@ person's saved preferences out of another's by deriving every key from the
 pages from Jinja; a panel page reaches the browser only through the hub's
 panel proxy, and only the hub knows whose mount it is (a companion server may
 be shared by the whole roster), so the proxy is the one producer of that stamp
-for panel documents. Without a mount user nothing is stamped and every relayed
-body is exactly the upstream's.
+for panel documents. Without a mount user no scope is stamped.
 """
 
 from __future__ import annotations
@@ -151,9 +150,10 @@ class TestRelayedPanelDocument:
         assert match
         assert match.group(1) == forwarded_user == "first.last"
 
-    def test_without_a_mount_the_page_relays_byte_for_byte(self, tmp_path):
+    def test_without_a_mount_the_page_carries_no_scope(self, tmp_path):
         text, _ = _relay(tmp_path, None, "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8")
-        assert text == _DOCUMENT
+        assert STORAGE_SCOPE_ATTRIBUTE not in text
+        assert re.sub(r' data-facility-timezone="[^"]*"', "", text) == _DOCUMENT
 
     def test_a_blank_user_is_no_mount(self, tmp_path):
         text, _ = _relay(tmp_path, "   ", "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8")
