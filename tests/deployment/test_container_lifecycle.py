@@ -1527,6 +1527,153 @@ def test_a_detached_non_dev_start_still_leaves_the_build_to_the_up(monkeypatch, 
     assert "--no-build" not in ups[-1], joined
 
 
+# ---------------------------------------------------------------------------
+# An image override keeps its service out of the build
+#
+# Compose tags a build with the service's `image:`, so building a service whose
+# `OSPREY_<SERVICE>_IMAGE` names another image would produce OSPREY's recipe
+# under the operator's name. The start reads the rendered `${VAR:-default}`
+# lines and holds such a service out of every build it makes.
+# ---------------------------------------------------------------------------
+
+_TWO_BUILDABLE_SERVICES = """\
+services:
+  event-dispatcher:
+    image: ${OSPREY_DISPATCH_IMAGE:-p-dispatch:local}
+    build:
+      context: ./build/services/event_dispatcher
+  virtual-accelerator:
+    image: ${OSPREY_VA_IMAGE:-p-va:local}
+    build:
+      context: ./build/services/virtual_accelerator
+  postgresql:
+    image: postgres:16
+  archiver-recorder:
+    image: ${OSPREY_VA_IMAGE:?set OSPREY_VA_IMAGE}
+"""
+
+_ONLY_THE_VA_BUILDS = """\
+services:
+  virtual-accelerator:
+    image: ${OSPREY_VA_IMAGE:-p-va:local}
+    build:
+      context: ./build/services/virtual_accelerator
+  postgresql:
+    image: postgres:16
+"""
+
+
+def _write_compose(root: Path, text: str, name: str = "docker-compose.yml") -> Path:
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_compose_build_selection_holds_a_service_whose_override_names_another_image(tmp_path):
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": "reg.example.org/va:1"}
+    )
+
+    assert selection.build == ("event-dispatcher",)
+    assert selection.held == {"virtual-accelerator": ("OSPREY_VA_IMAGE", "reg.example.org/va:1")}
+
+
+def test_compose_build_selection_builds_a_service_whose_override_is_its_own_image(tmp_path):
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": "p-va:local"}
+    )
+
+    assert selection.build == ("event-dispatcher", "virtual-accelerator")
+    assert selection.held == {}
+
+
+def test_compose_build_selection_reads_an_empty_override_as_unset(tmp_path):
+    """``:-`` substitutes the default for an empty value, so nothing is held."""
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": ""}
+    )
+
+    assert selection.build == ("event-dispatcher", "virtual-accelerator")
+    assert selection.held == {}
+
+
+def test_compose_build_selection_skips_an_unreadable_document(tmp_path):
+    _write_compose(tmp_path, "services: [unclosed\n", name="broken.yml")
+    _write_compose(tmp_path, _ONLY_THE_VA_BUILDS)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["missing.yml", "broken.yml", "docker-compose.yml"], tmp_path, {}
+    )
+
+    assert selection.build == ("virtual-accelerator",)
+    assert selection.held == {}
+
+
+def test_an_attached_start_does_not_build_a_service_running_an_overridden_image(
+    monkeypatch, tmp_path
+):
+    """The build names every buildable service except the held one."""
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    joined = [" ".join(c) for c in runs]
+    builds = [c for c in runs if "build" in c and "up" not in c]
+    assert builds, joined
+    assert builds[-1][-2:] == ["build", "event-dispatcher"], joined
+    for c in runs:
+        if c is _EXEC_MARKER or "build" not in c:
+            continue
+        assert "virtual-accelerator" not in c[c.index("build") :], joined
+    assert "--no-build" in execd["args"], execd
+
+
+def test_a_detached_start_builds_in_its_own_step_when_an_override_holds_a_service(
+    monkeypatch, tmp_path
+):
+    """Compose's build-on-up cannot leave one service out, so the start builds."""
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    joined = [" ".join(c) for c in runs]
+    assert any(c[-2:] == ["build", "event-dispatcher"] for c in runs), joined
+    ups = [c for c in runs if "up" in c]
+    assert ups, joined
+    assert "--no-build" in ups[-1], joined
+
+
+def test_a_start_whose_every_build_is_held_runs_no_build_step(monkeypatch, tmp_path):
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+    _write_compose(tmp_path, _ONLY_THE_VA_BUILDS)
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    joined = [" ".join(c) for c in runs]
+    assert not any("build" in c and "up" not in c for c in runs), joined
+    ups = [c for c in runs if "up" in c]
+    assert ups, joined
+    assert "--no-build" in ups[-1], joined
+
+
 def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     """rebuild delegates its up phase to deploy_up, so --dev inherits the same
     build/up split (Defect A): standalone `build`, then exec'd `up --no-build`."""
@@ -1767,6 +1914,61 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     assert not any("up" in c and "--build" in c for c in svc)
     assert any(c[-1] == "build" for c in svc), [" ".join(c) for c in svc]
     assert any("up" in c and "--no-build" in c for c in svc), [" ".join(c) for c in svc]
+
+
+def test_web_services_start_does_not_build_a_service_running_an_overridden_image(
+    monkeypatch, tmp_path
+):
+    """The web path's services stack holds an overridden service out of its build.
+
+    Non-dev, so without the override this stack would have no build step at all.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES, name="build/services/docker-compose.yml")
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {
+                "deployed_services": ["event_dispatcher", "virtual_accelerator"],
+                "modules": {"web_terminals": {"enabled": True}},
+            },
+            ["build/services/docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda *a, **k: [])
+    monkeypatch.setattr(provision, "enable_linger", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "run_verify_script", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    runs: list = []
+
+    def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
+        runs.append(list(cmd))
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: runs.append(list(cmd))),
+    )
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    svc = [c for c in runs if _addresses(c, "docker-compose.yml")]
+    joined = [" ".join(c) for c in svc]
+    builds = [c for c in svc if "build" in c and "up" not in c]
+    assert [c[-2:] for c in builds] == [["build", "event-dispatcher"]], joined
+    assert any("up" in c and "--no-build" in c for c in svc), joined
 
 
 # ---------------------------------------------------------------------------

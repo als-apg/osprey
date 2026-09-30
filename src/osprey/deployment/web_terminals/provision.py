@@ -1687,43 +1687,54 @@ def deploy_up_web_terminals(
         # imports this module at its own top level, so the favour cannot be
         # returned there.
         from osprey.deployment.container_lifecycle import (
+            _compose_build_selection,
             _resolve_prebuilt_images,
             compose_build_step_reporter,
         )
 
         prebuilt = _resolve_prebuilt_images(config)
+        selection = _compose_build_selection(compose_files, repo_root, env)
+        builds = not prebuilt and (dev_mode or bool(selection.held))
         if dev_mode and prebuilt:
             # Same bargain as the plain path (see _start_stack): the service tags
             # are already on the host, `up --no-build` runs against them, and a
             # missing one surfaces as compose's own "No such image".
             _report_step("skipped image build (prebuilt images)")
-        elif dev_mode:
+        elif builds:
             # Mirrors the plain non-web path's dev-mode build (see deploy_up):
             # without a rebuild, a co-deployed service's cached image tag keeps
             # running the stale code from its first build. Build in its own step,
             # then `up --no-build`, to dodge the `up --build` containerd
-            # image-store race.
-            services_build = services_base + ["build"]
-            logger.debug(f"Running command:\n    {' '.join(services_build)}")
-            # Watched only for as long as the build runs — same scope as the
-            # plain path's build (see _start_stack).
-            with (report := compose_build_step_reporter()):
-                run_captured(
-                    services_build,
-                    env=run_env,
-                    spool_name="build-services",
-                    repo_root=repo_root,
-                    on_line=report,
-                )
-            _report_step("built service images")
+            # image-store race. A service an override holds (see _start_stack)
+            # makes a non-dev start build here too, naming only the others:
+            # compose's implicit build-on-up cannot leave it out.
+            for service, (variable, image) in selection.held.items():
+                report_fact(logger, f"{service} runs {image} ({variable}); not built")
+            if not selection.held or selection.build:
+                services_build = services_base + ["build"]
+                if selection.held:
+                    services_build += list(selection.build)
+                logger.debug(f"Running command:\n    {' '.join(services_build)}")
+                # Watched only for as long as the build runs — same scope as the
+                # plain path's build (see _start_stack).
+                with (report := compose_build_step_reporter()):
+                    run_captured(
+                        services_build,
+                        env=run_env,
+                        spool_name="build-services",
+                        repo_root=repo_root,
+                        on_line=report,
+                    )
+                _report_step("built service images")
         services_cmd = services_base + ["up"]
-        if dev_mode or prebuilt:
+        if dev_mode or prebuilt or selection.held:
             # Same bargain as the plain path (see _start_stack): non-dev has no
             # build step of its own, so on a prebuilt host compose's implicit
             # build-on-up is the last thing that could build a locally-tagged
             # impostor over an image the mirror never delivered. Wired here as
             # well as on the plain path deliberately — this is the site a
-            # web-terminals host actually reaches.
+            # web-terminals host actually reaches. A held service ups with
+            # `--no-build` too, so compose starts the image the override names.
             services_cmd.append("--no-build")
         services_cmd.append("-d")
         logger.debug(f"Running command:\n    {' '.join(services_cmd)}")
