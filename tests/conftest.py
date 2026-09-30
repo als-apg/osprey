@@ -17,6 +17,7 @@ from rich.logging import RichHandler
 
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
 from tests import _env_scope_guard, _repo_cleanliness, ci_diagnostics
+from tests._builds import built_control_assistant  # noqa: F401 - the session's shared build
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.

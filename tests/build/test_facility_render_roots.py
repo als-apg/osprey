@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -21,55 +20,21 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.init_cmd import init
 from osprey.facility import TEXTURE
 from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from tests._builds import BuiltProject, init_project
 
-pytestmark = pytest.mark.slow
+# xdist_group("built_control_assistant"): every module reading the session's one
+# control-assistant build shares a worker, so the build runs once per run.
+pytestmark = [pytest.mark.slow, pytest.mark.xdist_group("built_control_assistant")]
 
 #: One repo name for both builds: an identity without a ``name`` takes it.
 REPO = "demo"
 
 
-def _init(parent: Path, preset: str) -> Path:
-    repo = parent / REPO
-    result = CliRunner().invoke(init, [str(repo), "--preset", preset, "--no-git"])
-    assert result.exit_code == 0, result.output
-    return repo
-
-
 def _build(repo: Path, *extra: str) -> Any:
     return CliRunner().invoke(build, ["--repo", str(repo), "--skip-lifecycle", *extra])
-
-
-class _Built:
-    """A control-assistant build and every ``render_facility_outputs`` call it made."""
-
-    def __init__(self, repo: Path, calls: list[tuple[Path, list[Path]]]) -> None:
-        self.repo = repo
-        self.calls = calls
-
-
-@pytest.fixture(scope="module")
-def built(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Built]:
-    """The control-assistant preset, initialised and built once for this module."""
-    from osprey.facility import render
-
-    repo = _init(tmp_path_factory.mktemp("ca"), "control-assistant")
-    calls: list[tuple[Path, list[Path]]] = []
-    real = render.render_facility_outputs
-
-    def spy(render_dir: Path, doc: Any, rendered_config: Any) -> list[Path]:
-        written = real(render_dir, doc, rendered_config)
-        calls.append((render_dir, written))
-        return written
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(render, "render_facility_outputs", spy)
-        result = _build(repo, "--skip-deps")
-    assert result.exit_code == 0, result.output
-    yield _Built(repo, calls)
 
 
 def _render_roots(repo: Path) -> list[Path]:
@@ -80,9 +45,11 @@ def _render_roots(repo: Path) -> list[Path]:
     return [build_dir, *(path.parent for path in personas), *(path.parent for path in images)]
 
 
-def test_every_render_root_carries_a_byte_equal_facility_file(built: _Built) -> None:
-    roots = _render_roots(built.repo)
-    build_dir = built.repo / BUILD_DIR_NAME
+def test_every_render_root_carries_a_byte_equal_facility_file(
+    built_control_assistant: BuiltProject,
+) -> None:
+    roots = _render_roots(built_control_assistant.repo)
+    build_dir = built_control_assistant.repo / BUILD_DIR_NAME
     assert any(root.parent == build_dir for root in roots)
     assert any(IMAGE_DIR_NAME in root.parts for root in roots)
     assert (build_dir / IMAGE_DIR_NAME / REPO / BUILD_DIR_NAME) in roots
@@ -95,41 +62,46 @@ def test_every_render_root_carries_a_byte_equal_facility_file(built: _Built) -> 
     assert not list(build_dir.rglob(f"data/{FACILITY_FILE}"))
 
 
-def test_the_facility_file_is_written_only_through_render_facility_outputs(built: _Built) -> None:
-    assert len(built.calls) == len(_render_roots(built.repo))
-    for render_dir, written in built.calls:
-        assert written == [render_dir / FACILITY_FILE]
+def test_the_facility_file_is_written_only_through_render_facility_outputs(
+    built_control_assistant: BuiltProject,
+) -> None:
+    outputs = built_control_assistant.outputs
+    assert len(outputs) == len(_render_roots(built_control_assistant.repo))
+    for render in outputs:
+        assert list(render.files) == [FACILITY_FILE]
 
 
-def test_the_facility_file_is_the_demo_facility_without_build_facts(built: _Built) -> None:
-    raw = (built.repo / BUILD_DIR_NAME / FACILITY_FILE).read_bytes()
+def test_the_facility_file_is_the_demo_facility_without_build_facts(
+    built_control_assistant: BuiltProject,
+) -> None:
+    raw = built_control_assistant.facility_raw
     document = json.loads(raw)
 
     assert document["schema"] == "osprey.facility.facility/1"
     assert document["identity"]["code"] == "ca"
     assert document["models"][-1] == {"name": TEXTURE, "engine": TEXTURE}
     assert raw.endswith(b"}\n")
-    assert str(built.repo).encode() not in raw
-    assert str(built.repo.resolve()).encode() not in raw
+    assert str(built_control_assistant.repo).encode() not in raw
+    assert str(built_control_assistant.repo.resolve()).encode() not in raw
     assert {"version", "timestamp", "built_at", "generated_at"}.isdisjoint(document)
 
 
 def test_equal_sources_hash_equal_across_two_builds(
-    built: _Built, tmp_path_factory: pytest.TempPathFactory
+    built_control_assistant: BuiltProject, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     """A second build of the same ``data/facility/`` elsewhere gives the same bytes."""
-    other = _init(tmp_path_factory.mktemp("second"), "hello-world")
+    other = init_project(tmp_path_factory.mktemp("second"), "hello-world", REPO)
     shutil.rmtree(other / "data" / "facility")
-    shutil.copytree(built.repo / "data" / "facility", other / "data" / "facility")
+    shutil.copytree(built_control_assistant.repo / "data" / "facility", other / "data" / "facility")
 
     result = _build(other, "--skip-deps")
     assert result.exit_code == 0, result.output
 
     assert facility_digest(other / "data" / "facility") == facility_digest(
-        built.repo / "data" / "facility"
+        built_control_assistant.repo / "data" / "facility"
     )
     assert (other / BUILD_DIR_NAME / FACILITY_FILE).read_bytes() == (
-        built.repo / BUILD_DIR_NAME / FACILITY_FILE
+        built_control_assistant.repo / BUILD_DIR_NAME / FACILITY_FILE
     ).read_bytes()
 
 
@@ -143,7 +115,7 @@ def test_a_facility_stop_ends_the_build_before_the_venv(
         raise AssertionError("the project venv was created before the facility stop")
 
     monkeypatch.setattr(build_cmd, "_create_project_venv", venv_spy)
-    repo = _init(tmp_path, "hello-world")
+    repo = init_project(tmp_path, "hello-world", REPO)
     (repo / "data" / "facility" / "identity.yaml").write_text("code: 1bad\n", encoding="utf-8")
 
     result = _build(repo)

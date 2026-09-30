@@ -81,7 +81,7 @@ def test_every_written_file_carries_its_header(built_control_assistant: BuiltPro
     problems = {
         relative: problem
         for render in outputs
-        for relative, content in sorted(render.items())
+        for relative, content in sorted(render.files.items())
         if not _exempt(relative) and (problem := header_problem(relative, content))
     }
     assert problems == {}
@@ -93,7 +93,7 @@ def test_the_facility_file_is_written_in_every_render_with_its_header(
     from osprey.facility.render import FACILITY_FILE
 
     for render in built_control_assistant.outputs:
-        assert json.loads(render[FACILITY_FILE])["schema"] == "osprey.facility.facility/1"
+        assert json.loads(render.files[FACILITY_FILE])["schema"] == "osprey.facility.facility/1"
 
 
 def test_every_binary_exemption_is_written(built_control_assistant: BuiltProject) -> None:
