@@ -304,7 +304,7 @@ class _Harness:
             patch("osprey.agent_runner.primitives.await_mcp_ready", new=self.await_mcp_ready),
             patch("osprey.agent_runner.primitives.sdk_env", new=self.sdk_env),
             patch("osprey.agent_runner.primitives._resolve_project_spec", return_value=self.spec),
-            patch("osprey.agent_runner.primitives.start_proxy", new=self.start_proxy),
+            patch("osprey.infrastructure.proxy.lifecycle.start_proxy", new=self.start_proxy),
         ):
             return await run_sdk_query(project, "q", **kwargs)
 

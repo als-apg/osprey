@@ -453,7 +453,7 @@ def _capture(captured: list, async_cm):
 
 @pytest.mark.asyncio
 async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path) -> None:
-    """needs_proxy spec → start_proxy(spec.upstream_base_url, key-from-env-dict).
+    """needs_proxy spec → start_proxy_for derives the proxy's arguments from the spec and the env dict.
 
     The proxy upstream MUST come from spec.upstream_base_url (the OpenAI root
     with /v1), NOT from env["ANTHROPIC_BASE_URL"] — which the resolver strips of
@@ -481,7 +481,7 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
             "osprey.agent_runner.primitives._resolve_project_spec",
             return_value=_FakeSpec(needs_proxy=True, upstream_base_url="https://argo.example/v1"),
         ),
-        patch("osprey.agent_runner.primitives.start_proxy", proxy),
+        patch("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy),
         patch("osprey.agent_runner.primitives.expected_mcp_servers", return_value=set()),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
@@ -517,7 +517,7 @@ async def test_run_query_warns_when_proxy_auth_token_missing(project_dir: Path, 
             "osprey.agent_runner.primitives._resolve_project_spec",
             return_value=_FakeSpec(needs_proxy=True, provider="argo"),
         ),
-        patch("osprey.agent_runner.primitives.start_proxy", proxy),
+        patch("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy),
         patch("osprey.agent_runner.primitives.expected_mcp_servers", return_value=set()),
         caplog.at_level(logging.WARNING, logger="osprey.agent_runner.primitives"),
     ):
@@ -551,7 +551,7 @@ async def test_run_query_no_proxy_for_native_provider(project_dir: Path) -> None
             "osprey.agent_runner.primitives._resolve_project_spec",
             return_value=_FakeSpec(needs_proxy=False),
         ),
-        patch("osprey.agent_runner.primitives.start_proxy", proxy),
+        patch("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy),
         patch("osprey.agent_runner.primitives.expected_mcp_servers", return_value=set()),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
@@ -578,7 +578,7 @@ async def test_run_query_no_proxy_when_upstream_absent(project_dir: Path) -> Non
             "osprey.agent_runner.primitives._resolve_project_spec",
             return_value=_FakeSpec(needs_proxy=True, upstream_base_url=None),
         ),
-        patch("osprey.agent_runner.primitives.start_proxy", proxy),
+        patch("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy),
         patch("osprey.agent_runner.primitives.expected_mcp_servers", return_value=set()),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
