@@ -989,7 +989,7 @@ class NextcloudTalkOps:
         prediction made before anything was rendered, so an artifact whose
         conversion failed arrives as its original bytes under a different
         Content-Type. Routing on the prediction would drop exactly those
-        artifacts, silently (osprey #503) — so the delivered bytes decide the
+        artifacts, with no error anywhere — so the delivered bytes decide the
         path, and the descriptor only supplies a preferred name.
 
         Only the EXTENSION is settled here, and only because it depends on the
