@@ -762,10 +762,10 @@ def _reject_unknown_keys(block: dict[str, Any], problems: list[str]) -> None:
 
 def _parse_int(value: Any, key: str, problems: list[str]) -> int:
     """Read one integer knob, refusing the bool YAML would otherwise let pass."""
-    if isinstance(value, bool) or not isinstance(value, int):
-        problems.append(f"'{key}' must be an integer (got {value!r}).")
-        return 1
-    return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    problems.append(f"'{key}' must be an integer (got {value!r}).")
+    return 1
 
 
 def _parse_str(value: Any, key: str, problems: list[str]) -> str:

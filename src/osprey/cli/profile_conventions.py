@@ -985,7 +985,7 @@ def _deny_entries(config: Any) -> list[str]:
     root = config if isinstance(config, Mapping) else {}
     claude_code = root.get("claude_code")
     persona_shaped = isinstance(claude_code, Mapping)
-    if persona_shaped:
+    if isinstance(claude_code, Mapping):
         permissions = claude_code.get("permissions")
     elif claude_code is None:
         permissions = root.get("permissions")

@@ -1024,7 +1024,7 @@ def _refuse_unknown_lane_targets(config: Any) -> None:
     valid = ", ".join(repr(target) for target in connector_types.CONTROL_TARGETS)
     for lane_key in _LANE_SERVICE_KEYS:
         block = services.get(lane_key)
-        declared = block.get("target") if hasattr(block, "get") else None
+        declared = block.get("target") if isinstance(block, Mapping) else None
         if declared is None or declared in connector_types.CONTROL_TARGETS:
             continue
         raise BuildProfileError(

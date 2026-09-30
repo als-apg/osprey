@@ -44,7 +44,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import uuid4
 
 import click
@@ -104,6 +104,9 @@ from .build_persistence import (
 )
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
+
+if TYPE_CHECKING:
+    from .build_profile_model import BuildProfile
 
 logger = get_logger("build")
 
@@ -2011,11 +2014,12 @@ def _render_project(
     # so a repo whose only copy is that render has its text rescued rather than
     # re-rendered. Gated on the selection: a profile that does not select the
     # facility rule has no description to keep.
-    if FACILITY_RULE_NAME in effective_artifacts.get("rules", []):
+    selected = effective_artifacts or {}
+    if FACILITY_RULE_NAME in selected.get("rules", []):
         moved = ensure_profile_facility_rule(
             repo_root,
             build_dir=shared.build_dir,
-            enabled_agents=effective_artifacts.get("agents", []),
+            enabled_agents=selected.get("agents", []),
         )
         if moved:
             _report_fact(moved)
@@ -3860,7 +3864,7 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     return is_setup_patch_capable(persona_capability_document(overrides))
 
 
-def _profile_preset(build_profile: Any) -> str | None:
+def _profile_preset(build_profile: BuildProfile) -> str | None:
     """The preset this profile records, or ``None`` for a hand-written one.
 
     Two records can name that preset, and they are asked in this order:
@@ -3885,14 +3889,12 @@ def _profile_preset(build_profile: Any) -> str | None:
     Returns:
         The recorded preset's name, or ``None`` when the profile records none.
     """
-    provenance = getattr(build_profile, "provenance", None)
-    recorded = getattr(provenance, "preset", None)
-    if recorded is not None:
-        return recorded
-    return getattr(build_profile, "inherited_preset", None)
+    if build_profile.provenance is not None:
+        return build_profile.provenance.preset
+    return build_profile.inherited_preset
 
 
-def _profile_data_bundle(build_profile: Any) -> str:
+def _profile_data_bundle(build_profile: BuildProfile) -> str:
     """The packaged app bundle whose non-config trees this build copies.
 
     The bundle names a directory under ``templates/apps/`` holding a ``data/``
@@ -3914,7 +3916,8 @@ def _profile_data_bundle(build_profile: Any) -> str:
     """
     from .build_profile_presets import _preset_exists, preset_data_bundle
 
-    named = getattr(getattr(build_profile, "provenance", None), "preset", None)
+    provenance = build_profile.provenance
+    named = provenance.preset if provenance is not None else None
     if named is not None and _preset_exists(named) is None:
         # The profile names a preset this installation does not ship — renamed,
         # removed, or from another OSPREY. The `extends:` chain still resolved,
@@ -3923,7 +3926,7 @@ def _profile_data_bundle(build_profile: Any) -> str:
         # the bundle it actually inherits rather than on the framework default.
         # Either way, name the bundle the build ends up copying — it decides
         # which packaged `services/` and `machine_data/` trees it takes.
-        bundle = preset_data_bundle(getattr(build_profile, "inherited_preset", None))
+        bundle = preset_data_bundle(build_profile.inherited_preset)
         logger.warning(
             "Profile provenance names preset %r, which this OSPREY does not ship. "
             "Falling back to the %r data bundle for the packaged trees this build "

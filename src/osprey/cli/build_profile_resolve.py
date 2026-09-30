@@ -31,7 +31,7 @@ import copy
 import io
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -194,7 +194,7 @@ def _stated_config_paths(layer: dict[str, Any]) -> list[tuple[str, ...]]:
     return [tuple(key.split(".")) for key in config if isinstance(key, str)]
 
 
-def _shadowed_config_keys(config: Mapping[str, Any], stated: list[tuple[str, ...]]) -> set[str]:
+def _shadowed_config_keys(config: Mapping[str, Any], stated: Sequence[tuple[str, ...]]) -> set[str]:
     """The ``config:`` keys strictly beneath a stated path (a stated path itself is kept)."""
     claimed = set(stated)
     shadowed: set[str] = set()
@@ -681,6 +681,7 @@ def _flatten_override_layer(layer: dict[str, Any]) -> list[tuple[list[str], Any]
     flat: list[tuple[list[str], Any]] = []
     for key, value in layer.items():
         name = str(key)
+        leaves: list[tuple[tuple[str, ...], Any]]
         if name == "config" and isinstance(value, dict) and value:
             leaves = [
                 (("config", ".".join(sub_path)), leaf) for sub_path, leaf in _dotted_leaves(value)
@@ -721,7 +722,7 @@ _SHORTHAND_CONFIG_KEYS: tuple[tuple[str, str], ...] = (
 def _write_profile_values(
     profile_path: Path,
     updates: list[tuple[list[str], Any]],
-    claimed: list[tuple[str, ...]] = (),
+    claimed: Sequence[tuple[str, ...]] = (),
 ) -> None:
     """Set each ``key_path`` in ``profile_path`` to its value, keeping comments.
 

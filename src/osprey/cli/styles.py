@@ -187,12 +187,12 @@ def load_theme_from_config(config_path: str | None = None) -> ColorTheme:
             theme_name = "default"
 
     # Load predefined theme
-    theme = THEME_REGISTRY.get(theme_name)
-    if theme is None:
+    registered = THEME_REGISTRY.get(theme_name)
+    if registered is None:
         logger.warning(f"Unknown theme '{theme_name}', using default")
-        theme = VULCAN_THEME
+        return VULCAN_THEME
 
-    return theme
+    return registered
 
 
 def initialize_theme_from_config(config_path: str | None = None):

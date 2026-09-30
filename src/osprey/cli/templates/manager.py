@@ -502,7 +502,8 @@ class TemplateManager:
             return artifacts
         tmpl_manifest = manifest.load_template_manifest(data_bundle)
         if tmpl_manifest:
-            return tmpl_manifest.get("artifacts", {})
+            selection: dict[str, list[str]] = tmpl_manifest.get("artifacts", {})
+            return selection
         return None
 
     def _project_context(
