@@ -334,6 +334,9 @@ class TestBuildPhases:
             def resolved_tier(self) -> int:
                 return 1
 
+            def resolved_data_root(self, profile_dir: Path) -> Path:
+                return profile_dir / "data"
+
         class _Resolved:
             profile = _Profile()
             excluded_artifacts: list[str] = []

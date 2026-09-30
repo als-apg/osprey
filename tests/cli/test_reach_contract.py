@@ -63,6 +63,8 @@ def _host_reading(profile: BuildProfile) -> dict[str, Any]:
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
+            facility={},
+            facility_sha256="",
         )
         return build_cmd._template_host_config(
             shared,
