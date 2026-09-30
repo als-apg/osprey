@@ -5,17 +5,15 @@
  * driven through the real DOM via `initMemoryGallery()`):
  *   npx vitest run tests/interfaces/web_terminal/memory-gallery.test.mjs
  *
- * Covers the raw PUT/DELETE/POST `fetch()` calls being prefix-aware via
- * `window.__OSPREY_PREFIX__` (multi-user deployments) -- `fetchJSON`
- * (api.js) already prefixes the GET list/detail loads, but these write
- * actions are raw `fetch()` calls with request options `fetchJSON` doesn't
- * support, so this module applies the shared `withPrefix` helper (imported
- * from api.js) to their paths directly.
+ * The three writes go through api.js's `apiRequest`. These tests pin each
+ * write's method and path, as the real DOM issues it, under a per-user URL
+ * prefix (`window.__OSPREY_PREFIX__`, multi-user deployments).
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { initMemoryGallery } from '../../../src/osprey/interfaces/web_terminal/static/js/memory-gallery.js';
+/** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/memory-gallery.js').initMemoryGallery} */
+let initMemoryGallery;
 
 const FILE = {
   filename: 'topic-a.md',
@@ -35,16 +33,16 @@ function mountFixture() {
 }
 
 /**
- * Route the stubbed `fetch` by URL substring: the list/detail GETs (via
- * fetchJSON) resolve with fixed payloads; anything else falls through to
- * `writeResponse` so a single stub covers both the initial load and the
- * write action under test.
+ * Route the stubbed `fetch`: every write (any method but GET) answers with
+ * `writeResponse`; the list and detail GETs (via fetchJSON) resolve with fixed
+ * payloads. One stub covers the initial load and the write under test.
  * @param {any} writeResponse
  */
 function stubFetch(writeResponse) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (/** @type {string} */ url) => {
+    vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => {
+      if (init?.method && init.method !== 'GET') return writeResponse;
       if (typeof url === 'string' && url.endsWith('/api/claude-memory')) {
         return { ok: true, json: async () => ({ files: [FILE] }) };
       }
@@ -61,8 +59,14 @@ function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mountFixture();
+  // The gallery caches its file list at module level, and a create writes into
+  // that list: a fresh module per test keeps one test's writes out of the next.
+  vi.resetModules();
+  ({ initMemoryGallery } = await import(
+    '../../../src/osprey/interfaces/web_terminal/static/js/memory-gallery.js'
+  ));
 });
 
 afterEach(() => {
@@ -134,5 +138,25 @@ describe('promptCreateFile', () => {
     const fetchMock = /** @type {import('vitest').Mock} */ (fetch);
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
     expect(postCall?.[0]).toBe('/u/alice/api/claude-memory');
+  });
+});
+
+describe('a failed write', () => {
+  test.each([
+    ['without a server detail', { ok: false, status: 500, json: async () => { throw new SyntaxError('not JSON'); } }, 'Save failed (HTTP 500)'],
+    ['with a server detail', { ok: false, status: 409, json: async () => ({ detail: 'file changed on disk' }) }, 'Save failed: file changed on disk'],
+  ])('names the action once, %s', async (_name, response, banner) => {
+    stubFetch(response);
+
+    await openFixtureDetail();
+    const textarea = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector('.memory-edit-textarea')
+    );
+    textarea.value = 'edited content';
+    textarea.dispatchEvent(new Event('input'));
+    /** @type {HTMLElement} */ (document.querySelector('.memory-save-btn')).click();
+    await flush();
+
+    expect(document.querySelector('.memory-error')?.textContent).toBe(banner);
   });
 });

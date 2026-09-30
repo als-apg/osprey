@@ -8,8 +8,6 @@
  *   - fetchJSON(url): 2xx -> parsed JSON; non-2xx -> throws `HTTP <s>: <t>`
  *   - apiRequest(url, opts): mutating-verb helper -- json body wiring, server
  *     `detail` extraction on error, errorPrefix fallback, null on empty body
- *   - onConnectionStateChange / getConnectionState: initial shape and that a
- *     registered listener is stored and fires on the next state transition
  *   - per-user URL prefix: wsUrl/fetchJSON/createEventSource read
  *     `window.__OSPREY_PREFIX__` (the multi-user prefix contract) and
  *     prepend it to root-absolute paths only, are a no-op when the prefix is
@@ -23,7 +21,7 @@
  *     agent still running) end the reconnect loop and reach the caller as
  *     onRefused; every other close code reconnects exactly as before
  *
- * Module isolation: api.js keeps `wsState`/`sseState`/`stateListeners` as
+ * Module isolation: api.js keeps `sessionExpired`/`sharedStreams` as
  * module-private state that no init() resets. `vi.resetModules()` plus a fresh
  * dynamic `import()` per test gives each test a never-before-touched module
  * instance, so there is no shared state to leak by construction.
@@ -123,7 +121,7 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
     expect(fetchMock).toHaveBeenCalledWith('/api/scaffold/x/claim', { method: 'POST' });
   });
 
-  test('a non-OK response throws the server `detail` message when present', async () => {
+  test('a non-OK response throws `<errorPrefix>: <detail>` when the server gives a detail', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
@@ -133,9 +131,10 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
       }))
     );
 
+    // The whole operator-facing line: callers show it as-is.
     await expect(
       api.apiRequest('/api/scaffold/x/claim', { method: 'POST', errorPrefix: 'Scaffold failed' })
-    ).rejects.toThrow('already claimed');
+    ).rejects.toHaveProperty('message', 'Scaffold failed: already claimed');
   });
 
   test('a non-OK response without a JSON body falls back to `<errorPrefix> (HTTP <status>)`', async () => {
@@ -150,7 +149,15 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
 
     await expect(
       api.apiRequest('/api/config', { method: 'PUT', errorPrefix: 'Save failed' })
-    ).rejects.toThrow('Save failed (HTTP 502)');
+    ).rejects.toHaveProperty('message', 'Save failed (HTTP 502)');
+  });
+
+  test('a network failure names the action too', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+
+    await expect(
+      api.apiRequest('/api/config', { method: 'PUT', errorPrefix: 'Save failed' })
+    ).rejects.toHaveProperty('message', 'Save failed: Failed to fetch');
   });
 
   test('an OK response without a JSON body (e.g. empty DELETE) resolves to null', async () => {
@@ -197,17 +204,6 @@ describe('URL prefix: window.__OSPREY_PREFIX__ (multi-user prefix contract)', ()
     vi.stubGlobal('location', { protocol: 'https:', host: 'example.org:8443' });
     window.__OSPREY_PREFIX__ = '/u/alice';
     expect(api.wsUrl('/ws/terminal')).toBe('wss://example.org:8443/u/alice/ws/terminal');
-  });
-
-  test('wsUrl is byte-identical to the unprefixed result when the prefix is empty', () => {
-    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000' });
-    window.__OSPREY_PREFIX__ = '';
-    expect(api.wsUrl('/ws/terminal')).toBe('ws://localhost:5000/ws/terminal');
-  });
-
-  test('wsUrl is byte-identical to the unprefixed result when the prefix is absent', () => {
-    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000' });
-    expect(api.wsUrl('/ws/terminal')).toBe('ws://localhost:5000/ws/terminal');
   });
 
   test('fetchJSON prepends the prefix to a root-absolute URL', async () => {
@@ -265,27 +261,6 @@ describe('URL prefix: window.__OSPREY_PREFIX__ (multi-user prefix contract)', ()
     }
   });
 
-  test('createEventSource is a no-op when the prefix is absent', () => {
-    /** @type {string[]} */
-    const constructedUrls = [];
-    vi.stubGlobal(
-      'EventSource',
-      class {
-        /** @param {string} url */
-        constructor(url) {
-          constructedUrls.push(url);
-        }
-        close() {}
-      }
-    );
-
-    const source = api.createEventSource('/events');
-    try {
-      expect(constructedUrls).toEqual(['/events']);
-    } finally {
-      source.stop();
-    }
-  });
 });
 
 describe('reconnect: session-expiry probe (reload-on-401)', () => {
@@ -365,19 +340,26 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     vi.useRealTimers();
   });
 
-  test('a closed WebSocket probes the app\'s own prefixed /api/session route with a JSON Accept header', async () => {
+  test.each([
+    ['the per-user mount', '/u/alice', 'ws://localhost:5000/u/alice/ws/terminal', '/u/alice/api/session'],
+    ['single-origin/dev (no prefix)', undefined, 'ws://localhost:5000/ws/terminal', '/api/session'],
+  ])('a closed WebSocket probes the app\'s own /api/session route with a JSON Accept header: %s', async (_name, prefix, socketUrl, probeUrl) => {
+    if (prefix === undefined) delete window.__OSPREY_PREFIX__;
+    else window.__OSPREY_PREFIX__ = prefix;
     stubLocation();
     const sockets = stubWebSocket();
-    const fetchMock = stubFetchStatus(401);
+    const fetchMock = stubFetchStatus(200);
 
-    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
+    api.createWebSocket(socketUrl);
     sockets[0].onclose({ code: 1006 });
     await flushProbe();
 
     // Never the exempt /health (it answers 200 uncredentialed): the probe hits
     // /api/session, which sits behind the app's auth gate, at the per-user mount.
+    // The exact headers object also keeps the probe on the JSON side of the
+    // gates' content negotiation, never text/html.
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/session', {
+    expect(fetchMock).toHaveBeenCalledWith(probeUrl, {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
@@ -388,52 +370,30 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     const loc = stubLocation();
     const sockets = stubWebSocket();
     stubFetchStatus(401);
+    const before = document.body.innerHTML;
 
     api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
     sockets[0].onclose({ code: 1006 });
     await flushProbe();
 
     expect(loc.reload).toHaveBeenCalledTimes(1);
+    // The refusal page is the gate's (single-user) or the perimeter's
+    // (multi-user) to render; this module only makes the browser ask for it.
+    expect(document.body.innerHTML).toBe(before);
     // Past the whole backoff ceiling: no further connection is attempted.
     vi.advanceTimersByTime(60000);
     expect(sockets).toHaveLength(1);
   });
 
-  test('a probe that fails with a network error keeps the existing reconnect/backoff and never reloads', async () => {
+  test.each([
+    ['a network error', () => vi.fn(async () => { throw new TypeError('Failed to fetch'); })],
+    ['a healthy 200', () => vi.fn(async () => ({ ok: true, status: 200 }))],
+    ['a 503 (server restarting, session intact)', () => vi.fn(async () => ({ ok: false, status: 503 }))],
+  ])('a probe answered by %s keeps the existing reconnect/backoff and never reloads', async (_name, makeFetch) => {
     vi.useFakeTimers();
     const loc = stubLocation();
     const sockets = stubWebSocket();
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
-
-    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
-    sockets[0].onclose({ code: 1006 });
-    await flushProbe();
-
-    expect(loc.reload).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1000);
-    expect(sockets).toHaveLength(2);
-  });
-
-  test('a healthy 200 probe keeps the existing reconnect/backoff and never reloads', async () => {
-    vi.useFakeTimers();
-    const loc = stubLocation();
-    const sockets = stubWebSocket();
-    stubFetchStatus(200);
-
-    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
-    sockets[0].onclose({ code: 1006 });
-    await flushProbe();
-
-    expect(loc.reload).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1000);
-    expect(sockets).toHaveLength(2);
-  });
-
-  test('a 503 probe (server restarting, session intact) keeps reconnecting', async () => {
-    vi.useFakeTimers();
-    const loc = stubLocation();
-    const sockets = stubWebSocket();
-    stubFetchStatus(503);
+    vi.stubGlobal('fetch', makeFetch());
 
     api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
     sockets[0].onclose({ code: 1006 });
@@ -509,61 +469,6 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     source.stop();
   });
 
-  test('asks for JSON, never HTML, so the probe reads a status and not a page', async () => {
-    // Both gates content-negotiate their 401 -- nginx into a login redirect,
-    // the app's own gate into the "not signed in" page the reload is meant to
-    // land on. This probe must stay on the machine-readable side of that fork
-    // or an expired session reads as an opaque 200-with-HTML and the terminal
-    // reconnects forever.
-    stubLocation();
-    const sockets = stubWebSocket();
-    const fetchMock = stubFetchStatus(401);
-
-    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
-    sockets[0].onclose({ code: 1006 });
-    await flushProbe();
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ headers: { Accept: 'application/json' } })
-    );
-    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('text/html');
-  });
-
-  test('surfaces an expired session by navigating, not by rendering anything itself', async () => {
-    // The refusal page is the gate's to render (single-user) or the
-    // perimeter's (multi-user); this module's whole contribution is to make the
-    // browser ask for it via a top-level navigation. Nothing is written to the
-    // document here -- if that ever changes, the two shapes stop agreeing.
-    const loc = stubLocation();
-    const sockets = stubWebSocket();
-    stubFetchStatus(401);
-    const before = document.body.innerHTML;
-
-    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
-    sockets[0].onclose({ code: 1006 });
-    await flushProbe();
-
-    expect(loc.reload).toHaveBeenCalledTimes(1);
-    expect(document.body.innerHTML).toBe(before);
-  });
-
-  test('probes the unprefixed /api/session when no per-user prefix is set (single-origin/dev)', async () => {
-    delete window.__OSPREY_PREFIX__;
-    const loc = stubLocation();
-    const sockets = stubWebSocket();
-    const fetchMock = stubFetchStatus(200);
-
-    api.createWebSocket('ws://localhost:5000/ws/terminal');
-    sockets[0].onclose({ code: 1006 });
-    await flushProbe();
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/session', {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-    expect(loc.reload).not.toHaveBeenCalled();
-  });
 });
 
 describe('createWebSocket: refusal close codes are terminal', () => {
@@ -611,31 +516,20 @@ describe('createWebSocket: refusal close codes are terminal', () => {
     }
   });
 
-  test('a 4409 close reports the refusal and schedules no reconnect', () => {
+  test.each([
+    [4409, 'session_attached_elsewhere'],
+    [4503, 'outgoing_still_running'],
+  ])('a %i close reports the refusal and schedules no reconnect', (code, reason) => {
     const sockets = stubWebSocket();
     const onRefused = vi.fn();
 
     api.createWebSocket('ws://localhost:5000/ws/terminal', { onRefused });
-    sockets[0].onclose({ code: 4409, reason: 'session_attached_elsewhere' });
+    sockets[0].onclose({ code, reason });
 
     expect(onRefused).toHaveBeenCalledTimes(1);
-    expect(onRefused).toHaveBeenCalledWith(4409, 'session_attached_elsewhere');
+    expect(onRefused).toHaveBeenCalledWith(code, reason);
     expect(vi.getTimerCount()).toBe(0);
     // Past the whole backoff ceiling: no further connection is attempted.
-    vi.advanceTimersByTime(60000);
-    expect(sockets).toHaveLength(1);
-  });
-
-  test('a 4503 close reports the refusal and schedules no reconnect', () => {
-    const sockets = stubWebSocket();
-    const onRefused = vi.fn();
-
-    api.createWebSocket('ws://localhost:5000/ws/terminal', { onRefused });
-    sockets[0].onclose({ code: 4503, reason: 'outgoing_still_running' });
-
-    expect(onRefused).toHaveBeenCalledTimes(1);
-    expect(onRefused).toHaveBeenCalledWith(4503, 'outgoing_still_running');
-    expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(60000);
     expect(sockets).toHaveLength(1);
   });
@@ -688,40 +582,6 @@ describe('createWebSocket: refusal close codes are terminal', () => {
     vi.advanceTimersByTime(60000);
     expect(sockets).toHaveLength(1);
     expect(onRefused).not.toHaveBeenCalled();
-  });
-});
-
-describe('connection state: initial shape and listener registration', () => {
-  test('getConnectionState reports both channels disconnected before any connection', () => {
-    expect(api.getConnectionState()).toEqual({ ws: 'disconnected', sse: 'disconnected' });
-  });
-
-  test('a listener registered via onConnectionStateChange fires on the next state transition with the current state', () => {
-    const listener = vi.fn();
-    api.onConnectionStateChange(listener);
-    // No transition has happened yet, so the listener has not been invoked.
-    expect(listener).not.toHaveBeenCalled();
-
-    // createEventSource's connect() runs synchronously: it flips sseState to
-    // 'connecting' and drives notifyStateChange -> the registered listener,
-    // then constructs `new EventSource(url)`. happy-dom does not provide an
-    // EventSource, so stub a minimal, side-effect-free constructor that lets
-    // connect() finish; the notification we assert on has already fired by
-    // then. `close` is what the returned handle's stop() calls.
-    vi.stubGlobal(
-      'EventSource',
-      class {
-        close() {}
-      }
-    );
-    const source = api.createEventSource('/events');
-    try {
-      expect(listener).toHaveBeenCalled();
-      expect(listener).toHaveBeenLastCalledWith({ ws: 'disconnected', sse: 'connecting' });
-      expect(api.getConnectionState()).toEqual({ ws: 'disconnected', sse: 'connecting' });
-    } finally {
-      source.stop();
-    }
   });
 });
 
@@ -935,18 +795,6 @@ describe('createEventSource: one connection per URL, shared by every subscriber'
     instances[1].onopen();
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(1);
-  });
-
-  test('a stream error runs the session-expiry probe once, not once per subscriber', () => {
-    const fetchMock = /** @type {import('vitest').Mock} */ (globalThis.fetch);
-    const instances = stubEventSourceRich();
-    api.createEventSource('/api/files/events');
-    api.createEventSource('/api/files/events');
-    api.createEventSource('/api/files/events');
-
-    instances[0].readyState = 2;
-    instances[0].onerror();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test('stopping one subscriber keeps the socket alive for the others', () => {

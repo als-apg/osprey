@@ -41,14 +41,11 @@ export const CONFIG_TAB_ID = 'tab-config';
  * statement about the deployment's posture.
  *
  * @param {any} panelsPayload - the `GET /api/panels` response, or null.
- * @param {{root?: ParentNode & { querySelector: typeof document.querySelector }}} [options]
- *   `root` scopes the lookup (tests mount a fragment); defaults to `document`.
  * @returns {boolean} true when the tab was present and has been removed.
  */
-export function applyConfigTabGate(panelsPayload, options = {}) {
-  const root = options.root ?? document;
+export function applyConfigTabGate(panelsPayload) {
   if (!panelsPayload || panelsPayload.config_panel_enabled !== false) return false;
-  return removeConfigTab(root);
+  return removeConfigTab(document);
 }
 
 /**

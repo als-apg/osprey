@@ -56,6 +56,7 @@
  *   popoutPanel?: (id: string) => void,
  *   openPanelBeside?: (id: string) => void,
  *   applyPreset?: (name: string) => void,
+ *   resetLayout?: () => void,
  *   revealSetting?: (dotKey: string) => void,
  * }} PaletteDeps
  */
@@ -279,15 +280,19 @@ function buildPanels(deps) {
 /**
  * Build the Layouts group: one item per preset, whose `run` applies that preset
  * BY NAME via the injected `applyPreset` — the same one-call path the "+"
- * menu's Layouts section uses, so both surfaces produce the same arrangement.
+ * menu's Layouts section uses, so both surfaces produce the same arrangement —
+ * then a "Reset layout" item that restores the current view's default
+ * arrangement through the injected `resetLayout`. A host with no layout to
+ * reset withholds `resetLayout`, and the row goes with it.
  *
  * @param {PaletteDeps} deps
  * @returns {Item[]}
  */
 function buildLayouts(deps) {
   const applyPreset = deps.applyPreset;
-  return safeList(deps.getPresets).map((preset) => ({
-    group: 'Layouts',
+  /** @type {Item[]} */
+  const items = safeList(deps.getPresets).map((preset) => ({
+    group: /** @type {const} */ ('Layouts'),
     label: `Layout: ${preset.name}`,
     searchText: preset.name,
     run: () => {
@@ -296,6 +301,16 @@ function buildLayouts(deps) {
       }
     },
   }));
+  const resetLayout = deps.resetLayout;
+  if (typeof resetLayout === 'function') {
+    items.push({
+      group: 'Layouts',
+      label: 'Reset layout',
+      searchText: 'reset layout default arrangement restore tiles',
+      run: () => resetLayout(),
+    });
+  }
+  return items;
 }
 
 /**

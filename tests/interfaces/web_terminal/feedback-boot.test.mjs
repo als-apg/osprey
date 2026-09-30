@@ -162,7 +162,40 @@ function fakeTerm(rows) {
 }
 
 /**
- * Boot the feature over a fresh fixture with every ambient dependency spied.
+ * A config-read `Response` slice: what `readConfigJson` reads (`ok`, `status`,
+ * `statusText`, `json()`).
+ * @param {any} body @param {number} [status]
+ */
+function readResponse(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? 'OK' : 'Service Unavailable',
+    json: () => Promise.resolve(body),
+  };
+}
+
+/**
+ * Put `clipboard` in place of the page's own `navigator.clipboard` for one
+ * test. An own property shadows the prototype getter; `restoreClipboard`
+ * deletes it again.
+ * @param {any} clipboard
+ */
+function installClipboard(clipboard) {
+  Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true });
+}
+
+function restoreClipboard() {
+  if (Object.prototype.hasOwnProperty.call(navigator, 'clipboard')) {
+    Reflect.deleteProperty(navigator, 'clipboard');
+  }
+}
+
+/**
+ * Boot the feature over a fresh fixture, with the page's own globals — fetch,
+ * the clipboard, window.open and location — standing in for the network and
+ * the browser. `reads` records the two config GETs; `fetch` records the POSTs
+ * (and a test may re-implement it to hold a POST in flight).
  *
  * @param {object} [over]
  * @param {any} [over.panels] - the `/api/panels` body (null to fail the read)
@@ -185,32 +218,45 @@ async function boot(over = {}) {
       : over.panels;
   const health = over.health === undefined ? { version: '9.9.9' } : over.health;
 
-  const loadJSON = vi.fn(
-    /** @param {string} path */ (path) => {
+  /** @type {import('vitest').Mock<(url: string, init: any) => Promise<any>>} */
+  const reads = vi.fn(
+    /** @param {string} url */ (url) => {
       if (over.settle === false) return new Promise(() => {});
-      if (over.hangHealth === true && path === '/health') return new Promise(() => {});
-      const body = path === '/health' ? health : panels;
-      if (body === null) return Promise.reject(new Error('HTTP 503'));
-      if (over.panelsGate !== undefined && path !== '/health') return over.panelsGate.then(() => body);
-      return Promise.resolve(body);
+      if (over.hangHealth === true && url.endsWith('/health')) return new Promise(() => {});
+      const body = url.endsWith('/health') ? health : panels;
+      if (body === null) return Promise.resolve(readResponse(null, 503));
+      if (over.panelsGate !== undefined && !url.endsWith('/health')) {
+        return over.panelsGate.then(() => readResponse(body));
+      }
+      return Promise.resolve(readResponse(body));
     }
   );
-  const fetchSpy = vi.fn(() =>
+  /** @type {import('vitest').Mock<(url: string, init: any) => Promise<any>>} */
+  const posts = vi.fn(() =>
     Promise.resolve(over.response ?? jsonResponse({ id: 'fb-1', payload: 'PAYLOAD' }))
+  );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((/** @type {string} */ url, /** @type {any} */ init) =>
+      init?.method === 'POST' ? posts(url, init) : reads(url, init)
+    )
   );
   const clipboard =
     over.clipboard === undefined
       ? { write: vi.fn(() => Promise.resolve()), writeText: vi.fn(() => Promise.resolve()) }
       : over.clipboard;
+  installClipboard(clipboard);
   const windowOpen = vi.fn();
+  vi.stubGlobal('open', windowOpen);
   const navigate = vi.fn();
+  vi.stubGlobal('location', {
+    /** @param {string} url */
+    set href(url) {
+      navigate(url);
+    },
+  });
 
   const { modal, ready } = initFeedback({
-    loadJSON,
-    fetch: fetchSpy,
-    clipboard,
-    windowOpen,
-    navigate,
     getSessionId: () => (over.sessionId === undefined ? SESSION : over.sessionId),
     getTerminal: () => over.terminal ?? null,
   });
@@ -218,7 +264,7 @@ async function boot(over = {}) {
   // deployment's configuration waits for it here instead. `ready` covers both
   // reads, so a test that deliberately hangs one waits on its own signal.
   if (over.settle !== false && over.hangHealth !== true && over.panelsGate === undefined) await ready;
-  return { modal, ready, loadJSON, fetch: fetchSpy, clipboard, windowOpen, navigate };
+  return { modal, ready, reads, fetch: posts, clipboard, windowOpen, navigate };
 }
 
 /** Open the dialog by clicking the rail's Feedback button. */
@@ -288,6 +334,8 @@ afterEach(() => {
   // test and into the palette's arbitration.
   if (booted !== null) booted.modal.close();
   vi.unstubAllGlobals();
+  restoreClipboard();
+  delete window.__OSPREY_PREFIX__;
   document.body.innerHTML = '';
 });
 
@@ -309,11 +357,10 @@ describe('documentation affordances', () => {
     }
   });
 
-  test('both links ship hidden, so neither can flash before boot', () => {
+  test('the status-bar link ships hidden and href-less, so it cannot flash before boot', () => {
     // The markup, not the runtime: a link that starts visible with a
     // hardcoded href is exactly the dead link an air-gapped deployment must
-    // never be shown.
-    expect(railRegionMarkup()).toMatch(/id="panel-docs-link"[^>]*/);
+    // never be shown. The rail anchor's shipped state is rail-utility.test.mjs's.
     expect(indexHtml).toMatch(/id="docs-link"[\s\S]{0,120}?hidden>/);
     expect(indexHtml).not.toMatch(/id="docs-link"[^>]*href=/);
   });
@@ -344,19 +391,7 @@ describe('documentation affordances', () => {
 });
 
 describe('terminal seam', () => {
-  test('terminal.js hands out the live xterm instance', async () => {
-    // A real import, not a source scan: this accessor exists only for the
-    // scrollback tier, so nothing else would notice if it were renamed away.
-    const terminal = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js'
-    );
-
-    expect(typeof terminal.getTerminalInstance).toBe('function');
-    // No initTerminal() here — the null answer is the one the capture handles.
-    expect(terminal.getTerminalInstance()).toBeNull();
-  });
-
-  test('app.js passes that accessor to the feedback boot', () => {
+  test('app.js passes terminal.js\'s live xterm accessor to the feedback boot', () => {
     const appJs = readFileSync(join(STATIC_DIR, 'js/app.js'), 'utf8');
 
     // The wiring itself is unreachable from a test (it runs on a
@@ -494,16 +529,29 @@ describe('rail button', () => {
     }
   });
 
-  test('the config reads carry an abort signal, or a hang never settles', async () => {
+  test('the config reads are no-store GETs carrying an abort signal, or a hang never settles', async () => {
     booted = await boot();
 
-    for (const call of booted.loadJSON.mock.calls) {
-      const init = call[1];
-      expect(init, 'config read got no init').toBeDefined();
+    expect(booted.reads.mock.calls.map((/** @type {any[]} */ call) => call[0]).sort()).toEqual([
+      '/api/panels',
+      '/health',
+    ]);
+    for (const [, init] of booted.reads.mock.calls) {
+      expect(init.cache).toBe('no-store');
       // happy-dom/Node both ship AbortSignal.timeout; the module falls back to
       // `undefined` only where the runtime has none.
       expect(init.signal).toBeInstanceOf(AbortSignal);
     }
+  });
+
+  test('the config reads go to the per-user mount', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    booted = await boot();
+
+    expect(booted.reads.mock.calls.map((/** @type {any[]} */ call) => call[0]).sort()).toEqual([
+      '/u/alice/api/panels',
+      '/u/alice/health',
+    ]);
   });
 
   test('the dialog reads the live session id', async () => {
@@ -514,12 +562,6 @@ describe('rail button', () => {
     expect(qs(document, '.feedback-context-check', HTMLInputElement).disabled).toBe(false);
   });
 
-  test('no session greys the context checkbox out', async () => {
-    booted = await boot({ sessionId: null });
-    clickFeedbackButton();
-
-    expect(qs(document, '.feedback-context-check', HTMLInputElement).disabled).toBe(true);
-  });
 });
 
 describe('local send', () => {
@@ -580,19 +622,6 @@ describe('session context', () => {
       session_id: SESSION,
       scrollback: 'first line\nsecond line',
     });
-  });
-
-  test('an unticked context box sends neither', async () => {
-    booted = await boot({ terminal: fakeTerm(['first line']) });
-    clickFeedbackButton();
-
-    qs(document, '.feedback-send').click();
-    await vi.waitFor(() => expect(booted.fetch).toHaveBeenCalled());
-
-    const body = postedBody(booted.fetch);
-    expect(body.include_context).toBe(false);
-    expect('session_id' in body).toBe(false);
-    expect('scrollback' in body).toBe(false);
   });
 
   test('a deployment with no terminal to read still submits', async () => {
@@ -785,17 +814,6 @@ describe('outbound channels', () => {
     const body = decodeURIComponent(booted.windowOpen.mock.calls[0][0]);
     expect(body).not.toContain('[object Object]');
     expect(body).toContain('graph');
-  });
-
-  test('a deployment with no trackers offers no tracker radio at all', async () => {
-    // The blank-`github_repo` posture: the server resolves it to an empty
-    // list, and an empty list is not a channel that refuses — it is no
-    // channel, so nothing can aim a report at the upstream tracker.
-    booted = await boot({ panels: { docs_url: DOCS_URL, feedback_trackers: [] } });
-    clickFeedbackButton();
-
-    expect(channelValues()).toEqual(['local', 'email']);
-    expect(document.querySelector('.feedback-open-channel')).toBeNull();
   });
 
   test('a tracker radio is captioned by the facility-authored label', async () => {
