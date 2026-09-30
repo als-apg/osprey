@@ -365,6 +365,8 @@ message names.
 
    * - Condition
      - Message begins
+   * - ``machine.json`` is not valid JSON
+     - ``Machine file <path> is not valid JSON:``
    * - ``machine.json`` has no ``channels`` mapping
      - ``Machine file <path> must define a 'channels' mapping``
    * - A channel entry is not a mapping

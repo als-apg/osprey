@@ -23,6 +23,7 @@ from osprey.simulation.machine import (
     _validate_position_keys,
     load_scenario_bundles,
     parse_machine,
+    read_machine_json,
 )
 
 _PATH = Path("machine.json")
@@ -607,3 +608,19 @@ class TestLogbookTimeRefusal:
             load_scenario_bundles(tmp_path / "scenarios", {})
         assert "Scenario 'fault' logbook entry 'E1': 'when.time'" in str(info.value)
         assert "at_time" not in str(info.value)
+
+
+class TestReadMachineJson:
+    def test_syntax_error_names_the_file_and_position(self, tmp_path):
+        path = tmp_path / "machine.json"
+        path.write_text('{"channels": {"A": {"value": 1},}}')
+        with pytest.raises(ValueError, match=r"is not valid JSON: .*line 1 column 32") as info:
+            read_machine_json(path)
+        assert str(path) in str(info.value)
+        assert isinstance(info.value.__cause__, json.JSONDecodeError)
+
+    def test_valid_file_decodes(self, tmp_path):
+        path = tmp_path / "machine.json"
+        machine = {"channels": {"A": {"value": 1}}}
+        path.write_text(json.dumps(machine))
+        assert read_machine_json(path) == machine

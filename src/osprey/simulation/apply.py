@@ -15,7 +15,6 @@ on demand via ``osprey sim apply``.
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +33,7 @@ from osprey.simulation.engine import (
     resolve_active_scenarios,
     resolve_state_dir,
 )
-from osprey.simulation.machine import parse_machine
+from osprey.simulation.machine import parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
@@ -526,8 +525,7 @@ def active_archiver_events(machine_path: Path, names: Sequence[str]) -> dict[str
     user what is about to change while an abort still leaves the project
     untouched.
     """
-    with open(machine_path) as handle:
-        model = parse_machine(json.load(handle), machine_path)
+    model = parse_machine(read_machine_json(machine_path), machine_path)
 
     resolved = resolve_active_scenarios(names)
     unknown = [name for name in resolved if name not in model.scenarios]
@@ -1419,9 +1417,7 @@ def compute_scenario_physics_env(
         project_dir,
         "physics-fault rendering only applies to simulation-backed projects.",
     )
-    with open(machine_path) as f:
-        machine = json.load(f)
-    model = parse_machine(machine, machine_path)
+    model = parse_machine(read_machine_json(machine_path), machine_path)
 
     resolved = resolve_active_scenarios(names)
     unknown = [n for n in resolved if n not in model.scenarios]
