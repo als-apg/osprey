@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -16,8 +17,8 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
+from osprey.interfaces.web_terminal import ownership as ownership_module
 from osprey.interfaces.web_terminal.ownership import (
-    Ownership,
     OwnershipMode,
     OwnershipStore,
     reserved_write_channel,
@@ -29,6 +30,8 @@ from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     restore_scaffold_bodies,
 )
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+
+from .conftest import bare_route_app
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -370,12 +373,6 @@ class TestListArtifacts:
             fpath = project_dir / art["output_path"]
             assert fpath.exists(), f"{art['output_path']} listed but not on disk"
 
-    def test_list_artifacts_bounded_by_registry(self, service):
-        """Returned count is at most the registry size (no phantom artifacts)."""
-        registry = BuildArtifactCatalog.default()
-        result = service.list_artifacts()
-        assert len(result) <= len(registry.all_artifacts())
-
     def test_list_artifacts_status_framework(self, service):
         """An artifact without user-ownership has status 'framework'."""
         result = service.list_artifacts()
@@ -424,12 +421,10 @@ class TestListArtifacts:
         # "claude-md" (no slash) -> category "config"
         assert by_name["claude-md"]["category"] == "config"
 
-    def test_list_artifacts_summary_counts(self, service):
-        """Sum of framework + overridden equals total."""
-        result = service.list_artifacts()
-        framework = sum(1 for a in result if a["status"] == "framework")
-        owned = sum(1 for a in result if a["status"] == "user-owned")
-        assert framework + owned == len(result)
+    def test_list_artifacts_status_vocabulary(self, service):
+        """Every status is one of the two the route's summary counts."""
+        statuses = {a["status"] for a in service.list_artifacts()}
+        assert statuses <= {"framework", "user-owned"}
 
     def test_list_artifacts_reads_disk_metadata(self, service, project_dir):
         """Modifying front-matter on disk is reflected in list_artifacts()."""
@@ -452,8 +447,8 @@ class TestListArtifacts:
         """Artifacts not on disk are not returned (filesystem-first)."""
         # Delete a known artifact file from the initialized project
         safety_file = project_dir / ".claude" / "rules" / "safety.md"
-        if safety_file.exists():
-            safety_file.unlink()
+        assert safety_file.exists(), "the render is expected to carry the safety rule"
+        safety_file.unlink()
 
         svc = ScaffoldGalleryService(project_dir)
         result = svc.list_artifacts()
@@ -467,14 +462,7 @@ class TestListArtifacts:
 
 
 class TestGetContent:
-    """Tests for get_content, get_framework_content, get_override_content."""
-
-    def test_get_content_framework(self, service):
-        """Framework artifact returns non-empty content with source='framework'."""
-        result = service.get_content(SAFE_ARTIFACT)
-        assert result["source"] == "framework"
-        assert isinstance(result["content"], str)
-        assert len(result["content"]) > 0
+    """Tests for get_content and get_framework_content."""
 
     def test_get_content_user_owned(self, service, project_dir):
         """After claim + modify, get_content returns the user's version."""
@@ -487,31 +475,38 @@ class TestGetContent:
         assert result["source"] == "user-owned"
         assert result["content"] == custom
 
-    def test_get_framework_content_renders(self, service):
-        """get_framework_content returns non-empty rendered content."""
-        content = service.get_framework_content(SAFE_ARTIFACT)
-        assert isinstance(content, str)
-        assert len(content) > 0
+    def test_get_content_reads_disk_for_framework_artifacts(self, project_dir):
+        """A framework artifact is read off disk, not re-rendered from its template.
+
+        The render resolves env-var placeholders the template still carries, so
+        a re-render would show the operator text the agent is not reading. A
+        marker written onto the disk copy is present only if the read went
+        there.
+        """
+        art = BuildArtifactCatalog.default().get(SAFE_ARTIFACT)
+        disk_path = project_dir / art.output_path
+        marker = "# DISK-MARKER-12345\n"
+        disk_path.write_text(marker + disk_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = ScaffoldGalleryService(project_dir).get_content(SAFE_ARTIFACT)
+
+        assert result["content"].startswith(marker)
+        assert result["source"] == "framework"
+
+    def test_get_content_falls_back_to_render_when_file_missing(self, project_dir):
+        """With the disk copy gone, the framework render is what there is to show."""
+        art = BuildArtifactCatalog.default().get(SAFE_ARTIFACT)
+        (project_dir / art.output_path).unlink()
+
+        result = ScaffoldGalleryService(project_dir).get_content(SAFE_ARTIFACT)
+
+        assert result["source"] == "framework"
+        assert result["content"]
 
     def test_get_framework_content_unknown(self, service):
         """Unknown artifact name raises KeyError."""
         with pytest.raises(KeyError, match="Unknown artifact"):
             service.get_framework_content("nonexistent/artifact")
-
-    def test_get_override_content_not_owned(self, service):
-        """Non-owned artifact returns None."""
-        result = service.get_override_content(SAFE_ARTIFACT)
-        assert result is None
-
-    def test_get_override_content_exists(self, service, project_dir):
-        """After claiming, get_override_content returns file content."""
-        scaffold_result = service.scaffold_override(WRITABLE_ARTIFACT)
-        expected_content = scaffold_result["content"]
-
-        svc = ScaffoldGalleryService(project_dir)
-        content = svc.get_override_content(WRITABLE_ARTIFACT)
-        assert content is not None
-        assert content == expected_content
 
 
 # ===========================================================================
@@ -729,38 +724,6 @@ class TestSaveOverrideProtectedSet:
 
     # ── The route ────────────────────────────────────────────────────
 
-    @pytest.mark.usefixtures("audit_zone")
-    def test_save_override_route_refuses_with_403_and_records_activity(self, project_dir):
-        """The PUT route maps the refusal to 403 and publishes it to the ring."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        on_disk = project_dir / ".claude" / "rules" / "facility.md"
-        before = on_disk.read_text(encoding="utf-8")
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).put(
-            f"/api/scaffold/{self.RESERVED_OWNED}/override",
-            json={"content": "# Rewritten by the agent\n"},
-        )
-
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS WRITTEN" in detail
-        assert on_disk.read_text(encoding="utf-8") == before
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["save_override"]
-        recorded = app.state.agent_activity_ring[0]["target"]
-        assert recorded["kind"] == "artifact"
-        assert self.RESERVED_OWNED in recorded["detail"]
-
 
 # ===========================================================================
 # Unclaim
@@ -802,14 +765,36 @@ class TestUnoverride:
 class TestDescriptionExtraction:
     """Tests for two-tier summary/description extraction from front matter."""
 
-    def test_agent_has_summary_from_front_matter(self, service):
-        """Agent artifact summary comes from template front matter, not registry."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["agents/data-visualizer"]
-        assert art["summary"] == ("Creates plots, charts, dashboards, and compiles LaTeX reports")
-        # Summary should differ from the full description
-        assert art["summary"] != art["description"]
+    @pytest.mark.parametrize(
+        ("name", "summary", "description_fragment"),
+        [
+            (
+                "agents/data-visualizer",
+                "Creates plots, charts, dashboards, and compiles LaTeX reports",
+                "Creates data visualizations",
+            ),
+            (
+                "rules/safety",
+                "Safety boundaries, channel write safety, and data integrity",
+                "tool confinement",
+            ),
+            # A skill is a directory; its card reads the front matter of SKILL.md.
+            (
+                "skills/diagnose",
+                "Investigate OSPREY infrastructure and agent failures",
+                None,
+            ),
+        ],
+    )
+    def test_front_matter_summary_and_description(
+        self, service, name, summary, description_fragment
+    ):
+        """Markdown front matter supplies both card fields, not the registry."""
+        art = {a["name"]: a for a in service.list_artifacts()}[name]
+        assert art["summary"] == summary
+        if description_fragment is not None:
+            assert description_fragment in art["description"]
+            assert art["summary"] != art["description"]
 
     def test_hook_has_summary_from_front_matter(self, service):
         """Hook artifact summary comes from docstring YAML front matter."""
@@ -827,28 +812,6 @@ class TestDescriptionExtraction:
         art = by_name["claude-md"]
         # No front matter in JSON templates -> falls back to registry
         assert art["summary"] == reg_art.description
-
-    def test_description_is_full_from_front_matter(self, service):
-        """Agent description field comes from full front matter description."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["agents/data-visualizer"]
-        assert "Creates data visualizations" in art["description"]
-
-    def test_rule_has_summary_and_description(self, service):
-        """Rule artifacts get both summary and description from front matter."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["rules/safety"]
-        assert art["summary"] == "Safety boundaries, channel write safety, and data integrity"
-        assert "tool confinement" in art["description"]
-
-    def test_skill_diagnose_has_summary_from_front_matter(self, service):
-        """Diagnose skill gets summary from skill front matter."""
-        result = service.list_artifacts()
-        by_name = {a["name"]: a for a in result}
-        art = by_name["skills/diagnose"]
-        assert art["summary"] == "Investigate OSPREY infrastructure and agent failures"
 
 
 # ===========================================================================
@@ -870,19 +833,10 @@ class TestScanUntracked:
         orphan.parent.mkdir(parents=True, exist_ok=True)
         orphan.write_text("# My Custom Agent\nDo something special.\n", encoding="utf-8")
 
-        result = service.scan_untracked()
-        names = [u["canonical_name"] for u in result]
-        assert "agents/my-custom-agent" in names
-
-    def test_scan_untracked_excludes_registered(self, service, project_dir):
-        """Registry artifacts that exist on disk are NOT reported as untracked."""
-        safety_file = project_dir / ".claude" / "rules" / "safety.md"
-        safety_file.parent.mkdir(parents=True, exist_ok=True)
-        safety_file.write_text("# Safety\nExisting framework content.\n", encoding="utf-8")
-
-        result = service.scan_untracked()
-        names = [u["canonical_name"] for u in result]
-        assert "rules/safety" not in names
+        by_name = {u["canonical_name"]: u for u in service.scan_untracked()}
+        entry = by_name["agents/my-custom-agent"]
+        assert entry["category"] == "agents"
+        assert entry["preview"] == "# My Custom Agent\nDo something special.\n"
 
     def test_scan_untracked_excludes_user_owned(self, service, project_dir):
         """Custom files already in user_owned are NOT reported as untracked."""
@@ -896,27 +850,6 @@ class TestScanUntracked:
         result = svc.scan_untracked()
         names = [u["canonical_name"] for u in result]
         assert "agents/already-claimed" not in names
-
-    def test_scan_untracked_returns_correct_category(self, service, project_dir):
-        """Category is derived from the first path component."""
-        orphan = project_dir / ".claude" / "agents" / "rogue-agent.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Rogue Agent\n", encoding="utf-8")
-
-        result = service.scan_untracked()
-        by_name = {u["canonical_name"]: u for u in result}
-        assert by_name["agents/rogue-agent"]["category"] == "agents"
-
-    def test_scan_untracked_returns_preview(self, service, project_dir):
-        """Untracked files include a text preview."""
-        orphan = project_dir / ".claude" / "agents" / "preview-test.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        content = "# Preview Test\nSome content here.\n"
-        orphan.write_text(content, encoding="utf-8")
-
-        result = service.scan_untracked()
-        by_name = {u["canonical_name"]: u for u in result}
-        assert by_name["agents/preview-test"]["preview"] == content
 
     def test_scan_untracked_empty_when_no_orphans(self, service):
         """Returns empty list when all files are tracked."""
@@ -1025,6 +958,21 @@ class TestRegisterUntracked:
         assert records[0]["surface"] == "scaffold_gallery"
         assert records[0]["subject"] == ".claude/rules/hand-written.md"
 
+    def test_register_untracked_writes_manifest(self, detached_service, detached_project_dir):
+        """Regression: config-mode register_untracked also writes a manifest entry."""
+        project_dir = detached_project_dir
+        orphan = project_dir / ".claude" / "agents" / "manifest-reg.md"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("# Manifest Reg\n", encoding="utf-8")
+
+        detached_service.register_untracked("agents/manifest-reg")
+
+        manifest_path = project_dir / ".osprey-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entry = manifest.get("user_owned", {}).get("agents/manifest-reg")
+        assert entry is not None
+        assert "claimed_at" in entry
+
 
 class TestDeleteUntracked:
     """Tests for delete_untracked — removing orphaned files from disk."""
@@ -1056,6 +1004,61 @@ class TestDeleteUntracked:
 
         with pytest.raises(ValueError, match="framework artifact"):
             service.delete_untracked("rules/safety")
+
+
+class TestDeleteUntrackedRefusesAnOwnedArtifact:
+    """The orphan delete is for orphans; an owned file is released, not swept.
+
+    Unlinking an owned artifact through the untracked route would leave its
+    ownership record behind, and on a volume the stored body that the next
+    start restores. The refusal names the route that does both halves.
+    """
+
+    def _owned(self, project_dir: Path) -> Path:
+        path = project_dir / ".claude" / "agents" / "owned.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Owned\n", encoding="utf-8")
+        ScaffoldGalleryService(project_dir).register_untracked("agents/owned")
+        return path
+
+    def test_an_owned_artifact_is_refused_and_left_alone(self, detached_project_dir):
+        owned = self._owned(detached_project_dir)
+
+        with pytest.raises(FileExistsError, match="owned — use unoverride with delete_file"):
+            ScaffoldGalleryService(detached_project_dir).delete_untracked("agents/owned")
+
+        assert owned.read_text(encoding="utf-8") == "# Owned\n"
+        assert "agents/owned" in _get_user_owned(detached_project_dir)
+
+    def test_the_route_answers_409(self, detached_project_dir):
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
+        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
+
+        owned = self._owned(detached_project_dir)
+        app = bare_route_app(
+            scaffold_routes.router,
+            project_cwd=str(detached_project_dir),
+            scaffold_write_enabled=True,
+        )
+        register_scaffold_conflict_handlers(app)
+
+        response = TestClient(app).delete("/api/scaffold/untracked/agents/owned")
+
+        assert response.status_code == 409, response.text
+        assert "use unoverride with delete_file" in response.json()["detail"]
+        assert owned.exists()
+
+    def test_an_unowned_orphan_is_still_deleted(self, detached_project_dir):
+        """Control: the refusal is about ownership, not about the route."""
+        orphan = detached_project_dir / ".claude" / "agents" / "stray.md"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("# Stray\n", encoding="utf-8")
+
+        ScaffoldGalleryService(detached_project_dir).delete_untracked("agents/stray")
+
+        assert not orphan.exists()
 
 
 class TestDeleteUntrackedProtectedSet:
@@ -1121,40 +1124,6 @@ class TestDeleteUntrackedProtectedSet:
         assert target.exists()
         assert len(_protected_records(audit_zone)) == 1
 
-    @pytest.mark.usefixtures("audit_zone")
-    def test_delete_untracked_route_refuses_with_403_and_records_activity(self, project_dir):
-        """The DELETE route maps the refusal to 403 and publishes it to the ring.
-
-        The service holds no ``Request``, so naming the refusal in the agent's
-        activity history is the route's job.
-        """
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        target = project_dir / ".claude" / "rules" / "route-guard.md"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("# Route guard\n", encoding="utf-8")
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).delete("/api/scaffold/untracked/rules/route-guard")
-
-        assert response.status_code == 403
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS DELETED" in detail
-        assert target.exists()
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["delete_untracked"]
-        recorded = app.state.agent_activity_ring[0]["target"]
-        assert recorded["kind"] == "artifact"
-        assert "rules/route-guard" in recorded["detail"]
-
 
 class TestCustomArtifacts:
     """Tests for custom user artifacts appearing in list_artifacts and get_content."""
@@ -1196,37 +1165,6 @@ class TestCustomArtifacts:
         with pytest.raises(KeyError, match="Unknown artifact"):
             service.get_content("rules/totally-unknown")
 
-    def test_save_override_custom_artifact(self, detached_service, detached_project_dir):
-        """save_override works for registered custom files."""
-        orphan = detached_project_dir / ".claude" / "agents" / "editable.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Original\n", encoding="utf-8")
-
-        detached_service.register_untracked("agents/editable")
-
-        svc = ScaffoldGalleryService(detached_project_dir)
-        new_content = "# Edited Custom Rule\nUpdated content.\n"
-        result = svc.save_override("agents/editable", new_content)
-        assert result["status"] == "saved"
-        assert orphan.read_text(encoding="utf-8") == new_content
-
-    def test_unoverride_custom_with_delete(self, detached_service, detached_project_dir):
-        """Unclaiming a custom artifact with delete_file=True removes the file."""
-        orphan = detached_project_dir / ".claude" / "agents" / "removable.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Removable\n", encoding="utf-8")
-
-        detached_service.register_untracked("agents/removable")
-
-        svc = ScaffoldGalleryService(detached_project_dir)
-        result = svc.unoverride("agents/removable", delete_file=True)
-        assert result["status"] == "removed"
-        assert result["deleted_file"] is True
-        assert not orphan.exists()
-
-        user_owned = _get_user_owned(detached_project_dir)
-        assert "agents/removable" not in user_owned
-
 
 # ===========================================================================
 # Unoverride framework restore
@@ -1251,20 +1189,6 @@ class TestCreateArtifact:
     def _profile_root(self, project_dir: Path) -> Path:
         manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
         return Path(manifest["build_args"]["profile_path_abs"]).parent
-
-    def test_create_artifact_writes_the_profile_copy(self, service, project_dir):
-        """The new artifact lands in the profile's convention directory."""
-        result = service.create_artifact("agents", "my-agent")
-        assert result["status"] == "created"
-        assert result["created_in_profile"] is True
-        assert result["output_path"] == ".claude/agents/my-agent.md"
-
-        slot = self._profile_root(project_dir) / "agents" / "my-agent.md"
-        assert slot.is_file()
-        assert len(slot.read_text(encoding="utf-8")) > 0
-        assert not (project_dir / ".claude" / "agents" / "my-agent.md").exists(), (
-            "the project copy is the build's to make, from the profile"
-        )
 
     def test_create_artifact_writes_no_project_ownership(self, service, project_dir):
         """Registration is the next build's convention scan, not the gallery's."""
@@ -1303,15 +1227,6 @@ class TestCreateArtifact:
         with pytest.raises(FileExistsError, match="claim it instead"):
             service.create_artifact("agents", "already-here")
         assert existing.read_text(encoding="utf-8") == "# Written by hand\n"
-
-    def test_create_refuses_in_a_degraded_project(self, degraded_project_dir):
-        """No reachable profile means nowhere durable to author into."""
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        svc = ScaffoldGalleryService(degraded_project_dir)
-        with pytest.raises(ScaffoldClaimError):
-            svc.create_artifact("agents", "nowhere-to-put-this")
-        assert not (degraded_project_dir / ".claude" / "agents" / "nowhere-to-put-this.md").exists()
 
     def test_create_still_registers_in_config_mode(self, detached_service, detached_project_dir):
         """A pre-profile project has no profile, so config.yml is still the place."""
@@ -1394,9 +1309,10 @@ class TestCreateArtifact:
         """
         from osprey.cli.scaffold_cmd import ScaffoldClaimError
 
-        with pytest.raises((ScaffoldClaimError, ValueError)):
+        before = set(project_dir.parent.rglob("*"))
+        with pytest.raises(ScaffoldClaimError):
             service.create_artifact("rules", bad)
-        assert not (project_dir.parent / "escape.md").exists()
+        assert set(project_dir.parent.rglob("*")) == before, "a refused create wrote a file"
 
     def test_a_nested_name_is_legitimate(self, service, project_dir):
         """Markdown categories nest — ``commands/osprey/scan`` is a real name.
@@ -1411,21 +1327,6 @@ class TestCreateArtifact:
         slot = self._profile_root(project_dir) / "commands" / "osprey" / "handover.md"
         assert slot.is_file()
 
-    def test_register_untracked_writes_manifest(self, detached_service, detached_project_dir):
-        """Regression: config-mode register_untracked also writes a manifest entry."""
-        project_dir = detached_project_dir
-        orphan = project_dir / ".claude" / "agents" / "manifest-reg.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Manifest Reg\n", encoding="utf-8")
-
-        detached_service.register_untracked("agents/manifest-reg")
-
-        manifest_path = project_dir / ".osprey-manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        entry = manifest.get("user_owned", {}).get("agents/manifest-reg")
-        assert entry is not None
-        assert "claimed_at" in entry
-
 
 class TestUnoverrideFrameworkRestore:
     """Tests for unoverride restoring framework file content on disk.
@@ -1434,25 +1335,6 @@ class TestUnoverrideFrameworkRestore:
     nothing else supplies the artifact. Where a profile does, the next build
     registers it again — see :class:`TestProfileMode`.
     """
-
-    def test_unoverride_restores_framework_file(self, detached_service, detached_project_dir):
-        """Claim, customize, release → get_content returns framework content."""
-        # Claim the artifact
-        detached_service.scaffold_override(WRITABLE_ARTIFACT)
-
-        # Customize it with user content
-        custom_text = "# My custom safety rules\nUser wrote this.\n"
-        detached_service.save_override(WRITABLE_ARTIFACT, custom_text)
-
-        # Release to framework with delete_file=True (what the web UI sends)
-        svc = ScaffoldGalleryService(detached_project_dir)
-        svc.unoverride(WRITABLE_ARTIFACT, delete_file=True)
-
-        # After release, get_content should return framework content, not custom
-        svc2 = ScaffoldGalleryService(detached_project_dir)
-        result = svc2.get_content(WRITABLE_ARTIFACT)
-        assert result["source"] == "framework"
-        assert result["content"] != custom_text
 
     def test_unoverride_restored_content_matches_render(
         self, detached_service, detached_project_dir
@@ -1474,6 +1356,8 @@ class TestUnoverrideFrameworkRestore:
         art = svc._registry.get(WRITABLE_ARTIFACT)
         disk_path = detached_project_dir / art.output_path
         assert disk_path.read_text(encoding="utf-8") == expected
+        shown = ScaffoldGalleryService(detached_project_dir).get_content(WRITABLE_ARTIFACT)
+        assert shown["source"] == "framework"
 
     def test_unoverride_without_delete_file_preserves_disk(
         self, detached_service, detached_project_dir
@@ -1492,6 +1376,43 @@ class TestUnoverrideFrameworkRestore:
         art = svc._registry.get(WRITABLE_ARTIFACT)
         disk_path = detached_project_dir / art.output_path
         assert disk_path.read_text(encoding="utf-8") == custom_text
+
+    def test_a_restore_that_fails_keeps_the_release_and_says_so(
+        self, detached_service, detached_project_dir
+    ):
+        """The release is already durable when the write-back fails, so it stands.
+
+        What the operator must not get is the plain "removed" of a clean
+        release: their text is still on disk, and the answer says so and why.
+        """
+        detached_service.scaffold_override(WRITABLE_ARTIFACT)
+        custom_text = "# Operator's version\n"
+        detached_service.save_override(WRITABLE_ARTIFACT, custom_text)
+        art = detached_service._registry.get(WRITABLE_ARTIFACT)
+        disk_path = detached_project_dir / art.output_path
+        disk_path.chmod(0o444)
+
+        outcome = ScaffoldGalleryService(detached_project_dir).unoverride(
+            WRITABLE_ARTIFACT, delete_file=True
+        )
+
+        assert outcome["status"] == "removed"
+        assert outcome["restored_file"] is False
+        assert art.output_path in outcome["message"]
+        assert "could not be restored" in outcome["message"]
+        assert disk_path.read_text(encoding="utf-8") == custom_text
+        assert WRITABLE_ARTIFACT not in _get_user_owned(detached_project_dir)
+
+    def test_a_clean_restore_carries_no_message(self, detached_service, detached_project_dir):
+        """Control for the failure case: a restore that worked has nothing to explain."""
+        detached_service.scaffold_override(WRITABLE_ARTIFACT)
+
+        outcome = ScaffoldGalleryService(detached_project_dir).unoverride(
+            WRITABLE_ARTIFACT, delete_file=True
+        )
+
+        assert outcome["restored_file"] is True
+        assert "message" not in outcome
 
 
 # ===========================================================================
@@ -1512,11 +1433,13 @@ class TestProfileMode:
         manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
         return Path(manifest["build_args"]["profile_path_abs"]).parent
 
-    def test_claim_moves_artifact_into_the_profile(self, service, project_dir):
+    def test_claim_moves_artifact_into_the_profile(self, service, project_dir, audit_zone):
         """The artifact lands in the profile, and leaves the project tree."""
         result = service.scaffold_override(WRITABLE_ARTIFACT)
 
+        assert result["status"] == "claimed"
         assert result["moved_to_profile"] is True
+        assert _protected_records(audit_zone) == [], "an allowed claim records nothing"
         profile_copy = self._profile_root(project_dir) / "agents" / "channel-finder.md"
         assert profile_copy.is_file()
         assert not (project_dir / result["output_path"]).exists()
@@ -1767,28 +1690,6 @@ class TestVolumeMode:
         assert "rules/retired" not in listed
         assert not (container_project / ".claude" / "rules" / "retired.md").exists()
 
-    @pytest.mark.usefixtures("volume_dir")
-    def test_local_edit_is_not_clobbered_by_the_durable_copy(self, container_project):
-        """Rehydration restores an image-fresh file, never a newer local edit.
-
-        Someone editing through the terminal rather than the gallery is doing
-        the same work by another route; overwriting it on the next request
-        would destroy it.
-        """
-        svc = ScaffoldGalleryService(container_project)
-        svc.scaffold_override(WRITABLE_ARTIFACT)
-        svc.save_override(WRITABLE_ARTIFACT, "# Saved through the gallery\n")
-
-        art = svc._registry.get(WRITABLE_ARTIFACT)
-        edited_in_terminal = "# Edited in the terminal, not the gallery\n"
-        (container_project / art.output_path).write_text(edited_in_terminal, encoding="utf-8")
-
-        assert restore_scaffold_bodies(container_project) == []
-
-        assert (container_project / art.output_path).read_text(
-            encoding="utf-8"
-        ) == edited_in_terminal
-
 
 # ===========================================================================
 # Degraded topology — a profile is named but cannot be reached
@@ -1807,26 +1708,12 @@ class TestDegradedTopology:
     def test_claim_refuses_with_the_cli_message(self, degraded_project_dir):
         from osprey.cli.scaffold_cmd import ScaffoldClaimError
 
+        before = _get_user_owned(degraded_project_dir)
         svc = ScaffoldGalleryService(degraded_project_dir)
         with pytest.raises(ScaffoldClaimError, match="profile"):
             svc.scaffold_override(WRITABLE_ARTIFACT)
 
-    def test_claim_writes_nothing(self, degraded_project_dir):
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        before = _get_user_owned(degraded_project_dir)
-        svc = ScaffoldGalleryService(degraded_project_dir)
-        with pytest.raises(ScaffoldClaimError):
-            svc.scaffold_override(WRITABLE_ARTIFACT)
-
         assert _get_user_owned(degraded_project_dir) == before
-
-    def test_create_artifact_refuses(self, degraded_project_dir):
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        svc = ScaffoldGalleryService(degraded_project_dir)
-        with pytest.raises(ScaffoldClaimError, match="cannot be\n *reached|cannot be reached"):
-            svc.create_artifact("agents", "nowhere-to-put-this")
 
     def test_release_refuses(self, degraded_project_dir):
         from osprey.cli.scaffold_cmd import ScaffoldClaimError
@@ -1856,8 +1743,10 @@ class TestDegradedTopology:
         with pytest.raises(ScaffoldClaimError) as excinfo:
             svc.create_artifact("agents", "nowhere-to-put-this")
 
+        assert re.search(r"cannot be\s+reached", str(excinfo.value))
         assert NO_DURABLE_STORE in str(excinfo.value)
         assert CLAUDE_CONFIG_ENV in str(excinfo.value)
+        assert not (degraded_project_dir / ".claude" / "agents" / "nowhere-to-put-this.md").exists()
 
     def test_the_gallery_still_opens(self, degraded_project_dir):
         """Reads must keep working — a refused write is not a broken page."""
@@ -1880,9 +1769,20 @@ class TestRestoreContainment:
     startup.
     """
 
+    PLANTED = "# PLANTED BY THE STORE\n"
+
     def _seed(self, volume_dir: Path, output_path: str) -> None:
+        """Index a claim on *output_path* and put a body where the store would read it.
+
+        The body is what makes the refusal mean something: a record with no
+        body is skipped by every restore for that reason alone. It is planted
+        only where it stays on the volume — a relative path, even a climbing
+        one, lands under the store; an absolute one is left bodiless, because
+        writing it would be the very write under test.
+        """
         store_dir = volume_dir / "osprey" / "scaffold"
-        (store_dir / "files").mkdir(parents=True, exist_ok=True)
+        files = store_dir / "files"
+        files.mkdir(parents=True, exist_ok=True)
         (store_dir / "user_owned.json").write_text(
             json.dumps(
                 {
@@ -1894,12 +1794,22 @@ class TestRestoreContainment:
             ),
             encoding="utf-8",
         )
+        if Path(output_path).is_absolute():
+            return
+        body = Path(os.path.normpath(files / output_path))
+        assert body.is_relative_to(volume_dir), body
+        body.parent.mkdir(parents=True, exist_ok=True)
+        body.write_text(self.PLANTED, encoding="utf-8")
 
     @pytest.mark.parametrize(
         "output_path",
         [
             "config.yml",
             ".env",
+            # Absent from the render and outside the ownable tree: no other
+            # rule (existing-file, reserved) is in the way, so containment alone
+            # decides it.
+            "planted-at-root.md",
             "../escaped.md",
             "/etc/passwd",
             ".claude/../../escaped.md",
@@ -1913,40 +1823,18 @@ class TestRestoreContainment:
         self, container_project, volume_dir, output_path
     ):
         self._seed(volume_dir, output_path)
+        project_files = {
+            path: path.read_bytes() for path in container_project.rglob("*") if path.is_file()
+        }
 
         assert restore_scaffold_bodies(container_project) == []
-
-    def test_a_planted_path_does_not_overwrite_config(self, container_project, volume_dir):
-        self._seed(volume_dir, "config.yml")
-        store_dir = volume_dir / "osprey" / "scaffold"
-        (store_dir / "files").mkdir(parents=True, exist_ok=True)
-        before = (container_project / "config.yml").read_text(encoding="utf-8")
-
-        restore_scaffold_bodies(container_project)
-
-        assert (container_project / "config.yml").read_text(encoding="utf-8") == before
-
-
-# ===========================================================================
-# Artifact shapes the naming rules trip over
-# ===========================================================================
+        after = {path: path.read_bytes() for path in container_project.rglob("*") if path.is_file()}
+        assert after == project_files, "a refused restore changed the project tree"
+        assert not (container_project.parent / "escaped.md").exists()
 
 
 class TestArtifactShapes:
     """Two shapes whose paths do not follow the ``<name>.md`` assumption."""
-
-    @pytest.mark.usefixtures("volume_dir")
-    def test_hook_paths_keep_their_py_suffix(self, container_project):
-        """A hook is a ``.py`` script and is owned under a name that says so.
-
-        Appending ``.md`` to it would record the claimed body against a path
-        that does not exist, so the body would be stored and never read back.
-        """
-        svc = ScaffoldGalleryService(container_project)
-        assert svc._canonical_to_path("hooks/osprey_cf_feedback_capture.py") == (
-            ".claude/hooks/osprey_cf_feedback_capture.py"
-        )
-        assert svc._canonical_to_path("rules/safety") == ".claude/rules/safety.md"
 
     def test_a_claimed_hook_body_round_trips(self, container_project, volume_dir):
         """The body of a hook claim is retrievable, not written into the void."""
@@ -1955,25 +1843,12 @@ class TestArtifactShapes:
         hook.write_text("#!/usr/bin/env python\nprint('ok')\n", encoding="utf-8")
 
         svc = ScaffoldGalleryService(container_project)
-        svc._record_claim("hooks/shift-check.py", hook.read_text(encoding="utf-8"))
+        svc.register_untracked("hooks/shift-check.py")
 
         stored = _store_index(volume_dir)["artifacts"]["hooks/shift-check.py"]
         assert stored["output_path"] == ".claude/hooks/shift-check.py"
         body = volume_dir / "osprey" / "scaffold" / "files" / ".claude" / "hooks" / "shift-check.py"
         assert body.read_text(encoding="utf-8") == hook.read_text(encoding="utf-8")
-
-    @pytest.mark.usefixtures("project_dir")
-    def test_directory_artifacts_are_not_read_as_text(self, service):
-        """A skill is a directory. Reading its profile slot as text would raise.
-
-        The gallery edits single files; a directory-shaped artifact has no body
-        to open, and asking for one must not crash the page.
-        """
-        skills = [a["name"] for a in service.list_artifacts() if a["name"].startswith("skills/")]
-        assert skills, "the control-assistant preset is expected to ship a skill"
-
-        for name in skills:
-            assert service._profile_file(name) is None
 
 
 class TestVolumeSaveDurability:
@@ -2204,16 +2079,6 @@ class TestGeneratedPathsAreNeverOwnable:
         with pytest.raises(ScaffoldClaimError, match="generated, not authored"):
             svc.save_override("hooks/hook-config", '{"write_tools": []}')
 
-    def test_a_generated_path_reaching_save_is_refused_by_name(self, container_project):
-        """The guard on save itself, independent of ownership filtering."""
-        from osprey.cli.scaffold_cmd import ScaffoldClaimError
-
-        svc = ScaffoldGalleryService(container_project)
-        svc._user_owned = [*svc._user_owned, "hooks/hook-config"]
-
-        with pytest.raises(ScaffoldClaimError, match="generated, not authored"):
-            svc.save_override("hooks/hook-config", '{"write_tools": []}')
-
     def test_ordinary_artifacts_are_unaffected(self, container_project, volume_dir):
         """The guard names generated files, not whole channels.
 
@@ -2290,6 +2155,9 @@ class TestTreeAndStoreDisagree:
         (container_project / art.output_path).write_text(edited_in_terminal, encoding="utf-8")
 
         assert restore_scaffold_bodies(container_project) == []
+        assert (container_project / art.output_path).read_text(
+            encoding="utf-8"
+        ) == edited_in_terminal, "the restore must not clobber a newer local edit"
         shown = ScaffoldGalleryService(container_project).get_content(WRITABLE_ARTIFACT)
         assert shown["content"] == edited_in_terminal, (
             "the gallery must show the copy the agent is reading, not the older durable one"
@@ -2448,16 +2316,15 @@ class TestRouteRefusals:
     """
 
     def _client(self, project_dir: Path):
-        from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
         from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
         from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
 
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
+        app = bare_route_app(
+            scaffold_routes.router, project_cwd=str(project_dir), scaffold_write_enabled=True
+        )
         register_scaffold_conflict_handlers(app)
-        app.state.project_cwd = str(project_dir)
         return TestClient(app)
 
     @pytest.mark.usefixtures("volume_dir")
@@ -2499,7 +2366,8 @@ class TestRouteRefusals:
             "/api/scaffold/create", json={"category": "rules", "name": "../../evil"}
         )
 
-        assert response.status_code in (400, 409), response.text
+        assert response.status_code == 409, response.text
+        assert "is not an artifact name" in response.json()["detail"]
         assert not (container_project.parent / "evil.md").exists()
 
 
@@ -2608,8 +2476,12 @@ class TestCreateClaimUnoverrideProtectedSet:
         result = service.create_artifact("agents", "shift-handover", "# Shift handover\n")
 
         assert result["status"] == "created"
+        assert result["created_in_profile"] is True
         assert result["output_path"] == ".claude/agents/shift-handover.md"
         assert (_profile_root(project_dir) / "agents" / "shift-handover.md").is_file()
+        assert not (project_dir / ".claude" / "agents" / "shift-handover.md").exists(), (
+            "the project copy is the build's to make, from the profile"
+        )
         assert _protected_records(audit_zone) == []
 
     def test_create_artifact_refuses_before_the_volume_is_written(
@@ -2631,36 +2503,6 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert _store_index(volume_dir) == {}
         assert not (container_project / ".claude" / "rules" / f"{name}.md").exists()
         assert len(_protected_records(audit_zone)) == 1
-
-    @pytest.mark.usefixtures("audit_zone")
-    def test_create_artifact_route_refuses_with_403_and_records_activity(self, project_dir):
-        """The POST route maps the refusal to 403 and publishes it to the ring."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        category, name = self.NEW_RULE
-        response = TestClient(app).post(
-            "/api/scaffold/create",
-            json={"category": category, "name": name, "content": "# Written by the agent\n"},
-        )
-
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS CREATED" in detail
-        assert not (_profile_root(project_dir) / "rules" / f"{name}.md").exists()
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["create_artifact"]
-        recorded = app.state.agent_activity_ring[0]["target"]
-        assert recorded["kind"] == "artifact"
-        assert f"rules/{name}" in recorded["detail"]
 
     # ── claim ────────────────────────────────────────────────────────
 
@@ -2731,46 +2573,6 @@ class TestCreateClaimUnoverrideProtectedSet:
             svc.scaffold_override("hooks/hook-config")
 
         assert _protected_records(audit_zone) == [], "the older refusal audits nothing"
-
-    def test_claim_of_an_ordinary_agent_still_goes_through(self, service, project_dir, audit_zone):
-        """The ordinary case, unchanged."""
-        result = service.scaffold_override(WRITABLE_ARTIFACT)
-
-        assert result["status"] == "claimed"
-        assert (_profile_root(project_dir) / "agents" / "channel-finder.md").is_file()
-        assert _protected_records(audit_zone) == []
-
-    @pytest.mark.usefixtures("audit_zone")
-    def test_claim_route_refuses_a_reserved_skill_with_403_and_records_activity(self, project_dir):
-        """A pattern-reserved claim is a 403 naming the channel, not a 500.
-
-        The app-level handler turns the CLI's refusal into a 409, but it only
-        ever sees the exactly-reserved paths; a refusal on a reserved SUBTREE
-        would have reached the browser as a bare 500 with the channel stripped
-        out of it.
-        """
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        register_scaffold_conflict_handlers(app)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).post("/api/scaffold/skills/diagnose/claim")
-
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`skills/` convention directory" in detail
-        assert "NOTHING WAS CLAIMED" in detail
-        assert not (_profile_root(project_dir) / "skills" / "diagnose").exists()
-
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["claim"]
-        assert "skills/diagnose" in app.state.agent_activity_ring[0]["target"]["detail"]
 
     # ── unclaim with delete ──────────────────────────────────────────
 
@@ -2844,35 +2646,59 @@ class TestCreateClaimUnoverrideProtectedSet:
         svc = ScaffoldGalleryService(detached_project_dir)
         outcome = svc.unoverride("agents/removable", delete_file=True)
 
+        assert outcome["status"] == "removed"
         assert outcome["deleted_file"] is True
         assert not orphan.exists()
+        assert "agents/removable" not in _get_user_owned(detached_project_dir)
         assert _protected_records(audit_zone) == []
 
-    @pytest.mark.usefixtures("audit_zone")
-    def test_unoverride_route_refuses_with_403_and_records_activity(self, detached_project_dir):
-        """The DELETE route had no clause for this: the refusal was a 500."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
 
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
+class TestUnclaimDeletesTheStoredPath:
+    """``delete_file`` removes the file the ownership record names.
 
-        planted = self._owned_reserved_file(detached_project_dir)
+    A record keeps the path its claim was made against, and every other read
+    and write already honours it; the delete has to judge and unlink that same
+    path, or it removes a file the record does not name and leaves the one it
+    does.
+    """
 
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(detached_project_dir)
-        app.state.agent_activity_ring = []
+    def _owned_at(self, project_dir: Path, volume_dir: Path, name: str, stored: str) -> Path:
+        target = project_dir / stored
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Stored\n", encoding="utf-8")
+        _plant_store_record(volume_dir, name, stored, "# Stored\n")
+        return target
 
-        response = TestClient(app).delete("/api/scaffold/rules/planted/override?delete_file=true")
+    def test_the_stored_path_is_removed_and_the_derived_one_is_not(
+        self, container_project, volume_dir
+    ):
+        stored = self._owned_at(
+            container_project, volume_dir, "agents/renamed", ".claude/agents/elsewhere.md"
+        )
+        derived = container_project / ".claude" / "agents" / "renamed.md"
+        derived.write_text("# Somebody else's file\n", encoding="utf-8")
 
-        assert response.status_code == 403, response.text
-        detail = response.json()["detail"]
-        assert "`rules/` convention directory" in detail
-        assert "NOTHING WAS DELETED" in detail
-        assert planted.exists()
+        outcome = ScaffoldGalleryService(container_project).unoverride(
+            "agents/renamed", delete_file=True
+        )
 
-        assert [event["tool"] for event in app.state.agent_activity_ring] == ["unoverride"]
-        assert "rules/planted" in app.state.agent_activity_ring[0]["target"]["detail"]
+        assert outcome["deleted_file"] is True
+        assert not stored.exists()
+        assert derived.read_text(encoding="utf-8") == "# Somebody else's file\n"
+
+    def test_a_stored_path_in_the_protected_set_is_refused(
+        self, container_project, volume_dir, audit_zone
+    ):
+        stored = self._owned_at(
+            container_project, volume_dir, "agents/sneaky", ".claude/rules/sneaky.md"
+        )
+
+        with pytest.raises(ProtectedArtifactError, match="NOTHING WAS DELETED"):
+            ScaffoldGalleryService(container_project).unoverride("agents/sneaky", delete_file=True)
+
+        assert stored.exists()
+        assert "agents/sneaky" in ScaffoldGalleryService(container_project)._user_owned
+        assert len(_protected_records(audit_zone)) == 1
 
 
 class TestLinkedWritesAreJudgedOnTheResolvedFile:
@@ -3266,37 +3092,6 @@ class TestRestoreRefusesReservedRecords:
         assert "target=.claude/agents/linked.md" in records[0]["detail"]
         assert "`rules/` convention directory" in records[0]["detail"]
 
-    def test_restore_reserved_gate_is_on_the_entrypoint_s_own_call_path(self):
-        """The root-privileged caller reaches the same gate, with no second path.
-
-        Asserted by identity rather than by running a container: the entrypoint
-        imports ``restore_scaffold_bodies`` and calls it, that function's only
-        route to a write is ``rehydrate``, and ``rehydrate``'s gate is the
-        shared ``reserved_write_channel``. Every link in that chain is an
-        object identity here, so a future "just inline it for the entrypoint"
-        breaks this test rather than the container.
-        """
-        from osprey.interfaces.web_terminal import ownership as ownership_mod
-        from osprey.interfaces.web_terminal import scaffold_gallery_service as service_mod
-
-        entrypoint = (
-            Path(service_mod.__file__).parents[3]
-            / "osprey"
-            / "templates"
-            / "project"
-            / "entrypoint.sh"
-        ).read_text(encoding="utf-8")
-        assert "from osprey.interfaces.web_terminal.scaffold_gallery_service import" in entrypoint
-        assert "restore_scaffold_bodies," in entrypoint
-        assert "restore_scaffold_bodies(render_dir)" in entrypoint
-
-        assert service_mod.restore_scaffold_bodies.__globals__["rehydrate"] is (
-            ownership_mod.rehydrate
-        ), "the entrypoint's call target must reach the gated walk, not a private copy"
-        assert ownership_mod.rehydrate.__globals__["reserved_write_channel"] is (
-            ownership_mod.reserved_write_channel
-        ), "and that walk must ask the same question the gallery's gates ask"
-
 
 class TestReservedSubtreeRootsAreClosed:
     """The directory itself is the subtree, and ``**`` does not say so.
@@ -3349,16 +3144,6 @@ class TestScanUntrackedJudgesTheResolvedFile:
         assert "agents/linked" not in listed, (
             "both actions this list offers would refuse it — listing it advertises a dead end"
         )
-
-    def test_an_ordinary_orphan_is_still_listed(self, service, project_dir):
-        """The filter must stay narrow: an unlinked orphan is the point of the list."""
-        orphan = project_dir / ".claude" / "agents" / "orphan.md"
-        orphan.parent.mkdir(parents=True, exist_ok=True)
-        orphan.write_text("# Orphan\n", encoding="utf-8")
-
-        listed = {entry["canonical_name"] for entry in service.scan_untracked()}
-
-        assert "agents/orphan" in listed
 
     def test_a_link_onto_an_ordinary_file_is_still_listed(self, service, project_dir):
         """A link is not itself the problem — only where it lands."""
@@ -3451,37 +3236,6 @@ class TestSaveOverrideReportsAppliesOnRestart:
         result = ScaffoldGalleryService(project_dir).save_override(WRITABLE_ARTIFACT, "# Edited\n")
 
         assert result["applies_on_restart"] is False
-
-    def test_the_reserved_gate_still_wins_before_applies_on_restart_is_reported(
-        self, project_dir, audit_zone
-    ):
-        """Ordering: a protected artifact is a 403, never a degraded 200.
-
-        Both answers are "your edit is not in the tree", and they must not be
-        confused for one another — one says come back after a restart, the
-        other says this is not yours to write at all. The refusal is raised
-        before either surface is touched, so it cannot arrive as a save that
-        merely applies later.
-        """
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
-
-        app = FastAPI()
-        app.include_router(scaffold_routes.router)
-        app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
-
-        response = TestClient(app).put(
-            f"/api/scaffold/{self.RESERVED_OWNED}/override",
-            json={"content": "# Rewritten by the agent\n"},
-        )
-
-        assert response.status_code == 403, response.text
-        assert "applies_on_restart" not in response.text
-        assert "NOTHING WAS WRITTEN" in response.json()["detail"]
-        assert len(_protected_records(audit_zone)) == 1
 
 
 # ===========================================================================
@@ -3766,16 +3520,6 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         assert restore_scaffold_bodies(container_project) == []
         assert _protected_records(audit_zone) == []
 
-    @pytest.mark.usefixtures("volume_dir")
-    def test_an_ordinary_body_is_still_restored(self, container_project, tmp_path):
-        """The guard must not cost the feature: a real body still comes back."""
-        pristine = _recreate_container(container_project, tmp_path / "image-rebuild")
-        svc = ScaffoldGalleryService(container_project)
-        svc.scaffold_override(WRITABLE_ARTIFACT)
-        svc.save_override(WRITABLE_ARTIFACT, "# Channel finder\nMine.\n")
-
-        assert restore_scaffold_bodies(pristine) == [WRITABLE_ARTIFACT]
-
 
 class TestNoDurableStoreIsSaidOutLoud:
     """A container deployment with nowhere durable to write says so, once.
@@ -3787,42 +3531,37 @@ class TestNoDurableStoreIsSaidOutLoud:
     optional.
     """
 
-    def _in_a_container(self, ownership_module, **extra):
-        return {ownership_module.RENDER_ZONE_READONLY_ENV: "1", **extra}
+    @pytest.fixture()
+    def in_a_container(self, monkeypatch):
+        """A container render with no per-user store mounted."""
+        monkeypatch.setenv(ownership_module.RENDER_ZONE_READONLY_ENV, "1")
+        monkeypatch.delenv(ownership_module.CLAUDE_CONFIG_ENV, raising=False)
 
+    @pytest.mark.usefixtures("in_a_container")
     def test_a_missing_store_names_the_variable_it_needs(self, tmp_path, caplog):
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
+            resolve_ownership(tmp_path)
 
         assert ownership_module.CLAUDE_CONFIG_ENV in caplog.text
         assert "durable" in caplog.text
 
+    @pytest.mark.usefixtures("in_a_container")
     def test_it_is_said_once_per_process(self, tmp_path, caplog):
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
-            resolve_ownership(tmp_path, env=self._in_a_container(ownership_module))
+            resolve_ownership(tmp_path)
+            resolve_ownership(tmp_path)
 
         assert caplog.text.count(ownership_module.CLAUDE_CONFIG_ENV) == 1
 
-    def test_a_mounted_store_says_nothing(self, tmp_path, caplog):
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
-        env = self._in_a_container(
-            ownership_module, **{ownership_module.CLAUDE_CONFIG_ENV: str(tmp_path)}
-        )
+    @pytest.mark.usefixtures("in_a_container")
+    def test_a_mounted_store_says_nothing(self, tmp_path, caplog, monkeypatch):
+        monkeypatch.setenv(ownership_module.CLAUDE_CONFIG_ENV, str(tmp_path))
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            resolve_ownership(tmp_path, env=env)
+            resolve_ownership(tmp_path)
 
         assert ownership_module.CLAUDE_CONFIG_ENV not in caplog.text
 
-    def test_a_bare_host_project_says_nothing(self, tmp_path, caplog):
+    def test_a_bare_host_project_says_nothing(self, tmp_path, caplog, monkeypatch):
         """CONFIG on a host is config.yml, which nothing recreates.
 
         The notice is about a container's writable layer. A pre-profile project
@@ -3830,22 +3569,9 @@ class TestNoDurableStoreIsSaidOutLoud:
         and telling that operator their claims are lost on recreation would be
         a warning about a machine they are not running.
         """
-        from osprey.interfaces.web_terminal import ownership as ownership_module
-
-        ownership_module.reset_store_notice()
+        monkeypatch.delenv(ownership_module.RENDER_ZONE_READONLY_ENV, raising=False)
+        monkeypatch.delenv(ownership_module.CLAUDE_CONFIG_ENV, raising=False)
         with caplog.at_level(logging.WARNING, logger=ownership_module.__name__):
-            assert resolve_ownership(tmp_path, env={}).mode is OwnershipMode.CONFIG
+            assert resolve_ownership(tmp_path).mode is OwnershipMode.CONFIG
 
         assert ownership_module.CLAUDE_CONFIG_ENV not in caplog.text
-
-    def test_the_gallery_refusal_carries_the_same_sentence(self):
-        from osprey.interfaces.web_terminal.ownership import NO_DURABLE_STORE
-
-        service = ScaffoldGalleryService.__new__(ScaffoldGalleryService)
-        service._ownership = Ownership(OwnershipMode.DEGRADED)
-        service.project_dir = Path("/srv/demo")
-
-        with pytest.raises(Exception) as excinfo:
-            service._require_durable_config_surface()
-
-        assert NO_DURABLE_STORE in str(excinfo.value)

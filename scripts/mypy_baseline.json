@@ -1,5 +1,5 @@
 {
-  "total": 369,
+  "total": 367,
   "errors": [
     {
       "path": "packages/osprey-connectors/src/osprey_connectors/archiver/doocs_archiver_connector.py",
@@ -759,12 +759,6 @@
     },
     {
       "path": "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"_render_framework\" of \"ScaffoldGalleryService\" has incompatible type \"BuildArtifact | None\"; expected \"BuildArtifact\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"dict[str, Any]\"",
       "count": 1
@@ -774,12 +768,6 @@
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"str\"",
       "count": 2
-    },
-    {
-      "path": "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"BuildArtifact | None\" has no attribute \"output_path\"",
-      "count": 1
     },
     {
       "path": "src/osprey/mcp_server/ariel/server.py",

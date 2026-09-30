@@ -161,7 +161,6 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 SELF_ALLOWLIST = {
     Path(__file__).resolve(),
     (_REPO_ROOT / "tests/services/test_build_artifacts_imports.py").resolve(),
-    (_REPO_ROOT / "tests/interfaces/web_terminal/test_scaffold_routes_registration.py").resolve(),
 }
 
 
