@@ -132,6 +132,51 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
 _MULTI_USER_CONFIG = _config(["alice", "bob", "carol"])
 
 
+_ABSENT = object()
+
+
+@pytest.mark.parametrize("with_catalog", [False, True], ids=["no-catalog", "catalog"])
+@pytest.mark.parametrize(
+    "registry", [_ABSENT, {}, {"url": ""}], ids=["absent", "empty-section", "empty-url"]
+)
+def test_render_refuses_registry_mode_without_a_registry_url(
+    with_catalog: bool, registry: Any
+) -> None:
+    """Registry mode names every terminal image under registry.url, so the
+    render refuses to run without one, persona catalog or not."""
+    # Arrange
+    config = _config(["alice"])
+    if registry is _ABSENT:
+        del config["registry"]
+    else:
+        config["registry"] = registry
+    if with_catalog:
+        web_terminals = config["modules"]["web_terminals"]
+        web_terminals["personas"] = {"assistant": {"project": "dls-assistant"}}
+        web_terminals["default_persona"] = "assistant"
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=r"registry\.url is not set"):
+        render_web_terminals(config)
+
+
+def test_render_in_local_mode_needs_no_registry_url() -> None:
+    """Local mode builds its images and never reads registry.url."""
+    # Arrange
+    config = _config(["alice"])
+    del config["registry"]
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = "local"
+    web_terminals["personas"] = {"assistant": {"project": "dls-assistant"}}
+    web_terminals["default_persona"] = "assistant"
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert "image: dls-assistant:local" in artifacts["docker-compose.web.yml"]
+
+
 def test_render_returns_exactly_three_artifacts() -> None:
     """render_web_terminals() produces the compose overlay, nginx fragment, and landing page."""
     # Arrange

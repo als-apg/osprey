@@ -39,6 +39,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 )
 from osprey.deployment.web_terminals.env_production import telemetry_delivered_vars
 from osprey.deployment.web_terminals.personas import (
+    REGISTRY_MODE_MISSING_URL,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     access_wire_value,
@@ -51,6 +52,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
+    configured_registry_url,
     control_identity_problems,
     effective_image_source,
     entry_is_shared,
@@ -978,6 +980,9 @@ def render_web_terminals(
             ``strict`` contract — render always resolves strictly), or if
             ``modules.web_terminals.mcp.topology`` is set to anything other than
             ``per_container_stdio`` (see :func:`_check_mcp_topology`), or if
+            the deployment is in registry mode (``image_source`` unset or
+            ``registry``) with no ``registry.url``, catalog or not, because
+            every terminal image is named under it, or if
             ``terminal_secrets`` is supplied and a roster user has no non-blank
             secret in it, or a roster name is not usable as one snippet filename
             (both :func:`_terminal_secret_artifacts`), or if
@@ -997,6 +1002,10 @@ def render_web_terminals(
     facility_prefix = facility.get("prefix") or ""
 
     _check_mcp_topology(web_terminals)
+    if effective_image_source(web_terminals) == "registry" and not configured_registry_url(
+        registry
+    ):
+        raise ValueError(REGISTRY_MODE_MISSING_URL)
 
     resolved_users = resolve_personas(web_terminals, registry, facility_prefix, strict=True)
     # The other half of what a roster `role:` says. `resolve_personas` above
