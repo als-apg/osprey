@@ -58,6 +58,7 @@ from websockets.asyncio.client import connect as _WebSocketConnect
 
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.interfaces.common_middleware import (
+    FACILITY_TIMEZONE_ATTRIBUTE,
     STORAGE_SCOPE_ATTRIBUTE,
     compute_url_prefix,
     resolve_storage_scope,
@@ -65,6 +66,7 @@ from osprey.interfaces.common_middleware import (
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.identity import acting_identity
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
@@ -1267,6 +1269,44 @@ def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
     return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
 
 
+def _stamp_facility_timezone(text: str, base_type: str, zone: str) -> str:
+    """Stamp the facility time zone on a relayed document's ``<html>`` tag.
+
+    Why the proxy: a panel's own server may not know the zone. The Bluesky
+    sidecar reads no configuration, and some companions serve a static file.
+    Every panel page reaches the browser through this hop, and the hub resolves
+    the zone the agent is told.
+
+    Why a document's own stamp stands: the zone is one deployment's
+    configuration, so a companion that stamps its own names the same zone, and
+    the root tag carries the attribute once.
+
+    Why it is always present: the resolver degrades to ``UTC`` rather than
+    failing, so every relayed page names a zone.
+
+    Args:
+        text: The relayed body, already rewritten for this deployment.
+        base_type: The response's media type without parameters.
+        zone: The facility's IANA zone name.
+
+    Returns:
+        ``text`` with the attribute as the root tag's first attribute, or
+        ``text`` unchanged when there is no zone, the body is not HTML, it has
+        no root tag, or the root tag already names a zone.
+    """
+    if not zone or base_type != "text/html":
+        return text
+    match = _HTML_OPEN_RE.search(text)
+    if match is None:
+        return text
+    tag_end = text.find(">", match.end())
+    tag = text[match.end() :] if tag_end == -1 else text[match.end() : tag_end]
+    if f"{FACILITY_TIMEZONE_ATTRIBUTE}=" in tag.lower():
+        return text
+    stamp = f' {FACILITY_TIMEZONE_ATTRIBUTE}="{html.escape(zone, quote=True)}"'
+    return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
+
+
 @router.api_route(
     "/panel/{panel_id}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
@@ -1500,6 +1540,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             base_type,
             resolve_storage_scope(getattr(request.app.state, "terminal_user", "")),
         )
+        # Resolved per request, like the storage scope, by the call the hub's own pages use.
+        if base_type == "text/html":
+            text = _stamp_facility_timezone(text, base_type, get_facility_timezone().key)
         return Response(
             content=text,
             status_code=resp.status_code,

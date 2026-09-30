@@ -64,6 +64,7 @@ __all__ = [
     "AUDIT_SUBJECT_HEADER",
     "EXEMPT_PATHS",
     "EXTERNAL_ORIGIN_ENV",
+    "FACILITY_TIMEZONE_ATTRIBUTE",
     "HTTP_MUTATION_POSTURE",
     "HTTP_MUTATION_SURFACE",
     "MAX_BODY_PEEK_BYTES",
@@ -611,6 +612,10 @@ def apply_url_prefix(prefix: str, path: str) -> str:
 #: ``design_system/static/js/storage-scope.js`` (and the three boot scripts that
 #: mirror it) is the reader.
 STORAGE_SCOPE_ATTRIBUTE = "data-osprey-storage-scope"
+
+#: The ``<html>`` attribute a served document carries the facility time zone in.
+#: ``design_system/static/js/facility-time.js`` is the reader.
+FACILITY_TIMEZONE_ATTRIBUTE = "data-facility-timezone"
 
 
 def resolve_storage_scope(terminal_user: str | None) -> str:
