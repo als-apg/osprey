@@ -164,6 +164,28 @@ EXTRA_SP = {"id": "Q2:SP", "role": "setpoint", "on": {"device": "SR/Q1"}}
 NO_DECK = {"name": "optics", "engine": "pyat", "wiring": [{"address": "Q1:SP", "element": "Q1"}]}
 
 
+#: Where the mml layer keeps model SR's deck once SR is imported.
+MML_DECK = "imported/mml/decks/SR.json"
+
+
+def imported_sr(tree: Tree) -> None:
+    """Move model SR and its deck into the mml layer."""
+    record = model(tree, "SR")
+    tree["models.yaml"].remove(record)
+    record["deck"] = MML_DECK
+    tree.setdefault(MML_MODELS, []).append(record)
+    tree[MML_DECK] = tree.pop("decks/sr.json")
+
+
+def imported_wiring(index: int, **slots: Any) -> Edit:
+    """Set slots on one wiring record of the imported model SR."""
+
+    def edit(tree: Tree) -> None:
+        model(tree, "SR", MML_MODELS)["wiring"][index].update(copy.deepcopy(slots))
+
+    return edit
+
+
 def _cavity(at: Any) -> Any:
     cavity = at.RFCavity("RFC", 0.0, 1e6, 5e8, 300, 3e9)
     cavity.PassMethod = "IdentityPass"
@@ -331,7 +353,22 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "periodic deck with an `RFCavity` whose `longt_motion` is False",
     ),
     ("engine_invalid__repeated_monitors", "engine-invalid", "repeated monitor names"),
+    (
+        "engine_invalid__imported_frozen_cavity",
+        "engine-invalid",
+        "an imported periodic deck with an `RFCavity` whose `longt_motion` is False",
+    ),
+    (
+        "engine_invalid__imported_repeated_monitors",
+        "engine-invalid",
+        "repeated monitor names in an imported deck",
+    ),
     ("engine_invalid__missing_element", "engine-invalid", "`locate` of an unknown `element`"),
+    (
+        "engine_invalid__imported_missing_element",
+        "engine-invalid",
+        "`locate` of an unknown `element` in an imported deck",
+    ),
     (
         "engine_invalid__missing_first_slice",
         "engine-invalid",
@@ -1299,8 +1336,29 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "give every monitor a unique name in the deck"
         ),
     ),
+    "engine_invalid__imported_frozen_cavity": (
+        _deck(imported_sr, put(MML_DECK, sr_deck(_cavity))),
+        (
+            "facility: engine-invalid: model SR — cavity RFC has no longitudinal motion in a "
+            "periodic deck; fix: give the cavity a longitudinal pass method such as RFCavityPass"
+        ),
+    ),
+    "engine_invalid__imported_repeated_monitors": (
+        _deck(imported_sr, put(MML_DECK, sr_deck(lambda at: at.Monitor("BPM1")))),
+        (
+            "facility: engine-invalid: model SR — monitor names repeat in the deck: BPM1; fix: "
+            "give every monitor a unique name in the deck"
+        ),
+    ),
     "engine_invalid__missing_element": (
         _deck(_set_slice("element", "GHOST")),
+        (
+            "facility: engine-invalid: wiring SR/QD:SP — element GHOST is not in the deck of "
+            "model SR; fix: name an element the deck holds"
+        ),
+    ),
+    "engine_invalid__imported_missing_element": (
+        _deck(imported_sr, imported_wiring(1, element="GHOST")),
         (
             "facility: engine-invalid: wiring SR/QD:SP — element GHOST is not in the deck of "
             "model SR; fix: name an element the deck holds"
@@ -1399,7 +1457,7 @@ def _kind_of(line: str) -> str:
 def _write(tmp_path: Path, case: str) -> Path:
     make, _line = CASES[case]
     tree = make()
-    if any(rel.startswith("decks/") for rel in tree):
+    if any(rel.startswith(("decks/", "imported/mml/decks/")) for rel in tree):
         pytest.importorskip("at")
     return write_tree(tmp_path / "facility", tree)
 
