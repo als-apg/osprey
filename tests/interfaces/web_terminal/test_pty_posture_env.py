@@ -10,7 +10,7 @@ launched a child under an environment that child never saw.
 recorded in the posture store and read live by every write-time gate, so a
 narrowing lands on a session already mid-conversation and the spawn seams stamp
 only the anchors a child needs to find that store — the key and the agent-data
-root, never ``OSPREY_EXECUTION_MODE`` (pinned in ``test_posture_source_pin.py``,
+root, never ``OSPREY_EXECUTION_MODE`` (pinned in ``test_agent_data_root_stamp.py``,
 which owns the spawn-seam harness). What is left here is the general backstop,
 and it still matters: a marker a caller adds to the launch overlay, a rotated
 panel token, or any privilege-bearing name a later change adds must reach the

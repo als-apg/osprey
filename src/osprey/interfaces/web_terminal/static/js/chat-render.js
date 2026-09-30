@@ -76,15 +76,12 @@ let chatParse = null;
  * A `parse(markdown) -> html` function isolated from the shared `marked`
  * singleton, or `null` when `marked` is absent.
  *
- * The scaffold hub configures the global singleton in place —
- * `scaffold/utils.js` calls `marked.use({ renderer, walkTokens, … })`, loaded
- * on every hub page — and that custom renderer emits empty
- * `<pre><code></code></pre>` for chat's fenced blocks. marked v12 exposes its
- * `Marked` class on the UMD global, so chat builds its own instance with a
- * plain config and parses through that, immune to whatever the rest of the page
+ * The global `marked` is a page-wide singleton that any script may
+ * reconfigure with `marked.use(...)`. marked v12 exposes its `Marked` class
+ * on the UMD global, so this module builds its own instance with a plain
+ * config and parses through that, immune to whatever the rest of the page
  * does to the singleton. When the constructor is absent (an older or partial
- * vendored build) we fall back to the global `marked.parse` — degraded, but no
- * worse than before this isolation existed.
+ * vendored build) it falls back to the global `marked.parse`.
  *
  * Resolved lazily rather than at module load: the vendored global loads before
  * this module in the browser, but tests stub `globalThis.marked` per case, so

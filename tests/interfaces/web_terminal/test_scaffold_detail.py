@@ -34,8 +34,8 @@ suite needs real on-disk artifacts: ScaffoldGalleryService.list_artifacts()
 is filesystem-first and returns nothing for a project with no `.claude/`
 tree at all. So `_launch_web_terminal` here first runs a real
 `osprey init --preset hello-world` + `osprey build` (matching the pattern used by
-the non-browser tests in test_scaffold_gallery_service.py /
-test_scaffold_gallery_env_vars.py) into `tmp_path`, then serves web_terminal
+the non-browser tests in test_scaffold_gallery_service.py) into `tmp_path`,
+then serves web_terminal
 with that directory as `project_cwd`.
 
 Run:

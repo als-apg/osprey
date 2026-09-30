@@ -2856,7 +2856,7 @@ def test_simple_mode_keeps_new_tile_row_and_trims_terminal_menu_to_close(
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_rail_menu(page, "terminal")
-        assert _menu_labels(page) == ["Close terminal tile"], _menu_labels(page)
+        assert _menu_labels(page) == ["Reset layout", "Close terminal tile"], _menu_labels(page)
 
         page.close()
 
@@ -2884,6 +2884,7 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         assert _menu_labels(page) == [
             "Restart terminal",
             "New session",
+            "Reset layout",
             "Close terminal tile",
         ], _menu_labels(page)
 
