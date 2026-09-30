@@ -319,9 +319,13 @@ OPENOBSERVE_PORT_ENV_VAR = "OSPREY_OTEL_OPENOBSERVE_PORT"
 def openobserve_published_port(config: Mapping[str, Any] | None) -> int:
     """The port this deployment publishes the telemetry store on.
 
-    Read from ``services.openobserve.port`` — the one key that moves it, and the
-    same key the service template, the deploy preflight and ``osprey health``
-    read. With no such key the port is the layout's ``openobserve`` slot at the
+    Read from ``services.openobserve.port`` — the one key that moves it, the
+    same key the service template renders into the published port, and the one
+    every reader of the store's address calls: the agent's exporter,
+    ``osprey health``, and the ingest-account provisioner. A start refuses a
+    compose file that publishes the store anywhere else
+    (:func:`osprey.deployment.container_lifecycle._preflight_store_address`).
+    With no such key the port is the layout's ``openobserve`` slot at the
     base *this config* resolved, which is the number the service template
     publishes when nothing overrides it. A persona render carries both: profile
     inheritance copies the hosting profile's ``config:`` overlay into every

@@ -4585,6 +4585,53 @@ def _preflight_host_ports(config, compose_files):
     )
 
 
+def _preflight_store_address(config, compose_files):
+    """Abort the start if the compose file publishes the telemetry store off its configured port.
+
+    A start renders nothing, so a hand-edit to one of the two files in ``build/``
+    (the config or the store's compose file) is started as written. The config
+    is the side every client reads: the agent's exporter, ``osprey health`` and
+    the ingest-account provisioner all dial ``services.openobserve.port``, so a
+    store published anywhere else would be started where none of them looks.
+    This runs before any container is touched, and it opens no compose file for
+    a project that does not deploy the store.
+
+    :param config: Loaded configuration dictionary
+    :type config: dict
+    :param compose_files: Rendered compose file paths for this start
+    :type compose_files: list[str]
+    :raises RuntimeError: If the store's port cannot be read, or the compose
+        file publishes the store on a different host port
+    """
+    from osprey.deployment import openobserve_provision
+
+    if not openobserve_provision.store_deployed(config):
+        return
+    try:
+        mismatch = openobserve_provision.store_publish_mismatch(
+            config, parse_host_port_bindings(compose_files)
+        )
+    except ValueError as exc:
+        output.fail(
+            "The telemetry store's host port cannot be read",
+            str(exc),
+            "Set services.openobserve.port to an integer port and run `osprey build`.",
+        )
+        raise RuntimeError("telemetry store port preflight failed (see report above)") from exc
+    if mismatch is None:
+        return
+    output.fail(
+        f"The telemetry store is published on port {mismatch.published}, "
+        f"but its clients dial {mismatch.configured}",
+        f"{mismatch.compose_file} publishes it on {mismatch.published}; "
+        f"services.openobserve.port in the rendered config resolves to {mismatch.configured}, "
+        "which is where the ingest account is provisioned, osprey health probes, "
+        "and every agent exports.",
+        "Run `osprey build` to render both from services.openobserve.port.",
+    )
+    raise RuntimeError("telemetry store port preflight failed (see report above)")
+
+
 # ---------------------------------------------------------------------------
 # Staged archiver bring-up
 # ---------------------------------------------------------------------------
@@ -6470,6 +6517,9 @@ def _start_stack(
     # roster's per-index ports are covered too, so a port a foreign process
     # holds is named here rather than inside the new container's panel logs.
     _preflight_host_ports(config, compose_files)
+    # Refuse a build/ whose compose file and config name different store ports,
+    # ahead of every container-touching command, so the refusal leaves the host untouched.
+    _preflight_store_address(config, compose_files)
 
     # Refuse a pin the deploy itself would write over. Ahead of the override
     # refusal below because it is a statement about the profile alone: a
