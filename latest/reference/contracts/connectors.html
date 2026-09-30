@@ -844,6 +844,10 @@ samples is dropped, not emitted as <code class="docutils literal notranslate"><s
 <li><p>A bin width your backend cannot express must raise <code class="docutils literal notranslate"><span class="pre">ValueError</span></code>, never
 round to one it can (the Archiver Appliance connector rejects a positive
 <code class="docutils literal notranslate"><span class="pre">precision_ms</span></code> that is not a multiple of 1000).</p></li>
+<li><p>Bins are anchored on <code class="docutils literal notranslate"><span class="pre">start_date</span></code>: one request cuts one lattice, the same
+for every channel in it and every processing mode. A backend that bins on a
+grid of its own is the documented exception – the Archiver Appliance’s
+operators are epoch-anchored, and the window merely clips them.</p></li>
 </ul>
 <p>The shared helpers in <code class="docutils literal notranslate"><span class="pre">osprey.connectors.archiver._timerange</span></code> (<code class="docutils literal notranslate"><span class="pre">to_utc</span></code>,
 <code class="docutils literal notranslate"><span class="pre">require_datetime</span></code>, <code class="docutils literal notranslate"><span class="pre">resolve_processing</span></code>, <code class="docutils literal notranslate"><span class="pre">long_frame</span></code>, <code class="docutils literal notranslate"><span class="pre">decimate_raw</span></code>,
