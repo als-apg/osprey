@@ -129,8 +129,8 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
     calls: list[tuple[Path, list[Path]]] = []
     real = render.render_facility_outputs
 
-    def spy(render_dir: Path, doc: Any, rendered_config: Any) -> list[Path]:
-        written = real(render_dir, doc, rendered_config)
+    def spy(render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path) -> list[Path]:
+        written = real(render_dir, doc, rendered_config, facility_dir)
         assert (render_dir / "config.yml").is_file()
         calls.append((render_dir, written))
         return written
@@ -141,7 +141,15 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
 
     assert result.exit_code == 0, result.output
     ((render_dir, written),) = calls
-    assert written == [render_dir / FACILITY_FILE]
+    assert written == [
+        render_dir / relative
+        for relative in (
+            "data/simulator/addresses.json",
+            "data/simulator/decks/SR.json",
+            "data/simulator/served_models.json",
+            FACILITY_FILE,
+        )
+    ]
     assert repo not in render_dir.parents
     assert not render_dir.exists()
 

@@ -6,9 +6,11 @@ receives the same outputs through :func:`render_facility_outputs`, the only
 writer of them::
 
     <render root>/facility.json    the facility file, byte-equal in every render
+    <render root>/data/<view>/     each view of :data:`osprey.facility.views.VIEWS`
+                                   the render's config asks for
 
-The file carries no timestamps, version or absolute paths, so equal sources
-give equal bytes in every render of every build.
+No output carries timestamps, version or absolute paths, so equal sources and
+equal configs give equal bytes in every render of every build.
 """
 
 from __future__ import annotations
@@ -73,7 +75,8 @@ def facility_bytes(doc: FacilityDocument) -> bytes:
 def render_facility_outputs(
     render_dir: Path,
     doc: FacilityDocument,
-    rendered_config: Mapping[str, Any],  # noqa: ARG001 - the views a render carries are decided by its config
+    rendered_config: Mapping[str, Any],
+    facility_dir: Path,
 ) -> list[Path]:
     """Write the facility outputs of one render.
 
@@ -81,10 +84,29 @@ def render_facility_outputs(
         render_dir: The render's root, the directory holding its ``config.yml``.
         doc: The build's facility file.
         rendered_config: The render's ``config.yml``, as a mapping.
+        facility_dir: The build's ``data/facility`` directory, the source of the
+            files a view copies.
 
     Returns:
         The files written, sorted.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` when the render's
+            ``simulation.models`` does not resolve against the facility file.
     """
+    from osprey.facility import views
+    from osprey.facility.served import resolve_served
+
+    inputs = views.ViewInputs(
+        doc=doc,
+        rendered_config=rendered_config,
+        facility_dir=facility_dir,
+        served=resolve_served(rendered_config, doc),
+    )
     target = render_dir / FACILITY_FILE
     target.write_bytes(facility_bytes(doc))
-    return [target]
+    written = [target]
+    for view in views.VIEWS:
+        if view.written_when(inputs):
+            written.extend(view.write(render_dir / "data" / view.path, inputs))
+    return sorted(written)
