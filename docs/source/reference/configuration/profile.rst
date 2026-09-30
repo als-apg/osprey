@@ -531,7 +531,7 @@ launch command finds it:
 
    my-facility/
      mcp_servers/
-       phoebus/
+       my_server/
          __init__.py
          __main__.py
          server.py
@@ -539,14 +539,14 @@ launch command finds it:
 .. code-block:: yaml
 
    mcp_servers:
-     phoebus:
+     my_server:
        command: "{current_python_env}"
-       args: ["-m", "phoebus"]
+       args: ["-m", "my_server"]
        env:
          OSPREY_CONFIG: "{project_root}/build/config.yml"
          PYTHONPATH: "{project_root}/build/_mcp_servers"
        permissions:
-         allow: ["phoebus_launch"]
+         allow: ["safe_tool"]
 
 The directory name and the ``mcp_servers:`` key are independent: the directory
 delivers the code, the key launches it.
