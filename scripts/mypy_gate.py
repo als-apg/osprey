@@ -1,43 +1,30 @@
 #!/usr/bin/env python3
-"""The type check scored against a written-down set of errors, over the declared trees.
+"""The type check over the declared trees, with a verdict the build can fail on.
 
-A checker whose exit status nothing reads reports to no one. This gate gives the
-type check a verdict the build can fail on, and it holds two things while doing so.
+The type check runs over the trees ``[tool.mypy] files`` names, and the build fails on
+any error it reports. No list of tolerated errors sits beside the tree: an error is
+fixed where mypy reports it, and a deliberate exception is a ``# type: ignore[code]``
+on its own line, where a reviewer sees it.
 
-**The tree is checked against a written-down error set.** ``scripts/mypy_baseline.json``
-enumerates every error the tree reports today. A run is compared against it, and only an
-error the baseline does not carry fails the gate. The invariant is not that the count is
-zero — it is that the count is recorded and that no change may raise it. An error that
-exists is a known error; an error that arrives unannounced is the failure mode. Errors
-the baseline lists that a run no longer reports are *stale*, and stale is not a failure:
-a gate that reds on an improvement teaches people to stop improving.
+The targets are read from ``[tool.mypy] files`` and passed to the checker explicitly, so
+the build and a bare ``uv run mypy`` check one list of trees rather than two that a test
+has to keep equal.
 
-The baseline is keyed on ``(path, code, message)`` and never on a line number. An edit
-anywhere above an error moves its line, and a baseline keyed on lines would be invalid
-after any change at all. The message text carries the symbol and the types, which is what
-identifies the error; the count is a multiset, so an error traded for a different one in
-the same file is still an addition and still fails.
-
-**The trees checked in the build are the trees ``[tool.mypy] files`` names.** The gate
-reads that list and passes it to the checker explicitly, so the build's targets and a
-bare local ``mypy``'s targets are one list rather than two that a test has to keep equal.
+Two conditions are refused rather than judged, both exiting ``2``. A run without the
+stub distributions the ``dev`` extra declares is a weaker report, in which every value
+from those libraries is ``Any``, and its fix is an environment command, not a code
+change. A checker that exits with anything but ``0`` or ``1`` checked nothing.
 
 Usage::
 
-    uv run python scripts/mypy_gate.py            # score this tree against the baseline
-    uv run python scripts/mypy_gate.py --update   # rewrite the baseline from this run
+    uv run python scripts/mypy_gate.py
 
-Two conditions are refused rather than scored, both exiting ``2``, because a run taken
-under different conditions is a different measurement: an environment missing the stub
-distributions the ``dev`` extra declares, and a checker that exits with anything but
-``0`` or ``1``.
+Exit codes: ``0`` clean, ``1`` errors reported, ``2`` refused.
 """
 
 from __future__ import annotations
 
 import argparse
-import collections
-import json
 import re
 import subprocess  # replaced wholesale by the tests; see main()
 import sys
@@ -47,9 +34,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
-BASELINE = REPO_ROOT / "scripts" / "mypy_baseline.json"
 
-REFRESH_COMMAND = "uv run python scripts/mypy_gate.py --update"
 SYNC_COMMAND = "uv sync --extra dev"
 
 #: ``path:line: error: message`` and ``path:line:column: error: message``.
@@ -88,50 +73,6 @@ def parse_errors(output: str) -> list[Error]:
     return errors
 
 
-def tally(errors: Sequence[Error]) -> collections.Counter[Error]:
-    """Count the errors as a multiset keyed on ``(path, code, message)``."""
-    return collections.Counter(errors)
-
-
-def describe(error: Error, count: int = 1) -> str:
-    """One error rendered for a human: ``path: [code] message``."""
-    path, code, message = error
-    rendered = f"{path}: [{code}] {message}" if code else f"{path}: {message}"
-    return f"{rendered}  (x{count})" if count > 1 else rendered
-
-
-def compare(
-    current: collections.Counter[Error], baseline: collections.Counter[Error]
-) -> tuple[list[str], list[str]]:
-    """``(added, stale)`` — what the run reports and the baseline does not, and the reverse.
-
-    ``added`` is the failure. ``stale`` is a notice: a run may legitimately report fewer
-    errors than the baseline, on another platform or after an unrelated fix.
-    """
-    added = [describe(error, count) for error, count in sorted((current - baseline).items())]
-    stale = [describe(error, count) for error, count in sorted((baseline - current).items())]
-    return added, stale
-
-
-def load_baseline(path: Path) -> collections.Counter[Error]:
-    """Read a baseline file back into a multiset. ``total`` is derived, so it is ignored."""
-    document = json.loads(path.read_text(encoding="utf-8"))
-    counted: collections.Counter[Error] = collections.Counter()
-    for entry in document["errors"]:
-        counted[(entry["path"], entry["code"], entry["message"])] += int(entry.get("count", 1))
-    return counted
-
-
-def write_baseline(path: Path, counted: collections.Counter[Error]) -> None:
-    """Write *counted* as the baseline, sorted so a diff of the file reads as a diff of the tree."""
-    errors = [
-        {"path": error[0], "code": error[1], "message": error[2], "count": count}
-        for error, count in sorted(counted.items())
-    ]
-    document = {"total": sum(counted.values()), "errors": errors}
-    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-
-
 def _missing_stubs(errors: Sequence[Error]) -> list[str]:
     """The stub distributions the run went without, named by the imports that wanted them."""
     return [
@@ -142,13 +83,10 @@ def _missing_stubs(errors: Sequence[Error]) -> list[str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Score the type check against its baseline.")
-    parser.add_argument(
-        "--update",
-        action="store_true",
-        help="rewrite the baseline from this run instead of scoring against it",
+    parser = argparse.ArgumentParser(
+        description="Run the type check over the declared trees; any error fails."
     )
-    args = parser.parse_args(argv)
+    parser.parse_args(argv)
 
     # `subprocess` is read off this module so a test can replace the attribute rather
     # than the process-global `subprocess.run`.
@@ -166,37 +104,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("The type check ran without the stub distributions the `dev` extra declares.")
         for message in sorted(set(missing)):
             print(f"  {message}")
-        print(f"Its report is not the measurement the baseline holds. Fix: {SYNC_COMMAND}")
+        print(f"A report without them is not the type check. Fix: {SYNC_COMMAND}")
         return 2
 
     if completed.returncode not in {0, 1}:
-        print(f"mypy exited {completed.returncode}; nothing was scored.")
+        print(f"mypy exited {completed.returncode}; nothing was checked.")
         print(completed.stderr.rstrip())
         return 2
 
-    current = tally(errors)
-
-    if args.update:
-        write_baseline(BASELINE, current)
-        total = sum(current.values())
-        print(f"Wrote {BASELINE.relative_to(REPO_ROOT)}: {total} errors.")
-        return 0
-
-    added, stale = compare(current, load_baseline(BASELINE))
-
-    if added:
-        print(f"The type check reports {len(added)} error(s) the baseline does not carry:")
-        for line in added:
-            print(f"  {line}")
-        print(f"Fix them, or record them deliberately with: {REFRESH_COMMAND}")
+    if errors or completed.returncode == 1:
+        print(completed.stdout.rstrip())
+        if completed.stderr:
+            print(completed.stderr.rstrip())
+        if errors:
+            print(f"The type check reports {len(errors)} error(s); the tree must report none.")
+        else:
+            print("mypy exited 1 without a located error; the tree must report none.")
         return 1
 
-    if stale:
-        print(f"{len(stale)} baseline error(s) are no longer reported:")
-        for line in stale:
-            print(f"  {line}")
-        print(f"Drop them from the baseline with: {REFRESH_COMMAND}")
-
+    print("The type check reports no errors.")
     return 0
 
 
