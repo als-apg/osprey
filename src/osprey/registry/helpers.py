@@ -90,7 +90,7 @@ def extend_framework_registry(
         ariel_search_modules=list(ariel_search_modules or []),
         ariel_enhancement_modules=list(ariel_enhancement_modules or []),
         ariel_ingestion_adapters=list(ariel_ingestion_adapters or []),
-        framework_exclusions=framework_exclusions if framework_exclusions else None,
+        framework_exclusions=framework_exclusions,
     )
 
 
