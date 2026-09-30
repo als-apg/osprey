@@ -43,7 +43,8 @@ class TriggerConfig:
         action: Free-form action mapping. Only ``action.prompt`` is required;
             unread keys pass through untouched for forward compatibility.
         on_error: Error-handling policy (action/max_retries/backoff_sec).
-        source_config: Free-form source-specific configuration.
+        source_config: Source-specific settings, always a mapping (a blank or
+            absent ``source_config`` is empty).
         surface: Optional label naming the UI/output surface the triggered
             agent run is associated with (e.g. a dashboard or channel name).
             ``None`` when ``action.surface`` is absent.
@@ -75,7 +76,10 @@ class DispatcherConfig:
     max_queue_depth: int = DEFAULT_MAX_QUEUE_DEPTH
 
 
-def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
+def _parse_trigger(raw: Any, index: int) -> TriggerConfig:
+    if not isinstance(raw, dict):
+        raise ValueError(f"Trigger at index {index} must be a mapping (got {raw!r})")
+
     name = raw.get("name")
     if not name:
         raise ValueError(f"Trigger at index {index} is missing required field 'name'")
@@ -85,6 +89,8 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
         raise ValueError(f"Trigger '{name}' is missing required field 'source'")
 
     action = raw.get("action")
+    if action is not None and not isinstance(action, dict):
+        raise ValueError(f"Trigger '{name}' field 'action' must be a mapping")
     if not action or not action.get("prompt"):
         raise ValueError(f"Trigger '{name}' is missing required field 'action.prompt'")
 
@@ -127,6 +133,8 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
     on_error_raw = raw.get("on_error")
     if on_error_raw is None:
         on_error = dict(_DEFAULT_ON_ERROR)
+    elif not isinstance(on_error_raw, dict):
+        raise ValueError(f"Trigger '{name}' field 'on_error' must be a mapping")
     else:
         on_error = {
             "action": on_error_raw.get("action", _DEFAULT_ON_ERROR["action"]),
@@ -134,13 +142,19 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
             "backoff_sec": on_error_raw.get("backoff_sec", _DEFAULT_ON_ERROR["backoff_sec"]),
         }
 
-    source_config = raw.get("source_config", {})
+    # Every source reads its settings with ``.get``, so a ``source_config``
+    # that is not a mapping is refused here, and no source's ``start`` sees one.
+    source_config = raw.get("source_config")
+    if source_config is None:
+        source_config = {}
+    elif not isinstance(source_config, dict):
+        raise ValueError(f"Trigger '{name}' field 'source_config' must be a mapping")
 
     # A schedule that cannot be read would otherwise surface only when the
     # dispatcher starts, or never for a mistyped key, so it is refused here,
     # where the author wrote it.
     schedule = None
-    if source == "cron" and isinstance(source_config, dict):
+    if source == "cron":
         schedule = parse_clock_schedule(name, source_config)
 
     return TriggerConfig(
@@ -169,14 +183,22 @@ def load_triggers(path: str) -> tuple[DispatcherConfig, list[TriggerConfig]]:
     if not isinstance(doc, dict):
         raise ValueError(f"triggers file {path!r} must be a YAML mapping at the top level")
 
-    dispatcher_raw = doc.get("dispatcher", {})
+    dispatcher_raw = doc.get("dispatcher")
+    if dispatcher_raw is None:
+        dispatcher_raw = {}
+    elif not isinstance(dispatcher_raw, dict):
+        raise ValueError(f"triggers file {path!r} field 'dispatcher' must be a mapping")
     dispatcher_cfg = DispatcherConfig(
         dispatch_target=dispatcher_raw.get("dispatch_target", ""),
         max_concurrent_runs=dispatcher_raw.get("max_concurrent_runs", DEFAULT_MAX_CONCURRENT_RUNS),
         max_queue_depth=dispatcher_raw.get("max_queue_depth", DEFAULT_MAX_QUEUE_DEPTH),
     )
 
-    raw_triggers = doc.get("triggers") or []
+    raw_triggers = doc.get("triggers")
+    if raw_triggers is None:
+        raw_triggers = []
+    elif not isinstance(raw_triggers, list):
+        raise ValueError(f"triggers file {path!r} field 'triggers' must be a list of triggers")
     triggers = [_parse_trigger(t, i) for i, t in enumerate(raw_triggers)]
 
     # Detect duplicate trigger names at load time. The registry registers
