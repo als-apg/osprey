@@ -9675,6 +9675,74 @@ class TestStageSiteImageArgsForContext:
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
         assert "/nope/ca.pem" in caplog.text
 
+    @staticmethod
+    def _unstage(compose_file: Path, out_dir: Path, args: dict[str, str]) -> None:
+        from osprey.deployment.compose_generator import _unstage_site_ca_without_build
+
+        _unstage_site_ca_without_build(str(compose_file), str(out_dir), args)
+
+    @staticmethod
+    def _staged_ca_config(root: Path) -> dict:
+        source = root / "elsewhere" / "site-ca.pem"
+        source.parent.mkdir()
+        source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+        return {"project_name": "p", "images": {"site_ca": str(source)}}
+
+    def test_a_fragment_that_builds_nothing_keeps_no_staged_ca(self, tmp_path: Path) -> None:
+        """A context whose rendered fragment builds nothing holds no CA copy.
+
+        The context keeps its ``Dockerfile`` when its fragment runs a named
+        image instead, so staging cannot tell from the directory alone; the
+        rendered document decides once it exists.
+        """
+        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+
+        context = self._context(tmp_path)
+        args = self._stage(self._staged_ca_config(tmp_path), context)
+        compose_file = context / "docker-compose.yml"
+        compose_file.write_text(
+            "services:\n  virtual-accelerator:\n    image: my-registry/va:1\n",
+            encoding="utf-8",
+        )
+
+        self._unstage(compose_file, context, args)
+
+        assert not (context / SITE_CA_CONTEXT_FILENAME).exists()
+
+    def test_a_fragment_that_builds_keeps_its_staged_ca(self, tmp_path: Path) -> None:
+        """A build that reads the CA finds it beside the fragment that names it."""
+        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+
+        context = self._context(tmp_path)
+        args = self._stage(self._staged_ca_config(tmp_path), context)
+        compose_file = context / "docker-compose.yml"
+        compose_file.write_text(
+            "services:\n  virtual-accelerator:\n    image: p-va:local\n"
+            "    build:\n      context: ./build/services/virtual_accelerator\n",
+            encoding="utf-8",
+        )
+
+        self._unstage(compose_file, context, args)
+
+        assert (context / SITE_CA_CONTEXT_FILENAME).is_file()
+
+    def test_an_unstaged_ca_named_file_is_never_removed(self, tmp_path: Path) -> None:
+        """A file this render did not stage is the service's own, and stays."""
+        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+
+        context = self._context(tmp_path)
+        own = context / SITE_CA_CONTEXT_FILENAME
+        own.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+        compose_file = context / "docker-compose.yml"
+        compose_file.write_text(
+            "services:\n  virtual-accelerator:\n    image: my-registry/va:1\n",
+            encoding="utf-8",
+        )
+
+        self._unstage(compose_file, context, {})
+
+        assert own.is_file()
+
 
 class TestEnsureGroupSharedDirExact:
     """``exact=True`` sets the mode; the default only ever adds bits.

@@ -2232,6 +2232,49 @@ def _stage_site_image_args_for_context(config, out_dir):
     return resolved
 
 
+def _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args):
+    """Remove the site CA staged beside a rendered fragment that builds nothing.
+
+    A build context holds the operator's CA bundle only while a build can read
+    it. :func:`_stage_site_image_args_for_context` stages it into any context
+    holding a ``Dockerfile``, before the fragment renders; a fragment that then
+    renders no ``build:`` (a service running an image OSPREY does not build)
+    leaves nothing that would read or clear it, so the copy goes here.
+
+    Only a copy this render staged is removed, and only when the rendered
+    document carries no service with a ``build`` key. An unreadable or
+    malformed document leaves the file alone.
+
+    :param compose_filepath: The fragment just rendered into ``out_dir``.
+    :type compose_filepath: str
+    :param out_dir: The service's build context the CA was staged into.
+    :type out_dir: str
+    :param site_image_build_args: What the staging step returned for it.
+    :type site_image_build_args: dict[str, str]
+    """
+    from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+
+    if site_image_build_args.get("OSPREY_SITE_CA") != SITE_CA_CONTEXT_FILENAME:
+        return
+    try:
+        with open(compose_filepath, encoding="utf-8") as handle:
+            document = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return
+    if not isinstance(document, Mapping):
+        return
+    services = document.get("services")
+    if not isinstance(services, Mapping):
+        return
+    if any(isinstance(service, Mapping) and "build" in service for service in services.values()):
+        return
+    staged = Path(out_dir) / SITE_CA_CONTEXT_FILENAME
+    try:
+        staged.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove the staged site CA %s", staged)
+
+
 def _stage_dev_wheel_for_context(out_dir, dev_mode):
     """Stage the local dev wheel into a service build context; report success.
 
@@ -4341,6 +4384,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
+    _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args)
 
     if source_dir != SERVICES_DIR:  # ignore the top level dir
         # Rendered config files the container mounts (the qmd sidecar's
@@ -4543,6 +4587,7 @@ def _incremental_setup_build_dir(
         "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
+    _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args)
 
     # Same rendered-config step as the full path (see setup_build_dir): a
     # service whose container mounts a rendered file must get it here too, or

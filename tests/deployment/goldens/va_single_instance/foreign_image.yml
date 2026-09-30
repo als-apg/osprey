@@ -31,22 +31,8 @@
 
 services:
   virtual-accelerator:
-    image: ${OSPREY_VA_IMAGE:-proj-va:local}
+    image: ${OSPREY_VA_IMAGE:-my-registry/osprey-va:dev}
     platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
-    build:
-      # EVERY relative path here resolves against the pinned compose project
-      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
-      # compose_generator.compose_base_cmd) — never this file's own subdir. So
-      # render output is addressed under build/, and the repo's own zones by
-      # their plain names (data/, .env).
-      context: ./build/services/virtual_accelerator
-      dockerfile: Dockerfile
-      args:
-        OSPREY_VERSION: "2026.8.1"
-        OSPREY_PROJECT_NAME: "proj"
-
-        OSPREY_DEV: "1"
-
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the VA on one host without colliding on
     # one name. In-network consumers reach this service by its compose service
@@ -55,7 +41,7 @@ services:
     container_name: proj-virtual-accelerator
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5065:5065/tcp"
+      - "127.0.0.1:5064:5064/tcp"
       # pvAccess, for the model surface. Clients reach it by name server
       # (EPICS_PVA_NAME_SERVERS=<host>:<port>), which is TCP, so TCP is all
       # that is published: there is no UDP search to answer.
@@ -65,7 +51,7 @@ services:
       # override, read directly by the CA library at iocInit — no
       # entrypoint.py change needed to make services.virtual_accelerator.port
       # actually control what the IOC binds to.
-      EPICS_CA_SERVER_PORT: "5065"
+      EPICS_CA_SERVER_PORT: "5064"
       # EPICS_PVAS_SERVER_PORT is the standard server-side pvAccess port
       # override: the port this IOC's PVA server binds.
       EPICS_PVAS_SERVER_PORT: "5075"
@@ -110,8 +96,6 @@ services:
       # build-owned data dir.
       VA_STATE_DIR: /state/simulation
       TZ: UTC
-      HTTP_PROXY: ${HTTP_PROXY}
-      NO_PROXY: ${NO_PROXY}
     # Bind-mount sources are relative to the pinned compose project directory —
     # the deployment repo root — so each is spelled from there. Both read-only:
     # the IOC only ever reads.
@@ -157,7 +141,7 @@ services:
       # So: a raw TCP
       # connect to the CA port — enough to prove the IOC's listener is up and
       # accepting connections, short of an actual PV read.
-      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', 5065)); sys.exit(0 if r == 0 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', 5064)); sys.exit(0 if r == 0 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
