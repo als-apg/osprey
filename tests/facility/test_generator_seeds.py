@@ -4,7 +4,7 @@
 is clamped, or starts at a value no model computes. These tests read the seeds
 back from the YAML the generator writes and hold them to the demo's machine
 file, to the procedural taxonomy's classes, and to the per-address nominal and
-sigma the mock and the virtual accelerator serve today
+sigma the mock and the virtual accelerator serve, as the goldens capture them
 (``tests/facility/golden/nominal_mock.json`` and ``nominal_va.json``).
 """
 
