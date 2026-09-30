@@ -53,6 +53,18 @@ addresses nothing; one carrying a length is refused instead. Both conversions
 leave the deck as long as it was and carry over everything the element held
 that neither class implies -- its apertures and the transformations it sits in.
 
+One element is added rather than changed. A deck whose facility holds the
+radio frequency in its Middle Layer carries no cavity, and a deck without one
+solves at fixed energy, which puts the beam in the wrong place wherever there
+is dispersion. So where the mapping wires a ``Frequency`` family and the deck
+holds no cavity, one zero-length cavity is built onto the end of the deck
+before any of the above runs, at the voltage the mapping answers for that
+family, on the harmonic number the accelerator data states, and at the deck's
+own revolution frequency times that harmonic -- see :class:`BuiltCavity`. A
+voltage answered for a deck that holds its cavity is refused, and so is a
+cavity to build with no voltage answered: a cavity built without one
+accelerates nothing.
+
 pyAT is imported inside the functions that need it.
 """
 
@@ -62,17 +74,25 @@ import copy
 import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from osprey.facility.layers.mml.mapping import EngineBlock, Model
+from osprey.facility.layers.mml.mapping import (
+    EngineBlock,
+    ImportStop,
+    MappingError,
+    Model,
+    WiringFamily,
+)
 
 __all__ = [
     "CARRIED_FIELDS",
     "FREQUENCY",
     "MONITOR",
     "OWNER_RANK",
+    "HARMONIC_KEY",
     "Addressing",
+    "BuiltCavity",
     "ElementBinding",
     "ElementSlice",
     "ServedMarker",
@@ -95,6 +115,36 @@ OWNER_RANK: tuple[str, ...] = (MONITOR, "PolynomB", "PolynomA", "KickAngle", FRE
 #: element sits in. A conversion between the two classes takes them along; a
 #: class carries them only where the deck stated them.
 CARRIED_FIELDS: tuple[str, ...] = ("EApertures", "RApertures", "T1", "T2", "R1", "R2")
+
+#: The accelerator-data key stating how many buckets the deck holds.
+HARMONIC_KEY = "HarmonicNumber"
+
+
+@dataclass(frozen=True)
+class BuiltCavity:
+    """The cavity a deck that carries none is built.
+
+    What the cavity is built at is the harmonic number, not the frequency the
+    facility quotes. A facility states its radio frequency to the figures an
+    operator quotes, and a deck closes on the frequency that fits a whole
+    number of waves around it; stating the quoted value on a deck of a
+    slightly different circumference starts the beam off momentum. So the
+    harmonic number and the deck's own revolution decide the frequency.
+
+    Attributes:
+        family: The ``Frequency`` family the cavity is built for. It binds the
+            cavity as it would bind one the deck carried.
+        harmonic: How many buckets the deck holds, as the accelerator data
+            states it.
+        voltage: The volts the cavity runs at, as the mapping answers them.
+        frequency_hz: What the cavity was built at, once it was built against
+            a deck; ``None`` before that.
+    """
+
+    family: str
+    harmonic: int
+    voltage: float
+    frequency_hz: float | None = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +219,8 @@ class Addressing:
         markers: The repeated monitor names nothing reads, carried as plain
             markers, one entry per name in name order.
         monitors: How many monitor-type elements the deck is left with.
+        cavity: The cavity built onto the deck, or ``None`` where the deck
+            brought its own or the mapping wires none.
     """
 
     deck: Any
@@ -176,6 +228,7 @@ class Addressing:
     owners: Mapping[int, str]
     markers: tuple[ServedMarker, ...] = ()
     monitors: int = 0
+    cavity: BuiltCavity | None = None
 
 
 @dataclass(frozen=True)
@@ -201,8 +254,18 @@ class _Claim:
     rows: tuple[_Row, ...]
 
 
-def address_elements(model: Model, deck: Sequence[Any], va_block: Mapping[str, Any]) -> Addressing:
+def address_elements(
+    model: Model,
+    deck: Sequence[Any],
+    va_block: Mapping[str, Any],
+    ad_block: Mapping[str, Any] | None = None,
+) -> Addressing:
     """Address every wired family's elements and name them for their owner.
+
+    A cavity to build is built first, onto the end of the deck, so that the
+    ``Frequency`` family addresses it exactly as it would address one the deck
+    carried. Every stated position keeps its meaning, because the element is
+    added after the last of them.
 
     Args:
         model: One model of the layer's mapping; its ``wiring`` names the
@@ -211,20 +274,31 @@ def address_elements(model: Model, deck: Sequence[Any], va_block: Mapping[str, A
             in saved order, as the Middle Layer's positions index it.
         va_block: The model's sampled facts (``<stem>.va.json``), carrying
             each family's ``device_list`` and the ``at_index`` of its nominals.
+        ad_block: The model's accelerator data, read for the harmonic number
+            of a cavity to build; ``None`` where none was exported.
 
     Returns:
         The renamed deck, the per-device element table, the owner of each
-        bound element, the monitor names carried as plain markers and how
-        many monitor-type elements the deck is left with.
+        bound element, the monitor names carried as plain markers, how many
+        monitor-type elements the deck is left with and the cavity built
+        onto it.
 
     Raises:
+        ImportStop: ``mapping-undecided`` when a cavity is to be built and the
+            mapping answers no voltage for it.
+        MappingError: The mapping answers a voltage for a deck that holds its
+            cavity.
         ValueError: A wired family has no engine block or one no element is
             ranked by, a stated position lies outside the deck, a family states
             elements and no devices to name them after or more element rows
             than it has devices, the renaming would give two elements one
-            name, or a duplicated monitor no family reads does more than mark a
-            position.
+            name, a duplicated monitor no family reads does more than mark a
+            position, or a cavity is to be built into a deck saved as one
+            period or with no harmonic number stated.
     """
+    cavity = _cavity_to_build(model, deck, ad_block)
+    if cavity is not None:
+        deck, cavity = _with_cavity(deck, cavity)
     claims = _claims(model, va_block, deck)
     owners = _owners(claims)
     names = _names(claims, owners)
@@ -242,7 +316,93 @@ def address_elements(model: Model, deck: Sequence[Any], va_block: Mapping[str, A
         owners=dict(owners),
         markers=markers,
         monitors=_monitors(renamed),
+        cavity=cavity,
     )
+
+
+def _frequency_family(model: Model) -> tuple[str, WiringFamily] | None:
+    """The first family the model wires to the cavity's frequency, in mapping order."""
+    for family, wiring in model.wiring.items():
+        if wiring.engine is not None and wiring.engine.attribute == FREQUENCY:
+            return family, wiring
+    return None
+
+
+def _cavity_to_build(
+    model: Model, deck: Sequence[Any], ad_block: Mapping[str, Any] | None
+) -> BuiltCavity | None:
+    """Say which cavity the deck is built, or ``None`` where it needs none."""
+    wired = _frequency_family(model)
+    if wired is None:
+        return None
+    family, wiring = wired
+    path = f"models.{model.raw}.wiring.{family}.voltage"
+    if any(_is_cavity(element) for element in deck):
+        if wiring.voltage is not None:
+            raise MappingError(path, "the deck holds a cavity; remove voltage")
+        return None
+    if wiring.voltage is None:
+        raise ImportStop(
+            "mapping-undecided",
+            [f"{path}: answer the cavity voltage in volts; the deck holds no cavity"],
+        )
+    harmonic = _harmonic(ad_block)
+    if harmonic is None:
+        raise ValueError(
+            f"family {family} drives a cavity the deck does not hold, and the accelerator "
+            f"data states no {HARMONIC_KEY} to build one on"
+        )
+    return BuiltCavity(family=family, harmonic=harmonic, voltage=wiring.voltage)
+
+
+def _harmonic(ad_block: Mapping[str, Any] | None) -> int | None:
+    """How many buckets the deck holds, as whole a number as it must be."""
+    if not isinstance(ad_block, Mapping):
+        return None
+    number = _number(ad_block.get(HARMONIC_KEY))
+    if number is None or not math.isfinite(number) or number != int(number) or number < 1:
+        return None
+    return int(number)
+
+
+def _with_cavity(deck: Sequence[Any], cavity: BuiltCavity) -> tuple[Any, BuiltCavity]:
+    """Return the deck with one cavity on the end of it, and what was built.
+
+    The cavity occupies no space and passes the beam as a cavity does, so the
+    deck is as long as it was and solves through the bucket instead of at
+    fixed energy. It is built at the deck's own energy, and it is added last so
+    that every position the export states still points at the element it
+    pointed at.
+
+    Only a deck saved whole is built one: a deck saved as one repeating period
+    counts its buckets per period, while the harmonic number the accelerator
+    data states and the positions the export indexes are the whole deck's.
+
+    Raises:
+        ValueError: The deck is one period rather than the whole of it.
+    """
+    import at
+
+    periodicity = int(getattr(deck, "periodicity", 1) or 1)
+    if periodicity != 1:
+        raise ValueError(
+            f"family {cavity.family} drives a cavity built on a deck saved as {periodicity} "
+            f"periods, and harmonic number {cavity.harmonic} and the export's element "
+            "positions are facts of the whole deck; save the whole deck"
+        )
+    built: Any = copy.deepcopy(deck)
+    built.append(
+        at.RFCavity(
+            cavity.family,
+            0.0,
+            cavity.voltage,
+            0.0,
+            cavity.harmonic,
+            float(getattr(deck, "energy", 0.0)),
+        )
+    )
+    built.set_rf_frequency()
+    return built, replace(cavity, frequency_hz=float(built.get_rf_frequency()))
 
 
 def _is_cavity(element: Any) -> bool:
