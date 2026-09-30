@@ -28,8 +28,10 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     values_match,
 )
+from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
+from osprey_connectors.types import TANGO
 
 logger = get_logger("tango_connector")
 
@@ -136,7 +138,7 @@ class TangoConnector(ControlSystemConnector):
         self._proxies: dict[str, Any] = {}
         self._subscriptions: dict[str, tuple[Any, int]] = {}
         self._enum_labels: dict[str, list[str] | None] = {}
-        self._timeout: float = 5.0
+        self._timeout_s: float = DEFAULT_TIMEOUT_S
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -145,10 +147,12 @@ class TangoConnector(ControlSystemConnector):
         Args:
             config: Optional keys — ``tango_host`` (overrides the ``TANGO_HOST``
                 environment for this connector's proxies, spelled ``host:port``)
-                and ``timeout`` (seconds, per proxy call; default 5.0).
+                and ``timeout_s`` (seconds per device call; default 5.0).
 
         Raises:
             ImportError: If PyTango is not installed.
+            ValueError: If the block still carries ``timeout``, or if
+                ``timeout_s`` is not a positive, finite number.
             ConnectionError: If the TANGO database does not answer.
         """
         # Import PyTango here and give a clear error if not installed. The
@@ -165,7 +169,7 @@ class TangoConnector(ControlSystemConnector):
             raise ImportError("PyTango (the 'pytango' package) is required.") from None
 
         self._tango_host: str | None = config.get("tango_host") or None
-        self._timeout = float(config.get("timeout", 5.0))
+        self._timeout_s = call_timeout_s(config, TANGO)
 
         # Initialize limits validator for automatic validation and confirm policy
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
@@ -209,7 +213,7 @@ class TangoConnector(ControlSystemConnector):
                 name = f"tango://{self._tango_host}/{device_name}"
             proxy = self._tango.DeviceProxy(name)
             try:
-                proxy.set_timeout_millis(int(self._timeout * 1000))
+                proxy.set_timeout_millis(int(self._timeout_s * 1000))
             except Exception:  # a proxy that cannot take a timeout keeps its default
                 logger.debug(f"TANGO proxy for '{device_name}' kept its default timeout")
             self._proxies[device_name] = proxy
@@ -303,7 +307,7 @@ class TangoConnector(ControlSystemConnector):
 
         Args:
             channel_address: ``domain/family/member/attribute``
-            timeout: Seconds the read is given; the block's ``timeout`` when
+            timeout: Seconds the read is given; the block's ``timeout_s`` when
                 omitted, which the device proxy also applies beneath it
 
         Returns:
@@ -315,7 +319,7 @@ class TangoConnector(ControlSystemConnector):
             TimeoutError: If the read does not answer within its ceiling
             ValueError: If the address does not name a device and an attribute
         """
-        ceiling = timeout if timeout is not None else self._timeout
+        ceiling = timeout if timeout is not None else self._timeout_s
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(self._read_channel_sync, channel_address), ceiling
@@ -360,7 +364,7 @@ class TangoConnector(ControlSystemConnector):
             channel_address: ``domain/family/member/attribute``
             value: Value to write
             timeout: Seconds the write (limits check included) is given, and
-                then the confirming read; the block's ``timeout`` when omitted.
+                then the confirming read; the block's ``timeout_s`` when omitted.
                 A confirmed write can therefore take up to twice it.
             confirm: Whether to re-read and compare, or ``None`` to resolve the
                 policy for this channel from the limits database
@@ -410,7 +414,7 @@ class TangoConnector(ControlSystemConnector):
                 return ("send_failed", e)
             return ("ok", None)
 
-        ceiling = timeout if timeout is not None else self._timeout
+        ceiling = timeout if timeout is not None else self._timeout_s
         try:
             step, payload = await asyncio.wait_for(asyncio.to_thread(_validate_and_write), ceiling)
         except TimeoutError:

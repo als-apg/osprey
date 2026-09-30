@@ -247,6 +247,71 @@ class TestConnect:
             )
             await conn.disconnect()
 
+    async def test_timeout_s_defaults_to_five_seconds(self):
+        mock_tango = _make_tango()
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({})
+            assert conn._timeout_s == 5.0
+            await conn.disconnect()
+
+    async def test_timeout_s_bounds_every_device_proxy(self):
+        proxy = _make_proxy()
+        mock_tango = _make_tango(proxy)
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({"timeout_s": 2.5})
+            conn._get_proxy("sr/power_supply/ps01")
+            proxy.set_timeout_millis.assert_called_once_with(2500)
+            await conn.disconnect()
+
+    @pytest.mark.parametrize("bad", [0, -1, "five", True, float("nan"), float("inf")])
+    async def test_a_timeout_s_that_is_not_a_positive_number_is_refused(self, bad):
+        mock_tango = _make_tango()
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            with pytest.raises(ValueError, match="control_system.connector.tango.timeout_s"):
+                await conn.connect({"timeout_s": bad})
+
+        assert conn._connected is False
+        mock_tango.Database.assert_not_called()
+
+    async def test_the_old_timeout_key_is_not_read(self):
+        mock_tango = _make_tango()
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({"timeout": 0.2})
+
+        assert conn._timeout_s == 5.0
+
 
 class TestDisconnect:
     async def test_disconnect_clears_connected_and_proxies(self, connector):
@@ -666,11 +731,11 @@ class TestNonBlockingOffload:
 
 
 async def _bounded_tango(timeout):
-    """A connected TangoConnector, patched by the caller, with the block's ``timeout``."""
+    """A connected TangoConnector, patched by the caller, with the block's ``timeout_s``."""
     from osprey.connectors.control_system.tango_connector import TangoConnector
 
     conn = TangoConnector()
-    await conn.connect({"timeout": timeout})
+    await conn.connect({"timeout_s": timeout})
     return conn
 
 

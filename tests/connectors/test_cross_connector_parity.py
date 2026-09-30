@@ -763,7 +763,7 @@ async def _stall_tango(action: str) -> StalledRun:
             from osprey.connectors.control_system.tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({"timeout": 0.2})
+            await conn.connect({"timeout_s": 0.2})
             outcome = await _stalled_call(conn, "sr/power_supply/ps01/Current", action)
     finally:
         release.set()
