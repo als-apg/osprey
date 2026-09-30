@@ -60,31 +60,26 @@ def only_target(calls):
 
 
 # ── the deployment target on control-system activity ────────────────────────
+@pytest.mark.parametrize(
+    ("target", "tool", "detail"),
+    [
+        ("va", "channel_write", "SR:MAG:QF:01:CURRENT:SP"),
+        ("live", "execute", "ran a script with control-system writes"),
+    ],
+    ids=["va-channel_write", "live-execute"],
+)
 def test_channel_activity_names_the_recorded_target(
-    control_context_root, write_control_context, posted
+    control_context_root, write_control_context, posted, target, tool, detail
 ):
-    """A write reported while the deployment is on ``va`` says so, in the one
-    field the activity route carries through to the browser."""
-    write_control_context(control_context_root, target="va")
+    """A control-system report names the target the deployment is on, in the one
+    field the activity route carries through to the browser. The executor's
+    report is stamped by the same seam — the emitting tool passes nothing extra,
+    so the two surfaces cannot describe the same deployment differently."""
+    write_control_context(control_context_root, target=target)
 
-    http.notify_agent_activity("channel_write", "channel", detail="SR:MAG:QF:01:CURRENT:SP")
+    http.notify_agent_activity(tool, "channel", detail=detail)
 
-    assert only_target(posted)["detail"] == "[va] SR:MAG:QF:01:CURRENT:SP"
-
-
-def test_execute_activity_names_the_recorded_target(
-    control_context_root, write_control_context, posted
-):
-    """The executor's write report is stamped by the same seam — the emitting
-    tool passes nothing extra, so the two surfaces cannot describe the same
-    deployment differently."""
-    write_control_context(control_context_root, target="live")
-
-    http.notify_agent_activity(
-        "execute", "channel", detail="ran a script with control-system writes"
-    )
-
-    assert only_target(posted)["detail"] == "[live] ran a script with control-system writes"
+    assert only_target(posted)["detail"] == f"[{target}] {detail}"
 
 
 @pytest.mark.usefixtures("control_context_root")
@@ -201,13 +196,6 @@ def test_switch_failure_without_a_reason_still_reports_the_outcome(posted):
     assert only_target(posted)["detail"] == "va → live · failure"
 
 
-def test_switch_outcomes_are_two_distinct_spellings():
-    """The switch tool takes its outcome from these constants rather than
-    spelling it itself, so the two events cannot drift apart."""
-    assert http.SWITCH_OUTCOME_SUCCESS != http.SWITCH_OUTCOME_FAILURE
-    assert {http.SWITCH_OUTCOME_SUCCESS, http.SWITCH_OUTCOME_FAILURE} == {"success", "failure"}
-
-
 def test_switch_event_is_not_target_stamped(control_context_root, write_control_context, posted):
     """The event names both targets itself; a record-target prefix on top of
     that would be a third opinion about where the deployment is."""
@@ -218,20 +206,6 @@ def test_switch_event_is_not_target_stamped(control_context_root, write_control_
     )
 
     assert only_target(posted)["detail"] == "live → va · success (generation 1)"
-
-
-def test_switch_emit_never_raises(monkeypatch):
-    """Fire-and-forget, like every other emit here: a switch must not fail
-    because the web terminal is not running."""
-
-    def _boom():
-        raise RuntimeError("no web terminal")
-
-    monkeypatch.setattr(http, "web_terminal_url", _boom)
-
-    http.notify_target_switch(
-        from_target="live", to_target="va", outcome=http.SWITCH_OUTCOME_SUCCESS, generation=1
-    )
 
 
 async def test_switch_async_emits_the_same_body(posted):

@@ -265,8 +265,9 @@ async def get_capabilities(request: Request) -> dict:
 
     # The Config panel's server gate, reported so the frontend can take the
     # Settings entry out of the display menu. The server refusal is the real
-    # gate; this is its other half, never the only half.
-    panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+    # gate; this is its other half, never the only half. An app whose state
+    # carries no flag is refused by that gate, so absence reads as False here.
+    panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", False))
 
     if status == CONFIG_STATUS_INVALID or (errors and status is None and service is None):
         return {**_invalid_capabilities(errors, remedy), "config_panel_enabled": panel_enabled}

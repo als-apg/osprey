@@ -225,7 +225,7 @@ export function transportNotice(err) {
  * @param {unknown} err
  * @returns {{ message: string, action: 'interrupt'|'retry'|null } | null}
  */
-export function handoffRefusal(err) {
+function handoffRefusal(err) {
   const slug = /** @type {{ slug?: unknown }} */ (err ?? {}).slug;
   if (typeof slug === 'string' && slug in HANDOFF_REFUSALS) return HANDOFF_REFUSALS[slug];
   return null;

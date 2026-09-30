@@ -147,8 +147,11 @@ def test_panels_route_exposes_system_health_server_config_endpoint():
     assert "/api/system-health-server" in paths
 
 
-async def test_system_health_server_config_endpoint_returns_proxy_path():
+async def test_system_health_server_config_endpoint_returns_proxy_path(monkeypatch):
     from osprey.interfaces.web_terminal.routes import panels as panels_module
+
+    # The proxy path carries the per-user mount; unset, it is the bare path.
+    monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
 
     available = SimpleNamespace(
         app=SimpleNamespace(
@@ -156,8 +159,7 @@ async def test_system_health_server_config_endpoint_returns_proxy_path():
         )
     )
     result = await panels_module.system_health_server_config(available)
-    assert result["available"] is True
-    assert result["url"].endswith("/panel/system-health")
+    assert result == {"url": "/panel/system-health", "available": True}
 
     unavailable = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
     result = await panels_module.system_health_server_config(unavailable)

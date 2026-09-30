@@ -7,11 +7,11 @@ CSS off ``html[data-rail-position]``, so none of it is reachable from the
 FastAPI TestClient — only a real browser computes the flex direction and
 proves the strip actually lies horizontally.
 
-Coverage:
+Coverage, one parametrized test:
 
-  (1) ``?rail=top`` → the attribute is stamped and .panel-rail computes
-      ``flex-direction: row``, with the rail-button contract selectors intact.
-  (2) no query → the default left column (``flex-direction: column``).
+  * ``?rail=top`` → the attribute is stamped and .panel-rail computes
+    ``flex-direction: row``, with the rail-button contract selectors intact.
+  * no query → the default left column (``flex-direction: column``).
 
 Run:
     .venv/bin/pytest tests/interfaces/web_terminal/test_rail_position_browser.py -v
@@ -91,33 +91,26 @@ def _rail_flex_direction(page: Page) -> str:
     return page.evaluate("getComputedStyle(document.querySelector('.panel-rail')).flexDirection")
 
 
-def test_rail_top_renders_horizontal_strip(tmp_path, chromium_browser):
-    """?rail=top stamps the attribute and lays the rail out as a row.
+@pytest.mark.parametrize(
+    ("query", "position", "direction"),
+    [("/?rail=top", "top", "row"), ("", "left", "column")],
+    ids=["top", "default"],
+)
+def test_rail_position_lays_out_the_rail(tmp_path, chromium_browser, query, position, direction):
+    """The stamped position decides the rail's computed flex direction.
 
-    The rail-button contract selector must survive the flip — the top strip
-    is the same DOM restyled, not a parallel widget.
+    ``?rail=top`` lays the rail out as a row under the header; with no query the
+    server-stamped default keeps the left column. Both are the same rail DOM
+    restyled — the rail-button contract selector the page waits on survives
+    either way, so the top strip is never a parallel widget.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
     with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, f"{base_url}/?rail=top")
+        page = _open_hub_page(chromium_browser, f"{base_url}{query}")
         try:
-            assert page.get_attribute("html", "data-rail-position") == "top"
-            assert _rail_flex_direction(page) == "row"
-        finally:
-            page.close()
-
-
-def test_rail_defaults_to_left_column(tmp_path, chromium_browser):
-    """Without a query the server-stamped default keeps the left column."""
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _hub_server(workspace) as base_url:
-        page = _open_hub_page(chromium_browser, base_url)
-        try:
-            assert page.get_attribute("html", "data-rail-position") == "left"
-            assert _rail_flex_direction(page) == "column"
+            assert page.get_attribute("html", "data-rail-position") == position
+            assert _rail_flex_direction(page) == direction
         finally:
             page.close()

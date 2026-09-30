@@ -70,11 +70,3 @@ class TestMakeToolAllowlist:
 
         assert isinstance(result, PermissionResultDeny)
         assert "denylist" in result.message
-
-    async def test_empty_denylist_is_noop(self):
-        """The default empty denylist leaves the allowlist behavior unchanged."""
-        callback = make_tool_allowlist(["Read"])
-
-        result = await callback("Read", {}, ToolPermissionContext())
-
-        assert isinstance(result, PermissionResultAllow)

@@ -104,7 +104,7 @@ export function clearStoredSessionId() {
  * @param {string} text
  * @returns {Promise<void>}
  */
-export async function writeClipboard(text) {
+async function writeClipboard(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return;
@@ -137,7 +137,7 @@ export async function writeClipboard(text) {
  *
  * @returns {{ readText: () => string, writeText: (selection: string, text: string) => Promise<void> }}
  */
-export function agentClipboardProvider() {
+function agentClipboardProvider() {
   return {
     readText: () => '',
     writeText: (_selection, text) =>

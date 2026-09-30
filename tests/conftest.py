@@ -588,6 +588,19 @@ def _isolate_audit_zone(request, tmp_path, monkeypatch):
     return zone
 
 
+@pytest.fixture
+def audit_zone_path(_isolate_audit_zone: Path) -> Path:
+    """The zone :func:`_isolate_audit_zone` redirected the ledger to, by a public name.
+
+    A test that reads what it filed requests this rather than redirecting the
+    seam again in a local fixture of its own. It is the zone records land in
+    only while nothing closer re-points ``writer.audit_dir``: a module's own
+    ``audit_zone`` fixture wins over the suite-wide one, and this still names
+    the suite-wide zone.
+    """
+    return _isolate_audit_zone
+
+
 @pytest.fixture(autouse=True, scope="module")
 def _isolate_module_audit_zone(request, tmp_path_factory):
     """Hold the ledger's seam redirected for a whole test module.

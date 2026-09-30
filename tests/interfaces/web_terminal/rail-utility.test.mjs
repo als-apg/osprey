@@ -8,8 +8,10 @@
  *      the nav silently disappears the first time a panel renders.
  *   2. The Documentation anchor carries rel="noopener" and gets its href from
  *      the deployment config, never from hardcoded markup.
- *   3. terminal.css ships BOTH orientations. The top rail is a 40px strip; a
- *      62x52 button with no override spills out of it over the workspace.
+ *   3. The cells mirror the "+" cell's geometry, keep their labels on one
+ *      line, and let `hidden` win over the button display rule. Where the
+ *      cluster sits and how its cells stack in each orientation is measured
+ *      on real layout by test_feedback_rail_browser.py.
  *   4. Each control is NAMED in the cell, and the visible name is inside the
  *      accessible one. A mark on its own made the operator hover to learn
  *      what it opens, and an aria-label that drops the visible word takes the
@@ -17,7 +19,7 @@
  *
  * Geometry itself is not assertable here — happy-dom has no layout engine, so
  * the real boxes are measured in the Playwright suite. What this file guards
- * is that the rules and the markup exist and say the right thing.
+ * is the markup, and the stylesheet rules no layout measurement can see.
  *
  *   npx vitest run tests/interfaces/web_terminal/rail-utility.test.mjs
  */
@@ -185,33 +187,16 @@ describe('utility cluster markup', () => {
 });
 
 describe('utility cluster styling', () => {
-  test('pins the cluster to the far end of the left column', () => {
-    const body = ruleBody('.panel-utility');
-
-    // .panel-rail has no flex:1, so the free space has to be absorbed here.
-    expect(body).toMatch(/margin-top:\s*auto;/);
-  });
-
-  test('detaches the cluster from the panel-tab group', () => {
-    const body = ruleBody('.panel-utility');
-
-    expect(body).toMatch(/border-top:\s*1px solid var\(--border-default\)/);
-  });
-
   test('mirrors the .panel-add-btn cell geometry', () => {
-    const body = ruleBody('.panel-utility-btn');
+    const utility = ruleBody('.panel-utility-btn');
+    const add = ruleBody('.panel-add-btn');
 
-    expect(body).toMatch(/width:\s*62px;/);
-    expect(body).toMatch(/height:\s*52px;/);
-    expect(body).toMatch(/border-radius:\s*var\(--radius-xs\);/);
-  });
-
-  test('stacks the mark over the label like a panel entry', () => {
-    // Without the column direction the label lands beside an 18px mark in a
-    // 62px cell and ellipsises away to nothing.
-    const body = ruleBody('.panel-utility-btn');
-
-    expect(body).toMatch(/flex-direction:\s*column;/);
+    for (const property of ['width', 'height', 'border-radius']) {
+      const value = (/** @type {string} */ body) =>
+        new RegExp(`(?:^|;)\\s*${property}:\\s*([^;]+);`).exec(body)?.[1].trim();
+      expect(value(add), `.panel-add-btn declares no ${property}`).toBeTruthy();
+      expect(value(utility), property).toBe(value(add));
+    }
   });
 
   test('keeps the label on one line inside the 62px cell', () => {
@@ -229,27 +214,6 @@ describe('utility cluster styling', () => {
     // `[hidden] { display: none }` is a UA rule and loses to any class
     // selector, so a docs anchor hidden by initRailUtility would still paint.
     expect(ruleBody('.panel-utility-btn[hidden]')).toMatch(/display:\s*none;/);
-  });
-
-  test('re-pins the cluster to the right end under a top rail', () => {
-    const body = ruleBody('html[data-rail-position="top"] .panel-utility');
-
-    expect(body).toMatch(/margin-left:\s*auto;/);
-    expect(body).toMatch(/margin-top:\s*0;/);
-    expect(body).toMatch(/height:\s*100%;/);
-  });
-
-  test('reshapes the buttons to fit the 40px top strip', () => {
-    const body = ruleBody('html[data-rail-position="top"] .panel-utility-btn');
-
-    // The strip is 40px tall and does not clip: a 52px button spills over
-    // the dockview area below it.
-    expect(body).toMatch(/height:\s*100%;/);
-    expect(body).toMatch(/border-radius:\s*0;/);
-    // ...and the stack turns the same corner the panel pills do, so the label
-    // sits beside the mark in a cell wide enough to hold it.
-    expect(body).toMatch(/flex-direction:\s*row;/);
-    expect(body).toMatch(/width:\s*auto;/);
   });
 
   test('gives both controls a drawn SVG mark, not a font glyph', () => {

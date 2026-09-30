@@ -140,6 +140,46 @@ The ones that exist today:
   instead of `ConnectorFactory._registry.clear()`, which destroys registrations
   other files depend on.
 - `osprey.health.offload.reset_abandoned_state()`
+- `osprey.mcp_server.http.reset_panel_token_latch()` — the last panel token the
+  MCP HTTP client saw. Without it, one test's token is sent by the next.
+- `osprey.interfaces.web_terminal.routes.websocket.reset_rendered_config_memo()`
+  — the parsed `config.yml`, memoized on path and stat signature. Without it, two
+  renders at one path within an mtime tick share one parse.
+- `osprey.interfaces.web_terminal.routes.panels.reset_host_addrs_cache()` — the
+  panel-register route's host-address probe, memoized for a minute. Without it,
+  one test's machine picture stands for the next.
+- `osprey.interfaces.web_terminal.ownership.reset_store_notice()` — the
+  once-per-process no-durable-store warning. Without it, whichever container-mode
+  resolution runs first on a worker silences it for the rest.
+
+The web-terminal conftest runs the last three around every test there.
+
+Some state is not reset but injected. These constructor seams are sanctioned
+too, each because the real thing makes a test slow or flaky:
+
+- `session_handoff.HandoffState(clock=, sleep=)` — fake time for the hand-off
+  door. Without it, the 2 s attach grace, 5 s interrupt grace and 2 s death grace
+  are spent for real.
+- `file_watcher.WorkspaceWatcher(observer_factory=)` and its twin
+  `artifacts.store_watcher.StoreIndexWatcher(observer_factory=)` — a
+  deterministic polling observer. Without it, the watcher's own tests read the
+  live FSEvents stream, which replays history and coalesces at will.
+- `dock-workspace.js:bootLayoutSettled()` — the browser readiness probe. The dock
+  re-parents the terminal card during boot; a browser test that acts before this
+  resolves (plus one frame) races that move.
+
+**Vitest.** Module-private state in a JS module is isolated by the `vmThreads`
+pool (a fresh module graph per file), `vi.resetModules()` between tests, and the
+module's own public `teardown*`/`dispose*`/`reset*` export called from
+`afterEach`. Never reach into module globals. The sanctioned exports:
+`teardownControlTargetChip`, `teardownControlTargetPopover`,
+`teardownControlTargetLabBar` (real intervals and the event stream);
+`disposeBarItems` (item intervals, pollers and the event stream); `resetOverflow`
+(the overflow ladders) and `mockCrowding` (a layout fake — happy-dom has no
+layout engine); `stopBarCustomize` and `stopBarSync` (document listeners and the
+visibility re-GET); `hydrate` (re-hydrates the bar host over a test's DOM). Pure
+module state needs no reset export — the pool and `vi.resetModules()` already
+cover it, so do not add one.
 
 ### What the root conftest already guards
 

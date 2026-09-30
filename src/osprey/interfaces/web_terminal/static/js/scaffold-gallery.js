@@ -27,7 +27,6 @@ import {
   BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
   CONFIG_NAMES,
-  configureMarked,
 } from './scaffold/utils.js';
 import {
   resetFetchCache,
@@ -307,14 +306,9 @@ class ArtifactGallery {
   //
   // Rendering (search bar, filter chips, untracked-file banner, summary,
   // category/card grid) and the artifact-list filter live in
-  // scaffold/view.js — see createScaffoldGalleryView(). Only
-  // renderGallery() is ever called back through the gallery host (from
-  // scaffold/edit.js, after a save/reload/ownership change); view.js's
-  // other rendering entry points (renderUntrackedBanner, renderFilterChips,
-  // renderSummary, bindSearch, renderCategories, renderArtifactCard,
-  // renderSkillGroup, getFilteredArtifacts) are only ever called from
-  // within view.js's own renderGallery(), so this class doesn't re-expose
-  // them as delegators.
+  // scaffold/view.js — see createScaffoldGalleryView(), whose one entry
+  // point is renderGallery(). It is called back through the gallery host
+  // from scaffold/edit.js after a save, reload or ownership change.
 
   renderGallery() {
     return this._view.renderGallery();
@@ -353,10 +347,6 @@ class ArtifactGallery {
   /** @param {string} category */
   showCreateDialog(category) {
     return this._detail.showCreateDialog(category);
-  }
-
-  renderDetailHeader() {
-    return this._detail.renderDetailHeader();
   }
 
   renderDetailModes() {
@@ -437,8 +427,6 @@ export function initScaffoldGallery() {
     document.getElementById('settings-drawer')
   );
   if (!drawer) return;
-
-  configureMarked();
 
   const behaviorPanel = document.getElementById('tab-behavior');
   const safetyPanel = document.getElementById('tab-safety');

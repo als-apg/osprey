@@ -198,7 +198,7 @@ export function hostElement(host, root = activeRoot ?? document) {
  * @param {BarRoot} [root]
  * @returns {HTMLElement | null}
  */
-export function poolElement(root = activeRoot ?? document) {
+function poolElement(root = activeRoot ?? document) {
   return /** @type {HTMLElement | null} */ (root.querySelector(POOL_SELECTOR));
 }
 
@@ -256,15 +256,6 @@ export function registerItemBuilder(type, builder) {
   return () => {
     if (builders.get(type) === builder) builders.delete(type);
   };
-}
-
-/**
- * Whether a type can currently build its own body.
- * @param {string} type
- * @returns {boolean}
- */
-export function hasItemBuilder(type) {
-  return builders.has(type);
 }
 
 /**

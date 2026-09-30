@@ -570,8 +570,8 @@ def _head_within_bytes(text: str, budget: int) -> str:
     return data[:end].decode("utf-8", "surrogatepass")
 
 
-def clamp_text_len(value: Any, cap: int = PAYLOAD_CAP_BYTES) -> int:
-    """Read a client-supplied text length as a byte count in ``0..cap``.
+def clamp_text_len(value: Any) -> int:
+    """Read a client-supplied text length as a byte count in ``0..PAYLOAD_CAP_BYTES``.
 
     The bundle endpoint takes this number from the browser to decide how much
     of the payload the typed text will claim, so it is exactly the number an
@@ -585,27 +585,22 @@ def clamp_text_len(value: Any, cap: int = PAYLOAD_CAP_BYTES) -> int:
         parsed = int(value or 0)
     except (TypeError, ValueError):
         return 0
-    return max(0, min(parsed, cap))
+    return max(0, min(parsed, PAYLOAD_CAP_BYTES))
 
 
-def _max_text_bytes(cap: int, floor: int, separator: str) -> int:
+def _max_text_bytes() -> int:
     """Most of the payload the report itself may claim.
 
     The one place this cut is computed. :func:`payload_bundle_budget` needs it
     to size what is left, and :func:`assemble_payload` needs the same number to
     decide whether the report has to be truncated at all — derived twice, the
     two would disagree the first time one of them was edited, and the payload
-    would come out either over the cap or short of the context ``floor``.
+    would come out either over the cap or short of the context floor.
     """
-    return max(0, cap - _utf8_len(separator) - floor)
+    return max(0, PAYLOAD_CAP_BYTES - _utf8_len(PAYLOAD_SEPARATOR) - CONTEXT_FLOOR_BYTES)
 
 
-def payload_bundle_budget(
-    text_bytes: int,
-    cap: int = PAYLOAD_CAP_BYTES,
-    floor: int = CONTEXT_FLOOR_BYTES,
-    separator: str = PAYLOAD_SEPARATOR,
-) -> int:
+def payload_bundle_budget(text_bytes: int) -> int:
     """Bytes left for the context bundle once ``text_bytes`` of report are placed.
 
     This is the *single* budget formula. :func:`assemble_payload` and
@@ -614,11 +609,12 @@ def payload_bundle_budget(
     the one inside the send payload — two formulas that agree today would drift
     the first time one of them is edited.
 
-    A report longer than ``cap - separator - floor`` claims only that much: the
-    rest of it is truncated, so the context still gets its ``floor``.
+    A report longer than the cap less the separator and
+    :data:`CONTEXT_FLOOR_BYTES` claims only that much: the rest of it is
+    truncated, so the context still gets its floor.
     """
-    claimed = min(max(0, text_bytes), _max_text_bytes(cap, floor, separator))
-    return max(0, cap - _utf8_len(separator) - claimed)
+    claimed = min(max(0, text_bytes), _max_text_bytes())
+    return max(0, PAYLOAD_CAP_BYTES - _utf8_len(PAYLOAD_SEPARATOR) - claimed)
 
 
 def _truncate_text(text: str, budget: int, record_id: str | None) -> str:
@@ -632,20 +628,12 @@ def _truncate_text(text: str, budget: int, record_id: str | None) -> str:
     if record_id:
         marker = marker.replace("<id>", record_id)
     marker_piece = "\n" + marker
-    head_budget = budget - _utf8_len(marker_piece)
-    if head_budget <= 0:
-        # Absurd parameters only: not even the marker fits. Say as much of it
-        # as there is room for rather than silently returning the raw head.
-        return _head_within_bytes(marker, budget)
-    return _head_within_bytes(text, head_budget) + marker_piece
+    return _head_within_bytes(text, budget - _utf8_len(marker_piece)) + marker_piece
 
 
 def assemble_payload(
     text: str,
     material: Material,
-    cap: int = PAYLOAD_CAP_BYTES,
-    floor: int = CONTEXT_FLOOR_BYTES,
-    separator: str = PAYLOAD_SEPARATOR,
     record_id: str | None = None,
 ) -> tuple[str, str, bool]:
     """Build the clipboard payload: the report, then the composed context.
@@ -653,9 +641,10 @@ def assemble_payload(
     Returns ``(payload, bundle, text_truncated)``. ``payload`` is what the
     browser writes to the clipboard verbatim — the frontend does no size
     arithmetic of its own, and **this is the only place the cap is applied**.
-    ``len(payload.encode("utf-8")) <= cap`` holds by construction: the report
-    claims at most ``cap - separator - floor`` bytes and the bundle is rendered
-    into exactly what is left.
+    ``len(payload.encode("utf-8")) <= PAYLOAD_CAP_BYTES`` holds by construction:
+    the report claims at most the cap less the separator and
+    :data:`CONTEXT_FLOOR_BYTES`, and the bundle is rendered into exactly what
+    is left.
 
     ``record_id`` is substituted into :data:`TEXT_TRUNCATION_MARKER` when the
     caller already knows it. The send route does: it allocates the id with
@@ -670,7 +659,7 @@ def assemble_payload(
     The separator is omitted when there is no context at all, so a report sent
     without a session does not carry an empty "session context" heading.
     """
-    max_text = _max_text_bytes(cap, floor, separator)
+    max_text = _max_text_bytes()
     text_bytes = _utf8_len(text)
 
     if text_bytes <= max_text:
@@ -678,20 +667,13 @@ def assemble_payload(
     else:
         text_part, text_truncated = _truncate_text(text, max_text, record_id), True
 
-    budget = payload_bundle_budget(text_bytes, cap=cap, floor=floor, separator=separator)
-    bundle, _ = render_bundle(material, budget)
+    bundle, _ = render_bundle(material, payload_bundle_budget(text_bytes))
 
-    payload = text_part + separator + bundle if bundle else text_part
+    payload = text_part + PAYLOAD_SEPARATOR + bundle if bundle else text_part
     return payload, bundle, text_truncated
 
 
-def bundle_for_copy(
-    material: Material,
-    text_len: Any,
-    cap: int = PAYLOAD_CAP_BYTES,
-    floor: int = CONTEXT_FLOOR_BYTES,
-    separator: str = PAYLOAD_SEPARATOR,
-) -> str:
+def bundle_for_copy(material: Material, text_len: Any) -> str:
     """Render the context bundle alone, sized as if ``text_len`` bytes preceded it.
 
     This backs the standalone "Copy session context" button, which writes no
@@ -706,8 +688,5 @@ def bundle_for_copy(
     lets the operator copy the context, keep typing, and still send a report
     whose context matches what they pasted.
     """
-    budget = payload_bundle_budget(
-        clamp_text_len(text_len, cap=cap), cap=cap, floor=floor, separator=separator
-    )
-    bundle, _ = render_bundle(material, budget)
+    bundle, _ = render_bundle(material, payload_bundle_budget(clamp_text_len(text_len)))
     return bundle

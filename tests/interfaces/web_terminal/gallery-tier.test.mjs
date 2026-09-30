@@ -25,11 +25,10 @@
  *   but the Edit mode tab — which stays rendered-but-disabled with a reason,
  *   exactly as the `read_only` badge discipline already does for a reserved
  *   artifact, because a Preview/Diff/Edit tab strip missing its third entry
- *   reads as a broken panel rather than a gated one;
- * - the settings.json structured editor falls back to its read-only view, the
- *   same branch a reserved artifact takes: a field an operator can type into,
- *   backed by a save the server refuses, is worse than one that plainly cannot
- *   be typed into.
+ *   reads as a broken panel rather than a gated one.
+ *
+ * The settings.json Preview is read-only whatever the posture; that is pinned
+ * once, in scaffold-detail.test.mjs.
  *
  * Module isolation: write-gate.js keeps module-private state (the resolved
  * posture), so every test re-imports it and its consumers through
@@ -48,7 +47,6 @@ const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
  *   gate: typeof import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/write-gate.js'),
  *   view: typeof import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js'),
  *   detail: typeof import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js'),
- *   content: typeof import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js'),
  * }>}
  */
 async function loadModules() {
@@ -56,8 +54,7 @@ async function loadModules() {
   const gate = await import(`${JS}/scaffold/write-gate.js`);
   const view = await import(`${JS}/scaffold/view.js`);
   const detail = await import(`${JS}/scaffold/detail.js`);
-  const content = await import(`${JS}/scaffold/detail-content.js`);
-  return { gate, view, detail, content };
+  return { gate, view, detail };
 }
 
 /** A gallery host with real elements for every DOM ref the renderers touch. */
@@ -145,7 +142,7 @@ afterEach(() => {
  * survived. One helper, because the posture is ONE privilege: a control that
  * quietly stayed painted is the whole point of the suite.
  * @param {any} modules
- * @returns {Promise<Record<string, boolean>>}
+ * @returns {Promise<Record<string, any>>}
  */
 function renderControls(modules) {
   const gallery = makeGallery({ untrackedFiles: UNTRACKED, artifacts: ARTIFACTS });
@@ -174,6 +171,7 @@ function renderControls(modules) {
     editTabEnabled: !!editBtn && !(/** @type {HTMLButtonElement} */ (editBtn).disabled),
     // Read affordances, asserted alongside so "hid everything" cannot pass.
     banner: gallery.untrackedBannerEl.style.display !== 'none',
+    bannerName: gallery.untrackedBannerEl.querySelector('.prompts-untracked-name')?.textContent,
     // Discarding local edits touches nothing on the server, so it must survive
     // a withdrawn write surface — an operator left inside a dirty editor with
     // no way out is a worse answer than a gated one.
@@ -194,6 +192,8 @@ describe('writes disabled', () => {
       expect(controls[name], `${name} control should be withdrawn`).toBe(false);
     }
     expect(controls.banner).toBe(true);
+    // The banner still names the files it can no longer act on.
+    expect(controls.bannerName).toBe('rules/stray');
     expect(controls.cards).toBe(true);
     expect(controls.previewTab).toBe(true);
     expect(controls.discard).toBe(true);
@@ -215,39 +215,6 @@ describe('writes disabled', () => {
     expect(editBtn.title).toBeTruthy();
   });
 
-  test('the banner still names the untracked files it can no longer act on', async () => {
-    const modules = await loadModules();
-    modules.gate.applyScaffoldWriteGate({ scaffold_write_enabled: false });
-    const gallery = makeGallery({ untrackedFiles: UNTRACKED });
-    modules.view.createScaffoldGalleryView(gallery).renderGallery();
-    expect(gallery.untrackedBannerEl.textContent).toContain('rules/stray');
-  });
-
-  test('the settings.json preview falls back to the read-only structured view', async () => {
-    const modules = await loadModules();
-    modules.gate.applyScaffoldWriteGate({ scaffold_write_enabled: false });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({ content: '{"permissions": {}}', language: 'json' }),
-        })
-      )
-    );
-    const gallery = makeGallery({
-      selectedArtifact: { name: 'settings-json', language: 'json', status: 'user-owned' },
-      detailMode: 'preview',
-    });
-    const content = modules.content.createScaffoldGalleryDetailContent(gallery);
-    await content.renderPreview();
-    // The structured view renders, and offers no control an operator could
-    // type into -- so a withdrawn-writes deployment never shows a field
-    // backed by a save that answers 403.
-    expect(gallery.detailContentEl.querySelector('.config-structured-view')).toBeTruthy();
-    expect(gallery.detailContentEl.querySelectorAll('input, select, textarea')).toHaveLength(0);
-  });
 });
 
 describe('writes enabled — the shipped posture', () => {
@@ -259,17 +226,15 @@ describe('writes enabled — the shipped posture', () => {
     ['null payload (failed /api/panels)', null],
   ];
 
-  for (const [label, payload] of postures) {
-    test(`${label} leaves every write control painted`, async () => {
-      const modules = await loadModules();
-      if (payload !== undefined) modules.gate.applyScaffoldWriteGate(payload);
-      const controls = await renderControls(modules);
-      for (const name of ALL_WRITE_CONTROLS) {
-        expect(controls[name], `${name} control should be painted`).toBe(true);
-      }
-      expect(controls.editTabEnabled).toBe(true);
-    });
-  }
+  test.each(postures)('%s leaves every write control painted', async (_label, payload) => {
+    const modules = await loadModules();
+    if (payload !== undefined) modules.gate.applyScaffoldWriteGate(payload);
+    const controls = await renderControls(modules);
+    for (const name of ALL_WRITE_CONTROLS) {
+      expect(controls[name], `${name} control should be painted`).toBe(true);
+    }
+    expect(controls.editTabEnabled).toBe(true);
+  });
 
   test('a false payload followed by a true one re-opens the controls', async () => {
     const modules = await loadModules();
@@ -291,29 +256,22 @@ describe('writes enabled — the shipped posture', () => {
   });
 });
 
-describe('element-absence safety', () => {
-  test('rendering with no untracked files and no DOM refs does not throw', async () => {
+describe('element absence', () => {
+  test("the Config gallery's chrome-less shape renders its cards", async () => {
+    // With search, summary and filter chips all off, the gallery builds no meta
+    // bar and no filter panel, so these refs stay null for its whole life.
     const modules = await loadModules();
-    modules.gate.applyScaffoldWriteGate({ scaffold_write_enabled: false });
     const gallery = makeGallery({
-      untrackedBannerEl: null,
-      categoriesEl: null,
+      artifacts: [{ name: 'mcp-json', category: 'config', displayCategory: 'config', status: 'framework' }],
       summaryEl: null,
+      clearFilterEl: null,
+      filterToggleEl: null,
+      filterPanelEl: null,
       filterChipsEl: null,
       searchInput: null,
-      detailHeaderEl: null,
-      detailModesEl: null,
     });
     expect(() => modules.view.createScaffoldGalleryView(gallery).renderGallery()).not.toThrow();
-    const detail = modules.detail.createScaffoldGalleryDetail(gallery);
-    expect(() => detail.renderDetailHeader()).not.toThrow();
-    expect(() => detail.renderDetailModes()).not.toThrow();
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-card')).toHaveLength(1);
   });
 
-  test('scaffoldWritesEnabled reports the resolved posture', async () => {
-    const modules = await loadModules();
-    expect(modules.gate.scaffoldWritesEnabled()).toBe(true);
-    modules.gate.applyScaffoldWriteGate({ scaffold_write_enabled: false });
-    expect(modules.gate.scaffoldWritesEnabled()).toBe(false);
-  });
 });

@@ -138,7 +138,6 @@ NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 NO_MODEL_TEST_FILES = (
     "tests/e2e/test_openobserve_telemetry.py",
     "tests/e2e/test_sdk_helpers.py",
-    "tests/e2e/web_terminals/test_prefix_routing.py",
     "tests/e2e/test_mcp_readiness.py",
     "tests/e2e/test_dispatch_deploy_render.py",
     "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
@@ -3056,7 +3055,7 @@ def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_teleme
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], telemetry)
     others = [f for f in NO_MODEL_TEST_FILES if f != telemetry]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    assert _run_step_ignores_all(mutated, others) == []  # the other eight survive
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
 
@@ -3072,7 +3071,7 @@ def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_termin
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], terminal_auth)
     others = [f for f in NO_MODEL_TEST_FILES if f != terminal_auth]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    assert _run_step_ignores_all(mutated, others) == []  # the other eight survive
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
 
@@ -3095,11 +3094,11 @@ def test_no_end_to_end_file_runs_in_both_lanes(workflow: dict[str, Any]) -> None
 
 
 def test_no_end_to_end_file_runs_in_both_lanes__mutation_returns_a_file_to_the_sweep() -> None:
-    routing = "tests/e2e/web_terminals/test_prefix_routing.py"
+    render = "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py"
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], routing)
-    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {routing}
+    step["run"] = _drop_ignore_line(step["run"], render)
+    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
     with pytest.raises(AssertionError, match="in both end-to-end lanes"):
         test_no_end_to_end_file_runs_in_both_lanes(mutated)
 

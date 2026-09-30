@@ -1,17 +1,12 @@
 /**
- * Unit tests for the preset core.
+ * Unit tests for applying a preset ("Layout").
  *
  *   npx vitest run tests/interfaces/web_terminal/panel-presets.test.mjs
  *
- * computePresetDiff resolves a preset into an EXCLUSIVE show/hide diff against
- * the live visible set. It is the executable statement of what "apply a layout"
- * means — exactly the members open, every non-member closed, unknown ids
- * dropped fail-safe — and the resolution /api/panel-arrange performs
- * server-side mirrors it, so these cases stay the reference for both.
- *
- * applyPreset itself no longer orchestrates anything locally: it sends the
- * preset NAME to the arrange endpoint and the panel_arrange SSE echo applies
- * the result on every client (panel-placement.js), which is what makes a human
+ * applyPreset orchestrates nothing locally: it sends the preset NAME to the
+ * arrange endpoint, the server resolves and filters the members (pinned by
+ * test_panel_arrange_route.py), and the panel_arrange SSE echo applies the
+ * result on every client (panel-placement.js). That is what makes a human
  * "Layouts" click and an agent arrange_workspace(preset=...) call one
  * operation. What is pinned here is that request; the applied DOM behavior is
  * covered by panel-manager.test.mjs and the Playwright suite.
@@ -22,41 +17,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import {
-  computePresetDiff,
-  applyPreset,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/panel-presets.js';
-
-describe('computePresetDiff', () => {
-  test('exclusive diff: show missing members, hide visible non-members', () => {
-    const known = new Set(['a', 'b', 'c', 'd']);
-    const visible = new Set(['b', 'c', 'd']);
-    const diff = computePresetDiff(['a', 'b'], visible, known);
-    expect(diff.toShow).toEqual(['a']); // b already visible
-    expect(diff.toHide.sort()).toEqual(['c', 'd']); // visible non-members
-    expect(diff.focus).toBe('a');
-  });
-
-  test('members are filtered to the known set (typo/disabled ids dropped)', () => {
-    const known = new Set(['a', 'b']);
-    const diff = computePresetDiff(['a', 'ghost'], new Set(), known);
-    expect(diff.toShow).toEqual(['a']); // ghost is not known → skipped
-    expect(diff.toHide).toEqual([]);
-    expect(diff.focus).toBe('a');
-  });
-
-  test('focus is the first FILTERED member (leading unknowns skipped)', () => {
-    const known = new Set(['a', 'b']);
-    const diff = computePresetDiff(['ghost', 'a', 'b'], new Set(['a', 'b']), known);
-    expect(diff.focus).toBe('a');
-  });
-
-  test('empty guard: all members unknown → focus null, no ops', () => {
-    const known = new Set(['a', 'b']);
-    const diff = computePresetDiff(['x', 'y'], new Set(['a']), known);
-    expect(diff).toEqual({ toShow: [], toHide: [], focus: null });
-  });
-});
+import { applyPreset } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-presets.js';
 
 describe('applyPreset — one arrange request, no local orchestration', () => {
   /** @type {{url: string, opts: any}[]} */
@@ -85,12 +46,6 @@ describe('applyPreset — one arrange request, no local orchestration', () => {
     // the preset path that sets prune_rail — a tiles request would silently lose
     // the exclusive ("and the rest close") half of the semantics.
     expect(JSON.parse(calls[0].opts.body)).toEqual({ preset: 'Machine setup' });
-  });
-
-  test('sends nothing else — no visibility or focus POST rides along', () => {
-    applyPreset('Logbook review');
-
-    expect(calls.map((c) => c.url)).toEqual(['/api/panel-arrange']);
   });
 
   test('the request is prefixed under a multi-user deployment', () => {

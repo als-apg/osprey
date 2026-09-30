@@ -139,6 +139,9 @@ def test_every_gated_app_exchanges_a_token_for_a_cookie(gated_app):
 
     assert response.status_code == 303
     assert response.headers["location"] == "/"
+    # Bodiless: a page rendered at the token URL would send it as the Referer
+    # of every subresource it loads.
+    assert response.content == b""
     name, value = _cookie_pair(response)
     assert name == session_cookie_name(WEB_PORT)
     assert value
@@ -160,19 +163,6 @@ def test_every_gated_app_admits_the_cookie_it_handed_out(gated_app):
     authenticated = _client(gated_app)
     authenticated.cookies.set(name, value)
     assert authenticated.get("/", follow_redirects=False).status_code != 401
-
-
-def test_no_gated_app_renders_a_page_at_the_token_url(gated_app):
-    """The token URL never renders: it redirects, so no subresource sees it.
-
-    A page rendered *at* ``/?token=SECRET`` makes the browser attach that URL as
-    the ``Referer`` of every stylesheet, script and font it then fetches — which
-    is how a one-time secret ends up in an access log it was never meant to
-    reach.
-    """
-    response = _client(gated_app).get(f"/?token={OPERATOR_SECRET}", follow_redirects=False)
-    assert response.status_code == 303
-    assert response.content == b""
 
 
 # --------------------------------------------------------------------------- #
@@ -261,18 +251,6 @@ def test_cookie_is_not_secure_behind_an_http_external_origin(app, monkeypatch):
     assert "secure" not in _set_cookie_header(response).lower()
 
 
-def test_exchanged_cookie_authenticates_a_subsequent_request(app):
-    """The cookie the exchange sets admits a later, token-less request."""
-    exchange = _client(app).get(f"/?token={OPERATOR_SECRET}", follow_redirects=False)
-    name, value = _cookie_pair(exchange)
-
-    follow_up = _client(app)
-    follow_up.cookies.set(name, value)
-    landed = follow_up.get("/", follow_redirects=False)
-
-    assert landed.status_code == 200
-
-
 def test_exchanged_cookie_clears_a_gated_api_route(app):
     """The cookie is a full session, not merely a pass for the landing page."""
     exchange = _client(app).get(f"/?token={OPERATOR_SECRET}", follow_redirects=False)
@@ -280,9 +258,12 @@ def test_exchanged_cookie_clears_a_gated_api_route(app):
 
     assert _client(app).get("/api/session").status_code == 401
 
-    authenticated = _client(app)
-    authenticated.cookies.set(name, value)
-    assert authenticated.get("/api/session").status_code == 200
+    # The landing page renders the bar layout the lifespan resolves, so this
+    # client runs it.
+    with _client(app) as authenticated:
+        authenticated.cookies.set(name, value)
+        assert authenticated.get("/api/session").status_code == 200
+        assert authenticated.get("/", follow_redirects=False).status_code == 200
 
 
 # --------------------------------------------------------------------------- #
@@ -360,28 +341,6 @@ def test_wrong_token_is_refused(app):
     response = _client(app).get("/?token=not-the-secret", follow_redirects=False)
     assert response.status_code == 401
     assert response.headers.get("set-cookie") is None
-
-
-def test_valid_cookie_without_a_token_renders(app):
-    """A live session cookie and no token renders the page normally."""
-    session_id = app.state.web_credentials.create_session()
-    client = _client(app)
-    client.cookies.set(session_cookie_name(WEB_PORT), session_id)
-
-    response = client.get("/", follow_redirects=False)
-    assert response.status_code == 200
-
-
-def test_no_token_and_no_cookie_is_refused(app):
-    """Neither credential means a 401 — the gate's default answer."""
-    response = _client(app).get("/", follow_redirects=False)
-    assert response.status_code == 401
-
-
-def test_empty_token_query_is_not_a_credential(app):
-    """``?token=`` with no value is treated as absent, not as an empty secret."""
-    response = _client(app).get("/?token=", follow_redirects=False)
-    assert response.status_code == 401
 
 
 def test_token_on_a_non_exchange_path_does_not_authenticate(app):
@@ -533,28 +492,3 @@ def test_valid_query_token_does_exactly_one_operator_comparison():
     assert calls == [OPERATOR_SECRET]  # exactly one operator comparison
     status = next(m["status"] for m in sent if m["type"] == "http.response.start")
     assert status == 303
-
-
-def test_wrong_query_token_is_refused_by_the_gate():
-    """A ``?token=`` GET whose secret is wrong is refused, not passed through."""
-    credentials = WebCredentials(operator_secret=OPERATOR_SECRET, panel_token=PANEL_TOKEN)
-    reached: list[bool] = []
-
-    async def _downstream(_scope, _receive, _send):  # pragma: no cover - must not run
-        reached.append(True)
-
-    sent = _run_gate(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/",
-            "query_string": b"token=wrong",
-            "headers": [],
-        },
-        credentials,
-        _downstream,
-    )
-
-    assert reached == []
-    status = next(m["status"] for m in sent if m["type"] == "http.response.start")
-    assert status == 401

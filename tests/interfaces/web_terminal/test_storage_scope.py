@@ -24,7 +24,6 @@ mount user. Two properties make it usable as such:
 
 from __future__ import annotations
 
-import os
 import re
 from unittest.mock import patch
 
@@ -68,8 +67,8 @@ def _html_tag(body: str) -> str:
 def _serve(workspace_dir, terminal_user: str | None):
     """Render both pages with ``OSPREY_TERMINAL_USER`` set to *terminal_user*.
 
-    ``None`` removes the variable entirely (the single-user / non-mounted
-    case). The env patch must wrap ``create_app`` as well as the requests: the
+    ``None`` leaves it unset (the single-user / non-mounted case; the area
+    conftest unsets it for every test). The env patch must wrap ``create_app`` as well as the requests: the
     URL prefix is computed at construction time and the terminal user is read
     during the lifespan, so a patch applied later would exercise neither.
 
@@ -84,9 +83,7 @@ def _serve(workspace_dir, terminal_user: str | None):
         ),
         patch.dict("os.environ", env),
     ):
-        if terminal_user is None:
-            os.environ.pop("OSPREY_TERMINAL_USER", None)
-        app = create_app(shell_command="echo")
+        app = create_app(shell_command=["echo"])
         with TestClient(app) as client:
             bodies = {}
             for page_id, path in _PAGES:
@@ -97,36 +94,25 @@ def _serve(workspace_dir, terminal_user: str | None):
 
 
 class TestResolveStorageScope:
-    """Pure resolver: deployment identity -> storage namespace token."""
+    """Pure resolver: deployment identity -> storage namespace token.
 
-    def test_user_passes_through(self):
-        assert resolve_storage_scope("alice") == "alice"
+    A blank env var means unset, exactly as ``compute_url_prefix`` reads it: a
+    deployment that gets no ``/u/<user>`` prefix must also get no storage
+    scope, or the attribute would claim a mount that does not exist.
+    """
 
-    def test_none_is_unscoped(self):
-        """No mount user at all is the single-user deployment: no scope."""
-        assert resolve_storage_scope(None) == ""
-
-    def test_empty_is_unscoped(self):
-        assert resolve_storage_scope("") == ""
-
-    def test_whitespace_only_is_unscoped(self):
-        """A blank env var means unset, exactly as ``compute_url_prefix`` reads it.
-
-        The two must agree: a deployment that gets no ``/u/<user>`` prefix must
-        also get no storage scope, or the attribute would claim a mount that
-        does not exist.
-        """
-        assert resolve_storage_scope("   ") == ""
-
-    def test_surrounding_whitespace_is_stripped(self):
-        assert resolve_storage_scope("  alice\n") == "alice"
-
-    def test_never_raises(self):
-        for value in ("alice", "", "   ", None):
-            try:
-                resolve_storage_scope(value)  # type: ignore[arg-type]
-            except Exception as exc:  # pragma: no cover - failure path
-                pytest.fail(f"resolve_storage_scope({value!r}) raised: {exc}")
+    @pytest.mark.parametrize(
+        ("terminal_user", "scope"),
+        [
+            ("alice", "alice"),
+            (None, ""),
+            ("", ""),
+            ("   ", ""),
+            ("  alice\n", "alice"),
+        ],
+    )
+    def test_resolves_to_a_scope(self, terminal_user, scope):
+        assert resolve_storage_scope(terminal_user) == scope
 
 
 class TestMountedRender:
@@ -134,8 +120,13 @@ class TestMountedRender:
 
     @pytest.mark.parametrize("page_id", _PAGE_IDS)
     def test_scope_stamped_on_html_element(self, workspace_dir, page_id):
-        body = _serve(workspace_dir, "alice")[page_id]
-        assert f'{ATTR}="alice"' in _html_tag(body)
+        tag = _html_tag(_serve(workspace_dir, "alice")[page_id])
+        assert f'{ATTR}="alice"' in tag
+        if page_id == "index":
+            # The stamp joins the index's existing ones; it does not displace them.
+            assert "data-ui-mode=" in tag
+            assert "data-theme=" in tag
+            assert "data-rail-position=" in tag
 
     @pytest.mark.parametrize("page_id", _PAGE_IDS)
     def test_stamped_exactly_once(self, workspace_dir, page_id):
@@ -143,20 +134,17 @@ class TestMountedRender:
         body = _serve(workspace_dir, "alice")[page_id]
         assert body.count(ATTR) == 1
 
-    def test_index_keeps_its_existing_stamps(self, workspace_dir):
-        """The new attribute joins the existing ones; it does not displace them."""
-        tag = _html_tag(_serve(workspace_dir, "alice")["index"])
-        assert "data-ui-mode=" in tag
-        assert "data-theme=" in tag
-        assert "data-rail-position=" in tag
-
 
 class TestUnmountedRender:
     """Single-user / non-mounted serving -> the attribute is absent entirely."""
 
     @pytest.mark.parametrize("page_id", _PAGE_IDS)
     def test_attribute_absent_when_user_unset(self, workspace_dir, page_id):
+        """Absent on a root element that is still there to carry it."""
         body = _serve(workspace_dir, None)[page_id]
+        tag = _html_tag(body)
+        assert tag.startswith("<html")
+        assert ATTR not in tag
         assert ATTR not in body
 
     @pytest.mark.parametrize("page_id", _PAGE_IDS)
@@ -169,11 +157,6 @@ class TestUnmountedRender:
         """
         body = _serve(workspace_dir, "   ")[page_id]
         assert ATTR not in body
-
-    @pytest.mark.parametrize("page_id", _PAGE_IDS)
-    def test_html_element_still_renders(self, workspace_dir, page_id):
-        """Guard against the conditional swallowing the tag it decorates."""
-        assert _html_tag(_serve(workspace_dir, None)[page_id]).startswith("<html")
 
 
 class TestUnusualUsernames:

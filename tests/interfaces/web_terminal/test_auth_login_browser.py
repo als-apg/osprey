@@ -133,7 +133,10 @@ def test_landing_card_leads_to_a_password_prompt_for_that_user(stack: Stack, pag
     Three separate things have to hold for this to work, and no unit test sees
     any of them together: the landing card is a link to ``/u/alice/``, nginx's
     denied ``auth_request`` turns a *navigation* into a 302 rather than a bare
-    401, and the return-to it carries survives into the prompt.
+    401, and the return-to it carries survives into the prompt. The prompt it
+    lands on asks only for a password: a name the operator types is a name an
+    attacker can suggest, and would make the prompt a place to enumerate the
+    roster.
     """
     # Act
     page.goto(f"{stack.base_url}/")
@@ -146,24 +149,9 @@ def test_landing_card_leads_to_a_password_prompt_for_that_user(stack: Stack, pag
     # The return-to came through the whole chain: card href -> nginx's
     # allowlist map -> the sidecar's own validation -> the form's hidden field.
     assert page.locator('input[name="next"]').input_value() == "/u/alice/"
-
-
-def test_the_prompt_asks_for_a_password_and_never_for_a_name(stack: Stack, page: Page) -> None:
-    """No username field: identity comes from the card, not from typing.
-
-    A name the operator types is a name an attacker can suggest, and it would
-    also make the prompt a place to enumerate the roster. The user is fixed by
-    the link that got here and travels in a hidden field; the only thing a
-    person supplies is the secret.
-    """
-    # Act
-    page.goto(f"{stack.base_url}/u/alice/")
-    page.wait_for_selector(".login-card")
-
-    # Assert — a hidden field is fine; a typeable one is the failure.
+    # The prompt asks for a password and never for a name: the user travels in
+    # a field nobody can type into, and the secret is the one visible input.
     assert page.locator('input[name="user"]').get_attribute("type") == "hidden"
-    assert page.locator('input[name="user"]').input_value() == "alice"
-    assert page.locator('input[type="text"]').count() == 0
     assert page.locator("input:visible").count() == 1
     assert page.locator("#password").get_attribute("type") == "password"
 
@@ -174,7 +162,9 @@ def test_password_unlocks_and_returns_to_the_users_own_terminal(stack: Stack, pa
     Card -> prompt -> password -> back at ``/u/alice/`` with the terminal
     behind it. The session cookie is set by the sidecar on the deployment
     origin and spent by nginx's ``auth_request`` on the very next request,
-    which is the handoff this feature exists to make work.
+    which is the handoff this feature exists to make work. The same browser,
+    one hop later at bob's terminal, is asked for bob's password: the
+    perimeter's whole point, seen the way an operator meets it.
     """
     # Arrange
     page.goto(f"{stack.base_url}/")
@@ -191,28 +181,12 @@ def test_password_unlocks_and_returns_to_the_users_own_terminal(stack: Stack, pa
     assert SESSION_COOKIE_NAME in cookies
     assert cookies[SESSION_COOKIE_NAME]["httpOnly"] is True
 
-
-def test_an_unlocked_browser_is_still_refused_at_another_users_terminal(
-    stack: Stack, page: Page
-) -> None:
-    """Unlocking alice does not open bob, and the prompt says whose it is.
-
-    The perimeter's whole point, seen the way an operator would meet it: the
-    same browser, one hop later, is asked for a *different* user's password
-    rather than let through.
-    """
-    # Arrange
-    page.goto(f"{stack.base_url}/u/alice/")
-    page.wait_for_selector(".login-card")
-    _unlock(page, "alice")
-    page.wait_for_selector(f"#{TERMINAL_STAND_IN_MARKER}")
-
-    # Act
+    # Unlocking alice does not open bob: one hop later the same browser is
+    # asked for bob's password rather than let through.
     page.goto(f"{stack.base_url}/u/bob/")
-
-    # Assert
     page.wait_for_selector(".login-card")
     assert page.locator("span.login-user").inner_text().strip() == "bob"
+    assert page.locator(f"#{TERMINAL_STAND_IN_MARKER}").count() == 0
 
 
 def test_a_wrong_password_re_prompts_without_naming_the_reason(stack: Stack, page: Page) -> None:
@@ -256,7 +230,9 @@ def test_an_expired_session_sends_a_reload_back_to_the_prompt(stack: Stack, page
     codec = stack.codec()
     lapsed = codec.new_state().with_user(
         "alice",
-        expires_at=codec.now() - 1,
+        # An hour in the past: the sidecar judges expiry on the container's
+        # clock, which can lag the host's by more than a second.
+        expires_at=codec.now() - 3600,
         generation_tag=generation_tag(stack.stored_hashes["alice"]),
     )
     page.context.clear_cookies()

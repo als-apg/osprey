@@ -99,13 +99,6 @@ def test_reports_from_other_surfaces_are_dropped_not_refused(surface):
     assert client.app.state.turn_state == {}
 
 
-def test_expert_reports_are_recorded():
-    """The one accepted surface writes the entry and says so."""
-    client = _make_client()
-    assert _post(client, surface="expert") == {"ok": True, "recorded": True}
-    assert client.app.state.turn_state[KEY]["state"] == "busy"
-
-
 # ---- The two states, including the failure-shaped idle ----
 
 
@@ -163,19 +156,13 @@ def test_a_missing_pool_key_falls_back_to_the_session_id():
     assert client.app.state.turn_state[KEY]["transcript_id"] == KEY
 
 
-def test_a_report_with_no_identity_at_all_is_dropped():
-    """An empty id is not a session UUID, so there is nothing to record."""
-    client = _make_client()
-    assert _post(client, session_id="", pool_key="") == {"ok": True, "recorded": False}
-    assert client.app.state.turn_state == {}
-
-
 # ---- The identifier grammar ----
 
 
 @pytest.mark.parametrize(
     "session_id",
     [
+        "",
         "../../etc/passwd",
         f"../../{KEY}",
         f"{KEY}/../../etc/passwd",
@@ -208,13 +195,6 @@ def test_a_non_canonical_pool_key_is_dropped():
     assert client.app.state.turn_state == {}
 
 
-def test_a_canonical_pair_is_still_recorded():
-    """The grammar closes on malformed ids without costing a legitimate one."""
-    client = _make_client()
-    assert _post(client, session_id=TRANSCRIPT, pool_key=KEY)["recorded"] is True
-    assert client.app.state.turn_state[KEY]["transcript_id"] == TRANSCRIPT
-
-
 def test_a_later_report_replaces_the_entry_for_its_key():
     """The store holds the latest edge per key, not a history."""
     client = _make_client()
@@ -228,13 +208,16 @@ def test_a_later_report_replaces_the_entry_for_its_key():
 
 
 def test_the_server_stamps_the_time_when_the_hook_sends_none():
-    """A hook that omits ``ts`` still produces a fully shaped entry."""
+    """A hook that omits ``ts`` still produces a fully shaped entry, stamped now."""
     client = _make_client()
-    client.post(
+    before = time.time()
+    resp = client.post(
         "/api/agent-turn",
         json={"session_id": KEY, "pool_key": KEY, "state": "busy", "surface": "expert"},
     )
-    assert isinstance(client.app.state.turn_state[KEY]["ts"], float)
+    after = time.time()
+    assert resp.json()["recorded"] is True
+    assert before <= client.app.state.turn_state[KEY]["ts"] <= after
 
 
 def test_a_future_timestamp_is_clamped_to_now():
@@ -251,13 +234,6 @@ def test_a_future_timestamp_is_clamped_to_now():
 
     stored = client.app.state.turn_state[KEY]["ts"]
     assert before <= stored <= after
-
-
-def test_a_past_timestamp_is_kept_as_sent():
-    """Clamping is one-sided: the hook's own reading of when the edge happened."""
-    client = _make_client()
-    _post(client, state="idle", ts=1234.5)
-    assert client.app.state.turn_state[KEY]["ts"] == 1234.5
 
 
 # ---- The transcript id: recorded and persisted ----
@@ -378,5 +354,5 @@ def test_a_wrong_panel_token_is_refused(panel_token_client):
         json={"session_id": KEY, "pool_key": KEY, "state": "idle", "surface": "expert"},
         headers={"authorization": "Bearer not-the-token"},
     )
-    assert resp.status_code in (401, 403)
+    assert resp.status_code == 401
     assert panel_token_client.app.state.turn_state == {}

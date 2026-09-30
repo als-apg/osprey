@@ -77,52 +77,23 @@ function transportError(status, slug = '') {
 }
 
 describe('transportNotice', () => {
-  test('the terminated-chat 409 tells the operator to resend', () => {
-    const notice = transportNotice(transportError(409, 'chat_terminated'));
-    expect(notice).toContain('send your message again');
-    expect(notice).not.toContain('already running');
-  });
-
-  test('the turn-in-progress 409 keeps its own copy', () => {
-    expect(transportNotice(transportError(409, 'turn_in_progress'))).toBe(
-      'A turn is already running.'
-    );
-  });
-
-  test('two 409s with different slugs read differently', () => {
-    expect(transportNotice(transportError(409, 'chat_terminated'))).not.toBe(
-      transportNotice(transportError(409, 'turn_in_progress'))
-    );
-  });
-
-  test('the capacity 429 is keyed on its slug', () => {
-    expect(transportNotice(transportError(429, 'chat_capacity'))).toBe(
-      'Server busy — please retry in a moment.'
-    );
-  });
-
-  test('a rejection with no slug falls back to the status table', () => {
-    expect(transportNotice(transportError(503))).toBe('Operator agent unavailable.');
-    expect(transportNotice(transportError(409))).toBe('A turn is already running.');
-  });
-
-  test('an unknown slug falls back to the status table', () => {
-    expect(transportNotice(transportError(503, 'something_new'))).toBe(
-      'Operator agent unavailable.'
-    );
-  });
-
-  test('a plain Error still yields its status notice, then the generic line', () => {
-    expect(transportNotice(new Error('HTTP 429: Too Many Requests'))).toBe(
-      'Server busy — please retry in a moment.'
-    );
-    expect(transportNotice(new Error('network down'))).toBe(
-      'Connection to the operator agent failed.'
-    );
-  });
-
-  test('a null failure does not throw', () => {
-    expect(transportNotice(null)).toBe('Connection to the operator agent failed.');
+  // Slug first, status second, the generic line last. Two 409s mean opposite
+  // things (a turn already running, a chat restarted by a posture flip), so
+  // the first rows pin that they read differently.
+  test.each([
+    ['chat_terminated 409', transportError(409, 'chat_terminated'),
+      'Session restarted with the new posture — send your message again.'],
+    ['turn_in_progress 409', transportError(409, 'turn_in_progress'), 'A turn is already running.'],
+    ['chat_capacity 429', transportError(429, 'chat_capacity'), 'Server busy — please retry in a moment.'],
+    ['slug-less 503', transportError(503), 'Operator agent unavailable.'],
+    ['slug-less 409', transportError(409), 'A turn is already running.'],
+    ['unknown slug on a 503', transportError(503, 'something_new'), 'Operator agent unavailable.'],
+    ['plain Error carrying a status', new Error('HTTP 429: Too Many Requests'),
+      'Server busy — please retry in a moment.'],
+    ['plain Error with no status', new Error('network down'), 'Connection to the operator agent failed.'],
+    ['null failure', null, 'Connection to the operator agent failed.'],
+  ])('%s', (_case, err, notice) => {
+    expect(transportNotice(err)).toBe(notice);
   });
 });
 
@@ -195,11 +166,6 @@ describe('initChat binding', () => {
     expect(stored).toMatch(/^[0-9a-f-]{36}$/);
     expect(notifySessionChange).toHaveBeenCalledWith(stored);
     expect(transport.fetchHistory).not.toHaveBeenCalled();
-  });
-
-  test('an existing pointer is adopted, never replaced', async () => {
-    await mountChat({ mode: 'expert', pointer: 'key-from-the-terminal' });
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('key-from-the-terminal');
   });
 
   test('a page that opens in Simple mode replays the pointer it adopted', async () => {
@@ -412,17 +378,20 @@ describe('enterFromExpert', () => {
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
   });
 
-  test('a wait a newer request took over states the fact and offers a retry', async () => {
-    transport.requestHandoff.mockRejectedValueOnce(transportError(409, 'handoff_superseded'));
+  test.each([
+    ['handoff_superseded', 409, 'Another request took over this session.'],
+    ['outgoing_still_running', 503, 'The previous agent is still shutting down.'],
+  ])('a %s refusal states the fact and offers a retry', async (slug, status, message) => {
+    transport.requestHandoff.mockRejectedValueOnce(transportError(status, slug));
     await mountChat({ pointer: 'K1' });
 
     await chat.enterFromExpert();
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
-    expect(textOf('.op-handoff-message')).toBe('Another request took over this session.');
+    expect(textOf('.op-handoff-message')).toBe(message);
     expect(action.hidden).toBe(false);
     expect(action.textContent).toBe('Retry');
 
-    // The retry re-asks without an interrupt: the key's chat is pooled by now.
+    // The retry re-asks without an interrupt: nothing here consents to cutting a turn.
     transport.requestHandoff.mockResolvedValue({ state: 'simple', session_id: 'K1' });
     action.click();
     await Promise.resolve();
@@ -453,15 +422,6 @@ describe('enterFromExpert', () => {
       interrupt: false,
     }));
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
-  });
-
-  test('an outgoing agent still shutting down is retryable', async () => {
-    transport.requestHandoff.mockRejectedValue(transportError(503, 'outgoing_still_running'));
-    await mountChat({ pointer: 'K1' });
-
-    await chat.enterFromExpert();
-    expect(textOf('.op-handoff-message')).toBe('The previous agent is still shutting down.');
-    expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).textContent).toBe('Retry');
   });
 
   test('an abandoned request (204, no body) leaves the state exactly as it was', async () => {
@@ -632,12 +592,6 @@ describe('minting a session key without crypto.randomUUID', () => {
     }
   });
 
-  test('the console still mounts', async () => {
-    await mountChat();
-
-    expect(container.querySelector('.op-send-btn')).toBeTruthy();
-  });
-
   test('the minted key keeps the bare-UUID grammar the store keys on', async () => {
     await mountChat();
 
@@ -669,11 +623,5 @@ describe('renderChatBootFailure', () => {
 
     expect(host.textContent).toContain('failed to start');
     expect(host.textContent).not.toContain('stale');
-  });
-
-  test('a missing container is not an error of its own', async () => {
-    const { renderChatBootFailure } = await import(CHAT_JS);
-
-    expect(() => renderChatBootFailure('nothing-here')).not.toThrow();
   });
 });

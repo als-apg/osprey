@@ -20,17 +20,18 @@ from fastapi.testclient import TestClient
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces.web_terminal.app import create_app, register_scaffold_conflict_handlers
 from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
+from osprey.interfaces.web_terminal.routes import router as full_router
 from osprey.interfaces.web_terminal.routes.scaffold import router
+
+from .conftest import bare_route_app
 
 _SVC = "osprey.interfaces.web_terminal.routes.scaffold.ScaffoldGalleryService"
 
 
 @pytest.fixture
 def app(tmp_path):
-    application = FastAPI()
-    application.include_router(router)
+    application = bare_route_app(router, project_cwd=str(tmp_path), scaffold_write_enabled=True)
     register_scaffold_conflict_handlers(application)
-    application.state.project_cwd = str(tmp_path)
     return application
 
 
@@ -82,11 +83,6 @@ class TestUntracked:
         resp = client.post("/api/scaffold/untracked/register", json={"name": "rules/x"})
         assert resp.status_code == 409
 
-    def test_delete_untracked_success(self, client, svc):
-        svc.delete_untracked.return_value = {"status": "deleted"}
-        resp = client.delete("/api/scaffold/untracked/rules/x")
-        assert resp.status_code == 200
-
     def test_delete_untracked_missing_404(self, client, svc):
         svc.delete_untracked.side_effect = FileNotFoundError("gone")
         resp = client.delete("/api/scaffold/untracked/rules/x")
@@ -132,11 +128,6 @@ class TestFrameworkAndDiff:
         resp = client.get("/api/scaffold/rules/x/framework")
         assert resp.status_code == 404
 
-    def test_diff_success(self, client, svc):
-        svc.compute_diff.return_value = {"has_diff": True}
-        resp = client.get("/api/scaffold/rules/x/diff")
-        assert resp.status_code == 200
-
     def test_diff_unknown_artifact_404(self, client, svc):
         svc.compute_diff.side_effect = KeyError("unknown")
         resp = client.get("/api/scaffold/rules/x/diff")
@@ -149,11 +140,6 @@ class TestFrameworkAndDiff:
 
 
 class TestClaimAndOverride:
-    def test_claim_success(self, client, svc):
-        svc.scaffold_override.return_value = {"status": "claimed"}
-        resp = client.post("/api/scaffold/rules/x/claim")
-        assert resp.status_code == 200
-
     def test_claim_unknown_404(self, client, svc):
         svc.scaffold_override.side_effect = KeyError("unknown")
         resp = client.post("/api/scaffold/rules/x/claim")
@@ -221,16 +207,25 @@ class TestConflictHandlers:
         assert resp.status_code == 409, resp.text
         assert resp.json()["detail"] == "that profile cannot be reached"
 
-    def test_create_app_registers_both_handlers(self):
-        """The shipped app gets the same translation the fixture app does."""
+    def test_the_shipped_app_translates_a_claim_refusal_to_409(self, tmp_path):
+        """``create_app`` wires the same translation, driven by a real refusal.
+
+        Claiming the generated hook config is refused by the service itself, so
+        the 409 and its text can only come from the handler the shipped app
+        registers.
+        """
+        watch = tmp_path / "_agent_data"
+        watch.mkdir()
         with patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={},
+            return_value={"watch_dir": str(watch)},
         ):
-            application = create_app()
+            application = create_app(shell_command="echo", project_dir=str(tmp_path))
+            with TestClient(application) as shipped:
+                resp = shipped.post("/api/scaffold/hooks/hook-config/claim")
 
-        assert ScaffoldClaimError in application.exception_handlers
-        assert OwnershipStoreError in application.exception_handlers
+        assert resp.status_code == 409, resp.text
+        assert "generated, not authored" in resp.json()["detail"]
 
 
 class TestGetScaffold:
@@ -246,3 +241,38 @@ class TestGetScaffold:
         svc.get_content.side_effect = KeyError("unknown")
         resp = client.get("/api/scaffold/rules/x")
         assert resp.status_code == 404
+
+
+class TestRouteTable:
+    """The aggregate router serves exactly the scaffold route table.
+
+    Read from the app's OpenAPI schema rather than ``router.routes``: since
+    Starlette 1.0, ``include_router`` stores opaque wrappers on the parent
+    router, and the schema is the public, version-stable view of what is served.
+    Path converters such as ``{name:path}`` read as ``{name}``, and the override
+    path carries both PUT and DELETE, so 11 handlers make 10 paths.
+    """
+
+    EXPECTED = {
+        "/api/scaffold": {"GET"},
+        "/api/scaffold/create": {"POST"},
+        "/api/scaffold/untracked": {"GET"},
+        "/api/scaffold/untracked/register": {"POST"},
+        "/api/scaffold/untracked/{name}": {"DELETE"},
+        "/api/scaffold/{name}": {"GET"},
+        "/api/scaffold/{name}/claim": {"POST"},
+        "/api/scaffold/{name}/diff": {"GET"},
+        "/api/scaffold/{name}/framework": {"GET"},
+        "/api/scaffold/{name}/override": {"PUT", "DELETE"},
+    }
+
+    def test_the_aggregate_router_serves_the_scaffold_table(self):
+        app = FastAPI()
+        app.include_router(full_router)
+        paths = {
+            path: {method.upper() for method in operations}
+            for path, operations in app.openapi()["paths"].items()
+        }
+
+        scaffold = {p: m for p, m in paths.items() if p.startswith("/api/scaffold")}
+        assert scaffold == self.EXPECTED

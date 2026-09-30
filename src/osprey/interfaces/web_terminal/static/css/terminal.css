@@ -1108,8 +1108,15 @@ html[data-ui-mode="simple"] .session-selector {
   border-left-color: var(--color-accent-secondary-light);
 }
 
-.panel-rail-button.disabled {
+/* Never answered (.disabled) and stopped answering (.unreachable) share the
+   dimmed look; only a never-answered entry is inert. An unreachable entry keeps
+   its click, menu and "×", and its tooltip says since when. */
+.panel-rail-button.disabled,
+.panel-rail-button.unreachable {
   opacity: 0.35;
+}
+
+.panel-rail-button.disabled {
   pointer-events: none;
 }
 

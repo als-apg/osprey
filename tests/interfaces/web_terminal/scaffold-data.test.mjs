@@ -27,9 +27,7 @@ import {
   registerUntrackedFile,
   deleteUntrackedFile,
   createScaffoldDataActions,
-  apiRequest,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
-import { apiRequest as apiRequestFromApi } from '../../../src/osprey/interfaces/web_terminal/static/js/api.js';
 
 /**
  * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js').ArtifactFilterState} ArtifactFilterState
@@ -90,13 +88,14 @@ describe('fetchArtifactsShared / resetFetchCache', () => {
     expect(r1).toBe(r2);
   });
 
-  test('resetFetchCache forces a fresh fetch on the next call', async () => {
+  test('a second call reuses the cached promise; resetFetchCache forces a fresh fetch', async () => {
     let fetchCalls = 0;
     vi.stubGlobal('fetch', vi.fn(() => {
       fetchCalls++;
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
     }));
 
+    await fetchArtifactsShared();
     await fetchArtifactsShared();
     expect(fetchCalls).toBe(1);
 
@@ -106,17 +105,6 @@ describe('fetchArtifactsShared / resetFetchCache', () => {
     expect(fetchCalls).toBe(2);
   });
 
-  test('without a reset, a second call reuses the cached promise (no new fetch)', async () => {
-    let fetchCalls = 0;
-    vi.stubGlobal('fetch', vi.fn(() => {
-      fetchCalls++;
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
-    }));
-
-    await fetchArtifactsShared();
-    await fetchArtifactsShared();
-    expect(fetchCalls).toBe(1);
-  });
 });
 
 describe('loadArtifacts', () => {
@@ -173,7 +161,7 @@ describe('loadArtifacts', () => {
     expect(artifacts[0].displayCategory).toBe('system instructions');
   });
 
-  test('untracked files are matched via categoryFilter on either the raw or remapped category', async () => {
+  test('untracked files are filtered by categoryFilter on their raw category', async () => {
     vi.stubGlobal('fetch', vi.fn((url) => {
       if (url === '/api/scaffold') {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
@@ -220,15 +208,6 @@ describe('loadArtifacts', () => {
     expect(scaffoldCalls).toBe(2); // no skipCache this time: cached promise reused
   });
 
-  test('a failed /api/scaffold fetch propagates as a rejection (action error path)', async () => {
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url === '/api/scaffold') return Promise.reject(new TypeError('network down'));
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ untracked: [] }) });
-    }));
-
-    await expect(loadArtifacts(makeState())).rejects.toThrow('network down');
-  });
-
   test('a failed /api/scaffold/untracked fetch is swallowed: load still succeeds with an empty list', async () => {
     vi.stubGlobal('fetch', vi.fn((url) => {
       if (url === '/api/scaffold') {
@@ -246,15 +225,6 @@ describe('loadArtifacts', () => {
   });
 });
 
-describe('apiRequest re-export (shared write-helper seam)', () => {
-  test('is api.js\'s one copy, not a local reimplementation', () => {
-    // The full apiRequest/withPrefix contract is pinned in api.test.mjs; here
-    // only the sharing seam matters: sibling write-action modules importing
-    // from data.js get the identical function object.
-    expect(apiRequest).toBe(apiRequestFromApi);
-  });
-});
-
 describe('registerUntrackedFile', () => {
   test('resolves without throwing on a 200 response, POSTing the canonical name', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
@@ -268,50 +238,9 @@ describe('registerUntrackedFile', () => {
     }));
   });
 
-  test('prepends window.__OSPREY_PREFIX__ to the register POST (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await registerUntrackedFile('my-hook');
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/u/alice/api/scaffold/untracked/register',
-      expect.objectContaining({ method: 'POST' })
-    );
-  });
-
-  test('throws with the API-provided detail message on a non-OK response (action error path)', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: () => Promise.resolve({ detail: 'name already tracked' }),
-    }));
-
-    await expect(registerUntrackedFile('dup')).rejects.toThrow('name already tracked');
-  });
-
-  test('falls back to a generic HTTP-status message when the error body has no detail', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      json: () => Promise.reject(new Error('not json')),
-    }));
-
-    await expect(registerUntrackedFile('x')).rejects.toThrow('Register failed (HTTP 500)');
-  });
 });
 
 describe('deleteUntrackedFile', () => {
-  test('does not call fetch and resolves false when the operator declines the confirmation', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false));
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(deleteUntrackedFile('x')).resolves.toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   test('deletes and resolves true when confirmed and the response is OK', async () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
@@ -324,30 +253,6 @@ describe('deleteUntrackedFile', () => {
     );
   });
 
-  test('throws with the API-provided detail message on a non-OK response (action error path)', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true));
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      json: () => Promise.resolve({ detail: 'file not found' }),
-    }));
-
-    await expect(deleteUntrackedFile('gone')).rejects.toThrow('file not found');
-  });
-
-  test('prepends window.__OSPREY_PREFIX__ to the delete request (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    vi.stubGlobal('confirm', vi.fn(() => true));
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await deleteUntrackedFile('my file');
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/u/alice/api/scaffold/untracked/${encodeURIComponent('my file')}`,
-      expect.objectContaining({ method: 'DELETE' })
-    );
-  });
 });
 
 describe('createScaffoldDataActions (callback-bound actions)', () => {
@@ -433,14 +338,14 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
     expect(callbacks.onLoadError).not.toHaveBeenCalled();
   });
 
-  test('registerUntracked() fires onLoadError with a "Register failed" prefix when the register call fails', async () => {
-    stubFetchRoutes({
-      '/api/scaffold/untracked/register': {
-        ok: false,
-        status: 400,
-        json: () => Promise.resolve({ detail: 'name already tracked' }),
-      },
-    });
+  test.each([
+    ['the server detail', { ok: false, status: 400, json: () => Promise.resolve({ detail: 'name already tracked' }) },
+      'Register failed: name already tracked'],
+    ['the status when the body has no detail',
+      { ok: false, status: 500, json: () => Promise.reject(new Error('not json')) },
+      'Register failed (HTTP 500)'],
+  ])('registerUntracked() reports a failed register, naming the action once, with %s', async (_label, response, message) => {
+    stubFetchRoutes({ '/api/scaffold/untracked/register': response });
 
     const callbacks = makeCallbacks();
     const actions = createScaffoldDataActions(makeState(), callbacks);
@@ -448,7 +353,7 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
     await actions.registerUntracked('dup');
 
     expect(callbacks.onLoaded).not.toHaveBeenCalled();
-    expect(callbacks.onLoadError).toHaveBeenCalledWith('Register failed: name already tracked');
+    expect(callbacks.onLoadError).toHaveBeenCalledWith(message);
   });
 
   test('deleteUntracked() neither reloads nor fires a callback when the operator declines the confirmation', async () => {

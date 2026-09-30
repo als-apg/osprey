@@ -10,8 +10,9 @@
  * (2) clear the client's stored PTY session id (terminal.js's
  * `clearStoredSessionId`), and only then (3) navigate to the landing URL —
  * in that order, so a fresh page load's `initTerminal()` finds nothing to
- * auto-resume (asserted directly against terminal.js in the last describe
- * block).
+ * auto-resume. That fresh load is proven end to end by
+ * test_logout_resume_browser.py; a boot with an empty pointer is pinned by
+ * session-pointer-boot.test.mjs.
  *
  * app.js is imported once, statically: its own top-level imports (the
  * design-system custom element, panel-manager, settings, etc.) run at
@@ -68,19 +69,16 @@ afterEach(() => {
 });
 
 describe('initLogoutButton: no-op guards (unchanged from the nav-only version)', () => {
-  test('does nothing when #logout-btn is absent from the DOM', () => {
-    document.body.innerHTML = '';
-    expect(() => initLogoutButton()).not.toThrow();
-  });
-
-  test('does nothing when the button has no data-landing-url (plain `osprey web`)', () => {
-    document.body.innerHTML = '<button id="logout-btn"></button>';
-    const btn = /** @type {HTMLButtonElement} */ (document.getElementById('logout-btn'));
+  test.each([
+    ['no logout button at all', ''],
+    ['a button without data-landing-url (plain `osprey web`)', '<button id="logout-btn"></button>'],
+  ])('does nothing with %s', (_case, markup) => {
+    document.body.innerHTML = markup;
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     initLogoutButton();
-    btn.click();
+    /** @type {HTMLButtonElement|null} */ (document.getElementById('logout-btn'))?.click();
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -270,24 +268,10 @@ describe('initLogoutButton: auth-session chaining', () => {
     expect(urls).toEqual(['/u/alice/api/terminal/logout', '/auth/logout?user=alice']);
   });
 
-  test('addresses the sidecar at the origin root, never under the user prefix', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    const btn = renderLogoutButton('/landing');
-    const { urls } = captureFetches();
-    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign: vi.fn() });
-
-    initLogoutButton();
-    btn.click();
-
-    // `/u/alice/auth/logout` would be proxied to this container and 404 —
-    // nginx serves the sidecar's public surface at the origin root.
-    await vi.waitFor(() => expect(urls).toHaveLength(2));
-    expect(urls[1]).toBe('/auth/logout?user=alice');
-    expect(urls[1].startsWith('/auth/')).toBe(true);
-  });
-
   test('sends exactly one user parameter, percent-encoded', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice-b';
+    // A roster name carrying the query's own delimiters: unencoded, it would
+    // smuggle a second `user` parameter into the sidecar request.
+    window.__OSPREY_PREFIX__ = '/u/a&user=b';
     const btn = renderLogoutButton('/landing');
     const { urls } = captureFetches();
     vi.stubGlobal('location', { origin: 'http://localhost:5000', assign: vi.fn() });
@@ -298,7 +282,8 @@ describe('initLogoutButton: auth-session chaining', () => {
     await vi.waitFor(() => expect(urls).toHaveLength(2));
     const query = new URL(urls[1], 'http://localhost:5000').searchParams;
     // The route refuses a repeated `user` outright rather than picking one.
-    expect(query.getAll('user')).toEqual(['alice-b']);
+    expect(query.getAll('user')).toEqual(['a&user=b']);
+    expect(urls[1]).toBe('/auth/logout?user=a%26user%3Db');
   });
 
   test('carries same-origin credentials, or the session cookie never arrives', async () => {
@@ -385,94 +370,5 @@ describe('initLogoutButton: auth-session chaining', () => {
     await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(assign).toHaveBeenCalledWith('/landing');
-  });
-
-  test('an unsafe landing_url still stops everything, sidecar included', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    const btn = renderLogoutButton('javascript:alert(1)');
-    const { fetchMock } = captureFetches();
-    const assign = vi.fn();
-    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    initLogoutButton();
-    btn.click();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(assign).not.toHaveBeenCalled();
-  });
-});
-
-describe('post-logout: a fresh load does not auto-resume', () => {
-  /** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */
-  class FakeTerminal {
-    constructor() {
-      this.cols = 80;
-      this.rows = 24;
-      this.options = {};
-    }
-    loadAddon() {}
-    open() {}
-    onData() {}
-    onResize() {}
-    write() {}
-    reset() {}
-    focus() {}
-    attachCustomKeyEventHandler() {}
-  }
-
-  class FakeAddon {
-    fit() {}
-  }
-
-  /** Captures the URL of the most recently constructed socket; never opens. */
-  class FakeWebSocket {
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      this.onopen = null;
-      this.onmessage = null;
-      this.onclose = null;
-      FakeWebSocket.last = this;
-    }
-    send() {}
-    close() {}
-  }
-  /** @type {FakeWebSocket|null} */
-  FakeWebSocket.last = null;
-
-  test('clearStoredSessionId (the logout step) leaves initTerminal() nothing to resume', async () => {
-    localStorage.setItem(STORAGE_KEY, 'warm-session-id');
-
-    document.body.innerHTML = '<div id="terminal-container"></div>';
-    // happy-dom does not implement document.fonts; initTerminal() awaits its
-    // `ready` promise to re-fit after web fonts load.
-    // @ts-expect-error -- test stub, not a full FontFaceSet
-    document.fonts = { ready: Promise.resolve() };
-    vi.stubGlobal('Terminal', FakeTerminal);
-    vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
-    vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
-    vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
-    vi.stubGlobal('WebSocket', FakeWebSocket);
-    // xtermPalette() logs a console.error when the CSS custom properties it
-    // reads are absent, which they are in this bare happy-dom document.
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    vi.resetModules();
-    const terminal = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js'
-    );
-
-    // This is exactly what app.js's initLogoutButton does before navigating.
-    terminal.clearStoredSessionId();
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
-
-    terminal.initTerminal('terminal-container');
-
-    // A fresh session -- no ?session_id=&mode=resume on the constructed
-    // WebSocket URL -- because there is nothing left in storage to resume.
-    const constructedUrl = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
-    expect(constructedUrl).not.toMatch(/mode=resume/);
-    expect(constructedUrl).not.toMatch(/session_id=/);
   });
 });

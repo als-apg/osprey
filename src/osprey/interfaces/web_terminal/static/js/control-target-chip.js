@@ -21,8 +21,8 @@
  * so the read carries no session id and nothing here subscribes to a session
  * change. That is also what lets this module load on a page that has no
  * terminal at all: THIS module imports only `control-target-facts.js`,
- * `api.js` and `activity-format.js` — a list the suite pins by reading this
- * file — and the JupyterLab bar mounts it by handing
+ * `api.js` and `activity-format.js` — the JupyterLab bar suite pins the
+ * closure this module belongs to — and the JupyterLab bar mounts it by handing
  * {@link initControlTargetChip} a `host` of its own. (The bar's own closure is
  * wider: it adds the popover, `confirm-skip.js` and `posture-confirm.js`.)
  *
@@ -268,9 +268,6 @@ let sse = null;
 /** @type {((state: PostureView|null) => void)[]} */
 let listeners = [];
 
-/** False after teardown, so a late frame cannot revive a dead chip. */
-let mounted = false;
-
 /* ---- mount ---- */
 
 /**
@@ -296,19 +293,15 @@ let mounted = false;
  * Idempotent: a second call re-renders rather than mounting a second chip, and
  * re-homes the existing anchor if the host turned up after a fallback mount.
  *
- * @param {{host?: HTMLElement|null, eventSourceFactory?: typeof createEventSource}} [opts]
- *   `eventSourceFactory` is injectable for tests the way session.js's
- *   `wireActivityStrip` injects it — happy-dom has no EventSource.
+ * @param {{host?: HTMLElement|null}} [opts]
  */
-export function initControlTargetChip({ host, eventSourceFactory = createEventSource } = {}) {
+export function initControlTargetChip({ host } = {}) {
   const mountPoint = /** @type {HTMLElement|null} */ (
     host ??
       document.querySelector('[data-bar-item="control-target"]') ??
       document.querySelector('.header-actions')
   );
   if (!mountPoint) return;
-
-  mounted = true;
 
   if (!chip || !anchor || !anchor.isConnected) {
     anchor = document.createElement('div');
@@ -325,7 +318,7 @@ export function initControlTargetChip({ host, eventSourceFactory = createEventSo
     mountPoint.appendChild(anchor);
   }
 
-  if (!sse) sse = subscribeRefetchHints(eventSourceFactory);
+  if (!sse) sse = subscribeRefetchHints();
 
   void refetch();
 }
@@ -335,7 +328,6 @@ export function initControlTargetChip({ host, eventSourceFactory = createEventSo
  * subscription, the render subscribers and the DOM node.
  */
 export function teardownControlTargetChip() {
-  mounted = false;
   stopIdlePolling();
   stopFastPolling();
   if (sse) {
@@ -440,7 +432,7 @@ export async function targetRequest(path, { method = 'GET', json } = {}) {
  * neither — where the status code is all there is to say.
  * @param {any} body @param {number} status @returns {string}
  */
-export function refusalMessage(body, status) {
+function refusalMessage(body, status) {
   const detail = body && typeof body === 'object' ? body.detail : null;
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
@@ -684,17 +676,15 @@ function stopFastPolling() {
  *
  * One subscription, and api.js shares one socket per URL across the page's
  * modules, so the chip adds no connection of its own to the browser's per-host
- * cap. Its own subscription rather than a seam through panel-manager,
- * following session.js's `wireActivityStrip`: the chip must work on a page
- * where no panel workspace ever boots.
- * @param {typeof createEventSource} factory
+ * cap. Its own subscription rather than a seam through panel-manager: the
+ * chip must work on a page where no panel workspace ever boots.
  */
-function subscribeRefetchHints(factory) {
-  return factory('/api/files/events', {
+function subscribeRefetchHints() {
+  return createEventSource('/api/files/events', {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
       if (!isRefetchHint(data)) return;
-      if (mounted) void refetch();
+      void refetch();
     },
   });
 }
@@ -782,11 +772,6 @@ export function getChipElement() {
  */
 export function getAnchorElement() {
   return anchor;
-}
-
-/** Whether the chip is currently showing itself as open. */
-export function isExpanded() {
-  return chip?.getAttribute('aria-expanded') === 'true';
 }
 
 /**

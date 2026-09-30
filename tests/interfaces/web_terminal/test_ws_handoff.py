@@ -52,7 +52,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     get_state,
 )
 from tests.interfaces.web_terminal._fakes import FakeClock, FakePtySession
-from tests.interfaces.web_terminal.test_handoff_phase_c import Chat, ChatPool
+from tests.interfaces.web_terminal._handoff_harness import Chat, ChatPool
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 

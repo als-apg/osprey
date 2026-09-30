@@ -363,7 +363,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not channels:
             raise ValueError("channels cannot be empty")
 
-        resolved = resolve_processing(processing, precision_ms)
+        resolved = resolve_processing(processing, precision_ms, start_utc)
 
         def fetch_data():
             """Synchronous data fetch function."""
