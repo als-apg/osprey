@@ -25,6 +25,7 @@ import yaml
 
 from osprey.models.provider_registry import PROVIDER_API_KEYS
 from osprey.profiles.providers import load_provider_catalog
+from tests._nested_pytest import run_nested_pytest
 from tests.conftest import _e2e_provider_availability
 from tests.e2e import conftest as e2e_conftest
 from tests.e2e import sdk_helpers
@@ -379,13 +380,23 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
         for key, value in os.environ.items()
         if key not in (E2E_PROVIDER_ENV, FORCE_PROVIDER_ENV)
     }
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "-o", "addopts=", "-p", "no:cacheprovider", *args],
+    return run_nested_pytest(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            os.devnull,
+            "--rootdir",
+            str(_REPO_ROOT),
+            "-o",
+            "addopts=",
+            "-p",
+            "no:cacheprovider",
+            *args,
+        ],
         cwd=_REPO_ROOT,
         env=env,
-        capture_output=True,
-        text=True,
-        timeout=240,
     )
 
 
