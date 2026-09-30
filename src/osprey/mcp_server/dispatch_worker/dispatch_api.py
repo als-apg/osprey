@@ -312,9 +312,8 @@ _bearer_scheme = HTTPBearer()
 def _is_denied(tool: str) -> bool:
     """Return True if ``tool`` is on the denylist.
 
-    Entries ending in ``*`` match by prefix (e.g. the playwright entry blocks
-    every ``mcp__plugin_playwright_playwright__<name>`` tool); all other entries
-    match exactly.
+    Entries ending in ``*`` match by prefix (e.g. the ``mcp__plugin_*`` entry
+    blocks every plugin server's tools); all other entries match exactly.
     """
     return matches_denylist(tool, DISPATCH_DENIED_TOOLS)
 

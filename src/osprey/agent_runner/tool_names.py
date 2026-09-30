@@ -9,6 +9,18 @@ are pinned by tests, not by construction.
 
 from __future__ import annotations
 
+#: Tool-name namespaces of MCP servers the agent CLI takes from somewhere other
+#: than the rendered ``.mcp.json``: Claude Code plugins
+#: (``mcp__plugin_<plugin>_<server>__<tool>``) and claude.ai connectors
+#: (``mcp__claude_ai_<name>__<tool>``).
+#:
+#: Every launch is already strict about MCP servers, so neither kind loads;
+#: these entries are the second line, for a path that loses that flag. A deny
+#: cannot be reopened by an allow rule. Every floor spells them out rather than
+#: unpacking this tuple, and ``tests/agent_runner/test_write_tools.py`` pins
+#: that none drops them.
+FOREIGN_MCP_NAMESPACES: tuple[str, ...] = ("mcp__plugin_*", "mcp__claude_ai_*")
+
 #: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
 #:
 #: This is the interactive permission layer's hard floor: entries land in
@@ -38,8 +50,8 @@ DENY_DEFAULTS: tuple[str, ...] = (
     "Edit",
     "WebFetch",
     "WebSearch",
-    "mcp__plugin_playwright_playwright__*",
-    "mcp__plugin_context7_context7__*",
+    "mcp__plugin_*",
+    "mcp__claude_ai_*",
 )
 
 #: Built-in (non-MCP) Claude Code tools that can write to disk, execute shell
@@ -49,10 +61,12 @@ DENY_DEFAULTS: tuple[str, ...] = (
 #: or the read-only guarantee is hollow — e.g. ``Bash`` could ``caput`` a PV
 #: (a hardware write) or ``rm`` files, entirely bypassing the MCP write guard.
 #: This is a superset of the built-in (non-``mcp__``) entries in
-#: :data:`DENY_DEFAULTS`; test_write_tools.py guards that the
-#: headless floor never drifts below the interactive deny policy. Every name is
-#: a tool the pinned CLI builds list, checked by
-#: tests/agent_runner/test_tool_name_conformance.py.
+#: :data:`DENY_DEFAULTS`; the ``mcp__`` entries reach the headless floor through
+#: :data:`FOREIGN_MCP_NAMESPACES` in
+#: :func:`~osprey.agent_runner.write_tools.read_only_disallowed_tools`.
+#: test_write_tools.py guards that the headless floor never drifts below the
+#: interactive deny policy. Every name is a tool the pinned CLI builds list,
+#: checked by tests/agent_runner/test_tool_name_conformance.py.
 READ_ONLY_DENIED_BUILTINS: tuple[str, ...] = (
     "Bash",
     "Edit",
@@ -79,7 +93,8 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
     {
         "WebFetch",
         "WebSearch",
-        "mcp__plugin_playwright_playwright__*",
+        "mcp__plugin_*",
+        "mcp__claude_ai_*",
         # Arbitrary shell access from a headless, unattended run is never warranted —
         # the safety story is the per-trigger allowlist + MCP tools, not a raw shell.
         # ``Bash`` runs commands; ``TaskOutput`` reads a background command's output;
@@ -110,15 +125,17 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
 #: may run OPEN (``modules.web_terminals.auth.method: none``). Each is a
 #: host-network egress path an agent can take from *outside* the python
 #: executor, which is where the open-mode socket guard sits: a shell, the two
-#: web tools, and the Playwright browser server.
+#: web tools, and every Claude Code plugin's MCP server. The Playwright browser
+#: server is a plugin, and ``mcp__plugin_*`` is the shipped entry that closes it.
 #:
 #: Every entry is spelled exactly as :data:`DENY_DEFAULTS` spells it — that
 #: tuple is what ``settings.json.j2`` writes into the artifact this gate reads,
 #: and the comparison is literal (see
 #: :func:`~osprey.deployment.web_terminals.personas.settings_json_denies`).
 #: A strict subset of it, deliberately: ``Edit`` writes files rather than
-#: reaching the network, and the context7 MCP server reaches a documentation
-#: host rather than this deployment's own terminals. Written out rather than
+#: reaching the network, and ``mcp__claude_ai_*`` is left out because a
+#: claude.ai connector runs in the provider's cloud, not on this host, so it is
+#: no route back to the deployment's own terminals. Written out rather than
 #: derived by filtering ``DENY_DEFAULTS``, so that a rename there fails a test
 #: loudly instead of silently dropping an entry from this gate and weakening it
 #: (``test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them``).
@@ -126,7 +143,7 @@ OPEN_MODE_EGRESS_TOOLS: tuple[str, ...] = (
     "Bash",
     "WebFetch",
     "WebSearch",
-    "mcp__plugin_playwright_playwright__*",
+    "mcp__plugin_*",
 )
 
 #: Built-in Claude Code tools that can write — to the filesystem, or (``Bash``)
