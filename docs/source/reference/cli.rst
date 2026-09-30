@@ -41,6 +41,7 @@ names another one explicitly.
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey mml                # Install a facility from its MATLAB Middle Layer
+   osprey facility           # Check the facility description under data/facility/
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy the agent record into var/archive
@@ -1266,6 +1267,22 @@ to end.
    osprey mml map --check --no-derived
    osprey mml emit --duckdb
    osprey mml verify
+
+.. _cli-osprey-facility:
+
+osprey facility
+===============
+
+Check the facility description under ``data/facility/``.
+
+``osprey facility validate [--repo DIRECTORY]``
+   Run every check ``osprey build`` makes of ``data/facility/`` and render the
+   facility views against the repo's main profile in a temporary directory.
+   Nothing is written into the repo. A clean tree exits 0 and prints nothing;
+   otherwise every error of the first failing stage prints on stderr, one line
+   each and sorted, and the command exits 1. A stale fix's line carries the
+   block to paste in its place. ``--repo`` names the deployment repo; without
+   it, the nearest ``profile.yml`` at or above the current directory is used.
 
 osprey ariel
 ============
