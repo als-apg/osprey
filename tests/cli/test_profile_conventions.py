@@ -977,6 +977,9 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         (".claude/settings.local.json", "claude_code.permissions"),
         ("data/channel_limits.json", "`data/`"),
         ("data/bluesky_devices.yml", "`data/`"),
+        ("facility.json", "`data/facility/`"),
+        ("data/facility/records/devices.yaml", "`data/facility/`"),
+        ("data/facility/decks/SR.json", "`data/facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
@@ -1008,6 +1011,18 @@ def test_unreserved_writes_stay_writable(allowed: str):
     ``osprey_`` one, so the write-safety layer does not own it.
     """
     assert is_reserved_write(allowed) is None
+
+
+def test_every_facility_mirror_pattern_is_an_agent_side_pattern():
+    """What the mirror may not ship, a running agent may not rewrite."""
+    agent_side = {reserved.pattern for reserved in RESERVED_PATH_PATTERNS}
+    assert set(RESERVED_MIRROR_PATTERNS) <= agent_side
+
+
+@pytest.mark.parametrize("target", ["FACILITY.json", "Data/Facility/identity.yaml"])
+def test_case_variants_of_a_facility_path_are_refused(target: str):
+    channel = is_reserved_write(target)
+    assert channel is not None and "`data/facility/`" in channel
 
 
 def test_every_exact_reservation_is_a_reserved_write():
