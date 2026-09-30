@@ -52,10 +52,10 @@ def is_proxy_needed(
 
     An absent ``api_protocol`` defers to the adapter's declaration. A PRESENT
     one is checked against
-    :data:`~osprey.profiles.providers.VALID_API_PROTOCOLS`: an exact
-    comparison alone would let a typo take the step-3 branch, so a provider
-    written ``api_protocol: Anthropic`` would be routed through the translation
-    proxy the config template explicitly warns against, with nothing said.
+    :data:`~osprey.profiles.providers.VALID_API_PROTOCOLS`, because an
+    unrecognised spelling (``api_protocol: Anthropic``) must be refused by name
+    rather than fall through to the OpenAI default and route the provider
+    through the translation proxy in silence.
     The catalog loader refuses such a value at load; this check stays because
     an ``api.providers`` block can reach a build without passing through the
     catalog — a hand-edited ``build/config.yml``, for one.
