@@ -299,9 +299,9 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         ariel_config = None
         config_errors = [str(e)]
 
-    if gates.unreadable_config is not None:
+    if gates.config_unreadable_path is not None:
         config_errors.insert(
-            0, f"{gates.unreadable_config} could not be read, so the Config panel is closed"
+            0, f"{gates.config_unreadable_path} could not be read, so the Config panel is closed"
         )
 
     # A test-double config is not a list — only a real list counts as
@@ -322,7 +322,7 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         status=status,
         remedy=remedy,
         config_panel_enabled=gates.config_panel_enabled,
-        config_unreadable_path=gates.unreadable_config,
+        config_unreadable_path=gates.config_unreadable_path,
     )
 
 
