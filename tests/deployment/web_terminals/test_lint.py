@@ -2979,6 +2979,8 @@ def test_lint_session_lifetime_on_a_non_mapping_auth_stanza_is_not_reported_twic
         ({"initial_delay_s": True}, "modules.web_terminals.auth.throttle.initial_delay_s"),
         ({"max_delay_s": float("inf")}, "modules.web_terminals.auth.throttle.max_delay_s"),
         ({"max_delay": 60}, "modules.web_terminals.auth.throttle.max_delay"),
+        ({"max_delay": None}, "modules.web_terminals.auth.throttle.max_delay"),
+        ({"max_delay_s": ""}, "modules.web_terminals.auth.throttle.max_delay_s"),
         (5, "modules.web_terminals.auth.throttle"),
     ],
 )
@@ -3019,9 +3021,24 @@ def test_lint_valid_auth_throttle_reports_no_auth_findings() -> None:
     assert _errors(findings) == []
 
 
-@pytest.mark.parametrize("auth", [{"method": "password"}, {"method": "password", "throttle": None}])
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {"method": "password"},
+        {"method": "password", "throttle": None},
+        {"method": "password", "throttle": {"max_delay_s": None}},
+        {
+            "method": "password",
+            "throttle": dict.fromkeys(
+                ("initial_delay_s", "multiplier", "max_delay_s", "forget_after_s")
+            ),
+        },
+    ],
+    ids=["absent", "no-value", "one-key-no-value", "every-key-no-value"],
+)
 def test_lint_absent_auth_throttle_reports_no_auth_findings(auth: dict) -> None:
-    """Leaving `throttle` out, or writing it empty, is the documented default."""
+    """Leaving `throttle` or any of its keys out, or writing it with no value, is the
+    documented default."""
     # Arrange
     config = _auth_config(auth)
 

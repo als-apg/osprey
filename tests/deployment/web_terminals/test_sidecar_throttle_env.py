@@ -16,7 +16,7 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.lint import _check_auth_throttle
-from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.render import AUTH_THROTTLE_KEYS, render_web_terminals
 from osprey.services.auth_sidecar import app as app_mod
 from osprey.services.auth_sidecar.app import AuthSettings
 from osprey.services.auth_sidecar.throttle import (
@@ -46,6 +46,8 @@ UNUSABLE: list[Any] = [
     {"max_delay_s": float("inf")},
     {"initial_delay_s": float("nan")},
     {"max_delay": 60},
+    {"max_delay": None},
+    {"max_delay_s": ""},
     5,
 ]
 UNUSABLE_IDS = [
@@ -59,6 +61,8 @@ UNUSABLE_IDS = [
     "infinite-cap",
     "nan-initial",
     "unknown-key",
+    "unknown-key-no-value",
+    "empty-string-cap",
     "not-a-mapping",
 ]
 EXPECTED_KEY = [
@@ -72,6 +76,8 @@ EXPECTED_KEY = [
     "max_delay_s",
     "initial_delay_s",
     "max_delay",
+    "max_delay",
+    "max_delay_s",
     None,
 ]
 
@@ -131,6 +137,46 @@ def test_one_authored_setting_leaves_the_others_on_their_defaults() -> None:
 
 
 @pytest.mark.parametrize(
+    ("text", "lines", "parameters"),
+    [
+        (
+            "max_delay_s:\nmultiplier: 3\n",
+            [f"{_THROTTLE_PREFIX}MULTIPLIER"],
+            dict(DEFAULTS, multiplier=3.0),
+        ),
+        (
+            "initial_delay_s:\nmultiplier:\nmax_delay_s:\nforget_after_s:\n",
+            [],
+            DEFAULTS,
+        ),
+    ],
+    ids=["one-key-with-no-value", "every-key-with-no-value"],
+)
+def test_a_throttle_key_written_with_no_value_takes_its_default(
+    text: str, lines: list[str], parameters: dict[str, float]
+) -> None:
+    env = _sidecar_env(_config(yaml.safe_load(text)))
+
+    assert [name for name in env if name.startswith(_THROTTLE_PREFIX)] == lines
+    assert AuthSettings.from_env(env).throttle_parameters == parameters
+
+
+@pytest.mark.parametrize("key", list(AUTH_THROTTLE_KEYS))
+def test_a_key_with_no_value_reads_as_a_blank_variable_does(key: str) -> None:
+    env = _sidecar_env(_config({key: None}))
+    blank = dict(env, **{app_mod._THROTTLE_ENV[AUTH_THROTTLE_KEYS[key]]: ""})
+
+    from_null = AuthSettings.from_env(env).throttle_parameters
+    from_blank = AuthSettings.from_env(blank).throttle_parameters
+    assert from_null == from_blank == DEFAULTS
+
+
+def test_a_key_with_no_value_is_judged_at_its_default() -> None:
+    with pytest.raises(ValueError, match=r"max_delay_s 30\.0 \(default\)"):
+        render_web_terminals(_config({"initial_delay_s": 60, "max_delay_s": None}))
+
+
+@pytest.mark.parametrize(
     ("throttle", "key"), list(zip(UNUSABLE, EXPECTED_KEY, strict=True)), ids=UNUSABLE_IDS
 )
 def test_render_refuses_an_unusable_throttle(throttle: Any, key: str | None) -> None:
@@ -141,10 +187,11 @@ def test_render_refuses_an_unusable_throttle(throttle: Any, key: str | None) -> 
 
 @pytest.mark.parametrize(
     "throttle",
-    [*UNUSABLE, {"max_delay_s": 60}, None],
+    [*UNUSABLE, {"max_delay_s": 60}, {"max_delay_s": None, "multiplier": 3}, None],
     ids=[
         *UNUSABLE_IDS,
         "usable",
+        "key-with-no-value",
         "null",
     ],
 )
