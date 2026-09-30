@@ -624,7 +624,7 @@ class TestALSCreateEntryCredentials:
 
 
 class TestALSFetchEntriesHTTP:
-    """Window generation, TLS mode, and per-window error handling."""
+    """Window generation, TLS mode, per-window errors and per-entry skips."""
 
     @pytest.mark.asyncio
     async def test_naive_bounds_are_interpreted_as_utc(self):
@@ -700,32 +700,46 @@ class TestALSFetchEntriesHTTP:
 
     @pytest.mark.asyncio
     async def test_unconvertible_entry_is_logged_and_skipped(self, caplog):
-        """One entry the converter chokes on does not lose the rest of the window."""
+        """A rejected entry is logged, counted and skipped; the rest of the window is kept."""
         adapter = _als_adapter()
         payload = [
-            {"id": "bad", "timestamp": "1704067200", "subject": "Bad"},
+            {"id": "bad", "timestamp": "not-an-epoch", "subject": "Bad"},
             {"id": "good", "timestamp": "1704067200", "subject": "Good"},
         ]
         session = _http_session(get=_http_response(text=json.dumps(payload)))
-        real_convert = adapter._convert_entry
-
-        def convert(data):
-            if data["id"] == "bad":
-                raise ValueError("unconvertible")
-            return real_convert(data)
 
         with _patched_session(adapter, session):
-            with patch.object(adapter, "_convert_entry", side_effect=convert):
-                with caplog.at_level(logging.WARNING, logger="ariel"):
-                    entries = await _collect(
-                        adapter._fetch_entries_http(
-                            since=datetime(2024, 1, 1, tzinfo=UTC),
-                            until=datetime(2024, 1, 2, tzinfo=UTC),
-                        )
+            with caplog.at_level(logging.WARNING, logger="ariel"):
+                entries = await _collect(
+                    adapter.fetch_entries(
+                        since=datetime(2024, 1, 1, tzinfo=UTC),
+                        until=datetime(2024, 1, 2, tzinfo=UTC),
                     )
+                )
 
         assert [e["entry_id"] for e in entries] == ["good"]
         assert "Failed to convert entry bad" in caplog.text
+        assert adapter.unreadable_entries == 1
+
+    @pytest.mark.asyncio
+    async def test_each_pass_starts_the_count_at_zero(self):
+        """A second fetch pass counts its own unreadable entries, not the sum."""
+        adapter = _als_adapter()
+        payload = [
+            {"id": "bad", "timestamp": "not-an-epoch", "subject": "Bad"},
+            {"id": "good", "timestamp": "1704067200", "subject": "Good"},
+        ]
+        session = _http_session(get=_http_response(text=json.dumps(payload)))
+        since = datetime(2024, 1, 1, tzinfo=UTC)
+        until = datetime(2024, 1, 2, tzinfo=UTC)
+
+        with _patched_session(adapter, session):
+            first = await _collect(adapter.fetch_entries(since=since, until=until))
+            second = await _collect(adapter.fetch_entries(since=since, until=until))
+
+        assert [e["entry_id"] for e in first] == ["good"]
+        assert [e["entry_id"] for e in second] == ["good"]
+        assert adapter.unreadable_entries == 1
 
 
 class TestALSFetchWindowResponses:
