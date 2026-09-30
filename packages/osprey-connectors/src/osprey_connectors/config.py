@@ -715,7 +715,7 @@ class ConfigBuilder:
 
     def _section(self, path: str) -> dict[str, Any]:
         """Read the section at ``path`` as a mapping; empty reads as ``{}``."""
-        return _mapping_or_empty(self.get(path), path, self.config_path)
+        return mapping_or_empty(self.get(path), path, self.config_path)
 
     def get(self, path: str, default: Any = None) -> Any:
         """Get configuration value using dot notation path."""
@@ -730,7 +730,7 @@ class ConfigBuilder:
             return default
 
 
-def _mapping_or_empty(value: Any, path: str, source: object) -> dict[str, Any]:
+def mapping_or_empty(value: Any, path: str, source: object) -> dict[str, Any]:
     """Return a config section as a mapping: ``None`` reads as ``{}``, a non-mapping is refused."""
     if value is None:
         return {}
@@ -1025,7 +1025,7 @@ def get_framework_service_config(
     """
     configurable = _get_configurable(config_path)
     service_configs: dict[str, Any] = configurable.get("service_configs", {})
-    return _mapping_or_empty(
+    return mapping_or_empty(
         service_configs.get(service_name), f"services.{service_name}", config_path
     )
 

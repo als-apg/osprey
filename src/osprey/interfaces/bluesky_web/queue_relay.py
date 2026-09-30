@@ -142,6 +142,7 @@ from osprey.interfaces.bluesky_web.read_proxy import (
     LANE_QUERY_PARAM,
     UNKNOWN_LANE_BODY,
     _forward_get,
+    forwarded_query_params,
     resolve_lane_bridge_url,
 )
 from osprey.interfaces.common_middleware import OWNER_STATE_KEY
@@ -279,12 +280,6 @@ async def _forward_write(
     if owner:
         headers[OWNER_HEADER] = owner
 
-    # multi_items(), not a dict: repeated query keys are preserved exactly as
-    # they arrived. The lane addresses the sidecar and is stripped.
-    params = httpx.QueryParams(
-        [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
-    )
-
     # Passed through only when set: httpx reads an explicit ``timeout=None`` as
     # "no timeout at all", not as "use the client's default".
     overrides: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
@@ -293,7 +288,7 @@ async def _forward_write(
         response = await client.request(
             method,
             f"{bridge_url}{path}",
-            params=params,
+            params=forwarded_query_params(request),
             content=content or None,
             headers=headers,
             **overrides,

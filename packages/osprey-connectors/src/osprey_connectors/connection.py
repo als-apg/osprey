@@ -51,6 +51,8 @@ ALL_LOGINS: frozenset[LoginKind] = frozenset({"token", "password"})
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 _AUTH_KEYS = ("token_env", "username", "password_env")
+#: The ``auth:`` shape, named in every refusal of it.
+_AUTH_SHAPE = "`token_env`, or `username` and `password_env`"
 _SECRET_LIKE_KEYS = frozenset({"token", "password", "secret"})
 _TLS_KEYS = ("ca_bundle",)
 _VERIFY_OFF_KEYS = frozenset({"verify", "insecure", "verify_ssl"})
@@ -255,14 +257,9 @@ def read_credential_env_names(
     if auth is None:
         return ()
     if not isinstance(auth, Mapping):
-        raise ValueError(
-            f"`{where}.auth` must be a mapping of `token_env`, or `username` and `password_env`"
-        )
+        raise ValueError(f"`{where}.auth` must be a mapping of {_AUTH_SHAPE}")
     if "token_env" in auth and ("username" in auth or "password_env" in auth):
-        raise ValueError(
-            f"`{where}.auth` names two logins: use `token_env`, or `username` and "
-            "`password_env`, not both"
-        )
+        raise ValueError(f"`{where}.auth` names two logins: use {_AUTH_SHAPE}, not both")
     return tuple((f"auth.{key}", auth[key]) for key in ("token_env", "password_env") if key in auth)
 
 
@@ -302,9 +299,7 @@ def _read_auth(
     if not logins:
         raise ValueError(f"{key} is not accepted here: {unsupported_because}")
     if not isinstance(value, Mapping):
-        raise ValueError(
-            f"{key} must be a mapping of `token_env`, or `username` and `password_env`"
-        )
+        raise ValueError(f"{key} must be a mapping of {_AUTH_SHAPE}")
     for k in value:
         if k not in _AUTH_KEYS and k not in extra_auth_keys:
             hint = (
@@ -312,19 +307,14 @@ def _read_auth(
                 if k in _SECRET_LIKE_KEYS
                 else ""
             )
-            raise ValueError(
-                f"`{where}.auth.{k}` is not a login key (use `token_env`, or `username` "
-                f"and `password_env`){hint}"
-            )
+            raise ValueError(f"`{where}.auth.{k}` is not a login key (use {_AUTH_SHAPE}){hint}")
     has_token = "token_env" in value
     has_user = "username" in value
     has_password = "password_env" in value
     if has_token and (has_user or has_password):
-        raise ValueError(
-            f"{key} names two logins: use `token_env`, or `username` and `password_env`, not both"
-        )
+        raise ValueError(f"{key} names two logins: use {_AUTH_SHAPE}, not both")
     if not (has_token or has_user or has_password):
-        raise ValueError(f"{key} names no login: set `token_env`, or `username` and `password_env`")
+        raise ValueError(f"{key} names no login: set {_AUTH_SHAPE}")
     if has_user != has_password:
         missing = "password_env" if has_user else "username"
         raise ValueError(f"`{where}.auth.{missing}` is missing: a password login needs both keys")
