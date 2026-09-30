@@ -126,16 +126,10 @@ LEGACY_SUBSTRINGS = (
     "_session_store_permits",
     "parse_store(",
     "test_session_store_parity",
-    "session_target_mismatch",
     "REASON_SESSION_TARGET_MISMATCH",
-    "resolve_session_target",
-    "test_resolve_session_target",
-    # Bare ``session_target`` cannot be gated (see above), so the two shapes it
-    # actually took are gated instead: the dataclass attribute read and the
-    # keyword argument. Between them they cover every site the rename touched
-    # except the payload key, which the contract test guards by name.
-    "situation.session_target",
-    "session_target=",
+    # The bare name covers every shape it took: the attribute, the keyword
+    # argument, the payload key, and the helpers and reasons built on it.
+    "session_target",
 )
 
 ROOTS = ("src", "tests", "docs/source")
