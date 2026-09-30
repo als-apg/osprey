@@ -28,7 +28,6 @@ from osprey.agent_runner import (
     SystemEvent,
     TextEvent,
     ThinkingEvent,
-    ToolResultEvent,
     ToolUseEvent,
     agent_session,
 )
@@ -323,9 +322,8 @@ def _event_to_wire(event: AgentEvent) -> dict[str, Any] | None:
         if session_id:
             frame["session_id"] = session_id
         return frame
-    if isinstance(event, ToolResultEvent):
-        # The operator stream carries what the agent says and which tool it calls, never tool output.
-        return None
+    # The operator stream carries what the agent says and which tool it calls,
+    # never tool output (ToolResultEvent) or any other record.
     return None
 
 
