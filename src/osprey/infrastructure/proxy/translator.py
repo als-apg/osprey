@@ -18,9 +18,6 @@ def _gen_id(prefix: str = "msg_") -> str:
 
 # ── Request: Anthropic → OpenAI ──────────────────────────────────────
 
-#: The model reads this in place of an image the route does not carry.
-_IMAGE_NOT_CARRIED = "[image not sent: this provider's route does not carry images]"
-
 #: The model reads this in place of an image given by a source the proxy cannot send.
 _IMAGE_SOURCE_NOT_CARRIED = "[image not sent: the proxy carries base64 and URL images only]"
 
@@ -174,7 +171,7 @@ def _image_part(block: dict, notes: _Notes) -> dict | str:
     """An Anthropic image block as an OpenAI ``image_url`` part, or the note in its place."""
     if not notes.supports_images:
         notes.dropped.add("image")
-        return _IMAGE_NOT_CARRIED
+        return _not_carried("image")
     source = block.get("source")
     source = source if isinstance(source, dict) else {}
     url = None

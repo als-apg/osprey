@@ -412,7 +412,7 @@ def test_proxy_names_an_image_on_a_route_without_images(monkeypatch):
     sent = json.dumps(captured["json"])
     assert "image_url" not in sent
     assert captured["json"]["messages"][-1]["content"] == (
-        "see\n[image not sent: this provider's route does not carry images]"
+        "see\n[image not sent: this provider's route does not carry it]"
     )
 
 

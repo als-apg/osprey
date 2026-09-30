@@ -445,8 +445,7 @@ screenshot the agent reads. An image inside a tool result follows that result
 in a user message, because OpenAI tool messages carry text only.
 
 What a route cannot take is replaced, where it stood, by a note the model
-reads, such as ``[image not sent: this provider's route does not carry
-images]``:
+reads, such as ``[image not sent: this provider's route does not carry it]``:
 
 * images, on a route marked *No*, and images given by file reference on any
   route;
