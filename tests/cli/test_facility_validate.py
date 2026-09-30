@@ -18,10 +18,10 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
-from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.facility.render import FACILITY_FILE
 from osprey.utils.workspace import BUILD_DIR_NAME
+from tests._builds import init_project, run_build
 
 pytestmark = pytest.mark.slow
 
@@ -32,10 +32,7 @@ CHANNEL = "BR:DIAG:BPM:01:POSITION:X"
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A control-assistant repo, initialised once for this module and never edited."""
-    repo = tmp_path_factory.mktemp("ca") / "demo"
-    result = CliRunner().invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
-    assert result.exit_code == 0, result.output
-    return repo
+    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", "demo")
 
 
 @pytest.fixture
@@ -86,9 +83,7 @@ def test_a_clean_run_leaves_the_repo_byte_unchanged(repo: Path) -> None:
 
 def test_a_run_repairs_nothing_the_build_would(repo: Path) -> None:
     """Neither the facility-rule rescue nor the per-user context seeding runs."""
-    from osprey.cli.build_cmd import build
-
-    built = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps"])
+    built = run_build(repo)
     assert built.exit_code == 0, built.output
     assert (repo / BUILD_DIR_NAME / ".claude" / "rules" / "facility.md").is_file()
     (repo / "rules" / "facility.md").unlink()

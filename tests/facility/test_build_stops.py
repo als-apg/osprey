@@ -20,11 +20,10 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
-from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
+from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
     QUAD,
@@ -1411,10 +1410,7 @@ def _write(tmp_path: Path, case: str) -> Path:
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A control-assistant repo named for the project, never edited."""
-    repo = tmp_path_factory.mktemp("ca") / PROJECT
-    result = CliRunner().invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
-    assert result.exit_code == 0, result.output
-    return repo
+    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", PROJECT)
 
 
 def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
@@ -1435,7 +1431,7 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
 def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -> None:
     repo = _repo(initialised, tmp_path, case)
 
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps"])
+    result = run_build(repo)
 
     assert result.exit_code == 1, result.output
     assert result.stderr == CASES[case][1] + "\n"
