@@ -31,8 +31,18 @@ judgment the export pends, and what each model wires. The document shape is::
 :func:`parse_mapping` checks structure only: required keys are present, every
 value has the right type and no unknown key slips through, because an ignored
 key is a decision that silently never lands. ``null`` is structurally valid in
-every slot a reviewer decides, so a freshly written draft parses; the import
-refuses an undecided slot separately (``import mml: mapping-undecided``).
+every slot a reviewer decides, so a freshly written draft parses;
+:func:`require_decided` refuses the import while any such slot is still
+``null`` (``import mml: mapping-undecided``).
+
+Every channel's role follows from its field's direction (:func:`field_roles`):
+``write`` is a setpoint, ``read`` a readback, and a family's ``Setpoint`` field
+reads back through its ``Monitor`` field when the family has both; every other
+setpoint is its own pair. A pair is always a readback, so a ``Monitor`` whose
+direction is ``write`` is a setpoint of its own and pairs with nothing.
+
+The importer's stops are :class:`ImportStop`: one line each, prefixed
+``import mml: <problem>:``, exit status 1.
 """
 
 from __future__ import annotations
@@ -40,7 +50,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, TypeGuard, overload
+from typing import IO, Any, Literal, TypeGuard, overload
+
+import click
 
 __all__ = [
     "CALIBRATION_KINDS",
@@ -56,7 +68,9 @@ __all__ = [
     "FamilyJudgments",
     "Field",
     "FieldAnswer",
+    "FieldRole",
     "Identity",
+    "ImportStop",
     "Mapping",
     "MappingError",
     "Model",
@@ -65,9 +79,12 @@ __all__ = [
     "SharedAnswer",
     "UnboundAnswer",
     "WiringFamily",
+    "field_roles",
     "judgment_key",
     "parse_mapping",
     "read_mapping",
+    "require_decided",
+    "undecided_slots",
 ]
 
 #: The values a ``directions.*.direction`` slot may hold; ``None`` is undecided.
@@ -84,6 +101,39 @@ ENGINE_AXES: frozenset[str] = frozenset({"x", "y"})
 ROWS_BEYOND_KIND = "rows_beyond_devices"
 UNBOUND_KIND = "unbound_devices"
 SHARED_KIND = "shared_pvs"
+
+
+#: The field a family's setpoints are written through and the one it reads
+#: back through: a family carrying both pairs the first with the second.
+SETPOINT_FIELD = "Setpoint"
+MONITOR_FIELD = "Monitor"
+
+
+class ImportStop(click.ClickException):
+    """An importer stop: ``import mml: <problem>: <what>``, one line per finding.
+
+    Args:
+        problem: The stop's word, ``mapping-undecided`` or ``mapping-draft``.
+        lines: What stopped the import, one entry per printed line.
+    """
+
+    exit_code = 1
+
+    def __init__(self, problem: str, lines: list[str]) -> None:
+        self.problem = problem
+        self.lines = tuple(lines)
+        super().__init__("\n".join(f"import mml: {problem}: {line}" for line in lines))
+
+    def show(self, file: IO[Any] | None = None) -> None:
+        """Write the stop's lines alone, with no ``Error: `` prefix.
+
+        Args:
+            file: The stream to write to; stderr when omitted.
+        """
+        if file is None:
+            click.echo(self.format_message(), err=True, color=self.show_color)
+        else:
+            click.echo(self.format_message(), file=file, color=self.show_color)
 
 
 class MappingError(ValueError):
@@ -672,3 +722,146 @@ def read_mapping(path: Path) -> Mapping:
     except yaml.YAMLError as exc:
         raise MappingError("<document>", f"is not valid YAML ({exc})") from exc
     return parse_mapping(data)
+
+
+# -- roles --------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FieldRole:
+    """The role every channel of one family field takes, and what it pairs with.
+
+    ``pair`` names the family field a setpoint reads back through; ``None``
+    means the channel is its own pair (and always ``None`` for a readback).
+    """
+
+    role: Literal["setpoint", "readback"]
+    pair: str | None = None
+
+
+def _undecided_direction(key: str) -> ImportStop:
+    return ImportStop("mapping-undecided", [f"directions.{key}.direction: write read or write"])
+
+
+def field_roles(mapping: Mapping) -> dict[str, FieldRole]:
+    """Derive the role of every family field from its direction.
+
+    ``write`` is a setpoint and ``read`` a readback. A family's ``Setpoint``
+    field pairs with its ``Monitor`` field when the family has both; every
+    other setpoint is its own pair. A setpoint reads back only through a
+    readback, so the pair holds only while the ``Monitor`` is ``read``: a
+    ``Monitor`` the mapping marks ``write`` is itself a setpoint, and the
+    ``Setpoint`` beside it is its own pair.
+
+    Args:
+        mapping: The parsed mapping.
+
+    Returns:
+        ``{"<raw family>.<field>": FieldRole}`` in ``directions`` order.
+
+    Raises:
+        ImportStop: ``mapping-undecided``, naming the first direction still
+            ``null``.
+    """
+    roles: dict[str, FieldRole] = {}
+    for key, direction in mapping.directions.items():
+        if direction.direction is None:
+            raise _undecided_direction(key)
+        roles[key] = FieldRole(role="setpoint" if direction.direction == "write" else "readback")
+    for key, found in roles.items():
+        family, _, name = key.partition(".")
+        monitor = roles.get(f"{family}.{MONITOR_FIELD}")
+        if name == SETPOINT_FIELD and found.role == "setpoint" and monitor is not None:
+            if monitor.role == "readback":
+                roles[key] = FieldRole(role="setpoint", pair=MONITOR_FIELD)
+    return roles
+
+
+# -- undecided slots ----------------------------------------------------------
+
+_DESCRIBE = "describe it"
+_ANSWER_ROW = "answer drop, device or {field: <name>}"
+_ANSWER_UNBOUND = "answer drop or keep"
+_ANSWER_SHARED = "answer keep_all or name each group's owner"
+
+
+def _vocabulary_classes() -> frozenset[str]:
+    from osprey.facility.validate import known_classes
+
+    return known_classes()
+
+
+def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
+    """List every slot a reviewer still has to decide, in document order.
+
+    A slot is undecided while it is ``null``: a model, family or field
+    description; a wiring family's ``element_field``, ``engine`` or
+    ``calibration``; the ``class`` of a family with channels, and its
+    ``branch`` unless the class is a vocabulary class or a declared branch; a
+    direction; and every judgment answer the document carries.
+
+    Args:
+        mapping: The parsed mapping.
+
+    Returns:
+        ``(key, what to write)`` pairs; empty when everything is decided.
+    """
+    found: list[tuple[str, str]] = []
+    for raw, model in mapping.models.items():
+        path = f"models.{raw}"
+        if model.description is None:
+            found.append((f"{path}.description", _DESCRIBE))
+        for wired, wiring in model.wiring.items():
+            entry = f"{path}.wiring.{wired}"
+            if wiring.element_field is None:
+                found.append((f"{entry}.element_field", "name the family field the model wires"))
+            if wiring.engine is None:
+                found.append(
+                    (
+                        f"{entry}.engine",
+                        "name the attribute and index, or the axis, the model wires",
+                    )
+                )
+            if wiring.calibration is None:
+                found.append((f"{entry}.calibration", "write linear or table"))
+    known = _vocabulary_classes() | set(mapping.branches)
+    for raw, family in mapping.families.items():
+        path = f"families.{raw}"
+        if family.channels > 0:
+            if family.class_ is None:
+                found.append((f"{path}.class", "name the device class"))
+            elif family.branch is None and family.class_ not in known:
+                found.append((f"{path}.branch", "name the class it extends"))
+        if family.description is None:
+            found.append((f"{path}.description", _DESCRIBE))
+        for name, fld in family.fields.items():
+            if fld.description is None:
+                found.append((f"{path}.fields.{name}.description", _DESCRIBE))
+    for key, direction in mapping.directions.items():
+        if direction.direction is None:
+            found.append((f"directions.{key}.direction", "write read or write"))
+    for raw, judgments in mapping.judgments.items():
+        for name, answers in judgments.rows_beyond.items():
+            for signal, row in answers.items():
+                if row is None:
+                    found.append((judgment_key(raw, ROWS_BEYOND_KIND, name, signal), _ANSWER_ROW))
+        for ordinal, unbound in judgments.unbound_devices.items():
+            if unbound is None:
+                found.append((judgment_key(raw, UNBOUND_KIND, ordinal=ordinal), _ANSWER_UNBOUND))
+        if judgments.shared_pvs_present and judgments.shared_pvs is None:
+            found.append((judgment_key(raw, SHARED_KIND), _ANSWER_SHARED))
+    return found
+
+
+def require_decided(mapping: Mapping) -> None:
+    """Stop the import while any slot of the mapping is undecided.
+
+    Args:
+        mapping: The parsed mapping.
+
+    Raises:
+        ImportStop: ``mapping-undecided``, one line per undecided slot.
+    """
+    found = undecided_slots(mapping)
+    if found:
+        raise ImportStop("mapping-undecided", [f"{key}: {what}" for key, what in found])

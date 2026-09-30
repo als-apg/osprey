@@ -6,16 +6,23 @@ import copy
 from pathlib import Path
 from typing import Any
 
+import click
 import pytest
 import yaml
+from click.testing import CliRunner
 
 from osprey.facility.layers.mml.mapping import (
     EngineBlock,
+    FieldRole,
     Identity,
+    ImportStop,
     MappingError,
     WiringFamily,
+    field_roles,
     parse_mapping,
     read_mapping,
+    require_decided,
+    undecided_slots,
 )
 
 
@@ -56,7 +63,7 @@ def _document() -> dict[str, Any]:
                 },
             },
             "BPMx": {
-                "class": "BPM",
+                "class": "BeamPositionMonitor",
                 "aliases": ["BPMx"],
                 "description": "Horizontal beam positions.",
                 "provenance": "stated",
@@ -245,3 +252,121 @@ class TestRead:
             read_mapping(path)
         assert caught.value.key == "<document>"
         assert caught.value.message.startswith("is not valid YAML")
+
+
+class TestRoles:
+    def test_write_is_a_setpoint_paired_with_the_monitor(self) -> None:
+        roles = field_roles(parse_mapping(_document()))
+        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair="Monitor")
+        assert roles["QF.Monitor"] == FieldRole(role="readback", pair=None)
+        assert roles["BPMx.Monitor"] == FieldRole(role="readback", pair=None)
+
+    def test_a_setpoint_without_a_monitor_is_its_own_pair(self) -> None:
+        document = _document()
+        del document["directions"]["QF.Monitor"]
+        roles = field_roles(parse_mapping(document))
+        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair=None)
+
+    def test_only_the_setpoint_field_takes_the_monitor(self) -> None:
+        document = _document()
+        document["directions"]["QF.Desired"] = {
+            "direction": "write",
+            "provenance": "stated",
+            "override": False,
+        }
+        roles = field_roles(parse_mapping(document))
+        assert roles["QF.Desired"] == FieldRole(role="setpoint", pair=None)
+        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair="Monitor")
+
+    def test_a_written_monitor_is_no_pair(self) -> None:
+        document = _document()
+        document["directions"]["QF.Monitor"]["direction"] = "write"
+        roles = field_roles(parse_mapping(document))
+        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair=None)
+
+    def test_a_null_direction_stops_the_import(self) -> None:
+        document = _document()
+        document["directions"]["QF.Monitor"]["direction"] = None
+        with pytest.raises(ImportStop) as caught:
+            field_roles(parse_mapping(document))
+        assert caught.value.format_message() == (
+            "import mml: mapping-undecided: directions.QF.Monitor.direction: write read or write"
+        )
+
+
+class TestUndecided:
+    def test_a_decided_mapping_has_no_open_slot(self) -> None:
+        mapping = parse_mapping(_document())
+        assert undecided_slots(mapping) == []
+        require_decided(mapping)
+
+    def test_every_null_a_reviewer_decides_is_listed_in_document_order(self) -> None:
+        document = _document()
+        document["models"]["SR"]["description"] = None
+        document["models"]["SR"]["wiring"]["QF"]["engine"] = None
+        document["models"]["SR"]["wiring"]["BPMx"]["calibration"] = None
+        document["families"]["QF"]["class"] = None
+        document["families"]["BPMx"]["fields"]["Monitor"]["description"] = None
+        document["directions"]["QF.Setpoint"]["direction"] = None
+        document["judgments"] = {
+            "QF": {"unbound_devices": {3: None}, "shared_pvs": None},
+            "BPMx": {"rows_beyond_devices": {"Monitor": {"SR:BPM:SUM": None}}},
+        }
+        keys = [key for key, _ in undecided_slots(parse_mapping(document))]
+        assert keys == [
+            "models.SR.description",
+            "models.SR.wiring.QF.engine",
+            "models.SR.wiring.BPMx.calibration",
+            "families.QF.class",
+            "families.BPMx.fields.Monitor.description",
+            "directions.QF.Setpoint.direction",
+            "judgments.QF.unbound_devices.3",
+            "judgments.QF.shared_pvs",
+            "judgments.BPMx.rows_beyond_devices.Monitor[SR:BPM:SUM]",
+        ]
+
+    def test_a_new_class_needs_its_branch(self) -> None:
+        document = _document()
+        document["families"]["QF"]["class"] = "FocusingTrim"
+        document["families"]["QF"]["branch"] = None
+        keys = [key for key, _ in undecided_slots(parse_mapping(document))]
+        assert keys == ["families.QF.branch"]
+
+    def test_a_vocabulary_class_needs_no_branch(self) -> None:
+        document = _document()
+        document["families"]["QF"]["branch"] = None
+        assert undecided_slots(parse_mapping(document)) == []
+
+    def test_a_family_with_no_channels_needs_no_class(self) -> None:
+        document = _document()
+        document["families"]["QF"]["class"] = None
+        document["families"]["QF"]["channels"] = 0
+        assert undecided_slots(parse_mapping(document)) == []
+
+    def test_the_stop_prints_one_line_per_slot(self) -> None:
+        document = _document()
+        document["models"]["SR"]["wiring"]["QF"]["engine"] = None
+        document["directions"]["QF.Setpoint"]["direction"] = None
+        with pytest.raises(ImportStop) as caught:
+            require_decided(parse_mapping(document))
+        assert caught.value.exit_code == 1
+        assert caught.value.format_message().splitlines() == [
+            "import mml: mapping-undecided: models.SR.wiring.QF.engine: "
+            "name the attribute and index, or the axis, the model wires",
+            "import mml: mapping-undecided: directions.QF.Setpoint.direction: write read or write",
+        ]
+
+    def test_the_stop_is_printed_without_an_error_prefix(self) -> None:
+        document = _document()
+        document["directions"]["QF.Setpoint"]["direction"] = None
+        mapping = parse_mapping(document)
+
+        @click.command()
+        def stop() -> None:
+            require_decided(mapping)
+
+        result = CliRunner().invoke(stop)
+        assert result.exit_code == 1
+        assert result.output == (
+            "import mml: mapping-undecided: directions.QF.Setpoint.direction: write read or write\n"
+        )
