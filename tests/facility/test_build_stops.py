@@ -361,6 +361,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a facility channel equals a status address",
     ),
     ("profile_invalid__mirrored_facility_file", "profile-invalid", "`project/facility.json`"),
+    (
+        "profile_invalid__mirrored_simulator_view",
+        "profile-invalid",
+        "`project/data/simulator/x.json`",
+    ),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -1369,11 +1374,20 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "project/facility.json and author the facility in data/facility/"
         ),
     ),
+    "profile_invalid__mirrored_simulator_view": (
+        _plain(),
+        (
+            "facility: profile-invalid: path project/data/simulator/x.json — the project/ "
+            "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
+            "fix: remove project/data/simulator/x.json and author the facility in data/facility/"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
 MIRRORED: dict[str, tuple[str, ...]] = {
     "profile_invalid__mirrored_facility_file": ("facility.json",),
+    "profile_invalid__mirrored_simulator_view": ("data/simulator/x.json",),
 }
 
 IDS = list(CASES)

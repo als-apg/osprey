@@ -373,8 +373,13 @@ RESERVED_EXACT_PATHS: frozenset[str] = frozenset(RESERVED_PATH_CHANNELS)
 #: stops the build with a ``profile-invalid`` line
 #: (:func:`facility_mirror_violation`) ahead of profile validation, so
 #: :func:`_mirror_violations` leaves them out and the gathered profile errors
-#: never repeat that stop.
-RESERVED_MIRROR_PATTERNS: tuple[str, ...] = ("facility.json", "data/facility/**")
+#: never repeat that stop. The simulator view under ``data/simulator/`` is
+#: written by the build from the same tree.
+RESERVED_MIRROR_PATTERNS: tuple[str, ...] = (
+    "facility.json",
+    "data/facility/**",
+    "data/simulator/**",
+)
 
 #: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in.
 FACILITY_AUTHORING_ROUTE = "data/facility/"

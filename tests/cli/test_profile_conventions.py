@@ -323,7 +323,7 @@ def test_validate_project_mirror_tolerates_a_missing_mirror(profile_dir: Path):
 
 
 def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
-    assert RESERVED_MIRROR_PATTERNS == ("facility.json", "data/facility/**")
+    assert RESERVED_MIRROR_PATTERNS == ("facility.json", "data/facility/**", "data/simulator/**")
 
 
 @pytest.mark.parametrize(
@@ -341,6 +341,12 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
             "project/ mirror writes data/facility/records/devices.yaml, which the build writes "
             "from data/facility/; fix: remove project/data/facility/records/devices.yaml and "
             "author the facility in data/facility/",
+        ),
+        (
+            "data/simulator/x.json",
+            "facility: profile-invalid: path project/data/simulator/x.json — the project/ "
+            "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
+            "fix: remove project/data/simulator/x.json and author the facility in data/facility/",
         ),
     ],
 )
@@ -384,6 +390,7 @@ def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path)
     mirror = profile_dir / "project"
     _write(mirror / "facility.json")
     _write(mirror / "data" / "facility" / "identity.yaml")
+    _write(mirror / "data" / "simulator" / "x.json")
     _write(mirror / ".mcp.json")
 
     violations = conventions._mirror_violations(mirror)
