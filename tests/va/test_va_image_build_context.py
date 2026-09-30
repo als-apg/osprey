@@ -199,7 +199,7 @@ class TestImageBuildContext:
 
         Every workspace member takes its version from git through hatch-vcs;
         without one the build backend refuses to produce metadata, and the
-        install step fails on the member it now finds.
+        install step fails on the staged member.
         """
         plan = install_plan(REPO_ROOT / build.containerfile)
         assert "SETUPTOOLS_SCM_PRETEND_VERSION=" in plan.install_args, (
