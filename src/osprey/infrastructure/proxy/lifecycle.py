@@ -7,15 +7,27 @@ import socket
 import threading
 import time
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 #: The two wire protocols a provider entry may declare, imported from the
 #: catalog contract that owns them rather than kept as a second copy.
 from osprey.profiles.providers import VALID_API_PROTOCOLS
 
+if TYPE_CHECKING:
+    import uvicorn
+
 logger = logging.getLogger("osprey.infrastructure.proxy")
 
-_state: dict[str, Any] = {
+
+class _ProxyState(TypedDict):
+    """The running proxy's server, its thread and its port, set and cleared together."""
+
+    server: uvicorn.Server | None
+    thread: threading.Thread | None
+    port: int | None
+
+
+_state: _ProxyState = {
     "server": None,
     "thread": None,
     "port": None,
@@ -88,7 +100,8 @@ def find_free_port() -> int:
     """Find a free port on localhost using OS allocation."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        port: int = s.getsockname()[1]
+        return port
 
 
 def _request_shape(provider: str | None, supports_images: bool | None = None) -> dict[str, Any]:
@@ -148,8 +161,9 @@ def start_proxy(
     Returns the port number. Thread-safe; repeated calls are no-ops.
     """
     with _lock:
-        if _state["server"] is not None:
-            return _state["port"]
+        running_port = _state["port"]
+        if _state["server"] is not None and running_port is not None:
+            return running_port
 
         from osprey.infrastructure.proxy.app import create_proxy_app
 

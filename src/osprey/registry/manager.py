@@ -64,7 +64,7 @@ class RegistryManager:
         self.registry_path = registry_path
         self._initialized = False
 
-        self._registries = {
+        self._registries: dict[str, dict[str, Any]] = {
             "services": {},
             "providers": {},
             "ariel_search_modules": {},
@@ -240,7 +240,7 @@ class RegistryManager:
     # Export
     # ------------------------------------------------------------------
 
-    def export_registry_to_json(self, output_dir: str = None) -> dict[str, Any]:
+    def export_registry_to_json(self, output_dir: str | None = None) -> dict[str, Any]:
         """Export registry metadata for external tools and plan editors.
 
         :param output_dir: Directory path for saving JSON files; *None* = data only.
