@@ -191,14 +191,15 @@ OPEN_MODE_EGRESS_TOOLS: tuple[str, ...] = (
 #: Listing them here is what makes ``remove_deny: ["Bash"]`` a build failure
 #: unless something else actually gates the tool.
 #:
-#: The memory-guard hook's ``Write|MultiEdit|NotebookEdit`` matcher is what
-#: gates the other three in the shipped presets; see
-#: :func:`~osprey.cli.templates.claude_code._lint_write_tools_are_gated`.
+#: The memory-guard hook's ``Write|NotebookEdit`` matcher gates the other two
+#: in the shipped presets; see
+#: :func:`~osprey.cli.templates.claude_code._lint_write_tools_are_gated`. Every
+#: name is a tool the pinned CLI builds list, checked by
+#: ``tests/agent_runner/test_tool_name_conformance.py``.
 WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
     "Bash",
     "Edit",
     "Write",
-    "MultiEdit",
     "NotebookEdit",
 )
 

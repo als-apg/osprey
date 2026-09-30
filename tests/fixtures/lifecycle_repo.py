@@ -178,7 +178,7 @@ hooks:
   - writes-check      # Kill switch: refuse every write while writes_enabled is false
   - limits            # Enforce per-channel min/max limits before writes
   - error-guidance    # Post-error hook that surfaces remediation hints
-  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - config-drift      # Warn at session start when the build is out of date

@@ -602,13 +602,13 @@ are overridable per facility from ``config:``, using dotted keys:
 .. admonition:: You cannot un-gate a tool that can write
    :class: warning
 
-   ``Bash``, ``Edit``, ``Write``, ``MultiEdit`` and ``NotebookEdit`` can write
-   files or shell out, so ``osprey build`` refuses a profile in which one of
-   them is neither in ``permissions.deny`` nor matched by a ``PreToolUse`` hook
-   matcher. A ``remove_deny: ["Bash"]`` with nothing put in its place is
-   therefore a build failure, not a silent widening. (The shipped presets gate
-   the three file-writing tools with the ``memory-guard`` hook rather than
-   denying them, so ordinary memory and notebook writes still work.)
+   ``Bash``, ``Edit``, ``Write`` and ``NotebookEdit`` can write files or shell
+   out, so ``osprey build`` refuses a profile in which one of them is neither
+   in ``permissions.deny`` nor matched by a ``PreToolUse`` hook matcher. A
+   ``remove_deny: ["Bash"]`` with nothing put in its place is therefore a build
+   failure, not a silent widening. (The shipped presets gate ``Write`` and
+   ``NotebookEdit`` with the ``memory-guard`` hook rather than denying them, so
+   ordinary memory and notebook writes still work.)
 
    The build checks that a covering rule *exists*, not that the hook behind it
    refuses anything: a ``PreToolUse`` hook that exits 0 without a

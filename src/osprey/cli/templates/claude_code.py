@@ -1873,7 +1873,7 @@ def _matcher_covers(matcher: str | None, tool: str) -> bool:
     * **Regex** — any matcher containing a regex metacharacter
       (:data:`_REGEX_METACHARACTERS`) is compiled and matched **unanchored**,
       the way Claude Code matches it. So ``"Write.*"``, ``"^(Write|Edit)$"`` and
-      ``"Write|MultiEdit|NotebookEdit"`` (the memory-guard hook's own matcher)
+      ``"Write|NotebookEdit"`` (the memory-guard hook's own matcher)
       all cover ``Write``, and ``"Edit.*"`` also covers ``NotebookEdit`` —
       unanchored is what Claude Code does, so it is what this reports.
     * **Exact alternation** — otherwise, and as the fallback when a matcher
@@ -1913,9 +1913,9 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     floor, OR matched by a ``PreToolUse`` hook rule. Either is accepted, and the
     distinction is load-bearing: Claude Code resolves permissions ``deny`` > ``ask``
     > ``allow``, so a hook ``allow`` can never override a ``deny``. Denying
-    ``Write``/``MultiEdit``/``NotebookEdit`` outright would therefore permanently
-    block legitimate memory writes (Write/MultiEdit to the Claude memory files)
-    and artifact notebook edits (NotebookEdit to the agent-data tree). The
+    ``Write``/``NotebookEdit`` outright would therefore permanently block
+    legitimate memory writes (Write to the Claude memory files) and artifact
+    notebook edits (NotebookEdit to the agent-data tree). The
     memory-guard ``PreToolUse`` rule is what legitimately gates them instead —
     allowing the good paths and denying the rest — so the lint takes a matcher as
     sufficient. ``Bash`` and ``Edit`` have no such legitimate path and are gated
@@ -2028,8 +2028,8 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
             f"The generated profile would ship able to run {tool!r} with no gate: "
             f"{tool!r} is neither in permissions.deny nor matched by any PreToolUse "
             "hook rule. A profile must not be able to write with no gate. "
-            "Wire the memory-guard hook (its 'Write|MultiEdit|NotebookEdit' matcher "
-            f"gates the three file-writing built-ins), or add {tool!r} to "
+            "Wire the memory-guard hook (its 'Write|NotebookEdit' matcher gates "
+            f"Write and NotebookEdit), or add {tool!r} to "
             "permissions.deny — if it is missing because "
             f"claude_code.permissions.remove_deny lists {tool!r}, drop that entry. "
             "A PreToolUse matcher satisfies this check by existing; the build "
@@ -2094,8 +2094,8 @@ def create_claude_code_integration(
     ctx["approval_outcome_hooks"] = _approval_outcome_rules(ctx["wired_servers"])
 
     # Build-time safety lint: refuse to render a profile in which any
-    # write-capable built-in (Write/MultiEdit/NotebookEdit) is neither hard-denied
-    # nor gated by a PreToolUse hook. Runs on both render paths (create + regen)
+    # write-capable built-in (WRITE_CAPABLE_BUILTINS) is neither hard-denied nor
+    # gated by a PreToolUse hook. Runs on both render paths (create + regen)
     # because both funnel through here, and before any file is written so a
     # failing profile never lands a half-rendered .claude/ tree.
     _lint_write_tools_are_gated(ctx, fw_pre)
