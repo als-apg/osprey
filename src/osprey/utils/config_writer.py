@@ -933,7 +933,8 @@ def config_read(config_path: Path) -> dict:
     import json
 
     data = load_config_document(config_path)
-    return json.loads(json.dumps(copy.deepcopy(data), default=str))
+    plain = json.loads(json.dumps(copy.deepcopy(data), default=str))
+    return plain if isinstance(plain, dict) else {}
 
 
 # =============================================================================
@@ -1069,7 +1070,7 @@ def get_control_system_type(config_path: Path, key: str = "control_system.type")
             if value is None:
                 return None
 
-        return value
+        return value if isinstance(value, str) else None
     except Exception:
         pass  # Config read/parse failed; return default below
 
