@@ -888,6 +888,11 @@ def _rewrite_content(
 #: ``_app_setup.mount_shared_static()`` serves at ``/design-system``.
 _DESIGN_SYSTEM_DIR = Path(__file__).resolve().parents[2] / "design_system" / "static"
 
+#: The hub's shared fonts — the same directory ``_app_setup`` mounts at
+#: ``/static/fonts`` — served to an embedded panel by
+#: :func:`proxy_panel_shared_fonts`.
+_SHARED_FONTS_DIR = Path(__file__).resolve().parents[2] / "shared_fonts"
+
 #: The hub's own ``web_terminal/static`` tree, served to an embedded panel by
 #: :func:`proxy_panel_terminal_static`.
 _TERMINAL_STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -919,6 +924,11 @@ _STATIC_TEXT_TYPES = {
     ".json": "application/json",
     ".map": "application/json",
 }
+
+#: Font suffixes, mapped to the content type to serve them as. The hub's shared
+#: fonts are served with a font type that does not depend on the host's mime
+#: table.
+_STATIC_FONT_TYPES = {".ttf": "font/ttf"}
 
 
 def _contained_asset(root: Path, asset_path: str) -> Path | None:
@@ -963,7 +973,8 @@ def _asset_media_type(candidate: Path) -> str:
     ``mimetypes`` for images and fonts, then a bytes-shaped fallback so an
     unknown suffix is still served rather than guessed wrong as text.
     """
-    mapped = _STATIC_TEXT_TYPES.get(candidate.suffix.lower())
+    suffix = candidate.suffix.lower()
+    mapped = _STATIC_TEXT_TYPES.get(suffix) or _STATIC_FONT_TYPES.get(suffix)
     if mapped is not None:
         return mapped
     guessed, _ = mimetypes.guess_type(candidate.name)
@@ -1305,6 +1316,44 @@ def _stamp_facility_timezone(text: str, base_type: str, zone: str) -> str:
         return text
     stamp = f' {FACILITY_TIMEZONE_ATTRIBUTE}="{html.escape(zone, quote=True)}"'
     return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
+
+
+@router.api_route(
+    "/panel/{panel_id}/static/fonts/{asset_path:path}",
+    methods=["GET", "HEAD"],
+)
+async def proxy_panel_shared_fonts(
+    panel_id: str,  # noqa: ARG001 - route path parameter; fonts are served verbatim
+    asset_path: str,
+):
+    """Serve the HUB's shared fonts to an embedded panel.
+
+    MUST stay declared above :func:`proxy_panel` — that route's
+    ``{path:path}`` is a catch-all and Starlette matches in declaration
+    order, so moving this below it makes it unreachable.
+
+    Every panel links ``/static/fonts/fonts.css`` root-absolute, which
+    :func:`_rewrite_content` turns into ``/panel/<id>/static/fonts/fonts.css``.
+    Left to the generic proxy that request reaches the panel's own backend,
+    and a URL-backed panel does not ship OSPREY's fonts, so the link would
+    404 and the panel would render in system fonts. Answered here, every
+    embedded panel gets the hub's typeface.
+
+    ``fonts.css`` names its font files relatively, so it is served verbatim.
+    A missing font 404s here and never reaches the backend.
+    """
+    if not _SHARED_FONTS_DIR.is_dir():  # pragma: no cover - packaging guard
+        return Response(content="shared fonts unavailable", status_code=404)
+
+    candidate = _contained_asset(_SHARED_FONTS_DIR, asset_path)
+    if candidate is None:
+        return Response(content="Not found", status_code=404)
+
+    return Response(
+        content=candidate.read_bytes(),
+        headers={"cache-control": _DEFAULT_NO_CACHE},
+        media_type=_asset_media_type(candidate),
+    )
 
 
 @router.api_route(
