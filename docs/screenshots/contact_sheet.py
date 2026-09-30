@@ -1118,6 +1118,21 @@ def capture_hub_view(
             "try { localStorage.setItem('osprey-tour-dismissed-v1', '1');"
             f" localStorage.setItem('osprey-pty-session', '{DEMO_SESSION_ID}') }} catch (e) {{}}"
         )
+        # Every capture resumes the same session id, so they share one pool
+        # entry, and the hub hands a warm entry to a new page without re-running
+        # its command, which would leave the page waiting for a replay that
+        # already played. Emptying the pool while no page of this run is open
+        # means the replay this page waits for was spawned for it. The POST names
+        # the hub's own origin, as the page itself would, because the hub refuses
+        # a state-changing request that carries none.
+        response = page.request.post(
+            f"{hub.base_url}/api/terminal/restart", headers={"Origin": hub.base_url}
+        )
+        if not response.ok:
+            raise RuntimeError(
+                f"hub {variant}: the hub refused to empty its terminal pool "
+                f"(HTTP {response.status}); no image was written."
+            )
         page.goto(
             _variant_url(hub.base_url, theme, mode, rail),
             wait_until="domcontentloaded",
@@ -1156,19 +1171,6 @@ def capture_hub_view(
         png = page.screenshot()
         dest.write_bytes(png)
     finally:
-        # Every variant now resumes the SAME session id, so they share one pool
-        # entry — and the hub hands a warm PTY straight over without re-running
-        # its command. The next variant would sit forever waiting for a
-        # transcript that already played. Emptying the pool makes each capture
-        # spawn its own replay again. The POST names the hub's own origin, as the
-        # page itself would, because the hub refuses a state-changing request
-        # that carries none.
-        try:
-            page.request.post(
-                f"{hub.base_url}/api/terminal/restart", headers={"Origin": hub.base_url}
-            )
-        except Exception:
-            pass
         page.close()
 
 

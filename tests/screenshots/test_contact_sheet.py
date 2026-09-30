@@ -393,14 +393,25 @@ class _FakeFrame:
         return _FakeLocator(self.page, self.frames, selector)
 
 
+class _FakeResponse:
+    """A stand-in Playwright ``APIResponse`` carrying only its status."""
+
+    def __init__(self, ok: bool, status: int) -> None:
+        self.ok = ok
+        self.status = status
+
+
 class _FakeRequest:
-    """A stand-in ``page.request`` that records the teardown restart."""
+    """A stand-in ``page.request`` that records the terminal-pool restart."""
 
-    def __init__(self, events: list[str]) -> None:
+    def __init__(self, events: list[str], *, ok: bool = True, status: int = 200) -> None:
         self.events = events
+        self.ok = ok
+        self.status = status
 
-    def post(self, url: str, headers: dict[str, str] | None = None) -> None:  # noqa: ARG002
+    def post(self, url: str, headers: dict[str, str] | None = None) -> _FakeResponse:  # noqa: ARG002
         self.events.append("restart")
+        return _FakeResponse(self.ok, self.status)
 
 
 class _FakeHubPage:
@@ -415,6 +426,8 @@ class _FakeHubPage:
         drawn: list[bool],
         wait_error: Exception | None = None,
         function_error: Exception | None = None,
+        restart_ok: bool = True,
+        restart_status: int = 200,
     ) -> None:
         self.events: list[str] = []
         self.waits: list[tuple[tuple[str, ...], str, str]] = []
@@ -423,13 +436,13 @@ class _FakeHubPage:
         self.wait_error = wait_error
         self.function_error = function_error
         self.context = object()
-        self.request = _FakeRequest(self.events)
+        self.request = _FakeRequest(self.events, ok=restart_ok, status=restart_status)
 
     def add_init_script(self, script: str) -> None:
         pass
 
-    def goto(self, url: str, **kwargs: object) -> None:
-        pass
+    def goto(self, url: str, **kwargs: object) -> None:  # noqa: ARG002
+        self.events.append("goto")
 
     def wait_for_function(self, expression: str, **kwargs: object) -> None:
         self.functions.append((expression, kwargs.get("arg")))
@@ -733,7 +746,7 @@ def test_hub_capture_rechecks_the_plot_after_the_stage(
     with pytest.raises(RuntimeError, match="stage=probe") as info:
         _drive(monkeypatch, tmp_path, page, stage="probe")
     assert "before the shot" in str(info.value)
-    steps = [e for e in page.events if e not in ("restart", "close")]
+    steps = [e for e in page.events if e not in ("restart", "goto", "close")]
     assert steps == ["click", "plot:visible", "stage", "settle", "plot:visible"]
     assert "shot" not in page.events
 
@@ -748,7 +761,7 @@ def test_hub_capture_shoots_after_both_plot_checks(
     page = _FakeHubPage(drawn=[True, True])
     _drive(monkeypatch, tmp_path, page, stage="probe")
     assert (tmp_path / "shot.png").read_bytes() == b"png"
-    steps = [e for e in page.events if e not in ("restart", "close")]
+    steps = [e for e in page.events if e not in ("restart", "goto", "close")]
     assert steps == ["click", "plot:visible", "stage", "settle", "plot:visible", "shot"]
 
 
@@ -807,3 +820,51 @@ def test_resumed_session_wait_does_not_swallow_other_errors() -> None:
     with pytest.raises(PlaywrightError, match="frame detached") as info:
         _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
     assert not isinstance(info.value, RuntimeError)
+
+
+def test_hub_capture_empties_the_terminal_pool_before_the_page_loads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The capture empties the terminal pool once, before its page loads."""
+    page = _FakeHubPage(drawn=[True, True])
+    _drive(monkeypatch, tmp_path, page)
+    assert page.events.index("restart") < page.events.index("goto")
+    assert page.events.count("restart") == 1
+
+
+def test_hub_capture_stops_when_the_hub_keeps_its_terminal_pool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A refused restart stops the capture before the page loads and writes nothing."""
+    page = _FakeHubPage(drawn=[True, True], restart_ok=False, restart_status=403)
+    with pytest.raises(RuntimeError) as info:
+        _drive(monkeypatch, tmp_path, page)
+    assert "theme=light, mode=expert" in str(info.value)
+    assert "403" in str(info.value)
+    assert "goto" not in page.events
+    assert "shot" not in page.events
+    assert "close" in page.events
+    assert not (tmp_path / "shot.png").exists()
+
+
+@pytest.mark.browser
+def test_hub_capture_writes_every_mode_twice_in_one_hub(tmp_path: Path) -> None:
+    """Every mode captures in one hub, and a repeat Expert capture does not stall."""
+    from docs.screenshots.capture import ScreenshotSkip, chromium_context
+
+    sequence = [
+        ("dark", "expert"),
+        ("dark", "simple"),
+        ("light", "expert"),
+        ("light", "simple"),
+        ("dark", "expert"),
+    ]
+    try:
+        with chromium_context() as browser, hermetic_hub() as hub:
+            for index, (theme, mode) in enumerate(sequence):
+                dest = tmp_path / f"{index}_{theme}_{mode}.png"
+                capture_hub_view(browser, hub, theme, mode, dest)
+                assert dest.exists()
+                assert dest.read_bytes().startswith(b"\x89PNG")
+    except ScreenshotSkip as exc:
+        pytest.skip(str(exc))
