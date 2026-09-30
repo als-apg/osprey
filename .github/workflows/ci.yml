@@ -847,7 +847,7 @@ jobs:
         "
 
   static-checks:
-    name: Tier 0 — Static (preset YAML, skill ↔ MCP-tool consistency, podman-compose parse)
+    name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
     runs-on: ubuntu-latest
     # Matches the convention the other light lanes use. None of this job's work
     # can hang in principle, but it now shells out to `osprey init`, `osprey
