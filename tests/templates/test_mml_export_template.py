@@ -2,7 +2,7 @@
 
 No MATLAB runs here. The script is held to its written contract instead: it is
 pullable into a deployment, it encodes with the options that keep non-finite
-values out of ``null``, it names the five files and ``_export`` keys the
+values out of ``null``, it names the six files and ``_export`` keys the
 importer reads, it saves the model ring before anything samples the machine,
 it refuses a family rather than the whole export, and a document in exactly
 that dialect imports with no flags.
@@ -19,6 +19,7 @@ from click.testing import CliRunner
 from tests.cli.test_scaffold_ci import named_commands, unresolvable
 from tests.templates.mml_export_contract import (
     EXPORTER_VERSION,
+    MODEL_SECTION_KEYS,
     VA_CALIBRATION_KEYS,
     VA_ENERGY_TABLE_KEYS,
     VA_FAMILY_KEYS,
@@ -45,7 +46,8 @@ PAIRED_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mml" / "paired" / "quokka.r
 PULL_LINE = "osprey scaffold pull control-assistant:data/mml/mml_export.m"
 
 #: Every Middle Layer call that reaches into the live machine or the model.
-#: getpvmodel and measbpmresp mutate the ring to reach a solvable state, so the
+#: getpvmodel and measbpmresp mutate the ring to reach a solvable state, and
+#: the model probes turn the cavity or radiation on to reach theirs, so the
 #: lattice save has to precede all of them.
 SAMPLING_CALLS = (
     "hw2physics(",
@@ -54,6 +56,23 @@ SAMPLING_CALLS = (
     "getbpmresp(",
     "measbpmresp(",
     "bend2gev(",
+    "getcavity(",
+    "modeltune(",
+    "tunechrom(",
+    "modelchro(",
+    "modeldisp(",
+    "meastuneresp(",
+    "measchroresp(",
+)
+
+#: The six files one run writes, by suffix, in the order FILES returns them.
+EXPORT_SUFFIXES = (
+    ".ao.json",
+    ".ad.json",
+    ".lattice.mat",
+    ".va.json",
+    ".response.json",
+    ".model.json",
 )
 
 #: The helpers the export may call before the lattice is saved: naming a file
@@ -165,12 +184,14 @@ def test_readme_names_the_pull_line_and_it_resolves() -> None:
     assert [unresolvable(chain) for chain in scaffold_chains if unresolvable(chain)] == []
 
 
-def test_readme_states_the_one_command_usage_and_the_five_files() -> None:
+def test_readme_states_the_one_command_usage_and_the_six_files() -> None:
     text = README.read_text(encoding="utf-8")
 
     assert "```matlab\nmml_export\n```" in text
-    for name in ("lattice.mat", "ao.json", "ad.json", "va.json", "response.json"):
-        assert f"<machine>.<submachine>.{name}" in text, name
+    for suffix in EXPORT_SUFFIXES:
+        assert f"<machine>.<submachine>{suffix}" in text, suffix
+    assert "six files" in text
+    assert "five files" not in text
     assert "osprey mml import" in text
 
 
@@ -221,12 +242,12 @@ def test_script_applies_the_normalisation_rules(exporter_source: str) -> None:
     assert "'Handles'" in exporter_source
 
 
-def test_script_writes_the_five_export_file_names(exporter_source: str) -> None:
-    for suffix in (".ao.json", ".ad.json", ".lattice.mat", ".va.json", ".response.json"):
+def test_script_writes_the_six_export_file_names(exporter_source: str) -> None:
+    for suffix in EXPORT_SUFFIXES:
         assert f"'{suffix}'" in exporter_source, suffix
 
 
-def test_script_returns_the_five_paths(exporter_source: str) -> None:
+def test_script_returns_the_six_paths(exporter_source: str) -> None:
     returned = re.search(r"files\s*=\s*\{([^}]*)\}", exporter_source)
 
     assert returned is not None
@@ -236,6 +257,7 @@ def test_script_returns_the_five_paths(exporter_source: str) -> None:
         "latticeFile",
         "vaFile",
         "responseFile",
+        "modelFile",
     ]
 
 
@@ -311,11 +333,345 @@ def test_the_lattice_is_saved_before_any_file_the_export_writes(
     assert seen == sorted(seen)
 
 
+def test_the_model_file_is_written_after_the_response_file(exporter_source: str) -> None:
+    """The model probes run last: everything the importer reads is on disk first."""
+    body = _code(_function_body(exporter_source, "mml_export"))
+
+    assert re.search(r"modelFile\s*=\s*fullfile\(outdir,\s*\[stem '\.model\.json'\]\)", body)
+    va = body.index("local_va_export(")
+    model = body.index("local_model_export(export, AO, AD, latticeFile, modelFile)")
+    assert va < model
+
+
+def test_the_model_file_carries_the_export_block_and_every_section(
+    exporter_source: str,
+) -> None:
+    signature = r"^function\s+local_model_export\(export, AO, AD, latticeFile, modelFile\)"
+    body = _function_body(exporter_source, "local_model_export")
+
+    assert re.search(signature, exporter_source, re.M)
+    assert re.search(r"local_write\(modelFile,\s*local_document\(export,", _code(body))
+    for section in MODEL_SECTION_KEYS:
+        assert f"'{section}'" in body, section
+
+
+def test_the_header_names_the_model_file_sections(exporter_source: str) -> None:
+    header = exporter_source.split("EXPORTER_VERSION", 1)[0]
+
+    for section in MODEL_SECTION_KEYS:
+        assert re.search(rf"^%\s+{section}\b", header, re.M), section
+
+
+# ---------------------------------------------------------------------------
+# The model probe: what the Middle Layer's model answers on the saved deck
+# ---------------------------------------------------------------------------
+
+
+def _probe_functions(source: str) -> list[str]:
+    """The names of every local function of the model probe."""
+    return re.findall(r"^function\s+.*?\b(local_model_\w+)\(", source, re.M)
+
+
+def _probe_code(source: str) -> str:
+    """The comment-free code of the whole model probe, every function of it."""
+    return "\n".join(_code(_function_body(source, name)) for name in _probe_functions(source))
+
+
+def test_every_model_section_is_asked_through_the_guarded_reload(
+    exporter_source: str,
+) -> None:
+    """Each section runs on the saved deck and refuses on its own.
+
+    The reload sits inside the section's own try, ahead of the section, so a
+    section can neither see what an earlier one left in THERING nor cost the
+    file any section but itself.
+    """
+    export = _code(_function_body(exporter_source, "local_model_export"))
+    guard = _code(_function_body(exporter_source, "local_model_section"))
+
+    for section in MODEL_SECTION_KEYS:
+        assert re.search(rf"'{section}',\s*@local_model_{section};?", export), section
+    assert "local_model_section(probes{k, 2}, latticeFile, AO, AD)" in export
+    assert re.search(r"^\s*try\b", guard, re.M)
+    assert guard.index("try") < guard.index("local_model_reload(latticeFile);")
+    assert guard.index("local_model_reload(latticeFile);") < guard.index("probe(latticeFile")
+    assert re.search(r"^\s*catch\s+err\b", guard, re.M)
+    assert "section = struct('refused', err.message);" in guard
+
+
+def test_no_section_is_asked_except_through_the_guard(exporter_source: str) -> None:
+    """A section function called directly would skip the reload that precedes it."""
+    code = _code(exporter_source)
+
+    for section in MODEL_SECTION_KEYS:
+        name = f"local_model_{section}"
+        calls = re.findall(rf"(?<![@\w]){name}\(", code)
+        assert calls == [f"{name}("], (name, "only its definition names it")
+
+
+def test_the_reload_puts_the_saved_deck_back_into_thering(exporter_source: str) -> None:
+    body = _code(_function_body(exporter_source, "local_model_reload"))
+
+    assert "S = load(latticeFile, 'THERING');" in body
+    assert "global THERING" in body
+    assert "THERING = S.THERING;" in body
+
+
+def test_the_state_section_reads_the_saved_deck_before_the_orbit(
+    exporter_source: str,
+) -> None:
+    """The orbit read turns the cavity on to reach its orbit, so it comes last."""
+    body = _code(_function_body(exporter_source, "local_model_state"))
+    orbit = body.index("getpvmodel(")
+
+    for fact in (
+        "getcavity",
+        "istransport",
+        "getenergymodel",
+        "mcf(THERING)",
+        "findspos(THERING, numel(THERING) + 1)",
+        "local_model_harmonic(iCavity)",
+    ):
+        assert fact in body, fact
+        assert body.index(fact) < orbit, fact
+    assert "'Hardware', 'Physics'" in body
+    assert "gethbpmfamily" in body and "getvbpmfamily" in body
+    assert "'device_list', DeviceList" in body
+
+
+def test_the_cavity_state_is_the_decks_own_word_or_none(exporter_source: str) -> None:
+    body = _code(_function_body(exporter_source, "local_model_cavity"))
+
+    assert "state = 'none';" in body
+    assert "state = deblank(cavity(1, :));" in body
+
+
+def test_the_probe_reads_the_orbit_once_and_the_nominal_seam_twice(
+    exporter_source: str,
+) -> None:
+    """Every getpvmodel call is named: two in the nominal seam, one in the state."""
+    code = _code(exporter_source)
+    nominal = _code(_function_body(exporter_source, "local_sample_nominal"))
+    state = _code(_function_body(exporter_source, "local_model_state"))
+
+    assert "getpvmodel(" in SAMPLING_CALLS
+    assert nominal.count("getpvmodel(") == 2
+    assert state.count("getpvmodel(") == 1
+    assert _probe_code(exporter_source).count("getpvmodel(") == 1
+    assert code.count("getpvmodel(") == 3
+
+
+def test_the_tune_section_names_the_method_modeltune_took(exporter_source: str) -> None:
+    """A ring with no cavity answers through modeltune's own 4D twiss fallback."""
+    body = _code(_function_body(exporter_source, "local_model_tune"))
+
+    assert "section.cavity_on = modeltune;" in body
+    assert "section.fixed_momentum = tunechrom(THERING, 0);" in body
+    assert "section.method = 'twissring';" in body
+    assert "section.method = 'findm66';" in body
+    assert body.index("isempty(cavity)") < body.index("'twissring'")
+
+
+def test_the_chromaticity_step_is_the_facilitys_own_largest_rf_step(
+    exporter_source: str,
+) -> None:
+    """max(AD.DeltaRFChro) is in hardware units; modelchro takes its step in Hz."""
+    body = _code(_function_body(exporter_source, "local_model_chromaticity"))
+
+    assert "step = max(AD.DeltaRFChro);" in body
+    assert "local_sample_hw2physics('RF', 'Setpoint', [1 1], [rf0, rf0 + step], energy)" in body
+    assert "deltaRF = rf(2) - rf(1);" in body, "the step is the difference at the nominal"
+    assert "modelchro(deltaRF, 'Physics')" in body
+    assert "modelchro(deltaRF, 'Hardware')" in body
+
+
+def test_a_ring_without_a_cavity_refuses_the_hardware_chromaticity(
+    exporter_source: str,
+) -> None:
+    """modelchro answers physics units whatever it is asked with no cavity."""
+    body = _code(_function_body(exporter_source, "local_model_chromaticity"))
+    refused = "section.hardware = struct('refused', 'no cavity: modelchro answers physics only');"
+
+    assert refused in body
+    assert "section.method = 'tunechrom';" in body
+    assert "section.method = 'findm66';" in body
+    assert body.index("isempty(cavity)") < body.index(refused)
+    assert body.index(refused) < body.index("modelchro(deltaRF, 'Hardware')")
+
+
+def test_the_hardware_dispersion_call_is_handed_no_rf_step(exporter_source: str) -> None:
+    """A number handed to modeldisp's Hardware call is read as MHz, so it gets []."""
+    body = _function_body(exporter_source, "local_model_dispersion")
+    calls = _sampling_calls(body, "modeldisp")
+
+    assert len(calls) == 2
+    for arguments in calls:
+        assert arguments[0] == "[]", arguments
+        assert arguments[1:5] == ["bpmx", "[]", "bpmy", "[]"], arguments
+        assert arguments[6:] == ["'bipolar'", "'NoDisplay'"], arguments
+    assert [arguments[5] for arguments in calls] == ["'Physics'", "'Hardware'"]
+    assert _code(exporter_source).count("modeldisp(") == 2
+
+
+def test_the_dispersion_records_the_branch_and_the_rf_it_used(exporter_source: str) -> None:
+    body = _code(_function_body(exporter_source, "local_model_dispersion"))
+    method = _code(_function_body(exporter_source, "local_model_dispersion_method"))
+
+    for word in ("twiss", "findorbit4", "findorbit6", "findsyncorbit"):
+        assert f"method = '{word}';" in method, word
+    assert method.index("istransport") < method.index("isempty(cavity)")
+    assert "isradiationon" in method
+    for key in ("delta_rf_hw", "delta_rf_hz", "f_cavity", "rf_change_hz", "mcf"):
+        assert f"section.{key} =" in body, key
+    assert "step = local_field(AD, 'DeltaRFDisp');" in body
+    assert "section.rf_change_hz = fCavity - harmonic * speed / circumference;" in body
+    assert "speed = PhysConstant.speed_of_light_in_vacuum.value;" in body
+    assert "section.mcf = modelmcf;" in body
+    assert body.index("section.mcf = modelmcf;") < body.index("modeldisp(")
+
+
+def test_the_probe_measures_the_orbit_response_in_both_unit_systems(
+    exporter_source: str,
+) -> None:
+    """Laid out by the response file's own blocks, so rounded exactly as it is."""
+    body = _function_body(exporter_source, "local_model_orbit_response")
+    calls = _sampling_calls(body, "measbpmresp")
+
+    assert calls == [
+        ["'Model'", "'Struct'", "'Physics'", "'NoArchive'", "'NoDisplay'"],
+        ["'Model'", "'Struct'", "'Hardware'", "'NoArchive'", "'NoDisplay'"],
+    ]
+    code = _code(body)
+    assert code.count("local_response_blocks(") == 2
+    assert "section.physics = local_response_blocks(" in code
+    assert "section.hardware = local_response_blocks(" in code
+
+
+def test_the_orbit_response_records_the_calculator_measbpmresp_chose(
+    exporter_source: str,
+) -> None:
+    body = _code(_function_body(exporter_source, "local_model_orbit_response"))
+
+    assert "isstoragering" in body
+    ring = body.index("'Linear'")
+    line = body.index("'Full'")
+    assert "'FixedPathLength'" in body[ring:line]
+    assert "'FixedMomentum'" in body[line:]
+
+
+def test_the_two_corrector_tags_are_read_and_their_absence_refuses(
+    exporter_source: str,
+) -> None:
+    """The Middle Layer has no default pair; its own refusal text is the section's."""
+    tune = _code(_function_body(exporter_source, "local_model_tune_response"))
+    chroma = _code(_function_body(exporter_source, "local_model_chromaticity_response"))
+    family = _function_body(exporter_source, "local_model_family_response")
+
+    assert "'Tune Corrector'" in tune
+    assert "'Chromaticity Corrector'" in chroma
+    assert "families = findmemberof(tag);" in family
+    refusal = "error('mml_export:memberof', 'MemberOf ''%s'' was not found', tag);"
+    assert refusal in family
+    assert family.index("isempty(families)") < family.index(refusal)
+    assert "section.crm_chroma_step_hz = 1;" in chroma
+
+
+def test_the_corrector_responses_step_the_whole_family(exporter_source: str) -> None:
+    """An empty device list and no width: the Middle Layer's own family step."""
+    tune = _sampling_calls(_function_body(exporter_source, "local_model_tune_step"), "meastuneresp")
+    chroma = _sampling_calls(
+        _function_body(exporter_source, "local_model_chromaticity_step"), "measchroresp"
+    )
+
+    assert tune == [["family", "[]", "[]", "'Model'", "units", "'NoArchive'", "'NoDisplay'"]]
+    assert chroma == [
+        ["family", "[]", "[]", "[]", "'Model'", "units", "'NoArchive'", "'NoDisplay'"]
+    ]
+    code = _code(exporter_source)
+    assert code.count("meastuneresp(") == 1
+    assert code.count("measchroresp(") == 1
+
+
+def test_each_corrector_family_records_what_its_value_is_made_of(
+    exporter_source: str,
+) -> None:
+    body = _code(_function_body(exporter_source, "local_model_family_facts"))
+    family = _code(_function_body(exporter_source, "local_model_family_response"))
+
+    for key in ("device_list", "delta_resp_mat", "leff", "k_per_amp"):
+        assert f"facts.{key} =" in body, key
+    assert "getfamilydata(family, 'Setpoint', 'DeltaRespMat', DeviceList)" in body
+    assert "getleff(family, DeviceList)" in body
+    assert "grid = [nominal(:), nominal(:) + width(:)];" in body, "one-sided, from the nominal"
+    assert "facts.k_per_amp = (values(:, 2) - values(:, 1)) ./ width(:);" in body
+    assert "measure(family, 'Hardware')" in family
+    assert "measure(family, 'Physics')" in family
+    assert re.search(r"^\s*catch\s+err\b", family, re.M), "one family refuses on its own"
+    assert family.index("local_model_reload(latticeFile);") < family.index("measure(family")
+
+
+def test_a_family_with_no_finite_step_is_refused_before_anything_is_stepped(
+    exporter_source: str,
+) -> None:
+    """NSLS-II SM1 has no hardware nominal: stepping it would open a dialog box."""
+    # The refusal's format string holds a '%', which the comment stripper
+    # would cut, so the bodies are read as written.
+    facts = _function_body(exporter_source, "local_model_family_facts")
+    family = _function_body(exporter_source, "local_model_family_response")
+
+    assert "any(~isfinite(nominal(:)))" in facts
+    assert "any(~isfinite(width(:)))" in facts
+    refusal = facts.index("error('mml_export:step'")
+    assert facts.index("isfinite") < refusal
+    assert refusal < facts.index("local_sample_hw2physics(")
+    assert "%s: the nominal setpoint" in facts, "the refusal names the family"
+    assert family.index("local_model_family_facts(") < family.index("measure(family")
+    # The one direct step is the stepped-compaction read, which runs on facts
+    # already checked finite; every other step is the Middle Layer's own.
+    stepped = _code(_function_body(exporter_source, "local_model_chromaticity_stepped_mcf"))
+    assert "setsp(" in stepped
+    others = _probe_code(exporter_source).replace(stepped, "")
+    assert "setsp(" not in others
+    assert family.index("local_model_family_facts(") < family.index("readExtra(family, facts)")
+
+
+def test_the_ring_only_sections_are_refused_on_a_transport_line(
+    exporter_source: str,
+) -> None:
+    ring = _code(_function_body(exporter_source, "local_model_require_ring"))
+    state = _code(_function_body(exporter_source, "local_model_state"))
+    family = _code(_function_body(exporter_source, "local_model_family_response"))
+
+    assert "error('mml_export:transport', 'transport line');" in ring
+    assert "error('mml_export:transport', 'transport line');" in family
+    assert family.index("istransport") < family.index("findmemberof(")
+    for name, first in (
+        ("local_model_tune", "getcavity"),
+        ("local_model_chromaticity", "getenergymodel"),
+    ):
+        body = _code(_function_body(exporter_source, name))
+        assert body.index("local_model_require_ring();") < body.index(first), name
+    assert "section.mcf = struct('refused', 'transport line');" in state
+    assert "section.harmonic_number = struct('refused', 'transport line');" in state
+
+
+def test_the_harmonic_number_is_the_cavitys_or_the_accelerator_datas(
+    exporter_source: str,
+) -> None:
+    body = _code(_function_body(exporter_source, "local_model_harmonic"))
+
+    assert "getfamilydata('HarmonicNumber')" in body
+    assert "THERING{iCavity(1)}.HarmNumber" in body
+    assert "error('mml_export:harmonic'" in body
+
+
 def test_the_header_states_the_order_and_names_the_files(exporter_source: str) -> None:
     header = exporter_source.split("EXPORTER_VERSION", 1)[0].lower()
 
-    for name in ("lattice.mat", "ao.json", "ad.json", "va.json", "response.json"):
-        assert name in header, name
+    for suffix in EXPORT_SUFFIXES:
+        assert suffix in header, suffix
+    assert "six files" in header
+    assert "five" not in header
     assert "thering is saved before" in header
     assert "getpvmodel" in header
     assert "measbpmresp" in header
@@ -891,8 +1247,9 @@ def test_the_nominal_read_asks_for_hardware_units_and_for_the_units_statement(
     Only its struct output says which units it answered in, and a physics
     number sizing a hardware grid is a wrong grid rather than a wrong label.
     """
-    calls = _sampling_calls(exporter_source, "getpvmodel")
-    body = _code(_function_body(exporter_source, "local_sample_nominal"))
+    body = _function_body(exporter_source, "local_sample_nominal")
+    calls = _sampling_calls(body, "getpvmodel")
+    body = _code(body)
 
     assert calls, "the nominal is read through the Middle Layer's own model read"
     for arguments in calls:
@@ -906,7 +1263,7 @@ def test_the_nominal_read_takes_the_whole_device_list_and_passes_no_time(
     exporter_source: str,
 ) -> None:
     """The model read converts at the model's own energy; a fourth number is a time."""
-    calls = _sampling_calls(exporter_source, "getpvmodel")
+    calls = _sampling_calls(_function_body(exporter_source, "local_sample_nominal"), "getpvmodel")
 
     assert calls
     for arguments in calls:
@@ -1019,15 +1376,20 @@ def test_the_nominal_seam_hands_the_grids_one_column_per_field(
     assert "nominal = nominals.(field);" in accessor
 
 
-def test_the_nominal_read_is_the_only_getpvmodel_call_the_export_makes(
+def test_the_nominal_read_is_the_export_s_only_getpvmodel_seam_but_the_probe(
     exporter_source: str,
 ) -> None:
-    """The read mutates the ring, so it stays behind the one seam the save precedes."""
+    """The read mutates the ring, so every call of it stays behind a named seam:
+    the nominal read of the export, and the state section of the model probe,
+    which reloads the saved deck before it reads."""
     body = _function_body(exporter_source, "local_sample_nominal")
+    state = _function_body(exporter_source, "local_model_state")
 
     assert "getpvmodel(" in SAMPLING_CALLS
-    assert _code(exporter_source).count("getpvmodel(") == _code(body).count("getpvmodel(")
     assert _code(body).count("getpvmodel(") == 2
+    assert _code(exporter_source).count("getpvmodel(") == (
+        _code(body).count("getpvmodel(") + _code(state).count("getpvmodel(")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1496,7 +1858,8 @@ def test_the_response_is_reached_one_way_or_the_other_and_never_twice(
     assert "getbpmresp(" in SAMPLING_CALLS
     assert "measbpmresp(" in SAMPLING_CALLS
     assert code.count("getbpmresp(") == 1
-    assert code.count("measbpmresp(") == 1
+    assert code.count("measbpmresp(") == 3, "one for the response file, two for the probe"
+    assert _probe_code(exporter_source).count("measbpmresp(") == 2
     assert body.count("getbpmresp(") == 1
     assert model.count("measbpmresp(") == 1
     assert "else" in body, "one branch or the other, never both"
@@ -1546,8 +1909,9 @@ def test_the_model_measurement_asks_for_no_dialog_no_archive_and_no_display(
     builds its matrix in physics units directly and would read that word as the
     name of a family.
     """
-    model = _code(_function_body(exporter_source, "local_response_of_model"))
-    calls = _sampling_calls(exporter_source, "measbpmresp")
+    model = _function_body(exporter_source, "local_response_of_model")
+    calls = _sampling_calls(model, "measbpmresp")
+    model = _code(model)
 
     assert calls == [["'Model'", "'Struct'", "'Physics'", "'NoArchive'", "'NoDisplay'"]]
     assert "'NoEnergyScaling'" not in model
@@ -1570,7 +1934,7 @@ def test_a_response_block_names_the_two_families_it_was_measured_between(
     blocks = _code(_function_body(exporter_source, "local_response_blocks"))
     side = _code(_function_body(exporter_source, "local_response_side"))
 
-    assert "local_response_block(S(m, a))" in blocks
+    assert "local_response_block(S(m, a), isModel)" in blocks
     assert "side.family = local_text(local_field(body, 'FamilyName'));" in side
     assert "side.device_list = devices;" in side
     assert "'x'" not in blocks and "'y'" not in blocks, "the planes are the facility's own"
@@ -1596,7 +1960,9 @@ def test_a_response_block_records_the_matrix_and_its_operating_point(
     ):
         assert key in body, key
     assert "side.mode = local_text(local_field(body, 'Mode'));" in side
-    assert "side.data = local_response_rounded(" in side, "the point the matrix is a secant about"
+    assert "side.data = keep(local_response_point(" in side, (
+        "the point the matrix is a secant about"
+    )
 
 
 def test_the_response_is_measured_unless_a_mode_says_the_model(
@@ -1637,7 +2003,7 @@ def test_the_operating_point_is_held_to_the_device_list(exporter_source: str) ->
     side = _code(_function_body(exporter_source, "local_response_side"))
     point = _code(_function_body(exporter_source, "local_response_point"))
 
-    assert "side.data = local_response_rounded(local_response_point(body, name, nDev));" in side
+    assert "side.data = keep(local_response_point(body, name, nDev));" in side
     assert "isscalar(point) && isnan(point)" in point, "an absent point is not a wrong one"
     assert "numel(point) ~= nDev" in point
     assert re.search(r"error\('mml_export:response'", point)
@@ -1667,7 +2033,8 @@ def test_every_measured_response_number_carries_six_significant_digits(
     exporter_source: str,
 ) -> None:
     """The last digits of a measurement are noise, and a double's worth of them is
-    megabytes of text the consumer compares nothing against."""
+    megabytes of text the consumer compares nothing against. A model answer is a
+    calculation a consumer replays entry by entry, so it keeps a double's width."""
     rounded = _code(_function_body(exporter_source, "local_response_rounded"))
     digits = _code(_function_body(exporter_source, "local_response_digits"))
     block = _code(_function_body(exporter_source, "local_response_block"))
@@ -1675,10 +2042,14 @@ def test_every_measured_response_number_carries_six_significant_digits(
 
     assert "round(double(x), local_response_digits(), 'significant')" in rounded
     assert "n = 6;" in digits
+    assert "keep = @(x) double(x);" in block
+    assert "keep = @local_response_rounded;" in block
+    assert block.index("if isModel") < block.index("keep = @(x) double(x);")
     for key in ("block.gev", "block.actuator_delta", "block.data"):
-        assert f"{key} = local_response_rounded(" in block, key
+        assert f"{key} = keep(" in block, key
     identities = side[: side.index("side.data")]
-    assert "local_response_rounded" not in identities, "a device list is not a measurement"
+    assert "local_response_rounded(" not in identities, "a device list is not a measurement"
+    assert "keep(" not in identities, "a device list is not a measurement"
 
 
 def test_a_non_finite_response_number_is_recorded_rather_than_refused(

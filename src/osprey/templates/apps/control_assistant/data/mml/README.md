@@ -25,7 +25,7 @@ then one command:
 mml_export
 ```
 
-That writes five files into the current folder:
+That writes six files into the current folder:
 
 | File | Holds |
 |------|-------|
@@ -34,12 +34,13 @@ That writes five files into the current folder:
 | `<machine>.<submachine>.ad.json` | the Accelerator Data (`getad`) |
 | `<machine>.<submachine>.va.json` | per-family calibrations, energy facts and nominals |
 | `<machine>.<submachine>.response.json` | the orbit response matrix |
+| `<machine>.<submachine>.model.json` | what the Middle Layer's model answers: tune, chromaticity, dispersion and their responses |
 
 `<machine>` and `<submachine>` are `AD.Machine` and `AD.SubMachine`, lowercased.
 To write somewhere else, pass the folder: `mml_export('/path/to/exports')`.
 
 Repeat for every sub-machine you want in the deployment — set up the next one,
-run `mml_export` again. Each run writes its own set of five, so nothing is
+run `mml_export` again. Each run writes its own set of six, so nothing is
 overwritten.
 
 The lattice is saved first, before the export samples anything. Reading a
@@ -61,6 +62,9 @@ osprey mml import mymachine.storagering.ao.json mymachine.ltb.ao.json
 ```
 
 (Use your own file names — the ones the script printed.)
+
+The model file is not imported: it is what a check of OSPREY's model against
+the Middle Layer's reads.
 
 ## What the files contain
 
@@ -135,3 +139,51 @@ read from.
 - That sub-machine's simulator model loaded, so `THERING` holds its ring. The
   export refuses without it: the lattice is what every calibration in the
   export was sampled against.
+
+## Re-running the export on a MATLAB host
+
+The same steps produce a fresh export on any Linux host with MATLAB and an
+MML-prod checkout; `tests/templates/test_mml_export_parity.py` runs exactly this
+program when a MATLAB is on PATH.
+
+1. **Compile the bundled AT once.** The Accelerator Toolbox that MML-prod ships
+   under `simulators/at2.0` needs integrators built for the MATLAB that runs it:
+   run `atmexall` in its `atmat/` folder.
+2. **Make the two case symlinks SPEAR3 needs.** Linux is case-sensitive, and the
+   Middle Layer asks for `machine/SPEAR3/...` and `SPEAR3physdata.mat` where the
+   checkout spells both `Spear3`. Without `machine/SPEAR3 -> Spear3` and
+   `Spear3/StorageRingOpsData/SPEAR3physdata.mat -> Spear3physdata.mat` the golden
+   response file and the physics data are skipped silently and the export measures
+   the model instead. A fresh checkout needs them again.
+3. **Start one MATLAB per sub-machine.** Nothing carries over between
+   sub-machines, so each gets its own session. The machine's setpath
+   (`setpathspear3`, `setpathnsls2('StorageRing')`, `setpathnsls2('LTB')`) calls
+   `setpathmml`, and that has to run before anything else is put on the path: it
+   puts the bundled AT on the path and initialises the Accelerator Objects through
+   it. One line for `matlab -batch`, which runs only the first line of a
+   multi-line statement:
+
+   ```matlab
+   addpath('<MML-prod>/mml'); setpathspear3; setpathat('<AT>'); switch2sim; addpath('<folder of mml_export.m>'); mml_export('<outdir>')
+   ```
+
+4. **Expect the LabCA warning.** The link method defaults to LabCA; on a host
+   without it the Middle Layer warns once. `switch2sim` then puts every family in
+   simulator mode, which is what the export samples.
+
+A 2.1.0 run writes six files per sub-machine: `.ao.json`, `.ad.json`, `.va.json`,
+`.response.json`, `.lattice.mat` and `.model.json`.
+
+### Refreshing the committed SPEAR3 and NSLS-II exports
+
+This step is the owner's; no automated change touches those files.
+
+- Commit all six files of one run per sub-machine, never a mix of runs.
+- Compare the five older files with the committed ones first. If any differs
+  beyond `_export.exporter`, `timestamp` or `matlab`, stop: that is a change in
+  the facility or the exporter, not a refresh. Two differences are expected
+  and are not a stop: floating-point values that move in the last digits
+  (about 1e-15 relative) when the run is on a different host, and the `DCCT`
+  nominal, which the Middle Layer's simulator derives from the time of day.
+- Update the file counts in `tests/fixtures/mml/spear3/README.md` and
+  `tests/fixtures/mml/nsls2/README.md`.

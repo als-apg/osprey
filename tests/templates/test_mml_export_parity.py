@@ -95,8 +95,16 @@ FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
 
 #: Every file the exporter writes for one sub-machine, by suffix. The first two
-#: are a 1.0 export; the rest are what 2.0 added.
-EXPORT_SUFFIXES = (".ao.json", ".ad.json", ".va.json", ".response.json", ".lattice.mat")
+#: are a 1.0 export; the next three are what 2.0 added, and the model file is
+#: what 2.1 added.
+EXPORT_SUFFIXES = (
+    ".ao.json",
+    ".ad.json",
+    ".va.json",
+    ".response.json",
+    ".lattice.mat",
+    ".model.json",
+)
 
 #: The element attributes two decks must agree on. ``FamName``, ``Class`` and
 #: ``PassMethod`` are identities and compared as written; the rest describe the
@@ -479,6 +487,21 @@ def test_the_exported_response_matches_the_committed_export(
     expected = json.loads(_committed_file(case, ".response.json").read_text(encoding="utf-8"))
 
     actual = _sibling(export(case), ".response.json")
+
+    assert _differences(_without_export(actual), _without_export(expected)) == []
+
+
+def test_the_exported_model_matches_the_committed_export(
+    case: Case, export: Callable[[Case], Path]
+) -> None:
+    """The Middle Layer's model answers, to the tolerance this module's docstring names.
+
+    A refused section is compared like any other: the same section refused
+    with the same message, or answered on both sides.
+    """
+    expected = json.loads(_committed_file(case, ".model.json").read_text(encoding="utf-8"))
+
+    actual = _sibling(export(case), ".model.json")
 
     assert _differences(_without_export(actual), _without_export(expected)) == []
 
