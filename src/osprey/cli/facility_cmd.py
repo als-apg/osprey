@@ -109,6 +109,7 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
                 output_dir=Path(scratch),
                 deployment=False,
                 progress=lambda *_args: None,
+                repair=False,
             )
     except (BuildProfileError, ValueError) as error:
         fail("The profile does not render.", str(error))

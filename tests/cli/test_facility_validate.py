@@ -84,6 +84,37 @@ def test_a_clean_run_leaves_the_repo_byte_unchanged(repo: Path) -> None:
     assert not (repo / BUILD_DIR_NAME).exists()
 
 
+def test_a_run_repairs_nothing_the_build_would(repo: Path) -> None:
+    """Neither the facility-rule rescue nor the per-user context seeding runs."""
+    from osprey.cli.build_cmd import build
+
+    built = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps"])
+    assert built.exit_code == 0, built.output
+    assert (repo / BUILD_DIR_NAME / ".claude" / "rules" / "facility.md").is_file()
+    (repo / "rules" / "facility.md").unlink()
+    profile = repo / "profile.yml"
+    text = profile.read_text(encoding="utf-8")
+    assert text.count("\n    users:\n") == 1
+    profile.write_text(
+        text.replace(
+            "\n    users:\n",
+            "\n    users:\n"
+            "      - name: dave\n"
+            "        index: 5\n"
+            "        persona: readonly\n"
+            '        display_name: "Dave"\n',
+        ),
+        encoding="utf-8",
+    )
+    assert not (repo / "web-terminal-context" / "dave").exists()
+    before = _snapshot(repo)
+
+    result = _validate(repo)
+
+    assert result.exit_code == 0, result.output
+    assert _snapshot(repo) == before
+
+
 def test_a_failing_run_leaves_the_repo_byte_unchanged(repo: Path) -> None:
     _fixes(repo, {"op": "drop", "kind": "device", "id": "SR/Q9", "why": "gone"})
     before = _snapshot(repo)
