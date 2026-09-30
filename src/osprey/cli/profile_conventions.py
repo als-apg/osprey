@@ -476,6 +476,11 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         "the profile's `data/facility/` tree — the facility is authored there and the "
         "build derives the facility file from it",
     ),
+    ReservedPattern(
+        "data/simulator/**",
+        "the build, from the profile's `data/facility/` tree — the simulator view is "
+        "derived from the facility file, and a hand copy would be served in its place",
+    ),
 )
 
 
