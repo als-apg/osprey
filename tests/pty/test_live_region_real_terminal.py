@@ -55,6 +55,7 @@ from __future__ import annotations
 import os
 import re
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -87,9 +88,10 @@ TERMINAL_COLUMNS = 100
 TERMINAL_ROWS = 40
 
 #: How long any one scenario's process may take. Deliberately far above what
-#: the work costs (the slowest scenario is ~9 s, and that is a timeout it is
-#: *asserting* about): this is the harness giving up, and a generous ceiling is
-#: what keeps a loaded CI box from turning latency into a failure.
+#: the work costs (the slowest is the overrun scenario at ~9 s, which waits out
+#: its step's 1 s timeout and the 5 s exit grace on purpose): this is the
+#: harness giving up, and a generous ceiling is what keeps a loaded CI box from
+#: turning latency into a failure.
 RUN_TIMEOUT = 120.0
 
 #: How long :meth:`PtyProcess.wait_for` gives one screen state to appear.
@@ -888,24 +890,50 @@ def test_a_warning_lands_intact_above_a_mounted_region(
 
 
 #: A lifecycle step that leaves a grandchild holding its stdout, then hangs
-#: until the timeout kills it. The grandchild writes long after the step has
-#: been decided — which is the line that must never reach the terminal.
+#: until the timeout kills it. It hands the grandchild its own pid, so the
+#: grandchild can tell when the kill has orphaned it. It hangs on its parent
+#: (the ``osprey`` CLI) rather than on a clock, so a CLI that dies without
+#: killing it takes the step down too instead of leaving it holding the pty.
 OVERRUNNING_STEP = """\
+import os
 import subprocess
 import sys
 import time
 
+build_pid = os.getppid()
+here = os.path.dirname(os.path.abspath(__file__))
 subprocess.Popen(
-    [
-        sys.executable,
-        "-c",
-        "import sys, time; time.sleep(8); "
-        "sys.stdout.write('LATE-LINE-FROM-GRANDCHILD\\\\n'); sys.stdout.flush()",
-    ]
+    [sys.executable, os.path.join(here, "orphaned_grandchild.py"), str(os.getpid())]
 )
 sys.stdout.write("EARLY-LINE-FROM-STEP\\n")
 sys.stdout.flush()
-time.sleep(600)
+while os.getppid() == build_pid:
+    time.sleep(0.05)
+"""
+
+#: The grandchild the overrunning step leaves behind. It records its pid for
+#: the test's teardown, waits until its parent is no longer the step -- which
+#: means the build has already decided the step -- and only then writes, so its
+#: line reaches the pipe after the decision on every host.
+ORPHANED_GRANDCHILD = """\
+import os
+import sys
+import time
+
+step_pid = int(sys.argv[1])
+here = os.path.dirname(os.path.abspath(__file__))
+pid_file = os.path.join(here, "grandchild.pid")
+with open(pid_file + ".tmp", "w") as handle:
+    handle.write(str(os.getpid()))
+os.replace(pid_file + ".tmp", pid_file)
+while os.getppid() == step_pid:
+    time.sleep(0.01)
+try:
+    sys.stdout.write("LATE-LINE-FROM-GRANDCHILD\\n")
+    sys.stdout.flush()
+finally:
+    open(os.path.join(here, "grandchild.wrote"), "w").close()
+    os.remove(pid_file)
 """
 
 #: Appended to the copy's ``profile.yml``. ``stream: true`` is what puts the
@@ -921,6 +949,25 @@ lifecycle:
 """
 
 
+def _kill_recorded_grandchild(pid_file: Path) -> None:
+    """Kill the overrun scenario's grandchild if it is still running.
+
+    The grandchild removes its record just before it exits, so a record that is
+    still present names a live process this test started, never a recycled pid.
+
+    Args:
+        pid_file: The file the grandchild wrote its pid to.
+    """
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def test_a_step_whose_child_overruns_its_timeout_never_reaches_the_screen(
     exemplar_copy: Path, pty_env: dict[str, str], tmp_path: Path
 ) -> None:
@@ -929,9 +976,9 @@ def test_a_step_whose_child_overruns_its_timeout_never_reaches_the_screen(
     A streamed lifecycle step spawns a grandchild that inherits its stdout and
     then hangs. The step's own timeout kills it; the grandchild survives,
     holding the pipe open with the drain thread still blocked in ``readline``,
-    and writes a line seconds later — after the step has been reported failed.
-    That line must be dropped, because by then the terminal belongs to whatever
-    the CLI is drawing next.
+    and writes a line the moment the kill orphans it, which is after the step
+    has been decided on any host. That line must be dropped, because by then
+    the terminal belongs to whatever the CLI is drawing next.
 
     The step script lives outside the repo: the build warns about unrecognized
     top-level entries, and a stray file in the repo root would arm a different
@@ -939,6 +986,7 @@ def test_a_step_whose_child_overruns_its_timeout_never_reaches_the_screen(
     """
     script = tmp_path / "overrunning_step.py"
     script.write_text(OVERRUNNING_STEP, encoding="utf-8")
+    (tmp_path / "orphaned_grandchild.py").write_text(ORPHANED_GRANDCHILD, encoding="utf-8")
     profile = exemplar_copy / "profile.yml"
     profile.write_text(
         profile.read_text(encoding="utf-8")
@@ -946,18 +994,26 @@ def test_a_step_whose_child_overruns_its_timeout_never_reaches_the_screen(
         encoding="utf-8",
     )
 
-    run = run_on_pty(["build", "--skip-deps"], cwd=exemplar_copy, env=pty_env)
+    try:
+        run = run_on_pty(["build", "--skip-deps"], cwd=exemplar_copy, env=pty_env)
 
-    # The step failed, which is the point: it overran.
-    assert run.exit_code != 0, run.describe()
-    assert "EARLY-LINE-FROM-STEP" in run.stream, run.describe()
-    assert "LATE-LINE-FROM-GRANDCHILD" not in run.stream, (
-        f"a line from a step's orphaned grandchild reached the terminal after the step "
-        f"was reported\n{run.describe()}"
-    )
-    assert "overrunning step' failed" in run.stream, run.describe()
-    assert_no_info_lines(run)
-    assert_screen_is_intact(run)
+        # The step failed, which is the point: it overran.
+        assert run.exit_code != 0, run.describe()
+        assert "EARLY-LINE-FROM-STEP" in run.stream, run.describe()
+        assert "LATE-LINE-FROM-GRANDCHILD" not in run.stream, (
+            f"a line from a step's orphaned grandchild reached the terminal after the step "
+            f"was reported\n{run.describe()}"
+        )
+        assert "overrunning step' failed" in run.stream, run.describe()
+        # The line's absence is the drop, not silence. Settled once the run returns: the
+        # grandchild holds the pty on its inherited stdin and the stream ends at its exit.
+        assert (tmp_path / "grandchild.wrote").exists(), (
+            f"the grandchild never wrote its line\n{run.describe()}"
+        )
+        assert_no_info_lines(run)
+        assert_screen_is_intact(run)
+    finally:
+        _kill_recorded_grandchild(tmp_path / "grandchild.pid")
 
 
 # ---------------------------------------------------------------------------
