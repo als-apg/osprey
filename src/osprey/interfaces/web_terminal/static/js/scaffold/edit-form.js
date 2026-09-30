@@ -233,5 +233,5 @@ export function createScaffoldGalleryEditForm(gallery) {
     return { wrapper, input };
   }
 
-  return { renderEdit, renderPlainTextEditor, renderFrontMatterForm };
+  return { renderEdit };
 }

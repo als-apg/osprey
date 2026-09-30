@@ -5,20 +5,18 @@
  *   npx vitest run tests/interfaces/web_terminal/scaffold-view.test.mjs
  *
  * Covers getFilteredArtifacts' search/category/project-owned filter
- * combinations (pure, no gallery instance needed), card rendering's
- * escapeHtml contract (hostile artifact names must render as literal text,
- * never parsed as markup -- renderArtifactCard/renderSkillGroup use
- * `.textContent`, which is DOM-safe by construction), and
- * createScaffoldGalleryView's factory wiring (mirrors the pattern
- * scaffold-data.test.mjs uses for createScaffoldDataActions): a fake
- * `gallery` host object stands in for the ArtifactGallery instance, the
- * same "pass `this`" shape the real class uses in its constructor.
+ * combinations (pure, no gallery instance needed), the card templates'
+ * escaping contract (hostile artifact names must render as literal text,
+ * never parsed as markup), the gallery view driven through its one entry
+ * point, renderGallery(), with a fake `gallery` host object standing in for
+ * the ArtifactGallery instance, and initScaffoldGallery's routing of each
+ * artifact to exactly one drawer tab.
  *
  * NOTE: imported by RELATIVE path -- this module lives under web_terminal,
  * not design-system, so the `/design-system/js/*` alias does not apply.
  */
 
-import { test, expect, describe } from 'vitest';
+import { test, expect, describe, vi, afterEach } from 'vitest';
 
 import { qs } from '../_support/dom.mjs';
 
@@ -26,6 +24,7 @@ import {
   getFilteredArtifacts,
   createScaffoldGalleryView,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js';
+import { createScaffoldGalleryCards } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/cards.js';
 
 /**
  * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js').ScaffoldGalleryHost} ScaffoldGalleryHost
@@ -102,111 +101,60 @@ describe('getFilteredArtifacts', () => {
     { name: 'channel-finder', displayCategory: 'agents', status: 'framework', summary: 'Finds beamline channels' },
     { name: 'lattice-agent', displayCategory: 'agents', status: 'user-owned', description: 'Lattice analysis' },
   ];
+  const SPARSE = [{ name: 'bare', displayCategory: 'config', status: 'framework' }];
+  const NONE = { filterProjectOwned: false, filterCategory: null, searchQuery: '' };
 
-  test('no filters returns every artifact', () => {
-    const result = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: false, filterCategory: null, searchQuery: '',
-    });
-    expect(result).toEqual(ARTIFACTS);
-  });
-
-  test('filterProjectOwned keeps only user-owned artifacts', () => {
-    const result = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: true, filterCategory: null, searchQuery: '',
-    });
-    expect(result.map((a) => a.name)).toEqual(['safety-check', 'lattice-agent']);
-  });
-
-  test('filterCategory keeps only matching displayCategory', () => {
-    const result = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: false, filterCategory: 'agents', searchQuery: '',
-    });
-    expect(result.map((a) => a.name)).toEqual(['channel-finder', 'lattice-agent']);
-  });
-
-  test('searchQuery matches name, description, or summary case-insensitively', () => {
-    const byName = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: false, filterCategory: null, searchQuery: 'CLAUDE',
-    });
-    expect(byName.map((a) => a.name)).toEqual(['claude-md']);
-
-    const byDescription = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: false, filterCategory: null, searchQuery: 'unsafe',
-    });
-    expect(byDescription.map((a) => a.name)).toEqual(['safety-check']);
-
-    const bySummary = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: false, filterCategory: null, searchQuery: 'beamline',
-    });
-    expect(bySummary.map((a) => a.name)).toEqual(['channel-finder']);
-  });
-
-  test('combines project-owned + category + search as an intersection', () => {
-    const result = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: true, filterCategory: 'agents', searchQuery: 'lattice',
-    });
-    expect(result.map((a) => a.name)).toEqual(['lattice-agent']);
-  });
-
-  test('a combination with no matches returns an empty array', () => {
-    const result = getFilteredArtifacts(ARTIFACTS, {
-      filterProjectOwned: true, filterCategory: 'system prompt', searchQuery: '',
-    });
-    expect(result).toEqual([]);
-  });
-
-  test('tolerates artifacts missing description/summary fields', () => {
-    const sparse = [{ name: 'bare', displayCategory: 'config', status: 'framework' }];
-    const result = getFilteredArtifacts(sparse, {
-      filterProjectOwned: false, filterCategory: null, searchQuery: 'bare',
-    });
-    expect(result).toEqual(sparse);
+  test.each([
+    ['no filters returns every artifact', ARTIFACTS, {},
+      ['claude-md', 'safety-check', 'channel-finder', 'lattice-agent']],
+    ['project-owned keeps only user-owned artifacts', ARTIFACTS, { filterProjectOwned: true },
+      ['safety-check', 'lattice-agent']],
+    ['a category keeps only that displayCategory', ARTIFACTS, { filterCategory: 'agents' },
+      ['channel-finder', 'lattice-agent']],
+    ['search matches the name, case-insensitively', ARTIFACTS, { searchQuery: 'CLAUDE' }, ['claude-md']],
+    ['search matches the description', ARTIFACTS, { searchQuery: 'unsafe' }, ['safety-check']],
+    ['search matches the summary', ARTIFACTS, { searchQuery: 'beamline' }, ['channel-finder']],
+    ['all three filters intersect', ARTIFACTS,
+      { filterProjectOwned: true, filterCategory: 'agents', searchQuery: 'lattice' }, ['lattice-agent']],
+    ['a combination with no match is empty', ARTIFACTS,
+      { filterProjectOwned: true, filterCategory: 'system prompt' }, []],
+    ['artifacts without description or summary still match by name', SPARSE, { searchQuery: 'bare' },
+      ['bare']],
+  ])('%s', (_label, artifacts, filters, expected) => {
+    const result = getFilteredArtifacts(artifacts, { ...NONE, ...filters });
+    expect(result.map((a) => a.name)).toEqual(expected);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Card rendering -- escapeHtml contract (hostile names render as text)
+// Card rendering -- hostile names render as text
 // ---------------------------------------------------------------------------
 
 describe('renderArtifactCard / renderSkillGroup escaping', () => {
   const HOSTILE_NAME = '<img src=x onerror=alert(1)>';
+  const HOSTILE_DESC = '<script>alert(1)</script>';
 
-  test('renderArtifactCard renders a hostile artifact name as literal text, not markup', () => {
-    const gallery = makeGallery();
-    const view = createScaffoldGalleryView(gallery);
+  test('renderArtifactCard renders a hostile name and description as literal text, not markup', () => {
+    const { renderArtifactCard } = createScaffoldGalleryCards({ openDetail: () => {} });
     const section = document.createElement('div');
 
-    view.renderArtifactCard(section, { name: HOSTILE_NAME, status: 'framework' }, 'agents');
+    renderArtifactCard(section, { name: HOSTILE_NAME, status: 'framework', description: HOSTILE_DESC }, 'agents');
 
     const nameEl = qs(section, '.prompts-card-name');
     expect(nameEl.textContent).toBe(HOSTILE_NAME);
-    // No actual <img> element was parsed into the DOM.
     expect(nameEl.querySelector('img')).toBeNull();
     expect(nameEl.innerHTML).toContain('&lt;img');
-  });
-
-  test('renderArtifactCard escapes a hostile description/summary the same way', () => {
-    const gallery = makeGallery();
-    const view = createScaffoldGalleryView(gallery);
-    const section = document.createElement('div');
-
-    view.renderArtifactCard(
-      section,
-      { name: 'safe-name', status: 'framework', description: '<script>alert(1)</script>' },
-      'agents'
-    );
 
     const descEl = qs(section, '.prompts-card-desc');
-    expect(descEl.textContent).toBe('<script>alert(1)</script>');
+    expect(descEl.textContent).toBe(HOSTILE_DESC);
     expect(descEl.querySelector('script')).toBeNull();
   });
 
-  test('renderSkillGroup (multi-artifact) escapes the group name and per-option labels', () => {
-    const gallery = makeGallery();
-    const view = createScaffoldGalleryView(gallery);
+  test('renderSkillGroup (multi-artifact) escapes the group name', () => {
+    const { renderSkillGroup } = createScaffoldGalleryCards({ openDetail: () => {} });
     const section = document.createElement('div');
 
-    view.renderSkillGroup(section, HOSTILE_NAME, [
+    renderSkillGroup(section, HOSTILE_NAME, [
       { name: 'skills/x/one', status: 'framework', output_path: 'skills/x/one.md' },
       { name: 'skills/x/two', status: 'framework', output_path: 'skills/x/two.md' },
     ]);
@@ -216,14 +164,14 @@ describe('renderArtifactCard / renderSkillGroup escaping', () => {
     expect(nameEl.querySelector('img')).toBeNull();
   });
 
-  test('renderSkillGroup with a single artifact delegates to renderArtifactCard (still escaped)', () => {
-    const gallery = makeGallery();
-    const view = createScaffoldGalleryView(gallery);
+  test('renderSkillGroup with a single artifact renders its plain card, named for the artifact', () => {
+    const { renderSkillGroup } = createScaffoldGalleryCards({ openDetail: () => {} });
     const section = document.createElement('div');
 
-    view.renderSkillGroup(section, 'solo-skill', [{ name: HOSTILE_NAME, status: 'framework' }]);
+    renderSkillGroup(section, 'solo-skill', [{ name: HOSTILE_NAME, status: 'framework' }]);
 
     expect(section.querySelectorAll('.prompts-card').length).toBe(1);
+    expect(section.querySelector('.prompts-skill-group')).toBeNull();
     expect(qs(section, '.prompts-card-name').textContent).toBe(HOSTILE_NAME);
   });
 });
@@ -240,23 +188,11 @@ describe('createScaffoldGalleryView', () => {
     { name: 'agent-one', displayCategory: 'agents', status: 'framework' },
   ];
 
-  test('renderCategories groups by displayCategory, pinned categories first', () => {
-    const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: ['hooks'] });
-    const view = createScaffoldGalleryView(gallery);
-
-    view.renderCategories();
-
-    const headers = [...gallery.categoriesEl.querySelectorAll('.prompts-category-label')]
-      .map((el) => el.textContent);
-    expect(headers[0]).toBe('HOOKS');
-    expect(gallery.categoriesEl.querySelectorAll('.prompts-card').length).toBe(3);
-  });
-
   test('unpinned categories start collapsed; pinned ones start open', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: ['hooks'] });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderCategories();
+    view.renderGallery();
 
     const sections = [...gallery.categoriesEl.querySelectorAll('.prompts-category-section')];
     const state = sections.map((s) => [
@@ -275,7 +211,7 @@ describe('createScaffoldGalleryView', () => {
     });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderCategories();
+    view.renderGallery();
 
     expect(qs(gallery.categoriesEl, '.prompts-category-body').classList.contains('collapsed'))
       .toBe(false);
@@ -285,7 +221,7 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: [] });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderCategories();
+    view.renderGallery();
 
     // Every section collapsed, yet all three cards exist in the DOM.
     expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(3);
@@ -296,7 +232,7 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: ['hooks'] });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderCategories();
+    view.renderGallery();
     qs(gallery.categoriesEl, '.prompts-category-header').dispatchEvent(new Event('click'));
 
     const sections = [...gallery.categoriesEl.querySelectorAll('.prompts-category-section')];
@@ -310,11 +246,11 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: [] });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderCategories();  // unfiltered: everything seeded collapsed
+    view.renderGallery();  // unfiltered: everything seeded collapsed
     expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(3);
 
     gallery.searchQuery = 'a';
-    view.renderCategories();
+    view.renderGallery();
 
     expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(0);
   });
@@ -323,7 +259,7 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderFilterToggle();
+    view.renderGallery();
     expect(gallery.filterPanelEl.classList.contains('open')).toBe(false);
     expect(gallery.filterToggleEl.getAttribute('aria-expanded')).toBe('false');
 
@@ -340,23 +276,16 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS, searchQuery: 'no-such-artifact' });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderCategories();
+    view.renderGallery();
 
     expect(gallery.categoriesEl.textContent).toContain('No matching artifacts found.');
-  });
-
-  test('getFilteredArtifacts (bound) reads the gallery\'s current filter state', () => {
-    const gallery = makeGallery({ artifacts: ARTIFACTS, filterCategory: 'agents' });
-    const view = createScaffoldGalleryView(gallery);
-
-    expect(view.getFilteredArtifacts().map((a) => a.name)).toEqual(['agent-one']);
   });
 
   test('clicking a category chip updates gallery.filterCategory and re-renders', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderFilterChips();
+    view.renderGallery();
     const chip = [...gallery.filterChipsEl.querySelectorAll('.prompts-chip')]
       .find((c) => c.textContent === 'agents');
     expect(chip).toBeTruthy();
@@ -370,11 +299,11 @@ describe('createScaffoldGalleryView', () => {
     expect(activeChip.map((c) => c.textContent)).toContain('agents');
   });
 
-  test('the project-owned toggle only appears when a user-owned artifact exists, and flips gallery state', () => {
+  test('the project-owned toggle appears when a user-owned artifact exists, and flips gallery state', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderFilterChips();
+    view.renderGallery();
     const toggle = [...gallery.filterChipsEl.querySelectorAll('.prompts-chip-toggle')][0];
     expect(toggle).toBeTruthy();
     expect(toggle.textContent).toBe('Project-owned');
@@ -383,11 +312,20 @@ describe('createScaffoldGalleryView', () => {
     expect(gallery.filterProjectOwned).toBe(true);
   });
 
+  test('the project-owned toggle is absent when every artifact is framework-owned', () => {
+    const gallery = makeGallery({ artifacts: ARTIFACTS.map((a) => ({ ...a, status: 'framework' })) });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderGallery();
+
+    expect(gallery.filterChipsEl.querySelector('.prompts-chip-toggle')).toBeNull();
+  });
+
   test('renderSummary renders the inventory line and hides the clear button', () => {
     const gallery = makeGallery({ summary: { total: 5, framework: 3, userOwned: 2 } });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderSummary();
+    view.renderGallery();
 
     expect(gallery.summaryEl.textContent).toContain('5 artifacts');
     expect(gallery.summaryEl.textContent).toContain('2 project-owned');
@@ -405,7 +343,7 @@ describe('createScaffoldGalleryView', () => {
     });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderSummary();
+    view.renderGallery();
 
     expect(gallery.summaryEl.textContent).toBe('1 of 3 · agents · "one"');
     expect(gallery.clearFilterEl.style.display).not.toBe('none');
@@ -421,7 +359,7 @@ describe('createScaffoldGalleryView', () => {
     });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderSummary();
+    view.renderGallery();
     gallery.clearFilterEl.dispatchEvent(new Event('click'));
 
     expect(gallery.filterCategory).toBeNull();
@@ -434,7 +372,7 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ untrackedFiles: [] });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderUntrackedBanner();
+    view.renderGallery();
 
     expect(gallery.untrackedBannerEl.style.display).toBe('none');
   });
@@ -449,7 +387,7 @@ describe('createScaffoldGalleryView', () => {
     });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderUntrackedBanner();
+    view.renderGallery();
     expect(gallery.untrackedBannerEl.style.display).not.toBe('none');
 
     qs(gallery.untrackedBannerEl, '.prompts-untracked-register').dispatchEvent(new Event('click'));
@@ -477,10 +415,80 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS, openDetail: (a) => { opened = a; } });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderCategories();
+    view.renderGallery();
     const card = qs(gallery.categoriesEl, '.prompts-card[data-name="agent-one"]');
     card.dispatchEvent(new Event('click'));
 
     expect(opened).toEqual(ARTIFACTS.find((a) => a.name === 'agent-one'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// initScaffoldGallery -- which drawer tab shows which artifact
+// ---------------------------------------------------------------------------
+
+describe('initScaffoldGallery tab routing', () => {
+  /** One artifact per category the service reports, and the tab each belongs on. */
+  const ROUTED = [
+    ['agents/a', 'agents', 'behavior'],
+    ['skills/s/SKILL', 'skills', 'behavior'],
+    ['rules/r', 'rules', 'behavior'],
+    ['output-styles/o', 'output-styles', 'behavior'],
+    ['claude-md', 'config', 'behavior'],
+    ['hooks/h', 'hooks', 'safety'],
+    ['mcp-json', 'config', 'config'],
+    ['settings-json', 'config', 'config'],
+  ];
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+  });
+
+  test('each artifact lands on exactly one tab', async () => {
+    document.body.innerHTML = `
+      <div id="settings-drawer">
+        <div id="tab-behavior"><div id="behavior-gallery-section"></div></div>
+        <div id="tab-safety"><div id="safety-gallery-section"></div></div>
+        <div id="tab-config">
+          <div id="config-gallery-section"></div>
+          <div id="config-form-section"></div>
+        </div>
+      </div>`;
+    /** @type {any} */ (document.getElementById('settings-drawer')).registerUnsavedGuard = vi.fn();
+
+    const artifacts = ROUTED.map(([name, category]) => ({ name, category, status: 'framework' }));
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (url.endsWith('/untracked') ? { untracked: [] } : { artifacts }),
+    })));
+
+    vi.resetModules();
+    const { initScaffoldGallery } = await import(
+      '../../../src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js'
+    );
+    initScaffoldGallery();
+    for (const tab of ['tab-behavior', 'tab-safety', 'tab-config']) {
+      document.getElementById(tab)?.dispatchEvent(new Event('drawer:tab-activate'));
+    }
+
+    /** @param {string} id */
+    const namesIn = (id) => [...document.querySelectorAll(`#${id} .prompts-card`)]
+      .map((c) => /** @type {HTMLElement} */ (c).dataset.name);
+    await vi.waitFor(() => {
+      expect(namesIn('safety-gallery-section').length).toBeGreaterThan(0);
+      expect(namesIn('config-gallery-section').length).toBeGreaterThan(0);
+    });
+
+    const shown = {
+      behavior: namesIn('behavior-gallery-section'),
+      safety: namesIn('safety-gallery-section'),
+      config: namesIn('config-gallery-section'),
+    };
+    for (const [name, , tab] of ROUTED) {
+      const tabsShowing = Object.entries(shown).filter(([, names]) => names.includes(name)).map(([t]) => t);
+      expect(tabsShowing, `${name} should show only on ${tab}`).toEqual([tab]);
+    }
   });
 });

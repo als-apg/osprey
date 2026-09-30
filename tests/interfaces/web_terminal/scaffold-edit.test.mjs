@@ -11,15 +11,15 @@
  * A fake `gallery` host object stands in for the ArtifactGallery instance,
  * the same "pass `this`" shape the real class uses.
  *
- * Covers: front-matter form field generation per type (text/select/number),
- * the dirty-flag transitions on edit (typing in any field/textarea),
- * discard (clears dirty, forces preview mode), and save (clears dirty only
- * on a successful PUT); and the write-side actions -- take/release
- * ownership, the framework-edit-copy flow, the three saveOverride content
- * sources (plain textarea, front-matter form, settings.json structured
- * editor) plus its framework-settings ownership-warning gate, reset-to-
- * framework, reload+reopen, and closeDetail's unsaved-changes guard (the
- * same editDirty guard the drawer's unsaved-changes prompt reads).
+ * Covers: front-matter form field generation per type, the dirty-flag
+ * transitions on edit (typing in any field/textarea), discard (clears dirty,
+ * forces preview mode), and save (clears dirty only on a successful PUT,
+ * reads the plain textarea or the front-matter form, and raises the
+ * applies-on-restart notice); the write-side actions -- take/release
+ * ownership with the reload and reopen that follows, the framework-edit
+ * flow, and closeDetail's unsaved-changes guard (the same editDirty guard
+ * the drawer's unsaved-changes prompt reads); and that every scaffold write
+ * reaches the per-user-prefixed URL.
  *
  * NOTE: imported by RELATIVE path -- these modules live under web_terminal,
  * not design-system, so the `/design-system/js/*` alias does not apply.
@@ -32,7 +32,7 @@ import { qs } from '../_support/dom.mjs';
 import { createScaffoldGalleryEditForm } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
 import { createScaffoldGalleryEdit } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit.js';
 import { createScaffoldGalleryDetail } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js';
-import { resetFetchCache } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
+import { resetFetchCache, createScaffoldDataActions } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
 /**
  * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js').ScaffoldGalleryEditFormHost} ScaffoldGalleryEditFormHost
@@ -88,7 +88,6 @@ function makeEditGallery(overrides = {}) {
     detailView: document.createElement('div'),
     onDetailClose: null,
     openDetail: vi.fn(),
-    renderDetailHeader: vi.fn(),
     renderDetailModes: vi.fn(),
     renderDetailContent: vi.fn(),
     renderGallery: vi.fn(),
@@ -179,11 +178,15 @@ describe('renderEdit', () => {
 // ---------------------------------------------------------------------------
 
 describe('renderFrontMatterForm -- field generation per type', () => {
-  test('text fields render as plain text inputs carrying the front-matter value', async () => {
+  test.each([
+    ['name', 'a plain text input', { type: 'text', value: 'my-agent' }],
+    ['model', 'a free text id with no fixed choices', { type: 'text', value: 'claude-sonnet-5' }],
+    ['maxTurns', 'a bounded number input', { type: 'number', value: '5', min: '1', max: '100' }],
+  ])('%s renders as %s carrying the front-matter value', async (key, _what, expected) => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({
-        content: '---\nname: my-agent\ndescription: does things\nmodel: sonnet\n---\nBody.',
+        content: '---\nname: my-agent\nmodel: claude-sonnet-5\nmaxTurns: 5\n---\nBody.',
         language: 'markdown',
       }),
     })));
@@ -192,32 +195,14 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     const form = createScaffoldGalleryEditForm(gallery);
     await form.renderEdit();
 
-    const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
-    const nameField = [...fields].find((f) => (f.textContent ?? '').startsWith('name'));
-    if (nameField === undefined) throw new Error('name field not found');
-    const nameInput = qs(nameField, 'input', HTMLInputElement);
-    expect(nameInput.type).toBe('text');
-    expect(nameInput.value).toBe('my-agent');
-  });
-
-  test('the model field is a free id field carrying the current model id', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ content: '---\nname: a\nmodel: claude-sonnet-5\n---\nBody.', language: 'markdown' }),
-    })));
-
-    const gallery = makeEditFormGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
-    const form = createScaffoldGalleryEditForm(gallery);
-    await form.renderEdit();
-
-    const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
-    const modelField = [...fields].find((f) => (f.textContent ?? '').startsWith('model'));
-    if (modelField === undefined) throw new Error('model field not found');
-    const input = qs(modelField, 'input', HTMLInputElement);
-    expect(input.type).toBe('text');
-    expect(input.value).toBe('claude-sonnet-5');
-    expect(modelField.querySelector('select')).toBeNull();
-    expect(modelField.querySelector('datalist')).toBeNull();
+    const field = [...gallery.detailContentEl.querySelectorAll('.prompts-fm-field')]
+      .find((f) => qs(f, '.prompts-fm-field-label').textContent === key);
+    if (field === undefined) throw new Error(`${key} field not found`);
+    const input = qs(field, 'input', HTMLInputElement);
+    expect(input).toMatchObject(expected);
+    // Nothing served: no suggestion list, and never a closed select.
+    expect(field.querySelector('select')).toBeNull();
+    expect(field.querySelector('datalist')).toBeNull();
   });
 
   test('the served models are offered as suggestions with their display names', async () => {
@@ -244,29 +229,6 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     const options = [...list.querySelectorAll('option')];
     expect(options.map((o) => o.value)).toEqual(['claude-sonnet-5', 'claude-haiku-4-5']);
     expect(options.map((o) => o.label)).toEqual(['Sonnet 5', 'Haiku 4.5']);
-  });
-
-  test('maxTurns renders as a bounded number input', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({
-        content: '---\nname: a\nmodel: sonnet\nmaxTurns: 5\n---\nBody.',
-        language: 'markdown',
-      }),
-    })));
-
-    const gallery = makeEditFormGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
-    const form = createScaffoldGalleryEditForm(gallery);
-    await form.renderEdit();
-
-    const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
-    const maxTurnsField = [...fields].find((f) => (f.textContent ?? '').startsWith('maxTurns'));
-    if (maxTurnsField === undefined) throw new Error('maxTurns field not found');
-    const input = qs(maxTurnsField, 'input', HTMLInputElement);
-    expect(input.type).toBe('number');
-    expect(input.min).toBe('1');
-    expect(input.max).toBe('100');
-    expect(input.value).toBe('5');
   });
 
   test('choosing a suggested model (a change, not typed input) marks the gallery dirty', async () => {
@@ -306,15 +268,6 @@ describe('discardEdits', () => {
     expect(gallery.renderDetailContent).toHaveBeenCalledOnce();
   });
 
-  test('is a no-op on the mode itself when already in preview', () => {
-    const gallery = makeEditGallery({ editDirty: true, detailMode: 'preview' });
-    const edit = createScaffoldGalleryEdit(gallery);
-
-    edit.discardEdits();
-
-    expect(gallery.detailMode).toBe('preview');
-    expect(gallery.editDirty).toBe(false);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -345,35 +298,10 @@ describe('saveOverride', () => {
     const edit = createScaffoldGalleryEdit(gallery);
     await edit.saveOverride();
 
-    expect(putCalls.some((c) => c.url.includes('/override') && c.init.method === 'PUT'
+    expect(putCalls.some((c) => c.url === '/api/scaffold/a/override' && c.init.method === 'PUT'
       && JSON.parse(/** @type {string} */ (c.init.body)).content === 'new content')).toBe(true);
     expect(gallery.editDirty).toBe(false);
     expect(gallery.openDetail).toHaveBeenCalledOnce();
-  });
-
-  test('prepends window.__OSPREY_PREFIX__ to the override PUT (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    /** @type {{url: string, init: RequestInit}[]} */
-    const putCalls = [];
-    vi.stubGlobal('fetch', vi.fn((/** @type {string} */ url, /** @type {RequestInit} */ init) => {
-      putCalls.push({ url, init });
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ artifacts: [{ name: 'a', status: 'user-owned' }] }),
-      });
-    }));
-
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
-    const textarea = document.createElement('textarea');
-    textarea.className = 'prompts-edit-textarea';
-    textarea.value = 'new content';
-    gallery.detailContentEl.appendChild(textarea);
-
-    const edit = createScaffoldGalleryEdit(gallery);
-    await edit.saveOverride();
-
-    const putCall = putCalls.find((c) => c.init.method === 'PUT');
-    expect(putCall?.url).toBe('/u/alice/api/scaffold/a/override');
   });
 
   test('reads from the front-matter form fields + body textarea, assembling YAML front matter', async () => {
@@ -398,23 +326,76 @@ describe('saveOverride', () => {
     expect(savedBody).toContain('Instructions here.');
   });
 
-  test('a failed save surfaces the error on gallery.errorEl and leaves editDirty untouched', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: false, status: 500, json: () => Promise.resolve({ detail: 'disk full' }),
-    })));
 
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'user-owned' }, editDirty: true });
-    const textarea = document.createElement('textarea');
-    textarea.className = 'prompts-edit-textarea';
-    textarea.value = 'x';
-    gallery.detailContentEl.appendChild(textarea);
+  describe('applies-on-restart notice', () => {
+    // A save in a deployed container can land on the claude-config volume while
+    // the read-only image tree refuses it; the server says so with
+    // `applies_on_restart: true`, and the operator must be told the change is
+    // not live yet.
 
-    const edit = createScaffoldGalleryEdit(gallery);
-    await edit.saveOverride();
+    /** @param {object} body the PUT response */
+    function stubSave(body) {
+      vi.stubGlobal('fetch', vi.fn((/** @type {string} */ _url, /** @type {RequestInit|undefined} */ init) => {
+        const isPut = init && init.method === 'PUT';
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(isPut ? body : { artifacts: [], untracked: [] }),
+        });
+      }));
+    }
 
-    expect(gallery.editDirty).toBe(true);
-    expect(gallery.errorEl.style.display).toBe('flex');
-    expect(gallery.errorEl.textContent).toContain('disk full');
+    function makeSavingGallery() {
+      const gallery = makeEditGallery({
+        selectedArtifact: { name: 'agents/channel-finder', status: 'user-owned' },
+        editDirty: true,
+      });
+      const textarea = document.createElement('textarea');
+      textarea.className = 'prompts-edit-textarea';
+      textarea.value = 'edited body';
+      gallery.detailContentEl.appendChild(textarea);
+      return gallery;
+    }
+
+    test('renders the notice when the server says the save only lands on restart', async () => {
+      stubSave({ status: 'saved', path: '.claude/agents/channel-finder.md', applies_on_restart: true });
+      const gallery = makeSavingGallery();
+
+      await createScaffoldGalleryEdit(gallery).saveOverride();
+
+      expect(gallery.editDirty).toBe(false);
+      expect(gallery.reloadFull).toHaveBeenCalled();
+      expect(gallery.errorEl.style.display).toBe('flex');
+      expect(gallery.errorEl.textContent).toContain('applies on container restart');
+      expect(gallery.errorEl.classList.contains('prompts-error--notice')).toBe(true);
+    });
+
+    test.each([
+      ['false', { status: 'saved', path: '.claude/agents/channel-finder.md', applies_on_restart: false }],
+      ['absent', { status: 'saved', path: '.claude/agents/channel-finder.md' }],
+    ])('says nothing when the flag is %s', async (_label, body) => {
+      stubSave(body);
+      const gallery = makeSavingGallery();
+
+      await createScaffoldGalleryEdit(gallery).saveOverride();
+
+      expect(gallery.errorEl.textContent).toBe('');
+      expect(gallery.errorEl.classList.contains('prompts-error--notice')).toBe(false);
+    });
+
+    test('a failed save reads as a failure, clearing a notice left on the strip', async () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ detail: "'rules/facility' belongs to the profile's `rules/` convention directory. NOTHING WAS WRITTEN." }),
+      })));
+      const gallery = makeSavingGallery();
+      gallery.errorEl.classList.add('prompts-error--notice');
+
+      await createScaffoldGalleryEdit(gallery).saveOverride();
+
+      expect(gallery.errorEl.textContent.startsWith('Save failed: ')).toBe(true);
+      expect(gallery.errorEl.classList.contains('prompts-error--notice')).toBe(false);
+    });
   });
 });
 
@@ -453,26 +434,14 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
     const edit = createScaffoldGalleryEdit(gallery);
     await edit.takeOwnership();
 
-    expect(calls.some((c) => c.url.includes('/claim') && c.method === 'POST')).toBe(true);
+    expect(calls.some((c) => c.url === '/api/scaffold/a/claim' && c.method === 'POST')).toBe(true);
+    // The artifact reopens as the reload returned it, not as it was before the claim.
     expect(gallery.openDetail).toHaveBeenCalledOnce();
+    expect(gallery.openDetail).toHaveBeenCalledWith(expect.objectContaining({ name: 'a', status: 'user-owned' }));
+    expect(gallery.renderGallery).not.toHaveBeenCalled();
   });
 
-  test('prepends window.__OSPREY_PREFIX__ to the claim POST (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    const fetchMock = vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ artifacts: [{ name: 'a', category: 'agents', status: 'user-owned' }] }),
-    }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
-    const edit = createScaffoldGalleryEdit(gallery);
-    await edit.takeOwnership();
-
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/scaffold/a/claim', { method: 'POST' });
-  });
-
-  test('releaseToFramework delegates to unoverrideArtifact (DELETE the override)', async () => {
+  test('releaseToFramework DELETEs the override and falls back to the grid when the artifact is gone', async () => {
     /** @type {{url: string, method: string|undefined}[]} */
     const calls = [];
     vi.stubGlobal('fetch', vi.fn((url, init) => {
@@ -484,22 +453,12 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
     const edit = createScaffoldGalleryEdit(gallery);
     await edit.releaseToFramework();
 
-    expect(calls.some((c) => c.url.includes('/override?delete_file=true') && c.method === 'DELETE')).toBe(true);
-  });
-
-  test('prepends window.__OSPREY_PREFIX__ to the reset DELETE (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    const fetchMock = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
-    const edit = createScaffoldGalleryEdit(gallery);
-    await edit.releaseToFramework();
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/u/alice/api/scaffold/a/override?delete_file=true',
-      { method: 'DELETE' }
-    );
+    expect(calls.some((c) => c.url === '/api/scaffold/a/override?delete_file=true' && c.method === 'DELETE')).toBe(true);
+    // The reload no longer lists `a` (a released custom file is gone), so the
+    // panel returns to the grid rather than reopening a stale detail view.
+    expect(gallery.reloadFull).toHaveBeenCalledOnce();
+    expect(gallery.openDetail).not.toHaveBeenCalled();
+    expect(gallery.renderGallery).toHaveBeenCalledOnce();
   });
 
   test('handleEditFramework claims the file, reloads via the data pipeline, and reopens in edit mode', async () => {
@@ -642,39 +601,71 @@ describe('closeDetail', () => {
 });
 
 // ---------------------------------------------------------------------------
-// reloadAndReopen
+// Multi-user prefix
 // ---------------------------------------------------------------------------
 
-describe('reloadAndReopen', () => {
-  test('reloads via the gallery data pipeline, then reopens the same artifact by name', async () => {
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
-    gallery.reloadFull = vi.fn(async () => {
-      gallery.artifacts = [
-        { name: 'a', category: 'agents', status: 'user-owned' },
-        { name: 'b', category: 'rules', status: 'framework' },
-      ];
-    });
-    const edit = createScaffoldGalleryEdit(gallery);
+describe('every scaffold write reaches the per-user-prefixed URL', () => {
+  // apiRequest owns the prefix (api.test.mjs pins the chokepoint). These rows
+  // pin that no scaffold write goes around it: a direct fetch would write to
+  // the unprefixed app, which in a multi-user deployment is not this user's.
+  /**
+   * Stand up a gallery with a plain textarea to save from and an artifact
+   * named `a`, and drive one write action through its public entry point.
+   * @type {Array<[string, string, string, () => Promise<unknown>]>}
+   */
+  const WRITES = [
+    ['save', 'PUT', '/u/alice/api/scaffold/a/override', async () => {
+      const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
+      const textarea = document.createElement('textarea');
+      textarea.className = 'prompts-edit-textarea';
+      textarea.value = 'new content';
+      gallery.detailContentEl.appendChild(textarea);
+      await createScaffoldGalleryEdit(gallery).saveOverride();
+    }],
+    ['claim', 'POST', '/u/alice/api/scaffold/a/claim', async () => {
+      const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+      await createScaffoldGalleryEdit(gallery).takeOwnership();
+    }],
+    ['release', 'DELETE', '/u/alice/api/scaffold/a/override?delete_file=true', async () => {
+      const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
+      await createScaffoldGalleryEdit(gallery).releaseToFramework();
+    }],
+    ['create', 'POST', '/u/alice/api/scaffold/create', async () => {
+      vi.stubGlobal('prompt', vi.fn(() => 'my new agent'));
+      const host = /** @type {any} */ ({ artifacts: [], load: () => Promise.resolve() });
+      createScaffoldGalleryDetail(host).showCreateDialog('agents');
+      // showCreateDialog's fetch chain is .then-based, not awaited internally.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }],
+    ['register untracked', 'POST', '/u/alice/api/scaffold/untracked/register', async () => {
+      const actions = createScaffoldDataActions(
+        { categoryFilter: () => true, categoryOverrides: {}, categoryRemaps: {} },
+        { onLoaded: vi.fn(), onLoadError: vi.fn() }
+      );
+      await actions.registerUntracked('my-hook');
+    }],
+    ['delete untracked', 'DELETE', `/u/alice/api/scaffold/untracked/${encodeURIComponent('my file')}`, async () => {
+      const actions = createScaffoldDataActions(
+        { categoryFilter: () => true, categoryOverrides: {}, categoryRemaps: {} },
+        { onLoaded: vi.fn(), onLoadError: vi.fn() }
+      );
+      await actions.deleteUntracked('my file');
+    }],
+  ];
 
-    await edit.reloadAndReopen();
+  test.each(WRITES)('%s: %s %s', async (_label, method, url, drive) => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn(/** @type {(url: string, init?: RequestInit) => Promise<any>} */ (
+      () => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ artifacts: [], untracked: [], canonical_name: 'my-new-agent' }),
+      })
+    ));
+    vi.stubGlobal('fetch', fetchMock);
 
-    expect(gallery.reloadFull).toHaveBeenCalledOnce();
-    expect(gallery.openDetail).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'a', status: 'user-owned' })
-    );
-    // The gallery re-render happens inside the real reloadFull's onLoaded
-    // callback; the edit module itself only renders on the fallback path.
-    expect(gallery.renderGallery).not.toHaveBeenCalled();
-  });
+    await drive();
 
-  test('falls back to the gallery grid when the artifact no longer exists (e.g. deleted)', async () => {
-    const gallery = makeEditGallery({ selectedArtifact: { name: 'gone', status: 'user-owned' } });
-    const edit = createScaffoldGalleryEdit(gallery);
-
-    await edit.reloadAndReopen();
-
-    expect(gallery.reloadFull).toHaveBeenCalledOnce();
-    expect(gallery.openDetail).not.toHaveBeenCalled();
-    expect(gallery.renderGallery).toHaveBeenCalledOnce();
+    const write = fetchMock.mock.calls.find(([, init]) => init?.method === method);
+    expect(write?.[0]).toBe(url);
   });
 });
