@@ -18,6 +18,7 @@ from docs.screenshots.contact_sheet import (
     _PLOT_DRAWN_SELECTOR,
     ACCENT_EXCLUSIONS,
     CONTACT_SHEET_NAME,
+    DEMO_OPENING_PROMPT,
     DEMO_PLOT_ARTIFACT_ID,
     DEMO_SESSION_ID,
     DEMO_TRANSCRIPT_PATH,
@@ -45,6 +46,7 @@ from docs.screenshots.contact_sheet import (
     _variant_label,
     _variant_url,
     _wait_for_plot_drawn,
+    _wait_for_resumed_session,
     _write_fake_session,
     capture_hub_view,
     compose_contact_sheet,
@@ -407,11 +409,19 @@ class _FakeHubPage:
     ``drawn`` holds one answer per plot wait: ``False`` makes that wait time out.
     """
 
-    def __init__(self, *, drawn: list[bool], wait_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        drawn: list[bool],
+        wait_error: Exception | None = None,
+        function_error: Exception | None = None,
+    ) -> None:
         self.events: list[str] = []
         self.waits: list[tuple[tuple[str, ...], str, str]] = []
+        self.functions: list[tuple[str, object]] = []
         self.drawn = list(drawn)
         self.wait_error = wait_error
+        self.function_error = function_error
         self.context = object()
         self.request = _FakeRequest(self.events)
 
@@ -422,7 +432,9 @@ class _FakeHubPage:
         pass
 
     def wait_for_function(self, expression: str, **kwargs: object) -> None:
-        pass
+        self.functions.append((expression, kwargs.get("arg")))
+        if self.function_error is not None:
+            raise self.function_error
 
     def wait_for_timeout(self, ms: int) -> None:  # noqa: ARG002
         self.events.append("settle")
@@ -464,7 +476,7 @@ def _drive(
 
     import osprey.interfaces._serving as serving
 
-    monkeypatch.setattr(cs, "_wait_for_session_ready", lambda page, mode: None)
+    monkeypatch.setattr(cs, "_wait_for_resumed_session", lambda page, mode, *, variant: None)
     monkeypatch.setattr(cs, "_read_fitted_cols", lambda page: None)
     monkeypatch.setattr(serving, "authorize_browser_context", lambda context: None)
     hub = HermeticHub("http://127.0.0.1:9", "http://127.0.0.1:9", tmp_path, tmp_path / "sessions")
@@ -738,3 +750,60 @@ def test_hub_capture_shoots_after_both_plot_checks(
     assert (tmp_path / "shot.png").read_bytes() == b"png"
     steps = [e for e in page.events if e not in ("restart", "close")]
     assert steps == ["click", "plot:visible", "stage", "settle", "plot:visible", "shot"]
+
+
+# ---------------------------------------------------------------------------
+# Hub capture: the resumed session is read from the active view
+# ---------------------------------------------------------------------------
+
+
+def test_fake_session_opens_on_the_demo_prompt() -> None:
+    """The fake session's one user line is the prompt the Simple chat replays."""
+    assert json.loads(_fake_session_line())["message"]["content"] == DEMO_OPENING_PROMPT
+
+
+def test_resumed_session_wait_reads_the_chat_in_simple() -> None:
+    """Simple waits once, on the chat's replayed operator message, never on the terminal."""
+    page = _FakeHubPage(drawn=[])
+    _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
+    assert len(page.functions) == 1
+    expression, arg = page.functions[0]
+    assert ".op-entry.operator" in expression
+    assert ".op-entry-body" in expression
+    assert ".xterm-rows" not in expression
+    assert "terminal-label" not in expression
+    assert arg == DEMO_OPENING_PROMPT
+
+
+@pytest.mark.parametrize("mode", ["expert", None])
+def test_resumed_session_wait_reads_the_terminal_in_expert(mode: str | None) -> None:
+    """Expert waits for the sentinel in the terminal, then for the confirmed hex."""
+    page = _FakeHubPage(drawn=[])
+    _wait_for_resumed_session(page, mode, variant="theme=light")
+    assert len(page.functions) == 2
+    (first, first_arg), (second, second_arg) = page.functions
+    assert ".xterm-rows" in first
+    assert first_arg == TRANSCRIPT_SENTINEL
+    assert "terminal-label" in second
+    assert second_arg == DEMO_SESSION_ID[:8]
+
+
+@pytest.mark.parametrize(("mode", "view"), [("simple", "operator chat"), ("expert", "terminal")])
+def test_resumed_session_wait_names_the_variant_when_it_never_appears(mode: str, view: str) -> None:
+    """A session that never appears raises a RuntimeError naming the variant and view."""
+    timeout = PlaywrightTimeoutError("Timeout 30000ms exceeded.")
+    page = _FakeHubPage(drawn=[], function_error=timeout)
+    variant = f"theme=dark, mode={mode}"
+    with pytest.raises(RuntimeError) as info:
+        _wait_for_resumed_session(page, mode, variant=variant)
+    assert variant in str(info.value)
+    assert view in str(info.value)
+    assert info.value.__cause__ is timeout
+
+
+def test_resumed_session_wait_does_not_swallow_other_errors() -> None:
+    """A Playwright error other than a timeout propagates unchanged."""
+    page = _FakeHubPage(drawn=[], function_error=PlaywrightError("frame detached"))
+    with pytest.raises(PlaywrightError, match="frame detached") as info:
+        _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
+    assert not isinstance(info.value, RuntimeError)
