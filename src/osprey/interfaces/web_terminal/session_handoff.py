@@ -97,7 +97,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
@@ -374,7 +374,6 @@ class ChannelClosed(asyncio.CancelledError):
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
 class AcquireChannel(Protocol):
     """What phase (b) asks of the channel token: is the caller still there?
 
@@ -439,8 +438,7 @@ class PendingAcquire:
     Attributes:
         channel: The token identifying the connection that made the call —
             the terminal socket's attach token or a per-request object for a
-            POST. Compared by identity; the same channel re-acquiring replaces
-            its own slot rather than blocking on it.
+            POST. Compared by identity.
         surface: Which surface the call is acquiring for.
         task: The task running the acquire, so a diagnostic or a shutdown can
             see what is in flight — and so a superseding acquire can cancel
@@ -468,8 +466,8 @@ class PendingAcquire:
 class HandoffState:
     """Everything this module keeps beyond the pools themselves.
 
-    Lives on ``app.state.handoff``; :func:`get_state` builds it lazily so an
-    app assembled without it (tests) still works.
+    Lives on ``app.state.handoff``, where :func:`get_state` builds it on
+    first use; nothing else creates it.
 
     Attributes:
         locks: One lock per session key, created on first use and kept for the
@@ -601,12 +599,12 @@ class AcquirePlan:
             hand-off is what tells the Simple view when the session is free.
             False for an Expert reattaching or taking over: a TUI keeps
             running and the newcomer simply sees its output.
+        spawn: The caller's :data:`SpawnCallback`, carried through for phase
+            (c), which calls it only when the incoming surface's entry is not
+            already pooled.
         displaced_owner: On ``takeover``, the attach token of the Expert
             connection currently holding the PTY, to be closed with 4409 by
             phase (c). ``None`` otherwise.
-        spawn: The caller's :data:`SpawnCallback`, carried through for phase
-            (c). ``None`` when the caller has nothing to start — legal only
-            for a plan whose incoming surface's entry is already pooled.
     """
 
     key: str
@@ -617,8 +615,8 @@ class AcquirePlan:
     outgoing: OutgoingEntry | None
     teardown: bool
     wait_for_idle: bool
+    spawn: SpawnCallback
     displaced_owner: object | None = None
-    spawn: SpawnCallback | None = None
 
 
 @dataclass(frozen=True)
@@ -702,8 +700,8 @@ async def acquire_surface(
     surface: Surface,
     channel: object,
     *,
+    spawn: SpawnCallback,
     interrupt: bool = False,
-    spawn: SpawnCallback | None = None,
 ) -> AcquireResult:
     """Take session key *key* for *surface* on behalf of *channel*.
 
@@ -752,8 +750,7 @@ async def acquire_surface(
             :data:`SpawnCallback`. Called only when the key holds no live
             entry of the incoming surface, so a Simple caller that is merely
             taking its next turn on its own pooled chat is handed that chat
-            back without a spawn. Omitted, the call can only hand back an
-            entry that is already pooled.
+            back without a spawn.
     """
     plan = await _phase_a(app, key, surface, channel, interrupt=interrupt, spawn=spawn)
     outcome = await _phase_b(app, plan)
@@ -800,7 +797,7 @@ async def _phase_a(
     channel: object,
     *,
     interrupt: bool,
-    spawn: SpawnCallback | None = None,
+    spawn: SpawnCallback,
 ) -> AcquirePlan:
     """Decide what acquiring *key* for *surface* means right now.
 
@@ -847,7 +844,7 @@ async def _inspect_and_register(
     channel: object,
     *,
     interrupt: bool,
-    spawn: SpawnCallback | None = None,
+    spawn: SpawnCallback,
 ) -> AcquirePlan:
     """One look at the key. Caller holds the key's lock.
 
@@ -1172,7 +1169,7 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
     assert plan.outgoing is not None
     session = cast("PtySession", plan.outgoing.session)
     registry = _pty_registry(app)
-    if not plan.interrupt and not getattr(app.state, "turn_hook_present", False):
+    if not plan.interrupt and not app.state.turn_hook_present:
         raise HandoffRefused.needs_interrupt(plan.key)
 
     interrupt_sent = False
@@ -1438,11 +1435,6 @@ async def _teardown_and_spawn(
     if pooled is not None:
         session = pooled
     else:
-        if plan.spawn is None:
-            raise RuntimeError(
-                f"acquire_surface for session {key!r} was given no spawn callback "
-                f"and nothing of the {plan.surface} surface is pooled"
-            )
         request = await _spawn_request(app, key, plan.surface)
         resume_id = request.resume_id
         logger.info(
