@@ -845,6 +845,7 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, monkeypatch, ca
                 "build_dir": "./build",
                 "deployed_services": [],
                 "claude_code": {"provider": "anthropic"},
+                "registry": {"url": "registry.example.org/demo"},
                 "modules": {"web_terminals": {"enabled": True}},
             }
         ),
@@ -933,6 +934,7 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
             "project_root": str(repo),
             "facility": {"prefix": "ex"},
             "deploy": {"fqdn": "example.invalid"},
+            "registry": {"url": "registry.example.org/demo"},
             "modules": {
                 "web_terminals": {
                     "enabled": True,
@@ -1017,6 +1019,7 @@ def test_the_web_re_render_lands_in_the_block_the_build_recorded(lifecycle_repo,
                 "claude_code": {"provider": "anthropic"},
                 "facility": {"prefix": "ex"},
                 "deploy": {"fqdn": "example.invalid"},
+                "registry": {"url": "registry.example.org/demo"},
                 "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
             }
         ),
@@ -1166,6 +1169,7 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
                 "build_dir": "./build",
                 "deployed_services": [],
                 "claude_code": {"provider": "anthropic"},
+                "registry": {"url": "registry.example.org/demo"},
                 "modules": {
                     "web_terminals": {
                         "enabled": True,
@@ -1494,6 +1498,7 @@ def test_the_web_stack_labels_every_container_and_volume_too(tmp_path):
             "project_root": str(repo),
             "facility": {"prefix": "ex"},
             "deploy": {"fqdn": "example.invalid"},
+            "registry": {"url": "registry.example.org/demo"},
             "modules": {
                 "web_terminals": {
                     "enabled": True,
