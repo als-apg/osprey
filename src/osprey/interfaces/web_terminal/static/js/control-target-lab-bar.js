@@ -179,16 +179,11 @@ let themeObserver = null;
  * chip. Answers `null` on a document with no `<body>` to mount into, and on
  * a document framed inside the hub, where the header chip is the picker.
  *
- * @param {{eventSourceFactory?: typeof import('./api.js').createEventSource, embedded?: boolean}} [opts]
- *   `eventSourceFactory` is passed straight through to the chip, which is how
- *   its own suite injects a stream; `undefined` takes the chip's own default.
- *   `embedded` overrides {@link isEmbedded} for a suite that cannot frame its
- *   document. Nothing else here is injectable.
  * @returns {HTMLElement|null} The bar, or null if it does not belong on this page.
  */
-export function initControlTargetLabBar({ eventSourceFactory, embedded = isEmbedded() } = {}) {
+export function initControlTargetLabBar() {
   if (typeof document === 'undefined' || !document.body) return null;
-  if (embedded) return null;
+  if (isEmbedded()) return null;
 
   ensureStyles();
 
@@ -208,7 +203,7 @@ export function initControlTargetLabBar({ eventSourceFactory, embedded = isEmbed
   applyTheme();
   watchTheme();
 
-  initControlTargetChip({ host: bar, eventSourceFactory });
+  initControlTargetChip({ host: bar });
   // Only after the chip: the popover hangs off the chip's anchor and answers
   // null on a page where no chip has mounted.
   initControlTargetPopover();

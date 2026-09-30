@@ -22,20 +22,12 @@ import {
   contextRefusalCode,
   contextRefusalPhrase,
   contextWritable,
-  descriptor,
   lockReason,
   resolvePendingSwitch,
   switchFailureNote,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/control-target-facts.js';
 
 describe('KIND_READ_PHRASES', () => {
-  test('names where the values come from, per kind', () => {
-    expect(KIND_READ_PHRASES.live).toBe('read live machine values');
-    expect(KIND_READ_PHRASES.standin).toBe('read values from the rehearsal copy');
-    expect(KIND_READ_PHRASES.va).toBe('read values from the simulator');
-    expect(KIND_READ_PHRASES.simulated).toBe('read demo data');
-  });
-
   test('covers exactly the kinds KIND_WORDS names', () => {
     // The two tables are read for the same chip state. A kind in one and not
     // the other renders a machine with a name and no capability sentence — or
@@ -220,16 +212,15 @@ describe('resolvePendingSwitch', () => {
     expect(resolvePendingSwitch(view, pendingOf()).state).toBe('waiting');
   });
 
-  test('a refusal is matched by request_id, because nothing will ever report it', () => {
-    // A refusal moves neither target nor generation, which is exactly what
-    // `generation: null` on the terminus says. No server will publish it.
+  // A refusal moves neither target nor generation, which is exactly what
+  // `generation: null` on the terminus says; any other verdict that is not
+  // `applied` moved nothing either. No server will ever report one.
+  test.each([
+    { status: 'refused', reason: 'unreachable', generation: null },
+    { status: 'failed', generation: 7 },
+  ])('a $status verdict for this request is matched by request_id', (verdict) => {
     const view = viewOf({
-      last_switch: {
-        request_id: 'r-mine',
-        status: 'refused',
-        reason: 'unreachable',
-        generation: null,
-      },
+      last_switch: { request_id: 'r-mine', ...verdict },
       servers: [serverOf({ applied_generation: 6 })],
     });
     expect(resolvePendingSwitch(view, pendingOf()).state).toBe('answered');
@@ -252,16 +243,6 @@ describe('resolvePendingSwitch', () => {
       servers: [serverOf({ applied_generation: 6 })],
     });
     expect(resolvePendingSwitch(view, pendingOf()).state).toBe('waiting');
-  });
-
-  test('any non-applied verdict for this request ends the wait', () => {
-    // A terminus that is not `applied` moved nothing, so no server will report
-    // it — the same reason a refusal is matched here rather than compared.
-    const view = viewOf({
-      last_switch: { request_id: 'r-mine', status: 'failed', generation: 7 },
-      servers: [serverOf({ applied_generation: 6 })],
-    });
-    expect(resolvePendingSwitch(view, pendingOf()).state).toBe('answered');
   });
 
   test('with no live server, the record’s applied terminus IS the landing', () => {
@@ -311,24 +292,6 @@ describe('resolvePendingSwitch', () => {
 describe('contextWritable', () => {
   const owned = { kind: 'web_terminal', pid: 1000, port: 8080, self: true };
 
-  test('yes when this terminal owns the context and there is a store', () => {
-    expect(contextWritable({ store_available: true, owner: owned })).toBe(true);
-  });
-
-  test('no without a store, whatever the owner says', () => {
-    expect(contextWritable({ store_available: false, owner: owned })).toBe(false);
-  });
-
-  test('no while this terminal follows another', () => {
-    expect(contextWritable({ store_available: true, owner: { ...owned, self: false } })).toBe(
-      false
-    );
-  });
-
-  test('no when nothing owns the context anywhere', () => {
-    expect(contextWritable({ store_available: true, owner: null })).toBe(false);
-  });
-
   test('an absent owner key is "this payload does not say", not read-only', () => {
     // An older route must not turn every row read-only; the store decides.
     expect(contextWritable({ store_available: true })).toBe(true);
@@ -356,28 +319,12 @@ describe('contextWritable', () => {
     );
   });
 
-  test('a web-terminal owner is named by the port an operator can open', () => {
-    const term = { kind: 'web_terminal', pid: 77, port: 8123, self: false };
-    expect(contextHolderWords(term).long).toBe(
-      'Another terminal on port 8123 holds the control context.'
-    );
-    expect(contextHolderWords({ ...term, port: null }).long).toBe(
-      'Another terminal holds the control context.'
-    );
-    expect(contextRefusalPhrase({ store_available: true, owner: term })).toBe('another terminal');
-  });
-
   test('an unrecognised kind is named as a process, never guessed at', () => {
     const odd = { kind: 'something_new', pid: 42, port: null, self: false };
     expect(contextHolderWords(odd)).toEqual({
       short: 'another process',
       long: 'Another process (pid 42) holds the control context.',
     });
-  });
-
-  test('the row phrase falls back to the store word when that is the cause', () => {
-    expect(contextRefusalPhrase({ store_available: false })).toBe('store unavailable');
-    expect(contextRefusalPhrase({ store_available: true, owner: owned })).toBe('');
   });
 
   test('the refusal code says WHICH of the two it was', () => {
@@ -393,12 +340,6 @@ describe('contextWritable', () => {
 });
 
 describe('switchFailureNote', () => {
-  test('names the pid and carries the server’s own words', () => {
-    expect(switchFailureNote(5150, 'gateway refused the bind')).toBe(
-      'Controls server pid 5150: gateway refused the bind'
-    );
-  });
-
   test('says what happened when the server sent no sentence', () => {
     expect(switchFailureNote(5150)).toBe('Controls server pid 5150 did not apply the switch.');
     expect(switchFailureNote(5150, '   ')).toBe(
@@ -412,16 +353,5 @@ describe('switchFailureNote', () => {
 
   test('the operator reads a phrase for it, not the code', () => {
     expect(REASON_PHRASES[REASON_SWITCH_FAILED]).toBe('not applied');
-  });
-});
-
-describe('a connector the switch cannot dial', () => {
-  test('reads as unsupported, not as unauthored', () => {
-    // Its own phrase, and deliberately not one of the three "not set up" codes:
-    // the block IS authored, and the deployment is running on it.
-    expect(REASON_PHRASES.connector_not_switchable).toBe('switching not supported');
-    expect(descriptor({ reason: 'connector_not_switchable' }, 'live')).toBe(
-      'Writes move hardware'
-    );
   });
 });

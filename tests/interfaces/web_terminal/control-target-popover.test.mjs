@@ -36,9 +36,8 @@
  *   `skipped`;
  * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
  *
- * Seams: `fetch` is stubbed the way the other suites here stub it, and the
- * chip's SSE factory is injected,
- * since happy-dom has no EventSource. Both modules hold module-private state
+ * Seams: `fetch` is stubbed the way the other suites here stub it, and
+ * `EventSource` is stubbed as a class, since happy-dom has none. Both modules hold module-private state
  * with no reset API beyond their teardowns, so each test gets fresh instances
  * via vi.resetModules() + dynamic import — same pattern as
  * control-target-chip.test.mjs.
@@ -193,9 +192,14 @@ function mountFixture() {
     <div id="outside"></div>`;
 }
 
-/** The injected SSE factory: happy-dom has no EventSource. */
-function fakeEventSourceFactory() {
-  return /** @type {any} */ (() => ({ stop: () => {} }));
+/** happy-dom has no EventSource; the chip's stream opens against this one. */
+class FakeEventSource {
+  /** @param {string} url */
+  constructor(url) {
+    this.url = url;
+    this.readyState = 1;
+  }
+  close() {}
 }
 
 /** Drain the microtask/timer queue the async handlers chain through. */
@@ -209,7 +213,7 @@ async function flush() {
  */
 async function boot(payload) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+  chipModule.initControlTargetChip();
   popoverModule.initControlTargetPopover();
   await flush();
 }
@@ -277,6 +281,7 @@ beforeEach(async () => {
   vi.resetModules();
   served = viewOf();
   stubFetch();
+  vi.stubGlobal('EventSource', FakeEventSource);
   mountFixture();
   // The don't-ask-again waivers persist in localStorage; no test inherits
   // another's.
@@ -633,8 +638,17 @@ describe('the verb locks, one reason at a time', () => {
   }
 
   test('an unrecordable store outranks everything else', async () => {
+    // A readonly run holding an armed row and a missing read-only endpoint
+    // are present too. The widest cause is the one the operator reads.
+    const heldByTheRun = { ceiling_writes: true, posture: 'writes', effective: false };
     const { toggle, reason } = await lockOn(
-      viewOf({ store_available: false }),
+      viewOf({
+        store_available: false,
+        readonly_run: true,
+        targets: [
+          rowOf(KINDS.va, { ...heldByTheRun, narrowing_refusal: 'selected_role_missing' }),
+        ],
+      }),
       'va'
     );
     expect(toggle?.disabled).toBe(true);
@@ -673,7 +687,7 @@ describe('the verb locks, one reason at a time', () => {
       'va'
     );
     expect(toggle?.disabled).toBe(false);
-    expect(reason).not.toContain('read-only');
+    expect(reason).toBe('Turn writes on for Simulator — asks first');
   });
 
   test('a ceiling that never armed the target reads as the deployment holding it', async () => {
@@ -932,6 +946,27 @@ describe('switching', () => {
     await flush();
     expect(chipModule.isPending()).toBe(true);
     expect(outcomes('va')).toContain('switching…');
+
+    /** @param {number} applied the generation the one live server has reached */
+    const recordAccepted = (applied) =>
+      viewOf({
+        generation: 4,
+        last_switch: { request_id: 'req-1', target: 'va', status: 'applied', generation: 4, age_s: 0 },
+        servers: [{ pid: 4242, applied_generation: applied, last_switch: null }],
+      });
+    // The record accepted it, the server is still on 3: still switching.
+    served = recordAccepted(3);
+    await chipModule.refetch();
+    await flush();
+    expect(chipModule.isPending()).toBe(true);
+
+    // The server reaches 4: landed. Without the 202's generation the chip
+    // would have nothing to compare against and wait out its deadline.
+    served = recordAccepted(4);
+    await chipModule.refetch();
+    await flush();
+    expect(chipModule.isPending()).toBe(false);
+    expect(outcomes('va')).toContain('✓ switched');
   });
 
   test('a request for the target already held arms no wait at all', async () => {
@@ -1089,7 +1124,8 @@ describe('switching', () => {
         },
       })
     );
-    expect(outcomes('va')).toContain('✗ request_expired');
+    // The client mints this code itself, so it always has a phrase.
+    expect(outcomes('va')).toContain('✗ no answer');
     const line = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-outcome'));
     expect(line.dataset.status).toBe('expired');
   });
