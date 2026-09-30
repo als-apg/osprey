@@ -1,7 +1,7 @@
 function files = mml_export(outdir)
 %MML_EXPORT Write the current sub-machine's Middle Layer as OSPREY's input set.
 %
-%   MML_EXPORT writes five files into the current folder for the sub-machine
+%   MML_EXPORT writes six files into the current folder for the sub-machine
 %   the Middle Layer is set up for:
 %
 %       <machine>.<submachine>.lattice.mat   the model ring (THERING)
@@ -9,18 +9,22 @@ function files = mml_export(outdir)
 %       <machine>.<submachine>.ad.json       the Accelerator Data    (getad)
 %       <machine>.<submachine>.va.json       per-family calibration and nominals
 %       <machine>.<submachine>.response.json the orbit response matrix
+%       <machine>.<submachine>.model.json    what the Middle Layer's model answers
 %
 %   MML_EXPORT(OUTDIR) writes them into OUTDIR instead.
 %
-%   FILES = MML_EXPORT(...) returns the five paths in the order AO, AD,
-%   lattice, VA, response.
+%   FILES = MML_EXPORT(...) returns the six paths in the order AO, AD,
+%   lattice, VA, response, model.
 %
 %   Run it once per sub-machine, after the MML setpath for that sub-machine,
 %   then import the AO file with
 %
 %       osprey mml import <machine>.<submachine>.ao.json
 %
-%   The importer reads the four siblings beside it on its own.
+%   The importer reads the four siblings beside it on its own. The model file
+%   is not imported: it is what a check of OSPREY's own model against the
+%   Middle Layer's reads, and it is written last, after every file the
+%   importer reads is on disk.
 %
 %   The order the files are written in
 %   ----------------------------------
@@ -136,6 +140,29 @@ function files = mml_export(outdir)
 %   refused are there when there was something to write. lattice is always
 %   there too, carrying either its four facts or the reason it has none.
 %
+%   What model.json holds
+%   ---------------------
+%   One section per question put to the Middle Layer's model, in this order,
+%   each holding the model's answer or {"refused": <message>}:
+%
+%     state                  the ring state the answers below were taken in
+%     tune                   the model tunes
+%     chromaticity           the model chromaticities
+%     dispersion             the model dispersion at the beam monitors
+%     orbit_response         the orbit response matrix
+%     tune_response          the tune response to the tune quadrupoles
+%     chromaticity_response  the chromaticity response to the sextupoles
+%
+%   A response section holds one block per unit system it is stated in,
+%   physics and hardware.
+%
+%   Every section is asked of the saved lattice, loaded back into THERING
+%   before it runs, so no answer depends on what another section or the rest
+%   of the export left in the ring. On a transport line the sections only a
+%   ring answers - the momentum compaction and the harmonic number of state,
+%   tune, chromaticity and the two corrector responses - are refused as
+%   "transport line".
+%
 %   Reading the shapes
 %   ------------------
 %   Every per-device value is one row per device in DeviceList order, and an
@@ -149,7 +176,7 @@ function files = mml_export(outdir)
 %   digest is taken through it - an initialised Middle Layer and the
 %   sub-machine's simulator model loaded.
 
-EXPORTER_VERSION = 'mml_export 2.0.0';
+EXPORTER_VERSION = 'mml_export 2.1.0';
 
 if nargin < 1 || isempty(outdir)
     outdir = pwd;
@@ -190,21 +217,24 @@ adFile = fullfile(outdir, [stem '.ad.json']);
 latticeFile = fullfile(outdir, [stem '.lattice.mat']);
 vaFile = fullfile(outdir, [stem '.va.json']);
 responseFile = fullfile(outdir, [stem '.response.json']);
+modelFile = fullfile(outdir, [stem '.model.json']);
 
 local_save_lattice(latticeFile);
 
 local_write(aoFile, local_document(export, local_normalize(AO)));
 local_write(adFile, local_document(export, local_normalize(AD)));
 local_va_export(export, AO, AD, vaFile, responseFile);
+local_model_export(export, AO, AD, latticeFile, modelFile);
 
 fprintf('Wrote %s\n', latticeFile);
 fprintf('Wrote %s\n', aoFile);
 fprintf('Wrote %s\n', adFile);
 fprintf('Wrote %s\n', vaFile);
 fprintf('Wrote %s\n', responseFile);
+fprintf('Wrote %s\n', modelFile);
 
 if nargout > 0
-    files = {aoFile, adFile, latticeFile, vaFile, responseFile};
+    files = {aoFile, adFile, latticeFile, vaFile, responseFile, modelFile};
 end
 end
 
@@ -279,6 +309,444 @@ end
 
 local_write(vaFile, local_document(export, local_normalize(va)));
 local_write(responseFile, local_document(export, local_normalize(response)));
+end
+
+
+function local_model_export(export, AO, AD, latticeFile, modelFile)
+% Write the model file: one section per question put to the Middle Layer's
+% model, each the model's answer or the reason it has none.
+%
+% Every section is asked of the deck the export SAVED, not of whatever the
+% ring has become by the time it is asked: the model reads turn the cavity on,
+% switch radiation off and step setpoints, and several leave the ring the way
+% they needed it. So the saved lattice is loaded back into THERING before each
+% section, and no answer here depends on the order the sections run in.
+%
+% A section the Middle Layer refuses is written as {"refused": <message>},
+% and costs the file that section alone: a reader finds every section it looks
+% for and never mistakes a missing answer for a zero.
+probes = { ...
+    'state', @local_model_state; ...
+    'tune', @local_model_tune; ...
+    'chromaticity', @local_model_chromaticity; ...
+    'dispersion', @local_model_dispersion; ...
+    'orbit_response', @local_model_orbit_response; ...
+    'tune_response', @local_model_tune_response; ...
+    'chromaticity_response', @local_model_chromaticity_response};
+model = struct();
+for k = 1:size(probes, 1)
+    model.(probes{k, 1}) = local_model_section(probes{k, 2}, latticeFile, AO, AD);
+end
+local_write(modelFile, local_document(export, local_normalize(model)));
+end
+
+
+function section = local_model_section(probe, latticeFile, AO, AD)
+% One section of the model file, asked of the saved deck, or its refusal.
+try
+    local_model_reload(latticeFile);
+    section = probe(latticeFile, AO, AD);
+catch err
+    section = struct('refused', err.message);
+end
+end
+
+
+function local_model_reload(latticeFile)
+% Put the saved deck back into THERING, whatever the last model read left there.
+S = load(latticeFile, 'THERING');
+global THERING
+THERING = S.THERING;
+end
+
+
+function section = local_model_state(latticeFile, AO, AD) %#ok<INUSD>
+% The ring state every other section was asked in: the cavity as the saved
+% deck holds it, the model energy, the momentum compaction, the circumference,
+% the harmonic number, whether this is a transport line, and the closed orbit
+% at the beam monitors in both unit systems.
+%
+% The orbit is read last because the read reaches its orbit by turning the
+% cavity on or radiation off: every fact above it is the saved deck's own.
+global THERING
+[cavity, ~, iCavity] = getcavity;
+transport = istransport;
+
+section = struct();
+section.cavity = local_model_cavity(cavity);
+section.energy_gev = getenergymodel;
+section.circumference_m = findspos(THERING, numel(THERING) + 1);
+section.is_transport = transport;
+if transport
+    section.mcf = struct('refused', 'transport line');
+    section.harmonic_number = struct('refused', 'transport line');
+else
+    section.mcf = mcf(THERING);
+    section.harmonic_number = local_model_harmonic(iCavity);
+end
+
+monitors = {gethbpmfamily, getvbpmfamily};
+units = {'Hardware', 'Physics'};
+field = 'Monitor';
+section.orbit = struct();
+for m = 1:numel(monitors)
+    family = monitors{m};
+    DeviceList = family2dev(family);
+    block = struct('device_list', DeviceList);
+    for u = 1:numel(units)
+        block.(lower(units{u})) = getpvmodel(family, field, DeviceList, units{u}, 'Numeric');
+    end
+    section.orbit.(family) = block;
+end
+end
+
+
+function section = local_model_tune(latticeFile, AO, AD) %#ok<INUSD>
+% The model tunes two ways: as modeltune answers, with the cavity switched on
+% for the one-turn matrix and restored after, and at fixed momentum.
+%
+% A ring with no cavity has no one-turn 6x6 matrix to take, and modeltune
+% answers through its own 4D twiss fallback instead; the method says which.
+global THERING
+local_model_require_ring();
+cavity = getcavity;
+
+section = struct();
+if isempty(cavity)
+    section.method = 'twissring';
+else
+    section.method = 'findm66';
+end
+section.cavity_on = modeltune;
+section.fixed_momentum = tunechrom(THERING, 0);
+end
+
+
+function section = local_model_chromaticity(latticeFile, AO, AD) %#ok<INUSL>
+% The model chromaticities in both unit systems, over the RF step the
+% facility measures its own chromaticity with.
+%
+% The step is the largest of AD.DeltaRFChro, a hardware value, taken to Hz
+% through the RF family's own conversion as the difference it makes at the
+% model's RF frequency, and recorded with its sign. modelchro takes its step in
+% Hz whichever units it answers in.
+%
+% A ring with no cavity has no RF frequency to step: modelchro answers from
+% tunechrom's fixed-momentum 4D chromaticity instead and in physics units
+% whatever it was asked for, so a hardware answer from it would be a physics
+% number under a hardware name. That entry is refused rather than written.
+local_model_require_ring();
+energy = getenergymodel;
+step = max(AD.DeltaRFChro);
+rf0 = getrf('Model', 'Hardware');
+rf = local_sample_hw2physics('RF', 'Setpoint', [1 1], [rf0, rf0 + step], energy);
+deltaRF = rf(2) - rf(1);
+cavity = getcavity;
+
+section = struct();
+section.delta_rf_hw = step;
+section.delta_rf_hz = deltaRF;
+section.physics = modelchro(deltaRF, 'Physics');
+if isempty(cavity)
+    section.method = 'tunechrom';
+    section.hardware = struct('refused', 'no cavity: modelchro answers physics only');
+else
+    section.method = 'findm66';
+    section.hardware = modelchro(deltaRF, 'Hardware');
+end
+end
+
+
+function section = local_model_dispersion(latticeFile, AO, AD)
+% The model dispersion at the beam monitors in both unit systems, and the RF
+% facts the answer was computed from.
+%
+% No RF step is handed to either call. With an empty step modeldisp reads
+% AD.DeltaRFDisp in hardware units itself; a number handed to its Hardware call
+% is read as hardware units too, so a step in Hz would be taken as MHz - a
+% change the size of the RF frequency - and answered with a dialog box.
+%
+% modeldisp does not say how it reached its orbits, and the answer depends on
+% it: with the cavity off it solves the synchronous orbit at the deck's own RF
+% offset, with it on the 6D orbit, with none the 4D orbit off momentum, and on
+% a transport line it reads the twiss dispersion and ignores the RF entirely.
+% The method is recorded from the same state modeldisp branches on, beside the
+% cavity frequency, the offset of that frequency from the ring's revolution
+% harmonic and the momentum compaction it scales by. The speed of light is
+% AT's own constant, the one the model's tracking uses.
+global THERING
+bpmx = gethbpmfamily;
+bpmy = getvbpmfamily;
+[cavity, ~, iCavity] = getcavity;
+method = local_model_dispersion_method(cavity);
+
+section = struct();
+section.method = method;
+section.monitors = struct( ...
+    'x', struct('family', bpmx, 'device_list', family2dev(bpmx)), ...
+    'y', struct('family', bpmy, 'device_list', family2dev(bpmy)));
+if ~strcmp(method, 'twiss')
+    speed = PhysConstant.speed_of_light_in_vacuum.value;
+    circumference = findspos(THERING, numel(THERING) + 1);
+    harmonic = local_model_harmonic(iCavity);
+    if strcmp(method, 'findorbit4')
+        fCavity = speed * harmonic / circumference;
+    else
+        fCavity = THERING{iCavity(1)}.Frequency;
+    end
+    step = local_field(AD, 'DeltaRFDisp');
+    section.delta_rf_hw = step;
+    section.delta_rf_hz = local_sample_hw2physics('RF', 'Setpoint', [1 1], step, getenergymodel);
+    section.f_cavity = fCavity;
+    section.rf_change_hz = fCavity - harmonic * speed / circumference;
+    section.mcf = modelmcf;
+end
+
+[Dx, Dy] = modeldisp([], bpmx, [], bpmy, [], 'Physics', 'bipolar', 'NoDisplay');
+section.physics = struct('x', Dx, 'y', Dy);
+local_model_reload(latticeFile);
+[Dx, Dy] = modeldisp([], bpmx, [], bpmy, [], 'Hardware', 'bipolar', 'NoDisplay');
+section.hardware = struct('x', Dx, 'y', Dy);
+end
+
+
+function method = local_model_dispersion_method(cavity)
+% The orbit method modeldisp takes on the ring as it stands, decided the way
+% modeldisp decides it.
+if istransport
+    method = 'twiss';
+elseif isempty(cavity)
+    method = 'findorbit4';
+elseif strcmpi(deblank(cavity(1, :)), 'On') || isradiationon
+    method = 'findorbit6';
+else
+    method = 'findsyncorbit';
+end
+end
+
+
+function section = local_model_orbit_response(latticeFile, AO, AD) %#ok<INUSD>
+% The model orbit response matrix in both unit systems, laid out exactly as
+% response.json lays out the facility's own, so the two compare block by block.
+%
+% measbpmresp computes a model matrix through LOCO's calculator, and which one
+% depends on the machine: the linear calculator at fixed path length on a
+% storage ring, the full model at fixed momentum on a transport line. The
+% matrix means something different under each, so the pair is recorded from
+% the same test measbpmresp branches on.
+section = struct();
+if isstoragering
+    section.calculator = 'Linear';
+    section.closed_orbit_type = 'FixedPathLength';
+else
+    section.calculator = 'Full';
+    section.closed_orbit_type = 'FixedMomentum';
+end
+%
+% Each unit system refuses on its own. On a transport line the Middle Layer
+% converts its monitors' operating point into hardware units at the lattice's
+% own points rather than per monitor, and refuses the hardware matrix for it;
+% the physics matrix is still the model's answer and is kept.
+S = measbpmresp('Model', 'Struct', 'Physics', 'NoArchive', 'NoDisplay');
+section.physics = local_response_blocks(S, true);
+local_model_reload(latticeFile);
+try
+    S = measbpmresp('Model', 'Struct', 'Hardware', 'NoArchive', 'NoDisplay');
+    section.hardware = local_response_blocks(S, true);
+catch err
+    section.hardware = struct('refused', err.message);
+end
+end
+
+
+function section = local_model_tune_response(latticeFile, AO, AD) %#ok<INUSD>
+% The tune response to every family the facility tags as a tune corrector.
+section = local_model_family_response(latticeFile, 'Tune Corrector', @local_model_tune_step);
+end
+
+
+function section = local_model_chromaticity_response(latticeFile, AO, AD) %#ok<INUSD>
+% The chromaticity response to every family the facility tags as a
+% chromaticity corrector. Each chromaticity is measured over measchro's own
+% RF step, one-sided, and the step is recorded beside the answers.
+%
+% measchro turns a chromaticity into hardware units by dividing by the RF
+% frequency and a momentum compaction it reads again at every point, and the
+% Middle Layer's compaction is a one-sided difference that moves when a
+% sextupole family is stepped. So the hardware answer depends on three numbers
+% the physics one does not: the RF frequency the model reports, which on a
+% ring without a cavity is the Middle Layer's own constant rather than the
+% deck's; the chromaticity the step starts from; and the compaction at the
+% stepped point, recorded per family. Each is read from the saved deck.
+section = local_model_family_response(latticeFile, 'Chromaticity Corrector', ...
+    @local_model_chromaticity_step, @local_model_chromaticity_stepped_mcf);
+section.crm_chroma_step_hz = 1;
+local_model_reload(latticeFile);
+section.rf0_hw = getrf('Model', 'Hardware');
+section.chromaticity_start = modelchro('Physics');
+local_model_reload(latticeFile);
+end
+
+
+function extra = local_model_chromaticity_stepped_mcf(family, facts)
+% The model's momentum compaction with FAMILY stepped by its DeltaRespMat width
+% in hardware units from the saved deck, as measchro reads it at the stepped
+% point.
+nominal = getsp(family, facts.device_list, 'Model', 'Hardware', 'Numeric');
+setsp(family, nominal(:) + facts.delta_resp_mat(:), facts.device_list, 'Model', 'Hardware');
+extra = struct('mcf_stepped', getmcf('Model'));
+end
+
+
+function R = local_model_tune_step(family, units)
+R = meastuneresp(family, [], [], 'Model', units, 'NoArchive', 'NoDisplay');
+end
+
+
+function R = local_model_chromaticity_step(family, units)
+R = measchroresp(family, [], [], [], 'Model', units, 'NoArchive', 'NoDisplay');
+end
+
+
+function section = local_model_family_response(latticeFile, tag, measure, readExtra)
+% One response section: the families carrying TAG, each measured the way the
+% Middle Layer measures it, in hardware and in physics units.
+%
+% The Middle Layer has no default pair of families: with no family tagged it
+% refuses the measurement, and that refusal, in its own words, is the
+% section's. A transport line has no tune to respond.
+%
+% Handed an empty device list, the measurement steps the WHOLE family at once,
+% one-sided, by its DeltaRespMat width. The chromaticity response answers
+% that family value replicated per device; the tune response answers it
+% summed over the family's devices, one pair of numbers for the family. So
+% what is recorded per family is what that value is made of: the devices, the
+% widths, each device's length, and the gradient per ampere of each device
+% over the step the hardware measurement takes - the one-sided secant from the
+% nominal to the nominal plus the width.
+%
+% A family whose nominal or width is not a number is refused by name before
+% anything is stepped: the Middle Layer would step it to no number and ask the
+% operator about it in a dialog box. Every measurement starts from the saved
+% deck, the hardware one and the physics one alike: a stepped family is put
+% back through its conversion, which leaves the ring a little off the deck, so
+% the two unit systems describe one ring only when each starts from the file.
+% Every family refuses on its own.
+%
+% READEXTRA, when given, reads what else a consumer needs about a family's
+% step; it may move the model, and the deck is reloaded after it.
+if nargin < 4
+    readExtra = [];
+end
+if istransport
+    error('mml_export:transport', 'transport line');
+end
+families = findmemberof(tag);
+if isempty(families)
+    error('mml_export:memberof', 'MemberOf ''%s'' was not found', tag);
+end
+
+energy = getenergymodel;
+section = struct('families', struct(), 'physics', struct(), 'hardware', struct());
+for k = 1:numel(families)
+    family = families{k};
+    try
+        local_model_reload(latticeFile);
+        facts = local_model_family_facts(family, energy);
+        if ~isempty(readExtra)
+            extra = readExtra(family, facts);
+            names = fieldnames(extra);
+            for j = 1:numel(names)
+                facts.(names{j}) = extra.(names{j});
+            end
+            local_model_reload(latticeFile);
+        end
+        hardware = measure(family, 'Hardware');
+        local_model_reload(latticeFile);
+        physics = measure(family, 'Physics');
+        section.families.(family) = facts;
+        section.hardware.(family) = hardware;
+        section.physics.(family) = physics;
+    catch err
+        section.families.(family) = struct('refused', err.message);
+    end
+end
+end
+
+
+function facts = local_model_family_facts(family, energy)
+% What one family's stepped response is made of, read before it is stepped.
+DeviceList = family2dev(family);
+nDev = size(DeviceList, 1);
+nominal = getsp(family, DeviceList, 'Model', 'Hardware', 'Numeric');
+width = getfamilydata(family, 'Setpoint', 'DeltaRespMat', DeviceList);
+if isscalar(width)
+    width = repmat(width, nDev, 1);
+end
+if numel(nominal) ~= nDev || numel(width) ~= nDev ...
+        || any(~isfinite(nominal(:))) || any(~isfinite(width(:)))
+    error('mml_export:step', ...
+        ['%s: the nominal setpoint or the DeltaRespMat width is not a finite ' ...
+         'number for every device, so the family is not stepped.'], family);
+end
+
+grid = [nominal(:), nominal(:) + width(:)];
+values = local_sample_hw2physics(family, 'Setpoint', DeviceList, grid, energy);
+
+facts = struct();
+facts.device_list = DeviceList;
+facts.delta_resp_mat = width(:);
+facts.leff = getleff(family, DeviceList);
+facts.k_per_amp = (values(:, 2) - values(:, 1)) ./ width(:);
+%
+% The weights the Middle Layer gives each device in a family response asked
+% for in physics units. measrespmat decides whether to convert by the units
+% the family is stored in, not the units it was asked for, so on a family
+% stored in hardware it passes the physics setpoint and its step through
+% hw2physics as if they were amperes. The result weights each device's share
+% of the family response. It equals the physics step only where the conversion
+% is linear with one slope for every device. Recorded so a consumer can replay
+% the physics-unit response exactly; the setpoint lies outside the range the
+% calibration table samples, so only the facility's own conversion answers it.
+physicsNominal = values(:, 1);
+physicsStep = values(:, 2) - values(:, 1);
+misread = local_sample_hw2physics(family, 'Setpoint', DeviceList, ...
+    [physicsNominal, physicsNominal + physicsStep], energy);
+facts.physics_step_read_as_amps = misread(:, 2) - misread(:, 1);
+end
+
+
+function local_model_require_ring()
+% The sections that only a ring answers, refused on a transport line.
+if istransport
+    error('mml_export:transport', 'transport line');
+end
+end
+
+
+function state = local_model_cavity(cavity)
+% The cavity state as getcavity reports it on the saved deck, or none.
+if isempty(cavity)
+    state = 'none';
+else
+    state = deblank(cavity(1, :));
+end
+end
+
+
+function harmonic = local_model_harmonic(iCavity)
+% The harmonic number the model's RF answers use: the cavity's own, or the
+% Accelerator Data's when the deck has no cavity, as modeldisp takes it.
+global THERING
+if isempty(iCavity)
+    harmonic = getfamilydata('HarmonicNumber');
+else
+    harmonic = THERING{iCavity(1)}.HarmNumber;
+end
+if isempty(harmonic)
+    error('mml_export:harmonic', ...
+        'The deck has no cavity and the Accelerator Data states no HarmonicNumber.');
+end
 end
 
 
@@ -1609,7 +2077,7 @@ end
 end
 
 
-function blocks = local_response_blocks(S)
+function blocks = local_response_blocks(S, isModel)
 % One block per monitor and corrector pair the response matrix holds, in the
 % order the read lays them out.
 %
@@ -1619,41 +2087,54 @@ function blocks = local_response_blocks(S)
 % list of orbit families, and a facility's own copy of the read may list them
 % in another order. The families are what the rest of this export describes
 % and what a consumer aligns the matrix by.
+%
+% ISMODEL marks the Middle Layer's model answer rather than a stored
+% measurement; see local_response_block for what that changes.
+if nargin < 2
+    isModel = false;
+end
 blocks = cell(1, numel(S));
 n = 0;
 for m = 1:size(S, 1)
     for a = 1:size(S, 2)
         n = n + 1;
-        blocks{n} = local_response_block(S(m, a));
+        blocks{n} = local_response_block(S(m, a), isModel);
     end
 end
 end
 
 
-function block = local_response_block(s)
+function block = local_response_block(s, isModel)
 % One block of the response matrix: whose numbers they are, what they say,
 % and the operating point they say it at.
 %
-% Every measured number is written with six significant digits, and the units
-% the matrix is in are written beside it: the read converts a stored matrix
-% into the units it was asked for, so what the file held and what is written
-% here need not be the same units.
+% A stored measurement has every measured number written with six significant
+% digits; a model answer is written at the full width of a double, because it
+% is a calculation a consumer replays and compares entry by entry, and its
+% last digits are not noise. The units the matrix is in are written beside it:
+% the read converts a stored matrix into the units it was asked for, so what
+% the file held and what is written here need not be the same units.
+if isModel
+    keep = @(x) double(x);
+else
+    keep = @local_response_rounded;
+end
 block = struct();
-block.monitor = local_response_side(s, 'Monitor');
-block.actuator = local_response_side(s, 'Actuator');
+block.monitor = local_response_side(s, 'Monitor', isModel, keep);
+block.actuator = local_response_side(s, 'Actuator', isModel, keep);
 block.origin = local_response_origin(block.monitor.mode, block.actuator.mode);
 block.timestamp = local_response_timestamp(local_field(s, 'TimeStamp'));
-block.gev = local_response_rounded(local_response_number(s, 'GeV'));
+block.gev = keep(local_response_number(s, 'GeV'));
 block.units = local_text(local_field(s, 'Units'));
 block.units_string = local_text(local_field(s, 'UnitsString'));
 block.modulation_method = local_text(local_field(s, 'ModulationMethod'));
-block.actuator_delta = local_response_rounded(local_response_number(s, 'ActuatorDelta'));
-block.data = local_response_rounded(local_response_matrix(s, ...
+block.actuator_delta = keep(local_response_number(s, 'ActuatorDelta'));
+block.data = keep(local_response_matrix(s, ...
     size(block.monitor.device_list, 1), size(block.actuator.device_list, 1)));
 end
 
 
-function side = local_response_side(s, name)
+function side = local_response_side(s, name, isModel, keep)
 % One side of a block: the family the matrix was measured on, the devices its
 % rows or its columns are in the order of, the mode that side was read in,
 % which of its devices the measurement counts as good, and what that side was
@@ -1670,6 +2151,20 @@ function side = local_response_side(s, name)
 % as the matrix and the flags are: a column of another length is read against
 % the wrong devices, and the whole point of recording it is that a consumer
 % converts each device's row about that device's own setting.
+%
+% A model answer is the one exception. On a transport line the Middle Layer's
+% model calculator reads its monitors' operating point from the optics at the
+% lattice's own points rather than at the monitors, and fills the status
+% flags to that same length, while the matrix itself stays one row per
+% monitor. The matrix is the model's answer and is kept; the side is written
+% with every device good and the operating point unknown, and the reason goes
+% beside it as a note, so nothing is read against the wrong device.
+if nargin < 3
+    isModel = false;
+end
+if nargin < 4
+    keep = @local_response_rounded;
+end
 body = local_field(s, name);
 if ~isstruct(body)
     error('mml_export:response', 'The response matrix carries no %s of its own.', name);
@@ -1686,8 +2181,25 @@ side = struct();
 side.family = local_text(local_field(body, 'FamilyName'));
 side.device_list = devices;
 side.mode = local_text(local_field(body, 'Mode'));
-side.status = local_response_status(body, name, nDev);
-side.data = local_response_rounded(local_response_point(body, name, nDev));
+if ~isModel
+    side.status = local_response_status(body, name, nDev);
+    side.data = keep(local_response_point(body, name, nDev));
+    return
+end
+try
+    side.status = local_response_status(body, name, nDev);
+    side.data = keep(local_response_point(body, name, nDev));
+catch err
+    if ~strcmp(err.identifier, 'mml_export:response')
+        rethrow(err);
+    end
+    side.status = ones(nDev, 1);
+    side.data = NaN;
+    side.note = sprintf(['%s The Middle Layer''s model calculator reports this side at ' ...
+        'the lattice''s own points rather than per device, so every device is taken ' ...
+        'as good and the operating point as unknown; the matrix is one row per device ' ...
+        'and is kept.'], err.message);
+end
 end
 
 
