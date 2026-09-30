@@ -1,0 +1,1 @@
+Add the mml layer's mapping loader, `osprey.facility.layers.mml.mapping`, which reads `imported/mml/mapping.yaml` in its new shape: an optional `facility:` block, `models:` with each model's `wiring` in engine words, and the family, direction and judgment blocks. No command runs it yet.
