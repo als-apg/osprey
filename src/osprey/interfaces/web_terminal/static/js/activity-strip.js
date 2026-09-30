@@ -16,8 +16,7 @@
  * active panel, the strip stays silent (the gallery navigates on focus SSE,
  * the bluesky panel shows its launched banner, and the rail glow has already
  * fired in panel-sse's frame dispatcher). The kind→panel mapping is the
- * SUPPRESSION table below; suppression itself is a pure function (exported
- * for tests).
+ * SUPPRESSION table below.
  *
  * Three modules, one feature: this one owns the live line, activity-format.js
  * words every frame for both surfaces, and activity-history.js is the
@@ -38,7 +37,7 @@ import { createActivityHistory } from './activity-history.js';
 /** How long an entry stays visible before auto-clearing (ms). */
 export const ACTIVITY_CLEAR_MS = 6000;
 
-// ---- Pure helpers (exported for tests) ----
+// ---- Suppression ----
 
 /**
  * SUPPRESSION table: the panel id that self-signals a given activity kind.
@@ -55,7 +54,7 @@ export const ACTIVITY_CLEAR_MS = 6000;
  * @returns {string | null} the panel id whose being active suppresses the
  *   entry, or null when the kind is never suppressed
  */
-export function suppressionPanelFor(target) {
+function suppressionPanelFor(target) {
   switch (target.kind) {
     case 'artifact': return 'artifacts';
     case 'run': return 'bluesky';
@@ -71,7 +70,7 @@ export function suppressionPanelFor(target) {
  * @param {string | null} activePanel
  * @returns {boolean}
  */
-export function isSuppressed(target, activePanel) {
+function isSuppressed(target, activePanel) {
   const mapped = suppressionPanelFor(target);
   return mapped != null && mapped === activePanel;
 }
@@ -79,14 +78,11 @@ export function isSuppressed(target, activePanel) {
 // ---- Strip factory ----
 
 /**
- * Build a strip bound to a mount element. Dependencies are injected so tests
- * drive it directly (frames via handleActivity, active panel via a stub,
- * history via a stub reader).
+ * Build a strip bound to a mount element, reading the surfaced panel and the
+ * catalog labels through the given accessors.
  * @param {{
  *   mount: HTMLElement,
  *   getActivePanel: () => string | null,
- *   clearMs?: number,
- *   fetchRecent?: (limit: number) => Promise<AgentActivityFrame[]>,
  *   labelOf?: (id: string) => string,
  * }} deps
  * @returns {{
@@ -97,19 +93,13 @@ export function isSuppressed(target, activePanel) {
  *   isHistoryOpen: () => boolean,
  * }}
  */
-export function createActivityStrip({
-  mount,
-  getActivePanel,
-  clearMs = ACTIVITY_CLEAR_MS,
-  fetchRecent,
-  labelOf: panelLabel,
-}) {
+export function createActivityStrip({ mount, getActivePanel, labelOf: panelLabel }) {
   /** @type {ReturnType<typeof setTimeout> | null} */
   let timer = null;
   /** Arrange frames shown back-to-back in the current live window (see below). */
   let arrangeRun = 0;
 
-  const history = createActivityHistory({ mount, fetchRecent, labelOf: panelLabel });
+  const history = createActivityHistory({ mount, labelOf: panelLabel });
 
   function clear() {
     if (timer != null) { clearTimeout(timer); timer = null; }
@@ -155,7 +145,7 @@ export function createActivityStrip({
     mount.textContent = '';
     mount.appendChild(entry);
     if (timer != null) clearTimeout(timer);
-    timer = setTimeout(clear, clearMs);
+    timer = setTimeout(clear, ACTIVITY_CLEAR_MS);
   }
 
   return {

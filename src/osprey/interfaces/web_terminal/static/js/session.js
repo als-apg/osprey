@@ -160,15 +160,13 @@ window.addEventListener('message', (e) => {
  * is ignored, as is one without a `target` — the same guard panel-sse's frame
  * dispatcher applies.
  *
- * Prefixing, backoff and reconnection are createEventSource's job; the
- * factory is injectable so tests can drive it without a network.
+ * Prefixing, backoff and reconnection are createEventSource's job.
  *
  * @param {{handleActivity: (frame: AgentActivityEvent) => void}} strip
- * @param {typeof createEventSource} [eventSourceFactory]
  * @returns {{stop: () => void}}
  */
-export function wireActivityStrip(strip, eventSourceFactory = createEventSource) {
-  return eventSourceFactory('/api/files/events', {
+export function wireActivityStrip(strip) {
+  return createEventSource('/api/files/events', {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
       if (data.type !== AGENT_ACTIVITY_FRAME || !data.target) return;
