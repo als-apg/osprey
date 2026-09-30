@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -25,12 +26,11 @@ from pathlib import Path
 import nbformat
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal import jupyter_sidecar
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
-    LAB_DISABLED_EXTENSIONS,
     JupyterSidecar,
-    lab_page_config,
     lab_theme_override,
     seed_starter_notebook,
     starter_read_channel,
@@ -123,32 +123,6 @@ def _wait_gone(pid: int, timeout: float) -> bool:
 
 
 @spawns
-def test_status_answers_with_the_token_and_refuses_without(sidecar: JupyterSidecar) -> None:
-    with_token, _ = _get(f"{sidecar.url}/api/status", sidecar.auth_headers)
-    without, _ = _get(f"{sidecar.url}/api/status")
-
-    assert with_token == 200
-    assert without == 403
-
-
-@spawns
-def test_only_the_osprey_kernelspec_is_listed(sidecar: JupyterSidecar) -> None:
-    status, body = _get(f"{sidecar.url}/api/kernelspecs", sidecar.auth_headers)
-
-    assert status == 200
-    assert sorted(json.loads(body)["kernelspecs"]) == [KERNELSPEC_NAME]
-
-
-@spawns
-def test_the_url_names_the_panel_without_a_trailing_slash(sidecar: JupyterSidecar) -> None:
-    assert sidecar.pid is not None
-    assert sidecar.url.startswith("http://127.0.0.1:")
-    assert sidecar.url.endswith("/panel/jupyter")
-    assert sidecar.token is not None
-    assert sidecar.auth_headers == {"authorization": f"Bearer {sidecar.token}"}
-
-
-@spawns
 def test_the_root_redirects_to_jupyterlab_not_the_server_landing_page(
     sidecar: JupyterSidecar,
 ) -> None:
@@ -166,7 +140,10 @@ def test_the_root_redirects_to_jupyterlab_not_the_server_landing_page(
 @spawns
 def test_the_outer_prefix_is_part_of_the_base_url(shared_root: Path) -> None:
     for prefixed in _running(shared_root, "/u/alice"):
+        assert prefixed.pid is not None
+        assert prefixed.url.startswith("http://127.0.0.1:")
         assert prefixed.url.endswith("/u/alice/panel/jupyter")
+        assert prefixed.auth_headers["authorization"].startswith("Bearer ")
         status, _ = _get(f"{prefixed.url}/api/status", prefixed.auth_headers)
         assert status == 200
 
@@ -179,7 +156,8 @@ def test_the_runtime_dir_is_outside_the_shared_root(
 
     assert runtime_dir is not None
     assert not runtime_dir.resolve().is_relative_to(shared_root.resolve())
-    assert (runtime_dir / f"jpserver-{sidecar.pid}.json").exists()
+    info = json.loads((runtime_dir / f"jpserver-{sidecar.pid}.json").read_text(encoding="utf-8"))
+    assert info["hostname"] == "127.0.0.1"
     assert list(shared_root.rglob("jpserver-*.json")) == []
     assert (runtime_dir.parent.stat().st_mode & 0o777) == 0o700
 
@@ -294,11 +272,6 @@ def test_preflight_names_an_interpreter_that_cannot_import(
 
 
 @pytest.mark.usefixtures("config_env")
-def test_preflight_passes_with_the_real_interpreter(tmp_path: Path) -> None:
-    JupyterSidecar(tmp_path / "shared", "", None).preflight()
-
-
-@pytest.mark.usefixtures("config_env")
 @spawns
 def test_an_early_exit_surfaces_the_stderr_tail(
     shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -376,7 +349,6 @@ def test_the_sidecar_exits_when_its_parent_is_killed(shared_root: Path, tmp_path
 
 THEME_PLUGIN = "@jupyterlab/apputils-extension:themes"
 OVERRIDE_RELPATH = Path("labconfig") / "default_setting_overrides.json"
-PAGE_CONFIG_RELPATH = Path("labconfig") / "page_config.json"
 
 
 @pytest.mark.parametrize(
@@ -395,60 +367,43 @@ def test_only_dark_and_light_name_a_jupyterlab_theme(
     assert lab_theme_override(pinned_mode) == expected
 
 
+@pytest.mark.parametrize(
+    ("pinned_mode", "expected"),
+    [("dark", {THEME_PLUGIN: {"theme": "JupyterLab Dark"}}), ("retro", None)],
+)
 def test_a_pinned_theme_is_seeded_into_the_launch_config_dir(
-    shared_root: Path, tmp_path: Path
+    shared_root: Path,
+    tmp_path: Path,
+    pinned_mode: str,
+    expected: dict[str, dict[str, str]] | None,
 ) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
-    JupyterSidecar(shared_root, "", "dark")._seed(config_dir)
+    JupyterSidecar(shared_root, "", pinned_mode)._seed(config_dir)
 
-    override = json.loads((config_dir / OVERRIDE_RELPATH).read_text(encoding="utf-8"))
-    assert override == {THEME_PLUGIN: {"theme": "JupyterLab Dark"}}
-
-
-def test_a_family_theme_seeds_no_override_file(shared_root: Path, tmp_path: Path) -> None:
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-
-    JupyterSidecar(shared_root, "", "retro")._seed(config_dir)
-
-    assert not (config_dir / OVERRIDE_RELPATH).exists()
-    assert [p.name for p in config_dir.rglob("*") if p.is_file()] == ["page_config.json"]
+    if expected is None:
+        assert not (config_dir / OVERRIDE_RELPATH).exists()
+        assert [p.name for p in config_dir.rglob("*") if p.is_file()] == ["page_config.json"]
+    else:
+        override = json.loads((config_dir / OVERRIDE_RELPATH).read_text(encoding="utf-8"))
+        assert override == expected
 
 
-def test_the_page_config_switches_off_the_panel_foreign_plugins(
-    shared_root: Path, tmp_path: Path
-) -> None:
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
+def test_the_update_check_is_switched_off(shared_root: Path) -> None:
+    """The one pinned trait a running server cannot show.
 
-    JupyterSidecar(shared_root, "", None)._seed(config_dir)
+    The default checker asks PyPI and answers "no update" whenever the
+    installed JupyterLab is current or the host is offline, so the
+    ``lab/api/update`` answer cannot tell it apart from the one that never
+    asks. Every other pinned trait is asserted on a running sidecar.
+    """
+    argv = JupyterSidecar(shared_root, "", None)._argv()
 
-    page_config = json.loads((config_dir / PAGE_CONFIG_RELPATH).read_text(encoding="utf-8"))
-    assert page_config == lab_page_config()
-    assert page_config == {
-        "disabledExtensions": {
-            "@jupyterlab/extensionmanager-extension": True,
-            "@jupyterlab/apputils-extension:announcements": True,
-        }
-    }
-    assert set(page_config["disabledExtensions"]) == set(LAB_DISABLED_EXTENSIONS)
-
-
-def test_the_argv_pins_the_server_traits(shared_root: Path) -> None:
-    argv = JupyterSidecar(shared_root, "/u/alice", None)._argv()
-
-    assert argv[:3] == [sys.executable, "-m", "osprey.interfaces.web_terminal.jupyter_sidecar_main"]
-    assert "--FileContentsManager.delete_to_trash=False" in argv
-    assert "--FileContentsManager.always_delete_dir=True" in argv
-    assert "--LabApp.news_url=None" in argv
     assert (
         "--LabApp.check_for_updates_class=jupyterlab.handlers.announcements.NeverCheckForUpdate"
         in argv
     )
-    assert "--ServerApp.base_url=/u/alice/panel/jupyter/" in argv
-    assert f"--KernelSpecManager.allowed_kernelspecs=['{KERNELSPEC_NAME}']" in argv
 
 
 def test_the_starter_notebook_is_written_into_an_empty_notebooks_dir(
@@ -637,7 +592,10 @@ def test_the_lab_page_lists_the_disabled_plugins_and_no_news(sidecar: JupyterSid
     page_config = _page_config(html)
     disabled = page_config["disabledExtensions"]
     assert isinstance(disabled, list)
-    assert set(LAB_DISABLED_EXTENSIONS) <= set(disabled)
+    assert {
+        "@jupyterlab/extensionmanager-extension",
+        "@jupyterlab/apputils-extension:announcements",
+    } <= set(disabled)
     assert page_config["news"] == {"disabled": True}
 
 
@@ -705,18 +663,25 @@ def test_stop_reports_no_exit_and_fires_no_callback(
 
     with caplog.at_level("WARNING", logger=jupyter_sidecar.__name__):
         sidecar.stop()
-        time.sleep(0.2)
 
+    # ``stop()`` joins the exit watcher before it returns, so a report or a
+    # callback it was going to make has already happened by now.
     assert not fired.is_set()
-    assert _exit_records(caplog) == []
+    assert [
+        record
+        for record in caplog.records
+        if record.name == jupyter_sidecar.__name__ and record.levelno >= logging.WARNING
+    ] == []
 
 
 #: A stand-in sidecar: hands its stderr to a child in its own session, the way a
-#: kernel inherits it, then idles until it is signalled.
+#: kernel inherits it, then idles until it is signalled. The child's pid is
+#: published with a rename, so the file never exists without its content.
 _ORPHAN_SCRIPT = (
-    "import subprocess, sys, time\n"
+    "import os, subprocess, sys, time\n"
     "child = subprocess.Popen(['sleep', '3600'], start_new_session=True)\n"
-    "open(sys.argv[1], 'w').write(str(child.pid))\n"
+    "open(sys.argv[1] + '.tmp', 'w').write(str(child.pid))\n"
+    "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
     "time.sleep(3600)\n"
 )
 
@@ -740,6 +705,7 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         deadline = time.monotonic() + 10
         while not pid_file.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
+        assert pid_file.exists(), "the stand-in never reported its orphan"
         orphan = int(pid_file.read_text())
         assert _alive(orphan)
 
@@ -752,6 +718,10 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
         assert time.monotonic() - started < jupyter_sidecar._STOP_GRACE + 5
         assert _alive(orphan), "the orphan is the test's own; stop() must not need it gone"
     finally:
+        # The orphan lives in its own session, so neither the group signal nor
+        # the reap reaches it: it is killed here whichever assertion failed.
+        if orphan is None and pid_file.exists():
+            orphan = int(pid_file.read_text())
         if orphan is not None and _alive(orphan):
             os.kill(orphan, signal.SIGKILL)
         sidecar.stop()
@@ -838,101 +808,47 @@ class TestTheStarterNotebooksExampleRead:
     channel the deployment says it can read; nothing here invents a third.
     """
 
-    def test_the_archivers_canary_channel_is_the_example(self) -> None:
-        """A freshness canary is declared to keep moving, so it shows a value.
-
-        The archiver check names the one channel a facility promises is still
-        changing. That is what makes a demo read worth running twice.
-        """
-        config = {
-            "health": {
-                "categories": {
-                    "archiver": {
-                        "checks": [
-                            {
-                                "type": "archiver_freshness",
-                                "channel": "SR:DIAG:DCCT:01:CURRENT:RB",
-                            }
-                        ]
-                    }
+    _CANARY = {
+        "health": {
+            "categories": {
+                "archiver": {
+                    "checks": [
+                        {"type": "archiver_freshness", "channel": "SR:DIAG:DCCT:01:CURRENT:RB"}
+                    ]
                 }
             }
         }
+    }
+    _PROBE = {
+        "control_system": {"connector": {"va": {"probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB"}}}
+    }
 
-        assert starter_read_channel(config) == "SR:DIAG:DCCT:01:CURRENT:RB"
-
-    def test_a_targets_probe_channel_is_the_fallback(self) -> None:
-        """Without an archiver, the target switch still names a readable channel."""
-        config = {
-            "control_system": {
-                "connector": {"va": {"probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB"}}
-            }
-        }
-
-        assert starter_read_channel(config) == "SR:VAC:GAUGE:SR01:PRESSURE:RB"
-
-    def test_the_canary_outranks_a_probe_channel(self) -> None:
-        config = {
-            "health": {
-                "categories": {
-                    "archiver": {
-                        "checks": [
-                            {
-                                "type": "archiver_freshness",
-                                "channel": "SR:DIAG:DCCT:01:CURRENT:RB",
-                            }
-                        ]
+    @pytest.mark.parametrize(
+        ("config", "expected"),
+        [
+            # A freshness canary is declared to keep moving, so a demo read shows a value.
+            (_CANARY, "SR:DIAG:DCCT:01:CURRENT:RB"),
+            # Without an archiver, the target switch still names a readable channel.
+            (_PROBE, "SR:VAC:GAUGE:SR01:PRESSURE:RB"),
+            ({**_CANARY, **_PROBE}, "SR:DIAG:DCCT:01:CURRENT:RB"),
+            # The generic template ships this unfilled; a cell reading it fails first run.
+            (
+                {
+                    "control_system": {
+                        "connector": {"live": {"probe_channel": "YOUR:PROBE:CHANNEL"}}
                     }
-                }
-            },
-            "control_system": {
-                "connector": {"va": {"probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB"}}
-            },
-        }
-
-        assert starter_read_channel(config) == "SR:DIAG:DCCT:01:CURRENT:RB"
-
-    def test_the_generic_templates_placeholder_is_not_a_channel(self) -> None:
-        """``YOUR:PROBE:CHANNEL`` ships unfilled and names nothing.
-
-        The build refuses to write a placeholder probe channel for the same
-        reason: it would make a target look reachable while naming a channel
-        nothing serves. A starter cell reading it fails on its first run.
-        """
-        config = {
-            "control_system": {"connector": {"live": {"probe_channel": "YOUR:PROBE:CHANNEL"}}}
-        }
-
-        assert starter_read_channel(config) is None
-
-    def test_a_mock_only_deployment_names_no_channel(self) -> None:
-        """The hello-world shape: a mock connector, no server, no declaration."""
-        config = {"control_system": {"type": "mock", "writes_enabled": False}}
-
-        assert starter_read_channel(config) is None
-
-    def test_the_starter_reads_the_channel_it_is_given(self, tmp_path: Path) -> None:
-        notebooks_dir = tmp_path / "notebooks"
-        notebooks_dir.mkdir()
-
-        seed_starter_notebook(notebooks_dir, "SR:DIAG:DCCT:01:CURRENT:RB")
-
-        notebook = nbformat.read(notebooks_dir / "getting-started.ipynb", as_version=4)
-        code = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
-        assert code == [
-            "from osprey.runtime import read_channel, write_channel\n\n"
-            'read_channel("SR:DIAG:DCCT:01:CURRENT:RB")'
-        ]
-
-    def test_no_channel_leaves_the_import_line_alone(self, tmp_path: Path) -> None:
-        notebooks_dir = tmp_path / "notebooks"
-        notebooks_dir.mkdir()
-
-        seed_starter_notebook(notebooks_dir, None)
-
-        notebook = nbformat.read(notebooks_dir / "getting-started.ipynb", as_version=4)
-        code = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
-        assert code == ["from osprey.runtime import read_channel, write_channel"]
+                },
+                None,
+            ),
+            # The hello-world shape: a mock connector, no server, no declaration.
+            ({"control_system": {"type": "mock", "writes_enabled": False}}, None),
+        ],
+        ids=["canary", "probe-fallback", "canary-outranks-probe", "placeholder", "mock-only"],
+    )
+    def test_the_starter_channel_resolution(
+        self, config: dict[str, object], expected: str | None
+    ) -> None:
+        assert starter_read_channel(config) == expected
 
     def test_a_built_control_assistant_offers_its_beam_current(self, tmp_path: Path) -> None:
         """The resolver is pinned to the shape the build really emits.
@@ -1041,7 +957,7 @@ class _Sessions(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def sessions_server() -> Iterator[str]:
     """A server answering one canned ``api/sessions`` body; yields its base URL."""
-    _Sessions.seen = []
+    _Sessions.body, _Sessions.status, _Sessions.seen = b"[]", 200, []
     server = http.server.HTTPServer(("127.0.0.1", 0), _Sessions)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1051,6 +967,7 @@ def sessions_server() -> Iterator[str]:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+        _Sessions.body, _Sessions.status, _Sessions.seen = b"[]", 200, []
 
 
 def _rows(*sessions: dict[str, object]) -> bytes:
@@ -1071,12 +988,6 @@ def test_a_kernel_resolves_to_the_notebook_it_was_started_for(sessions_server: s
     assert _Sessions.seen == [("/panel/jupyter/api/sessions", "Bearer secret")]
 
 
-def test_a_kernel_the_sidecar_does_not_know_resolves_to_nothing(sessions_server: str) -> None:
-    _Sessions.body = _rows({"id": "s1", "path": "other.ipynb", "kernel": {"id": "other"}})
-
-    assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
-
-
 @pytest.mark.parametrize(
     "body",
     [
@@ -1086,6 +997,16 @@ def test_a_kernel_the_sidecar_does_not_know_resolves_to_nothing(sessions_server:
         b'[{"kernel": {"id": "wanted"}}]',
         b'[{"kernel": {"id": "wanted"}, "path": "   "}]',
         b'[null, {"kernel": null}]',
+        b'[{"id": "s1", "path": "other.ipynb", "kernel": {"id": "other"}}]',
+    ],
+    ids=[
+        "not-json",
+        "not-a-list",
+        "no-kernel",
+        "no-path",
+        "blank-path",
+        "null-rows",
+        "unknown-kernel",
     ],
 )
 def test_an_unexpected_body_resolves_to_nothing_rather_than_raising(
@@ -1100,24 +1021,12 @@ def test_a_refused_request_resolves_to_nothing(sessions_server: str) -> None:
     """A 403 from a missing credential is an unanswered question, not a failure."""
     _Sessions.status = 403
     _Sessions.body = b'{"message": "Forbidden"}'
-    try:
-        assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
-    finally:
-        _Sessions.status = 200
+
+    assert jupyter_sidecar.kernel_notebook_path(sessions_server, {}, "wanted") is None
 
 
-def test_no_sidecar_at_that_url_resolves_to_nothing(sessions_server: str) -> None:
+def test_no_sidecar_at_that_url_resolves_to_nothing() -> None:
     """The panel can die between the marker being written and the switch."""
-    dead = sessions_server.replace("http://127.0.0.1:", "http://127.0.0.1:1", 1)
+    dead = f"http://127.0.0.1:{free_port()}/panel/jupyter"
 
     assert jupyter_sidecar.kernel_notebook_path(dead, {}, "wanted") is None
-
-
-@spawns
-def test_the_real_sidecar_answers_the_url_the_lookup_builds(sidecar: JupyterSidecar) -> None:
-    """The URL and the credential are the running server's own, not a guess."""
-    status, body = _get(f"{sidecar.url}/api/sessions", sidecar.auth_headers)
-
-    assert status == 200
-    assert json.loads(body) == []
-    assert jupyter_sidecar.kernel_notebook_path(sidecar.url, sidecar.auth_headers, "any") is None

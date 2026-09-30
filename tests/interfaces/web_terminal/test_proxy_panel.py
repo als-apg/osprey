@@ -1,4 +1,8 @@
-"""Tests for the panel reverse-proxy X-Forwarded-Prefix header."""
+"""The panel reverse proxy over the whole app.
+
+Body rewrites, the cache default, launch credentials on both legs, the
+WebSocket relay, and the event dispatcher's MCP hop.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,7 @@ import asyncio
 import contextlib
 import threading
 from collections.abc import Iterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -22,30 +26,13 @@ from osprey.interfaces.web_auth import (
     WebCredentials,
     reset_web_credentials,
 )
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
 from osprey.interfaces.web_terminal.routes import proxy
 from osprey.interfaces.web_terminal.routes.proxy import _EVENTS_PANEL_ID, _PANEL_STATE_MAP
 from osprey.utils.identity import TERMINAL_USER_ENV
 from osprey.utils.owner_header import OWNER_HEADER
 from tests.conftest import dispatcher_route_registry
 
-
-def _make_client(workspace_dir, custom_panels):
-    """Create a TestClient with custom panels configured."""
-    enabled = set(UNIVERSAL_PANELS)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled, custom_panels, None),
-        ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield app, c
+from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect, panel_app
 
 
 @pytest.fixture
@@ -61,33 +48,10 @@ def app_and_client(workspace_dir):
     custom = [
         {"id": "my-dash", "label": "DASH", "url": "http://localhost:9000"},
     ]
-    yield from _make_client(workspace_dir, custom)
+    yield from panel_app(workspace_dir, custom)
 
 
 class TestProxyForwardedPrefix:
-    def test_x_forwarded_prefix_set(self, app_and_client):
-        """Proxy sets X-Forwarded-Prefix header when forwarding to a panel."""
-        app, client = app_and_client
-
-        captured_headers = {}
-
-        # Mock the proxy_client's .request() method (used for non-SSE requests).
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            captured_headers.update(headers)
-            return httpx.Response(
-                status_code=200,
-                json={"ok": True},
-                headers={"content-type": "application/json"},
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/my-dash/api/status")
-        assert resp.status_code == 200
-        assert captured_headers.get("x-forwarded-prefix") == "/panel/my-dash"
-
     def test_nonexistent_panel_returns_404(self, app_and_client):
         """Request to an unknown panel ID returns 404."""
         _app, client = app_and_client
@@ -102,7 +66,7 @@ class TestProxyForwardedPrefix:
 
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
         # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=js_body,
@@ -115,28 +79,6 @@ class TestProxyForwardedPrefix:
         assert resp.status_code == 200
         # Vendor path — body must NOT be rewritten
         assert resp.text == js_body
-
-    def test_non_vendor_js_is_rewritten(self, app_and_client):
-        """Non-vendor JS files still get path rewriting."""
-        app, client = app_and_client
-
-        js_body = 'var x = "/static/js/foo.js";'
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            return httpx.Response(
-                status_code=200,
-                text=js_body,
-                headers={"content-type": "application/javascript"},
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/my-dash/static/js/gallery.js")
-        assert resp.status_code == 200
-        # Non-vendor path — body MUST be rewritten
-        assert "/panel/my-dash/static/js/foo.js" in resp.text
 
     def test_dashboard_prefix_is_rewritten(self, app_and_client):
         """Root-absolute /dashboard/* paths get prefixed so iframe-embedded
@@ -154,7 +96,7 @@ class TestProxyForwardedPrefix:
 
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
         # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=html_body,
@@ -170,119 +112,6 @@ class TestProxyForwardedPrefix:
         assert '"/panel/my-dash/dashboard/stream/abc"' in resp.text
 
 
-class TestEventsPanelTokenInjection:
-    """The EVENTS panel proxy injects the dispatcher bearer token server-side."""
-
-    @pytest.fixture
-    def app_and_client_events(self, workspace_dir):
-        # The legit EVENTS panel is config-defined; the loader stamps configDefined.
-        custom = [
-            {
-                "id": "events",
-                "label": "EVENTS",
-                "url": "http://localhost:8020",
-                "configDefined": True,
-            },
-            {"id": "my-dash", "label": "DASH", "url": "http://localhost:9000"},
-        ]
-        yield from _make_client(workspace_dir, custom)
-
-    @pytest.fixture
-    def app_and_client_squatted_events(self, workspace_dir):
-        # A runtime-registered "events" entry carries no configDefined marker —
-        # this is what an id-squat via POST /api/panels/register looks like.
-        custom = [
-            {"id": "events", "label": "EVENTS", "url": "http://attacker.lan:3000"},
-        ]
-        yield from _make_client(workspace_dir, custom)
-
-    def test_events_panel_injects_bearer(self, app_and_client_events, monkeypatch):
-        app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "sekret")
-
-        captured = {}
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            captured.update(headers)
-            return httpx.Response(
-                200, json={"ok": True}, headers={"content-type": "application/json"}
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/events/dashboard/state")
-        assert resp.status_code == 200
-        assert captured.get("authorization") == "Bearer sekret"
-
-    def test_non_events_panel_not_injected(self, app_and_client_events, monkeypatch):
-        app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "sekret")
-
-        captured = {}
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            captured.update(headers)
-            return httpx.Response(
-                200, json={"ok": True}, headers={"content-type": "application/json"}
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/my-dash/api/status")
-        assert resp.status_code == 200
-        assert "authorization" not in {k.lower() for k in captured}
-
-    def test_events_panel_no_token_no_header(self, app_and_client_events, monkeypatch):
-        app, client = app_and_client_events
-        monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
-
-        captured = {}
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            captured.update(headers)
-            return httpx.Response(
-                200, json={"ok": True}, headers={"content-type": "application/json"}
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/events/dashboard/state")
-        assert resp.status_code == 200
-        assert "authorization" not in {k.lower() for k in captured}
-
-    def test_squatted_events_panel_not_injected(self, app_and_client_squatted_events, monkeypatch):
-        """An 'events' entry lacking the configDefined marker gets no token.
-
-        Defense-in-depth for the id-squat leak: even if a non-config-defined
-        entry reaches the proxy under the id 'events', the dispatcher token must
-        not follow it to the (attacker-controlled) origin.
-        """
-        app, client = app_and_client_squatted_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "sekret")
-
-        captured = {}
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            captured.update(headers)
-            return httpx.Response(
-                200, json={"ok": True}, headers={"content-type": "application/json"}
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/events/dashboard/state")
-        assert resp.status_code == 200
-        assert "authorization" not in {k.lower() for k in captured}
-
-
 class TestProxyCacheControlDefault:
     """The proxy-wide caching default (_DEFAULT_NO_CACHE): a proxied response
     whose upstream set no Cache-Control gets no-cache stamped (unversioned
@@ -294,7 +123,7 @@ class TestProxyCacheControlDefault:
 
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
         # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text="body { color: red; }",
@@ -307,25 +136,6 @@ class TestProxyCacheControlDefault:
         assert resp.status_code == 200
         assert resp.headers["cache-control"] == "no-cache, no-store, must-revalidate"
 
-    def test_explicit_upstream_cache_header_is_preserved(self, app_and_client):
-        app, client = app_and_client
-        immutable = "public, max-age=31536000, immutable"
-
-        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
-        # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
-            return httpx.Response(
-                status_code=200,
-                text="var x = 1;",
-                headers={"content-type": "application/javascript", "cache-control": immutable},
-            )
-
-        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
-
-        resp = client.get("/panel/my-dash/static/js/vendor/plotly-3.3.1.min.js")
-        assert resp.status_code == 200
-        assert resp.headers["cache-control"] == immutable
-
 
 #: One framework panel, read from the registry-derived map rather than named, so
 #: a panel that is renamed or added does not quietly stop being covered here.
@@ -335,46 +145,6 @@ LAUNCHED_PANEL_ID, LAUNCHED_STATE_ATTR = sorted(_PANEL_STATE_MAP.items())[0]
 LAUNCHED_BACKEND_URL = "http://127.0.0.1:9500"
 LAUNCH_TOKEN = "panel-launch-token"
 LAUNCH_HEADERS = {"Authorization": f"Bearer {LAUNCH_TOKEN}"}
-
-
-def _lower(headers):
-    return {k.lower(): v for k, v in headers.items()}
-
-
-class _FakeUpstreamSocket:
-    """A websocket upstream that stays open until the relay task is cancelled."""
-
-    def __init__(self):
-        self.sent: list[object] = []
-
-    async def send(self, data):
-        self.sent.append(data)
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        await asyncio.Event().wait()  # pragma: no cover - cancelled at teardown
-        raise AssertionError("unreachable")
-
-
-class _FakeConnect:
-    """Stands in for a websocket connect type, recording the handshake arguments."""
-
-    def __init__(self):
-        self.target = None
-        self.kwargs = None
-
-    def __call__(self, target, **kwargs):
-        self.target = target
-        self.kwargs = kwargs
-        return self
-
-    async def __aenter__(self):
-        return _FakeUpstreamSocket()
-
-    async def __aexit__(self, *exc_info):
-        return False
 
 
 class TestPanelLaunchCredentialInjection:
@@ -400,7 +170,7 @@ class TestPanelLaunchCredentialInjection:
             # Loopback but registered at runtime — the shape an agent can create.
             {"id": "registered", "label": "REGISTERED", "url": "http://127.0.0.1:9501"},
         ]
-        for app, client in _make_client(workspace_dir, custom):
+        for app, client in panel_app(workspace_dir, custom):
             # A framework panel's URL is written to app.state by its launcher.
             setattr(app.state, LAUNCHED_STATE_ATTR, LAUNCHED_BACKEND_URL)
             # Published under all three ids on purpose: the gate, not the map, is
@@ -431,10 +201,7 @@ class TestPanelLaunchCredentialInjection:
     def _connect(client, path):
         """Open *path*; the one fake records whichever connect type the proxy used."""
         fake = _FakeConnect()
-        with (
-            patch("websockets.connect", fake),
-            patch("osprey.interfaces.web_terminal.routes.proxy._RedirectRefusingConnect", fake),
-        ):
+        with _patch_connect(fake):
             with client.websocket_connect(path):
                 pass
         return fake
@@ -475,22 +242,15 @@ class TestPanelLaunchCredentialInjection:
         sent = fake.kwargs["additional_headers"] or {}
         assert LAUNCH_TOKEN not in " ".join(sent.values())
 
-    def test_ws_upstream_carries_the_browser_query(self, app_and_client_launched):
-        """A backend that keys a socket off a query parameter gets to see it."""
+    @pytest.mark.parametrize("query", ["?session_id=s1", ""], ids=["with-query", "no-query"])
+    def test_ws_upstream_carries_the_browser_query(self, app_and_client_launched, query):
+        """A backend that keys a socket off a query parameter gets to see it, and a
+        handshake without one gains no stray ``?``."""
         _app, client = app_and_client_launched
 
-        fake = self._connect(
-            client, f"/panel/{LAUNCHED_PANEL_ID}/api/kernels/k1/channels?session_id=s1"
-        )
+        fake = self._connect(client, f"/panel/{LAUNCHED_PANEL_ID}/api/kernels/k1/channels{query}")
 
-        assert fake.target == "ws://127.0.0.1:9500/api/kernels/k1/channels?session_id=s1"
-
-    def test_ws_upstream_without_a_query_is_unchanged(self, app_and_client_launched):
-        _app, client = app_and_client_launched
-
-        fake = self._connect(client, f"/panel/{LAUNCHED_PANEL_ID}/api/kernels/k1/channels")
-
-        assert fake.target == "ws://127.0.0.1:9500/api/kernels/k1/channels"
+        assert fake.target == f"ws://127.0.0.1:9500/api/kernels/k1/channels{query}"
 
 
 @contextlib.contextmanager
@@ -547,7 +307,7 @@ class TestPanelSubprotocolNegotiation:
     @staticmethod
     def _client(workspace_dir, port):
         custom = [{"id": "echo", "label": "ECHO", "url": f"http://127.0.0.1:{port}"}]
-        return _make_client(workspace_dir, custom)
+        return panel_app(workspace_dir, custom)
 
     def test_accepts_the_subprotocol_the_upstream_selects(self, workspace_dir):
         with _echo_upstream(subprotocols=[self.OFFER]) as port:
@@ -639,24 +399,6 @@ HOP_PANEL_TOKEN = "panel-token-value"
 HOP_OPERATOR_SECRET = "operator-secret-value"
 
 
-class _FakeStreamResponse:
-    """A streamed upstream response, as ``client.send(stream=True)`` returns one."""
-
-    def __init__(self, *, status_code=200, headers=None, chunks=(b"data: hello\n\n",)):
-        self.status_code = status_code
-        default = {"content-type": "text/event-stream"}
-        self.headers = httpx.Headers(default if headers is None else headers)
-        self._chunks = chunks
-        self.closed = False
-
-    async def aiter_bytes(self):
-        for chunk in self._chunks:
-            yield chunk
-
-    async def aclose(self):
-        self.closed = True
-
-
 def _capture_stream(app, upstream):
     """Stub the streaming branch's ``build_request``/``send``; return its kwargs."""
     captured: dict[str, object] = {}
@@ -701,7 +443,7 @@ class TestDispatcherMcpHop:
                 "rewriteJsonPaths": ["mcp"],
             },
         ]
-        yield from _make_client(workspace_dir, custom)
+        yield from panel_app(workspace_dir, custom)
 
     def _post(self, client, headers=None):
         sent = {"accept": MCP_ACCEPT, "content-type": "application/json"}
@@ -781,23 +523,6 @@ class TestDispatcherMcpHop:
 
         assert resp.status_code == 202
         assert resp.content == b""
-
-    def test_the_streaming_branch_never_rewrites(self, app_and_client_events, monkeypatch):
-        """A rewritten envelope is a corrupted one, so the pass is never made."""
-        app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
-        monkeypatch.setattr(proxy, "_rewrite_content", _refuse_rewrite)
-        _capture_stream(
-            app,
-            _FakeStreamResponse(
-                headers={"content-type": "application/json"}, chunks=(MCP_ANSWER_BODY,)
-            ),
-        )
-
-        resp = self._post(client)
-
-        assert resp.status_code == 200
-        assert resp.content == MCP_ANSWER_BODY
 
     def test_the_standard_branch_never_rewrites(self, app_and_client_events, monkeypatch):
         """Nor on the branch a client that advertised no stream would take.
@@ -926,7 +651,7 @@ class TestDispatcherMcpHop:
         panel = {"id": "events", "label": "EVENTS", "url": url, "rewriteJsonPaths": ["mcp"]}
         if config_defined:
             panel["configDefined"] = True
-        yield from _make_client(workspace_dir, [panel])
+        yield from panel_app(workspace_dir, [panel])
 
     @pytest.mark.parametrize(
         "untrusted_events_client",

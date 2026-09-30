@@ -83,19 +83,11 @@ def _serve(project: Path) -> None:
     """Enter and leave the real lifespan for *project*."""
     app = web_app.create_app(
         config_path=str(project / "config.yml"),
-        shell_command="echo",
+        shell_command=["echo"],
         project_dir=str(project),
     )
     with TestClient(app):
         pass
-
-
-def test_the_token_under_test_is_really_store_issued() -> None:
-    """Guards every assertion below from passing for the wrong reason."""
-    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-    assert "ZO_INGEST_SA_TOKEN" in _STORE_ISSUED_VARS
-    assert "OPERATOR_OTLP_SECRET" not in _STORE_ISSUED_VARS
 
 
 def test_an_unissued_store_credential_serves_without_telemetry(

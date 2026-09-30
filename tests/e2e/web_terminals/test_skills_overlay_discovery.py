@@ -69,13 +69,14 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_runner.launcher import build_claude_launch_argv
 from tests.e2e.sdk_helpers import is_claude_code_available
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
-# Mirror the flag the web terminal appends unconditionally
-# (osprey.agent_runner.launcher._SETTING_SOURCES_ARGS).
-_SETTING_SOURCES_PROJECT = ["--setting-sources", "project"]
+# The flags the web terminal launches ``claude`` with, read from the launcher
+# itself (unpinned: ``["claude", *flags]``) so this probe tracks the real launch.
+_SETTING_SOURCES_PROJECT = build_claude_launch_argv({})[1:]
 _SETTING_SOURCES_USER_PROJECT = ["--setting-sources", "user,project"]
 
 # The init record is emitted at session start, before the model is contacted, so

@@ -1,10 +1,10 @@
 /**
  * Centered, `aria-modal` dialog shell for the feedback flow.
  *
- * This module owns the OVERLAY only — scrim, panel, focus, Escape, and the
- * document lifecycle. The dialog's contents (feedback text, channel radios,
- * attachment checkboxes, action row) are rendered by the caller through the
- * `render` hook, so the shell stays independent of what it frames.
+ * This module owns the overlay — scrim, panel, focus, Escape, and the
+ * document lifecycle — and the feedback form inside it (feedback text, channel
+ * radios, attachment checkboxes, action row). What the form's actions DO is
+ * the caller's: every action hands the form state to a callback.
  *
  * Three deliberate departures from `palette.js`, whose overlay lifecycle this
  * otherwise follows:
@@ -62,11 +62,12 @@ export const PASTE_STEP_OPEN = Object.freeze({
 });
 
 /**
- * The artifact-inventory time-window sentence, pinned so the dialog and the
- * server-side composer's block header cannot drift apart. Quoted verbatim from
- * the proposal's functional requirement 6.
+ * The artifact-inventory time-window sentence, quoted verbatim from the
+ * proposal's functional requirement 6. The server-side composer states the
+ * same rule in its own block header (`feedback_composer.UNTAGGED_ARTIFACTS_HEADER`);
+ * the two surfaces are worded independently and neither imports the other.
  */
-export const ARTIFACT_WINDOW_DISCLOSURE =
+const ARTIFACT_WINDOW_DISCLOSURE =
   'plus artifacts created on this deployment during the same time window, ' +
   'which may include work from other terminal tabs or the chat panel';
 
@@ -107,11 +108,8 @@ export const FEEDBACK_DISCLOSURE_PARAGRAPHS = Object.freeze([
     'deployment.',
 ]);
 
-/** The disclosure as one string — the form the composer can quote. */
-export const FEEDBACK_DISCLOSURE = FEEDBACK_DISCLOSURE_PARAGRAPHS.join('\n\n');
-
 /** Per-channel-kind caveat shown under the channel picker. */
-export const CHANNEL_HINTS = Object.freeze({
+const CHANNEL_HINTS = Object.freeze({
   local: '',
   github: 'Requires a GitHub account',
   gitlab: 'Requires a GitLab account',
@@ -170,16 +168,9 @@ const _openModals = new Set();
 /**
  * @typedef {object} FeedbackModalOptions
  * @property {string} [title] - heading text and the dialog's accessible name.
- * @property {(body: HTMLElement) => void} [render] - REPLACES the built-in
- *   feedback form; called on every open, before the dialog is attached and
- *   focused. Only for callers that want a different body (and for tests).
  * @property {() => string|null} [getSessionId] - the current terminal session
  *   id. Injected rather than imported from `terminal.js` so the dialog has no
  *   dependency on the terminal module. Defaults to "no session".
- * @property {FeedbackTracker[]} [trackers] - the issue trackers to offer at
- *   construction; {@link FeedbackModal#setTrackers} replaces the list later,
- *   which is how boot hands over a configuration that lands after the first
- *   open. Defaults to none.
  * @property {(state: FeedbackFormState) => void} [onSubmit] - the `submit`
  *   event: the Local channel's Send button.
  * @property {(state: FeedbackFormState) => void} [onCopy] - the `copy` event:
@@ -235,7 +226,7 @@ export class FeedbackModal {
     // an accidental Escape must not throw away a half-written report.
     this._text = '';
     /** @type {FeedbackTracker[]} */
-    this._trackers = (options.trackers ?? []).map((tracker) => ({ ...tracker }));
+    this._trackers = [];
     // The checked radio's value: `local`, `email`, or a tracker's id. The
     // channel and tracker the form reports are derived from it on demand, so
     // a tracker list that changes underneath cannot leave a stale pair.
@@ -315,7 +306,8 @@ export class FeedbackModal {
   }
 
   /**
-   * The dialog's content slot — the element the `render` hook populates.
+   * The dialog's content slot — the element the feedback form is built into,
+   * and where the caller's notice line and manual-copy fallback go.
    *
    * Null while the modal is closed: the node tree does not outlive an open.
    *
@@ -323,15 +315,6 @@ export class FeedbackModal {
    */
   get bodyElement() {
     return this._bodyEl;
-  }
-
-  /**
-   * The `role="dialog"` panel itself, or null while closed.
-   *
-   * @returns {HTMLElement|null}
-   */
-  get dialogElement() {
-    return this._dialogEl;
   }
 
   /**
@@ -436,8 +419,7 @@ export class FeedbackModal {
     header.appendChild(closeBtn);
 
     const body = el('div', 'feedback-modal-body');
-    if (this._options.render) this._options.render(body);
-    else this._buildForm(body);
+    this._buildForm(body);
 
     dialog.appendChild(header);
     dialog.appendChild(body);

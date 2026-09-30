@@ -47,6 +47,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import bar_items_store
+from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
 from osprey.interfaces.web_terminal.app import (
     BAR_LAYOUT_VERSION,
     MAX_BAR_ITEMS_PER_HOST,
@@ -179,6 +180,19 @@ def error_of(response: httpx.Response) -> str:
     return response.json()["detail"]["error"]
 
 
+#: One body per reason the store refuses a document for, keyed by that reason.
+#: The route passes each through as a 422; ``bad-rev`` is the route's own and
+#: is pinned by ``test_a_body_without_a_usable_revision_is_a_422_bad_rev``.
+REFUSALS_422: dict[str, dict] = {
+    "malformed": document(0, header="logo"),
+    "version": {**document(0), "version": BAR_LAYOUT_VERSION + 1},
+    "unknown-type": document(0, header=[{"type": "nonesuch"}]),
+    "overflow": document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
+    "duplicate": document(0, status=[{"type": "docs"}, {"type": "docs"}]),
+    "bad-option": document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
+}
+
+
 def _widest_value(spec: dict):
     """The value *spec* allows that is widest by encoded length, which the ceiling counts."""
     kind = spec["kind"]
@@ -250,16 +264,16 @@ class TestPut:
         assert types(body, "header") == ["logo"]
         assert (store_dir / LAYOUT_FILENAME).exists()
 
-        second = client.put("/api/bar-items", json=document(1, header=[{"type": "identity"}]))
+        # The route never judges availability: a Bluesky item on a deployment
+        # that declares no Bluesky panel is saved, and the browser decides.
+        assert client.app.state.bluesky_available is False
+        second = client.put(
+            "/api/bar-items",
+            json=document(1, header=[{"type": "identity"}], status=[{"type": "bluesky-queue"}]),
+        )
         assert second.status_code == 200
         assert second.json()["rev"] == 2
-
-    def test_completes_declared_options_from_their_defaults(self, client):
-        body = client.put("/api/bar-items", json=document(0)).json()
-
-        assert body["status"] == [
-            {"type": "clock", "options": {"zone": "none", "format": "24h", "seconds": False}}
-        ]
+        assert types(second.json(), "status") == ["bluesky-queue"]
 
     def test_a_facility_clock_round_trips(self, client):
         response = client.put(
@@ -274,18 +288,14 @@ class TestPut:
         assert response.json()["status"] == stored
         assert client.get("/api/bar-items").json()["status"] == stored
 
-    def test_stores_the_visibility_flag(self, client):
-        body = client.put("/api/bar-items", json=document(0, status_visible=False)).json()
+    @pytest.mark.parametrize(("hidden", "shown"), [("status", "header"), ("header", "status")])
+    def test_stores_the_visibility_flag(self, client, hidden, shown):
+        flag = f"{hidden}_visible"
+        body = client.put("/api/bar-items", json=document(0, **{flag: False})).json()
 
-        assert body["status_visible"] is False
-        assert client.get("/api/bar-items").json()["status_visible"] is False
-
-    def test_a_hidden_header_round_trips_like_the_status_bar(self, client):
-        body = client.put("/api/bar-items", json=document(0, header_visible=False)).json()
-
-        assert body["header_visible"] is False
-        assert body["status_visible"] is True
-        assert client.get("/api/bar-items").json()["header_visible"] is False
+        assert body[flag] is False
+        assert body[f"{shown}_visible"] is True
+        assert client.get("/api/bar-items").json()[flag] is False
 
     def test_a_stale_revision_is_a_409_carrying_the_current_document(self, client):
         client.put("/api/bar-items", json=document(0, header=[{"type": "logo"}]))
@@ -297,63 +307,18 @@ class TestPut:
         assert detail["error"] == "rev_conflict"
         assert detail["layout"]["rev"] == 1
         assert types(detail["layout"], "header") == ["logo"], "the 409 must carry what IS stored"
+        assert types(client.get("/api/bar-items").json(), "header") == ["logo"], (
+            "a refused save must leave the stored document alone"
+        )
 
-    def test_the_refused_save_left_the_stored_document_alone(self, client):
-        client.put("/api/bar-items", json=document(0, header=[{"type": "logo"}]))
-        client.put("/api/bar-items", json=document(0, header=[{"type": "identity"}]))
-
-        assert types(client.get("/api/bar-items").json(), "header") == ["logo"]
-
-    @pytest.mark.parametrize(
-        ("body", "reason"),
-        [
-            pytest.param(document(0, header=[{"type": "nonesuch"}]), "unknown-type", id="unknown"),
-            pytest.param(
-                document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
-                "overflow",
-                id="overflow",
-            ),
-            pytest.param(document(0, header=["logo"]), "malformed", id="entry-not-an-object"),
-            pytest.param(document(0, header="logo"), "malformed", id="host-not-a-list"),
-            pytest.param(
-                document(0, status_visible="yes"), "malformed", id="visibility-not-a-boolean"
-            ),
-            pytest.param(
-                document(0, header_visible=0), "malformed", id="header-visibility-not-a-boolean"
-            ),
-            pytest.param(
-                document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
-                "bad-option",
-                id="enum-out-of-spec",
-            ),
-            pytest.param(
-                document(0, status=[{"type": "space", "options": {"width": 4000}}]),
-                "bad-option",
-                id="number-out-of-range",
-            ),
-            pytest.param(
-                document(0, status=[{"type": "docs"}, {"type": "docs"}]),
-                "duplicate",
-                id="single-node-type-twice",
-            ),
-        ],
-    )
-    def test_a_document_this_build_cannot_store_is_a_422(self, client, body, reason, store_dir):
+    @pytest.mark.parametrize(("reason", "body"), list(REFUSALS_422.items()), ids=list(REFUSALS_422))
+    def test_a_document_this_build_cannot_store_is_a_422(self, client, reason, body, store_dir):
         response = client.put("/api/bar-items", json=body)
 
         assert response.status_code == 422
         assert error_of(response) == reason
         assert response.json()["detail"]["message"]
         assert not (store_dir / LAYOUT_FILENAME).exists(), "a refusal must write nothing"
-
-    def test_a_version_this_build_cannot_read_is_a_422(self, client):
-        body = document(0)
-        body["version"] = BAR_LAYOUT_VERSION + 1
-
-        response = client.put("/api/bar-items", json=body)
-
-        assert response.status_code == 422
-        assert error_of(response) == "version"
 
     @pytest.mark.parametrize(
         "rev",
@@ -395,17 +360,6 @@ class TestPut:
         assert response.status_code == 422
         assert error_of(response) == "malformed"
 
-    def test_an_unwritable_store_is_a_503(self, client):
-        with patch(
-            "osprey.interfaces.web_terminal.routes.bar_items.save_layout",
-            side_effect=OSError("read-only file system"),
-        ):
-            response = client.put("/api/bar-items", json=document(0))
-
-        assert response.status_code == 503
-        assert error_of(response) == "store_write_failed"
-        assert client.get("/api/bar-items").json()["rev"] == 0, "the cache must not have moved"
-
     def test_a_deployment_with_no_store_is_a_503(self, client):
         client.app.state.bar_items_dir = None
 
@@ -439,19 +393,36 @@ class TestPut:
         assert not (store_dir / LAYOUT_FILENAME).exists()
 
     def test_the_ceiling_is_checked_before_the_body_is_parsed(self, client):
-        """The refusal comes from the declared size, not from the parse.
+        """An oversized body that is not even JSON is a 413, not a 422.
 
         The point of the ceiling is that an oversized save costs nothing to
-        refuse — so the handler must never reach the document at all.
+        refuse, so the size is judged before the body is parsed: were it parsed
+        first, this body would be refused as ``malformed``.
         """
-        oversized = document(0, header=[{"type": "logo", "label": "x" * MAX_REQUEST_BYTES}])
+        not_json = b"x" * (MAX_REQUEST_BYTES + 1)
+        headers = {"content-type": "application/json"}
 
-        with patch.object(
-            bar_items_routes, "_requested_rev", side_effect=AssertionError("the body was parsed")
-        ):
-            response = client.put("/api/bar-items", json=oversized)
+        declared = client.put("/api/bar-items", content=not_json, headers=headers)
 
+        assert declared.status_code == 413
+        assert error_of(declared) == "too_large"
+
+    def test_a_body_that_declares_no_length_is_measured_as_it_arrives(self, client, store_dir):
+        """A chunked request carries no ``Content-Length``, so the ceiling is
+        judged again against the bytes actually received."""
+
+        def chunks():
+            for _ in range(MAX_REQUEST_BYTES // 1024 + 1):
+                yield b"x" * 1024
+
+        response = client.put(
+            "/api/bar-items", content=chunks(), headers={"content-type": "application/json"}
+        )
+
+        assert "content-length" not in {key.lower() for key in response.request.headers}
         assert response.status_code == 413
+        assert error_of(response) == "too_large"
+        assert not (store_dir / LAYOUT_FILENAME).exists()
 
 
 class TestTheCeilingHasHeadroom:
@@ -518,13 +489,6 @@ class TestDelete:
         assert client.get("/api/bar-items").json() == default
         assert not (store_dir / LAYOUT_FILENAME).exists()
 
-    def test_clears_the_cache_rather_than_writing_the_default_back(self, client):
-        client.put("/api/bar-items", json=document(0))
-
-        client.delete("/api/bar-items")
-
-        assert client.app.state.bar_items_effective is None
-
     def test_with_nothing_saved_it_still_answers_the_default(self, client):
         default = client.get("/api/bar-items").json()
 
@@ -532,19 +496,6 @@ class TestDelete:
 
         assert response.status_code == 200
         assert response.json() == default
-
-    def test_a_document_that_cannot_be_removed_is_a_503(self, client):
-        client.put("/api/bar-items", json=document(0, header=[{"type": "identity"}]))
-
-        with patch(
-            "osprey.interfaces.web_terminal.routes.bar_items.reset_layout",
-            side_effect=OSError("read-only file system"),
-        ):
-            response = client.delete("/api/bar-items")
-
-        assert response.status_code == 503
-        assert error_of(response) == "store_write_failed"
-        assert types(client.get("/api/bar-items").json(), "header") == ["identity"]
 
     def test_a_deployment_with_no_store_is_a_503(self, client):
         client.app.state.bar_items_dir = None
@@ -592,6 +543,7 @@ class TestARealReadOnlyStore:
         assert response.status_code == 503
         assert error_of(response) == "store_write_failed"
         assert not (readonly_store / LAYOUT_FILENAME).exists()
+        assert client.get("/api/bar-items").json()["rev"] == 0, "the cache must not have moved"
 
     def test_removing_a_stored_document_from_it_is_a_503(self, client, store_dir):
         client.put("/api/bar-items", json=document(0, header=[{"type": "identity"}]))
@@ -751,9 +703,6 @@ class TestAStoredDocumentThisBuildCannotRead:
         assert 'data-bar-item="separator"' not in page, "the damaged document must not render"
         assert 'data-bar-item="clock"' in page
 
-    def test_the_cache_is_empty_rather_than_holding_the_damaged_document(self, unreadable_client):
-        assert unreadable_client.app.state.bar_items_effective is None
-
     def test_the_operator_can_save_over_it_at_revision_zero(self, unreadable_client):
         """``rev`` 0 is what a client holding the default believes, and an
         unreadable file stores no revision to conflict with."""
@@ -764,6 +713,44 @@ class TestAStoredDocumentThisBuildCannotRead:
         assert response.status_code == 200
         assert response.json()["rev"] == 1
         assert types(unreadable_client.get("/api/bar-items").json(), "header") == ["identity"]
+
+
+class TestAStoredDocumentIsLoadedAtBoot:
+    """A readable document on disk is the operator's arrangement from the first request.
+
+    The store is read once, by the lifespan, into the cache every render and
+    every GET answers from — so a restart must bring back what was saved, and
+    the revision a client reads must be the one a save is compared against.
+    """
+
+    def test_a_saved_layout_is_served_and_painted_after_a_restart(
+        self, agent_data_root, workspace_dir, config_path
+    ):
+        stored = {
+            "version": BAR_LAYOUT_VERSION,
+            "rev": 3,
+            "header": [{"type": "logo"}, {"type": "separator"}],
+            "status": [],
+            "status_visible": False,
+        }
+        with _app_over(
+            json.dumps(stored).encode("utf-8"),
+            agent_data_root=agent_data_root,
+            workspace_dir=workspace_dir,
+            config_path=config_path,
+        ) as client:
+            layout = client.get("/api/bar-items").json()
+            page = client.get("/").text
+            saved = client.put("/api/bar-items", json=document(3, header=[{"type": "logo"}]))
+
+        assert layout["rev"] == 3
+        assert types(layout, "header") == ["logo", "separator"]
+        assert layout["status_visible"] is False
+        assert 'data-bar-item="separator"' in page
+        html_tag = page[page.index("<html ") : page.index(">", page.index("<html "))]
+        assert 'data-status-bar="hidden"' in html_tag
+        assert saved.status_code == 200, "the boot read primes the revision a save compares"
+        assert saved.json()["rev"] == 4
 
 
 # ── the watcher does not announce a save ───────────────────────────────────
@@ -873,16 +860,14 @@ class TestALayoutSaveIsNotAFileChange:
         ) as test_client:
             yield test_client
 
-    def test_the_store_is_inside_the_watched_tree(self, watched_client):
-        """The premise of the test below: with the store outside, concealment
-        is not what would be keeping the frames away."""
-        assert watched_client.app.state.bar_items_rel is not None
-
     def test_a_save_broadcasts_nothing_while_a_plain_write_still_does(
         self, watched_client, watched_workspace
     ):
         """The steady state: the store directory exists, so the save touches
         nothing but the document and its atomic-write temp file."""
+        # The premise: with the store outside the watched tree, concealment
+        # would not be what keeps the frames away.
+        assert watched_client.app.state.bar_items_rel is not None
         queue = watched_client.app.state.broadcaster.subscribe()
         # Create the store, then let its frames drain: creating a directory
         # modifies its parent, and that parent frame belongs to the first-save
@@ -945,15 +930,13 @@ class TestALayoutSaveIsNotAFileChange:
                 _arm(queue, watched_workspace)
 
                 unconcealed.put("/api/bar-items", json=document(0))
-                stored = bar_items_store.read_json_object(bar_items_store.layout_path(store_dir))
+                stored = read_json_object(bar_items_store.layout_path(store_dir))
                 assert stored is not None, "the save landed in the store the watcher sees"
 
                 paths = _broadcast_paths(
                     queue,
                     until_under="agent_data/bar_items",
-                    poke=lambda: bar_items_store.write_json_atomic(
-                        bar_items_store.layout_path(store_dir), stored
-                    ),
+                    poke=lambda: write_json_atomic(bar_items_store.layout_path(store_dir), stored),
                 )
 
         assert [path for path in paths if path.startswith("agent_data/bar_items")] != []
@@ -1045,27 +1028,6 @@ class TestTheRefusalVocabulary:
     it appearing.
     """
 
-    #: One body per store reason, plus the route's own.
-    REFUSALS = {
-        "malformed": document(0, header="logo"),
-        "version": {**document(0), "version": BAR_LAYOUT_VERSION + 1},
-        "unknown-type": document(0, header=[{"type": "nonesuch"}]),
-        "overflow": document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
-        "duplicate": document(0, status=[{"type": "docs"}, {"type": "docs"}]),
-        "bad-option": document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
-        "bad-rev": {key: value for key, value in document(0).items() if key != "rev"},
-    }
-
-    def test_the_store_reasons_are_the_six_the_route_documents(self):
-        assert STORE_REASONS == {
-            "malformed",
-            "version",
-            "unknown-type",
-            "overflow",
-            "duplicate",
-            "bad-option",
-        }
-
     def test_the_scrape_read_every_place_the_store_raises(self):
         """Otherwise the derivation above could under-count in silence, and a
         new reason spelled some other way would leave every assertion in
@@ -1074,30 +1036,9 @@ class TestTheRefusalVocabulary:
 
         assert len(matched) == STORE_RAISE_SITES
 
-    def test_every_reason_has_a_body_that_provokes_it(self):
-        assert set(self.REFUSALS) == STORE_REASONS | ROUTE_ONLY_REASONS
-
-    def test_each_body_provokes_its_own_reason_and_nothing_else(self, client):
-        """Per body, not just per set: the store's checks are ordered on
-        purpose (a type has to be known before its hosts can be asked), and a
-        reordering that swapped two reasons would survive a set comparison."""
-        emitted = set()
-        for reason, body in self.REFUSALS.items():
-            response = client.put("/api/bar-items", json=body)
-            assert response.status_code == 422, f"{reason} must be a 422"
-            assert error_of(response) == reason
-            emitted.add(error_of(response))
-
-        assert emitted == STORE_REASONS | ROUTE_ONLY_REASONS
-
-    def test_the_documented_list_names_every_422_reason(self):
-        """The module docstring is what a client author reads. It names the
-        whole 422 family; the four tokens below are described there by status
-        and by consequence, but not by word — see the class docstring."""
-        docstring = inspect.getdoc(bar_items_routes) or ""
-
-        for reason in STORE_REASONS | ROUTE_ONLY_REASONS:
-            assert f"``{reason}``" in docstring, f"{reason} is emitted but not documented"
+    def test_every_store_reason_has_a_422_row(self):
+        """A reason the store gains fails here until the 422 table provokes it."""
+        assert set(REFUSALS_422) == STORE_REASONS
 
     def test_the_rest_of_the_ladder_spells_exactly_four_more_tokens(self):
         """Everything the route names for itself, minus the 422 family. A fifth

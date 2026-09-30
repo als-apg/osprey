@@ -36,10 +36,7 @@
  * ---------------------
  * Both openers return a boolean their caller turns into `preventDefault()`:
  * true when a menu opened, false to leave the event alone so the browser's own
- * menu still shows. A builder returning NO rows is that decline — the case is
- * the terminal in simple mode, where the xterm card is replaced by the operator
- * console and every terminal verb would act on a surface the operator cannot
- * see.
+ * menu still shows. A surface with NO rows to offer declines.
  *
  * THE WAY BACK TO A HIDDEN BAR
  * ----------------------------
@@ -50,15 +47,15 @@
  * the panel's own verbs. They are offered in both ui modes: showing a bar is
  * recovery, not customizing, and an operator who hid the header in Expert and
  * then switched to Simple from the palette must still be able to get it back.
- * With a bar to restore, a surface whose own verbs are empty (the simple-mode
- * terminal) opens a menu of just that row rather than declining.
+ * With a bar to restore, a surface whose own verbs are empty opens a menu of
+ * just that row rather than declining.
  */
 
 import { openContextMenu } from './panel-context-menu.js';
 import { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { setPanelVisibility } from './panel-commands.js';
 import { openPanelBeside } from './panel-placement.js';
-import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
+import { openTerminalPanel, closeTerminalPanel, resetDockLayout } from './dock-workspace.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 import { startNewSession } from './sessions.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
@@ -305,12 +302,17 @@ export function buildBarRestoreItems() {
  * In simple mode the tile hosts the operator console instead of the xterm
  * card, so the two PTY verbs would act on a surface the operator cannot see
  * and are withheld (the palette drops the same actions there, for the same
- * reason). The tile itself is as closable there as in Expert.
+ * reason). The layout rows are the same in both views: "Reset layout" puts
+ * back the CURRENT view's default arrangement, and the tile is as closable
+ * there as in Expert.
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
 export function buildTerminalMenuItems() {
-  const close = { label: 'Close terminal tile', glyph: '×', danger: true, run: () => closeTerminalPanel() };
-  if (isSimpleMode()) return [close];
+  const layout = [
+    { label: 'Reset layout', run: () => resetDockLayout() },
+    { label: 'Close terminal tile', glyph: '×', danger: true, run: () => closeTerminalPanel() },
+  ];
+  if (isSimpleMode()) return layout;
   return [
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
@@ -318,6 +320,6 @@ export function buildTerminalMenuItems() {
     { label: 'Restart terminal', run: async () => { await restartTerminal(); startTerminal(); } },
     { label: 'New session', run: () => { startNewSession(); } },
     { divider: true },
-    close,
+    ...layout,
   ];
 }

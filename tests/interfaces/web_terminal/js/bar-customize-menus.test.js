@@ -167,28 +167,23 @@ describe('the options popover', () => {
     expect(putBodies()[0].header[1].options.seconds).toBe(true);
   });
 
-  test('a number above the catalog bound is clamped before the PUT', async () => {
-    await editing(doc([{ type: 'space', options: { width: 12 } }], []));
+  // Above the ceiling and below the floor clamp to the catalog bound; an
+  // unreadable number takes the option's default (0, the flexible space), not
+  // its minimum.
+  test.each([
+    ['9999', 2000],
+    ['-4', 0],
+    ['wide', 0],
+  ])('a width of %s is stored as %s before the PUT', async (typed, stored) => {
+    await editing(doc([{ type: 'space', options: { width: 40 } }], []));
     await openOptions('space');
 
     const input = row('width').querySelector('input');
-    input.value = '9999';
+    input.value = typed;
     input.dispatchEvent(new Event('change'));
     await settle();
 
-    expect(putBodies()[0].header[0].options.width).toBe(2000);
-  });
-
-  test('a number below the catalog bound is clamped before the PUT', async () => {
-    await editing(doc([{ type: 'space', options: { width: 12 } }], []));
-    await openOptions('space');
-
-    const input = row('width').querySelector('input');
-    input.value = '-4';
-    input.dispatchEvent(new Event('change'));
-    await settle();
-
-    expect(putBodies()[0].header[0].options.width).toBe(0);
+    expect(putBodies()[0].header[0].options.width).toBe(stored);
   });
 
   test('a space says what width 0 means', async () => {
@@ -198,17 +193,6 @@ describe('the options popover', () => {
     expect(pop.textContent).toContain('0 fills the remaining room');
   });
 
-  test('an unreadable number falls back to the option default', async () => {
-    await editing(doc([{ type: 'space', options: { width: 40 } }], []));
-    await openOptions('space');
-
-    const input = row('width').querySelector('input');
-    input.value = 'wide';
-    input.dispatchEvent(new Event('change'));
-    await settle();
-
-    expect(putBodies()[0].header[0].options.width).toBe(0);
-  });
 });
 
 describe('moving and removing from the popover', () => {
@@ -327,22 +311,16 @@ describe('moving and removing from the popover', () => {
 });
 
 describe('the popover keeps out of its own way', () => {
-  test('an item in the left half opens the popover leftward-anchored', async () => {
+  test.each([
+    ['left', { left: 20, right: 60 }, true],
+    ['right', { left: 900, right: 960 }, false],
+  ])('an item in the %s half anchors the popover to that side', async (_side, box, left) => {
     await editing(doc(['logo', 'clock'], []));
-    withRect(shell('clock'), { left: 20, right: 60 });
+    withRect(shell('clock'), box);
 
     await openOptions('clock');
 
-    expect(popover().classList.contains('is-left')).toBe(true);
-  });
-
-  test('an item in the right half opens the popover right-anchored', async () => {
-    await editing(doc(['logo', 'clock'], []));
-    withRect(shell('clock'), { left: 900, right: 960 });
-
-    await openOptions('clock');
-
-    expect(popover().classList.contains('is-left')).toBe(false);
+    expect(popover().classList.contains('is-left')).toBe(left);
   });
 
   test('opening one popover closes the last', async () => {
@@ -417,16 +395,6 @@ describe('the context menu', () => {
     await settle();
 
     expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual(['logo']);
-  });
-
-  test('the status row hides the bar', async () => {
-    await editing(doc(['logo'], ['clock']));
-
-    rightClick(document.querySelector('[data-bar-host="status"]'));
-    menuRow('status').click();
-    await settle();
-
-    expect(putBodies()[0].status_visible).toBe(false);
   });
 
   test('options from the menu opens the popover', async () => {

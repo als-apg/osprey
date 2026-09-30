@@ -3,11 +3,11 @@
  * config-renderers.js's re-export.
  * Covers:
  *
- *   - `_parseToolDescription`'s Google-style docstring parsing on
- *     multi-line and empty descriptions
  *   - `renderMcpJson`'s progressive enhancement: cards render immediately
  *     from raw JSON, then get enriched in-place once the mocked
  *     /api/mcp-servers fetch resolves
+ *   - how each tool's Google-style docstring renders in the enriched card
+ *     (summary, ARGS rows, RETURNS; a Raises section is dropped)
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/web_terminal/mcp-renderer.test.mjs
@@ -17,10 +17,7 @@ import { test, expect, describe, vi, afterEach } from 'vitest';
 
 import { qs } from '../_support/dom.mjs';
 
-import {
-  renderMcpJson,
-  _parseToolDescription,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/mcp-renderer.js';
+import { renderMcpJson } from '../../../src/osprey/interfaces/web_terminal/static/js/mcp-renderer.js';
 
 /**
  * `renderMcpJson` returns `HTMLDivElement | null` (null only on invalid JSON
@@ -45,80 +42,6 @@ const MCP_JSON = JSON.stringify({
     },
   },
 }, null, 2);
-
-describe('_parseToolDescription', () => {
-  test('empty/nullish description returns empty summary/args/returns', () => {
-    expect(_parseToolDescription('')).toEqual({ summary: '', args: [], returns: '' });
-    // Runtime-defensive paths: the declared signature is `string`, but callers in
-    // practice may hand back a nullish `description` field, so verify the nullish
-    // fallback directly by deliberately passing values outside the declared type.
-    expect(_parseToolDescription(/** @type {string} */ (/** @type {unknown} */ (undefined)))).toEqual({ summary: '', args: [], returns: '' });
-    expect(_parseToolDescription(/** @type {string} */ (/** @type {unknown} */ (null)))).toEqual({ summary: '', args: [], returns: '' });
-  });
-
-  test('a single-line summary with no Args/Returns section', () => {
-    const result = _parseToolDescription('Look up a channel by name.');
-    expect(result.summary).toBe('Look up a channel by name.');
-    expect(result.args).toEqual([]);
-    expect(result.returns).toBe('');
-  });
-
-  test('a multi-line docstring splits summary, args, and returns', () => {
-    const desc = [
-      'Search for a channel across the ontology.',
-      'Falls back to fuzzy matching when an exact name is not found.',
-      '',
-      'Args:',
-      '    name: The channel name or alias to search for.',
-      '    limit: Maximum number of results to return.',
-      '',
-      'Returns:',
-      'A list of matching channel records.',
-    ].join('\n');
-
-    const result = _parseToolDescription(desc);
-
-    expect(result.summary).toBe(
-      'Search for a channel across the ontology. Falls back to fuzzy matching when an exact name is not found.'
-    );
-    expect(result.args).toEqual([
-      { name: 'name', desc: 'The channel name or alias to search for.' },
-      { name: 'limit', desc: 'Maximum number of results to return.' },
-    ]);
-    expect(result.returns).toBe('A list of matching channel records.');
-  });
-
-  test('a multi-line arg description is joined onto the same arg', () => {
-    const desc = [
-      'Args:',
-      '    name: The channel name',
-      '        spanning multiple lines.',
-    ].join('\n');
-
-    const result = _parseToolDescription(desc);
-
-    expect(result.args).toEqual([
-      { name: 'name', desc: 'The channel name spanning multiple lines.' },
-    ]);
-  });
-
-  test('a Raises section is skipped entirely (not folded into returns)', () => {
-    const desc = [
-      'Do a thing.',
-      '',
-      'Raises:',
-      '    ValueError: if the thing cannot be done.',
-      '',
-      'Returns:',
-      'Nothing of note.',
-    ].join('\n');
-
-    const result = _parseToolDescription(desc);
-
-    expect(result.summary).toBe('Do a thing.');
-    expect(result.returns).toBe('Nothing of note.');
-  });
-});
 
 describe('renderMcpJson', () => {
   afterEach(() => {
@@ -179,6 +102,93 @@ describe('renderMcpJson', () => {
     const toolItem = qs(card, '.config-mcp-tool-item');
     expect(toolItem).not.toBeNull();
     expect(qs(toolItem, '.config-mcp-tool-name').textContent).toBe('launch_run');
+  });
+
+  /**
+   * Enrich the bluesky card with one tool carrying `description` and hand back
+   * the rendered tool item.
+   * @param {string|null|undefined} description
+   */
+  async function renderTool(description) {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([
+          { name: 'bluesky', tool_count: 1, tools: [{ name: 'launch_run', description }] },
+        ]),
+      })
+    ));
+    const card = qs(renderContainer(MCP_JSON), '.config-mcp-card');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return qs(card, '.config-mcp-tool-item');
+  }
+
+  /** @param {Element} item @param {string} selector */
+  const texts = (item, selector) =>
+    [...item.querySelectorAll(selector)].map((el) => el.textContent);
+
+  test.each([[''], [undefined], [null]])('a tool with no docstring (%o) renders its name and no detail', async (description) => {
+    const item = await renderTool(description);
+
+    expect(qs(item, '.config-mcp-tool-name').textContent).toBe('launch_run');
+    expect(item.querySelector('.config-mcp-tool-summary')).toBeNull();
+    expect(item.querySelector('.config-mcp-tool-body')).toBeNull();
+  });
+
+  test('a single-line docstring is a summary with no ARGS or RETURNS', async () => {
+    const item = await renderTool('Look up a channel by name.');
+
+    expect(qs(item, '.config-mcp-tool-summary').textContent).toBe('Look up a channel by name.');
+    expect(qs(item, '.config-mcp-tool-desc-full').textContent).toBe('Look up a channel by name.');
+    expect(item.querySelector('.config-mcp-tool-section')).toBeNull();
+  });
+
+  test('a multi-line docstring splits into summary, ARGS rows and RETURNS', async () => {
+    const item = await renderTool([
+      'Search for a channel across the ontology.',
+      'Falls back to fuzzy matching when an exact name is not found.',
+      '',
+      'Args:',
+      '    name: The channel name or alias to search for.',
+      '    limit: Maximum number of results to return.',
+      '',
+      'Returns:',
+      'A list of matching channel records.',
+    ].join('\n'));
+
+    expect(qs(item, '.config-mcp-tool-desc-full').textContent).toBe(
+      'Search for a channel across the ontology. Falls back to fuzzy matching when an exact name is not found.'
+    );
+    expect(texts(item, '.config-mcp-tool-arg-name')).toEqual(['name', 'limit']);
+    expect(texts(item, '.config-mcp-tool-arg-desc')).toEqual([
+      'The channel name or alias to search for.',
+      'Maximum number of results to return.',
+    ]);
+    expect(qs(item, '.config-mcp-tool-returns').textContent).toBe('A list of matching channel records.');
+  });
+
+  test('an arg description continued on the next line stays one arg', async () => {
+    const item = await renderTool(['Args:', '    name: The channel name', '        spanning multiple lines.'].join('\n'));
+
+    expect(texts(item, '.config-mcp-tool-arg-name')).toEqual(['name']);
+    expect(texts(item, '.config-mcp-tool-arg-desc')).toEqual(['The channel name spanning multiple lines.']);
+  });
+
+  test('a Raises section is dropped, not folded into RETURNS', async () => {
+    const item = await renderTool([
+      'Do a thing.',
+      '',
+      'Raises:',
+      '    ValueError: if the thing cannot be done.',
+      '',
+      'Returns:',
+      'Nothing of note.',
+    ].join('\n'));
+
+    expect(qs(item, '.config-mcp-tool-desc-full').textContent).toBe('Do a thing.');
+    expect(qs(item, '.config-mcp-tool-returns').textContent).toBe('Nothing of note.');
+    expect(item.textContent).not.toContain('ValueError');
   });
 
   test('prepends window.__OSPREY_PREFIX__ to the /api/mcp-servers fetch (multi-user deployments)', () => {

@@ -61,8 +61,11 @@ def _require_scaffold_writes(request: Request) -> None:
     Read routes are deliberately not gated. Seeing what the agent is running is
     not authoring it, and a tier that cannot edit still has to be able to look.
 
-    When writes are closed because the config file could not be read, the
-    refusal names that file and the fix.
+    An app with no ``scaffold_write_enabled`` on its state never ran the
+    lifespan that decides the tier, so it is refused like a closed one: a
+    privilege boundary that nobody resolved stays shut. When writes are closed
+    because the config file could not be read, the refusal names that file and
+    the fix.
 
     Args:
         request: Incoming request carrying ``app.state``.
@@ -70,7 +73,7 @@ def _require_scaffold_writes(request: Request) -> None:
     Raises:
         HTTPException: 403 when gallery writes are disabled for this deployment.
     """
-    if not getattr(request.app.state, "scaffold_write_enabled", True):
+    if not getattr(request.app.state, "scaffold_write_enabled", False):
         unreadable = getattr(request.app.state, "config_unreadable_path", None)
         if unreadable:
             from osprey.interfaces.web_terminal.app import unreadable_config_refusal
@@ -178,6 +181,9 @@ async def delete_untracked_scaffold(name: str, request: Request):
         raise _refuse_protected(request, "delete_untracked", name, e) from e
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except FileExistsError as e:
+        # An owned artifact: releasing it is the route that removes the file.
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

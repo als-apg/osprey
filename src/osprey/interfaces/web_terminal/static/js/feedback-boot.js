@@ -8,11 +8,11 @@
  * configuration (GET /api/panels). app.js calls `initFeedback()` once at boot;
  * nothing else in the app needs to know the feature exists.
  *
- * It is a module of its own rather than a section of app.js for two reasons:
- * app.js is a boot script held under eslint's `max-lines` budget, and every
- * ambient dependency here (fetch, clipboard, window, the terminal, the session
- * id) arrives through the options object, so the whole wiring is testable
- * without a browser.
+ * It is a module of its own rather than a section of app.js: app.js is a boot
+ * script held under eslint's `max-lines` budget. The terminal and the session
+ * id arrive through the options object, so this module does not import the
+ * terminal; everything else it touches is the page's own (fetch, the
+ * clipboard, window.open, location).
  *
  * THE RULE THAT MUST SURVIVE EVERY FUTURE EDIT: the action handlers run inside
  * the click turn and must not `await` anything before calling `sendFeedback()`
@@ -92,14 +92,6 @@ const TRACKER_KINDS = Object.freeze({ github: 'GitHub', gitlab: 'GitLab' });
  *   scrollback tier. Anything without a `buffer` (including `null`) yields an
  *   empty capture, so a deployment that cannot hand one over still submits
  *   text, metadata and the server-composed context.
- * @property {(path: string, init: any) => Promise<any>} [loadJSON] - GET-and-parse,
- *   for the two boot reads. Receives an `init` carrying the abort signal.
- *   Defaults to {@link readConfigJson}.
- * @property {(url: string, init: any) => Promise<any>} [fetch] - the POST used
- *   by the transport. Defaults to `window.fetch`.
- * @property {any} [clipboard] - defaults to `navigator.clipboard`.
- * @property {(url: string, target: string, features: string) => void} [windowOpen]
- * @property {(url: string) => void} [navigate] - assigns `location.href`.
  */
 
 /**
@@ -135,7 +127,7 @@ const TRACKER_KINDS = Object.freeze({ github: 'GitHub', gitlab: 'GitLab' });
  * @param {FeedbackBootOptions} [options]
  * @returns {{modal: FeedbackModal, ready: Promise<void>}} the wired dialog, and
  *   a promise that settles (never rejects) once the configuration has been
- *   applied — for callers that want to act on the finished state, and tests.
+ *   applied, for callers that want to act on the finished state.
  */
 export function initFeedback(options = {}) {
   /** @type {FeedbackConfig} */
@@ -151,11 +143,10 @@ export function initFeedback(options = {}) {
   const modal = createFeedbackModal(config, options);
   onFeedbackClick(() => modal.open());
 
-  const loadJSON = options.loadJSON ?? readConfigJson;
   /** @param {string} path @returns {Promise<any>} null where the read failed */
   const read = (path) =>
     Promise.resolve()
-      .then(() => loadJSON(path, { signal: timeoutSignal() }))
+      .then(() => readConfigJson(path, { signal: timeoutSignal() }))
       .catch(() => null);
 
   // Applied SEPARATELY, not from one `Promise.all`. The two reads answer
@@ -289,15 +280,12 @@ function createFeedbackModal(config, options) {
    * @returns {import('./feedback-client.js').FeedbackDeps}
    */
   const transportDeps = (state) => ({
-    fetch: options.fetch ?? ((url, init) => window.fetch(url, init)),
-    clipboard: options.clipboard ?? navigator.clipboard,
-    windowOpen:
-      options.windowOpen ?? ((url, target, features) => void window.open(url, target, features)),
-    navigate:
-      options.navigate ??
-      ((url) => {
-        window.location.href = url;
-      }),
+    fetch: (url, init) => window.fetch(url, init),
+    clipboard: navigator.clipboard,
+    windowOpen: (url, target, features) => void window.open(url, target, features),
+    navigate: (url) => {
+      window.location.href = url;
+    },
     // Read here, in the click turn, so the capture is what the operator was
     // looking at when they pressed the button — and only when it will be sent.
     scrollback: state.contextOn ? captureScrollback(getTerminal()) : '',

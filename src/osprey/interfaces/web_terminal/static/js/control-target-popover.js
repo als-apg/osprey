@@ -72,9 +72,6 @@ import {
 import { confirmSkipped } from './confirm-skip.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
 
-// Re-exported so the popover's public surface stays what it was before the
-// derived-facts split; the wording itself lives in control-target-facts.js.
-export { lockReason };
 import {
   CHIP_TOGGLE_EVENT,
   getAnchorElement,

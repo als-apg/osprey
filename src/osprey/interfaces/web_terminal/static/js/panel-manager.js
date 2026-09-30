@@ -79,6 +79,8 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {string | null} [pendingUrl]
  * @property {string | null} [failedMessage] - the server's sentence while a sidecar's start has failed
  * @property {boolean} [activateOnHealthy] - surface the panel on its first healthy settle (an operator retry)
+ * @property {number} misses - consecutive unanswered polls since the panel last answered
+ * @property {number | null} missSince - epoch ms of the first of those misses, or null
  */
 
 /**
@@ -182,10 +184,10 @@ let onAgentActivity = () => {};
 /**
  * SEAM: register the activity-strip handler for agent_activity frames that
  * have no rail anchor. Frames arrive verbatim as broadcast (see
- * AgentActivityEvent). Pass null to restore the no-op default.
- * @param {((frame: AgentActivityEvent) => void) | null} handler
+ * AgentActivityEvent).
+ * @param {(frame: AgentActivityEvent) => void} handler
  */
-export function setActivityStripHandler(handler) { onAgentActivity = handler ?? (() => {}); }
+export function setActivityStripHandler(handler) { onAgentActivity = handler; }
 
 // ---- Injected State Accessors ----
 //

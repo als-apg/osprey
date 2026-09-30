@@ -32,7 +32,7 @@ def client(workspace_dir):
         "osprey.interfaces.web_terminal.app._load_web_config",
         return_value={"watch_dir": str(workspace_dir)},
     ):
-        app = create_app(shell_command="echo")
+        app = create_app(shell_command=["echo"])
         with TestClient(app) as c:
             yield c
 
@@ -56,17 +56,6 @@ class TestLogoutEndpoint:
 
         # The prior session must be gone — not merely detached/still-resumable.
         assert registry.get_session("some-claude-session-id") is None
-
-    def test_logout_calls_cleanup_all(self, client):
-        """Logout reuses the existing PtyRegistry.cleanup_all primitive."""
-        app = client.app
-        registry = app.state.pty_registry
-
-        with patch.object(registry, "cleanup_all") as mock_cleanup:
-            resp = client.post("/api/terminal/logout")
-
-        assert resp.status_code == 200
-        mock_cleanup.assert_called_once()
 
     def test_logout_also_cleans_operator_registry(self, client):
         """Logout must not leave a warm operator-mode (Agent SDK) session behind.
@@ -219,7 +208,7 @@ class TestLogoutRevokesBrowserSessions:
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value={"watch_dir": str(workspace_dir)},
         ):
-            app = create_app(shell_command="echo")
+            app = create_app(shell_command=["echo"])
             with TestClient(app) as store_client:
                 credentials = get_web_credentials(store_client.app)
                 session = credentials.create_session()

@@ -74,14 +74,14 @@ def make_app() -> SimpleNamespace:
 
 
 def make_task(app: SimpleNamespace, **kwargs) -> ControlContextOwnerTask:
-    """A task claiming as this process, which is what production always does.
+    """A task claiming as this process, which is the only identity it has.
 
-    The PID is deliberately the real one: the request half guards on
+    The PID is the real one: the request half guards on
     :func:`~osprey_connectors.control_context.owned_here`, which is PID
     equality against ``os.getpid()`` — the same guard the controls server
     uses, so the two owners cannot disagree about who owns one file.
     """
-    task = ControlContextOwnerTask(app, identity=terminal_identity(), **kwargs)
+    task = ControlContextOwnerTask(app, **kwargs)
     # The baseline and the rendered config are the deployment's, and reading
     # them is a config load this suite is not about.
     task._baseline = lambda: BASELINE  # type: ignore[method-assign]
@@ -124,12 +124,14 @@ def read(root: Path) -> ControlContext | None:
 @pytest.mark.usefixtures("liveness")
 async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_root):
     app = make_app()
-    await make_task(app).tick_once()
+    task = make_task(app)
+    await task.tick_once()
 
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation, stored.posture) == (BASELINE, 0, {})
     assert stored.owner == terminal_identity()
+    assert app.state.control_context_owner is task.owner
     assert app.state.control_context_follows is None
 
 
@@ -137,12 +139,16 @@ async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_ro
 async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     control_context_root, write_control_context
 ):
-    """SC-79: the record says what the deployment is pointed at, not who is running."""
+    """The record says what the deployment is pointed at, not who is running.
+
+    This is also the restart case as an operator meets it: a narrowing made
+    under the terminal that died is still in force under the one that claims.
+    """
     write_control_context(
         control_context_root,
         target="va",
         generation=7,
-        posture={"va": "sandbox"},
+        posture={"va": "sandbox", "standin": "sandbox"},
         owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID, port=8090),
     )
 
@@ -151,30 +157,8 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 7)
-    assert stored.posture == {"va": "sandbox"}
-    assert stored.owner == terminal_identity()
-
-
-@pytest.mark.usefixtures("liveness")
-async def test_an_operator_s_narrowing_survives_a_terminal_restart(
-    control_context_root, write_control_context
-):
-    """The restart case of the merge, stated as the operator experiences it."""
-    write_control_context(
-        control_context_root,
-        target="va",
-        generation=4,
-        posture={"va": "sandbox", "standin": "sandbox"},
-        owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID),
-    )
-
-    await make_task(make_app()).tick_once()
-    # ... and again, as the next terminal would.
-    await make_task(make_app()).tick_once()
-
-    stored = read(control_context_root)
-    assert stored is not None
     assert stored.posture == {"va": "sandbox", "standin": "sandbox"}
+    assert stored.owner == terminal_identity()
 
 
 async def test_a_terminal_claims_over_a_live_controls_server(
@@ -268,17 +252,6 @@ async def test_a_follower_takes_the_record_the_moment_the_other_terminal_goes(
 
 
 # -- what the routes read off app.state -------------------------------------
-
-
-@pytest.mark.usefixtures("control_context_root", "liveness")
-async def test_an_owning_terminal_publishes_a_writable_owner():
-    app = make_app()
-    task = make_task(app)
-
-    await task.tick_once()
-
-    assert app.state.control_context_owner is task.owner
-    assert app.state.control_context_follows is None
 
 
 async def test_a_claim_that_cannot_be_made_leaves_app_state_without_an_owner(monkeypatch):
@@ -555,5 +528,99 @@ async def test_a_refused_switch_moves_neither_target_nor_generation(
     assert stored.last_switch is not None
     assert stored.last_switch["request_id"] == "r-6"
     assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
+    assert stored.last_switch["generation"] is None
+    assert not path.exists()
+
+
+def switchable_config() -> dict:
+    """A render on which ``va`` is an eligible switch away from ``live``.
+
+    Both connector blocks carry gateways and a probe channel, the live gateway
+    is acknowledged, and the archiver is real, so the gate has no rung left to
+    refuse on once no execution is in flight and no server has reported.
+    """
+    from osprey.mcp_server.control_system import target_eligibility
+
+    gateway = {"address": "gw.example.org", "port": 5064, "use_name_server": False}
+    local = {"address": "localhost", "port": 5074, "use_name_server": True}
+    return {
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {
+                "epics": {
+                    "probe_channel": "LIVE:PROBE:CHANNEL",
+                    "gateways": {"read_only": dict(gateway), "write_access": dict(gateway)},
+                },
+                "virtual_accelerator": {
+                    "probe_channel": "VA:PROBE:CHANNEL",
+                    "gateways": {"read_only": dict(local), "write_access": dict(local)},
+                },
+            },
+            "target_switch": {target_eligibility.ACK_LEAF: "gw.example.org"},
+        },
+        "archiver": {"type": "epics_archiver"},
+    }
+
+
+async def test_an_eligible_request_is_applied_with_a_mint(
+    control_context_root, write_control_context, liveness
+):
+    """The applied terminus: target and generation move together, once.
+
+    A switch that lands without a new generation leaves every write bound to
+    the old target admissible on the new one; a switch that mints without
+    moving the target refuses every write for nothing.
+    """
+    liveness.add(OTHER_TERMINAL_PID)
+    write_control_context(control_context_root, target="live", generation=6)
+    path = file_request(OTHER_TERMINAL_PID, "va", request_id="r-7", session="agent-7")
+    task = make_task(make_app())
+    task._rendered_config = switchable_config  # type: ignore[method-assign]
+
+    await task.tick_once()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("va", 7)
+    assert stored.last_switch is not None
+    assert stored.last_switch["request_id"] == "r-7"
+    assert stored.last_switch["status"] == control_context.SWITCH_APPLIED
+    assert stored.last_switch["generation"] == 7
+    assert stored.last_switch["requested_by"] == "agent-7"
+    assert not path.exists()
+
+
+async def test_a_gate_that_raises_is_refused_as_internal_error(
+    control_context_root, write_control_context, liveness, monkeypatch
+):
+    """A verdict that cannot be taken is a refusal the requester can read.
+
+    Without it the request file stays unanswered and the requester waits out
+    its TTL for an outcome nobody will write; with a mint it would be a switch
+    no gate ever allowed.
+    """
+    from osprey.mcp_server.control_system import target_eligibility
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("the gate is broken")
+
+    monkeypatch.setattr(target_eligibility, "evaluate_switch", explode)
+    liveness.add(OTHER_TERMINAL_PID)
+    write_control_context(control_context_root, target="live", generation=6)
+    path = file_request(OTHER_TERMINAL_PID, "va", request_id="r-8")
+    task = make_task(make_app())
+    task._rendered_config = switchable_config  # type: ignore[method-assign]
+
+    await task.tick_once()
+
+    stored = read(control_context_root)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("live", 6)
+    assert stored.last_switch is not None
+    assert stored.last_switch["request_id"] == "r-8"
+    assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
+    assert stored.last_switch["reason"] == "internal_error"
+    assert "RuntimeError: the gate is broken" in stored.last_switch["detail"]
     assert stored.last_switch["generation"] is None
     assert not path.exists()

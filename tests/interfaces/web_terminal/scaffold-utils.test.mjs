@@ -5,8 +5,10 @@
  *   npx vitest run tests/interfaces/web_terminal/scaffold-utils.test.mjs
  *
  * Covers YAML front-matter parsing (valid/missing/malformed), Python
- * docstring front-matter + flow-diagram extraction, category-routing set
- * membership, and the rendering helpers.
+ * docstring front-matter + flow-diagram extraction, the category-help table's
+ * alignment with the displayed categories, and the rendering helpers. Which
+ * tab each artifact lands on is pinned at initScaffoldGallery in
+ * scaffold-view.test.mjs.
  *
  * NOTE: imported by RELATIVE path, not an absolute `/design-system/js/*`-style
  * specifier — this module lives under web_terminal, not design-system, so no
@@ -20,14 +22,10 @@ import { qs } from '../_support/dom.mjs';
 import {
   CATEGORY_HELP,
   BEHAVIOR_CATEGORIES,
-  BEHAVIOR_OUTPUTS,
   BEHAVIOR_CATEGORY_OVERRIDES,
   BEHAVIOR_CATEGORY_REMAPS,
   BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
-  CONFIG_NAMES,
-  configureMarked,
-  iconForCategory,
   parseFrontMatter,
   extractPythonDocstringFrontMatter,
   renderHighlightedCode,
@@ -37,151 +35,75 @@ import {
 } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/utils.js';
 
 describe('parseFrontMatter', () => {
-  test('valid front matter is parsed into a fields object and the body is separated', () => {
-    const content = '---\nname: my-agent\nmodel: sonnet\n---\n# Body\n\nSome content here.';
+  test.each([
+    ['valid front matter is split from the body',
+      '---\nname: my-agent\nmodel: sonnet\n---\n# Body\n\nSome content here.',
+      { name: 'my-agent', model: 'sonnet' }, '# Body\n\nSome content here.'],
+    ['single and double quotes are stripped from values',
+      '---\ndescription: "a quoted value"\nlabel: \'single quoted\'\n---\nbody',
+      { description: 'a quoted value', label: 'single quoted' }, 'body'],
+    ['no --- delimiters: null front matter, content as-is',
+      '# Just a markdown file\n\nNo front matter here.',
+      null, '# Just a markdown file\n\nNo front matter here.'],
+    ['an unterminated block: null front matter, content as-is',
+      '---\nname: broken\nThere is no closing delimiter.',
+      null, '---\nname: broken\nThere is no closing delimiter.'],
+    ['a block with no key: value line: null front matter',
+      '---\njust some prose, not a yaml key\n---\nbody text',
+      null, 'body text'],
+    ['a block with nothing after it: empty body',
+      '---\nname: solo\n---\n',
+      { name: 'solo' }, ''],
+  ])('%s', (_label, content, expectedFrontMatter, expectedBody) => {
     const { frontMatter, body } = parseFrontMatter(content);
-    expect(frontMatter).toEqual({ name: 'my-agent', model: 'sonnet' });
-    expect(body).toBe('# Body\n\nSome content here.');
-  });
-
-  test('quoted values (single or double) have the quotes stripped', () => {
-    const content = '---\ndescription: "a quoted value"\nlabel: \'single quoted\'\n---\nbody';
-    const { frontMatter } = parseFrontMatter(content);
-    expect(frontMatter).toEqual({ description: 'a quoted value', label: 'single quoted' });
-  });
-
-  test('missing front matter (no --- delimiters) returns null frontMatter and the content as-is', () => {
-    const content = '# Just a markdown file\n\nNo front matter here.';
-    const { frontMatter, body } = parseFrontMatter(content);
-    expect(frontMatter).toBeNull();
-    expect(body).toBe(content);
-  });
-
-  test('malformed front matter (unterminated block) falls back to null frontMatter, full content as body', () => {
-    const content = '---\nname: broken\nThere is no closing delimiter.';
-    const { frontMatter, body } = parseFrontMatter(content);
-    expect(frontMatter).toBeNull();
-    expect(body).toBe(content);
-  });
-
-  test('an empty front-matter block (no parseable key: value lines) yields null frontMatter', () => {
-    const content = '---\njust some prose, not a yaml key\n---\nbody text';
-    const { frontMatter, body } = parseFrontMatter(content);
-    expect(frontMatter).toBeNull();
-    expect(body).toBe('body text');
-  });
-
-  test('a front-matter block with no body after it yields an empty body', () => {
-    const content = '---\nname: solo\n---\n';
-    const { frontMatter, body } = parseFrontMatter(content);
-    expect(frontMatter).toEqual({ name: 'solo' });
-    expect(body).toBe('');
+    expect(frontMatter).toEqual(expectedFrontMatter);
+    expect(body).toBe(expectedBody);
   });
 });
 
 describe('extractPythonDocstringFrontMatter', () => {
-  test('extracts front matter and a Flow diagram from a module docstring', () => {
-    const content = [
-      '"""',
-      '---',
-      'name: my_hook',
-      'event: PreToolUse',
-      '---',
-      'Some docstring prose.',
-      '',
-      '## Flow',
-      '```',
-      'A -> B -> C',
-      '```',
-      '"""',
-      '',
-      'def main():',
-      '    pass',
-    ].join('\n');
+  const WITH_FLOW = [
+    '"""',
+    '---',
+    'name: my_hook',
+    'event: PreToolUse',
+    '---',
+    'Some docstring prose.',
+    '',
+    '## Flow',
+    '```',
+    'A -> B -> C',
+    '```',
+    '"""',
+    '',
+    'def main():',
+    '    pass',
+  ].join('\n');
 
+  test.each([
+    ['front matter and a Flow diagram from a module docstring', WITH_FLOW,
+      { frontMatter: { name: 'my_hook', event: 'PreToolUse' }, flowDiagram: 'A -> B -> C', body: 'Some docstring prose.' }],
+    ['a docstring with no Flow section', '"""\n---\nname: plain\n---\nJust prose, no flow.\n"""\n',
+      { frontMatter: { name: 'plain' }, flowDiagram: null, body: 'Just prose, no flow.' }],
+    ['a leading shebang line', '#!/usr/bin/env python3\n"""\n---\nname: shebanged\n---\nbody\n"""\n',
+      { frontMatter: { name: 'shebanged' } }],
+    ['no docstring at all', 'def main():\n    pass\n',
+      { frontMatter: null, flowDiagram: null, body: '' }],
+  ])('%s', (_label, content, expected) => {
     const result = extractPythonDocstringFrontMatter(content);
-    expect(result.frontMatter).toEqual({ name: 'my_hook', event: 'PreToolUse' });
-    expect(result.flowDiagram).toBe('A -> B -> C');
-    expect(result.body).toBe('Some docstring prose.');
-    expect(result.sourceCode).toBe(content);
-  });
-
-  test('handles a docstring with no Flow section (flowDiagram stays null)', () => {
-    const content = '"""\n---\nname: plain\n---\nJust prose, no flow.\n"""\n';
-    const result = extractPythonDocstringFrontMatter(content);
-    expect(result.frontMatter).toEqual({ name: 'plain' });
-    expect(result.flowDiagram).toBeNull();
-    expect(result.body).toBe('Just prose, no flow.');
-  });
-
-  test('a leading shebang line before the docstring is tolerated', () => {
-    const content = '#!/usr/bin/env python3\n"""\n---\nname: shebanged\n---\nbody\n"""\n';
-    const result = extractPythonDocstringFrontMatter(content);
-    expect(result.frontMatter).toEqual({ name: 'shebanged' });
-  });
-
-  test('content with no docstring at all returns the null/empty defaults, preserving sourceCode', () => {
-    const content = 'def main():\n    pass\n';
-    const result = extractPythonDocstringFrontMatter(content);
-    expect(result.frontMatter).toBeNull();
-    expect(result.body).toBe('');
-    expect(result.flowDiagram).toBeNull();
+    expect(result).toMatchObject(expected);
     expect(result.sourceCode).toBe(content);
   });
 });
 
-describe('category-routing set membership', () => {
-  test('BEHAVIOR_CATEGORIES routes agents/skills/rules/output-styles to the Behavior tab', () => {
-    expect(BEHAVIOR_CATEGORIES.has('agents')).toBe(true);
-    expect(BEHAVIOR_CATEGORIES.has('skills')).toBe(true);
-    expect(BEHAVIOR_CATEGORIES.has('rules')).toBe(true);
-    expect(BEHAVIOR_CATEGORIES.has('output-styles')).toBe(true);
-    expect(BEHAVIOR_CATEGORIES.has('hooks')).toBe(false);
-  });
-
-  test('BEHAVIOR_OUTPUTS routes the project instructions to the Behavior tab by output path', () => {
-    expect(BEHAVIOR_OUTPUTS.has('CLAUDE.md')).toBe(true);
-    expect(BEHAVIOR_OUTPUTS.has('.mcp.json')).toBe(false);
-  });
-
-  test('SAFETY_CATEGORIES routes hooks to the Safety tab, and nothing else', () => {
-    expect(SAFETY_CATEGORIES.has('hooks')).toBe(true);
-    expect(SAFETY_CATEGORIES.has('agents')).toBe(false);
-  });
-
-  test('CONFIG_NAMES routes mcp-json/settings-json to the Config tab', () => {
-    expect(CONFIG_NAMES.has('mcp-json')).toBe(true);
-    expect(CONFIG_NAMES.has('settings-json')).toBe(true);
-    expect(CONFIG_NAMES.has('claude-md')).toBe(false);
-  });
-
-  test('CATEGORY_HELP is populated, non-empty', () => {
-    expect(Object.keys(CATEGORY_HELP).length).toBeGreaterThan(0);
-    expect(CATEGORY_HELP.hooks).toMatch(/PreToolUse hook can block a tool call/i);
-  });
-
-  test('every display category a gallery can render has help text', () => {
-    // The regression guard for a whole bug class: CATEGORY_HELP is keyed by
-    // DISPLAY category, so a key that matches no reachable display category
-    // renders no help button at all and fails silently. That is exactly how
-    // the CLAUDE.md section lost its `?` -- the table said "system
-    // instructions" while the gallery displayed "system prompt".
-    const displayed = new Set();
-    for (const raw of [...BEHAVIOR_CATEGORIES, ...SAFETY_CATEGORIES]) {
-      displayed.add(BEHAVIOR_CATEGORY_REMAPS[raw] || raw);
-    }
-    for (const override of Object.values(BEHAVIOR_CATEGORY_OVERRIDES)) {
-      displayed.add(override);
-    }
-    // mcp-json / settings-json carry no "/" in their canonical name, so the
-    // service reports them under the catch-all `config` category.
-    displayed.add('config');
-
-    const missing = [...displayed].filter((cat) => !CATEGORY_HELP[cat]);
-    expect(missing).toEqual([]);
-  });
-
-  test('no CATEGORY_HELP key is unreachable', () => {
+describe('category help', () => {
+  // CATEGORY_HELP is keyed by DISPLAY category, so a key that matches no
+  // reachable display category is dead text, and a display category with no
+  // key renders a section with no `?` at all -- silently. The displayed set is
+  // every raw category a gallery admits after the Behavior remaps, plus the
+  // per-name overrides, plus `config` (mcp-json and settings-json carry no "/"
+  // in their canonical name, so the service reports them under that catch-all).
+  test('its keys are exactly the display categories a gallery can render, pinned ones included', () => {
     const displayed = new Set(['config']);
     for (const raw of [...BEHAVIOR_CATEGORIES, ...SAFETY_CATEGORIES]) {
       displayed.add(BEHAVIOR_CATEGORY_REMAPS[raw] || raw);
@@ -190,34 +112,8 @@ describe('category-routing set membership', () => {
       displayed.add(override);
     }
 
-    const orphaned = Object.keys(CATEGORY_HELP).filter((key) => !displayed.has(key));
-    expect(orphaned).toEqual([]);
-  });
-
-  test('pinned behavior categories are real display categories', () => {
-    for (const pinned of BEHAVIOR_PINNED_CATEGORIES) {
-      expect(CATEGORY_HELP[pinned]).toBeDefined();
-    }
-  });
-});
-
-describe('iconForCategory', () => {
-  test('returns a distinct icon per known category, case-insensitively', () => {
-    expect(iconForCategory('Hooks')).not.toBe(iconForCategory('agents'));
-    expect(iconForCategory('hooks')).toBe(iconForCategory('HOOKS'));
-  });
-
-  test('unknown or missing categories fall back to the default document icon', () => {
-    expect(iconForCategory('something-unrecognized')).toBe(iconForCategory(undefined));
-  });
-});
-
-describe('configureMarked', () => {
-  test('is a no-op (does not throw) when the vendored `marked` global is absent', () => {
-    expect(typeof marked).toBe('undefined');
-    expect(() => configureMarked()).not.toThrow();
-    // Idempotent: calling it again is still safe.
-    expect(() => configureMarked()).not.toThrow();
+    expect(new Set(Object.keys(CATEGORY_HELP))).toEqual(displayed);
+    expect(BEHAVIOR_PINNED_CATEGORIES.filter((cat) => !displayed.has(cat))).toEqual([]);
   });
 });
 

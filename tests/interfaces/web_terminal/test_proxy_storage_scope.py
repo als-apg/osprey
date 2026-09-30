@@ -109,7 +109,7 @@ def _relay(tmp_path, terminal_user, path, body, content_type):
     captured: dict[str, str] = {}
 
     # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends.
-    async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+    async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
         captured.update(headers)
         return httpx.Response(status_code=200, text=body, headers={"content-type": content_type})
 

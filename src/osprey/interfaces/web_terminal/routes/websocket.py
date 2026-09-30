@@ -37,7 +37,6 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     ContextOwnerError,
     Mutation,
     owned_elsewhere_message,
-    terminal_identity,
 )
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
@@ -151,39 +150,6 @@ def _require_session_uuid(session_id: str | None) -> None:
         )
 
 
-def _holds_a_chat_pool_entry(app, session_id: str) -> bool:
-    """Whether the chat pool holds an entry under *session_id* right now.
-
-    Deliberately **not** a liveness check: ``get_chat_session`` reads the
-    pool's session map and a dead-but-unreaped entry answers ``True``. That is
-    the right answer for both callers — such a key still names a chat the
-    operator can address, and terminating it evicts the corpse, which is what
-    wants to happen anyway.
-
-    It is also the *narrower* of this module's two chat probes. The map it
-    reads is one of two places a chat can live: a creation still inside
-    ``start()`` sits in the pool's ``_pending`` and is invisible here, which on
-    the first prompt of a chat is the ordinary state rather than a corner case.
-    :func:`_chat_pool_answers_to` is the one that sees both, and it is what the
-    addressability gate asks.
-
-    The Simple-mode chat surface (``POST /api/chat``) keys its pool on the
-    caller-supplied ``chat_id`` and spawns the child under that key, so the
-    pool key and the audit session id are the same string. Membership is read
-    through the registry's own read-only accessor — never the pool's internals
-    — so a probe cannot refresh an entry's idle clock or evict anything.
-
-    Absent or unfamiliar registries answer ``False`` rather than raising: the
-    caller is an existence gate, and a registry that cannot be asked simply has
-    no chat session to offer.
-    """
-    registry = getattr(app.state, "operator_registry", None)
-    getter = getattr(registry, "get_chat_session", None)
-    if not callable(getter):
-        return False
-    return getter(session_id) is not None
-
-
 def _chat_is_busy(app, session_id: str) -> bool:
     """Whether the chat pooled under *session_id* is mid-turn right now.
 
@@ -205,9 +171,9 @@ def _chat_is_busy(app, session_id: str) -> bool:
 def _chat_pool_answers_to(app, session_id: str) -> bool:
     """Whether the chat pool would answer to *session_id* at all.
 
-    The *addressability* probe, and deliberately a wider question than
-    :func:`_holds_a_chat_pool_entry`: it also says ``True`` while a creation is
-    still inside ``start()``. That window is not a corner case on this surface
+    The *addressability* probe, and deliberately wider than a look at the
+    pool's session map: it also says ``True`` while a creation is still inside
+    ``start()``. That window is not a corner case on this surface
     — it is the first prompt of a chat, the moment the child is being armed
     with tools — and answering ``False`` there refuses the operator's toggle
     with a 409 that stores nothing, on a session that is starting in front of
@@ -216,16 +182,12 @@ def _chat_pool_answers_to(app, session_id: str) -> bool:
 
     Reached through the registry's own read-only facade
     (:meth:`~osprey.interfaces.web_terminal.operator_session.OperatorRegistry.has_chat_key`),
-    so a probe disturbs no LRU order and creates nothing. A registry that
-    predates the facade — a hand-rolled double, say — falls back to the
-    narrower session-map probe rather than raising, the same tolerance the rest
-    of this surface grants an unfamiliar registry.
+    so a probe disturbs no LRU order and creates nothing. An app with no
+    operator registry has no chat to offer and answers ``False``.
     """
     registry = getattr(app.state, "operator_registry", None)
     prober = getattr(registry, "has_chat_key", None)
-    if callable(prober):
-        return bool(prober(session_id))
-    return _holds_a_chat_pool_entry(app, session_id)
+    return bool(prober(session_id)) if callable(prober) else False
 
 
 def _record_available() -> bool:
@@ -303,8 +265,13 @@ _UNREADABLE_SECTION = object()
 _CONFIG_MEMO: tuple[Path, tuple[int, int, int], Any] | None = None
 
 
-def _reset_rendered_config_memo() -> None:
-    """Forget the parsed render. For tests, and for anything that rewrites it."""
+def reset_rendered_config_memo() -> None:
+    """Forget the parsed render, so the next read parses the file afresh.
+
+    The memo is process-wide: without a reset, a render parsed for one app is
+    still answered to the next app in the same process whose file carries the
+    same path and stat signature.
+    """
     global _CONFIG_MEMO
     _CONFIG_MEMO = None
 
@@ -550,9 +517,6 @@ def _build_extra_env(
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
     extra_env[PANEL_TOKEN_ENV] = get_web_credentials(websocket.app).panel_token
-    hooks_env = getattr(websocket.app.state, "hooks_env", {})
-    if hooks_env:
-        extra_env.update(hooks_env)
 
     # The posture ANCHORS — never the posture itself. Keyed on the pool key:
     # ``terminal_ws`` computes ``current_key = claude_session_id or
@@ -567,8 +531,9 @@ def _build_extra_env(
     # could not express "the stand-in is read-only and the simulator is not" —
     # it sandboxes the whole session — and it could only be changed by killing
     # the child, which is the conversation this feature exists to keep. A
-    # deployment-wide readonly marker still reaches the child, as it always
-    # has, through ``hooks_env`` above or the inherited environment.
+    # deployment-wide readonly marker still reaches the child through the
+    # environment it inherits: ``build_base_child_env`` copies this process's
+    # ``os.environ`` into every PTY spawn.
     #
     # What the child is handed is where to look and whose answer to read:
     # ``OSPREY_POSTURE_SESSION`` (the store key) and
@@ -2645,10 +2610,14 @@ def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     ``None`` when nothing owns the context — no tick has got far enough and the
     record on disk names nobody. A ``controls_server`` owner is an ordinary
     answer here and carries ``port: null``: it serves nothing to open.
+
+    This terminal's own row is the identity its owner claimed as — the one
+    every write stamps into the record — so the row and the record name the
+    same port.
     """
     context = _context_state(app)
     if context.owner is not None:
-        identity = context.follows if context.follows is not None else terminal_identity()
+        identity = context.follows if context.follows is not None else context.owner.identity
         return {**identity.to_payload(), "self": context.follows is None}
     recorded = getattr(record, "owner", None)
     if recorded is None:

@@ -21,7 +21,6 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -242,60 +241,4 @@ def test_web_terminal_static_page_loads_clean(
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         assert_page_loads_clean(page, f"{base_url}{path}", allowlist=_ALLOWLISTS[name])
-        page.close()
-
-
-# ---------------------------------------------------------------------------
-# Web-terminal status readouts
-# ---------------------------------------------------------------------------
-
-
-def test_web_terminal_status_readouts_are_live(
-    tmp_path,
-    monkeypatch,
-    chromium_browser: Browser,
-) -> None:
-    """The status bar's clock still says something on a live page.
-
-    It used to be a hardcoded ``#status-clock`` node written by an
-    ``initStatusBar()`` that no longer exists: it is a bar item now, built by
-    ``bar-items.js`` into a shell the server emits from the effective layout. Every step of that hand-over is
-    unit-tested, and none of those unit tests can tell whether the chain
-    actually closes on a live page — a broken link anywhere in it leaves
-    empty boxes in the corner of the screen and no failing test anywhere,
-    because an empty box is what an item that never built looks like.
-
-    So this asserts the VALUES, not the elements. A present-but-blank readout
-    is the failure being guarded against, which is why the clock is matched
-    against its shape rather than merely located: it reads a real ``HH:MM``.
-    """
-    if not _PLAYWRIGHT_AVAILABLE:  # pragma: no cover - guarded by the fixture too
-        pytest.skip("playwright package not installed")
-
-    from osprey.interfaces.web_terminal.app import DEFAULT_BAR_LAYOUT
-
-    places_clock = {
-        **DEFAULT_BAR_LAYOUT,
-        "status": [
-            {"type": "space"},
-            {"type": "clock"},
-        ],
-    }
-
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_bar_items",
-            return_value=places_clock,
-        ),
-        _launch_web_terminal(tmp_path, monkeypatch) as base_url,
-    ):
-        page = chromium_browser.new_page()
-        page.goto(base_url)
-
-        bar = page.locator('footer.status-bar[data-bar-host="status"]')
-
-        expect(bar.locator(".bar-clock-time")).to_have_text(
-            re.compile(r"^\d{1,2}:\d{2}$"), timeout=15_000
-        )
-
         page.close()

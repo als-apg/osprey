@@ -96,16 +96,11 @@ def bar_store(workspace):
 
 
 class TestTreeOmitsTheStore:
-    def test_store_directory_is_absent_from_the_tree(self, workspace, store):
-        client = _make_client(workspace, store)
-        resp = client.get("/api/files/tree")
-        assert resp.status_code == 200
-        assert "feedback" not in _child_names(resp.json())
-
     def test_siblings_are_untouched(self, workspace, store):
         client = _make_client(workspace, store)
         tree = client.get("/api/files/tree").json()
         names = _child_names(tree)
+        assert "feedback" not in names
         assert "notes.md" in names
         assert "sub" in names
         assert _child_names(_named(tree, "sub")) == ["nested.py"]
@@ -224,18 +219,30 @@ class TestTheSavedBarLayoutIsConcealedToo:
         resp = client.get("/api/files/content/bar_items/layout.json")
         assert resp.status_code == 200
 
-    def test_an_unusable_value_fails_open_but_says_so(self, workspace, store, caplog):
-        """One unusable store does not switch off the other: the feedback store
-        stays concealed while the bar-items store fails open, out loud."""
-        client = _make_client(workspace, store, bar_items_dir=123)
+    @pytest.mark.parametrize(
+        ("unusable", "still_concealed", "label"),
+        [
+            pytest.param("bar_items_dir", "feedback", "bar-items store", id="bar-items-unusable"),
+            pytest.param("feedback_dir", "bar_items", "feedback store", id="feedback-unusable"),
+        ],
+    )
+    def test_an_unusable_value_fails_open_but_says_so(
+        self, workspace, store, bar_store, caplog, unusable, still_concealed, label
+    ):
+        """One unusable store does not switch off the other: the usable store
+        stays concealed while the unusable one fails open, out loud -- a privacy
+        control that quietly switches itself off looks exactly like one that
+        works."""
+        dirs = {"feedback_dir": store, "bar_items_dir": bar_store, unusable: 123}
+        client = _make_client(workspace, dirs["feedback_dir"], bar_items_dir=dirs["bar_items_dir"])
 
         with caplog.at_level(logging.WARNING, logger="osprey.interfaces.web_terminal.routes.files"):
             tree = client.get("/api/files/tree")
             assert tree.status_code == 200
             assert client.get("/api/files/content/notes.md").status_code == 200
 
-        assert "feedback" not in _child_names(tree.json())
-        assert "bar-items store" in caplog.text
+        assert still_concealed not in _child_names(tree.json())
+        assert label in caplog.text
         assert "will NOT be concealed" in caplog.text
 
 
@@ -251,10 +258,6 @@ class TestContentReturns404:
     def test_the_store_directory_itself_is_404_not_400(self, workspace, store):
         """A 400 'Not a file' would confirm the directory exists."""
         resp = _make_client(workspace, store).get("/api/files/content/feedback")
-        assert resp.status_code == 404
-
-    def test_a_nonexistent_path_below_the_store_is_404(self, workspace, store):
-        resp = _make_client(workspace, store).get("/api/files/content/feedback/deep/x.json")
         assert resp.status_code == 404
 
     def test_reaching_the_store_through_a_symlink_is_404(self, workspace, store):
@@ -332,30 +335,12 @@ class TestStoreOutsideTheWorkspace:
 
 class TestFeedbackDirUnset:
     @pytest.mark.usefixtures("store")
-    def test_tree_and_content_behave_as_before(self, workspace):
-        client = _make_client(workspace, None, set_state=False)
+    @pytest.mark.parametrize("set_state", [False, True], ids=["attribute-absent", "none-valued"])
+    def test_tree_and_content_behave_as_before(self, workspace, set_state):
+        client = _make_client(workspace, None, set_state=set_state)
         assert "feedback" in _child_names(client.get("/api/files/tree").json())
         resp = client.get("/api/files/content/feedback/fb-abc123.json")
         assert resp.status_code == 200
-
-    @pytest.mark.usefixtures("store")
-    def test_a_none_valued_feedback_dir_is_also_a_no_op(self, workspace):
-        client = _make_client(workspace, None)
-        assert "feedback" in _child_names(client.get("/api/files/tree").json())
-        assert client.get("/api/files/content/feedback/fb-abc123.json").status_code == 200
-
-    @pytest.mark.usefixtures("store")
-    def test_an_unusable_value_fails_open_but_says_so(self, workspace, caplog):
-        """A non-path value cannot be compared against, so the browser keeps
-        working — but a privacy control that quietly switches itself off is
-        indistinguishable from one that is working, so it must log."""
-        client = _make_client(workspace, 123)
-
-        with caplog.at_level(logging.WARNING, logger="osprey.interfaces.web_terminal.routes.files"):
-            assert client.get("/api/files/tree").status_code == 200
-            assert client.get("/api/files/content/notes.md").status_code == 200
-
-        assert "will NOT be concealed" in caplog.text
 
 
 class TestStateKeyContract:

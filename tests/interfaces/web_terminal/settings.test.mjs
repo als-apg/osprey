@@ -69,8 +69,11 @@ afterEach(() => {
 });
 
 describe('applySettings: raw mode PUT', () => {
-  test('prepends window.__OSPREY_PREFIX__ to the /api/config PUT (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
+  test.each([
+    ['/u/alice', '/u/alice/api/config'],
+    [undefined, '/api/config'],
+  ])('PUTs the raw config through the multi-user prefix (prefix %s)', async (prefix, expected) => {
+    if (prefix !== undefined) window.__OSPREY_PREFIX__ = prefix;
     const fetchMock = vi.fn(() => Promise.resolve(notOkResponse()));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -80,22 +83,7 @@ describe('applySettings: raw mode PUT', () => {
     /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/config', expect.objectContaining({
-      method: 'PUT',
-    }));
-  });
-
-  test('is a no-op (unprefixed) when window.__OSPREY_PREFIX__ is absent', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(notOkResponse()));
-    vi.stubGlobal('fetch', fetchMock);
-
-    /** @type {HTMLElement} */ (
-      document.querySelector('.settings-mode-btn[data-mode="raw"]')
-    ).click();
-    /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/config', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith(expected, expect.objectContaining({
       method: 'PUT',
     }));
   });

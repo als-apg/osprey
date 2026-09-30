@@ -186,18 +186,6 @@ describe('the drop index is the layout position, not the DOM position', () => {
 });
 
 describe('a refused drop is named and writes nothing', () => {
-  test('a header item dropped on the status bar moves there', async () => {
-    // This drop used to be refused as "Header only"; every type may now sit in
-    // either bar, so the search trigger simply moves.
-    await editing(doc(['logo', 'search'], []));
-
-    await drag(shell('search'), IN_STATUS);
-
-    expect(putBodies()[0].status.map((/** @type {any} */ i) => i.type)).toEqual(['search']);
-    expect(rendered('status')).toEqual(['search']);
-    expect(rendered('header')).toEqual(['logo']);
-  });
-
   test('a full host refuses the drop by name', async () => {
     const full = Array.from({ length: 20 }, () => 'separator');
     await editing(doc(['logo', 'clock'], full));
@@ -270,29 +258,13 @@ describe('dragging in from the sheet', () => {
     expect(bodies[0].header.map((/** @type {any} */ i) => i.type)).toEqual(['logo', 'stopwatch']);
   });
 
-  test('a plain click on a tile still adds the item', async () => {
-    await editing(doc(['logo'], []));
+  test.each([
+    ['a disabled tile', doc(['logo'], []), 'identity', IN_HEADER],
+    ['a dimmed tile', doc(['logo', 'docs'], []), 'docs', IN_STATUS],
+  ])('%s does not start a drag', async (_name, layout, type, to) => {
+    await editing(layout);
 
-    tile('stopwatch').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await settle();
-
-    expect(putBodies()).toHaveLength(1);
-  });
-
-  test('a disabled tile does not start a drag', async () => {
-    await editing(doc(['logo'], []));
-
-    await drag(tile('identity'), IN_HEADER, { from: { x: 20, y: 200 } });
-
-    expect(putBodies()).toEqual([]);
-    // A drag that started would name the bar's refusal on the way over it.
-    expect(noticeText()).toBe('');
-  });
-
-  test('a dimmed tile does not start a drag either', async () => {
-    await editing(doc(['logo', 'docs'], []));
-
-    await drag(tile('docs'), IN_STATUS, { from: { x: 20, y: 200 } });
+    await drag(tile(type), to, { from: { x: 20, y: 200 } });
 
     expect(putBodies()).toEqual([]);
     // A drag that started would name the bar's refusal on the way over it.
@@ -305,13 +277,6 @@ describe('resizing a space', () => {
   function grip(edge = 'end') {
     return /** @type {any} */ (shell('space').querySelector(`.bar-space-grip[data-edge="${edge}"]`));
   }
-
-  test('a space carries a grip at each end', async () => {
-    await editing(doc(['logo', 'space', 'clock'], []));
-
-    expect(grip('start')).not.toBe(null);
-    expect(grip('end')).not.toBe(null);
-  });
 
   test('the start grip widens the space as the pointer moves LEFT', async () => {
     // Whichever edge was grabbed is the one that follows the hand: pulling the

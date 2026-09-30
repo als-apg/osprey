@@ -619,8 +619,8 @@ class OperatorSession:
         Owns the turn from just after :meth:`acquire_turn` (done by the caller,
         which needs the 409 mapping before a response starts) through release:
 
-        * terminal event (see :func:`is_terminal_event`) — the generator returns
-          and releases the guard only;
+        * terminal event (see :func:`is_terminal_event`) — the guard is released
+          before the event is yielded, and the generator then returns;
         * any other exit (silence timeout, consumer abandon/``GeneratorExit``,
           cancellation, error) — a detached quiesce is spawned FIRST, then the
           guard is released in a nested ``finally``.
@@ -654,11 +654,15 @@ class OperatorSession:
                 if event.get("type") == "keepalive":
                     continue
 
-                # Flag BEFORE yielding: a consumer that stops right after the
-                # terminal event (GeneratorExit at this yield) must still take
-                # the release-only path, not a spurious quiesce.
+                # Flag and release BEFORE yielding. The consumer may hand the
+                # terminal event to a client that sends its next prompt before
+                # this generator resumes, and that prompt must find the turn
+                # free. A consumer that stops right here (GeneratorExit at this
+                # yield) still takes the release-only path, never a quiesce;
+                # the release in ``finally`` is then an owner-checked no-op.
                 if is_terminal_event(event):
                     terminal_seen = True
+                    self.release_turn(token)
                 yield event
                 if terminal_seen:
                     return

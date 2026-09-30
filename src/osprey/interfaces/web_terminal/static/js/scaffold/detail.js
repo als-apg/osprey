@@ -28,7 +28,8 @@
  */
 
 import { escapeHtml } from '/design-system/js/dom.js';
-import { resetFetchCache, apiRequest } from './data.js';
+import { apiRequest } from '../api.js';
+import { resetFetchCache } from './data.js';
 import { createScaffoldGalleryDetailContent } from './detail-content.js';
 import { READ_ONLY_REASON, createReadOnlyBadge } from './utils.js';
 import { scaffoldWritesEnabled, writesDisabledReason } from './write-gate.js';
@@ -137,7 +138,7 @@ export function createScaffoldGalleryDetail(gallery) {
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        alert(`Failed to create: ${message}`);
+        alert(message);
       });
   }
 

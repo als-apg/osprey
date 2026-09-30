@@ -11,6 +11,7 @@ from pandas.api.types import is_string_dtype
 from osprey.connectors.archiver._timerange import (
     LONG_COLUMNS,
     PROCESSING_MODES,
+    aggregate_long_frame,
     aggregate_series,
     decimate_raw,
     long_frame,
@@ -18,6 +19,11 @@ from osprey.connectors.archiver._timerange import (
     resolve_processing,
     to_utc,
 )
+
+#: The bin origin these fixtures resolve against. Their samples start at the
+#: epoch, which is exactly where the lattice used to be anchored implicitly,
+#: so the assertions below are unchanged by the origin becoming explicit.
+EPOCH = pd.Timestamp(0, unit="s", tz="UTC")
 
 
 class TestRequireDatetime:
@@ -93,7 +99,7 @@ class TestResolveProcessing:
         ],
     )
     def test_each_mode_renders_for_both_backends(self, mode, operator):
-        p = resolve_processing(mode, 60_000)
+        p = resolve_processing(mode, 60_000, EPOCH)
         assert p.epics_operator == operator
         assert p.mode == mode
 
@@ -104,7 +110,7 @@ class TestResolveProcessing:
             ["2026-07-30T10:00:00Z", "2026-07-30T10:00:30Z", "2026-07-30T10:00:45Z"], utc=True
         )
         s = pd.Series([1.0, 2.0, 3.0], index=index, name="SR:DCCT")
-        out = aggregate_series(s, resolve_processing("raw", 60_000))
+        out = aggregate_series(s, resolve_processing("raw", 60_000, EPOCH))
         assert list(out.index) == [index[2]]
         assert list(out) == [3.0]
 
@@ -115,24 +121,24 @@ class TestResolveProcessing:
             if mode == "raw":
                 continue
             expected = s.resample("60000ms").agg(mode)
-            out = aggregate_series(s, resolve_processing(mode, 60_000))
+            out = aggregate_series(s, resolve_processing(mode, 60_000, EPOCH))
             assert list(out) == list(expected)
 
     def test_raw_at_full_resolution_has_no_operator(self):
-        assert resolve_processing("raw", 0).epics_operator is None
+        assert resolve_processing("raw", 0, EPOCH).epics_operator is None
 
     @pytest.mark.parametrize("precision_ms", [0, 1, 500, 1000, 7000, 60_000])
     def test_the_resolved_processing_carries_its_own_bin_width(self, precision_ms):
         mode = "raw" if precision_ms <= 0 else "mean"
-        assert resolve_processing(mode, precision_ms).precision_ms == precision_ms
+        assert resolve_processing(mode, precision_ms, EPOCH).precision_ms == precision_ms
 
     def test_unknown_mode_lists_the_valid_set(self):
         with pytest.raises(ValueError, match="Unknown processing mode"):
-            resolve_processing("p99", 1000)
+            resolve_processing("p99", 1000, EPOCH)
 
     def test_aggregate_without_bin_width_is_rejected(self):
         with pytest.raises(ValueError, match="requires precision_ms > 0"):
-            resolve_processing("mean", 0)
+            resolve_processing("mean", 0, EPOCH)
 
 
 class TestLongFrame:
@@ -217,7 +223,7 @@ class TestAggregateSeries:
         # precision_ms <= 0 means full resolution: every real sample, untouched.
         idx = pd.to_datetime([0, 5, 9], unit="s", utc=True)
         s = pd.Series([1.0, 2.0, 3.0], index=idx, name="PV")
-        resolved = resolve_processing("raw", 0)
+        resolved = resolve_processing("raw", 0, EPOCH)
         out = aggregate_series(s, resolved)
         pd.testing.assert_series_equal(out, s)
 
@@ -225,7 +231,7 @@ class TestAggregateSeries:
         # Six 1s-apart samples, precision_ms=2000 -> three 2s bins.
         idx = pd.to_datetime([0, 1, 2, 3, 4, 5], unit="s", utc=True)
         s = pd.Series([0.0, 1.0, 2.0, 3.0, 4.0, 5.0], index=idx, name="PV")
-        resolved = resolve_processing("raw", 2000)
+        resolved = resolve_processing("raw", 2000, EPOCH)
         out = aggregate_series(s, resolved)
         assert out.tolist() == [1.0, 3.0, 5.0]
         assert list(out.index) == [idx[1], idx[3], idx[5]]
@@ -233,7 +239,7 @@ class TestAggregateSeries:
     def test_raw_on_non_numeric_channel_still_decimates(self):
         idx = pd.to_datetime([0, 1, 2], unit="s", utc=True)
         s = pd.Series(["CW", "CW", "STANDBY"], index=idx, name="T:MODE")
-        resolved = resolve_processing("raw", 2000)
+        resolved = resolve_processing("raw", 2000, EPOCH)
         out = aggregate_series(s, resolved)
         assert out.tolist() == ["CW", "STANDBY"]
 
@@ -241,7 +247,7 @@ class TestAggregateSeries:
         # A channel that matched zero samples must not be rejected as "non-numeric".
         s = pd.Series([], index=pd.to_datetime([], utc=True), dtype=object, name="PV")
         for mode in PROCESSING_MODES:
-            resolved = resolve_processing(mode, 1000)
+            resolved = resolve_processing(mode, 1000, EPOCH)
             out = aggregate_series(s, resolved)
             assert out.empty
             assert not out.index.has_duplicates
@@ -251,7 +257,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime(np.arange(20) * 100, unit="ms", utc=True)
         values = np.arange(20, dtype=float)
         s = pd.Series(values, index=idx, name="PV")
-        resolved = resolve_processing("mean", 1000)
+        resolved = resolve_processing("mean", 1000, EPOCH)
         out = aggregate_series(s, resolved)
         assert len(out) == 2
         assert out.iloc[0] == pytest.approx(values[:10].mean())
@@ -261,7 +267,7 @@ class TestAggregateSeries:
         # First bin gets 3 samples, second bin gets 1 sample.
         idx = pd.to_datetime([0, 100, 900, 1500], unit="ms", utc=True)
         s = pd.Series([1.0, 2.0, 3.0, 4.0], index=idx, name="PV")
-        resolved = resolve_processing("count", 1000)
+        resolved = resolve_processing("count", 1000, EPOCH)
         out = aggregate_series(s, resolved)
         assert out.tolist() == [3, 1]
 
@@ -270,7 +276,7 @@ class TestAggregateSeries:
         # empty-bin drop this would emit 6+ hours worth of 1s bins (3,600+ rows).
         idx = pd.to_datetime(np.arange(6) * 3600, unit="s", utc=True)
         s = pd.Series(np.arange(6, dtype=float), index=idx, name="PV")
-        resolved = resolve_processing("mean", 1000)
+        resolved = resolve_processing("mean", 1000, EPOCH)
         out = aggregate_series(s, resolved)
         assert len(out) == 6
         assert out.tolist() == list(range(6))
@@ -294,7 +300,7 @@ class TestAggregateSeries:
             # pandas < 3 coerces every index to ns, so the scenario cannot arise.
             pytest.skip(f"pandas {pd.__version__} normalizes the index to ns; no coarse unit")
         s = pd.Series([1.0, 2.0, 3.0, 4.0], index=idx, name="PV")
-        resolved = resolve_processing("mean", precision_ms)
+        resolved = resolve_processing("mean", precision_ms, EPOCH)
         out = aggregate_series(s, resolved)
         assert out.index.dtype == "datetime64[ns, UTC]"
         assert out.tolist() == expected
@@ -302,14 +308,14 @@ class TestAggregateSeries:
     def test_raw_mode_is_always_valid_for_non_numeric_channel(self):
         idx = pd.to_datetime([0, 60], unit="s", utc=True)
         s = pd.Series(["CW", "STANDBY"], index=idx, name="T:MODE")
-        resolved = resolve_processing("raw", 0)
+        resolved = resolve_processing("raw", 0, EPOCH)
         out = aggregate_series(s, resolved)
         pd.testing.assert_series_equal(out, s)
 
     def test_non_raw_mode_on_non_numeric_channel_raises_naming_channel_and_mode(self):
         idx = pd.to_datetime([0, 60], unit="s", utc=True)
         s = pd.Series(["CW", "STANDBY"], index=idx, name="T:MODE")
-        resolved = resolve_processing("mean", 60_000)
+        resolved = resolve_processing("mean", 60_000, EPOCH)
         with pytest.raises(ValueError, match="'T:MODE'") as exc_info:
             aggregate_series(s, resolved)
         assert "'mean'" in str(exc_info.value)
@@ -318,7 +324,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime([0, 60], unit="s", utc=True)
         s = pd.Series(["CW", "STANDBY"], index=idx)
         assert s.name is None
-        resolved = resolve_processing("mean", 60_000)
+        resolved = resolve_processing("mean", 60_000, EPOCH)
         with pytest.raises(ValueError) as exc_info:
             aggregate_series(s, resolved)
         message = str(exc_info.value)
@@ -329,7 +335,7 @@ class TestAggregateSeries:
         # std over a single-sample bin is undefined; pandas emits NaN.
         idx = pd.to_datetime([0, 1, 2], unit="s", utc=True)
         s = pd.Series([1.0, 2.0, 3.0], index=idx, name="PV")
-        resolved = resolve_processing("std", 1000)
+        resolved = resolve_processing("std", 1000, EPOCH)
         out = aggregate_series(s, resolved)
         assert len(out) == 3
         assert out.isna().all()
@@ -339,19 +345,19 @@ class TestDecimateRaw:
     def test_non_positive_precision_ms_returns_every_sample_unchanged(self):
         idx = pd.to_datetime([0, 1, 2], unit="s", utc=True)
         s = pd.Series([1.0, 2.0, 3.0], index=idx, name="PV")
-        pd.testing.assert_series_equal(decimate_raw(s, 0), s)
-        pd.testing.assert_series_equal(decimate_raw(s, -1), s)
+        pd.testing.assert_series_equal(decimate_raw(s, 0, EPOCH), s)
+        pd.testing.assert_series_equal(decimate_raw(s, -1, EPOCH), s)
 
     def test_empty_series_returned_unchanged(self):
         s = pd.Series([], index=pd.to_datetime([], utc=True), dtype=float, name="PV")
-        out = decimate_raw(s, 1000)
+        out = decimate_raw(s, 1000, EPOCH)
         assert out.empty
 
     def test_keeps_the_last_real_sample_with_its_own_timestamp_not_the_bin_edge(self):
         # Twenty samples at 100ms spacing (0..1900ms) -> two 1s bins of 10 each.
         idx = pd.to_datetime(np.arange(20) * 100, unit="ms", utc=True)
         s = pd.Series(np.arange(20, dtype=float), index=idx, name="PV")
-        out = decimate_raw(s, 1000)
+        out = decimate_raw(s, 1000, EPOCH)
         assert out.tolist() == [9.0, 19.0]
         assert list(out.index) == [idx[9], idx[19]]
         assert idx[9] != idx[9].floor("1000ms")  # the real timestamp, not the edge
@@ -360,14 +366,14 @@ class TestDecimateRaw:
         # Already at most one real sample per bin: nothing to drop.
         idx = pd.to_datetime(np.arange(6) * 3600, unit="s", utc=True)
         s = pd.Series(np.arange(6, dtype=float), index=idx, name="PV")
-        pd.testing.assert_series_equal(decimate_raw(s, 1000), s)
+        pd.testing.assert_series_equal(decimate_raw(s, 1000, EPOCH), s)
 
     def test_dtype_agnostic_enum_channel_round_trips(self):
         # Bins at [0, 2)s and [2, 4)s: t=0,1 share the first bin (keep the
         # later "CW" at t=1), t=2 is alone in the second bin.
         idx = pd.to_datetime([0, 1, 2], unit="s", utc=True)
         s = pd.Series(["CW", "CW", "STANDBY"], index=idx, name="T:MODE")
-        out = decimate_raw(s, 2000)
+        out = decimate_raw(s, 2000, EPOCH)
         assert out.tolist() == ["CW", "STANDBY"]
         assert list(out.index) == [idx[1], idx[2]]
 
@@ -402,8 +408,78 @@ class TestBinOriginIsSharedByEveryMode:
 
         # aggregate_series indexes each bin at its leading edge, so its index
         # is the aggregate lattice.
-        edges = aggregate_series(s, resolve_processing("mean", precision_ms)).index
-        kept = decimate_raw(s, precision_ms)
+        origin = pd.Timestamp(self.BASE).normalize()
+        edges = aggregate_series(s, resolve_processing("mean", precision_ms, origin)).index
+        kept = decimate_raw(s, precision_ms, origin)
+
+        assert len(kept) == len(edges)
+        for edge, (timestamp, value) in zip(edges, kept.items(), strict=True):
+            in_bin = s[(s.index >= edge) & (s.index < edge + width)]
+            assert timestamp == in_bin.index[-1]
+            assert value == in_bin.iloc[-1]
+
+
+class TestBinsAreAnchoredOnTheWindow:
+    """One request, one lattice — every mode, every channel.
+
+    Regression: ``resample`` defaults to ``origin="start_day"``, midnight of
+    *each channel's own* first sample. Two channels whose data happened to
+    start on different days therefore answered the same window on different
+    grids, and a server-side backend cutting bins from the query start
+    disagreed with both.
+    """
+
+    # Seven hours: a width that does not divide a day, so the conventions part.
+    WIDTH_MS = 7 * 3600 * 1000
+    WINDOW_START = pd.Timestamp("2026-01-01 22:00", tz="UTC")
+
+    def test_the_first_bin_starts_where_the_window_does(self):
+        idx = pd.to_datetime(["2026-01-01 00:20", "2026-01-01 01:30"], utc=True)
+        s = pd.Series([1.0, 2.0], index=idx, name="PV")
+        resolved = resolve_processing("mean", 3_600_000, pd.Timestamp("2026-01-01 00:17", tz="UTC"))
+        out = aggregate_series(s, resolved)
+        # Cut from 00:17, not from midnight.
+        assert [str(t)[11:16] for t in out.index] == ["00:17", "01:17"]
+
+    def test_two_channels_with_different_first_days_share_one_lattice(self):
+        shared = pd.Timestamp("2026-01-02 03:00", tz="UTC")
+        early = pd.Series(
+            [1.0, 2.0],
+            index=pd.DatetimeIndex([pd.Timestamp("2026-01-01 23:50", tz="UTC"), shared]),
+            name="A",
+        )
+        late = pd.Series(
+            [3.0, 4.0],
+            index=pd.DatetimeIndex([pd.Timestamp("2026-01-02 01:00", tz="UTC"), shared]),
+            name="B",
+        )
+        resolved = resolve_processing("mean", self.WIDTH_MS, self.WINDOW_START)
+
+        frame = aggregate_long_frame({"A": early, "B": late}, resolved)
+
+        # The instant both channels recorded must fall in the same bin for both.
+        bins_holding_shared = {
+            channel: max(t for t in group["timestamp"] if t <= shared)
+            for channel, group in frame.groupby("channel")
+        }
+        assert len(set(bins_holding_shared.values())) == 1, bins_holding_shared
+
+        # And every edge sits on the one lattice the window anchors.
+        width = pd.Timedelta(milliseconds=self.WIDTH_MS)
+        assert {(t - self.WINDOW_START) % width for t in frame["timestamp"]} == {pd.Timedelta(0)}
+
+    def test_raw_and_the_aggregate_modes_still_agree(self):
+        """The invariant decimate_raw was written for, now window-anchored."""
+        idx = pd.DatetimeIndex(
+            [pd.Timestamp("2026-01-01 22:00", tz="UTC") + pd.Timedelta(hours=h) for h in range(20)]
+        )
+        s = pd.Series(np.arange(20, dtype=float), index=idx, name="PV")
+        width = pd.Timedelta(milliseconds=self.WIDTH_MS)
+
+        edges = aggregate_series(
+            s, resolve_processing("mean", self.WIDTH_MS, self.WINDOW_START)
+        ).index
+        kept = decimate_raw(s, self.WIDTH_MS, self.WINDOW_START)
 
         assert len(kept) == len(edges)
         for edge, (timestamp, value) in zip(edges, kept.items(), strict=True):

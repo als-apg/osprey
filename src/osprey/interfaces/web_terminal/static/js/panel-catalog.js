@@ -120,6 +120,6 @@ export const PANELS = [
     id: 'system-health',
     label: labelOf('system-health'),
     configEndpoint: '/api/system-health-server', // data string; fetchJSON prefixes it in initPanel()
-    healthEndpoint: '/health', // EXPLICIT — omitting/null skips polling and pins the panel healthy, which would leave the rail entry enabled with the sidecar down
+    healthEndpoint: '/health', // EXPLICIT — omitting/null skips polling and pins the panel healthy, so its rail entry would never go disabled (down at boot) or unreachable (down later)
   },
 ];

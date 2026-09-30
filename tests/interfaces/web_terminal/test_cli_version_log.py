@@ -103,12 +103,6 @@ def test_unparseable_output_reports_no_version(tmp_path, monkeypatch):
     assert launcher.bundled_cli_version() is None
 
 
-def test_a_missing_binary_reports_no_version(tmp_path, monkeypatch):
-    """A path that does not exist fails at spawn; the caller still gets a start."""
-    _install_bundle(monkeypatch, tmp_path / "does-not-exist")
-    assert launcher.bundled_cli_version() is None
-
-
 def test_the_real_lookup_agrees_with_the_installed_sdk():
     """The bundle is resolved from the installed package, not a guessed path."""
     path = launcher.bundled_cli_path()

@@ -22,26 +22,28 @@ Coverage (one test each):
   (c) a drag across the two bars moves the item, leaving the source bar. Both
       directions, including into a bar whose last item never folds — the one
       that caught edit mode's decoration reporting crowding the bar did not have.
-  (d) a drag that releases over NEITHER bar removes the item.
-  (e) the arrangement survives a reload — it is stored server-side (``PUT
+  (d) a drag that releases over NEITHER bar removes the item, and the edited
+      arrangement survives a reload — it is stored server-side (``PUT
       /api/bar-items``), not in the tab, so the second paint is server-rendered
       from the same document.
-  (f) no item is exempt from (d): the wordmark released outside the bars is
+  (e) no item is exempt from (d): the wordmark released outside the bars is
       removed like any other.
-  (g) a header item dragged onto the status bar moves there — every type may
+  (f) a header item dragged onto the status bar moves there — every type may
       sit in either bar — and a type this deployment cannot render is a
       disabled tile carrying its reason.
-  (h) Simple mode renders the same saved arrangement and offers the same three
+  (g) Simple mode renders the same saved arrangement and offers the same three
       ways into edit mode — the right-click menu, the display-menu row and the
       palette action — and the first of them is followed through to the open
       sheet, so a row that mounts but does nothing cannot pass.
-  (i) a header packed to the per-host cap with max-width gaps does not
+  (h) a header packed to the per-host cap with max-width gaps does not
       overflow a 1024 px viewport, the header chrome stays on screen, and the
       run's non-shrinking content leaves a stated margin rather than merely
       fitting. This is the declared ``flex`` hints doing the work, not a JS
       ladder rung.
-  (j) the clock is LIVE on a real page: it reads ``HH:MM`` through the real
+  (i) the clock is LIVE on a real page: it reads ``HH:MM`` through the real
       boot path, not a hand-driven builder.
+  (j) a clock in a browser set to another zone reads the facility's wall time
+      when asked for it, and a plain clock beside it names the browser's zone.
   (k) a deployment with no identity block paints no separator after the
       wordmark — the ``[data-follows]`` middot is keyed on the identity item,
       so a spacer inheriting the logo's follower slot must stay bare.
@@ -53,23 +55,18 @@ Coverage (one test each):
   (n) a configured option is on the first paint: with the boot ``GET`` aborted,
       a UTC clock still hydrates showing its zone, because the server's shell
       carries the options the item was placed with.
-  (o) Move left in an item's options reorders it from the keyboard: the
-      button is reached by focus and pressed with Enter, and the item swaps
-      with its left neighbour the way the in-bar drag would move it.
-  (p) a tile pressed with Enter keeps the keyboard: the accepted edit
+  (o) a tile pressed with Enter keeps the keyboard: the accepted edit
       rebuilds every tile, and the focus lands on the new tile of the same
       type rather than on the page.
-  (q) a drag cancelled mid-gesture by ``pointercancel`` applies nothing: the
+  (p) a drag cancelled mid-gesture by ``pointercancel`` applies nothing: the
       item keeps its place in the bar and in the stored document, no layout is
       written, and the ghost, the drop marker and the dragging classes are gone.
-  (r) the context menu opened at the bottom-right corner of the window is
+  (q) the context menu opened at the bottom-right corner of the window is
       clamped inside it.
-  (s) the options popover is driven from the keyboard alone: it opens with
+  (r) the options popover is driven from the keyboard alone: it opens with
       the focus on its first control, Move left re-opens it on the moved item
       with the same button focused so a second Enter moves the item further,
       and Escape gives the focus back to the item.
-  (t) a clock in a browser set to another zone reads the facility's wall time
-      when asked for it, and a plain clock beside it names the browser's zone.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -558,32 +555,12 @@ def test_an_item_dropped_into_the_header_is_not_folded_away(tmp_path, engine_bro
 
 
 # ---------------------------------------------------------------------------
-# (d) released over neither bar
-# ---------------------------------------------------------------------------
-
-
-def test_an_item_released_outside_both_bars_is_removed(tmp_path, engine_browser):
-    """Only a release over NEITHER bar removes — the drag's one destructive end."""
-    with _launch_web_terminal(tmp_path) as (base_url, _app):
-        _seed_layout(base_url, header=["logo", "space", "display"], status=["clock", "docs"])
-        page = _open(engine_browser, base_url)
-        _enter_edit_mode(page)
-
-        _drag(page, _center(_shell(page, "status", "docs")), _outside_the_bars(page))
-
-        expect(_shell(page, "status", "docs")).to_have_count(0, timeout=5_000)
-        assert _types(page, "status") == ["clock"]
-
-        page.close()
-
-
-# ---------------------------------------------------------------------------
-# (e) the arrangement survives a reload
+# (d) released over neither bar, and stored
 # ---------------------------------------------------------------------------
 
 
 def test_the_arrangement_survives_a_reload(tmp_path, engine_browser, store_dir):
-    """The layout is stored server-side, so the SECOND first-paint carries it.
+    """A release over neither bar removes the item, and the SECOND paint agrees.
 
     Proved from both ends: the reloaded page renders the edited order, and the
     document is on disk in this test's throwaway store rather than in the tab.
@@ -595,6 +572,7 @@ def test_the_arrangement_survives_a_reload(tmp_path, engine_browser, store_dir):
 
         _drag(page, _center(_shell(page, "status", "docs")), _outside_the_bars(page))
         expect(_shell(page, "status", "docs")).to_have_count(0, timeout=5_000)
+        assert _types(page, "status") == ["clock"]
 
         page.reload(wait_until="domcontentloaded")
         page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
@@ -607,7 +585,7 @@ def test_the_arrangement_survives_a_reload(tmp_path, engine_browser, store_dir):
 
 
 # ---------------------------------------------------------------------------
-# (f) no item is exempt from removal
+# (e) no item is exempt from removal
 # ---------------------------------------------------------------------------
 
 
@@ -632,7 +610,7 @@ def test_the_wordmark_dropped_outside_is_removed_like_any_item(tmp_path, engine_
 
 
 # ---------------------------------------------------------------------------
-# (g) refusals: by host, and by deployment
+# (f) refusals: by host, and by deployment
 # ---------------------------------------------------------------------------
 
 
@@ -677,7 +655,7 @@ def test_a_header_item_moves_to_the_status_bar(tmp_path, engine_browser):
 
 
 # ---------------------------------------------------------------------------
-# (h) Simple mode
+# (g) Simple mode
 # ---------------------------------------------------------------------------
 
 
@@ -730,7 +708,7 @@ def test_simple_mode_renders_the_layout_and_offers_the_same_ways_in(tmp_path, en
 
 
 # ---------------------------------------------------------------------------
-# (i) a header packed to the cap does not overflow
+# (h) a header packed to the cap does not overflow
 # ---------------------------------------------------------------------------
 
 
@@ -821,7 +799,7 @@ def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, eng
 
 
 # ---------------------------------------------------------------------------
-# (j) the status readouts are live
+# (i) the status readouts are live
 # ---------------------------------------------------------------------------
 
 
@@ -847,7 +825,7 @@ def test_the_status_readouts_are_live_on_a_real_page(tmp_path, engine_browser):
 
 
 # ---------------------------------------------------------------------------
-# (t) a facility clock reads the facility's time in another zone
+# (j) a facility clock reads the facility's time in another zone
 # ---------------------------------------------------------------------------
 
 
@@ -1067,43 +1045,7 @@ def test_a_configured_option_is_on_the_first_paint(tmp_path, engine_browser):
 
 
 # ---------------------------------------------------------------------------
-# (o) a reorder from the keyboard
-# ---------------------------------------------------------------------------
-
-
-def test_move_left_from_the_popover_works_from_the_keyboard(tmp_path, engine_browser):
-    """The options popover's Move left does from the keyboard what a drag does.
-
-    The popover is opened with a plain click in edit mode; the reorder itself
-    is a focused button pressed with Enter, so no pointer gesture is involved.
-    """
-    with _launch_web_terminal(tmp_path) as (base_url, _app):
-        _seed_layout(
-            base_url,
-            header=["logo", "space", "display"],
-            status=["clock", "stopwatch", "feedback"],
-        )
-        page = _open(engine_browser, base_url)
-        _enter_edit_mode(page)
-        _settled(page, "status", ["clock", "stopwatch", "feedback"])
-
-        _shell(page, "status", "feedback").click()
-        page.locator('.bar-options [data-bar-action="move-left"]').focus()
-        page.keyboard.press("Enter")
-
-        page.wait_for_function(
-            "() => [...document.querySelectorAll("
-            "'[data-bar-host=\"status\"] > .bar-item[data-bar-item]')]"
-            ".map((el) => el.dataset.barItem).join(',') === 'clock,feedback,stopwatch'",
-            timeout=5_000,
-        )
-        assert _types(page, "status") == ["clock", "feedback", "stopwatch"]
-
-        page.close()
-
-
-# ---------------------------------------------------------------------------
-# (p) the sheet keeps the keyboard across an edit
+# (o) the sheet keeps the keyboard across an edit
 # ---------------------------------------------------------------------------
 
 
@@ -1143,7 +1085,7 @@ def _wait_for_order(page: Page, host: str, types: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (q) a cancelled drag
+# (p) a cancelled drag
 # ---------------------------------------------------------------------------
 
 
@@ -1212,7 +1154,7 @@ def test_a_cancelled_drag_leaves_the_item_where_it_was(tmp_path, engine_browser)
 
 
 # ---------------------------------------------------------------------------
-# (r) the context menu stays on screen
+# (q) the context menu stays on screen
 # ---------------------------------------------------------------------------
 
 
@@ -1251,7 +1193,7 @@ def test_the_context_menu_opened_at_the_corner_stays_on_screen(tmp_path, engine_
 
 
 # ---------------------------------------------------------------------------
-# (s) the options popover from the keyboard
+# (r) the options popover from the keyboard
 # ---------------------------------------------------------------------------
 
 

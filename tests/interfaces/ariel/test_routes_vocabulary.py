@@ -104,6 +104,7 @@ def test_capabilities_configuration_invalid_payload_is_service_independent():
         config_errors=[VOCABULARY_ERROR],
         config_remedy=VocabularyError.remedy,
         ariel_service=None,
+        config_panel_enabled=True,
     )
 
     with patch.object(routes, "get_facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
@@ -322,7 +323,7 @@ def test_config_endpoints_use_the_path_the_panel_loaded(tmp_path):
     """Editor and loader agree on the file: app.state.config_path wins."""
     config_file = tmp_path / "config.yml"
     config_file.write_text("ariel:\n  vocabulary:\n    enabled: false\n")
-    app = _make_app(ariel_service=None, config_path=config_file)
+    app = _make_app(ariel_service=None, config_path=config_file, config_panel_enabled=True)
     client = TestClient(app)
 
     got = client.get("/api/config")
@@ -340,7 +341,7 @@ def test_config_path_falls_back_to_the_candidate_list(tmp_path, monkeypatch):
     config_file = tmp_path / "config.yml"
     config_file.write_text("ariel: {}\n")
     monkeypatch.setenv("CONFIG_FILE", str(config_file))
-    app = _make_app(ariel_service=None)
+    app = _make_app(ariel_service=None, config_panel_enabled=True)
 
     response = TestClient(app).get("/api/config")
 

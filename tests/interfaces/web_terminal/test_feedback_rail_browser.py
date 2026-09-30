@@ -147,6 +147,35 @@ def _content_height_px(page: Page, selector: str) -> float:
     )
 
 
+#: One row per visible utility button: its label and icon boxes, and whether
+#: its content overflows it vertically. A hidden button (the docs anchor
+#: without a configured ``web.docs_url``) has no layout box and is skipped.
+_BUTTON_PARTS_JS = """
+() => Array.from(document.querySelectorAll('#panel-utility .panel-utility-btn'))
+  .filter((btn) => btn.offsetParent !== null)
+  .map((btn) => {
+    const labelEl = btn.querySelector('.panel-utility-label');
+    const icon = btn.querySelector('.panel-utility-icon').getBoundingClientRect();
+    const label = labelEl.getBoundingClientRect();
+    return {
+      label: labelEl.textContent,
+      iconRight: icon.right,
+      iconBottom: icon.bottom,
+      labelLeft: label.left,
+      labelTop: label.top,
+      overflowsY: btn.scrollHeight > btn.clientHeight + 1,
+    };
+  })
+"""
+
+
+def _button_parts(page: Page) -> list[dict]:
+    """The icon/label geometry of every visible utility button."""
+    parts: list[dict] = page.evaluate(_BUTTON_PARTS_JS)
+    assert parts, "no visible utility button to measure"
+    return parts
+
+
 def test_utility_cluster_is_pinned_to_the_bottom_of_the_left_rail(tmp_path, chromium_browser):
     """Left mode: the cluster's bottom edge is the rail region's bottom edge.
 
@@ -190,6 +219,13 @@ def test_utility_cluster_is_pinned_to_the_bottom_of_the_left_rail(tmp_path, chro
             assert cluster["y"] >= _box(page, "#panel-add")["bottom"], (
                 "utility cluster is interleaved with the add-panel control"
             )
+
+            # Each cell stacks its mark over its label, like a panel entry. A
+            # label beside an 18px mark in the 62px column has no room left.
+            for part in _button_parts(page):
+                assert part["labelTop"] >= part["iconBottom"] - _EDGE_TOLERANCE_PX, (
+                    f"a utility label sits beside its mark in the left column: {part}"
+                )
         finally:
             page.close()
 
@@ -234,6 +270,19 @@ def test_utility_cluster_is_pinned_to_the_right_of_the_top_rail(tmp_path, chromi
                     f"{strip_height}px strip, which does not clip"
                 )
             assert measured >= 1, "no visible utility button to measure"
+            assert cluster["bottom"] <= region["bottom"] + _EDGE_TOLERANCE_PX, (
+                "the utility cluster hangs below the top strip"
+            )
+
+            # The stack turns the corner the panel pills do: the label beside
+            # its mark, and nothing spilling out of the 40px strip's cells.
+            for part in _button_parts(page):
+                assert part["labelLeft"] >= part["iconRight"] - _EDGE_TOLERANCE_PX, (
+                    f"a utility label is stacked under its mark in the top strip: {part}"
+                )
+                assert not part["overflowsY"], (
+                    f"a utility button's content overflows the strip vertically: {part}"
+                )
         finally:
             page.close()
 

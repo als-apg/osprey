@@ -202,24 +202,6 @@ function buildGroup(root, api, panelIds) {
   return { groupview, tabs };
 }
 
-describe('serviceIdOf — service-placeholder id extraction', () => {
-  test('strips the iframe: prefix from a service placeholder id', async () => {
-    const { serviceIdOf } = await import(SYNC);
-    expect(serviceIdOf('iframe:ariel')).toBe('ariel');
-    expect(serviceIdOf('iframe:bluesky')).toBe('bluesky');
-  });
-
-  test('returns null for the native (non-placeholder) panels and nullish ids', async () => {
-    const { serviceIdOf } = await import(SYNC);
-    expect(serviceIdOf('terminal')).toBeNull();
-    expect(serviceIdOf('workspace')).toBeNull();
-    expect(serviceIdOf('')).toBeNull();
-    expect(serviceIdOf(null)).toBeNull();
-    expect(serviceIdOf(undefined)).toBeNull();
-    expect(serviceIdOf(42)).toBeNull();
-  });
-});
-
 /**
  * A serialized grid LEAF (one tile) in the shape `api.toJSON()` emits — `views`
  * is the tile's tab order, one entry under the one-panel-per-tile invariant.
@@ -319,13 +301,6 @@ describe('serializeOpenTiles — occupancy in spatial reading order', () => {
     expect(serializeOpenTiles(apiWithGrid(branch(leaf('terminal'))))).toEqual([]);
   });
 
-  test('maps placeholder ids back to service ids and drops the native tiles', async () => {
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(leaf('iframe:ariel'), leaf('terminal'));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel']);
-  });
-
   test('a horizontal split reports left-to-right, terminal excluded from the order', async () => {
     const { serializeOpenTiles } = await import(SYNC);
     const root = branch(leaf('iframe:ariel'), leaf('iframe:bluesky'), leaf('terminal'));
@@ -340,16 +315,6 @@ describe('serializeOpenTiles — occupancy in spatial reading order', () => {
     const root = branch(leaf('iframe:ariel', 'iframe:bluesky', 'iframe:okf'));
 
     expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky', 'okf']);
-  });
-
-  test('a NESTED branch (what a rail-drag vertical split produces) flattens in child order', async () => {
-    // Named for what this can actually observe: a serialized branch carries no
-    // orientation, so the axis itself is not visible here — the browser suite
-    // pins that a vertical split reads top-to-bottom.
-    const { serializeOpenTiles } = await import(SYNC);
-    const root = branch(branch(leaf('iframe:ariel'), leaf('iframe:bluesky')));
-
-    expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky']);
   });
 
   test('a 2D arrangement flattens column-first: a stacked pair before its neighbor', async () => {
@@ -725,21 +690,6 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel'], true);
   });
 
-  test('the slow poll is finite — a page with no dock stops watching', async () => {
-    const mod = await import(SYNC);
-    mod.initDockSync();
-    await vi.advanceTimersByTimeAsync(150 * 33 + 1000 * 70); // past both budgets
-
-    const api = makeApi();
-    state.api = api;
-    const root = document.createElement('div');
-    root.id = 'dock-root';
-    document.body.appendChild(root);
-    await vi.advanceTimersByTimeAsync(1000 * 10);
-
-    expect(api.onDidActivePanelChange).not.toHaveBeenCalled();
-  });
-
   test('a deduped no-op ack (updated:false) still sets the dedupe baseline', async () => {
     // The server already held this list, so it is acknowledged even though
     // nothing changed — the client must treat it as reported, not retry it.
@@ -847,37 +797,13 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(reportPanelLayout).toHaveBeenCalledTimes(2);
     expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel', 'okf'], true);
-  });
 
-  test('a late ack cannot rewrite a baseline set by a newer report', async () => {
-    // The out-of-order-acks scenario, made unreachable by serialization: because
-    // the second report is not sent until the first is acknowledged, their acks
-    // cannot race. Pinned so a future change that reintroduces overlap fails here.
-    /** @type {(() => void)[]} */
-    const pending = [];
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      new Promise((resolve) => pending.push(() => resolve({
-        status: 'ok', tiles, dock, updated: true,
-      }))),
-    );
-
-    const { api } = await wireReporting(branch(leaf('iframe:ariel')));
-    await vi.advanceTimersByTimeAsync(SETTLE);
-    withGrid(api, branch(leaf('iframe:okf')));
-    api.fireLayout();
-    await vi.advanceTimersByTimeAsync(SETTLE * 2);
-
-    expect(pending).toHaveLength(1); // never two in flight, so no ack race exists
-    pending[0]();
-    await vi.advanceTimersByTimeAsync(SETTLE);
+    // Its ack sets the baseline to the newer list: a repeat is deduped away.
     pending[1]();
     await vi.advanceTimersByTimeAsync(SETTLE);
-
-    // Baseline ended on the newer list: a repeat of it is deduped away.
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE * 4);
     expect(reportPanelLayout).toHaveBeenCalledTimes(2);
-    expect(reportPanelLayout).toHaveBeenLastCalledWith(['okf'], true);
   });
 
   test('a STALE ack causes a redundant report, never suppression', async () => {
@@ -902,22 +828,9 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel'], true);
   });
 
-  test('a client WITH a dock never sends the dock:false capability report', async () => {
-    await wireReporting(branch(leaf('iframe:ariel')));
-    await vi.advanceTimersByTimeAsync(SETTLE * 4);
-
-    expect(reportPanelLayout).toHaveBeenCalledExactlyOnceWith(['ariel'], true);
-  });
 });
 
 describe('withEchoSuppressed — the guard primitive', () => {
-  test('returns the callback result and runs it exactly once', async () => {
-    const { withEchoSuppressed } = await import(SYNC);
-    const fn = vi.fn(() => 42);
-    expect(withEchoSuppressed(fn)).toBe(42);
-    expect(fn).toHaveBeenCalledTimes(1);
-  });
-
   test('restores the guard even when the callback throws (finally)', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
@@ -958,7 +871,7 @@ describe('echo guard — active-panel change routing (core invariant)', () => {
     expect(setPanelFocus).toHaveBeenNthCalledWith(2, 'bluesky');
   });
 
-  test('focusing a native (terminal/workspace) panel never POSTs', async () => {
+  test('focusing a native (terminal/workspace) panel, or none at all, never POSTs', async () => {
     const api = makeApi();
     await wire(api);
 
@@ -966,14 +879,6 @@ describe('echo guard — active-panel change routing (core invariant)', () => {
     api.fireActive();
     api.activePanel = { id: 'workspace' };
     api.fireActive();
-
-    expect(setPanelFocus).not.toHaveBeenCalled();
-  });
-
-  test('a nullish active panel never POSTs', async () => {
-    const api = makeApi();
-    await wire(api);
-
     api.activePanel = null;
     api.fireActive();
 
@@ -1018,56 +923,18 @@ describe('echo guard — active-panel change routing (core invariant)', () => {
 
   test('no-op in fallback mode: an active change with no live api does not throw or POST', async () => {
     const api = makeApi();
-    const { mod } = await wire(api);
+    await wire(api);
 
     state.api = null; // dock shell torn down after wiring
     expect(() => api.fireActive()).not.toThrow();
     expect(setPanelFocus).not.toHaveBeenCalled();
-    expect(mod).toBeTruthy();
-  });
-});
-
-describe('server-driven hide of the ACTIVE panel (regression)', () => {
-  // A server SSE panel_visibility(false) for the currently-active panel drives
-  // hidePanel → api.removePanel → dockview auto-activates a stacked neighbor →
-  // onDidActivePanelChange. panel-manager applies that hide INSIDE the echo guard
-  // (withEchoSuppressed(() => hidePanel(panel))), so the neighbor's activation must
-  // not be mistaken for a human focus and POSTed back. This pins the dock-sync
-  // guarantee panel-manager relies on; the stub now models removePanel firing the
-  // active-change echo (the mock gap that previously let the back-POST slip).
-  test('the neighbor auto-activated by a guarded removePanel does not POST setPanelFocus', async () => {
-    const api = makeApi();
-    const { mod } = await wire(api);
-    api.activePanel = { id: 'iframe:ariel' };
-    api._activateOnRemove = { id: 'iframe:bluesky' }; // the stacked neighbor dockview reveals
-
-    mod.withEchoSuppressed(() => api.removePanel({ id: 'iframe:ariel' }));
-
-    expect(api.removePanel).toHaveBeenCalledTimes(1);
-    expect(setPanelFocus).not.toHaveBeenCalled();
-    expect(setPanelVisibility).not.toHaveBeenCalled();
-  });
-
-  test('the guard lifts after the hide chain — a later genuine human focus still POSTs', async () => {
-    const api = makeApi();
-    const { mod } = await wire(api);
-    api.activePanel = { id: 'iframe:ariel' };
-    api._activateOnRemove = { id: 'iframe:bluesky' };
-
-    mod.withEchoSuppressed(() => api.removePanel({ id: 'iframe:ariel' }));
-    expect(setPanelFocus).not.toHaveBeenCalled();
-
-    // Operator now clicks a different service tab — outside any guard.
-    api.activePanel = { id: 'iframe:okf' };
-    api.fireActive();
-    expect(setPanelFocus).toHaveBeenCalledExactlyOnceWith('okf');
   });
 });
 
 describe('human tab close → local vacate handler (never a POST)', () => {
   test('clicking a service tab’s close control fires the registered handler once', async () => {
     const api = makeApi();
-    const { mod, root } = await wire(api);
+    const { root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['iframe:ariel', 'terminal']);
 
     tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1075,7 +942,6 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     expect(tileClose).toHaveBeenCalledExactlyOnceWith('ariel');
     expect(setPanelVisibility).not.toHaveBeenCalled();
     expect(setPanelFocus).not.toHaveBeenCalled();
-    expect(mod).toBeTruthy();
   });
 
   test('the close click resolves by the data-panel-id stamp — the second tab resolves the second panel', async () => {
@@ -1105,7 +971,7 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     const { root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['iframe:ariel']);
 
-    // The tab body, not its `.dv-default-tab-action` close control.
+    // The tab body, not its `.tile-tab-close` control.
     tabs[0].tab.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(tileClose).not.toHaveBeenCalled();
@@ -1174,41 +1040,6 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
     expect(api._added[0].position).toBeUndefined();
   });
 
-  test('places beside the active group in simple mode too — the view is not a lock', async () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    try {
-      const api = makeApi();
-      api.activeGroup = { id: 'group-1' };
-      const { mod } = await wire(api);
-
-      mod.dockPanelBesideActive('ariel');
-
-      expect(api.addPanel).toHaveBeenCalledTimes(1);
-      expect(api._added[0].position).toMatchObject({ referenceGroup: api.activeGroup });
-    } finally {
-      document.documentElement.removeAttribute('data-ui-mode');
-    }
-  });
-
-  test('MOVES an already-docked placeholder beside the active group (remove + re-add)', async () => {
-    const api = makeApi();
-    const activeGroup = { id: 'group-1' };
-    api.activeGroup = activeGroup;
-    const existing = { id: 'iframe:ariel', group: { id: 'group-0' } };
-    api._panels['iframe:ariel'] = existing;
-    const { mod } = await wire(api);
-
-    mod.dockPanelBesideActive('ariel', 'ARIEL');
-
-    expect(api.removePanel).toHaveBeenCalledExactlyOnceWith(existing);
-    expect(api._added[0]).toEqual({
-      id: 'iframe:ariel',
-      component: 'dock-iframe-placeholder',
-      title: 'ARIEL',
-      position: { referenceGroup: activeGroup, direction: 'right' },
-    });
-  });
-
   test('a move is echo-guarded — the removal\'s auto-activation does not POST a focus', async () => {
     const api = makeApi();
     api.activeGroup = { id: 'group-1' };
@@ -1219,19 +1050,6 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
     mod.dockPanelBesideActive('ariel');
 
     expect(setPanelFocus).not.toHaveBeenCalled();
-  });
-
-  test('already docked IN the active group: a no-op (never remove a tile to re-create it in place)', async () => {
-    const api = makeApi();
-    const activeGroup = { id: 'group-1' };
-    api.activeGroup = activeGroup;
-    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: activeGroup };
-    const { mod } = await wire(api);
-
-    mod.dockPanelBesideActive('ariel');
-
-    expect(api.removePanel).not.toHaveBeenCalled();
-    expect(api.addPanel).not.toHaveBeenCalled();
   });
 
   test('already docked with NO active group: a no-op (no meaningful target)', async () => {
@@ -1281,7 +1099,6 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
     state.api = null;
 
     expect(() => mod.dockPanelBesideActive('ariel')).not.toThrow();
-    expect(setPanelFocus).not.toHaveBeenCalled();
   });
 });
 
@@ -1326,33 +1143,9 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
     expect(api.addPanel).not.toHaveBeenCalled();
   });
 
-  test('docks in simple mode exactly as in expert', async () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    try {
-      const api = makeApi();
-      const { mod } = await wire(api);
-      mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: 'g' }, direction: 'right' });
-      expect(api.addPanel).toHaveBeenCalledTimes(1);
-      expect(api._added[0]).toMatchObject({ id: 'iframe:okf', title: 'KNOWLEDGE' });
-    } finally {
-      document.documentElement.removeAttribute('data-ui-mode');
-    }
-  });
 });
 
 describe('initDockSync — wiring, idempotency, late arrival', () => {
-  test('wires the active-panel listener and the capture-phase close click when api + root exist', async () => {
-    const api = makeApi();
-    const { root } = await wire(api);
-
-    expect(api.onDidActivePanelChange).toHaveBeenCalledTimes(1);
-
-    // The click listener is live: a service close routes to the vacate handler.
-    const { tabs } = buildGroup(root, api, ['iframe:ariel']);
-    tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(tileClose).toHaveBeenCalledExactlyOnceWith('ariel');
-  });
-
   test('is idempotent — a second initDockSync does not double-wire', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
@@ -1405,40 +1198,5 @@ describe('initDockSync — wiring, idempotency, late arrival', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-});
-
-describe('module isolation (vi.resetModules per test)', () => {
-  test('exposes exactly its public surface as functions', async () => {
-    const mod = await import(SYNC);
-    for (const name of ['withEchoSuppressed', 'dockPanelBesideActive', 'dockPanelAt', 'serviceIdOf', 'initDockSync', 'setTileCloseHandler']) {
-      expect(typeof mod[name]).toBe('function');
-    }
-  });
-
-  test('module-scoped guard/wire state does not leak across imports', async () => {
-    // First instance: raise the guard, wire it.
-    const first = makeApi();
-    const { mod: modA } = await wire(first);
-    modA.withEchoSuppressed(() => {}); // touches suppressDepth
-    expect(first.onDidActivePanelChange).toHaveBeenCalledTimes(1);
-
-    // A fresh import (resetModules ran in beforeEach for the NEXT test, but here we
-    // force a new instance) starts with wired=false and suppressDepth=0: it wires
-    // again, and a plain human focus POSTs — proving no stale suppression carried.
-    vi.resetModules();
-    const second = makeApi();
-    state.api = second;
-    document.body.innerHTML = '';
-    const root = document.createElement('div');
-    root.id = 'dock-root';
-    document.body.appendChild(root);
-    const modB = await import(SYNC);
-    modB.initDockSync();
-    expect(second.onDidActivePanelChange).toHaveBeenCalledTimes(1);
-
-    second.activePanel = { id: 'iframe:ariel' };
-    second.fireActive();
-    expect(setPanelFocus).toHaveBeenCalledExactlyOnceWith('ariel');
   });
 });

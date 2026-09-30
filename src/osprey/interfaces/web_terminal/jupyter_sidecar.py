@@ -399,10 +399,6 @@ class JupyterSidecar:
     # -- process facts ------------------------------------------------------
 
     @property
-    def token(self) -> str | None:
-        return self._token
-
-    @property
     def pid(self) -> int | None:
         return self._process.pid if self._process is not None else None
 

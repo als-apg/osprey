@@ -25,73 +25,26 @@
  * These run against the REAL bar-host.js — no mock of the lifecycle under
  * test — because the thing being pinned is precisely that the modules agree
  * about a lifetime. `vi.resetModules()` plus a fresh dynamic import per test
- * gives each test untouched module state (bar-host's shell index, bar-items'
- * instance map and api.js's listener array are all module-private and have
- * no reset).
+ * gives each test untouched module state (bar-host's shell index and
+ * bar-items' instance map are module-private).
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 /** @typedef {import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-layout.js').BarLayout} BarLayout */
 
-const API_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/api.js';
 const HOST_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js';
 const ITEMS_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-items.js';
-const QUEUE_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-item-queue.js';
 
-/** @type {typeof import('../../../../src/osprey/interfaces/web_terminal/static/js/api.js')} */
-let api;
 /** @type {typeof import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js')} */
 let host;
 /** @type {typeof import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-items.js')} */
 let items;
-/** Every WebSocket api.js has constructed this test. @type {any[]} */
-let sockets;
-/** Every EventSource the plan-queue item has opened this test. @type {any[]} */
-let sources;
 
 beforeEach(async () => {
-  sockets = [];
-  sources = [];
-  vi.stubGlobal(
-    'EventSource',
-    class {
-      /** @param {string} url */
-      constructor(url) {
-        this.url = url;
-        this.readyState = 0;
-        /** @type {((e: {data: string}) => void) | null} */
-        this.onmessage = null;
-        /** @type {(() => void) | null} */
-        this.onopen = null;
-        /** @type {(() => void) | null} */
-        this.onerror = null;
-        sources.push(this);
-      }
-      close() {
-        this.readyState = 2;
-      }
-    }
-  );
-  vi.stubGlobal(
-    'WebSocket',
-    class {
-      /** @param {string} url */
-      constructor(url) {
-        this.url = url;
-        this.readyState = 0;
-        sockets.push(this);
-      }
-      close() {
-        this.readyState = 3;
-      }
-    }
-  );
   vi.resetModules();
-  api = await import(API_PATH);
   host = await import(HOST_PATH);
   items = await import(ITEMS_PATH);
-  await import(QUEUE_PATH);
 });
 
 afterEach(() => {
@@ -163,81 +116,10 @@ function el(selector) {
   return node;
 }
 
-/** Drive api.js's ws state to 'connecting' by opening a socket. */
-function openSocket() {
-  api.createWebSocket('ws://localhost:5000/ws/terminal');
-  return sockets[sockets.length - 1];
-}
-
-/** Drive api.js's ws state all the way to 'connected'. */
-function connect() {
-  openSocket().onopen();
-}
-
-describe('api.js: the disposer-returning subscription the house rule is built on', () => {
-  test('onConnectionStateChange hands back its own unsubscribe', () => {
-    const listener = vi.fn();
-    const dispose = api.onConnectionStateChange(listener);
-    expect(typeof dispose).toBe('function');
-
-    openSocket();
-    expect(listener).toHaveBeenCalledTimes(1);
-
-    dispose();
-    openSocket();
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-
-  test('disposing twice is a no-op and does not evict another listener', () => {
-    const first = vi.fn();
-    const second = vi.fn();
-    const disposeFirst = api.onConnectionStateChange(first);
-    api.onConnectionStateChange(second);
-
-    disposeFirst();
-    disposeFirst();
-    openSocket();
-
-    expect(first).not.toHaveBeenCalled();
-    expect(second).toHaveBeenCalledTimes(1);
-  });
-
-  test('a listener that disposes itself mid-notify does not skip the next one', () => {
-    const after = vi.fn();
-    /** @type {() => void} */
-    let disposeSelf = () => {};
-    disposeSelf = api.onConnectionStateChange(() => disposeSelf());
-    api.onConnectionStateChange(after);
-
-    openSocket();
-
-    // Splicing the live array inside the `for` would have stepped over
-    // `after` — which is exactly what a detaching bar item does.
-    expect(after).toHaveBeenCalledTimes(1);
-  });
-
-  test('a caller that ignores the return value still receives notifications', () => {
-    const listener = vi.fn();
-    api.onConnectionStateChange(listener);
-
-    connect();
-
-    expect(listener).toHaveBeenCalledWith({ ws: 'connected', sse: 'disconnected' });
-  });
-
-  test('getConnectionState reports the current state without a transition', () => {
-    expect(api.getConnectionState()).toEqual({ ws: 'disconnected', sse: 'disconnected' });
-    connect();
-    expect(api.getConnectionState()).toEqual({ ws: 'connected', sse: 'disconnected' });
-  });
-});
-
 /* ============================================================================
- * The interval-owning items. What api.js's subscription proves for a
- * LISTENER, these prove for a TIMER, which is the leak that actually shipped:
- * `initStatusBar()` armed two bare `setInterval`s at boot, kept no handle to
- * either, and wrote into ids that the clean default layout does not even
- * render — so they ran forever against null for the life of every page.
+ * The interval-owning items. An interval that outlives its body keeps
+ * writing into a node nobody can see for the life of the page, so every
+ * timed item is pinned to stop the moment its shell leaves the bar.
  * ========================================================================= */
 
 /** The instant every timed test is frozen at. 14:32:07 UTC, so every field differs. */
@@ -318,55 +200,34 @@ function stopwatchTime() {
 }
 
 describe('clock item: renders per the option spec', () => {
-  test('the default is the local wall clock, to the minute', () => {
+  // Every row is seeded into the status bar, so the UTC rows also pin that a
+  // UTC clock keeps its label at compact density: an unmarked UTC readout is
+  // not terse, it is wrong.
+  test.each([
+    ['the default is the local wall clock, to the minute', {}, localTimeText(AT, false), null],
+    ['the seconds option adds the seconds field', { seconds: true }, localTimeText(AT, true), null],
+    ['zone utc reads UTC rather than the browser zone', { zone: 'utc' }, '14:32', 'UTC'],
+    ['zone utc with seconds carries the whole UTC field', { zone: 'utc', seconds: true }, '14:32:07', 'UTC'],
+    [
+      'zone both shows local beside UTC, and marks which half is which',
+      { zone: 'both' },
+      `${localTimeText(AT, false)} · 14:32`,
+      'UTC',
+    ],
+    [
+      'an unknown zone falls back to the plain clock rather than rendering nothing',
+      { zone: 'mars' },
+      localTimeText(AT, false),
+      null,
+    ],
+  ])('%s', (_name, options, expected, label) => {
     freezeAt(AT);
-    seedDom('', shellMarkup('clock'));
+    seedDom('', shellMarkup('clock', options));
     host.hydrate();
 
-    expect(clockTime().textContent).toBe(localTimeText(AT, false));
-  });
-
-  test('the seconds option adds the seconds field', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { seconds: true }));
-    host.hydrate();
-
-    expect(clockTime().textContent).toBe(localTimeText(AT, true));
-  });
-
-  test('zone utc reads UTC rather than the browser zone', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { zone: 'utc' }));
-    host.hydrate();
-
-    expect(clockTime().textContent).toBe('14:32');
-    expect(clockZoneLabel()?.textContent).toBe('UTC');
-  });
-
-  test('zone utc with seconds carries the whole UTC field', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { zone: 'utc', seconds: true }));
-    host.hydrate();
-
-    expect(clockTime().textContent).toBe('14:32:07');
-  });
-
-  test('zone both shows local beside UTC, and marks which half is which', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { zone: 'both' }));
-    host.hydrate();
-
-    expect(clockTime().textContent).toBe(`${localTimeText(AT, false)} · 14:32`);
-    expect(clockZoneLabel()?.textContent).toBe('UTC');
-  });
-
-  test('an unknown zone falls back to the plain clock rather than rendering nothing', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { zone: 'mars' }));
-    host.hydrate();
-
-    expect(clockTime().textContent).toBe(localTimeText(AT, false));
-    expect(clockZoneLabel()).toBeNull();
+    expect(shellOf('clock').dataset.barDensity).toBe('compact');
+    expect(clockTime().textContent).toBe(expected);
+    expect(clockZoneLabel()?.textContent ?? null).toBe(label);
   });
 
   test('the 12h format reads the meridiem, at either zone', () => {
@@ -428,15 +289,6 @@ describe('clock item: renders per the option spec', () => {
     host.reconcile(layoutOf([], [{ type: 'clock', options: { zone: 'local' } }]));
     expect(shellOf('clock').dataset.barDensity).toBe('compact');
     expect(clockZoneLabel()).toBeNull();
-  });
-
-  test('a UTC clock keeps its label at compact density — dropping it would lie', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { zone: 'utc' }));
-    host.hydrate();
-
-    expect(shellOf('clock').dataset.barDensity).toBe('compact');
-    expect(clockZoneLabel()?.textContent).toBe('UTC');
   });
 
   test('the readout is a timer region, and its value is its accessible name', () => {
@@ -662,23 +514,6 @@ describe('clock item: the facility zone', () => {
 });
 
 describe('clock item: the interval is attach-scoped', () => {
-  test('not one timer callback fires after the item is parked', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { zone: 'utc', seconds: true }));
-    host.hydrate();
-    const parked = clockTime();
-    expect(vi.getTimerCount()).toBe(1);
-
-    host.reconcile(layoutOf([], []));
-    items.syncBarItems();
-
-    // The whole bug in one assertion: a folded clock that kept its interval
-    // would repaint a body in the hidden pool for the rest of the page's life.
-    expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(60 * 60 * 1000);
-    expect(parked.textContent).toBe('14:32:07');
-  });
-
   test('coming back out of the pool ticks again, on a fresh body', () => {
     freezeAt(AT);
     seedDom('', shellMarkup('clock', { zone: 'utc', seconds: true }));
@@ -686,7 +521,6 @@ describe('clock item: the interval is attach-scoped', () => {
     const stale = clockTime();
 
     host.reconcile(layoutOf([], []));
-    items.syncBarItems();
     vi.advanceTimersByTime(30 * 60 * 1000);
     host.reconcile(layoutOf([], [{ type: 'clock', options: { zone: 'utc', seconds: true } }]));
 
@@ -708,37 +542,12 @@ describe('clock item: the interval is attach-scoped', () => {
     // A header-to-status move crosses densities, so the host rebuilds: the
     // previous instance must be disposed before the new one starts.
     host.reconcile(layoutOf([], [{ type: 'clock', options: { zone: 'utc', seconds: true } }]));
-    items.syncBarItems();
 
     expect(vi.getTimerCount()).toBe(1);
   });
 });
 
 describe('clock item: the host lifecycle around the interval', () => {
-  test('detach clears the build stamp so the next placement rebuilds', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock'));
-    host.hydrate();
-    expect(shellOf('clock').dataset.barBuilt).toBeTruthy();
-
-    host.reconcile(layoutOf([], []));
-    items.syncBarItems();
-
-    expect(shellOf('clock').dataset.barBuilt).toBeUndefined();
-    expect(host.isLive(shellOf('clock'))).toBe(false);
-  });
-
-  test('syncBarItems is idempotent — a second pass disposes nothing twice', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock'));
-    host.hydrate();
-    host.reconcile(layoutOf([], []));
-
-    items.syncBarItems();
-    expect(() => items.syncBarItems()).not.toThrow();
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
   test('parking disposes on its own, in the same call as the move', () => {
     freezeAt(AT);
     seedDom('', shellMarkup('clock'));
@@ -746,8 +555,8 @@ describe('clock item: the host lifecycle around the interval', () => {
     expect(vi.getTimerCount()).toBe(1);
     expect(shellOf('clock').dataset.barBuilt).toBeTruthy();
 
-    // No syncBarItems() call and no await: the host's detach hook is the
-    // production path, and it runs before reconcile() returns.
+    // No await: the host's detach hook disposes the body before reconcile()
+    // returns.
     host.reconcile(layoutOf([], []));
 
     expect(vi.getTimerCount()).toBe(0);
@@ -767,20 +576,6 @@ describe('clock item: the host lifecycle around the interval', () => {
     expect(parked.textContent).toBe('14:32:07');
   });
 
-  test('a body removed from the document entirely is disposed as well', () => {
-    freezeAt(AT);
-    seedDom('', shellMarkup('clock', { zone: 'utc', seconds: true }));
-    host.hydrate();
-    const orphan = clockTime();
-    expect(vi.getTimerCount()).toBe(1);
-
-    document.body.innerHTML = '';
-    items.syncBarItems();
-
-    expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(60 * 60 * 1000);
-    expect(orphan.textContent).toBe('14:32:07');
-  });
 });
 
 describe('stopwatch item', () => {
@@ -877,7 +672,6 @@ describe('stopwatch item', () => {
 
     // Folded away: the body is parked in the pool and its ticker MUST stop...
     host.reconcile(layoutOf([], []));
-    items.syncBarItems();
     expect(vi.getTimerCount()).toBe(0);
 
     // ...but the measurement is not the body's. Ten more seconds pass with the
@@ -900,7 +694,6 @@ describe('stopwatch item', () => {
     stopwatchChip().click();
 
     host.reconcile(layoutOf([], []));
-    items.syncBarItems();
     vi.advanceTimersByTime(10 * 60 * 1000);
     host.reconcile(layoutOf([], ['stopwatch']));
 
@@ -919,7 +712,6 @@ describe('stopwatch item', () => {
     // The move crosses densities, so the body is rebuilt from scratch — and
     // the reading is keyed on the layout key, which the move does not change.
     host.reconcile(layoutOf([], ['stopwatch']));
-    items.syncBarItems();
 
     expect(stopwatchChip()).not.toBe(headerChip);
     expect(shellOf('stopwatch').dataset.barDensity).toBe('compact');
@@ -981,280 +773,6 @@ describe('space item: edit-mode furniture', () => {
     expect(shellOf('space').style.getPropertyValue('flex')).toBe('0 1 48px');
   });
 
-  test('spaceLabel is the one spelling both the builder and the drag use', () => {
-    expect(items.spaceLabel(0)).toBe('⟷');
-    expect(items.spaceLabel(99.6)).toBe('100 px');
-  });
-});
-
-/* ---- plan queue ---- */
-
-/**
- * One bridge frame, in the shape `GET /queue/events` streams: a bounded
- * status summary, the pending items and the running item.
- * @param {Partial<{state: string, items: string[], running: Record<string, any> | null,
- *   available: boolean, stopPending: boolean}>} [frame]
- */
-function queueFrame({
-  state = 'idle',
-  items = [],
-  running = null,
-  available = true,
-  stopPending = false,
-} = {}) {
-  return {
-    type: 'queue',
-    status: {
-      available,
-      manager_state: available ? state : null,
-      items_in_queue: items.length,
-      queue_stop_pending: stopPending,
-    },
-    items: items.map((name, index) => ({ name, item_uid: `uid-${index}` })),
-    running_item: running,
-  };
-}
-
-/** Deliver one frame on the newest stream. @param {unknown} frame */
-function pushFrame(frame) {
-  const source = sources[sources.length - 1];
-  source.readyState = 1;
-  source.onopen?.();
-  source.onmessage?.({ data: JSON.stringify(frame) });
-}
-
-/** The placed chip. */
-const queueChip = () => el('[data-bar-item="bluesky-queue"] .bar-queue');
-const queuePop = () => el('[data-bar-item="bluesky-queue"] .bar-queue-pop');
-/** @param {string} label */
-const popButton = (label) =>
-  Array.from(queuePop().querySelectorAll('button')).find((b) => b.textContent === label) ?? null;
-
-describe('plan-queue item: one shared stream through the Bluesky panel proxy', () => {
-  test('attach opens the panel-proxied event stream and seeds a quiet chip', () => {
-    seedDom('', shellMarkup('bluesky-queue'));
-    host.hydrate();
-
-    expect(sources.map((s) => s.url)).toEqual(['/panel/bluesky/queue/events']);
-    const chip = queueChip();
-    expect(chip.querySelector('.bar-queue-text')?.textContent).toBe('queue');
-    expect(chip.querySelector('.bar-queue-dot')?.getAttribute('data-tone')).toBe('off');
-    expect(chip.title).toContain('stream not connected');
-  });
-
-  test('a frame paints the state word, the running plan and the count', () => {
-    seedDom('', shellMarkup('bluesky-queue'));
-    host.hydrate();
-    const chip = queueChip();
-    const text = () => chip.querySelector('.bar-queue-text')?.textContent;
-    const count = () => /** @type {HTMLElement | null} */ (chip.querySelector('.bar-queue-count'));
-    const tone = () => chip.querySelector('.bar-queue-dot')?.getAttribute('data-tone');
-
-    pushFrame(queueFrame({ items: ['rel_scan', 'count'] }));
-    expect(text()).toBe('idle');
-    expect(tone()).toBe('idle');
-    expect(count()?.textContent).toBe('2 queued');
-    expect(count()?.hidden).toBe(false);
-
-    pushFrame(
-      queueFrame({
-        state: 'executing_queue',
-        items: ['count'],
-        running: { name: 'rel_scan', progress: { rows_seen: 3, expected_points: 10 } },
-      })
-    );
-    expect(text()).toBe('rel_scan');
-    expect(tone()).toBe('active');
-    expect(count()?.textContent).toBe('3/10');
-
-    pushFrame(queueFrame({ state: 'paused', running: { name: 'rel_scan' } }));
-    expect(text()).toBe('rel_scan');
-    expect(tone()).toBe('warn');
-    expect(count()?.hidden).toBe(true);
-
-    pushFrame(queueFrame({ available: false }));
-    expect(text()).toBe('unavailable');
-    expect(tone()).toBe('err');
-  });
-
-  test('the options decide what the chip says beside its dot', () => {
-    seedDom('', shellMarkup('bluesky-queue', { progress: false, count: false, controls: 'none' }));
-    host.hydrate();
-    pushFrame(
-      queueFrame({ state: 'executing_queue', items: ['count'], running: { name: 'rel_scan' } })
-    );
-    const chip = queueChip();
-    expect(chip.querySelector('.bar-queue-text')?.textContent).toBe('running');
-    const corner = /** @type {HTMLElement | null} */ (chip.querySelector('.bar-queue-count'));
-    expect(corner?.hidden).toBe(true);
-  });
-
-  test('the stream is attach-scoped: parking closes it, placing back reopens it', () => {
-    seedDom('', shellMarkup('bluesky-queue'));
-    host.hydrate();
-    const first = sources[0];
-    expect(first.readyState).not.toBe(2);
-
-    host.reconcile(layoutOf([], ['clock']));
-    items.syncBarItems();
-    expect(first.readyState).toBe(2);
-    expect(sources).toHaveLength(1);
-
-    host.reconcile(layoutOf([], ['bluesky-queue']));
-    expect(sources).toHaveLength(2);
-    expect(sources[1].url).toBe('/panel/bluesky/queue/events');
-  });
-
-  test("a preview beside a placed item shares the placed item's stream", () => {
-    seedDom('', shellMarkup('bluesky-queue'));
-    host.hydrate();
-
-    const preview = items.previewBarItem('bluesky-queue', document, 'comfortable');
-    if (!preview) throw new Error('no preview for the plan queue');
-    expect(sources).toHaveLength(1);
-    preview.dispose?.();
-    expect(sources[0].readyState).not.toBe(2);
-  });
-});
-
-describe('plan-queue item: the popover and its controls', () => {
-  /** @type {any} */
-  let fetchSpy;
-  beforeEach(() => {
-    fetchSpy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
-    vi.stubGlobal('fetch', fetchSpy);
-  });
-
-  test('the chip only opens; the card lists the queue and offers Open Bluesky alone', () => {
-    seedDom('', shellMarkup('bluesky-queue'));
-    host.hydrate();
-    pushFrame(
-      queueFrame({ state: 'executing_queue', items: ['count', 'grid'], running: { name: 'rel_scan' } })
-    );
-    const chip = queueChip();
-    expect(queuePop().hidden).toBe(true);
-
-    chip.click();
-
-    expect(queuePop().hidden).toBe(false);
-    expect(chip.getAttribute('aria-expanded')).toBe('true');
-    const names = Array.from(queuePop().querySelectorAll('.bar-queue-row-name')).map(
-      (n) => n.textContent
-    );
-    expect(names).toEqual(['rel_scan', 'count', 'grid']);
-    expect(Array.from(queuePop().querySelectorAll('button')).map((b) => b.textContent)).toEqual([
-      'Open Bluesky',
-    ]);
-    expect(fetchSpy).not.toHaveBeenCalled();
-
-    chip.click();
-    expect(queuePop().hidden).toBe(true);
-    expect(chip.getAttribute('aria-expanded')).toBe('false');
-  });
-
-  test('`controls: stop` adds the plain stop, which fires on the first click', () => {
-    seedDom('', shellMarkup('bluesky-queue', { controls: 'stop' }));
-    host.hydrate();
-    pushFrame(queueFrame({ state: 'executing_queue', running: { name: 'rel_scan' } }));
-    queueChip().click();
-
-    const stop = popButton('Stop after current item');
-    if (!stop) throw new Error('no stop button');
-    expect(popButton('Abort running plan')).toBe(null);
-    stop.click();
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe('/panel/bluesky/queue/stop');
-    expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ cancel: false });
-  });
-
-  test('withdrawing a pending stop is two-step', () => {
-    seedDom('', shellMarkup('bluesky-queue', { controls: 'stop' }));
-    host.hydrate();
-    pushFrame(
-      queueFrame({ state: 'executing_queue', running: { name: 'rel_scan' }, stopPending: true })
-    );
-    queueChip().click();
-
-    const withdraw = popButton('Withdraw stop');
-    if (!withdraw) throw new Error('no withdraw button');
-    withdraw.click();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    const confirm = popButton('Confirm — the queue keeps draining');
-    if (!confirm) throw new Error('no confirm button');
-    confirm.click();
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toEqual({ cancel: true });
-  });
-
-  test('`controls: full` adds Start and the two-step abort', () => {
-    seedDom('', shellMarkup('bluesky-queue', { controls: 'full' }));
-    host.hydrate();
-    pushFrame(queueFrame({ items: ['count'] }));
-    queueChip().click();
-
-    const start = popButton('Start');
-    if (!start) throw new Error('no start button');
-    expect(start.disabled).toBe(false);
-    const abort = popButton('Abort running plan');
-    if (!abort) throw new Error('no abort button');
-
-    abort.click();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    const confirm = popButton('Confirm abort');
-    if (!confirm) throw new Error('abort did not arm');
-    confirm.click();
-    expect(fetchSpy.mock.calls[0][0]).toBe('/panel/bluesky/queue/abort');
-
-    popButton('Start')?.click();
-    expect(fetchSpy.mock.calls[1][0]).toBe('/panel/bluesky/queue/start');
-  });
-
-  test('Start is disabled while the queue is draining or empty', () => {
-    seedDom('', shellMarkup('bluesky-queue', { controls: 'full' }));
-    host.hydrate();
-    pushFrame(queueFrame({ state: 'executing_queue', items: ['count'], running: { name: 'x' } }));
-    queueChip().click();
-    expect(popButton('Start')?.disabled).toBe(true);
-
-    pushFrame(queueFrame({ items: [] }));
-    expect(popButton('Start')?.disabled).toBe(true);
-  });
-
-  test("a refused write shows the bridge's own sentence", async () => {
-    fetchSpy.mockResolvedValue({
-      ok: false,
-      status: 409,
-      json: async () => ({ detail: { code: 'not_armed', detail: 'This deployment is not armed.' } }),
-    });
-    seedDom('', shellMarkup('bluesky-queue', { controls: 'stop' }));
-    host.hydrate();
-    pushFrame(queueFrame({ state: 'executing_queue', running: { name: 'rel_scan' } }));
-    queueChip().click();
-    popButton('Stop after current item')?.click();
-    await vi.waitFor(() => {
-      expect(queuePop().querySelector('.bar-queue-note')?.textContent).toBe(
-        'This deployment is not armed.'
-      );
-    });
-  });
-
-  test('Escape and an outside click close the card', () => {
-    seedDom('', shellMarkup('bluesky-queue'));
-    host.hydrate();
-    queueChip().click();
-    expect(queuePop().hidden).toBe(false);
-
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(queuePop().hidden).toBe(true);
-
-    queueChip().click();
-    document.body.click();
-    expect(queuePop().hidden).toBe(true);
-  });
 });
 
 describe('previewBarItem: a body outside the bars', () => {

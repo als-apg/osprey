@@ -21,10 +21,8 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Iterator
-from concurrent.futures import Future
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 from urllib.parse import urljoin
@@ -32,8 +30,6 @@ from urllib.parse import urljoin
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from starlette.testclient import WebSocketTestSession
-from starlette.websockets import WebSocketDisconnect
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import compute_url_prefix
@@ -42,6 +38,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
     STARTER_NOTEBOOK_NAME,
     JupyterSidecar,
+    kernel_notebook_path,
 )
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
 
@@ -209,9 +206,8 @@ def sidecar_stderr_on_failure(request: pytest.FixtureRequest) -> Iterator[None]:
     failure report. Printing it here puts that account in the test's own log.
 
     The sidecar is looked up through ``request`` instead of taken as a
-    parameter so that this autouse fixture does not itself pull one in: the
-    helper unit tests at the bottom of the module talk to a fake socket and
-    must not spawn a server to do it.
+    parameter so that this autouse fixture does not itself pull one in: a
+    test that never asked for a sidecar must not spawn one to print its tail.
     """
     yield
     if "sidecar" not in request.fixturenames:
@@ -454,9 +450,20 @@ def test_no_backend_cookie_reaches_the_browser(
     assert "set-cookie" not in {name.lower() for name in through_proxy.headers}
 
 
-def test_a_session_starts_on_the_osprey_kernelspec(started_session: httpx.Response) -> None:
+def test_a_session_starts_on_the_osprey_kernelspec(
+    started_session: httpx.Response, sidecar: JupyterSidecar, kernel_id: str
+) -> None:
+    """The session is on the one kernelspec, and the switch refusal can name it.
+
+    ``kernel_notebook_path`` is how a refused control-target switch names the
+    notebook whose kernel holds the target; this asks the real sidecar with the
+    URL and credential the terminal publishes.
+    """
     assert started_session.status_code == 201
     assert started_session.json()["kernel"]["name"] == KERNELSPEC_NAME
+    assert (
+        kernel_notebook_path(sidecar.url, sidecar.auth_headers, kernel_id) == STARTER_NOTEBOOK_NAME
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +495,7 @@ def test_a_kernel_answers_over_the_proxied_socket(
         f"{PANEL}/api/kernels/{kernel_id}/channels?session_id={session_id}"
     )
     handshake = {name.lower(): value for name, value in recorded.headers.items()}
-    assert handshake["authorization"] == f"Bearer {sidecar.token}"
+    assert handshake["authorization"] == sidecar.auth_headers["authorization"]
 
 
 @pytest.mark.timeout(KERNEL_TIMEOUT, func_only=True)
@@ -700,14 +707,6 @@ def test_the_relayed_lab_csp_says_nothing_about_scripts(proxied: TestClient) -> 
     assert "default-src" not in csp
 
 
-def test_the_panels_own_json_is_not_injected(proxied: TestClient) -> None:
-    """The gate reads the body's type, and the sidecar's API is not a document."""
-    status = proxied.get(f"{PANEL}/api/status")
-
-    assert status.status_code == 200
-    assert LAB_BAR_MODULE not in status.text
-
-
 def test_a_users_own_html_file_is_served_untouched(proxied: TestClient, notebook_env: Path) -> None:
     """The finding a content-type gate could not see.
 
@@ -778,79 +777,3 @@ def test_the_stylesheets_the_bar_addresses_answer_on_the_panels_paths(
         response = proxied.get(url)
         assert response.status_code == 200, url
         assert response.headers["content-type"].startswith("text/css"), url
-
-
-# ---------------------------------------------------------------------------
-# The bounded receive helpers themselves
-# ---------------------------------------------------------------------------
-#
-# These need no kernel: what they pin is what the helpers do when a frame does
-# NOT arrive, which is exactly the case the sidecar tests above can never stage
-# on purpose. The stand-in below is socket-shaped only where the helpers reach
-# -- the portal, the receive stream, and the close check -- and the close check
-# is the session's REAL one, so a close frame is asserted through the same code
-# a live socket would run.
-
-
-class _StuckPortal:
-    """A ``BlockingPortal`` whose ``start_task_soon`` future never resolves."""
-
-    def __init__(self, message: Any | None = None) -> None:
-        self._message = message
-
-    def start_task_soon(self, _func: Any, *args: Any) -> Future[Any]:
-        future: Future[Any] = Future()
-        if self._message is not None:
-            future.set_result(self._message)
-        return future
-
-
-class _FakeSocket:
-    """The three attributes ``_receive_message`` touches, and nothing else."""
-
-    #: The session's own close check, bound here as a method. Its close branch
-    #: reads only the message, so it needs no live session behind it.
-    _raise_on_close = WebSocketTestSession._raise_on_close
-
-    def __init__(self, message: Any | None = None) -> None:
-        self.portal = _StuckPortal(message)
-        self._send_rx = SimpleNamespace(receive=lambda: None)
-
-
-def test_receive_json_names_the_frame_budget_and_the_last_frame() -> None:
-    """A frame that never arrives inside its own budget says which frame stalled."""
-    socket = _FakeSocket()
-
-    with pytest.raises(AssertionError) as stalled:
-        _receive_json(socket, 0.05, last="kernel_info_request")
-
-    assert "loop budget" not in str(stalled.value)
-    assert "last was kernel_info_request" in str(stalled.value)
-
-
-def test_receive_json_names_the_loop_budget_when_the_clamp_binds() -> None:
-    """A nearly spent loop deadline shortens the wait, and says so.
-
-    The frame budget here is the full ``FRAME_TIMEOUT``; the deadline is 50 ms
-    away. If the clamp did not bind, this test would sit for half a minute.
-    """
-    socket = _FakeSocket()
-
-    with pytest.raises(AssertionError) as stalled:
-        _receive_json(
-            socket,
-            FRAME_TIMEOUT,
-            deadline=time.monotonic() + 0.05,
-            last="status",
-        )
-
-    assert f"no frame within the {LOOP_DEADLINE:.0f} s loop budget" in str(stalled.value)
-    assert "last was status" in str(stalled.value)
-
-
-def test_receive_bytes_still_disconnects_on_a_close_frame() -> None:
-    """The bound is added around the close check, not in place of it."""
-    socket = _FakeSocket({"type": "websocket.close", "code": 1000})
-
-    with pytest.raises(WebSocketDisconnect):
-        _receive_bytes(socket, FRAME_TIMEOUT)

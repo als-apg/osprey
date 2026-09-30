@@ -19,9 +19,10 @@ Three properties are asserted directly, because each can regress on its own:
 * **The gate is FIRST.** It runs ahead of every service call, so a disabled
   deployment never constructs the gallery service, never touches disk, and
   never reports a protected-set refusal in place of the posture refusal.
-* **Absent means enabled.** An app with no ``scaffold_write_enabled`` on
-  ``app.state`` (every route unit suite, and any deployment that never mentions
-  the key) behaves byte-for-byte as it did before this key existed.
+* **Absent means refused.** An app with no ``scaffold_write_enabled`` on
+  ``app.state`` never ran the lifespan that decides the tier, and it refuses
+  every write exactly as a disabled one does. A deployment that never mentions
+  the key still gets writes: the lifespan resolves the absent key to enabled.
 * **The lifespan resolves it once.** ``create_app`` reads the key out of the
   config file it resolved into ``app.state.scaffold_write_enabled``; a quoted
   ``"false"`` is honoured as the boolean a human meant, and a config file that
@@ -34,22 +35,20 @@ a write, and a tier that may not author still has to be able to look.
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
-    coerce_config_flag,
     create_app,
     register_scaffold_conflict_handlers,
     unreadable_config_refusal,
 )
-from osprey.interfaces.web_terminal.routes import router as full_router
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
+
+from .conftest import bare_route_app
 
 #: The dotted key under test. Spelled once so a rename shows up as one edit.
 SCAFFOLD_WRITE_KEY = "web.scaffold_gallery.write_enabled"
@@ -76,13 +75,11 @@ def _app(tmp_path, *, write_enabled):
 
     ``write_enabled`` of ``None`` leaves the attribute OFF ``app.state``
     entirely — the state of every app built without the web terminal's
-    lifespan, and the case that proves the routes default to enabled rather
-    than to whatever a fixture happened to set.
+    lifespan, and the case that proves the routes refuse an undecided tier
+    rather than inherit whatever a fixture happened to set.
     """
-    application = FastAPI()
-    application.include_router(scaffold_router)
+    application = bare_route_app(scaffold_router, project_cwd=str(tmp_path))
     register_scaffold_conflict_handlers(application)
-    application.state.project_cwd = str(tmp_path)
     if write_enabled is not None:
         application.state.scaffold_write_enabled = write_enabled
     return application
@@ -100,7 +97,7 @@ def enabled_client(tmp_path):
 
 @pytest.fixture
 def default_client(tmp_path):
-    """No ``scaffold_write_enabled`` on state at all — the absent-key posture."""
+    """No ``scaffold_write_enabled`` on state at all — an app that made no tier decision."""
     return TestClient(_app(tmp_path, write_enabled=None))
 
 
@@ -173,24 +170,26 @@ def _seed_reads(service):
 # ---- Disabled: the write surface is closed ----
 
 
+#: The two postures that refuse: configured off, and never decided at all.
+REFUSING_CLIENTS = ["disabled_client", "default_client"]
+
+
 class TestDisabledRefusesEveryWrite:
     @pytest.mark.usefixtures("svc")
-    def test_every_write_verb_refuses_with_403(self, disabled_client):
-        for label, call in _write_requests(disabled_client):
+    @pytest.mark.parametrize("fixture_name", REFUSING_CLIENTS)
+    def test_refusal_names_the_key_that_produced_it(self, fixture_name, request):
+        """An operator who meets the refusal must learn which switch made it."""
+        for label, call in _write_requests(request.getfixturevalue(fixture_name)):
             resp = call()
             assert resp.status_code == 403, f"{label} answered {resp.status_code}"
-
-    @pytest.mark.usefixtures("svc")
-    def test_refusal_names_the_key_that_produced_it(self, disabled_client):
-        """An operator who meets the refusal must learn which switch made it."""
-        for label, call in _write_requests(disabled_client):
-            detail = call().json()["detail"]
+            detail = resp.json()["detail"]
             assert "scaffold" in detail.lower(), label
             assert SCAFFOLD_WRITE_KEY in detail, label
 
-    def test_the_service_is_never_constructed(self, disabled_client, svc):
+    @pytest.mark.parametrize("fixture_name", REFUSING_CLIENTS)
+    def test_the_service_is_never_constructed(self, fixture_name, request, svc):
         """The gate runs FIRST — ahead of every service call and every disk touch."""
-        for _label, call in _write_requests(disabled_client):
+        for _label, call in _write_requests(request.getfixturevalue(fixture_name)):
             call()
         assert svc.ctor.call_count == 0
         assert svc.create_artifact.call_count == 0
@@ -200,22 +199,22 @@ class TestDisabledRefusesEveryWrite:
         assert svc.register_untracked.call_count == 0
         assert svc.delete_untracked.call_count == 0
 
-    def test_reads_are_untouched(self, disabled_client, svc):
+    @pytest.mark.parametrize("fixture_name", REFUSING_CLIENTS)
+    def test_reads_are_untouched(self, fixture_name, request, svc):
         """Looking is not authoring: every read route still answers 200."""
         _seed_reads(svc)
-        for label, call in _read_requests(disabled_client):
+        for label, call in _read_requests(request.getfixturevalue(fixture_name)):
             resp = call()
             assert resp.status_code == 200, f"{label} answered {resp.status_code}"
 
 
-# ---- Enabled and absent: the shipped posture, unchanged ----
+# ---- Enabled: the shipped posture ----
 
 
-class TestEnabledAndAbsentServeWrites:
-    @pytest.mark.parametrize("fixture_name", ["enabled_client", "default_client"])
-    def test_writes_still_land(self, fixture_name, request, svc):
+class TestEnabledServesWrites:
+    def test_writes_still_land(self, enabled_client, svc):
         """Every write verb reaches its service call and answers 200-shaped."""
-        client = request.getfixturevalue(fixture_name)
+        client = enabled_client
         svc.create_artifact.return_value = {"status": "created"}
         svc.scaffold_override.return_value = {"status": "claimed"}
         svc.save_override.return_value = {"status": "saved"}
@@ -225,83 +224,6 @@ class TestEnabledAndAbsentServeWrites:
         for label, call in _write_requests(client):
             resp = call()
             assert resp.status_code == 200, f"{label} answered {resp.status_code}"
-
-    def test_absent_state_attribute_creates(self, default_client, svc):
-        """The spot check with teeth: no attribute at all is the enabled path."""
-        svc.create_artifact.return_value = {"status": "created"}
-        resp = default_client.post(
-            "/api/scaffold/create",
-            json={"category": "rules", "name": "my-rule", "content": "x"},
-        )
-        assert resp.status_code == 200
-        assert resp.json() == {"status": "created"}
-        svc.create_artifact.assert_called_once_with("rules", "my-rule", "x")
-
-    def test_protected_refusals_still_reach_the_operator(self, default_client, svc):
-        """An enabled gallery still reports the protected-set refusal as itself."""
-        from osprey.interfaces.web_terminal.scaffold_gallery_service import (
-            ProtectedArtifactError,
-        )
-
-        svc.create_artifact.side_effect = ProtectedArtifactError(
-            "rules/ is written by the build",
-            channel="the build",
-            output_path=".claude/rules/x.md",
-        )
-        resp = default_client.post("/api/scaffold/create", json={"category": "rules", "name": "x"})
-        assert resp.status_code == 403
-        assert SCAFFOLD_WRITE_KEY not in resp.json()["detail"]
-
-
-# ---- The client's half: GET /api/panels publishes the posture ----
-
-
-class TestPanelsPayload:
-    def _panels_client(self, tmp_path, *, write_enabled):
-        application = FastAPI()
-        application.include_router(full_router)
-        application.state.project_cwd = str(tmp_path)
-        if write_enabled is not None:
-            application.state.scaffold_write_enabled = write_enabled
-        return TestClient(application)
-
-    def test_disabled_payload_says_so(self, tmp_path):
-        client = self._panels_client(tmp_path, write_enabled=False)
-        assert client.get("/api/panels").json()["scaffold_write_enabled"] is False
-
-    def test_enabled_payload_says_so(self, tmp_path):
-        client = self._panels_client(tmp_path, write_enabled=True)
-        assert client.get("/api/panels").json()["scaffold_write_enabled"] is True
-
-    def test_absent_state_attribute_reads_as_enabled(self, tmp_path):
-        client = self._panels_client(tmp_path, write_enabled=None)
-        assert client.get("/api/panels").json()["scaffold_write_enabled"] is True
-
-
-# ---- coerce_config_flag on this key ----
-
-
-class TestFlagCoercion:
-    def test_real_booleans_pass_through(self):
-        assert coerce_config_flag(SCAFFOLD_WRITE_KEY, False, True) is False
-        assert coerce_config_flag(SCAFFOLD_WRITE_KEY, True, False) is True
-
-    def test_absent_key_takes_the_default(self):
-        assert coerce_config_flag(SCAFFOLD_WRITE_KEY, None, True) is True
-
-    def test_quoted_false_is_honoured(self):
-        """`bool("false")` is True — the trap this helper exists to close."""
-        for spelling in ("false", "False", "FALSE", " no ", "off"):
-            assert coerce_config_flag(SCAFFOLD_WRITE_KEY, spelling, True) is False
-
-    def test_uninterpretable_value_warns_and_takes_the_default(self, caplog):
-        with caplog.at_level(logging.WARNING):
-            result = coerce_config_flag(SCAFFOLD_WRITE_KEY, {"write_enabled": 1}, True)
-        assert result is True
-        assert any(
-            SCAFFOLD_WRITE_KEY in record.message and record.levelno == logging.WARNING
-            for record in caplog.records
-        ), "expected a WARNING naming the key"
 
 
 # ---- Startup: the lifespan resolves the key once, onto app.state ----

@@ -232,8 +232,8 @@ describe('sanitization', () => {
     }));
     deliverContribution(flood, contentWindow);
 
-    expect(host.children.length).toBeLessThanOrEqual(12);
-    expect(host.querySelector('.contrib-text')?.textContent?.length).toBeLessThanOrEqual(120);
+    expect(host.children.length).toBe(12);
+    expect(host.querySelector('.contrib-text')?.textContent?.length).toBe(120);
   });
 
   test('nav entries missing id or label are dropped; empty navs vanish', () => {

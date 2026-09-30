@@ -222,8 +222,10 @@ def test_notify_panel_register_unreachable():
 def test_notify_panel_register_passes_health_endpoint():
     """The optional health_endpoint is forwarded in the payload."""
     captured: dict = {}
+    urls: list[str] = []
 
-    def _fake(_url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
+    def _fake(url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
+        urls.append(url)
         captured.update(payload)
         return 200, {}
 
@@ -232,9 +234,11 @@ def test_notify_panel_register_passes_health_endpoint():
         patch.object(http, "_post_json_with_response", side_effect=_fake),
     ):
         http.notify_panel_register("p1", "L", "http://up", path="/sub", health_endpoint="http://h")
+    assert urls == ["http://wt/api/panels/register"]
     assert captured["health_endpoint"] == "http://h"
     assert captured["path"] == "/sub"
     assert captured["id"] == "p1"
+    assert captured["source"] == "agent"
 
 
 # ---------------------------------------------------------------------------
@@ -406,13 +410,25 @@ def test_notify_panel_visibility_posts_payload():
     assert payload == {"panel": "errors", "visible": True, "source": "agent"}
 
 
+def test_notify_panel_close_posts_payload():
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "post_json") as post,
+    ):
+        http.notify_panel_close("errors")
+    url, payload = post.call_args.args
+    assert url == "http://wt/api/panel-close"
+    assert payload == {"panel": "errors", "source": "agent"}
+
+
 def test_notify_panel_focus_includes_url_when_given():
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
         patch.object(http, "post_json") as post,
     ):
         http.notify_panel_focus("p1", url="http://up")
-    _url, payload = post.call_args.args
+    url, payload = post.call_args.args
+    assert url == "http://wt/api/panel-focus"
     assert payload == {"panel": "p1", "url": "http://up", "source": "agent"}
 
 
@@ -422,7 +438,8 @@ def test_notify_panel_focus_omits_url_when_none():
         patch.object(http, "post_json") as post,
     ):
         http.notify_panel_focus("p1")
-    _url, payload = post.call_args.args
+    url, payload = post.call_args.args
+    assert url == "http://wt/api/panel-focus"
     assert payload == {"panel": "p1", "source": "agent"}
     assert "url" not in payload
 

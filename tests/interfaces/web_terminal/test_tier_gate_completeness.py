@@ -15,7 +15,7 @@ with both suites green, because a route nobody listed is a route nobody tested.
 
 So this module does not carry a list. It walks ``app.openapi()["paths"]`` — the
 same public, version-stable enumeration
-``test_scaffold_routes_registration.py`` uses, and the only view of the app that
+``test_scaffold_routes.py::TestRouteTable`` uses, and the only view of the app that
 grows automatically when a handler is added — and requires that:
 
 * every mutating verb under ``/api/scaffold`` refuses with 403 when the gallery

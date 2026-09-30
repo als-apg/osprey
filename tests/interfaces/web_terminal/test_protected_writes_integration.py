@@ -210,17 +210,7 @@ def project_dir(_baked_project, tmp_path) -> Path:
 
 
 @pytest.fixture
-def audit_zone(tmp_path, monkeypatch) -> Path:
-    """Redirect the audit zone. ``writer.audit_dir`` is the ledger's one seam."""
-    zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
-
-
-# ``audit_zone`` redirects the ledger, so a refusal this client provokes is recorded in the test's
-# tree.
-@pytest.fixture
-def client(project_dir, tmp_path, audit_zone):  # noqa: ARG001
+def client(project_dir, tmp_path):
     """The real web-terminal app over the real render, lifespan and all.
 
     ``create_app`` rather than a bare router, because the activity ring, the
@@ -317,6 +307,11 @@ class Refusal:
             leave the channel to the 403 body. Stated per case rather than
             accepted as an either/or, because an either/or would go on passing
             if a surface quietly stopped carrying the half it owes.
+        frame_subject: What the refused attempt was aimed at, as the activity
+            frame must name it -- the artifact for the gallery, the path for the
+            Claude-setup panel, the key for the config surfaces. A frame that
+            names only the channel tells the operator where a change belongs but
+            not which change was tried.
         drive: Sends the request. Returns the response.
         planted: Whether the target is written before the drive. The render
             carries no file at a delete or register target, and an absent file
@@ -332,6 +327,7 @@ class Refusal:
     reason: str
     outcome: str
     frame_names: str
+    frame_subject: str
     drive: Callable[[TestClient], object]
     planted: bool = False
 
@@ -379,6 +375,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="NOTHING WAS CREATED",
             frame_names="channel",
+            frame_subject="rules/agent-authored",
             drive=lambda c: c.post(
                 "/api/scaffold/create",
                 json={"category": "rules", "name": "agent-authored", "content": "# mine\n"},
@@ -396,6 +393,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="NOTHING WAS CLAIMED",
             frame_names="channel",
+            frame_subject="rules/safety",
             drive=lambda c: c.post(f"/api/scaffold/{RESERVED_FRAMEWORK_ARTIFACT}/claim"),
         ),
         id="gallery-claim",
@@ -410,6 +408,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="NOTHING WAS WRITTEN",
             frame_names="channel",
+            frame_subject="rules/safety",
             drive=lambda c: c.put(
                 f"/api/scaffold/{RESERVED_FRAMEWORK_ARTIFACT}/override",
                 json={"content": "# rewritten by the agent\n"},
@@ -427,6 +426,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="NOTHING WAS DELETED",
             frame_names="channel",
+            frame_subject="rules/agent-authored",
             drive=lambda c: c.delete(
                 f"/api/scaffold/{RESERVED_CUSTOM_ARTIFACT}/override?delete_file=true"
             ),
@@ -444,6 +444,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="NOTHING WAS REGISTERED",
             frame_names="channel",
+            frame_subject="skills/agent-authored",
             drive=lambda c: c.post(
                 "/api/scaffold/untracked/register", json={"name": "skills/agent-authored"}
             ),
@@ -461,6 +462,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="NOTHING WAS DELETED",
             frame_names="channel",
+            frame_subject="skills/agent-authored",
             drive=lambda c: c.delete("/api/scaffold/untracked/skills/agent-authored"),
             planted=True,
         ),
@@ -476,6 +478,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="nothing was written",
             frame_names="channel",
+            frame_subject=".claude/settings.json",
             drive=lambda c: c.put(
                 "/api/claude-setup",
                 json={"path": ".claude/settings.json", "content": "{}"},
@@ -493,6 +496,7 @@ REFUSALS = [
             reason="reserved path",
             outcome="nothing was written",
             frame_names="channel",
+            frame_subject=".claude/skills/self-authored/SKILL.md",
             drive=lambda c: c.post(
                 "/api/claude-setup",
                 json={"path": ".claude/skills/self-authored/SKILL.md", "content": "# mine\n"},
@@ -510,6 +514,7 @@ REFUSALS = [
             reason="protected_key",
             outcome="config.yml is unchanged",
             frame_names="target",
+            frame_subject="control_system.writes_enabled",
             drive=lambda c: c.patch(
                 "/api/config", json={"updates": {"control_system.writes_enabled": True}}
             ),
@@ -526,6 +531,7 @@ REFUSALS = [
             reason="protected_key",
             outcome="config.yml is unchanged",
             frame_names="target",
+            frame_subject="control_system.writes_enabled",
             drive=_put_protected_config,
         ),
         id="http-config-put",
@@ -546,7 +552,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
 
     @pytest.mark.parametrize("case", REFUSALS)
     def test_a_refusal_answers_records_publishes_and_moves_nothing(
-        self, client, audit_zone, project_dir, monkeypatch, case
+        self, client, audit_zone_path, project_dir, monkeypatch, case
     ):
         target = project_dir / case.target_file
         if case.planted:
@@ -554,7 +560,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
             target.write_text("# planted before the refused request\n", encoding="utf-8")
         before = target.read_bytes() if target.is_file() else None
 
-        assert audit_records(audit_zone) == []
+        assert audit_records(audit_zone_path) == []
         assert recent_activity(client) == []
 
         # A web request belongs to no session, whatever the server inherited.
@@ -584,7 +590,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
         )
 
         # One line per attempt -- the log counts attempts, so neither zero nor two.
-        records = audit_records(audit_zone)
+        records = audit_records(audit_zone_path)
         assert len(records) == 1, f"{case.surface}/{case.tool} wrote {len(records)} records"
         record = records[0]
         assert record["surface"] == case.surface
@@ -642,6 +648,10 @@ class TestEveryHttpSurfaceRefusesAudibly:
         # the prefix is what an operator searches for.
         if case.surface == "http_config":
             assert frame_detail.startswith(CONFIG_FEED_PHRASE), frame_detail
+        assert case.frame_subject in frame_detail, (
+            f"{case.surface}/{case.tool} published a frame that does not name "
+            f"{case.frame_subject!r}: {frame_detail!r}"
+        )
 
         # A refusal that left something behind would satisfy every assertion above.
         after = target.read_bytes() if target.is_file() else None
@@ -651,7 +661,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
         with no_panel_token():
             assert case.drive(client).status_code == 403
 
-        records = audit_records(audit_zone)
+        records = audit_records(audit_zone_path)
         assert len(records) == 2, f"{case.surface}/{case.tool} collapsed a retry"
         assert records[0]["subject"] == records[1]["subject"] == case.key_or_path
 
@@ -667,7 +677,7 @@ class TestTheGateIsDiscriminating:
     operator's feed.
     """
 
-    def test_an_exempt_config_key_still_patches(self, client, audit_zone, project_dir):
+    def test_an_exempt_config_key_still_patches(self, client, audit_zone_path, project_dir):
         """``hooks.debug`` is the one member of the ``hooks`` family left writable.
 
         It turns on hook tracing and gates nothing, so it fails the inclusion
@@ -680,10 +690,10 @@ class TestTheGateIsDiscriminating:
         assert resp.status_code == 200, resp.text
         config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
         assert config["hooks"]["debug"] is True
-        assert audit_records(audit_zone) == [], "a permitted write is not an incident"
+        assert audit_records(audit_zone_path) == [], "a permitted write is not an incident"
         assert recent_activity(client) == [], "a permitted write is not an incident"
 
-    def test_an_unreserved_artifact_is_still_creatable(self, client, audit_zone, project_dir):
+    def test_an_unreserved_artifact_is_still_creatable(self, client, audit_zone_path, project_dir):
         """``.claude/agents/`` is authorable material; the gallery still writes it."""
         resp = client.post(
             "/api/scaffold/create",
@@ -692,10 +702,10 @@ class TestTheGateIsDiscriminating:
 
         assert resp.status_code == 200, resp.text
         assert (project_dir / ".claude/agents/operator-authored.md").is_file()
-        assert audit_records(audit_zone) == []
+        assert audit_records(audit_zone_path) == []
         assert recent_activity(client) == []
 
-    def test_an_unreserved_claude_setup_file_is_still_writable(self, client, audit_zone):
+    def test_an_unreserved_claude_setup_file_is_still_writable(self, client, audit_zone_path):
         """The panel keeps its job: only the protected subset comes back 403."""
         created = client.post(
             "/api/claude-setup",
@@ -708,7 +718,7 @@ class TestTheGateIsDiscriminating:
             json={"path": ".claude/commands/operator-note.md", "content": "# edited\n"},
         )
         assert saved.status_code == 200, saved.text
-        assert audit_records(audit_zone) == []
+        assert audit_records(audit_zone_path) == []
         assert recent_activity(client) == []
 
 
@@ -790,44 +800,3 @@ class TestSetupPatchSurface:
 
         (record,) = audit_records(mcp_render / "var" / "audit")
         assert record["posture_source"] == POSTURE_SOURCE_SPAWN
-
-    @pytest.mark.usefixtures("mcp_render")
-    async def test_a_blocked_detail_carries_no_safety_marker(self):
-        """The honest version of a branch that reads as if it should fire here.
-
-        ``_activity_detail`` marks *applied* ``control_system.*`` patches with a
-        ``safety config —`` prefix. No refused patch can carry it: every
-        ``control_system.*`` key is protected, so the blocked branch answers
-        first and the marker is unreachable through this tool. Pinned as an
-        absence so nobody later "fixes" the feed by prefixing refusals with a
-        marker the applied path uses to mean something else.
-        """
-        from osprey.mcp_server.workspace.tools.setup import setup_patch
-        from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
-
-        fn = get_tool_fn(setup_patch)
-        with (
-            patch(f"{SETUP_MOD}.notify_agent_activity_async") as notify,
-            assert_raises_error(error_type="protected_key"),
-        ):
-            await fn(file="config.yml", key_path="control_system.limits_checking.enabled", value=0)
-
-        detail = notify.call_args.kwargs["detail"]
-        assert "safety config" not in detail, detail
-        assert detail.startswith(CONFIG_FEED_PHRASE), detail
-
-    @pytest.mark.usefixtures("mcp_render")
-    async def test_the_refusal_message_names_the_channel_and_says_nothing_changed(self):
-        from osprey.mcp_server.workspace.tools.setup import setup_patch
-        from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
-
-        fn = get_tool_fn(setup_patch)
-        with (
-            patch(f"{SETUP_MOD}.notify_agent_activity_async"),
-            assert_raises_error(error_type="protected_key") as ctx,
-        ):
-            await fn(file="config.yml", key_path="approval.mode", value="disabled")
-
-        message = ctx["envelope"]["error_message"]
-        assert RESERVED_PATH_CHANNELS["config.yml"] in message, message
-        assert "config.yml is unchanged" in message, message

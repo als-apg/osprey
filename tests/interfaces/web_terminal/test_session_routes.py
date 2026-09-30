@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.session_discovery import SessionInfo
+from tests.interfaces.web_terminal._fakes import FakePtySession, PoolChatSession
 
 
 @pytest.fixture
@@ -31,17 +32,6 @@ def client(workspace_dir):
 
 
 class TestListSessionsEndpoint:
-    def test_returns_empty_list(self, client):
-        """GET /api/sessions returns empty list when no sessions exist."""
-        with patch(
-            "osprey.interfaces.web_terminal.routes.session.SessionDiscovery.list_sessions",
-            return_value=[],
-        ):
-            resp = client.get("/api/sessions")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["sessions"] == []
-
     def test_returns_session_list(self, client):
         """GET /api/sessions returns session metadata."""
         mock_sessions = [
@@ -75,51 +65,26 @@ class TestListSessionsEndpoint:
 
 
 class TestRestartEndpoint:
-    def test_restart_cleans_all(self, client):
-        """POST /api/terminal/restart calls cleanup_all()."""
+    def test_restart_empties_both_registries(self, client):
+        """POST /api/terminal/restart kills the pooled PTY and the chat child alike."""
         app = client.app
         registry = app.state.pty_registry
+        pty = FakePtySession()
+        registry._sessions["k"] = pty
 
-        with patch.object(registry, "cleanup_all") as mock_cleanup:
-            resp = client.post("/api/terminal/restart")
+        operator_registry = app.state.operator_registry
+        with patch(
+            "osprey.interfaces.web_terminal.operator_session.OperatorSession", PoolChatSession
+        ):
+            chat, _ = client.portal.call(operator_registry.get_or_create_chat_session, "c", "/tmp")
+
+        resp = client.post("/api/terminal/restart")
 
         assert resp.status_code == 200
-        mock_cleanup.assert_called_once()
-
-
-class TestResolveWorkspace:
-    def test_file_tree_with_session_id(self, workspace_dir, client):
-        """File tree with session_id scopes to sessions subdir."""
-        session_dir = workspace_dir / "sessions" / "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        session_dir.mkdir(parents=True)
-        (session_dir / "test.txt").write_text("scoped content")
-
-        resp = client.get("/api/files/tree?session_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
-        assert resp.status_code == 200
-        data = resp.json()
-        names = [c["name"] for c in data.get("children", [])]
-        assert "test.txt" in names
-
-    def test_file_tree_without_session_id(self, workspace_dir, client):
-        """File tree without session_id uses base workspace."""
-        (workspace_dir / "base_file.txt").write_text("base content")
-
-        resp = client.get("/api/files/tree")
-        assert resp.status_code == 200
-        data = resp.json()
-        names = [c["name"] for c in data.get("children", [])]
-        assert "base_file.txt" in names
-
-    def test_invalid_session_id_ignored(self, workspace_dir, client):
-        """Invalid session_id (path traversal attempt) falls back to base."""
-        (workspace_dir / "base_file.txt").write_text("safe")
-
-        resp = client.get("/api/files/tree?session_id=../../../etc")
-        assert resp.status_code == 200
-        data = resp.json()
-        # Should not have traversed — uses base workspace
-        names = [c["name"] for c in data.get("children", [])]
-        assert "base_file.txt" in names
+        assert registry.get_session("k") is None
+        assert not pty.is_alive
+        assert operator_registry.get_chat_session("c") is None
+        assert chat.stop_calls == 1
 
 
 class TestSessionScopedDiagnostics:
@@ -158,42 +123,6 @@ class TestSessionScopedDiagnostics:
         assert resp.status_code == 200
         instance.read_current_session.assert_called_once()
 
-    def test_session_log_with_session_id(self, client):
-        """GET /api/session-log?session_id=<id> uses read_session_by_id."""
-        mock_events = [
-            {
-                "type": "tool_call",
-                "tool_name": "channel_read",
-                "server_name": "controls",
-                "agent_id": None,
-                "is_error": False,
-                "timestamp": "2026-02-19T12:00:00Z",
-            },
-        ]
-        with patch(self._TR) as MockReader:
-            instance = MockReader.return_value
-            instance.read_session_by_id.return_value = mock_events
-            resp = client.get("/api/session-log?session_id=abc-123")
-
-        assert resp.status_code == 200
-        instance.read_session_by_id.assert_called_once_with("abc-123")
-
-    def test_session_chat_with_session_id(self, client):
-        """GET /api/session-chat?session_id=<id> uses read_chat_history_by_id."""
-        mock_turns = [
-            {"role": "user", "content": "Hello", "timestamp": "2026-02-19T12:00:00Z"},
-        ]
-        with patch(self._TR) as MockReader:
-            instance = MockReader.return_value
-            instance.read_chat_history_by_id.return_value = mock_turns
-            resp = client.get("/api/session-chat?session_id=abc-123")
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["count"] == 1
-        instance.read_chat_history_by_id.assert_called_once_with("abc-123")
-        instance.read_current_chat_history.assert_not_called()
-
     def test_session_chat_without_session_id(self, client):
         """GET /api/session-chat falls back to read_current_chat_history."""
         with patch(self._TR) as MockReader:
@@ -204,23 +133,17 @@ class TestSessionScopedDiagnostics:
         assert resp.status_code == 200
         instance.read_current_chat_history.assert_called_once()
 
-    def test_session_agent_timeline_with_session_id(self, client):
-        """GET /api/session-agent-timeline?session_id=<id> passes to reader."""
-        mock_timeline = [{"kind": "prompt", "timestamp": "t", "text": "hi"}]
-        with patch(self._TR) as MockReader:
-            instance = MockReader.return_value
-            instance.read_agent_timeline.return_value = mock_timeline
-            resp = client.get("/api/session-agent-timeline?agent_id=agent-xyz&session_id=abc-123")
-
-        assert resp.status_code == 200
-        instance.read_agent_timeline.assert_called_once_with("agent-xyz", session_id="abc-123")
-
-    def test_session_agent_timeline_without_session_id(self, client):
-        """GET /api/session-agent-timeline without session_id passes None."""
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [("&session_id=abc-123", "abc-123"), ("", None)],
+        ids=["with-session-id", "without"],
+    )
+    def test_session_agent_timeline_passes_the_session_id(self, client, query, expected):
+        """GET /api/session-agent-timeline forwards the session id, or None."""
         with patch(self._TR) as MockReader:
             instance = MockReader.return_value
             instance.read_agent_timeline.return_value = []
-            resp = client.get("/api/session-agent-timeline?agent_id=agent-xyz")
+            resp = client.get(f"/api/session-agent-timeline?agent_id=agent-xyz{query}")
 
         assert resp.status_code == 200
-        instance.read_agent_timeline.assert_called_once_with("agent-xyz", session_id=None)
+        instance.read_agent_timeline.assert_called_once_with("agent-xyz", session_id=expected)

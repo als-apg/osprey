@@ -9,13 +9,15 @@
  * specifics. (The `＋` add control is NOT the rail's: the template supplies it
  * as the sibling `#panel-add-btn`.)
  *
- * The rail deliberately carries NO per-panel health readout. Backend liveness
- * is reported in one place — the SYSTEM panel's `web_panels` health category —
- * so the rail stays a navigation surface rather than a status board. Health
- * still reaches the rail, but only as the coarse `.disabled` state: an entry
- * whose backend has never answered is dimmed and inert. The one exception is a
- * sidecar that failed to start: its entry is `.failed` and carries the server's
- * sentence as its tooltip, because a click on it is the retry.
+ * The rail deliberately carries no per-poll readout — coarse reachability
+ * only. Backend liveness is reported in one place — the SYSTEM panel's
+ * `web_panels` health category — so the rail stays a navigation surface rather
+ * than a status board. Health reaches the rail as two coarse states: an entry
+ * whose backend has never answered is `.disabled` (dimmed and inert), and one
+ * that answered before but has stopped is `.unreachable` (dimmed, still
+ * clickable, its tooltip saying since when). The one status the rail names is
+ * a sidecar that failed to start: its entry is `.failed` and carries the
+ * server's sentence as its tooltip, because a click on it is the retry.
  *
  * The rail is a curated MEMBERSHIP list, not a tab strip with open/closed
  * state: an entry exists iff its panel is in the rail, at full brightness.
@@ -62,11 +64,12 @@
  * caller declines keeps its native behaviour on every input route.
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
- * not healthy yet), `.failed` (a sidecar that failed to start; dimmed but
- * clickable), `.agent-attention` (badge). A badged entry also carries a
- * transient `data-title-base` holding the tooltip text the badge borrowed;
- * clearing the badge restores it and removes the attribute. An entry showing a
- * status message parks its own tooltip on `data-status-base` the same way.
+ * never answered), `.unreachable` (backend stopped answering), `.failed` (a
+ * sidecar that failed to start; dimmed but clickable), `.agent-attention`
+ * (badge). While a badge time, an unreachable notice or a status message owns
+ * the tooltip, the entry carries a transient `data-title-base` holding the
+ * tooltip it borrowed; clearing all of them restores it and removes the
+ * attribute.
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
@@ -110,16 +113,22 @@ import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js
 const BUTTON_SELECTOR = '.panel-rail-button';
 
 /**
- * Where an entry's pre-suffix tooltip is parked while the agent-attention
- * badge owns the `title`. Present only for the badge's lifetime — see
- * {@link applyTouchedTooltip}.
+ * Where an entry's own tooltip is parked while a badge time, an unreachable
+ * notice or a status message owns the `title`. Present only while one of them does — see
+ * {@link renderTitle}.
  */
 const TITLE_BASE_ATTR = 'data-title-base';
 
+/** The badge's "agent touched" clock time, present while the badge carries one. */
+const TOUCHED_ATTR = 'data-title-touched';
+
+/** The clock time the backend stopped answering, present while `.unreachable`. */
+const UNREACHABLE_ATTR = 'data-title-unreachable';
+
 const TOUCHED_SEPARATOR = ' · agent touched ';
 
-/** Where an entry's own tooltip is parked while a status message owns it. */
-const STATUS_BASE_ATTR = 'data-status-base';
+/** A server-reported start status sentence, present while the entry shows one. */
+const STATUS_ATTR = 'data-title-status';
 
 // ---- Rendering ----
 
@@ -364,35 +373,47 @@ export function setEntryEnabled(railEl, panelId, enabled) {
 }
 
 /**
- * Point an entry's tooltip at the moment the agent touched its panel, or put
- * the tooltip back the way it was.
- *
- * The pre-suffix text is stashed on the entry for the badge's lifetime rather
- * than recomputed, so the restore is exact even if the caller retitled the
- * entry, and so a second event REPLACES the time instead of appending a second
- * suffix. Restoring is keyed on the stash, which makes a clear on an unbadged
- * entry a true no-op. The time is on the facility clock, and names its zone
- * when the viewer's clock reads differently.
- * @param {HTMLElement} entry
- * @param {number | null} ts - server epoch seconds, or null to restore the base
+ * A server or poll instant as the rail's tooltips show it: hour and minute on
+ * the facility clock, naming its zone when the viewer's clock reads differently.
+ * @param {number} ms - epoch milliseconds
+ * @returns {string}
  */
-function applyTouchedTooltip(entry, ts) {
+function clockTime(ms) {
+  return formatFacilityTime(ms, {
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(viewerSharesFacilityClock(ms) ? {} : { timeZoneName: 'short' }),
+  });
+}
+
+/**
+ * Compose an entry's tooltip from its own text and the notices borrowing it.
+ *
+ * The own text is stashed on the entry while any notice is up rather than
+ * recomputed, so the restore is exact even if the caller retitled the entry,
+ * and a repeated notice REPLACES its time instead of appending a second one.
+ * A status message stands in for the own text, so a badge time is appended to
+ * it. An unreachable notice outranks both: "not answering" is the fact an
+ * operator needs before clicking. With no notice the stash is restored and
+ * removed, which makes a clear on an untouched entry a true no-op.
+ * @param {HTMLElement} entry
+ */
+function renderTitle(entry) {
   const base = entry.getAttribute(TITLE_BASE_ATTR) ?? entry.title;
-  if (ts === null) {
+  const touched = entry.getAttribute(TOUCHED_ATTR);
+  const unreachable = entry.getAttribute(UNREACHABLE_ATTR);
+  const status = entry.getAttribute(STATUS_ATTR);
+  if (touched === null && unreachable === null && status === null) {
     if (entry.hasAttribute(TITLE_BASE_ATTR)) {
       entry.title = base;
       entry.removeAttribute(TITLE_BASE_ATTR);
     }
     return;
   }
-  const at = ts * 1000;
-  const touchedAt = formatFacilityTime(at, {
-    hour: 'numeric',
-    minute: '2-digit',
-    ...(viewerSharesFacilityClock(at) ? {} : { timeZoneName: 'short' }),
-  });
   entry.setAttribute(TITLE_BASE_ATTR, base);
-  entry.title = `${base}${TOUCHED_SEPARATOR}${touchedAt}`;
+  const own = status ?? base;
+  if (unreachable !== null) entry.title = `not answering since ${unreachable}`;
+  else entry.title = touched !== null ? `${own}${TOUCHED_SEPARATOR}${touched}` : own;
 }
 
 /**
@@ -423,8 +444,12 @@ export function setEntryAttention(railEl, panelId, on, ts) {
   const entry = getEntry(railEl, panelId);
   if (!entry) return false;
   entry.classList.toggle('agent-attention', on);
-  const touchedAt = on && typeof ts === 'number' && Number.isFinite(ts) ? ts : null;
-  applyTouchedTooltip(entry, touchedAt);
+  if (on && typeof ts === 'number' && Number.isFinite(ts)) {
+    entry.setAttribute(TOUCHED_ATTR, clockTime(ts * 1000));
+  } else {
+    entry.removeAttribute(TOUCHED_ATTR);
+  }
+  renderTitle(entry);
   if (on) {
     flashElement(entry);
     entry.scrollIntoView({ block: 'nearest' });
@@ -436,10 +461,9 @@ export function setEntryAttention(railEl, panelId, on, ts) {
  * Show or clear a server-reported start status on an entry. `failed` toggles
  * `.failed`, which replaces `.disabled`: the entry stays dimmed but takes a
  * click, the caller's retry. While `message` is set, the tooltip and
- * `aria-description` read exactly that string; `message: null` puts the
- * entry's own tooltip back. Under an agent-attention badge the badge's stash
- * is what gets updated, so clearing the badge lands on the current text.
- * No-op when the entry is absent.
+ * `aria-description` read exactly that string (with a badge time appended
+ * while the entry is badged); `message: null` puts the entry's own tooltip
+ * back. No-op when the entry is absent.
  * @param {HTMLElement} railEl
  * @param {string} panelId
  * @param {{ failed: boolean, message: string | null }} status
@@ -449,21 +473,38 @@ export function setEntryStatus(railEl, panelId, { failed, message }) {
   if (!entry) return;
   entry.classList.toggle('failed', failed);
   if (failed) entry.classList.remove('disabled');
-  const stashed = entry.getAttribute(TITLE_BASE_ATTR);
-  const base = entry.getAttribute(STATUS_BASE_ATTR);
-  const next = message ?? base;
   if (message) {
-    if (base === null) entry.setAttribute(STATUS_BASE_ATTR, stashed ?? entry.title);
+    entry.setAttribute(STATUS_ATTR, message);
     entry.setAttribute('aria-description', message);
   } else {
-    entry.removeAttribute(STATUS_BASE_ATTR);
+    entry.removeAttribute(STATUS_ATTR);
     entry.removeAttribute('aria-description');
   }
-  if (next === null) return;
-  if (stashed !== null) {
-    entry.title = `${next}${entry.title.slice(stashed.length)}`;
-    entry.setAttribute(TITLE_BASE_ATTR, next);
+  renderTitle(entry);
+}
+
+/**
+ * Mark an entry whose backend answered before but has stopped, or bring it
+ * back. Unreachable dims the entry like `.disabled` but leaves it clickable —
+ * its menu, popout and "×" stay live — and points its tooltip at when the
+ * backend stopped answering. Reachable restores the entry and its tooltip.
+ * `.disabled` (never answered) is untouched either way.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ * @param {boolean} reachable
+ * @param {number} [sinceMs] - epoch ms of the first unanswered poll, shown in
+ *   the tooltip while unreachable
+ * @returns {boolean} true when the entry existed and was updated
+ */
+export function setEntryReachable(railEl, panelId, reachable, sinceMs) {
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return false;
+  entry.classList.toggle('unreachable', !reachable);
+  if (reachable) {
+    entry.removeAttribute(UNREACHABLE_ATTR);
   } else {
-    entry.title = next;
+    entry.setAttribute(UNREACHABLE_ATTR, clockTime(sinceMs ?? Date.now()));
   }
+  renderTitle(entry);
+  return true;
 }

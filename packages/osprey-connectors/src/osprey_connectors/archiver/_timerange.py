@@ -94,19 +94,27 @@ class Processing:
             applies — either full resolution was requested, or the bin width is
             not a whole number of seconds, which the operator syntax cannot
             express. ``precision_ms`` tells those two apart.
+        origin: The instant the bin lattice is anchored on — the query window's
+            start, in UTC. Every mode and every channel in one request bins on
+            this one grid.
     """
 
     mode: str
     precision_ms: int
     epics_operator: str | None
+    origin: pd.Timestamp
 
 
-def resolve_processing(processing: str, precision_ms: int) -> Processing:
+def resolve_processing(processing: str, precision_ms: int, window_start: datetime) -> Processing:
     """Validate a processing mode and render it for both backend families.
 
     Args:
         processing: One of :data:`PROCESSING_MODES`.
         precision_ms: Bin width in milliseconds; ``<= 0`` means full resolution.
+        window_start: The query window's start. Bins are anchored here, so the
+            same window and width always cut the same lattice — see
+            :attr:`Processing.origin`. Naive input is read as UTC, which is
+            what every connector already passes after :func:`utc_window`.
 
     Returns:
         The resolved :class:`Processing`.
@@ -131,7 +139,14 @@ def resolve_processing(processing: str, precision_ms: int) -> Processing:
         operator = f"{_EPICS_OPERATORS[processing]}_{precision_ms // 1000}"
     else:
         operator = None
-    return Processing(mode=processing, precision_ms=precision_ms, epics_operator=operator)
+    origin = pd.Timestamp(window_start)
+    origin = origin.tz_localize("UTC") if origin.tz is None else origin.tz_convert("UTC")
+    return Processing(
+        mode=processing,
+        precision_ms=precision_ms,
+        epics_operator=operator,
+        origin=origin,
+    )
 
 
 def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
@@ -168,7 +183,7 @@ def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
     return frame[list(LONG_COLUMNS)]
 
 
-def decimate_raw(s: pd.Series, precision_ms: int) -> pd.Series:
+def decimate_raw(s: pd.Series, precision_ms: int, origin: pd.Timestamp) -> pd.Series:
     """Keep the last real sample in each ``precision_ms`` bin, at its true timestamp.
 
     Do NOT replace with ``s.resample(...).agg("last")`` — that relabels the kept
@@ -179,6 +194,9 @@ def decimate_raw(s: pd.Series, precision_ms: int) -> pd.Series:
         s: One channel's real samples, time-sorted (ascending), any dtype — no
             numeric check, so an enum/status channel round-trips.
         precision_ms: Bin width in milliseconds; ``<= 0`` means full resolution.
+        origin: The instant the lattice is anchored on, from
+            :attr:`Processing.origin`. Samples before it — an archiver's prior
+            point, say — fall into bins stepping backwards from it.
 
     Returns:
         The subsequence of ``s`` at each bin's last real sample, in original
@@ -187,12 +205,11 @@ def decimate_raw(s: pd.Series, precision_ms: int) -> pd.Series:
     """
     if precision_ms <= 0 or s.empty:
         return s
-    # Anchor the lattice the way `resample` does (origin="start_day", midnight
-    # of the first sample's day), not epoch-anchored `floor`: the two diverge
-    # for widths that don't divide a day, and raw and aggregate modes must bin
-    # the same window on the same grid.
+    # Anchored on the query window, the same instant `aggregate_series` hands
+    # `resample`: raw and the aggregate modes must bin the same window on the
+    # same grid, and epoch-anchored `floor` would diverge from both for any
+    # width that does not divide a day.
     width = pd.Timedelta(milliseconds=precision_ms)
-    origin = s.index.min().normalize()
     bins = origin + (s.index - origin) // width * width
     return s[~bins.duplicated(keep="last")]
 
@@ -246,7 +263,7 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
     # the kept sample at the bin's leading edge, fabricating a timestamp nothing
     # was ever recorded at.
     if resolved.mode == "raw":
-        return decimate_raw(s, resolved.precision_ms)
+        return decimate_raw(s, resolved.precision_ms, resolved.origin)
     if s.empty:
         return s
     reject_non_numeric(s, resolved)
@@ -254,7 +271,11 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
         # Resampling a datetime64[s, UTC] index at a sub-second width raises
         # ZeroDivisionError (pandas 3.0).
         s = s.set_axis(s.index.as_unit("ns"))
-    resampler = s.resample(f"{resolved.precision_ms}ms")
+    # origin= pins the lattice to the query window. Without it `resample`
+    # defaults to origin="start_day", midnight of *this channel's* first
+    # sample, so two channels in one request whose data starts on different
+    # days would answer the same window on different grids.
+    resampler = s.resample(f"{resolved.precision_ms}ms", origin=resolved.origin)
     counts = resampler.count()
     aggregated = resampler.agg(resolved.mode)
     return aggregated[counts > 0]

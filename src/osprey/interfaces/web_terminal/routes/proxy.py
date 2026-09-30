@@ -610,24 +610,14 @@ async def _request_no_redirect(
     The redirect is relayed to the browser instead (:func:`_relay_redirect`),
     whose re-request is re-gated by the terminal's own auth and, if it comes
     back through a panel path, earns a freshly evaluated injection.
-
-    The ``TypeError`` fallback covers a client double that does not accept the
-    per-request ``follow_redirects`` keyword. Such a stub does no redirect
-    following of its own, so one un-parameterised call is already safe; only the
-    keyword-specific ``TypeError`` is caught, so an unrelated one still surfaces.
     """
-    try:
-        return await client.request(
-            method=method,
-            url=url,
-            headers=headers,
-            content=content,
-            follow_redirects=False,
-        )
-    except TypeError as exc:
-        if "follow_redirects" not in str(exc):
-            raise
-        return await client.request(method=method, url=url, headers=headers, content=content)
+    return await client.request(
+        method=method,
+        url=url,
+        headers=headers,
+        content=content,
+        follow_redirects=False,
+    )
 
 
 def _same_origin(parsed: ParseResult, other_url: str) -> bool:
@@ -848,7 +838,7 @@ def _panel_rewrite_prefixes(request: Request, panel_id: str) -> tuple[str, ...]:
 
 
 def _rewrite_content(
-    body: str, panel_id: str, outer_prefix: str = "", extra_prefixes: tuple[str, ...] = ()
+    body: str, panel_id: str, outer_prefix: str, extra_prefixes: tuple[str, ...] = ()
 ) -> str:
     """Rewrite root-absolute paths inside string delimiters for proxied content.
 
@@ -867,7 +857,7 @@ def _rewrite_content(
         outer_prefix: The per-user mount prefix (``/u/<user>`` or ``""``, see
             ``compute_url_prefix()``). Prepended so a panel's internal
             assets/APIs resolve under the outer prefix too, not just
-            ``/panel/<id>``. Empty prefix ⇒ unchanged (pre-refactor) output.
+            ``/panel/<id>``. An empty prefix yields bare ``/panel/<id>/...``.
         extra_prefixes: The root-absolute prefixes this one panel adds to
             ``_REWRITE_PREFIXES``; none by default.
     """

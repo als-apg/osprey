@@ -211,10 +211,7 @@ def _browser_panel_url(cp: dict) -> str:
     """
     prefix = compute_url_prefix()
     if cp.get("discovered"):
-        url = cp.get("url")
-        if isinstance(url, str) and url:
-            return f"{prefix}{url}"
-        return f"{prefix}/panel-static/{cp['id']}/"
+        return f"{prefix}{cp['url']}"
     return f"{prefix}/panel/{cp['id']}"
 
 
@@ -382,16 +379,16 @@ async def get_panels(request: Request):
     # so this payload must not advertise the panel in any form: the client reads
     # the flag to decide whether to render the Config tab at all, and a tab
     # rendered against a refusing surface is a dead control, not a gated one.
-    # Default True mirrors app.coerce_config_flag's default for the key — a
-    # literal here for the same routes->app import-cycle reason as ui_mode.
-    config_panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+    # An app whose state carries no flag has refused the surface, as the
+    # routes behind it do, so absence reads as False.
+    config_panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", False))
     # Whether the scaffold gallery's write surface is live
     # (web.scaffold_gallery.write_enabled). `false` means every write/delete
     # verb under /api/scaffold answers 403, so the browser must stop painting
     # the create/claim/save/delete/register controls that reach for them; the
     # gallery reads this flag to do that (static/js/scaffold/write-gate.js).
-    # Default True mirrors the routes' own getattr default, as above.
-    scaffold_write_enabled = bool(getattr(request.app.state, "scaffold_write_enabled", True))
+    # Absent reads as False, as the routes' own gate does.
+    scaffold_write_enabled = bool(getattr(request.app.state, "scaffold_write_enabled", False))
     if not config_panel_enabled:
         # Belt and braces for the id itself. ``config`` is not a built-in panel
         # (it is a drawer tab, not a dock tile), so nothing puts it in these
@@ -752,10 +749,10 @@ class PanelArrangeRequest(BaseModel):
 def _resolve_preset_tiles(request: Request, name: str, known: set[str]) -> list[str]:
     """Resolve a preset name to its member panel ids, fail-safe filtered.
 
-    Mirrors ``computePresetDiff`` in ``panel-presets.js``: members are filtered
-    to the known ids (and the terminal id is dropped) so a typo'd or disabled
-    member in config is skipped rather than breaking the whole layout. Config
-    order is preserved — it is the left-to-right tile order clients apply.
+    Members are filtered to the known ids (and the terminal id is dropped) so a
+    typo'd or disabled member in config is skipped rather than breaking the
+    whole layout. Config order is preserved — it is the left-to-right tile order
+    clients apply.
 
     Args:
         request: Incoming request carrying ``app.state.panel_presets``.
@@ -1122,6 +1119,16 @@ _host_addrs_cache: tuple[float, frozenset[ipaddress.IPv4Address | ipaddress.IPv6
 )
 
 
+def reset_host_addrs_cache() -> None:
+    """Forget the last probe, so the next validation probes the interfaces again.
+
+    The memo is process-wide: without a reset, one probe's answer stands for
+    every panel validation in the process until the TTL runs out.
+    """
+    global _host_addrs_cache
+    _host_addrs_cache = None
+
+
 def _host_interface_addresses() -> frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     """Best-effort, dependency-free discovery of this host's own addresses.
 
@@ -1144,12 +1151,11 @@ def _host_interface_addresses() -> frozenset[ipaddress.IPv4Address | ipaddress.I
     name resolution with no timeout of its own — on a host whose resolver is
     slow or unreachable it blocks for however long the system resolver takes —
     and running that unconditionally on every registration would put an
-    unbounded stall in the request path. The cache lives INSIDE this function
-    rather than around it so that tests, which patch this module attribute
-    wholesale, replace the caching along with the probing.
+    unbounded stall in the request path. :func:`reset_host_addrs_cache` forgets
+    the memo.
 
     Blocking (it resolves and opens sockets), so callers on the event loop run
-    it in a thread pool. It is a module attribute so tests patch it directly.
+    it in a thread pool.
 
     Returns:
         The discovered addresses, normalized by :func:`_normalize_ip`.

@@ -821,7 +821,7 @@ class Ownership:
     profile_root: Path | None = None
 
 
-def resolve_ownership(project_dir: Path, env: dict[str, str] | None = None) -> Ownership:
+def resolve_ownership(project_dir: Path) -> Ownership:
     """Decide where claims for *project_dir* durably belong.
 
     The topology answers this, not the caller's privilege. ``PROFILE`` means
@@ -863,9 +863,8 @@ def resolve_ownership(project_dir: Path, env: dict[str, str] | None = None) -> O
 
     Args:
         project_dir: The render whose claims are being resolved.
-        env: Environment to read, for tests. Defaults to ``os.environ``.
     """
-    environ = os.environ if env is None else env
+    environ = os.environ
 
     if not is_container_render(environ):
         profile_root = _reachable_profile_root(project_dir)
@@ -906,8 +905,12 @@ def _log_no_durable_store() -> None:
     logger.warning(NO_DURABLE_STORE)
 
 
-def _reset_store_notice() -> None:
-    """Re-arm the once-per-process notice. For tests."""
+def reset_store_notice() -> None:
+    """Re-arm the once-per-process no-durable-store notice.
+
+    The notice is process-wide: once said, it stays silent for every later
+    container-mode resolution in the process until this re-arms it.
+    """
     global _store_notice_logged
     _store_notice_logged = False
 

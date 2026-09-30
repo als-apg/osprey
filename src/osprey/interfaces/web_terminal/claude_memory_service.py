@@ -60,14 +60,18 @@ class ClaudeMemoryService:
     # ── List ──────────────────────────────────────────────────────────
 
     def list_files(self) -> list[dict]:
-        """Return metadata for all *.md files in the memory directory."""
+        """Return metadata for every memory file the per-file operations accept.
+
+        Filtered by the same filename grammar :meth:`read_file` enforces, so the
+        gallery never lists an entry it would then refuse to open or delete.
+        """
         memory_dir = self._resolve_memory_dir()
         if not memory_dir.is_dir():
             return []
 
         files = []
         for path in sorted(memory_dir.glob("*.md")):
-            if not path.is_file():
+            if not path.is_file() or not _VALID_FILENAME_RE.match(path.name):
                 continue
             content = path.read_text(encoding="utf-8")
             line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
@@ -150,12 +154,13 @@ class ClaudeMemoryService:
 
     @staticmethod
     def _validate_filename(filename: str) -> None:
-        """Validate that a filename is safe and ends with .md."""
+        """Validate that a filename is safe and ends with .md.
+
+        The grammar admits no path separator and no leading dot, so a name that
+        passes it cannot leave the memory directory, whatever dots it holds.
+        """
         if not filename or not _VALID_FILENAME_RE.match(filename):
             raise MemoryValidationError(
                 f"Invalid filename: '{filename}'. "
                 "Must be alphanumeric with hyphens/underscores, ending in .md"
             )
-        # Reject path traversal
-        if ".." in filename or "/" in filename or "\\" in filename:
-            raise MemoryValidationError(f"Path traversal not allowed: '{filename}'")

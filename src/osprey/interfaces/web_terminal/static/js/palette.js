@@ -5,10 +5,10 @@
  * grouped registry (Settings / Panels / Layouts / Actions) and runs the picked
  * item. UI-only — the non-config app dependencies (panel/preset getters, action
  * closures, navigation callbacks) are injected via `openPalette(deps)`; this
- * module supplies just the /api/config fetch (its ONLY network call, injectable
- * as `deps.fetchConfig` for tests). The config load runs concurrently with the
- * open: the palette renders immediately with a "Loading settings…" decoration,
- * then rebuilds against the CURRENT query once the fetch settles.
+ * module supplies just the /api/config fetch (its ONLY network call). The
+ * config load runs concurrently with the open: the palette renders
+ * immediately with a "Loading settings…" decoration, then rebuilds against the
+ * CURRENT query once the fetch settles.
  *
  * Highlight-vs-rank split: items are RANKED by fuzzyMatch(query, searchText)
  * (panels carry extra tokens like the panel id in searchText), but the visible
@@ -54,8 +54,7 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /**
  * The NON-config dependency bundle the app injects. The config portion is
- * supplied by this module via the fetch flow; `fetchConfig` overrides the
- * default GET /api/config (used by tests to avoid the network).
+ * supplied by this module via the fetch flow (GET /api/config).
  * @typedef {{
  *   getHiddenPanels?: () => Array<{ id: string, label: string }>,
  *   getVisiblePanels?: () => Array<{ id: string, label: string }>,
@@ -66,9 +65,9 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  *   popoutPanel?: (id: string) => void,
  *   openPanelBeside?: (id: string) => void,
  *   applyPreset?: (name: string) => void,
+ *   resetLayout?: () => void,
  *   revealSetting?: (dotKey: string) => void,
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
- *   fetchConfig?: () => Promise<any>,
  * }} OpenDeps
  */
 
@@ -87,8 +86,6 @@ const RECENT_LIMIT = 5;
 /** Namespace prefix keeping a Recent row's nav key distinct from its original. */
 const RECENT_KEY_PREFIX = 'recent\x1f';
 
-/** The module's ONLY network call: fetch the config snapshot. */
-const defaultFetchConfig = () => fetchJSON('/api/config');
 
 /** @type {HTMLElement | null} */
 let overlayEl = null;
@@ -102,8 +99,6 @@ let opened = false;
 let previousFocus = null;
 /** @type {OpenDeps} */
 let currentDeps = {};
-/** @type {() => Promise<any>} */
-let fetchConfigFn = defaultFetchConfig;
 /** @type {ConfigState} */
 let configState = { state: 'loading' };
 /** @type {Item[]} */
@@ -237,6 +232,7 @@ function rebuildRegistry() {
     popoutPanel: currentDeps.popoutPanel,
     openPanelBeside: currentDeps.openPanelBeside,
     applyPreset: currentDeps.applyPreset,
+    resetLayout: currentDeps.resetLayout,
     revealSetting: currentDeps.revealSetting,
     actions: currentDeps.actions,
   });
@@ -498,7 +494,8 @@ function startConfigFetch() {
   if (!settingsReachable()) return;
   const token = ++fetchSeq;
   Promise.resolve()
-    .then(() => fetchConfigFn())
+    // The module's ONLY network call: the config snapshot.
+    .then(() => fetchJSON('/api/config'))
     .then((payload) => {
       if (token !== fetchSeq || !opened) return;
       const sections = payload && typeof payload === 'object' && payload.sections ? payload.sections : {};
@@ -530,9 +527,6 @@ export function openPalette(deps) {
     return;
   }
   currentDeps = deps || {};
-  fetchConfigFn = typeof currentDeps.fetchConfig === 'function'
-    ? currentDeps.fetchConfig
-    : defaultFetchConfig;
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   // 'loading' is a promise that a read is in flight. Where the Settings group
   // has nowhere to land (no `revealSetting` — see startConfigFetch) no read

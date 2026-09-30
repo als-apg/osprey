@@ -150,6 +150,8 @@ def test_app(mock_ariel_service):
 
     # Mock the service in app state
     app.state.ariel_service = mock_ariel_service
+    # The lifespan resolves this tier flag; a routes-only app states it.
+    app.state.config_panel_enabled = True
 
     return app
 
@@ -1153,11 +1155,14 @@ class TestConfigPanelTierGate:
         assert "agent_data.base_dir" not in response.json()["detail"]
 
     @pytest.mark.usefixtures("gated_config")
-    def test_an_absent_key_leaves_the_panel_open(self, client):
-        """An app whose lifespan never set the flag behaves as it always did."""
-        assert not hasattr(client.app.state, "config_panel_enabled")
+    def test_an_absent_flag_refuses_the_panel(self, client):
+        """An app that never resolved the flag has made no tier decision, so it refuses."""
+        del client.app.state.config_panel_enabled
 
-        assert client.get("/api/config").status_code == 200
+        response = client.get("/api/config")
+
+        assert response.status_code == 403
+        assert "web.config_panel.enabled" in response.json()["detail"]
 
     def test_capabilities_reports_the_gate(self, client):
         """The frontend gets the flag it needs to drop the Settings entry."""
@@ -1167,8 +1172,16 @@ class TestConfigPanelTierGate:
 
         assert payload["config_panel_enabled"] is False
 
-    def test_capabilities_reports_an_open_panel_by_default(self, client):
-        """No flag on app.state reads as open, matching the server's own default."""
+    def test_capabilities_reports_an_open_panel(self, client):
+        """An enabled flag is reported as it stands."""
         payload = client.get("/api/capabilities").json()
 
         assert payload["config_panel_enabled"] is True
+
+    def test_capabilities_reports_an_absent_flag_as_closed(self, client):
+        """No flag on app.state reads as closed, matching the gate's own refusal."""
+        del client.app.state.config_panel_enabled
+
+        payload = client.get("/api/capabilities").json()
+
+        assert payload["config_panel_enabled"] is False

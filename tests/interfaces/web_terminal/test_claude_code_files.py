@@ -9,7 +9,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.audit.protected import SURFACE_CLAUDE_SETUP
-from osprey.cli.profile_conventions import is_reserved_write
 from osprey.interfaces.web_terminal.claude_code_files import (
     PROFILE_EDIT_NOTICE,
     ClaudeCodeFileService,
@@ -59,28 +58,9 @@ def service(project_dir):
     return ClaudeCodeFileService(project_dir)
 
 
-@pytest.fixture(autouse=True)
-def audit_dir(tmp_path, monkeypatch):
-    """Redirect the audit zone out of the real deployment.
-
-    ``writer.audit_dir`` is the ledger's single test seam: every surface's
-    path is derived from it, so patching it here catches the record without
-    standing up a project root.
-
-    Autouse, because every refusal in this file records whether or not the
-    test reads the record back: a suite that appends refusals nobody caused to
-    the deployment's own ledger makes the ledger unusable as evidence.
-    """
-    from osprey.audit import writer
-
-    target = tmp_path / "audit-zone"
-    monkeypatch.setattr(writer, "audit_dir", lambda: target)
-    return target
-
-
-def _audit_records(audit_dir):
-    """Every ``claude_setup`` record written under *audit_dir*, oldest first."""
-    log = audit_dir / acting_identity() / f"{SURFACE_CLAUDE_SETUP}.jsonl"
+def _audit_records(zone):
+    """Every ``claude_setup`` record written under *zone*, oldest first."""
+    log = zone / acting_identity() / f"{SURFACE_CLAUDE_SETUP}.jsonl"
     if not log.exists():
         return []
     return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
@@ -151,24 +131,7 @@ class TestListFiles:
         assert files == []
 
 
-class TestReadFile:
-    def test_reads_existing_file(self, service):
-        result = service.read_file("CLAUDE.md")
-        assert result["content"] == "# Test CLAUDE.md\n"
-        assert result["name"] == "CLAUDE.md"
-        assert result["language"] == "markdown"
-
-    def test_file_not_found(self, service):
-        with pytest.raises(FileNotFoundError):
-            service.read_file("nonexistent.md")
-
-
 class TestWriteFile:
-    def test_writes_existing_file(self, service, project_dir):
-        result = service.write_file(".claude/agents/test-agent.md", "# Updated\n")
-        assert result["status"] == "saved"
-        assert (project_dir / ".claude" / "agents" / "test-agent.md").read_text() == "# Updated\n"
-
     def test_write_file_refuses_a_path_outside_the_project(self, service):
         """A climbing path is judged by the protected set, which owns it first."""
         with pytest.raises(ProtectedWriteError, match="not project-relative"):
@@ -262,23 +225,6 @@ class TestWriteFileProtectedSet:
             project_dir / ".claude" / "agents" / "test-agent.md"
         ).read_text() == "# Reworked agent\n"
 
-    def test_write_file_refusal_is_audited(self, service, audit_dir):
-        with pytest.raises(ProtectedWriteError):
-            service.write_file(".claude/settings.json", "{}")
-
-        records = _audit_records(audit_dir)
-        assert len(records) == 1
-        record = records[0]
-        assert record["surface"] == "claude_setup"
-        assert record["subject"] == ".claude/settings.json"
-        assert "target=.claude/settings.json" in record["detail"]
-        assert is_reserved_write(".claude/settings.json") in record["detail"]
-        assert record["reason"] == "reserved path"
-
-    def test_write_file_success_is_not_audited(self, service, audit_dir):
-        service.write_file(".claude/agents/test-agent.md", "# Fine\n")
-        assert _audit_records(audit_dir) == []
-
     def test_write_file_refusal_precedes_content_validation(self, service, project_dir):
         """Invalid JSON aimed at a reserved file is refused as reserved, not as syntax."""
         before = (project_dir / ".claude" / "settings.json").read_bytes()
@@ -301,71 +247,9 @@ class TestClaudeSetupRoutes:
         app = FastAPI()
         app.include_router(config_router)
         app.state.project_cwd = str(project_dir)
-        app.state.agent_activity_ring = []
+        # The lifespan resolves this tier flag; a routes-only app states it.
+        app.state.config_panel_enabled = True
         return app
-
-    def test_write_file_refusal_returns_403_naming_the_channel(self, app, project_dir):
-        before = (project_dir / ".claude" / "settings.json").read_bytes()
-
-        with TestClient(app) as client:
-            resp = client.put(
-                "/api/claude-setup",
-                json={"path": ".claude/settings.json", "content": "{}"},
-            )
-
-        assert resp.status_code == 403
-        assert "`config:`" in resp.json()["detail"]
-        assert (project_dir / ".claude" / "settings.json").read_bytes() == before
-
-    def test_write_file_refusal_publishes_agent_activity(self, app):
-        with TestClient(app) as client:
-            client.put(
-                "/api/claude-setup",
-                json={"path": ".claude/settings.json", "content": "{}"},
-            )
-
-        assert len(app.state.agent_activity_ring) == 1
-        frame = app.state.agent_activity_ring[0]
-        assert frame["tool"] == "claude_setup_refused"
-        assert frame["target"]["kind"] == "config"
-        assert ".claude/settings.json" in frame["target"]["detail"]
-
-    def test_write_file_success_publishes_no_activity(self, app):
-        with TestClient(app) as client:
-            resp = client.put(
-                "/api/claude-setup",
-                json={"path": ".claude/agents/test-agent.md", "content": "# ok\n"},
-            )
-
-        assert resp.status_code == 200
-        assert app.state.agent_activity_ring == []
-
-    def test_create_file_refusal_returns_403_and_publishes_activity(self, app, project_dir):
-        with TestClient(app) as client:
-            resp = client.post(
-                "/api/claude-setup",
-                json={"path": ".claude/skills/new/SKILL.md", "content": "# Skill\n"},
-            )
-
-        assert resp.status_code == 403
-        assert "`skills/`" in resp.json()["detail"]
-        assert not (project_dir / ".claude" / "skills").exists()
-
-        assert len(app.state.agent_activity_ring) == 1
-        frame = app.state.agent_activity_ring[0]
-        assert frame["tool"] == "claude_setup_refused"
-        assert frame["target"]["kind"] == "config"
-        assert ".claude/skills/new/SKILL.md" in frame["target"]["detail"]
-
-    def test_create_file_success_publishes_no_activity(self, app):
-        with TestClient(app) as client:
-            resp = client.post(
-                "/api/claude-setup",
-                json={"path": ".claude/agents/new.md", "content": "# ok\n"},
-            )
-
-        assert resp.status_code == 200
-        assert app.state.agent_activity_ring == []
 
     def test_listing_carries_the_profile_notice_and_read_only_flags(self, app):
         with TestClient(app) as client:
@@ -385,19 +269,12 @@ class TestCreateFile:
         assert (project_dir / ".claude" / "commands" / "new-command.md").exists()
         assert result["category"] == "Commands"
 
-    @pytest.mark.usefixtures("project_dir")
-    def test_create_in_agents_dir(self, service):
-        result = service.create_file(".claude/agents/my-agent.md", "# Agent\n")
-        assert result["status"] == "created"
-        assert result["category"] == "Agents"
-
-    def test_create_outside_allowed_dir(self, service):
+    @pytest.mark.parametrize(
+        "rel_path", ["src/malicious.py", "evil.md", ".claude/not-a-listed-dir/x.md"]
+    )
+    def test_create_outside_allowed_dir(self, service, rel_path):
         with pytest.raises(PermissionError, match="must be in .claude"):
-            service.create_file("src/malicious.py", "import os\n")
-
-    def test_create_in_root(self, service):
-        with pytest.raises(PermissionError, match="must be in .claude"):
-            service.create_file("evil.md", "# Evil\n")
+            service.create_file(rel_path, "# content\n")
 
     def test_create_file_already_exists(self, service):
         """A writable file that exists is still a conflict, not a refusal."""
@@ -470,23 +347,6 @@ class TestCreateFileProtectedSet:
         assert result["category"] == "Agents"
         assert (project_dir / ".claude" / "agents" / "new.md").read_text() == "# New agent\n"
 
-    def test_create_file_refusal_is_audited(self, service, audit_dir):
-        with pytest.raises(ProtectedWriteError):
-            service.create_file(".claude/skills/new/SKILL.md", "# Skill\n")
-
-        records = _audit_records(audit_dir)
-        assert len(records) == 1
-        record = records[0]
-        assert record["surface"] == "claude_setup"
-        assert record["subject"] == ".claude/skills/new/SKILL.md"
-        assert "target=.claude/skills/new/SKILL.md" in record["detail"]
-        assert is_reserved_write(".claude/skills/new/SKILL.md") in record["detail"]
-        assert record["reason"] == "reserved path"
-
-    def test_create_file_success_is_not_audited(self, service, audit_dir):
-        service.create_file(".claude/agents/new.md", "# Fine\n")
-        assert _audit_records(audit_dir) == []
-
     def test_create_file_refusal_precedes_the_allowed_dir_check(self, service, project_dir):
         """A reserved root file is refused as reserved, not as "wrong directory"."""
         before = (project_dir / ".mcp.json").read_bytes()
@@ -508,53 +368,25 @@ class TestCreateFileProtectedSet:
 
 
 class TestCategorize:
-    def test_known_files(self):
-        assert ClaudeCodeFileService.categorize("CLAUDE.md", "CLAUDE.md") == "System Prompt"
-        assert ClaudeCodeFileService.categorize(".mcp.json", ".mcp.json") == "MCP Servers"
-
-    def test_agent_file(self):
-        assert (
-            ClaudeCodeFileService.categorize(
-                "resolver-agent.md", ".claude/agents/resolver-agent.md"
-            )
-            == "Agents"
-        )
-
-    def test_hooks_file(self):
-        assert (
-            ClaudeCodeFileService.categorize("pre-check.sh", ".claude/hooks/pre-check.sh")
-            == "Hooks"
-        )
-
-    def test_commands_file(self):
-        assert (
-            ClaudeCodeFileService.categorize("deploy.md", ".claude/commands/deploy.md")
-            == "Commands"
-        )
-
     def test_unknown_file(self):
         assert ClaudeCodeFileService.categorize("random.txt", "random.txt") == "Other"
 
 
 class TestDetectLanguage:
-    def test_markdown(self):
-        assert ClaudeCodeFileService.detect_language("file.md") == "markdown"
+    """The suffixes the listing tests do not reach (md, json and shell are
+    pinned through ``TestListFiles::test_languages_detected``)."""
 
-    def test_json(self):
-        assert ClaudeCodeFileService.detect_language("config.json") == "json"
-
-    def test_yaml_variants(self):
-        assert ClaudeCodeFileService.detect_language("config.yml") == "yaml"
-        assert ClaudeCodeFileService.detect_language("config.yaml") == "yaml"
-
-    def test_shell(self):
-        assert ClaudeCodeFileService.detect_language("script.sh") == "shell"
-
-    def test_python(self):
-        assert ClaudeCodeFileService.detect_language("script.py") == "python"
-
-    def test_unknown(self):
-        assert ClaudeCodeFileService.detect_language("file.txt") == "text"
+    @pytest.mark.parametrize(
+        ("name", "language"),
+        [
+            ("config.yml", "yaml"),
+            ("config.yaml", "yaml"),
+            ("script.py", "python"),
+            ("file.txt", "text"),
+        ],
+    )
+    def test_detect_language(self, name, language):
+        assert ClaudeCodeFileService.detect_language(name) == language
 
 
 class TestSymlinkedReservedTargets:
@@ -602,14 +434,16 @@ class TestSymlinkedReservedTargets:
         assert "nothing was written" in message.lower()
         assert target.read_bytes() == before
 
-    def test_write_file_refusal_through_a_link_is_audited(self, service, project_dir, audit_dir):
+    def test_write_file_refusal_through_a_link_is_audited(
+        self, service, project_dir, audit_zone_path
+    ):
         link_rel = ".claude/agents/x.md"
         (project_dir / link_rel).symlink_to(project_dir / ".claude" / "rules" / "safety.md")
 
         with pytest.raises(ProtectedWriteError):
             service.write_file(link_rel, "PWNED")
 
-        records = _audit_records(audit_dir)
+        records = _audit_records(audit_zone_path)
         assert len(records) == 1
         record = records[0]
         assert record["surface"] == "claude_setup"

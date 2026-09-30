@@ -107,22 +107,13 @@ describe('rail-position theme coupling', () => {
     expect(getRailPosition()).toBe('left');
   });
 
-  test('an unmapped family goes to the default position', () => {
-    followThemeFamily('retro');
-    followThemeFamily('high-contrast');
-    expect(getRailPosition()).toBe('left');
-  });
-
-  test('a user pin outranks the family', () => {
-    setRailPosition('left'); // explicit choice — pinned
-    followThemeFamily('retro');
-    expect(getRailPosition()).toBe('left');
-  });
-
-  test('a user pin of top survives leaving the retro family', () => {
-    setRailPosition('top');
-    followThemeFamily('main');
-    expect(getRailPosition()).toBe('top');
+  test.each([
+    ['left', 'retro'],
+    ['top', 'main'],
+  ])('a user pin of %s outranks the %s family', (pinned, family) => {
+    setRailPosition(/** @type {'left'|'top'} */ (pinned)); // explicit choice — pinned
+    followThemeFamily(family);
+    expect(getRailPosition()).toBe(pinned);
   });
 
   test('a config-pinned rail outranks the family', () => {

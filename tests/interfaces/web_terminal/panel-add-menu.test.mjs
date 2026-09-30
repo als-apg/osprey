@@ -19,28 +19,18 @@ import {
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-add-menu.js';
 
 describe('derivePanelId', () => {
-  test('slugs a plain label', () => {
-    expect(derivePanelId('My Dashboard')).toBe('my-dashboard');
-  });
-
-  test('uses the hostname for a URL input', () => {
-    expect(derivePanelId('http://grafana.internal:3000')).toBe('grafana-internal');
-    expect(derivePanelId('https://Metrics.Lan/path?q=1')).toBe('metrics-lan');
-  });
-
-  test('collapses runs of punctuation and trims edge dashes', () => {
-    expect(derivePanelId('  Beam   Position!! ')).toBe('beam-position');
-    expect(derivePanelId('--weird__name--')).toBe('weird-name');
-  });
-
-  test('never returns an empty id', () => {
-    expect(derivePanelId('')).toBe('panel');
-    expect(derivePanelId('!!!')).toBe('panel');
-    expect(derivePanelId('   ')).toBe('panel');
-  });
-
-  test('is idempotent on an already-clean slug', () => {
-    expect(derivePanelId('lattice')).toBe('lattice');
+  test.each([
+    ['a plain label is slugged', 'My Dashboard', 'my-dashboard'],
+    ['a URL input uses its hostname', 'http://grafana.internal:3000', 'grafana-internal'],
+    ['a URL hostname is lowercased, path and query dropped', 'https://Metrics.Lan/path?q=1', 'metrics-lan'],
+    ['runs of punctuation collapse', '  Beam   Position!! ', 'beam-position'],
+    ['edge dashes are trimmed', '--weird__name--', 'weird-name'],
+    ['an empty input never yields an empty id', '', 'panel'],
+    ['punctuation only never yields an empty id', '!!!', 'panel'],
+    ['whitespace only never yields an empty id', '   ', 'panel'],
+    ['an already-clean slug is unchanged', 'lattice', 'lattice'],
+  ])('%s', (_case, input, id) => {
+    expect(derivePanelId(input)).toBe(id);
   });
 });
 
@@ -119,8 +109,9 @@ describe('initPanelAddMenu — Layouts section', () => {
     initPanelAddMenu(baseOptions(dom)); // getPresets → []
     dom.button.click();
 
+    // The menu rendered, with only its default section.
     const headings = [...dom.menu.querySelectorAll('.panel-add-heading')].map((h) => h.textContent);
-    expect(headings).not.toContain('Layouts');
+    expect(headings).toEqual(['Show panel']);
   });
 
   test('clicking a preset calls onApplyPreset with its NAME and closes the menu', () => {

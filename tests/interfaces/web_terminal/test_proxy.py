@@ -45,7 +45,6 @@ a real caller does, and which way is load-bearing per test:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from unittest.mock import AsyncMock, patch
 
@@ -65,6 +64,8 @@ from osprey.interfaces.web_terminal.routes.proxy import (
 )
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 from osprey.utils.owner_header import OWNER_HEADER
+
+from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect
 
 pytestmark = pytest.mark.no_auth_seam
 
@@ -229,10 +230,8 @@ def panels_app(workspace_dir):
 def _capture_request(app, response_factory=None):
     """Stub ``proxy_client.request`` and return the dict it records headers into.
 
-    ``follow_redirects`` is accepted (and defaulted) because the proxy now sends
-    every request with it — a stub that rejected the keyword would be silently
-    retried without it by ``_request_no_redirect``'s ``TypeError`` fallback, and
-    the redirect assertions would then be testing the fallback.
+    ``follow_redirects`` is accepted because the proxy sends every request with
+    it, as the real ``httpx.AsyncClient.request`` does.
     """
     captured: dict[str, str] = {}
 
@@ -282,27 +281,6 @@ def capture_over_a_real_client():
         asyncio.run(client.aclose())
 
 
-def _lower(headers):
-    return {k.lower(): v for k, v in headers.items()}
-
-
-class _FakeStreamResponse:
-    """A streamed upstream response, as ``client.send(stream=True)`` returns one."""
-
-    def __init__(self, *, status_code=200, headers=None, chunks=(b"data: hello\n\n",)):
-        self.status_code = status_code
-        self.headers = httpx.Headers(headers or {"content-type": "text/event-stream"})
-        self._chunks = chunks
-        self.closed = False
-
-    async def aiter_bytes(self):
-        for chunk in self._chunks:
-            yield chunk
-
-    async def aclose(self):
-        self.closed = True
-
-
 def _capture_sse(app, upstream):
     """Stub the SSE branch's ``build_request``/``send``; return the header dict."""
     captured: dict[str, str] = {}
@@ -349,15 +327,6 @@ class TestInboundCredentialStrip:
         assert "x-osprey-terminal-secret" not in _lower(captured)
         assert OPERATOR_SECRET not in " ".join(captured.values())
 
-    def test_authorization_is_dropped_not_relayed(self, panels_app):
-        """An inbound Authorization header is dropped for an ordinary panel."""
-        app, client = panels_app
-        captured = _capture_request(app)
-
-        client.get("/panel/registered/api/status", headers=OPERATOR_HEADERS)
-
-        assert "authorization" not in _lower(captured)
-
     def test_benign_headers_still_forwarded(self, panels_app):
         """The strip is targeted — ordinary request headers still cross."""
         app, client = panels_app
@@ -365,11 +334,19 @@ class TestInboundCredentialStrip:
 
         client.get(
             "/panel/registered/api/status",
-            headers={**OPERATOR_HEADERS, "x-custom-thing": "kept", "accept": "application/json"},
+            headers={
+                **OPERATOR_HEADERS,
+                "x-custom-thing": "kept",
+                "accept": "application/json",
+                # One word short of the operator-secret header: the strip
+                # matches whole names, not a prefix.
+                "x-osprey-terminal": "kept",
+            },
         )
 
         seen = _lower(captured)
         assert seen.get("x-custom-thing") == "kept"
+        assert seen.get("x-osprey-terminal") == "kept"
         assert seen.get("x-forwarded-prefix") == "/panel/registered"
 
     def test_sse_path_strips_too(self, panels_app):
@@ -471,39 +448,6 @@ class TestBrowserOriginIsNotRelayed:
 
         assert resp.status_code == 200
         assert "origin" not in _lower(captured)
-
-
-class TestStripPredicate:
-    """``_is_stripped_header`` folds ``_``→``-`` before matching."""
-
-    @pytest.mark.parametrize(
-        "name",
-        [
-            "cookie",
-            "Cookie",
-            "authorization",
-            "AUTHORIZATION",
-            "x-osprey-terminal-secret",
-            "X-Osprey-Terminal-Secret",
-            "X_Osprey_Terminal_Secret",
-            "x_osprey_terminal_secret",
-            # Spelled out rather than derived: this is the wire name the gate,
-            # the MCP layer and the bridge each reach independently, and the
-            # strip is only closed if the proxy answers to that same text.
-            "x-osprey-owner",
-            "X-Osprey-Owner",
-            "X_Osprey_Owner",
-        ],
-    )
-    def test_stripped(self, name):
-        assert _is_stripped_header(name) is True
-
-    @pytest.mark.parametrize(
-        "name",
-        ["accept", "x-forwarded-prefix", "content-type", "x-osprey-terminal", "user-agent"],
-    )
-    def test_not_stripped(self, name):
-        assert _is_stripped_header(name) is False
 
 
 class TestSecretInjection:
@@ -1109,19 +1053,6 @@ class TestRedirectContainment:
         assert resp.status_code == 502
         assert "location" not in _lower(resp.headers)
 
-    def test_loopback_internal_redirect_location_is_rebased(self, panels_app):
-        app, client = panels_app
-        self._record_calls(app, lambda: httpx.Response(302, headers={"location": "/dashboard"}))
-
-        resp = client.get(
-            "/panel/trusted/api/thing", headers=OPERATOR_HEADERS, follow_redirects=False
-        )
-
-        assert resp.status_code == 302
-        # Root-absolute Location re-based into the panel namespace so the
-        # browser's re-request comes back through the proxy (and is re-gated).
-        assert resp.headers["location"] == "/panel/trusted/dashboard"
-
     def test_backend_origin_redirect_location_is_rebased(self, panels_app):
         app, client = panels_app
         self._record_calls(
@@ -1258,7 +1189,10 @@ class TestRedirectContainment:
         app, client = panels_app
         self._record_calls(
             app,
-            lambda: httpx.Response(304, headers={"etag": '"abc"', "cache-control": "no-cache"}),
+            lambda: httpx.Response(
+                304,
+                headers={"etag": '"abc"', "cache-control": "no-cache", "location": "/elsewhere"},
+            ),
         )
 
         resp = client.get(
@@ -1266,7 +1200,8 @@ class TestRedirectContainment:
         )
 
         assert resp.status_code == 304
-        assert "location" not in _lower(resp.headers)
+        # Relayed as it stands: the redirect path would re-base it into the panel.
+        assert resp.headers["location"] == "/elsewhere"
         assert resp.headers["etag"] == '"abc"'
         assert resp.headers["cache-control"] == "no-cache"
 
@@ -1275,22 +1210,21 @@ class TestDispatcherTokenGate:
     """The events dispatcher token follows the same gate as the operator secret.
 
     It is a deployment-wide bearer token: config origin alone would still send
-    it over the network to whatever host an off-box ``events`` panel names.
+    it over the network to whatever host an off-box ``events`` panel names, and
+    loopback alone would hand it to a listener a runtime registration squatted
+    the id with. It goes to the ``events`` panel only, and only when that panel
+    is both declared by config and addressed at loopback.
     """
 
     @pytest.fixture
     def events_app(self, workspace_dir, request):
-        custom = [
-            {
-                "id": "events",
-                "label": "EVENTS",
-                "url": request.param,
-                "configDefined": True,
-            },
-        ]
-        yield from _build_app(workspace_dir, custom)
+        url, config_defined = request.param
+        panel = {"id": "events", "label": "EVENTS", "url": url}
+        if config_defined:
+            panel["configDefined"] = True
+        yield from _build_app(workspace_dir, [panel])
 
-    @pytest.mark.parametrize("events_app", ["http://localhost:8020"], indirect=True)
+    @pytest.mark.parametrize("events_app", [("http://localhost:8020", True)], indirect=True)
     def test_loopback_events_panel_gets_the_bearer(self, events_app, monkeypatch):
         app, client = events_app
         monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
@@ -1305,8 +1239,17 @@ class TestDispatcherTokenGate:
         # entitled to the operator secret.
         assert seen.get("x-osprey-terminal-secret") == OPERATOR_SECRET
 
-    @pytest.mark.parametrize("events_app", ["http://events.facility.lan:8020"], indirect=True)
-    def test_offbox_events_panel_gets_neither_credential(self, events_app, monkeypatch):
+    @pytest.mark.parametrize(
+        "events_app",
+        [
+            pytest.param(("http://events.facility.lan:8020", True), id="declared-but-off-box"),
+            # A runtime registration squatting the id on loopback: only the
+            # missing config marker can withhold the token here.
+            pytest.param(("http://127.0.0.1:8020", False), id="loopback-but-registered"),
+        ],
+        indirect=True,
+    )
+    def test_an_untrusted_events_panel_gets_neither_credential(self, events_app, monkeypatch):
         app, client = events_app
         monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
         captured = _capture_request(app)
@@ -1316,6 +1259,30 @@ class TestDispatcherTokenGate:
         seen = _lower(captured)
         assert "authorization" not in seen
         assert "x-osprey-terminal-secret" not in seen
+        assert "dispatcher-token" not in " ".join(captured.values())
+
+    @pytest.mark.parametrize("events_app", [("http://localhost:8020", True)], indirect=True)
+    def test_no_token_no_header(self, events_app, monkeypatch):
+        """A deployment without the token sends no credential rather than a blank one."""
+        app, client = events_app
+        monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
+        captured = _capture_request(app)
+
+        client.get("/panel/events/dashboard/state", headers=OPERATOR_HEADERS)
+
+        assert "authorization" not in _lower(captured)
+
+    def test_only_the_events_panel_gets_the_bearer(self, panels_app, monkeypatch):
+        """A declared loopback panel earns the operator secret, never the dispatcher's token."""
+        app, _client = panels_app
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
+        captured = _capture_request(app)
+
+        _cookie_client(app).get("/panel/trusted/api/status")
+
+        seen = _lower(captured)
+        assert seen.get("x-osprey-terminal-secret") == OPERATOR_SECRET
+        assert "authorization" not in seen
         assert "dispatcher-token" not in " ".join(captured.values())
 
 
@@ -1387,53 +1354,6 @@ class TestHeaderSpellingPin:
         assert _is_stripped_header(OWNER_HEADER) is True
 
 
-class _FakeUpstreamSocket:
-    """A websocket upstream that stays open until the relay task is cancelled."""
-
-    def __init__(self):
-        self.sent: list[object] = []
-
-    async def send(self, data):
-        self.sent.append(data)
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        await asyncio.Event().wait()  # pragma: no cover - cancelled at teardown
-        raise AssertionError("unreachable")
-
-
-class _FakeConnect:
-    """Stands in for a websocket connect type, recording the handshake arguments."""
-
-    def __init__(self):
-        self.target = None
-        self.kwargs = None
-        self.refuses_redirects = False
-
-    def __call__(self, target, **kwargs):
-        self.target = target
-        self.kwargs = kwargs
-        return self
-
-    async def __aenter__(self):
-        return _FakeUpstreamSocket()
-
-    async def __aexit__(self, *exc_info):
-        return False
-
-
-@contextlib.contextmanager
-def _patch_connect(fake):
-    """Replace both connect types the WS proxy picks from with one *fake*."""
-    with (
-        patch("websockets.connect", fake),
-        patch("osprey.interfaces.web_terminal.routes.proxy._RedirectRefusingConnect", fake),
-    ):
-        yield fake
-
-
 class TestWebSocketBoundary:
     """The WS upstream handshake carries the secret, or nothing at all."""
 
@@ -1459,13 +1379,6 @@ class TestWebSocketBoundary:
                 pass
         assert (plain.target is None) != (refusing.target is None)
         return refusing if refusing.target is not None else plain
-
-    def test_trusted_panel_ws_carries_secret(self, panels_app):
-        _app, client = panels_app
-
-        fake = self._connect(client, "/panel/trusted/ws/stream")
-
-        assert fake.kwargs["additional_headers"] == {TERMINAL_SECRET_HEADER: OPERATOR_SECRET}
 
     def test_trusted_panel_ws_refuses_redirects(self, panels_app):
         """Carrying the secret, the handshake must not follow a redirect off loopback."""

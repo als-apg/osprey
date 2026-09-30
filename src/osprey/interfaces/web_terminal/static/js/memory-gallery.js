@@ -455,7 +455,7 @@ class MemoryGallery {
       this.renderDetailActions();
       this.renderDetailHeader();
     } catch (e) {
-      this.flashError(`Save failed: ${/** @type {Error} */ (e).message}`);
+      this.flashError(/** @type {Error} */ (e).message);
     }
   }
 
@@ -480,7 +480,7 @@ class MemoryGallery {
       this.editDirty = false;
       this.renderGallery();
     } catch (e) {
-      this.flashError(`Delete failed: ${/** @type {Error} */ (e).message}`);
+      this.flashError(/** @type {Error} */ (e).message);
     }
   }
 
@@ -504,7 +504,7 @@ class MemoryGallery {
       this.renderSummary();
       this.openDetail(newFile);
     } catch (e) {
-      this.flashError(`Create failed: ${/** @type {Error} */ (e).message}`);
+      this.flashError(/** @type {Error} */ (e).message);
     }
   }
 

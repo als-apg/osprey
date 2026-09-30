@@ -21,9 +21,10 @@
  * arrives once, at boot, and every gallery that renders afterwards must agree
  * with it — including ones constructed before it landed.
  *
- * Absence of the field means ENABLED, matching the server's own
- * `getattr(app.state, "scaffold_write_enabled", True)` default: only an
- * explicit `false` withdraws the controls. A null payload — a failed or hung
+ * Absence of the field means ENABLED on the client only as a boot-time
+ * placeholder: the server always sends it, and a server app that never
+ * resolved the tier refuses writes. Only an explicit `false` withdraws the
+ * controls. A null payload — a failed or hung
  * `/api/panels` — leaves the posture as it stands; a read that never landed is
  * not a statement about the deployment.
  *
