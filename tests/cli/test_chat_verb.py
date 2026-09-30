@@ -544,6 +544,8 @@ class TestProviderEnvironment:
         assert result.exit_code == 1
         assert "Refusing to launch" in result.output
         assert launches == []
+        assert "https://elsewhere.example.org" in result.output
+        assert "https://api.cborg.lbl.gov" in result.output
 
     def test_managed_policy_equal_to_the_launch_value_launches(
         self, runner, launches, lifecycle_repo, monkeypatch
@@ -575,6 +577,7 @@ class TestProviderEnvironment:
 
         assert result.exit_code == 1
         assert launches == []
+        assert "http://127.0.0.1:7777" in result.output
 
     def test_managed_policy_refuses_a_provider_less_build_on_presence(
         self, runner, launches, lifecycle_repo, monkeypatch

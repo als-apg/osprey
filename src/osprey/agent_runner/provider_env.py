@@ -220,6 +220,11 @@ MANAGED_ENV_VARS = frozenset(
     }
 )
 
+# Managed variables whose values are secrets: a managed-policy refusal names
+# them but never prints either side's value.
+_CREDENTIAL_ENV_VARS = frozenset({"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"})
+assert _CREDENTIAL_ENV_VARS <= MANAGED_ENV_VARS
+
 
 def _managed_policy_settings_paths() -> list[Path]:
     """Return the Claude Code managed-policy settings files for this OS.
@@ -331,19 +336,45 @@ def format_managed_policy_conflicts(conflicts: list[ManagedPolicyConflict]) -> s
     """Render a launch-refusal message for managed-policy conflicts.
 
     Shared by every launch path (CLI, Web Terminal, dispatch worker) so the
-    refusal reads identically regardless of where it fires.
+    refusal reads identically regardless of where it fires. The message is
+    written for whoever administers the policy file as much as for the
+    operator: it names the policy's value and the deployment's for each
+    variable, and says which side to change. Credentials are never printed.
     """
-    lines = [
-        "Managed-policy settings override OSPREY-managed provider variables:",
-    ]
+    lines = ["Managed policy sets provider variables this deployment launches differently:"]
     for conflict in conflicts:
-        lines.append(f"    {conflict.var} = {conflict.policy_value}  ({conflict.source})")
-    lines.append(
-        "Managed policy outranks the project's provider configuration. Remove "
-        "these keys from the policy file or reconcile them with config.yml "
-        "before launching."
+        lines.append(f"    {conflict.var}")
+        lines.append(f"        policy:      {_policy_side(conflict)}  ({conflict.source})")
+        lines.append(f"        deployment:  {_launch_side(conflict)}")
+    lines.extend(
+        [
+            "Managed policy outranks the deployment, so the agent would run on the policy's values.",
+            "Remove these keys from the policy file, or give each one the deployment's value. A key",
+            "the deployment does not set, or one that points at the local translation proxy, can",
+            "only be removed. To use the policy's provider instead, change the provider in",
+            "profile.yml and run `osprey build`.",
+        ]
     )
     return "\n".join(lines)
+
+
+def _policy_side(conflict: ManagedPolicyConflict) -> str:
+    """The policy's value as a refusal shows it."""
+    if conflict.var in _CREDENTIAL_ENV_VARS:
+        return "a credential (not shown)"
+    return conflict.policy_value
+
+
+def _launch_side(conflict: ManagedPolicyConflict) -> str:
+    """The deployment's value as a refusal shows it."""
+    value = conflict.launch_value
+    if value is None:
+        return "not set"
+    if conflict.var in _CREDENTIAL_ENV_VARS:
+        return "a different credential (not shown)"
+    if conflict.var == "ANTHROPIC_BASE_URL" and urlsplit(value).hostname == "127.0.0.1":
+        return f"{value}  (local translation proxy; its port changes at every launch)"
+    return value
 
 
 def _load_dotenv(project_dir: Path) -> dict[str, str]:
