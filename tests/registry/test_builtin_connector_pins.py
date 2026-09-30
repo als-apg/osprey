@@ -211,7 +211,7 @@ class TestRegistryInitializationRegistersTheStandIn:
         connector = await ConnectorFactory.create_control_system_connector(
             {
                 "type": types.LIVE_STANDIN,
-                "connector": {types.LIVE_STANDIN: {"timeout": 1.0}},
+                "connector": {types.LIVE_STANDIN: {"timeout_s": 1.0}},
             },
             control_target=types.TARGET_STANDIN,
         )

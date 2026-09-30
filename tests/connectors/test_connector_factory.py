@@ -290,7 +290,7 @@ class TestLiveStandinRegistration:
         # and opens no CA context, so nothing here reaches a network.
         config = {
             "type": types.LIVE_STANDIN,
-            "connector": {types.LIVE_STANDIN: {"timeout": 1.0}},
+            "connector": {types.LIVE_STANDIN: {"timeout_s": 1.0}},
         }
 
         connector = await ConnectorFactory.create_control_system_connector(config)
@@ -315,7 +315,7 @@ class TestLiveStandinRegistration:
         register_builtin_connectors()
 
         connector = await ConnectorFactory.create_control_system_connector(
-            {"type": types.EPICS, "connector": {types.EPICS: {"timeout": 1.0}}}
+            {"type": types.EPICS, "connector": {types.EPICS: {"timeout_s": 1.0}}}
         )
 
         assert connector._connector_type == types.EPICS

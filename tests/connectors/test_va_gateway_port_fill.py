@@ -245,7 +245,7 @@ def test_the_callers_config_is_not_mutated(deployed_va_port) -> None:
     [
         {},
         {"gateways": {}},
-        {"timeout": 5.0},
+        {"timeout_s": 5.0},
         {"gateways": None},
     ],
     ids=["no-gateways-key", "empty-gateways", "timeout-only", "null-gateways"],
@@ -284,10 +284,10 @@ async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, mon
     monkeypatch.setattr(va_connector.EPICSConnector, "connect", fake_epics_connect, raising=True)
 
     connector = VirtualAcceleratorConnector()
-    await connector.connect({"timeout": 5.0, "gateways": {"read_only": {"address": "localhost"}}})
+    await connector.connect({"timeout_s": 5.0, "gateways": {"read_only": {"address": "localhost"}}})
 
     assert captured["config"]["gateways"]["read_only"]["port"] == 15064
-    assert captured["config"]["timeout"] == 5.0
+    assert captured["config"]["timeout_s"] == 5.0
 
 
 @pytest.mark.asyncio

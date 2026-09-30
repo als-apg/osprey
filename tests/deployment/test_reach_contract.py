@@ -490,7 +490,7 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
     assert not _target_configured(underivable, "live")
     assert not _target_configured(underivable, "not-a-target")
 
-    named = {"control_system": {"type": "mock", "connector": {"epics": {"timeout": 5.0}}}}
+    named = {"control_system": {"type": "mock", "connector": {"epics": {"timeout_s": 5.0}}}}
     assert _target_configured(named, "live")
 
 
@@ -874,7 +874,7 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
         "virtual_accelerator": {
             "control_system": {
                 "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"timeout": 5.0}},
+                "connector": {"virtual_accelerator": {"timeout_s": 5.0}},
             }
         },
     }

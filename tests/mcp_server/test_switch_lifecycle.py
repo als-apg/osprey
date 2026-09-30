@@ -1750,7 +1750,10 @@ class TestSwitchCapability:
         config = {
             "control_system": {
                 "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"timeout": 5.0}, "epics": {"timeout": 5.0}},
+                "connector": {
+                    "virtual_accelerator": {"timeout_s": 5.0},
+                    "epics": {"timeout_s": 5.0},
+                },
             }
         }
 

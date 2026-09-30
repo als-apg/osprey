@@ -119,7 +119,7 @@ def render() -> dict:
             "writes_enabled": False,
             "connector": {
                 "epics": {
-                    "timeout": 5.0,
+                    "timeout_s": 5.0,
                     "probe_channel": "LIVE:PROBE:CHANNEL",
                     "gateways": {
                         "read_only": {
@@ -135,7 +135,7 @@ def render() -> dict:
                     },
                 },
                 "virtual_accelerator": {
-                    "timeout": 5.0,
+                    "timeout_s": 5.0,
                     "probe_channel": "VA:PROBE:CHANNEL",
                     "gateways": {
                         "read_only": {

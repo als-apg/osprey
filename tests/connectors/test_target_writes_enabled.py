@@ -258,7 +258,7 @@ def test_any_present_value_that_is_not_the_bool_true_is_unarmed_and_hard(value: 
 @pytest.mark.parametrize(
     "connector",
     [
-        {"epics": {"timeout": 5.0}},
+        {"epics": {"timeout_s": 5.0}},
         {"virtual_accelerator": {"writes_enabled": True}},
         {"epics": None},
         {"epics": "yes"},
@@ -314,7 +314,7 @@ def test_a_section_that_is_not_a_mapping_is_not_armed(section: Any):
 def test_a_config_with_no_posture_anywhere_is_unarmed_for_every_type():
     """No key written at all is the shipped default, and it is off."""
     # Arrange
-    section = _section(EPICS, connector={"epics": {"timeout": 5.0}, "virtual_accelerator": {}})
+    section = _section(EPICS, connector={"epics": {"timeout_s": 5.0}, "virtual_accelerator": {}})
 
     # Act / Assert
     assert type_writes_enabled(section, EPICS) is False
