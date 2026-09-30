@@ -18,9 +18,7 @@ one scenario name per line (``nominal`` is always implicitly first). It is
 re-read whenever its mtime changes, and switching (or re-asserting) the set
 clears all session-written state (fresh machine). Simultaneously active
 scenarios must touch disjoint channel sets (see :meth:`validate_composition`);
-their overrides and archiver scripts are merged into one composed view. The
-legacy single-name ``active_scenario`` file is still read (one-element list)
-for backward compatibility, but writes always target ``active_scenarios``.
+their overrides and archiver scripts are merged into one composed view.
 """
 
 import os
@@ -66,8 +64,6 @@ from osprey_connectors.workspace import (
 logger = get_logger("simulation_engine")
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
-# Legacy single-name state file; read for back-compat, never written.
-ACTIVE_SCENARIO_FILENAME = "active_scenario"
 
 #: Config key naming the state directory explicitly (relative paths resolve
 #: against the project root). Unset — the normal case — puts it under the
@@ -261,9 +257,7 @@ class SimulationEngine:
         self._state_dir = (
             Path(state_dir).expanduser() if state_dir is not None else default_state_dir()
         )
-        # Canonical (write) state file plus the legacy single-name file (read-only).
         self._state_path = self._state_dir / ACTIVE_SCENARIOS_FILENAME
-        self._legacy_state_path = self._state_dir / ACTIVE_SCENARIO_FILENAME
         self._channels: dict[str, SimChannel] = channels
         self._scenarios: dict[str, Scenario] = model.scenarios
 
@@ -373,8 +367,8 @@ class SimulationEngine:
 
         ``nominal`` is always implicitly active and prepended. The requested set
         must touch disjoint channel sets (see :meth:`validate_composition`).
-        Writing the state file clears session writes (fresh machine). Always
-        writes the canonical ``active_scenarios`` file.
+        Writing the state file clears session writes (fresh machine). Writes the
+        ``active_scenarios`` state file.
 
         Args:
             names: Scenario names to activate (order preserved, deduped).
@@ -650,12 +644,8 @@ class SimulationEngine:
         return channel
 
     def _active_state_file(self) -> Path | None:
-        """The state file to read: canonical ``active_scenarios``, else legacy."""
-        if self._state_path.exists():
-            return self._state_path
-        if self._legacy_state_path.exists():
-            return self._legacy_state_path
-        return None
+        """The ``active_scenarios`` state file, or ``None`` before any set is activated."""
+        return self._state_path if self._state_path.exists() else None
 
     def _refresh_scenario(self) -> None:
         """Re-read and recompose the active-scenario set when the state file changes."""

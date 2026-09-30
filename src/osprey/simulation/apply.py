@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation.engine import (
-    ACTIVE_SCENARIO_FILENAME,
     ACTIVE_SCENARIOS_FILENAME,
     SimulationEngine,
     resolve_active_scenarios,
@@ -462,19 +461,17 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         anchor is the right answer.
     """
     state_dir = resolve_state_dir(config, project_dir)
-    for name in (ACTIVE_SCENARIOS_FILENAME, ACTIVE_SCENARIO_FILENAME):
-        path = state_dir / name
-        if not path.is_file():
-            continue
-        # The engine's own parser, not a second one: the anchor line's format
-        # (and its naive-value timezone rule) is the engine's to define, and a
-        # copy here would be free to drift from the file the engine actually
-        # reads. Private only because nothing outside the engine needed it
-        # before.
-        _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
-        if anchor_epoch is not None:
-            return datetime.fromtimestamp(anchor_epoch, UTC)
+    path = state_dir / ACTIVE_SCENARIOS_FILENAME
+    if not path.is_file():
         return None
+    # The engine's own parser, not a second one: the anchor line's format
+    # (and its naive-value timezone rule) is the engine's to define, and a
+    # copy here would be free to drift from the file the engine actually
+    # reads. Private only because nothing outside the engine needed it
+    # before.
+    _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
+    if anchor_epoch is not None:
+        return datetime.fromtimestamp(anchor_epoch, UTC)
     return None
 
 
