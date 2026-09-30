@@ -52,6 +52,11 @@ device and shared supply has a slot, every answer names a judgment the export
 pends, an owner is a member of its supply group, and a ``field:`` answer is a
 name the family can take.
 
+When the file is absent, :func:`load_or_draft` writes a draft built from the
+export by :func:`draft_mapping` and stops the import
+(``import mml: mapping-draft``), so the reviewer edits one stable file rather
+than writing it from scratch.
+
 The importer's stops are :class:`ImportStop`: one line each, prefixed
 ``import mml: <problem>:``, exit status 1.
 """
@@ -67,6 +72,7 @@ import click
 
 __all__ = [
     "CALIBRATION_KINDS",
+    "MAPPING_FILE",
     "DIRECTION_VALUES",
     "ENGINE_AXES",
     "ROWS_BEYOND_KIND",
@@ -92,8 +98,11 @@ __all__ = [
     "UnboundAnswer",
     "WiringFamily",
     "check_mapping",
+    "draft_mapping",
+    "dump_mapping",
     "field_roles",
     "judgment_key",
+    "load_or_draft",
     "parse_mapping",
     "read_mapping",
     "require_decided",
@@ -109,6 +118,9 @@ CALIBRATION_KINDS: frozenset[str] = frozenset({"linear", "table"})
 
 #: The transverse axes a monitor's engine block may read.
 ENGINE_AXES: frozenset[str] = frozenset({"x", "y"})
+
+#: Where the mapping lives, relative to ``data/facility/``.
+MAPPING_FILE = "imported/mml/mapping.yaml"
 
 #: The document spelling of each judgment kind.
 ROWS_BEYOND_KIND = "rows_beyond_devices"
@@ -1411,3 +1423,356 @@ def check_mapping(mapping: Mapping, ao: dict | None = None) -> list[Problem]:
     if ao is not None:
         problems.extend(_against_export(mapping, ao))
     return problems
+
+
+# -- draft --------------------------------------------------------------------
+
+#: Provenance of prose and directions the draft derives from export facts.
+DERIVED = "derived"
+
+#: Provenance of a description carried over from the export as written.
+IMPORTED = "imported"
+
+#: What each lattice type token drives, in pyAT's words, keyed by the token
+#: folded to lower case. A token absent here -- the dipole string among them,
+#: whose energy knob is the reviewer's call -- is proposed with a null engine.
+ENGINE_BY_TYPE: dict[str, dict[str, Any]] = {
+    **dict.fromkeys(("quad", "k", "quadrupole"), {"attribute": "PolynomB", "index": 1}),
+    **dict.fromkeys(("sext", "k2", "sextupole"), {"attribute": "PolynomB", "index": 2}),
+    **dict.fromkeys(("octu", "k3"), {"attribute": "PolynomB", "index": 3}),
+    **dict.fromkeys(("skewquad", "ks", "ks1", "skewq"), {"attribute": "PolynomA", "index": 1}),
+    **dict.fromkeys(("hcm", "hcor"), {"attribute": "KickAngle", "index": 0}),
+    **dict.fromkeys(("vcm", "vcor"), {"attribute": "KickAngle", "index": 1}),
+    **dict.fromkeys(("rf", "rf cavity"), {"attribute": "Frequency"}),
+    **dict.fromkeys(("x", "bpmx", "xturns"), {"axis": "x"}),
+    **dict.fromkeys(("y", "bpmy", "yturns"), {"axis": "y"}),
+}
+
+#: The fields a family is wired through, in preference order: a family that
+#: sets something is wired through what it sets, one that only reads through
+#: what it reads.
+_WIRED_FIELDS = (SETPOINT_FIELD, MONITOR_FIELD)
+
+
+def _text(value: Any) -> str | None:
+    """Return stripped text when ``value`` is non-blank text, else ``None``."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
+def _one_unit(value: Any) -> str | None:
+    """The one unit ``HWUnits`` states, scalar or agreeing per device, else ``None``."""
+    if isinstance(value, (list, tuple)):
+        distinct = {unit for item in value if (unit := _text(item)) is not None}
+        return distinct.pop() if len(distinct) == 1 else None
+    return _text(value)
+
+
+def _system_order(ao: dict) -> list[str]:
+    """The export's systems: ``_import_order`` first, then the rest sorted."""
+    from osprey.services.mml.family import system_bodies
+
+    present = sorted(raw for raw, _ in system_bodies(ao))
+    order = ao.get("_import_order")
+    listed = [raw for raw in order if raw in present] if isinstance(order, list) else []
+    return list(dict.fromkeys([*listed, *present]))
+
+
+def _block(blocks: dict | None, system: str) -> dict:
+    block = blocks.get(system) if isinstance(blocks, dict) else None
+    return block if isinstance(block, dict) else {}
+
+
+def _draft_identity(ad: dict | None, systems: list[str]) -> dict | None:
+    from osprey.facility import fold_code
+
+    machine = next(
+        (found for raw in systems if (found := _text(_block(ad, raw).get("Machine")))), None
+    )
+    if machine is None:
+        return None
+    return {
+        "code": fold_code(machine),
+        "name": machine,
+        "description": f"The {machine} accelerator facility, as exported by its MATLAB Middle Layer.",
+    }
+
+
+def _model_prose(raw: str, body: dict, ad_block: dict) -> tuple[str | None, str]:
+    native = _text(body.get("_description"))
+    if native is not None:
+        return native, IMPORTED
+    machine = _text(ad_block.get("Machine"))
+    sub = _text(ad_block.get("SubMachine"))
+    mode = _text(ad_block.get("OperationalMode"))
+    if machine is None and sub is None and mode is None:
+        return None, DERIVED
+    prose = f"The {sub or raw} system"
+    if machine is not None:
+        prose += f" of {machine}"
+    prose += "."
+    if mode is not None:
+        prose += f" Operational mode: {mode}."
+    return prose, DERIVED
+
+
+def _family_prose(raw: str, views: list[Any]) -> str:
+    systems = ", ".join(view.system for view in views)
+    devices = sum(view.n_devices for view in views)
+    channels = sum(view.channel_count for view in views)
+    names = list(dict.fromkeys(name for view in views for name in view.fields))
+    prose = (
+        f"MML family {raw} in {systems}: {_plural(devices, 'device')}, "
+        f"{_plural(channels, 'channel')}"
+    )
+    if names:
+        prose += f" across fields {', '.join(names)}"
+    return prose + "."
+
+
+def _field_prose(name: str, views: list[Any]) -> str:
+    found = [view.fields[name] for view in views if name in view.fields]
+    keys = list(dict.fromkeys(key for fld in found for key in fld.keys))
+    channels = sum(fld.channel_count for fld in found)
+    prose = f"Field {name}: {_plural(channels, 'channel')} via {', '.join(keys)}"
+    if any(fld.broadcast for fld in found):
+        prose += ", one channel broadcast to every device"
+    units = list(
+        dict.fromkeys(unit for fld in found if (unit := _one_unit(fld.body.get("HWUnits"))))
+    )
+    if len(units) == 1:
+        prose += f", hardware units {units[0]}"
+    return prose + "."
+
+
+def _draft_family(raw: str, views: list[Any]) -> dict[str, Any]:
+    channels = sum(view.channel_count for view in views)
+    native = next((view.description for view in views if view.description is not None), None)
+    entry: dict[str, Any] = {}
+    if channels > 0:
+        entry["branch"] = None
+        entry["class"] = raw
+    entry["aliases"] = [raw]
+    if native is not None:
+        entry["description"], entry["provenance"] = native[0].strip(), IMPORTED
+    else:
+        entry["description"], entry["provenance"] = _family_prose(raw, views), DERIVED
+    entry["channels"] = channels
+    fields: dict[str, dict[str, Any]] = {}
+    for name in dict.fromkeys(name for view in views for name in view.fields):
+        text = next(
+            (
+                found
+                for view in views
+                if name in view.fields and (found := _text(view.fields[name].description))
+            ),
+            None,
+        )
+        if text is not None:
+            fields[name] = {"description": text, "provenance": IMPORTED}
+        else:
+            fields[name] = {"description": _field_prose(name, views), "provenance": DERIVED}
+    entry["fields"] = fields
+    return entry
+
+
+def _draft_judgments(views: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
+    """Every family's pending judgment slots, unioned over the systems carrying it."""
+    from osprey.services.mml.judgments import pending_judgments
+
+    block: dict[str, dict[str, Any]] = {}
+    for raw, carried in views.items():
+        pending = [pending_judgments(view) for view in carried]
+        rows: dict[str, dict[str, None]] = {}
+        for item in pending:
+            for row in item.rows_beyond:
+                rows.setdefault(row.field, {})[row.signal] = None
+        ordinals = sorted({ordinal for item in pending for ordinal in item.unbound_devices})
+        entry: dict[str, Any] = {}
+        if rows:
+            entry[ROWS_BEYOND_KIND] = rows
+        if ordinals:
+            entry[UNBOUND_KIND] = dict.fromkeys(ordinals)
+        if any(item.groups for item in pending):
+            entry[SHARED_KIND] = None
+        if entry:
+            block[raw] = entry
+    return block
+
+
+def _bound_type(view: Any) -> str | None:
+    """The lattice type a family binds, folded to lower case; ``None`` when it binds none."""
+    lattice = view.body.get("AT")
+    if not isinstance(lattice, dict):
+        return None
+    indices = lattice.get("ATIndex")
+    if indices is None or (isinstance(indices, (list, tuple)) and not indices):
+        return None
+    token = _text(lattice.get("ATType"))
+    return token.lower() if token is not None else ""
+
+
+def _wired_field(view: Any, engine: dict[str, Any] | None, facts: dict) -> str | None:
+    if engine is not None and "axis" in engine:
+        return MONITOR_FIELD if MONITOR_FIELD in view.fields else None
+    nominals = facts.get("nominals")
+    stated = nominals[0] if isinstance(nominals, list) and nominals else None
+    if isinstance(stated, str) and stated in view.fields:
+        return stated
+    return next((name for name in _WIRED_FIELDS if name in view.fields), None)
+
+
+def _calibration_kind(facts: dict, name: str) -> str | None:
+    calibration = _block(facts, name).get("calibration")
+    kind = calibration.get("kind") if isinstance(calibration, dict) else None
+    return kind if kind in CALIBRATION_KINDS else None
+
+
+def _draft_wiring(views: list[Any], va_block: dict) -> dict[str, dict[str, Any]]:
+    """Propose one system's wiring from the lattice types its families bind.
+
+    A family the model's sampled facts do not cover, or that binds no element,
+    is not proposed; one whose type the table does not know is proposed with a
+    null engine for the reviewer to answer or delete.
+    """
+    sampled = va_block.get("families")
+    if not isinstance(sampled, dict):
+        return {}
+    wiring: dict[str, dict[str, Any]] = {}
+    for view in views:
+        facts = sampled.get(view.raw_name)
+        token = _bound_type(view)
+        if not isinstance(facts, dict) or token is None:
+            continue
+        known = ENGINE_BY_TYPE.get(token)
+        engine = dict(known) if known is not None else None
+        name = _wired_field(view, engine, facts)
+        if name is None:
+            continue
+        wiring[view.raw_name] = {
+            "element_field": name,
+            "engine": engine,
+            "calibration": _calibration_kind(facts, name),
+        }
+    return wiring
+
+
+def draft_mapping(ao: dict, ad: dict | None = None, va: dict | None = None) -> dict[str, Any]:
+    """Build the draft mapping for a merged export.
+
+    Every slot the export has a fact for is filled and the rest left ``null``:
+    identity from ``AD.Machine`` (no block without it); one model per system,
+    keyed by its raw token and named by it folded to PN_LOCAL; families merged
+    across systems, each class pre-filled with the raw token; directions from
+    the export's own vote (``derived``); the judgment slots the export pends;
+    and, for a system whose sampled model facts are given, the wiring its
+    families' lattice types imply.
+
+    Args:
+        ao: ``{system: {family: body}}`` with optional ``_import_order``; not
+            modified.
+        ad: Accelerator data keyed by system, or ``None``.
+        va: Each system's sampled model facts (the export's ``va.json``
+            document), keyed by system, or ``None``.
+
+    Returns:
+        The document as plain dicts in the order it is written; it parses with
+        :func:`parse_mapping`.
+    """
+    from osprey.facility import fold_code
+    from osprey.services.mml.directions import vote_directions
+    from osprey.services.mml.family import family_views
+
+    order = _system_order(ao)
+    views: dict[str, list[Any]] = {}
+    models: dict[str, dict[str, Any]] = {}
+    for raw in order:
+        carried = list(family_views(raw, ao[raw]))
+        for view in carried:
+            views.setdefault(view.raw_name, []).append(view)
+        description, provenance = _model_prose(raw, ao[raw], _block(ad, raw))
+        model: dict[str, Any] = {
+            "name": raw if _pn_local(raw) else fold_code(raw),
+            "description": description,
+            "provenance": provenance,
+        }
+        wiring = _draft_wiring(carried, _block(va, raw))
+        if wiring:
+            model["wiring"] = wiring
+        models[raw] = model
+
+    families = {raw: _draft_family(raw, carried) for raw, carried in views.items()}
+    votes = vote_directions(ao)
+    directions: dict[str, dict[str, Any]] = {}
+    for raw, entry in families.items():
+        for name in entry["fields"]:
+            vote = votes.get((raw, name))
+            directions[f"{raw}.{name}"] = {
+                "direction": None if vote is None else vote.direction,
+                "provenance": DERIVED,
+                "override": False,
+            }
+
+    document: dict[str, Any] = {}
+    identity = _draft_identity(ad, order)
+    if identity is not None:
+        document["facility"] = identity
+    document["models"] = models
+    document["section_order"] = [model["name"] for model in models.values()]
+    document["families"] = families
+    document["directions"] = directions
+    judgments = _draft_judgments(views)
+    if judgments:
+        document["judgments"] = judgments
+    return document
+
+
+def dump_mapping(document: dict[str, Any]) -> str:
+    """Serialise a mapping document as block-style YAML in insertion order.
+
+    Args:
+        document: The document, e.g. from :func:`draft_mapping`.
+
+    Returns:
+        The YAML text; ``None`` is written ``null``.
+    """
+    import yaml
+
+    return yaml.safe_dump(
+        document, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
+    )
+
+
+def load_or_draft(
+    facility_dir: Path, ao: dict, ad: dict | None = None, va: dict | None = None
+) -> Mapping:
+    """Load the layer's mapping, or write a draft and stop when there is none.
+
+    Args:
+        facility_dir: ``data/facility/``; the mapping is :data:`MAPPING_FILE`
+            under it.
+        ao: The merged export the draft is built from.
+        ad: Accelerator data keyed by system, or ``None``.
+        va: Each system's sampled model facts, keyed by system, or ``None``.
+
+    Returns:
+        The parsed mapping, every slot decided.
+
+    Raises:
+        ImportStop: ``mapping-draft`` after writing a draft to an absent file;
+            ``mapping-undecided`` while any slot of a present file is ``null``.
+        MappingError: The present file has the wrong structure.
+    """
+    path = facility_dir / MAPPING_FILE
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(dump_mapping(draft_mapping(ao, ad, va)), encoding="utf-8")
+        raise ImportStop("mapping-draft", [f"{MAPPING_FILE} written; review it, then re-run"])
+    mapping = read_mapping(path)
+    require_decided(mapping, ao)
+    return mapping

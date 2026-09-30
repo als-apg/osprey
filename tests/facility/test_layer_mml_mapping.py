@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.facility.layers.mml.mapping import (
+    MAPPING_FILE,
     EngineBlock,
     FieldRole,
     Identity,
@@ -20,7 +22,10 @@ from osprey.facility.layers.mml.mapping import (
     Problem,
     WiringFamily,
     check_mapping,
+    draft_mapping,
+    dump_mapping,
     field_roles,
+    load_or_draft,
     parse_mapping,
     read_mapping,
     require_decided,
@@ -671,3 +676,157 @@ class TestCheckJudgments:
             "judgments.BPMx.rows_beyond_devices.Monitor[BPM1:X]: "
             "the field name '1st' for BPMx in SR is not PN_LOCAL"
         ]
+
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
+
+
+def _va() -> dict[str, Any]:
+    """The export's sampled model facts for the small export's system."""
+    return {
+        "SR": {
+            "families": {
+                "QF": {
+                    "nominals": ["Setpoint"],
+                    "Setpoint": {"calibration": {"kind": "table"}},
+                },
+                "BPMx": {"nominals": ["Monitor"], "Monitor": {"calibration": {"kind": "linear"}}},
+            }
+        }
+    }
+
+
+def _typed_export() -> dict[str, Any]:
+    ao = _export()
+    ao["SR"]["QF"]["AT"] = {"ATType": "QUAD", "ATIndex": [3, 9, 15, 21]}
+    ao["SR"]["BPMx"]["AT"] = {"ATType": "BPMx", "ATIndex": [1, 7]}
+    return ao
+
+
+class TestDraft:
+    def test_the_draft_parses_and_checks_clean_against_its_export(self) -> None:
+        ao = _typed_export()
+        document = draft_mapping(ao, {"SR": {"Machine": "Quokka Light Source"}}, _va())
+        mapping = parse_mapping(document)
+        assert check_mapping(mapping, ao) == []
+        assert undecided_slots(mapping) == [
+            ("families.QF.branch", "name the class it extends"),
+            ("families.BPMx.branch", "name the class it extends"),
+        ]
+
+    def test_identity_comes_from_the_accelerator_data(self) -> None:
+        document = draft_mapping(_export(), {"SR": {"Machine": "Quokka Light Source"}})
+        assert document["facility"] == {
+            "code": "Quokka_Light_Source",
+            "name": "Quokka Light Source",
+            "description": (
+                "The Quokka Light Source accelerator facility, as exported by its "
+                "MATLAB Middle Layer."
+            ),
+        }
+
+    def test_no_accelerator_data_writes_no_facility_block(self) -> None:
+        assert "facility" not in draft_mapping(_export())
+
+    def test_models_keep_the_raw_system_token_and_take_a_pn_local_name(self) -> None:
+        ao = _export()
+        ao["transfer-line"] = {}
+        ao["_import_order"] = ["SR", "transfer-line"]
+        document = draft_mapping(ao)
+        assert [(raw, model["name"]) for raw, model in document["models"].items()] == [
+            ("SR", "SR"),
+            ("transfer-line", "transfer_line"),
+        ]
+        assert document["section_order"] == ["SR", "transfer_line"]
+
+    def test_directions_come_from_the_export_s_vote(self) -> None:
+        directions = draft_mapping(_export())["directions"]
+        assert directions == {
+            "QF.Setpoint": {"direction": "write", "provenance": "derived", "override": False},
+            "QF.Monitor": {"direction": "read", "provenance": "derived", "override": False},
+            "BPMx.Monitor": {"direction": "read", "provenance": "derived", "override": False},
+        }
+
+    def test_wiring_is_proposed_in_engine_words_from_the_lattice_type(self) -> None:
+        wiring = draft_mapping(_typed_export(), va=_va())["models"]["SR"]["wiring"]
+        assert wiring == {
+            "QF": {
+                "element_field": "Setpoint",
+                "engine": {"attribute": "PolynomB", "index": 1},
+                "calibration": "table",
+            },
+            "BPMx": {"element_field": "Monitor", "engine": {"axis": "x"}, "calibration": "linear"},
+        }
+
+    def test_an_unknown_lattice_type_is_left_to_the_reviewer(self) -> None:
+        ao = _typed_export()
+        ao["SR"]["QF"]["AT"]["ATType"] = "Wiggler"
+        wiring = draft_mapping(ao, va=_va())["models"]["SR"]["wiring"]
+        assert wiring["QF"]["engine"] is None
+
+    def test_a_family_bound_to_no_element_is_not_wired(self) -> None:
+        ao = _typed_export()
+        ao["SR"]["QF"]["AT"]["ATIndex"] = []
+        del ao["SR"]["BPMx"]["AT"]
+        assert "wiring" not in draft_mapping(ao, va=_va())["models"]["SR"]
+
+    def test_no_sampled_model_facts_propose_no_wiring(self) -> None:
+        assert "wiring" not in draft_mapping(_typed_export())["models"]["SR"]
+
+    def test_pending_judgments_are_open_slots(self) -> None:
+        ao = _export()
+        ao["SR"]["BPMx"]["Monitor"]["ChannelNames"] = ["BPM1:X", "BPM2:X", "BPM:SUM"]
+        document = draft_mapping(ao)
+        assert document["judgments"] == {
+            "BPMx": {"rows_beyond_devices": {"Monitor": {"BPM:SUM": None}}}
+        }
+
+    def test_the_dump_is_deterministic_and_round_trips(self) -> None:
+        document = draft_mapping(_typed_export(), va=_va())
+        text = dump_mapping(document)
+        assert text == dump_mapping(draft_mapping(_typed_export(), va=_va()))
+        assert yaml.safe_load(text) == document
+
+    def test_a_fixture_export_drafts_a_mapping_that_checks_clean(self) -> None:
+        tree = FIXTURES / "spear3"
+        flat = json.loads((tree / "spear3.storagering.ao.json").read_text(encoding="utf-8"))
+        ad = json.loads((tree / "spear3.storagering.ad.json").read_text(encoding="utf-8"))
+        va = json.loads((tree / "spear3.storagering.va.json").read_text(encoding="utf-8"))
+        families = {key: body for key, body in flat.items() if not key.startswith("_")}
+        ao = {"_import_order": ["StorageRing"], "StorageRing": families}
+        document = draft_mapping(ao, {"StorageRing": ad}, {"StorageRing": va})
+        mapping = parse_mapping(yaml.safe_load(dump_mapping(document)))
+        assert check_mapping(mapping, ao) == []
+        assert mapping.identity is not None and mapping.identity.code == "SPEAR3"
+        wiring = mapping.models["StorageRing"].wiring
+        assert wiring["QF"].engine == EngineBlock(attribute="PolynomB", index=1)
+        assert wiring["HCM"].engine == EngineBlock(attribute="KickAngle", index=0)
+        assert wiring["BPMy"].engine == EngineBlock(axis="y")
+        assert wiring["RF"].engine == EngineBlock(attribute="Frequency")
+
+
+class TestLoadOrDraft:
+    def test_an_absent_mapping_is_drafted_and_stops_the_import(self, tmp_path: Path) -> None:
+        with pytest.raises(ImportStop) as caught:
+            load_or_draft(tmp_path, _typed_export(), va=_va())
+        assert caught.value.exit_code == 1
+        assert caught.value.format_message() == (
+            "import mml: mapping-draft: imported/mml/mapping.yaml written; review it, then re-run"
+        )
+        written = tmp_path / MAPPING_FILE
+        assert written.read_text(encoding="utf-8") == dump_mapping(
+            draft_mapping(_typed_export(), va=_va())
+        )
+
+    def test_a_present_mapping_is_read_and_must_be_decided(self, tmp_path: Path) -> None:
+        path = tmp_path / MAPPING_FILE
+        path.parent.mkdir(parents=True)
+        document = _document()
+        path.write_text(dump_mapping(document), encoding="utf-8")
+        assert load_or_draft(tmp_path, _export()).models["SR"].name == "SR"
+
+        document["directions"]["QF.Setpoint"]["direction"] = None
+        path.write_text(dump_mapping(document), encoding="utf-8")
+        with pytest.raises(ImportStop, match="mapping-undecided"):
+            load_or_draft(tmp_path, _export())
+        assert path.read_text(encoding="utf-8") == dump_mapping(document)
