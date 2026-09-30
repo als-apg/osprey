@@ -6,7 +6,7 @@ import logging
 import socket
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, TypedDict
 
 #: The two wire protocols a provider entry may declare, imported from the
@@ -15,6 +15,8 @@ from osprey.profiles.providers import VALID_API_PROTOCOLS
 
 if TYPE_CHECKING:
     import uvicorn
+
+    from osprey.agent_runner.provider_env import ClaudeCodeModelSpec
 
 logger = logging.getLogger("osprey.infrastructure.proxy")
 
@@ -142,6 +144,9 @@ def start_proxy(
 ) -> int:
     """Start the translation proxy in a daemon thread.
 
+    A launch path with a resolved provider spec calls :func:`start_proxy_for`;
+    this primitive is for callers that name the upstream themselves.
+
     Args:
         upstream_base_url: OpenAI-compatible endpoint the proxy forwards to.
         upstream_api_key: API key for the upstream provider.
@@ -202,6 +207,43 @@ def start_proxy(
 
         logger.info("Translation proxy started on port %d → %s", port, upstream_base_url)
         return port
+
+
+def start_proxy_for(spec: ClaudeCodeModelSpec, env: Mapping[str, str]) -> int:
+    """Start the translation proxy for a resolved provider spec.
+
+    Every argument the proxy needs is derived here from *spec* and *env*. *env*
+    is the environment the agent is launched with: the upstream key is read
+    from ``env[spec.auth_env_var]`` and the forwarded headers are the ones
+    *env* declares. The upstream is the spec's OpenAI root, never the
+    ``ANTHROPIC_BASE_URL`` in *env*. A repeat call returns the running proxy
+    unchanged, as :func:`start_proxy` does.
+
+    Args:
+        spec: The resolved provider spec of the launch.
+        env: The environment the agent is launched with.
+
+    Returns:
+        The port the proxy listens on.
+
+    Raises:
+        ValueError: If *spec* does not route through the translation proxy.
+    """
+    upstream = spec.upstream_base_url
+    if not (spec.needs_proxy and upstream):
+        raise ValueError(
+            f"Provider {spec.provider!r} does not route through the translation proxy."
+        )
+
+    from osprey.models.spend_attribution import declared_header_names
+
+    return start_proxy(
+        upstream,
+        env.get(spec.auth_env_var),
+        provider=spec.provider,
+        forward_headers=declared_header_names(env),
+        supports_images=spec.supports_images,
+    )
 
 
 def stop_proxy() -> None:

@@ -418,3 +418,78 @@ class TestStartStop:
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_get_proxy_url_none_before_start(self):
         assert lifecycle.get_proxy_url() is None
+
+
+# ---------------------------------------------------------------------------
+# start_proxy_for
+# ---------------------------------------------------------------------------
+
+
+def _gateway_spec(**entry):
+    """A resolved spec for an OpenAI-compatible gateway entry ``my-gw``."""
+    from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
+
+    return ClaudeCodeModelResolver.resolve(
+        {"provider": "my-gw"},
+        {
+            "my-gw": {
+                "base_url": "https://gw.example/v1",
+                "models": ["m"],
+                "default_model": "m",
+                **entry,
+            }
+        },
+    )
+
+
+class TestStartProxyFor:
+    def test_every_argument_comes_from_the_spec_and_the_launch_env(self, monkeypatch):
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+        env = {
+            "ANTHROPIC_AUTH_TOKEN": "sk-gw",
+            "ANTHROPIC_BASE_URL": "https://gw.example",
+            "ANTHROPIC_CUSTOM_HEADERS": "X-Corp-Trace: abc\nx-litellm-end-user-id: alice",
+        }
+
+        port = lifecycle.start_proxy_for(_gateway_spec(), env)
+
+        assert port == 41234
+        primitive.assert_called_once_with(
+            "https://gw.example/v1",
+            "sk-gw",
+            provider="my-gw",
+            forward_headers=frozenset({"x-corp-trace", "x-litellm-end-user-id"}),
+            supports_images=None,
+        )
+
+    def test_a_missing_key_starts_the_proxy_without_one(self, monkeypatch):
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+
+        lifecycle.start_proxy_for(_gateway_spec(), {})
+
+        assert primitive.call_args.args == ("https://gw.example/v1", None)
+        assert primitive.call_args.kwargs["forward_headers"] == frozenset()
+
+    def test_the_entrys_image_declaration_is_passed_on(self, monkeypatch):
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+
+        lifecycle.start_proxy_for(_gateway_spec(supports_images=True), {})
+
+        assert primitive.call_args.kwargs["supports_images"] is True
+
+    def test_a_spec_that_does_not_route_through_the_proxy_is_refused(self, monkeypatch):
+        from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
+
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"}, {"anthropic": {}})
+
+        with pytest.raises(
+            ValueError, match="'anthropic' does not route through the translation proxy"
+        ):
+            lifecycle.start_proxy_for(spec, {})
+
+        primitive.assert_not_called()
