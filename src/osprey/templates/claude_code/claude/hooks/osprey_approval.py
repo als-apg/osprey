@@ -117,6 +117,7 @@ import re
 import sys
 import time
 import tokenize
+from typing import TypedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
@@ -213,9 +214,11 @@ try:
             if pat_config:
                 patterns = pat_config
                 pattern_mode = pat_config.get("mode")
-        return detect_control_system_operations(code, patterns=patterns, pattern_mode=pattern_mode)[
-            "has_writes"
-        ]
+        detected = detect_control_system_operations(
+            code, patterns=patterns, pattern_mode=pattern_mode
+        )
+        has_writes: bool = detected["has_writes"]
+        return has_writes
 
 except ImportError:
 
@@ -1004,7 +1007,7 @@ def _session_state_record(hook_input=None):
     return state.read_target_view(hook_input)
 
 
-def _target_identity_phrase(record, target):
+def _target_identity_phrase(record: dict | None, target: str) -> str | None:
     """How one target is SPOKEN OF on this prompt, or ``None`` if it cannot be.
 
     The single place the two identity phrasings live, because more than one
@@ -1829,7 +1832,17 @@ def _declared_lane_target(config: dict, lane_key: str) -> str | None:
     return target if isinstance(target, str) and target else None
 
 
-def _lane_situation(config: dict, hook_input=None, read_record=None) -> dict:
+class _LaneSituation(TypedDict):
+    """The resolved record the lane lines are rendered from."""
+
+    lanes: list[tuple[str, str]]
+    multi: bool
+    record: dict | None
+    control_target: str | None
+    active: str | None
+
+
+def _lane_situation(config: dict, hook_input=None, read_record=None) -> _LaneSituation:
     """Everything the lane lines are rendered from, resolved once.
 
     Keys: ``lanes`` (the rendered map), ``multi`` (whether there is anything to
@@ -1872,7 +1885,7 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> dict:
     }
 
 
-def _lane_target_of(situation: dict, lane_key) -> str | None:
+def _lane_target_of(situation: _LaneSituation, lane_key: str | None) -> str | None:
     """The target the named lane serves, per the rendered config."""
     for key, target in situation["lanes"]:
         if key == lane_key:
@@ -1880,7 +1893,7 @@ def _lane_target_of(situation: dict, lane_key) -> str | None:
     return None
 
 
-def _lane_target_phrase(situation: dict, lane_target) -> str:
+def _lane_target_phrase(situation: _LaneSituation, lane_target) -> str:
     """How a lane's target is spoken of, with an explicit word for every gap.
 
     The identity voice is :func:`_target_identity_phrase`'s, so a lane and the
@@ -1902,12 +1915,12 @@ def _lane_target_phrase(situation: dict, lane_target) -> str:
     return f"{_sanitize_label(lane_target)} (identity not published by any live server)"
 
 
-def _lane_roster_text(situation: dict) -> str:
+def _lane_roster_text(situation: _LaneSituation) -> str:
     """Every rendered lane and the target it serves, for a refusal line."""
     return ", ".join(f"{key!r} ({_sanitize_label(target)})" for key, target in situation["lanes"])
 
 
-def _control_target_phrase(situation: dict) -> str:
+def _control_target_phrase(situation: _LaneSituation) -> str:
     """How the deployment's own target is spoken of in a lane line."""
     control_target = situation["control_target"]
     if not control_target:
@@ -1915,7 +1928,7 @@ def _control_target_phrase(situation: dict) -> str:
     return _lane_target_phrase(situation, control_target)
 
 
-def _unresolved_lane_lines(situation: dict, action: str) -> list[str]:
+def _unresolved_lane_lines(situation: _LaneSituation, action: str) -> list[str]:
     """Why no lane could be named, in the operator's terms. Never empty.
 
     Both branches state the consequence — this deployment refuses an unaddressed
@@ -2069,7 +2082,7 @@ def _describe_queue_add(
     return lines
 
 
-def _lane_start_lines(situation: dict, tool_input: dict) -> tuple[list[str], str | None]:
+def _lane_start_lines(situation: _LaneSituation, tool_input: dict) -> tuple[list[str], str | None]:
     """The lane block for a start, and the lane whose queue to preview.
 
     Returns ``([], None)`` on a single-lane deployment — nothing to address, and
