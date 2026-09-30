@@ -17,7 +17,9 @@ from osprey.facility.layers.mml.mapping import (
     Identity,
     ImportStop,
     MappingError,
+    Problem,
     WiringFamily,
+    check_mapping,
     field_roles,
     parse_mapping,
     read_mapping,
@@ -370,3 +372,302 @@ class TestUndecided:
         assert result.output == (
             "import mml: mapping-undecided: directions.QF.Setpoint.direction: write read or write\n"
         )
+
+
+def _export() -> dict[str, Any]:
+    """The merged export the small document maps: one system, two families."""
+    return {
+        "_import_order": ["SR"],
+        "SR": {
+            "QF": {
+                "DeviceList": [[1, 1], [1, 2], [2, 1], [2, 2]],
+                "Setpoint": {"ChannelNames": ["QF1:SP", "QF2:SP", "QF3:SP", "QF4:SP"]},
+                "Monitor": {"ChannelNames": ["QF1:RB", "QF2:RB", "QF3:RB", "QF4:RB"]},
+            },
+            "BPMx": {
+                "DeviceList": [[1, 1], [1, 2]],
+                "Monitor": {"ChannelNames": ["BPM1:X", "BPM2:X"]},
+            },
+        },
+    }
+
+
+def _problems(document: dict[str, Any], ao: dict[str, Any] | None = None) -> list[str]:
+    return [str(problem) for problem in check_mapping(parse_mapping(document), ao)]
+
+
+class TestCheck:
+    def test_a_sound_mapping_has_no_problem(self) -> None:
+        assert _problems(_document()) == []
+        assert _problems(_document(), _export()) == []
+
+    def test_problem_renders_key_then_message(self) -> None:
+        assert str(Problem("models.SR.name", "is wrong")) == "models.SR.name: is wrong"
+
+    def test_the_code_is_pn_local(self) -> None:
+        document = _document()
+        document["facility"]["code"] = "my facility"
+        assert _problems(document) == ["facility.code: 'my facility' is not PN_LOCAL"]
+
+    def test_model_names_are_pn_local_and_distinct(self) -> None:
+        document = _document()
+        document["models"]["sr"] = {"name": "sr", "description": "x", "provenance": "stated"}
+        document["models"]["TL"] = {"name": "1tl", "description": "x", "provenance": "stated"}
+        document["section_order"] = ["SR", "sr", "1tl"]
+        assert _problems(document) == [
+            "models.sr.name: 'sr' is models.SR's name up to case",
+            "models.TL.name: '1tl' is not PN_LOCAL",
+        ]
+
+    def test_section_order_is_a_permutation_of_the_model_names(self) -> None:
+        document = _document()
+        document["section_order"] = ["SR", "SR", "TL"]
+        assert _problems(document) == [
+            "section_order[1]: 'SR' is listed twice",
+            "section_order[2]: 'TL' is no model name",
+        ]
+        document["section_order"] = []
+        assert _problems(document) == ["section_order: leaves out the model SR"]
+
+    def test_renames_are_pn_local_and_distinct(self) -> None:
+        document = _document()
+        document["families"]["QF"]["rename"] = "bpmx"
+        assert _problems(document) == [
+            "families.BPMx: maps to 'BPMx', which families.QF also maps to"
+        ]
+        document["families"]["QF"]["rename"] = "Q-F"
+        assert _problems(document) == ["families.QF.rename: 'Q-F' is not PN_LOCAL"]
+
+    def test_classes_and_branches(self) -> None:
+        document = _document()
+        document["families"]["QF"]["class"] = "AcceleratorDevice"
+        assert _problems(document) == [
+            "families.QF.class: 'AcceleratorDevice' is the vocabulary root; name a class under it"
+        ]
+        document["families"]["QF"]["class"] = "Quadrupole"
+        document["families"]["QF"]["branch"] = "Sextupole"
+        assert _problems(document) == [
+            "families.QF.branch: Quadrupole is a vocabulary class under Magnet, not Sextupole"
+        ]
+        document["families"]["QF"]["class"] = "TrimQuad"
+        document["families"]["QF"]["branch"] = "NoSuchClass"
+        assert _problems(document) == [
+            "families.QF.branch: 'NoSuchClass' is no vocabulary class and no declared branch"
+        ]
+
+    def test_declared_branches(self) -> None:
+        document = _document()
+        document["branches"] = {
+            "Magnet": {"parent": "AcceleratorDevice", "description": None},
+            "Loop1": {"parent": "Loop2", "description": None},
+            "Loop2": {"parent": "Loop1", "description": None},
+            "Orphan": {"parent": "Nowhere", "description": None},
+        }
+        assert _problems(document) == [
+            "branches.Magnet: is a vocabulary class already",
+            "branches.Loop1.parent: Loop1 extends itself through Loop2",
+            "branches.Loop2.parent: Loop2 extends itself through Loop1",
+            "branches.Orphan.parent: 'Nowhere' is no vocabulary class and no declared branch",
+        ]
+
+    def test_directions_name_family_fields(self) -> None:
+        document = _document()
+        document["directions"]["QF.Trim"] = {"direction": "write", "provenance": "stated"}
+        document["directions"]["XX.Monitor"] = {"direction": "read", "provenance": "stated"}
+        assert _problems(document) == [
+            "directions.QF.Trim: QF has no field Trim",
+            "directions.XX.Monitor: XX is no family",
+        ]
+
+    def test_wiring_names_a_family_field(self) -> None:
+        document = _document()
+        wiring = document["models"]["SR"]["wiring"]
+        wiring["QF"]["element_field"] = "Trim"
+        wiring["XX"] = {
+            "element_field": "Monitor",
+            "engine": {"axis": "y"},
+            "calibration": "linear",
+        }
+        assert _problems(document) == [
+            "models.SR.wiring.QF.element_field: QF has no field Trim",
+            "models.SR.wiring.XX: XX is no family",
+        ]
+
+    def test_judgments_name_families(self) -> None:
+        document = _document()
+        document["judgments"] = {"XX": {"shared_pvs": "keep_all"}}
+        assert _problems(document) == ["judgments.XX: XX is no family"]
+
+
+class TestCheckAgainstTheExport:
+    def test_models_name_exactly_the_exported_systems(self) -> None:
+        document = _document()
+        ao = _export()
+        ao["TL"] = {}
+        assert _problems(document, ao) == ["models: leaves out the exported system TL"]
+        document["models"]["BR"] = {"name": "BR", "description": "x", "provenance": "stated"}
+        document["section_order"].append("BR")
+        assert _problems(document, _export()) == ["models.BR: BR is no exported system"]
+
+    def test_families_name_exactly_the_exported_families(self) -> None:
+        ao = _export()
+        ao["SR"]["DCCT"] = {"Monitor": {"ChannelNames": ["DCCT"]}}
+        assert _problems(_document(), ao) == [
+            "families: leaves out the exported family DCCT",
+            "directions: DCCT.Monitor carries channels and has no direction",
+        ]
+        del ao["SR"]["DCCT"]
+        del ao["SR"]["BPMx"]
+        assert _problems(_document(), ao)[:1] == ["families.BPMx: BPMx is no exported family"]
+
+    def test_a_direction_names_an_exported_field(self) -> None:
+        document = _document()
+        document["families"]["QF"]["fields"]["Trim"] = {"description": "x", "provenance": "stated"}
+        document["directions"]["QF.Trim"] = {"direction": "write", "provenance": "stated"}
+        assert _problems(document, _export()) == [
+            "directions.QF.Trim: the export carries no channels under QF.Trim"
+        ]
+
+    def test_a_field_a_judgment_creates_takes_a_direction(self) -> None:
+        ao = _export()
+        ao["SR"]["QF"]["Monitor"]["ChannelNames"].append("QF5:RB")
+        document = _document()
+        document["families"]["QF"]["fields"]["Extra"] = {"description": "x", "provenance": "stated"}
+        document["directions"]["QF.Extra"] = {"direction": "read", "provenance": "stated"}
+        document["judgments"] = {
+            "QF": {"rows_beyond_devices": {"Monitor": {"QF5:RB": {"field": "Extra"}}}}
+        }
+        assert _problems(document, ao) == []
+        del document["directions"]["QF.Extra"]
+        assert _problems(document, ao) == [
+            "judgments.QF.rows_beyond_devices.Monitor[QF5:RB]: creates the field 'Extra' of QF "
+            "in SR; add families.QF.fields.Extra and directions.QF.Extra"
+        ]
+
+    def test_a_wired_family_is_the_model_system_s_and_its_field_carries_channels(self) -> None:
+        document = _document()
+        document["models"]["SR"]["wiring"]["BPMx"]["element_field"] = "Setpoint"
+        document["families"]["BPMx"]["fields"]["Setpoint"] = {
+            "description": "x",
+            "provenance": "stated",
+        }
+        document["directions"]["BPMx.Setpoint"] = {"direction": "write", "provenance": "stated"}
+        assert _problems(document, _export()) == [
+            "directions.BPMx.Setpoint: the export carries no channels under BPMx.Setpoint",
+            "models.SR.wiring.BPMx.element_field: SR carries no channels under BPMx.Setpoint",
+        ]
+
+    def test_a_stated_direction_agrees_with_the_export_unless_overridden(self) -> None:
+        document = _document()
+        document["directions"]["QF.Setpoint"]["direction"] = "read"
+        assert _problems(document, _export()) == [
+            "directions.QF.Setpoint: stated read, the export votes write; "
+            "set override: true to keep it"
+        ]
+        document["directions"]["QF.Setpoint"]["override"] = True
+        assert _problems(document, _export()) == []
+
+
+def _pending_export() -> dict[str, Any]:
+    """The small export pending one of each judgment.
+
+    ``BPM:SUM`` is a row beyond BPMx's two devices, QF's fourth device is
+    bound by no channel, and ``PS12`` supplies QF devices 1 and 2.
+    """
+    ao = _export()
+    ao["SR"]["BPMx"]["Monitor"]["ChannelNames"] = ["BPM1:X", "BPM2:X", "BPM:SUM"]
+    ao["SR"]["QF"]["Setpoint"]["ChannelNames"] = ["PS12", "PS12", "QF3:SP"]
+    ao["SR"]["QF"]["Monitor"]["ChannelNames"] = ["QF1:RB", "QF2:RB", "QF3:RB"]
+    return ao
+
+
+def _answered() -> dict[str, Any]:
+    """The small document answering every judgment :func:`_pending_export` pends."""
+    document = _document()
+    document["judgments"] = {
+        "QF": {"unbound_devices": {4: "keep"}, "shared_pvs": {1: 1}},
+        "BPMx": {"rows_beyond_devices": {"Monitor": {"BPM:SUM": "drop"}}},
+    }
+    return document
+
+
+class TestCheckJudgments:
+    def test_answers_to_every_pending_judgment_check_clean(self) -> None:
+        assert _problems(_answered(), _pending_export()) == []
+        require_decided(parse_mapping(_answered()), _pending_export())
+
+    def test_a_pending_judgment_needs_an_answer_slot(self) -> None:
+        document = _document()
+        missing = [
+            "judgments.QF.unbound_devices.4: is pending in SR and has no answer",
+            "judgments.QF.shared_pvs: is pending in SR and has no answer",
+            "judgments.BPMx.rows_beyond_devices.Monitor[BPM:SUM]: "
+            "is pending in SR and has no answer",
+        ]
+        assert _problems(document, _pending_export()) == missing
+        assert undecided_slots(parse_mapping(document)) == []
+        with pytest.raises(ImportStop) as caught:
+            require_decided(parse_mapping(document), _pending_export())
+        assert caught.value.format_message().splitlines() == [
+            "import mml: mapping-undecided: judgments.QF.unbound_devices.4: answer drop or keep",
+            "import mml: mapping-undecided: judgments.QF.shared_pvs: "
+            "answer keep_all or name each group's owner",
+            "import mml: mapping-undecided: judgments.BPMx.rows_beyond_devices.Monitor[BPM:SUM]: "
+            "answer drop, device or {field: <name>}",
+        ]
+
+    def test_an_answer_names_a_judgment_the_export_pends(self) -> None:
+        document = _answered()
+        document["judgments"]["QF"]["unbound_devices"][3] = "drop"
+        document["judgments"]["BPMx"]["rows_beyond_devices"]["Monitor"]["BPM:DIFF"] = "drop"
+        assert _problems(document, _pending_export()) == [
+            "judgments.QF.unbound_devices.3: names no unbound device of QF in any system",
+            "judgments.BPMx.rows_beyond_devices.Monitor[BPM:DIFF]: "
+            "names no row beyond the devices of BPMx in any system",
+        ]
+
+    def test_an_owner_is_a_member_of_its_supply_group(self) -> None:
+        document = _answered()
+        document["judgments"]["QF"]["shared_pvs"] = {1: 3, 5: 5}
+        assert _problems(document, _pending_export()) == [
+            "judgments.QF.shared_pvs.5: names no supply group of QF in any system",
+            "judgments.QF.shared_pvs.1: device 3 is not a member of supply group 1 of QF in SR",
+        ]
+        document["judgments"]["QF"]["shared_pvs"] = {5: 5}
+        assert _problems(document, _pending_export()) == [
+            "judgments.QF.shared_pvs.5: names no supply group of QF in any system",
+            "judgments.QF.shared_pvs.1: supply group 1 of QF in SR has no owner",
+        ]
+        document["judgments"]["QF"]["shared_pvs"] = "keep_all"
+        assert _problems(document, _pending_export()) == []
+
+    def test_an_owner_map_needs_a_shared_supply(self) -> None:
+        document = _document()
+        document["judgments"] = {"BPMx": {"shared_pvs": {1: 1}}}
+        assert _problems(document, _export()) == [
+            "judgments.BPMx.shared_pvs: names no shared supply of BPMx in any system"
+        ]
+
+    def test_a_row_answer_the_export_cannot_carry(self) -> None:
+        ao = _pending_export()
+        ao["SR"]["BPMx"]["Monitor"]["ChannelNames"] = ["BPM1:X", "BPM2:X", "BPM1:X"]
+        document = _answered()
+        document["judgments"]["BPMx"]["rows_beyond_devices"]["Monitor"] = {"BPM1:X": "device"}
+        assert _problems(document, ao) == [
+            "judgments.BPMx.rows_beyond_devices.Monitor[BPM1:X]: 'BPM1:X' is also bound below "
+            "device 3 of BPMx in SR; answer `drop` or `field:`"
+        ]
+        document["judgments"]["BPMx"]["rows_beyond_devices"]["Monitor"] = {
+            "BPM1:X": {"field": "Monitor"}
+        }
+        assert _problems(document, ao) == [
+            "judgments.BPMx.rows_beyond_devices.Monitor[BPM1:X]: "
+            "the field name 'Monitor' is a key BPMx already carries in SR"
+        ]
+        document["judgments"]["BPMx"]["rows_beyond_devices"]["Monitor"] = {
+            "BPM1:X": {"field": "1st"}
+        }
+        assert _problems(document, ao) == [
+            "judgments.BPMx.rows_beyond_devices.Monitor[BPM1:X]: "
+            "the field name '1st' for BPMx in SR is not PN_LOCAL"
+        ]
