@@ -3,18 +3,18 @@
 Run Open & Local Models
 =======================
 
-OSPREY is built so the volatile pieces — the model and the agent harness — can be
-swapped without touching the framework. This guide covers what already works
-today: running the OSPREY agent on **open-weight and locally hostable models**.
+OSPREY runs Claude Code as its agent harness, and the model behind it is a
+configuration choice. This guide covers running the OSPREY agent on
+**open-weight and locally hostable models**.
 
 Two independent axes
 --------------------
 
 - **The agent harness** (the program that drives the model through tool calls) is
-  swappable in *intent*. Today there is one, Claude Code; support for additional
-  coding-agent harnesses is planned.
-- **The model** is already swappable. Any endpoint OSPREY can reach — remote or
-  self-hosted — is a configuration choice, not a code change.
+  Claude Code, the one harness OSPREY ships. Its code sits in one adapter package
+  (:ref:`extending-agent-harness`).
+- **The model** is a configuration choice. Any endpoint OSPREY can reach — remote
+  or self-hosted — is set in configuration, not in code.
 
 How open models are routed
 --------------------------
