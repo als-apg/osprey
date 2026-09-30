@@ -360,6 +360,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "model-conflict",
         "a facility channel equals a status address",
     ),
+    ("profile_invalid__mirrored_facility_file", "profile-invalid", "`project/facility.json`"),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -1360,6 +1361,19 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "address itself"
         ),
     ),
+    "profile_invalid__mirrored_facility_file": (
+        _plain(),
+        (
+            "facility: profile-invalid: path project/facility.json — the project/ mirror writes "
+            "facility.json, which the build writes from data/facility/; fix: remove "
+            "project/facility.json and author the facility in data/facility/"
+        ),
+    ),
+}
+
+#: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
+MIRRORED: dict[str, tuple[str, ...]] = {
+    "profile_invalid__mirrored_facility_file": ("facility.json",),
 }
 
 IDS = list(CASES)
@@ -1395,6 +1409,10 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
     shutil.copytree(initialised, repo, symlinks=True)
     shutil.rmtree(repo / "data" / "facility")
     _write(repo / "data", case)
+    for rel in MIRRORED.get(case, ()):
+        mirrored = repo / "project" / rel
+        mirrored.parent.mkdir(parents=True, exist_ok=True)
+        mirrored.write_text("{}\n", encoding="utf-8")
     return repo
 
 

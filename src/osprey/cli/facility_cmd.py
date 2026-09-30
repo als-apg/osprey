@@ -48,12 +48,17 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
 
     from .build_cmd import _render_project, _render_zones, _SharedRenderInputs
     from .build_profile_resolve import resolve_build_document
+    from .profile_conventions import PROJECT_MIRROR_DIR, facility_mirror_violation
     from .templates.manager import TemplateManager
     from .variant_selection import resolve_variant_selection
 
     repo_root = find_repo_root(repo)
     name = repo_root.name
     profile_path = repo_root / PROFILE_FILENAME
+
+    mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
+    if mirror_stop is not None:
+        raise mirror_stop
 
     variant = resolve_variant_selection(repo_root)
     overlays: tuple[Path, ...] = (variant.path,) if variant.path is not None else ()
