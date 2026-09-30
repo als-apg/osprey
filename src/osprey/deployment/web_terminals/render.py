@@ -775,6 +775,8 @@ def render_web_terminals(
     ariel_mirror_personas: set[str] | None = None,
     ariel_mirror_gid: int | None = None,
     archiver_credential_personas: dict[str, tuple[str, ...]] | None = None,
+    archiver_ca_bundle_personas: dict[str, tuple[str, ...]] | None = None,
+    archiver_ca_bundles: tuple[str, ...] = (),
     telemetry_vars_personas: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
@@ -914,6 +916,17 @@ def render_web_terminals(
             fails with "Environment variable '…' is not set" while the same
             project works on the single-user host path, which reads the whole
             deploy ``.env``. ``None`` emits no line.
+        archiver_ca_bundle_personas: ``{persona_name: (ca_path,)}`` for the
+            personas whose archiver block names a host CA file under
+            ``tls.ca_bundle``, resolved from disk by
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_ca_bundles`.
+            Each file is bind-mounted read-only at the same path into the
+            user's container, so the key names one file on the host and in the
+            container. ``None`` emits no mount.
+        archiver_ca_bundles: The same host CA files for persona-less entries,
+            from the deploy config itself. Resolved by the caller rather than
+            here, like the map above, because whether a file is on the host is
+            a filesystem read. ``()`` emits no mount.
         telemetry_vars_personas: ``{persona_name: names}`` for the personas
             whose telemetry block needs variables no fixed route delivers,
             resolved from disk by
@@ -1257,6 +1270,16 @@ def render_web_terminals(
                     (archiver_credential_personas or {}).get(entry["persona"], ())
                     if entry.get("persona")
                     else config_archiver_credential_envs(root)
+                ),
+                # The host CA files this user's archiver block names under
+                # `tls.ca_bundle` (see the `archiver_ca_bundle_personas` arg),
+                # each mounted read-only at the same path, or () for none.
+                # Persona-less entries read the caller-resolved
+                # `archiver_ca_bundles`, since the render reads no filesystem.
+                "ca_bundle_mounts": (
+                    (archiver_ca_bundle_personas or {}).get(entry["persona"], ())
+                    if entry.get("persona")
+                    else archiver_ca_bundles
                 ),
                 # The NAMES of the variables this user's telemetry block needs
                 # (see the `telemetry_vars_personas` arg), or () for none.

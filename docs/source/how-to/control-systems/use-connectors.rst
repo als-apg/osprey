@@ -339,9 +339,14 @@ independently of the control system:
       connector refuses to start while it is unset. The login goes only to the
       host ``url`` names, never to a host a redirect names. ``tls.ca_bundle`` is
       an absolute path to the CA file the appliance's certificate is checked
-      against; it replaces the trust store for this appliance. When it is unset
-      the image's trust store, which ``images.site_ca`` extends, applies. No
-      setting turns certificate checking off.
+      against; a ``~`` path is refused, because each process would expand it
+      against its own home. It replaces the trust store for this appliance. When
+      it is unset the image's trust store, which ``images.site_ca`` extends,
+      applies. No setting turns certificate checking off. The build mounts the
+      named file read-only at the same path into every web terminal and dispatch
+      worker, so the same key works in a container; the file must be on the
+      deploy host when ``osprey build`` runs. ``images.site_ca`` remains the way
+      to add a CA to every image.
 
    .. tab-item:: DOOCS
       :sync: doocs
@@ -408,8 +413,14 @@ independently of the control system:
       recorder and the archive rewrite never write to a store named by url.
 
       ``tls.ca_bundle`` is an absolute path to the CA file the store's
-      certificate is checked against; without it, a ``tls=true`` url uses the
-      image's trust store. No setting turns certificate checking off.
+      certificate is checked against; a ``~`` path is refused, because each
+      process would expand it against its own home. Without it, a ``tls=true``
+      url uses the image's trust store. No setting turns certificate checking
+      off. The build mounts the named file read-only at the same path into every
+      web terminal and dispatch worker, and into the archive recorder, so the
+      same key works in a container; the file must be on the deploy host when
+      ``osprey build`` runs. ``images.site_ca`` remains the way to add a CA to
+      every image.
 
       Documents in the collection are expected to have a ``date`` field
       (``ISODate``) and one or more PV names as top-level fields:

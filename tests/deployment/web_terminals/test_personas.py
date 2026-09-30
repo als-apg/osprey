@@ -16,6 +16,8 @@ from osprey.deployment.web_terminals.personas import (
     _is_shared_entry,
     access_wire_value,
     bluesky_server_enabled,
+    ca_bundle_mounts,
+    config_archiver_ca_bundles,
     config_archiver_credential_envs,
     config_declares_panel,
     config_needs_ariel_password,
@@ -34,6 +36,7 @@ from osprey.deployment.web_terminals.personas import (
     freeze_user_indices,
     lane_control_target,
     normalize_users,
+    personas_needing_archiver_ca_bundles,
     personas_needing_archiver_credentials,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
@@ -3224,6 +3227,113 @@ def test_personas_needing_archiver_credentials_skips_unrendered_persona_projects
     )
 
     assert personas_needing_archiver_credentials(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# Archiver connector -> the CA file its block names, mounted into the container
+# ---------------------------------------------------------------------------
+
+
+def _ca_block(ca: str) -> dict[str, Any]:
+    return {"url": "https://a.example", "tls": {"ca_bundle": ca}}
+
+
+def test_ca_bundle_mounts_names_a_file_on_this_host(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+
+    assert ca_bundle_mounts(_ca_block(str(ca)), where="archiver.settings") == (str(ca),)
+
+
+def test_ca_bundle_mounts_skips_a_file_not_on_this_host(tmp_path) -> None:
+    """The connector in the container then refuses at connect, as on the host."""
+    ca = tmp_path / "absent.pem"
+
+    assert ca_bundle_mounts(_ca_block(str(ca)), where="archiver.settings") == ()
+
+
+@pytest.mark.parametrize(
+    "tls", [{"ca_bundle": "certs/site-ca.pem"}, {"verify": False}], ids=["relative", "verify"]
+)
+def test_ca_bundle_mounts_skips_a_path_the_reader_refuses(tls: dict[str, Any]) -> None:
+    assert ca_bundle_mounts({"tls": tls}, where="archiver.settings") == ()
+
+
+def test_ca_bundle_mounts_skips_a_home_relative_path(monkeypatch, tmp_path) -> None:
+    """`~` would name a different file in each process, so it is never mounted."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "site-ca.pem").write_text("x\n")
+
+    assert ca_bundle_mounts(_ca_block("~/site-ca.pem"), where="archiver.settings") == ()
+
+
+@pytest.mark.parametrize(
+    ("connector", "key"),
+    [("epics_archiver", "epics_archiver"), ("my_facility.stores.Archive", "settings")],
+)
+def test_config_archiver_ca_bundles_reads_the_selected_block(
+    tmp_path, connector: str, key: str
+) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    archiver = {"type": connector, key: _ca_block(str(ca))}
+
+    assert config_archiver_ca_bundles({"archiver": archiver}) == (str(ca),)
+
+
+def test_config_archiver_ca_bundles_ignores_an_unselected_block(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    archiver = {"type": "mock_archiver", "epics_archiver": _ca_block(str(ca))}
+
+    assert config_archiver_ca_bundles({"archiver": archiver}) == ()
+
+
+def test_personas_needing_archiver_ca_bundles_maps_each_persona_to_its_file(tmp_path) -> None:
+    """Only a persona whose selected archiver names a CA file on this host is mapped."""
+    # Arrange
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    catalog = {
+        "facility": {
+            "project": "fac",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "fac",
+                {"archiver": {"type": "epics_archiver", "epics_archiver": _ca_block(str(ca))}},
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path, "ro", {"archiver": {"type": "mock_archiver"}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "facility"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_archiver_ca_bundles(config, tmp_path)
+
+    # Assert
+    assert result == {"facility": (str(ca),)}
+
+
+def test_personas_needing_archiver_ca_bundles_skips_unrendered_persona_projects(
+    tmp_path,
+) -> None:
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    assert personas_needing_archiver_ca_bundles(config, tmp_path) == {}
 
 
 # ---------------------------------------------------------------------------

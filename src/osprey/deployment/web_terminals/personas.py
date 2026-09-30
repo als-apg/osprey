@@ -51,7 +51,7 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors import yaml_loader
-from osprey_connectors.connection import ENV_NAME_RE, read_credential_env_names
+from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.types import (
     archiver_settings_key,
     baseline_target,
@@ -660,6 +660,45 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
     return tuple(names)
 
 
+def ca_bundle_mounts(block: Any, *, where: str) -> tuple[str, ...]:
+    """The host CA file ``block`` names under ``tls.ca_bundle``, when it is on this host.
+
+    The file is mounted read-only at this same path into each container that
+    reads the block, so the key names one file on the host and inside a
+    container. Two cases mount nothing: a ``tls:`` the connection-settings
+    reader refuses, and a named file that is not on this host. In both the
+    connector inside the container refuses at connect exactly as it does on the
+    host, naming the key, so the build adds no second report of the same fact.
+
+    :param block: The connection block, as the consumer reads it.
+    :param where: The block's dotted key.
+    :return: ``(path,)`` for a named file on this host, else ``()``.
+    """
+    try:
+        path = read_ca_bundle(block, where=where)
+    except ValueError:
+        return ()
+    if path is None or not path.exists():
+        return ()
+    return (path.as_posix(),)
+
+
+def config_archiver_ca_bundles(config: Any) -> tuple[str, ...]:
+    """The CA file ``config``'s SELECTED archiver block names, when it is on this host.
+
+    Only the selected connector's block counts, for the reason
+    :func:`config_archiver_credential_envs` gives. See :func:`ca_bundle_mounts`
+    for what is mounted and why nothing else is.
+    """
+    archiver = as_dict(as_dict(config).get("archiver"))
+    connector = archiver.get("type")
+    if not isinstance(connector, str) or not connector:
+        return ()
+    return ca_bundle_mounts(
+        resolve_archiver_settings(archiver), where=archiver_settings_key(archiver)
+    )
+
+
 def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
     """The persona catalog and the names some roster entry actually resolves to.
 
@@ -1087,6 +1126,29 @@ def personas_needing_archiver_credentials(
         names = config_archiver_credential_envs(persona_config)
         if names:
             grants[persona_name] = names
+    return grants
+
+
+def personas_needing_archiver_ca_bundles(
+    config: Any, project_root: Any
+) -> dict[str, tuple[str, ...]]:
+    """Map each catalog persona whose archiver names a CA file on this host to that file.
+
+    Walks the same per-persona ``config.yml`` files
+    :func:`personas_needing_archiver_credentials` walks, so the two grants agree
+    about which personas a roster deploys.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: ``{persona_name: (ca_path,)}`` for the referenced personas whose
+        selected archiver block names a CA file on this host.
+    """
+    grants: dict[str, tuple[str, ...]] = {}
+    for persona_name, persona_config in _persona_configs(config, project_root):
+        paths = config_archiver_ca_bundles(persona_config)
+        if paths:
+            grants[persona_name] = paths
     return grants
 
 

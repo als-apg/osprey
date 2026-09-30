@@ -35,9 +35,11 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.env_production import personas_needing_telemetry_vars
 from osprey.deployment.web_terminals.personas import (
     as_dict,
+    config_archiver_ca_bundles,
     config_needs_launch_token_for,
     launch_token_writes_key,
     normalize_users,
+    personas_needing_archiver_ca_bundles,
     personas_needing_archiver_credentials,
     personas_needing_ariel_mirror,
     personas_needing_ariel_password,
@@ -1030,6 +1032,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "launch_token_personas": launch_token_personas_by_lane,
         "graphdb_personas": personas_needing_graphdb_password(config, root),
         "archiver_credential_personas": personas_needing_archiver_credentials(config, root),
+        "archiver_ca_bundle_personas": personas_needing_archiver_ca_bundles(config, root),
+        # Persona-less entries' CA file, answered here because the render reads no filesystem.
+        "archiver_ca_bundles": config_archiver_ca_bundles(config),
         "telemetry_vars_personas": personas_needing_telemetry_vars(config, root),
         "facility_bundle_personas": personas_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path

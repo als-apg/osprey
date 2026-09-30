@@ -3579,6 +3579,39 @@ def _bluesky_panel_secret_env_vars(config, source_dir, persona_root=None):
     return bluesky_panel_secret_env_vars(config, resolve_repo_root(config), persona_root)
 
 
+def _connection_ca_bundles(config, source_dir):
+    """The host CA files this service's container reads through a connection block.
+
+    Each is bind-mounted read-only at the same path by the service's compose
+    template, so a block's ``tls.ca_bundle`` names one file on the host and in
+    the container. A dispatch worker opens the SELECTED archiver block, as a web
+    terminal does; the archive recorder always opens
+    ``archiver.mongodb_archiver``, whatever ``archiver.type`` selects. Every
+    other service reads no connection block and mounts nothing.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :return: Host paths of the CA files on this host, in mount order
+    :rtype: list[str]
+    """
+    from osprey.deployment.web_terminals.personas import (
+        as_dict,
+        ca_bundle_mounts,
+        config_archiver_ca_bundles,
+    )
+    from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
+
+    service = os.path.basename(os.path.normpath(source_dir))
+    if service == "dispatch_worker":
+        return list(config_archiver_ca_bundles(config))
+    if service == ARCHIVER_RECORDER_SERVICE:
+        store = as_dict(config.get("archiver")).get("mongodb_archiver")
+        return list(ca_bundle_mounts(store, where="archiver.mongodb_archiver"))
+    return []
+
+
 def _bluesky_panel_roster_owners(config, source_dir, persona_root=None):
     """Whose secret each variable of the sidecar's roster grant is.
 
@@ -4382,6 +4415,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         # Mandatory where a fragment mounts it (the stager refuses otherwise);
         # False, with any stale copy removed, everywhere else.
         "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
+        "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
     _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args)
@@ -4585,6 +4619,7 @@ def _incremental_setup_build_dir(
         # Mandatory where a fragment mounts it (the stager refuses otherwise);
         # False, with any stale copy removed, everywhere else.
         "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
+        "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
     _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args)

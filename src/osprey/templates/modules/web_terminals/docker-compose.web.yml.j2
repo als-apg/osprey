@@ -1429,6 +1429,15 @@ services:
          which stats the mounted directory itself, so no gid is read back for
          it at render time. #}
       - {{ svc.control_context_mount_source }}:{{ svc.container_control_context_dir }}
+      {#- The CA file this user's archiver block names under `tls.ca_bundle`,
+         bind-mounted read-only at the same path, so the key names one file on
+         the host and here. Long syntax, so any path is carried whole. #}
+{%- for ca_bundle in svc.ca_bundle_mounts %}
+      - type: bind
+        source: {{ ca_bundle | replace("$", "$$") | tojson }}
+        target: {{ ca_bundle | replace("$", "$$") | tojson }}
+        read_only: true
+{%- endfor %}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- THE DEPLOYMENT BUNDLE SHADOWS THE PERSONA'S BAKED COPY. BY DESIGN.
 

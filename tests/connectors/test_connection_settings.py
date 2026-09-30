@@ -4,11 +4,13 @@ import base64
 import ssl
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pytest
 
 from osprey_connectors.connection import (
     ConnectionSettings,
+    read_ca_bundle,
     read_connection_settings,
     read_credential_env_names,
     urllib_opener,
@@ -143,10 +145,15 @@ def test_a_relative_ca_bundle_is_refused():
         _read({"tls": {"ca_bundle": "certs/site-ca.pem"}})
 
 
-def test_a_home_relative_ca_bundle_expands(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    settings = _read({"tls": {"ca_bundle": "~/site-ca.pem"}})
-    assert settings.ca_bundle == tmp_path / "site-ca.pem"
+_HOME_RELATIVE = (
+    r"`archiver\.settings\.tls\.ca_bundle` must be an absolute path, got .*spell the full path"
+)
+
+
+@pytest.mark.parametrize("raw", ["~/site-ca.pem", "~operator/site-ca.pem"])
+def test_a_home_relative_ca_bundle_is_refused(raw):
+    with pytest.raises(ValueError, match=_HOME_RELATIVE):
+        _read({"tls": {"ca_bundle": raw}})
 
 
 @pytest.mark.parametrize("value", [0, -1, "60", True])
@@ -268,6 +275,60 @@ def test_the_names_accessor_reads_no_environment(monkeypatch):
     unset = _names(block)
     monkeypatch.setenv("ARCHIVER_TOKEN", SECRET)
     assert _names(block) == unset == (("auth.token_env", "ARCHIVER_TOKEN"),)
+
+
+# -- CA file -------------------------------------------------------------------------
+
+
+def _ca(block):
+    return read_ca_bundle(block, where=WHERE)
+
+
+def test_read_ca_bundle_returns_the_named_path():
+    block = {"tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}}
+    assert _ca(block) == Path("/etc/ssl/certs/site-ca.pem")
+
+
+@pytest.mark.parametrize("block", [None, {}, {"tls": {}}])
+def test_read_ca_bundle_is_none_without_tls(block):
+    assert _ca(block) is None
+
+
+def test_read_ca_bundle_refuses_a_home_relative_path():
+    with pytest.raises(ValueError, match=_HOME_RELATIVE):
+        _ca({"tls": {"ca_bundle": "~/site-ca.pem"}})
+
+
+def test_read_ca_bundle_refuses_a_relative_path():
+    with pytest.raises(
+        ValueError, match=r"`archiver\.settings\.tls\.ca_bundle` must be an absolute path"
+    ):
+        _ca({"tls": {"ca_bundle": "certs/site-ca.pem"}})
+
+
+def test_read_ca_bundle_ignores_a_flat_ca_bundle():
+    assert _ca({"ca_bundle": "/x.pem"}) is None
+
+
+def test_read_ca_bundle_checks_nothing_but_tls():
+    block = {"auth": {"token": "inline"}, "tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}}
+    with pytest.raises(ValueError):
+        _read(block)
+    assert _ca(block) == Path("/etc/ssl/certs/site-ca.pem")
+
+
+def test_read_ca_bundle_agrees_with_the_full_reader():
+    block = {
+        "url": "https://archiver.example.org",
+        "auth": {"token_env": "ARCHIVER_TOKEN"},
+        "tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"},
+    }
+    assert _ca(block) == _read(block).ca_bundle
+
+
+def test_read_ca_bundle_reads_no_file(tmp_path):
+    missing = tmp_path / "absent" / "site-ca.pem"
+    assert _ca({"tls": {"ca_bundle": str(missing)}}) == missing
 
 
 # -- credential ----------------------------------------------------------------------
