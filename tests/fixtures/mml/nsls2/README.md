@@ -2,7 +2,7 @@
 
 A real Middle Layer (MML) export of NSLS-II, the 3 GeV light source at Brookhaven
 National Laboratory: the storage ring and the linac-to-booster transfer line (LTB),
-each as the five files the shipped `mml_export.m` writes for one sub-machine.
+each as the six files the shipped `mml_export.m` writes for one sub-machine.
 `mapping.yaml` is the reviewed mapping; every slot is `stated`, so it passes
 `osprey mml map --check --no-derived`.
 
@@ -13,7 +13,8 @@ each as the five files the shipped `mml_export.m` writes for one sub-machine.
 | `nsls2.storagering.lattice.mat` | The deck the ring export was sampled over: `nsls2atlat2014March`, 3510 elements, no `RingParam` |
 | `nsls2.storagering.va.json` | Per family: the conversion between supply current and physics, the nominal each device sits at, and every refusal |
 | `nsls2.storagering.response.json` | The stored orbit-response matrix, four blocks of 180 monitors against 180 correctors |
-| `nsls2.ltb.*` | The same five files for the transfer line: 7 families at 200 MeV, a 121-element deck, one family with no channels (`Screen`) |
+| `nsls2.storagering.model.json` | What the Middle Layer's own model answers, with the recipe for each; the ring carries no cavity, so the recipes are the four-dimensional ones |
+| `nsls2.ltb.*` | The same six files for the transfer line; its model file answers the orbit response in physics units only, because the Middle Layer's transport-line calculator reports its monitors at the lattice's own points and refuses the hardware conversion for it: 7 families at 200 MeV, a 121-element deck, one family with no channels (`Screen`) |
 | `mapping.yaml` | Reviewed mapping for both systems; `SQ` and `TUNE` are new classes under `Quadrupole` and `Instrumentation`, and the `virtual_accelerator` block decides the 25 storage-ring families |
 
 Import both systems at once:
@@ -90,20 +91,18 @@ below. The transfer line is served with those positions as markers too.
 
 ## How the export was made
 
-- **Exporter:** `mml_export 2.0.0`, the script shipped at
+- **Exporter:** `mml_export 2.1.0`, the script shipped at
   `src/osprey/templates/apps/control_assistant/data/mml/mml_export.m`.
-- **MATLAB:** 26.1.0.3276743 (R2026a) Update 3, Linux x86_64, on the host `appsml`.
+- **MATLAB:** 26.1.0.3276743 (R2026a) Update 3, Linux x86_64, on the host `appsdev2`.
 - **Middle Layer:** the `MML-prod` tree as synced 2026-05-28. It is a plain synced
   folder with no version history, so there is no commit id to quote.
 - **Accelerator Toolbox:** the AT 2.0 that `MML-prod` bundles under
   `simulators/at2.0`, which the machine's own `setpathmml` puts on the path before
   it initialises the Accelerator Objects.
 - **Commands:** `~/mml-reexport/run_reexport.sh nsls2-sr` and
-  `~/mml-reexport/run_reexport.sh nsls2-ltb`, one fresh MATLAB each. The full
-  runbook is `.claude/scratch/handoffs/2026-09-18-mml-reexport-runbook.md`; the
-  console and probe logs of this run are under
-  `.claude/scratch/handoffs/reexport-logs/`.
-- **Date:** 2026-09-19.
+  `~/mml-reexport/run_reexport.sh nsls2-ltb`, one fresh MATLAB each, as described
+  in [Re-running the export on a MATLAB host](../../../../src/osprey/templates/apps/control_assistant/data/mml/README.md#re-running-the-export-on-a-matlab-host).
+- **Date:** 2026-09-25.
 
 NSLS-II ships no physics-data file, so none of its numbers come from one. The link
 method defaulted to LabCA, which is not installed on that host, so the Middle Layer

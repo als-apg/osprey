@@ -1,7 +1,7 @@
 # SPEAR3 export
 
 A real Middle Layer (MML) export of SPEAR3, the 3 GeV light source of SSRL at SLAC
-National Accelerator Laboratory: the storage ring, as the five files the shipped
+National Accelerator Laboratory: the storage ring, as the six files the shipped
 `mml_export.m` writes for one sub-machine. `mapping.yaml` is the reviewed mapping;
 every slot is `stated`, so it passes `osprey mml map --check --no-derived`.
 
@@ -12,6 +12,7 @@ every slot is `stated`, so it passes `osprey mml map --check --no-derived`.
 | `spear3.storagering.lattice.mat` | The deck the export was sampled over: `sp3v82`, 876 elements, no `RingParam` |
 | `spear3.storagering.va.json` | Per family: the conversion between supply current and physics, the nominal each device sits at, the dipole ramp, and every refusal |
 | `spear3.storagering.response.json` | The stored orbit-response matrix, four blocks of BPM against corrector |
+| `spear3.storagering.model.json` | What the Middle Layer's own model answers, with the recipe for each: tunes, chromaticity, dispersion, closed orbit, and orbit, tune and chromaticity response in physics and hardware units |
 | `mapping.yaml` | Reviewed mapping; nine new classes are declared under packaged parents (`BendTrim`, `BeamlineMonitor`, `OrbitInterlock`, `CorrectorCurrentReference`, `InjectionKicker`, `InjectionSeptum`, `MachineStatus`, `QuadrupoleShunt`, `SkewQuadrupole`, `TuneMonitor`), and a `virtual_accelerator` block deciding all 43 families |
 
 Import it with:
@@ -55,25 +56,24 @@ are injection elements and are not in the stored-beam model.
 
 ## How the export was made
 
-- **Exporter:** `mml_export 2.0.0`, the script shipped at
+- **Exporter:** `mml_export 2.1.0`, the script shipped at
   `src/osprey/templates/apps/control_assistant/data/mml/mml_export.m`.
-- **MATLAB:** 26.1.0.3276743 (R2026a) Update 3, Linux x86_64, on the host `appsml`.
+- **MATLAB:** 26.1.0.3276743 (R2026a) Update 3, Linux x86_64, on the host `appsdev2`.
 - **Middle Layer:** the `MML-prod` tree as synced 2026-05-28. It is a plain synced
   folder with no version history, so there is no commit id to quote.
 - **Accelerator Toolbox:** the AT 2.0 that `MML-prod` bundles under
   `simulators/at2.0`, which the machine's own `setpathmml` puts on the path before
   it initialises the Accelerator Objects.
 - **Command:** `~/mml-reexport/run_reexport.sh spear3`, which runs one fresh MATLAB
-  for the sub-machine. The full runbook is
-  `.claude/scratch/handoffs/2026-09-18-mml-reexport-runbook.md`; the console and
-  probe logs of this run are under `.claude/scratch/handoffs/reexport-logs/`.
+  for the sub-machine, as described in
+  [Re-running the export on a MATLAB host](../../../../src/osprey/templates/apps/control_assistant/data/mml/README.md#re-running-the-export-on-a-matlab-host).
 - **Two symlinks the host needed:** Linux is case-sensitive and the Middle Layer
   asks for `machine/SPEAR3/...` and `SPEAR3physdata.mat` where the checkout spells
   both `Spear3`. Without `machine/SPEAR3 -> Spear3` and
   `Spear3/StorageRingOpsData/SPEAR3physdata.mat -> Spear3physdata.mat` the golden
   response file and the physics data are skipped silently and the export measures
   the model instead. A fresh checkout needs them again.
-- **Date:** 2026-09-19.
+- **Date:** 2026-09-25.
 
 The link method defaulted to LabCA, which is not installed on that host, so the
 Middle Layer warned once and every family was switched to simulator mode before the
