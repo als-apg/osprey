@@ -6,6 +6,8 @@ from then on. It writes, under ``--out``:
 
 * ``identity.yaml`` -- ``code: ca``; ``--standalone`` adds the facility name;
 * ``classes.yaml`` -- empty: every demo class is a vocabulary class;
+* ``models.yaml`` -- the deck machine's model on the committed deck and its
+  wiring, sorted by address;
 * ``seeds.yaml`` -- how each channel no model wires starts and moves, and
   how each wired readback moves, from the machine file and the channel
   taxonomy;
@@ -98,8 +100,15 @@ _measurement = _load_sibling("_measurement")
 _seeds = _load_sibling("_seeds")
 
 
-def files(records: _records.Records) -> dict[str, str]:
-    """Relative path -> text for every file the generator writes."""
+def files(records: Any) -> dict[str, str]:
+    """Relative path -> text for every file the generator writes.
+
+    Args:
+        records: The demo's records, a ``_records.Records``.
+
+    Returns:
+        Each file's path relative to ``data/facility`` and its text, in write order.
+    """
     models = _models.build_models()
     return {
         "identity.yaml": dump(records.identity),
