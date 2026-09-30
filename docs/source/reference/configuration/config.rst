@@ -1013,6 +1013,16 @@ These keys configure the ``phoebus`` MCP server, which is off until
        Phoebus server. Elsewhere the default is ``false``, turned on with
        ``true`` or ``PHOEBUS_REQUIRE_HANDLE=1``. ``false`` keeps ``"active"``
        in a multi-user deployment too.
+   * - ``phoebus.agent_access``
+     - What the agent may do through the Phoebus bridge. ``read`` (default)
+       offers the reading tools only: ``phoebus_drive`` is left out of the
+       agent's tool list and permissions, and the server refuses a drive.
+       ``read_write`` offers ``phoebus_drive``, which still asks for approval
+       and still stops when ``control_system.writes_enabled`` is ``false``.
+       Any other value is refused by name. The switch is all or nothing: a
+       panel runs whatever its widgets are wired to, so finer control belongs
+       to the EPICS gateway or access security the Phoebus product connects
+       through.
    * - ``phoebus.archiver_url``
      - The archiver bound into generated Data Browser plots. Unset, plots show
        live values only.

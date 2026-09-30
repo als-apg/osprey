@@ -27,6 +27,7 @@ from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
 from osprey.errors import BuildProfileError
+from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader
@@ -382,6 +383,11 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # helper in osprey.mcp_server.http), so the rendered client and the
         # deployed bridge cannot drift onto different ports (#829).
         "phoebus_bridge_default": phoebus_bridge_default(config),
+        # `phoebus.agent_access`, the key resolve_servers reads to decide
+        # whether phoebus_drive is offered. It must be merged before
+        # resolve_servers runs, which both render paths do, so both refuse an
+        # unknown value.
+        "phoebus_agent_access": _phoebus_agent_access(config),
         # The device vocabulary the channel-finder terminology partials render
         # their rows from, out of the deployment's own compiled ontology
         # (`facility.ontology`). None when no ontology is declared — the
@@ -416,6 +422,22 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
         "transcripts_retention_days": _transcripts_retention_days(config),
     }
+
+
+def _phoebus_agent_access(config: dict) -> str:
+    """The ``phoebus.agent_access`` value: ``"read"`` (default) or ``"read_write"``.
+
+    The refusal happens at build, not at launch: a typo that fell back to
+    ``read`` would silently withhold a tool the profile asked for, and one that
+    fell back to ``read_write`` would offer a tool the profile never granted.
+
+    Raises:
+        BuildProfileError: If the value is neither ``read`` nor ``read_write``.
+    """
+    try:
+        return phoebus_agent_access(config)
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
 
 
 def _transcripts_retention_days(config: dict) -> int | None:

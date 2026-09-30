@@ -2343,6 +2343,15 @@ keys:
       pass a handle or a display name; PHOEBUS_REQUIRE_HANDLE outranks it. No
       preset carries it.
     default: false
+  phoebus.agent_access:
+    rendered: false
+    evidence: 'phoebus\.get\("agent_access", READ\)'
+    note: >-
+      read offers the perceive, snapshot, open-panel and lookup tools only, and
+      the server refuses a drive. read_write also offers phoebus_drive, still
+      behind the approval prompt and control_system.writes_enabled. Any other
+      value is refused by name at build and by the server. No preset carries it.
+    default: read
   phoebus.snapshot_dir:
     rendered: false
     evidence: '\(config\.get\("phoebus", \{\}\) or \{\}\)\.get\("snapshot_dir"\)'

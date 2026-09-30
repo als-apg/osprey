@@ -52,6 +52,13 @@ is off by default and is turned on with ``phoebus.require_handle: true`` in
 config.yml or ``PHOEBUS_REQUIRE_HANDLE=1``. ``phoebus.require_handle: false``
 keeps ``"active"`` in a multi-user deployment too.
 
+Agent access
+------------
+``phoebus_drive`` is offered and served only when ``phoebus.agent_access`` is
+``read_write``. Under the default ``read`` the server leaves it out of
+``tools/list`` and refuses a call to it by the key's name. This is the only
+switch, because a panel runs whatever its widgets are wired to.
+
 Panel name registry
 -------------------
 ``phoebus_open_panel`` resolves logical panel names to ``.bob`` resources via:
@@ -99,6 +106,7 @@ from osprey.mcp_server.http import (
     phoebus_bridge_url,
 )
 from osprey.mcp_server.phoebus.server import mcp
+from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
 from osprey.utils.workspace import (
     agent_data_base_dir,
     anchored_path,
@@ -214,6 +222,35 @@ def _require_handle() -> bool:
         return False
     config = load_osprey_config()
     return bool(config.get("phoebus", {}).get("require_handle", False))
+
+
+def _check_drive_offered() -> None:
+    """Refuse a drive unless ``phoebus.agent_access`` is ``read_write``.
+
+    The refusal names the key, so a client whose settings still offer the
+    tool learns which switch withholds it.
+    """
+    try:
+        access = agent_access(load_osprey_config())
+    except ValueError as exc:
+        make_error(
+            "configuration_error",
+            str(exc),
+            [
+                f"Set {AGENT_ACCESS_KEY} to {READ!r} or {READ_WRITE!r} in the build profile and rebuild."
+            ],
+            details={"key": AGENT_ACCESS_KEY},
+        )
+    if access == READ:
+        make_error(
+            "not_supported",
+            f"Driving a Phoebus widget is off on this deployment: {AGENT_ACCESS_KEY} is {READ!r}.",
+            [
+                f"An administrator can allow it with {AGENT_ACCESS_KEY}: {READ_WRITE} "
+                "in the build profile, then rebuild."
+            ],
+            details={"key": AGENT_ACCESS_KEY, "value": READ},
+        )
 
 
 def _check_explicit_display(display: str) -> None:
@@ -783,10 +820,14 @@ async def phoebus_drive(
     Refuses outright while the session's control-system target differs from the
     deployment baseline: the bridge drives the baseline's Phoebus, so the drive
     would land on a target this session has left (see the module docstring).
+    Refused unless ``phoebus.agent_access`` is ``read_write``.
     """
-    # Checked before argument validation: the refusal is a fact about session
-    # state and holds for every argument, so an operator on the wrong target
-    # should learn that rather than first be sent to fix a typo'd verb.
+    # Both checks run before argument validation. Access is a fact about the
+    # deployment and the target is a fact about the session; both hold for
+    # every argument, so an operator learns them rather than first being sent
+    # to fix a typo'd verb, and a deployment that offers no drive says so
+    # before anything else.
+    _check_drive_offered()
     refusal = baseline_refusal(PHOEBUS_SUBJECT, "Driving a Phoebus widget")
     if refusal is not None:
         return make_error(BASELINE_REFUSAL_ERROR_TYPE, refusal[0], refusal[1])

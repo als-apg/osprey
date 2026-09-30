@@ -598,6 +598,8 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
       NOT in allow), PreToolUse approval hook under exactly
       mcp__phoebus2__phoebus_drive (drive-only — no wildcard rule).
     * hook_config.json: both phoebus prefixes in server/approval prefixes.
+    * phoebus.agent_access is read_write, because only a deployment that offers
+      the drive renders it into ask.
     """
     manager = TemplateManager()
     project = _create_project(
@@ -615,6 +617,7 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
         project / "config.yml",
         {
             "claude_code.servers.phoebus.enabled": True,
+            "phoebus.agent_access": "read_write",
             "claude_code.servers.phoebus2.extends": "phoebus",
             "claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL": (
                 "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
