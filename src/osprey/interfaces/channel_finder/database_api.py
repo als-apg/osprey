@@ -19,7 +19,7 @@ import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -37,6 +37,12 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.mcp_server.graph.server_context import GraphStoreError
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+from osprey.services.channel_finder.core.base_database import BaseDatabase
+from osprey.services.channel_finder.databases import (
+    FlatChannelDatabase,
+    HierarchicalChannelDatabase,
+    MiddleLayerDatabase,
+)
 from osprey.services.channel_finder.graph_index.reader import (
     DEFAULT_PAGE_SIZE,
     GraphIndex,
@@ -642,20 +648,21 @@ async def get_info(request: Request):
         info["db_path"] = None
 
     try:
-        db = _get_database(request)
         if pt == "hierarchical":
+            hierarchical = _get_hierarchical_database(request)
             info["metadata"] = {
-                "hierarchy_levels": db.hierarchy_levels,
-                "hierarchy_config": db.hierarchy_config,
-                "naming_pattern": db.naming_pattern,
+                "hierarchy_levels": hierarchical.hierarchy_levels,
+                "hierarchy_config": hierarchical.hierarchy_config,
+                "naming_pattern": hierarchical.naming_pattern,
                 "facility_name": _get_facility_name(request),
             }
         elif pt == "middle_layer":
-            systems = db.list_systems()
+            systems = _get_middle_layer_database(request).list_systems()
             info["metadata"] = {"system_count": len(systems)}
         else:  # in_context
-            stats = db.get_statistics()
-            chunks = db.chunk_database(50)
+            in_context = _get_in_context_database(request)
+            stats = in_context.get_statistics()
+            chunks = in_context.chunk_database(50)
             stats["total_chunks_at_50"] = len(chunks)
             stats["facility_name"] = _get_facility_name(request)
             info["metadata"] = stats
@@ -711,15 +718,15 @@ async def get_statistics(request: Request):
         return await _serve_index_read(request, "statistics", lambda index: index.statistics())
 
     try:
-        db = _get_database(request)
         if pt == "in_context":
-            stats = db.get_statistics()
-            chunks = db.chunk_database(50)
+            in_context = _get_in_context_database(request)
+            stats = in_context.get_statistics()
+            chunks = in_context.chunk_database(50)
             stats["total_chunks_at_50"] = len(chunks)
             stats["facility_name"] = _get_facility_name(request)
             return stats
         else:
-            return db.get_statistics()
+            return _get_database(request).get_statistics()
 
     except HTTPException:
         raise
@@ -745,11 +752,11 @@ async def validate_channels(request: Request, body: ValidateRequest):
         )
 
     try:
-        db = _get_database(request)
         if pt == "in_context":
-            validation_results = db.validate_channels(body.channels)
-            valid = db.get_valid_channels(validation_results)
-            invalid = db.get_invalid_channels(validation_results)
+            in_context = _get_in_context_database(request)
+            validation_results = in_context.validate_channels(body.channels)
+            valid = in_context.get_valid_channels(validation_results)
+            invalid = in_context.get_invalid_channels(validation_results)
             return {
                 "total": len(body.channels),
                 "valid_count": len(valid),
@@ -759,6 +766,7 @@ async def validate_channels(request: Request, body: ValidateRequest):
                 "results": validation_results,
             }
         else:  # hierarchical or middle_layer
+            db = _get_database(request)
             results = []
             valid_count = 0
             for ch in body.channels:
@@ -1108,17 +1116,13 @@ async def explore_options(request: Request, level: str, selections: str | None =
         level: Hierarchy level name (e.g., "system", "device").
         selections: JSON-encoded dict of previous selections.
     """
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     try:
-        db = _get_database(request)
         parsed_selections = json.loads(selections) if selections else None
         options = db.get_options_at_level(level, parsed_selections or {})
         return {"level": level, "options": options, "total": len(options)}
 
-    except HTTPException:
-        raise
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
     except Exception as exc:
@@ -1134,11 +1138,9 @@ async def explore_build(request: Request, selections: str):
         request: FastAPI request.
         selections: JSON-encoded dict of hierarchy selections.
     """
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     try:
-        db = _get_database(request)
         parsed_selections = json.loads(selections)
         channels = db.build_channels_from_selections(parsed_selections)
         valid = [ch for ch in channels if db.validate_channel(ch)]
@@ -1152,8 +1154,6 @@ async def explore_build(request: Request, selections: str):
             "invalid_count": len(invalid),
         }
 
-    except HTTPException:
-        raise
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
     except Exception as exc:
@@ -1164,11 +1164,9 @@ async def explore_build(request: Request, selections: str):
 @router.get("/explore/hierarchy-info")
 async def explore_hierarchy_info(request: Request):
     """Get hierarchy structure information."""
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     try:
-        db = _get_database(request)
         return {
             "hierarchy_levels": db.hierarchy_levels,
             "hierarchy_config": db.hierarchy_config,
@@ -1176,8 +1174,6 @@ async def explore_hierarchy_info(request: Request):
             "facility_name": _get_facility_name(request),
         }
 
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.exception("Failed to get hierarchy info")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1191,16 +1187,12 @@ async def explore_hierarchy_info(request: Request):
 @router.get("/explore/systems")
 async def explore_systems(request: Request):
     """List all systems in the channel database."""
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     try:
-        db = _get_database(request)
         systems = db.list_systems()
         return {"systems": systems, "total": len(systems)}
 
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.exception("Failed to list systems")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1214,16 +1206,12 @@ async def explore_families(request: Request, system: str):
         request: FastAPI request.
         system: System name (e.g., "SR" for Storage Ring).
     """
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     try:
-        db = _get_database(request)
         families = db.list_families(system)
         return {"families": families, "total": len(families)}
 
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.exception("Failed to list families")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1244,16 +1232,12 @@ async def explore_fields(
         family: Family name.
         field: Optional specific field to inspect.
     """
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     try:
-        db = _get_database(request)
         fields = db.inspect_fields(system, family, field)
         return {"fields": fields}
 
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.exception("Failed to inspect fields")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1283,11 +1267,9 @@ async def explore_channels(
         protocol: Optional channel protocol, ``ca`` or ``tango``. Absent, the
             field's first listed names are returned.
     """
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     try:
-        db = _get_database(request)
         parsed_sectors = json.loads(sectors) if sectors else None
         parsed_devices = json.loads(devices) if devices else None
         extra = {} if protocol is None else {"protocol": protocol}
@@ -1296,8 +1278,6 @@ async def explore_channels(
         )
         return {"channels": channels, "total": len(channels)}
 
-    except HTTPException:
-        raise
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=422,
@@ -1311,10 +1291,8 @@ async def explore_channels(
 @router.get("/explore/device-info")
 async def explore_device_info(request: Request, system: str, family: str):
     """Get device arrangement info for a middle-layer family."""
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
     try:
-        db = _get_database(request)
         return db.get_device_info(system, family)
     except Exception as exc:
         logger.exception("Failed to get device info")
@@ -1356,11 +1334,9 @@ async def get_channels(
         return _serve_from_roster(
             request, lambda: _roster_channels(state.channel_addresses, chunk_idx)
         )
-    if pt != "in_context":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_in_context_database(request)
 
     try:
-        db = _get_database(request)
         if chunk_idx is not None:
             chunks = db.chunk_database(chunk_size)
             if chunk_idx < 0 or chunk_idx >= len(chunks):
@@ -1428,20 +1404,62 @@ def _roster_channels(addresses: tuple[str, ...], chunk_idx: int | None) -> dict[
 # ---------------------------------------------------------------------------
 
 
-def _get_database(request: Request):
+_Database = TypeVar("_Database", bound=BaseDatabase)
+
+
+def _get_database(request: Request) -> BaseDatabase:
     """Get the database instance for the active pipeline type."""
     pt = _pipeline_type(request)
-    databases = getattr(request.app.state, "databases", {})
+    databases: dict[str, BaseDatabase] = getattr(request.app.state, "databases", {})
     db = databases.get(pt)
     if db is None:
         raise HTTPException(status_code=503, detail=f"Database not available for pipeline '{pt}'")
     return db
 
 
+def _paradigm_database(
+    request: Request, paradigm: str, database_class: type[_Database]
+) -> _Database:
+    """Return the active database as *paradigm*'s backend, refusing any other paradigm.
+
+    Args:
+        request: FastAPI request.
+        paradigm: The paradigm the route serves.
+        database_class: That paradigm's backend class.
+
+    Raises:
+        HTTPException: 404 when another paradigm is active (the database is not
+            read), 503 when the active database is absent or is not
+            *database_class*.
+    """
+    if _pipeline_type(request) != paradigm:
+        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_database(request)
+    if not isinstance(db, database_class):
+        raise HTTPException(
+            status_code=503, detail=f"Database not available for pipeline '{paradigm}'"
+        )
+    return db
+
+
+def _get_hierarchical_database(request: Request) -> HierarchicalChannelDatabase:
+    """Return the hierarchical backend, refusing any other paradigm."""
+    return _paradigm_database(request, "hierarchical", HierarchicalChannelDatabase)
+
+
+def _get_middle_layer_database(request: Request) -> MiddleLayerDatabase:
+    """Return the middle-layer backend, refusing any other paradigm."""
+    return _paradigm_database(request, "middle_layer", MiddleLayerDatabase)
+
+
+def _get_in_context_database(request: Request) -> FlatChannelDatabase:
+    """Return the in-context backend, refusing any other paradigm."""
+    return _paradigm_database(request, "in_context", FlatChannelDatabase)
+
+
 def _get_db_path(request: Request) -> str:
     """Get the database file path for the active pipeline type."""
-    db_path: str = _get_database(request).db_path
-    return db_path
+    return _get_database(request).db_path
 
 
 def _get_facility_name(request: Request) -> str:
@@ -1459,13 +1477,11 @@ def _get_facility_name(request: Request) -> str:
 @router.post("/tree/node")
 async def add_tree_node(request: Request, body: AddNodeRequest):
     """Add a new node at a hierarchy level."""
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.add_node(
             level=body.level,
             parent_selections=body.parent_selections,
@@ -1482,13 +1498,11 @@ async def add_tree_node(request: Request, body: AddNodeRequest):
 @router.put("/tree/node")
 async def edit_tree_node(request: Request, body: EditNodeRequest):
     """Edit a node's name and/or description at a hierarchy level."""
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.edit_node(
             level=body.level,
             selections=body.selections,
@@ -1506,13 +1520,11 @@ async def edit_tree_node(request: Request, body: EditNodeRequest):
 @router.delete("/tree/node")
 async def delete_tree_node(request: Request, body: DeleteNodeRequest):
     """Delete a node (and all descendants) at a hierarchy level."""
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.delete_node(
             level=body.level,
             selections=body.selections,
@@ -1528,13 +1540,11 @@ async def delete_tree_node(request: Request, body: DeleteNodeRequest):
 @router.post("/tree/impact")
 async def tree_impact(request: Request, body: DeleteNodeRequest):
     """Preview the impact of deleting a hierarchy node."""
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         impact = db.count_descendants(
             level=body.level,
             selections=body.selections,
@@ -1554,14 +1564,12 @@ async def tree_impact(request: Request, body: DeleteNodeRequest):
 @router.get("/tree/expansion")
 async def get_tree_expansion(request: Request, level: str, selections: str | None = None):
     """Get the current expansion config for an instance-type level."""
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         parsed_selections = json.loads(selections) if selections else {}
-        db = _get_database(request)
         return db.get_expansion(
             level=level,
             selections=parsed_selections,
@@ -1578,13 +1586,11 @@ async def get_tree_expansion(request: Request, level: str, selections: str | Non
 @router.put("/tree/expansion")
 async def edit_tree_expansion(request: Request, body: EditExpansionRequest):
     """Edit the expansion config for an instance-type level."""
-    if _pipeline_type(request) != "hierarchical":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_hierarchical_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.edit_expansion(
             level=body.level,
             selections=body.selections,
@@ -1607,13 +1613,11 @@ async def edit_tree_expansion(request: Request, body: EditExpansionRequest):
 @router.post("/structure/family")
 async def add_family(request: Request, body: AddFamilyRequest):
     """Add a new family to a system."""
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.add_family(
             system=body.system,
             family=body.family,
@@ -1629,13 +1633,11 @@ async def add_family(request: Request, body: AddFamilyRequest):
 @router.delete("/structure/family")
 async def delete_family(request: Request, body: DeleteFamilyRequest):
     """Delete a family and all its channels."""
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.delete_family(
             system=body.system,
             family=body.family,
@@ -1650,13 +1652,11 @@ async def delete_family(request: Request, body: DeleteFamilyRequest):
 @router.post("/structure/channel")
 async def add_ml_channel(request: Request, body: AddMLChannelRequest):
     """Add a channel to a family's field."""
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.add_channel(
             system=body.system,
             family=body.family,
@@ -1674,13 +1674,11 @@ async def add_ml_channel(request: Request, body: AddMLChannelRequest):
 @router.delete("/structure/channel")
 async def delete_ml_channel(request: Request, body: DeleteMLChannelRequest):
     """Delete a channel from a family's field."""
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.delete_channel(
             system=body.system,
             family=body.family,
@@ -1698,13 +1696,11 @@ async def delete_ml_channel(request: Request, body: DeleteMLChannelRequest):
 @router.post("/structure/impact")
 async def structure_impact(request: Request, body: DeleteFamilyRequest):
     """Preview the impact of deleting a middle-layer family."""
-    if _pipeline_type(request) != "middle_layer":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_middle_layer_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         count = db.count_family_channels(
             system=body.system,
             family=body.family,
@@ -1725,13 +1721,11 @@ async def structure_impact(request: Request, body: DeleteFamilyRequest):
 @router.post("/channels")
 async def create_channel(request: Request, body: AddICChannelRequest):
     """Add a new channel to the in-context database."""
-    if _pipeline_type(request) != "in_context":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_in_context_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.add_channel(
             channel=body.channel_name,
             address=body.address,
@@ -1753,13 +1747,11 @@ async def update_channel(channel_id: str, request: Request, body: UpdateICChanne
         request: FastAPI request.
         body: Fields to update.
     """
-    if _pipeline_type(request) != "in_context":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_in_context_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.update_channel(
             channel=channel_id,
             new_description=body.description,
@@ -1780,13 +1772,11 @@ async def delete_channel(channel_id: str, request: Request):
         channel_id: Channel name (uses :path converter for colon-separated PV names).
         request: FastAPI request.
     """
-    if _pipeline_type(request) != "in_context":
-        raise HTTPException(status_code=404, detail="Not available for this pipeline type")
+    db = _get_in_context_database(request)
 
     from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
-        db = _get_database(request)
         return db.delete_channel(
             channel=channel_id,
         )
