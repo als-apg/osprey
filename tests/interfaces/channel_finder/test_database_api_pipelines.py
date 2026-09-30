@@ -18,6 +18,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
+from osprey.services.channel_finder.databases import (
+    FlatChannelDatabase,
+    HierarchicalChannelDatabase,
+    MiddleLayerDatabase,
+)
 from osprey.services.channel_finder.graph_index.reader import GraphIndexAbsence
 from tests.interfaces.channel_finder.graph_fixture import (
     DEMO_STORE_URI,
@@ -59,7 +64,7 @@ class TestDatabaseUnavailable:
 class TestInfoMetadata:
     def test_hierarchical_metadata(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.db_path = "/tmp/h.json"
         mock_db.hierarchy_levels = ["system", "device"]
         mock_db.hierarchy_config = {"system": {}}
@@ -76,7 +81,7 @@ class TestInfoMetadata:
 
     def test_middle_layer_metadata_counts_systems(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.db_path = "/tmp/ml.json"
         mock_db.list_systems.return_value = ["SR", "BR", "LN"]
         with patch(_DB_PATCH, return_value=mock_db):
@@ -88,20 +93,19 @@ class TestInfoMetadata:
 class TestStatisticsNonInContext:
     def test_middle_layer_statistics_passthrough(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.get_statistics.return_value = {"families": 12}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/statistics")
         assert resp.status_code == 200
         # Non-in-context branch returns the raw stats without chunk augmentation.
         assert resp.json() == {"families": 12}
-        mock_db.chunk_database.assert_not_called()
 
 
 class TestValidateNonInContext:
     def test_hierarchical_validate_per_channel(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.validate_channel.side_effect = lambda ch: ch != "BAD"
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post("/api/validate", json={"channels": ["OK1", "BAD", "OK2"]})
@@ -128,7 +132,7 @@ class TestChannelsNonInContext:
 class TestHierarchicalExplore:
     def test_explore_options_success(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.get_options_at_level.return_value = ["SR", "BR"]
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get('/api/explore/options?level=system&selections={"a":"b"}')
@@ -140,13 +144,13 @@ class TestHierarchicalExplore:
 
     def test_explore_options_invalid_json_422(self, client):
         _set_pipeline(client, "hierarchical")
-        with patch(_DB_PATCH, return_value=MagicMock()):
+        with patch(_DB_PATCH, return_value=MagicMock(spec=HierarchicalChannelDatabase)):
             resp = client.get("/api/explore/options?level=system&selections={bad")
         assert resp.status_code == 422
 
     def test_explore_build_partitions_valid_invalid(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.build_channels_from_selections.return_value = ["A", "B"]
         mock_db.validate_channel.side_effect = lambda ch: ch == "A"
         with patch(_DB_PATCH, return_value=mock_db):
@@ -158,13 +162,13 @@ class TestHierarchicalExplore:
 
     def test_explore_build_invalid_json_422(self, client):
         _set_pipeline(client, "hierarchical")
-        with patch(_DB_PATCH, return_value=MagicMock()):
+        with patch(_DB_PATCH, return_value=MagicMock(spec=HierarchicalChannelDatabase)):
             resp = client.get("/api/explore/build?selections={bad")
         assert resp.status_code == 422
 
     def test_hierarchy_info(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.hierarchy_levels = ["system"]
         mock_db.hierarchy_config = {}
         mock_db.naming_pattern = "{system}"
@@ -180,7 +184,7 @@ class TestHierarchicalExplore:
 class TestHierarchicalCrud:
     def test_add_tree_node_success(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.add_node.return_value = {"status": "added"}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post(
@@ -194,7 +198,7 @@ class TestHierarchicalCrud:
         _set_pipeline(client, "hierarchical")
         from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.add_node.side_effect = DatabaseWriteError("duplicate", "dup")
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post("/api/tree/node", json={"level": "system", "name": "SR"})
@@ -202,7 +206,7 @@ class TestHierarchicalCrud:
 
     def test_add_tree_node_unexpected_error_500(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.add_node.side_effect = RuntimeError("boom")
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post("/api/tree/node", json={"level": "system", "name": "SR"})
@@ -210,7 +214,7 @@ class TestHierarchicalCrud:
 
     def test_tree_impact_reports_breakdown(self, client):
         _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
         mock_db.count_descendants.return_value = {"channels": 40, "devices": 5}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post("/api/tree/impact", json={"level": "system", "name": "SR"})
@@ -221,7 +225,7 @@ class TestHierarchicalCrud:
 
     def test_get_tree_expansion_invalid_json_422(self, client):
         _set_pipeline(client, "hierarchical")
-        with patch(_DB_PATCH, return_value=MagicMock()):
+        with patch(_DB_PATCH, return_value=MagicMock(spec=HierarchicalChannelDatabase)):
             resp = client.get("/api/tree/expansion?level=device&selections={bad")
         assert resp.status_code == 422
 
@@ -229,7 +233,7 @@ class TestHierarchicalCrud:
 class TestMiddleLayerExplore:
     def test_explore_systems(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.list_systems.return_value = ["SR", "BR"]
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/explore/systems")
@@ -238,7 +242,7 @@ class TestMiddleLayerExplore:
 
     def test_explore_families(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.list_families.return_value = ["BPM", "HCM"]
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/explore/families?system=SR")
@@ -247,7 +251,7 @@ class TestMiddleLayerExplore:
 
     def test_explore_fields(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.inspect_fields.return_value = {"Monitor": {}}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/explore/fields?system=SR&family=BPM")
@@ -256,7 +260,7 @@ class TestMiddleLayerExplore:
 
     def test_explore_channels_success(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.list_channel_names.return_value = ["SR:BPM:01:X"]
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get(
@@ -270,7 +274,7 @@ class TestMiddleLayerExplore:
 
     def test_explore_channels_invalid_json_422(self, client):
         _set_pipeline(client, "middle_layer")
-        with patch(_DB_PATCH, return_value=MagicMock()):
+        with patch(_DB_PATCH, return_value=MagicMock(spec=MiddleLayerDatabase)):
             resp = client.get(
                 "/api/explore/channels?system=SR&family=BPM&field=Monitor&sectors=[bad"
             )
@@ -278,7 +282,7 @@ class TestMiddleLayerExplore:
 
     def test_explore_device_info(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.get_device_info.return_value = {"count": 8}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/explore/device-info?system=SR&family=BPM")
@@ -289,7 +293,7 @@ class TestMiddleLayerExplore:
 class TestMiddleLayerCrud:
     def test_add_family_success(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.add_family.return_value = {"status": "added"}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post(
@@ -302,7 +306,7 @@ class TestMiddleLayerCrud:
         _set_pipeline(client, "middle_layer")
         from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.add_family.side_effect = DatabaseWriteError("dup", "dup")
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post("/api/structure/family", json={"system": "SR", "family": "BPM"})
@@ -310,7 +314,7 @@ class TestMiddleLayerCrud:
 
     def test_structure_impact(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.count_family_channels.return_value = 24
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post("/api/structure/impact", json={"system": "SR", "family": "BPM"})
@@ -321,11 +325,78 @@ class TestMiddleLayerCrud:
 class TestInContextChunkBounds:
     def test_chunk_idx_out_of_range_422(self, client):
         _set_pipeline(client, "in_context")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.chunk_database.return_value = []  # zero chunks
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/channels?chunk_idx=0")
         assert resp.status_code == 422
+
+
+_TREE_NODE = {"level": "system", "name": "SR"}
+_ML_FAMILY = {"system": "SR", "family": "BPM"}
+_ML_CHANNEL = {"system": "SR", "family": "BPM", "field": "Monitor", "channel_name": "SR:BPM:X"}
+
+#: One row per route that serves exactly one file-backed paradigm:
+#: ``(paradigm, method, path, body)``. Every body passes the route's request
+#: model, so no answer is a validation 422.
+_PARADIGM_ROUTES = [
+    ("hierarchical", "GET", "/api/explore/options?level=system", None),
+    ("hierarchical", "GET", "/api/explore/build?selections={}", None),
+    ("hierarchical", "GET", "/api/explore/hierarchy-info", None),
+    ("hierarchical", "POST", "/api/tree/node", _TREE_NODE),
+    ("hierarchical", "PUT", "/api/tree/node", {"level": "system", "old_name": "SR"}),
+    ("hierarchical", "DELETE", "/api/tree/node", _TREE_NODE),
+    ("hierarchical", "POST", "/api/tree/impact", _TREE_NODE),
+    ("hierarchical", "GET", "/api/tree/expansion?level=device", None),
+    ("hierarchical", "PUT", "/api/tree/expansion", {"level": "device"}),
+    ("middle_layer", "GET", "/api/explore/systems", None),
+    ("middle_layer", "GET", "/api/explore/families?system=SR", None),
+    ("middle_layer", "GET", "/api/explore/fields?system=SR&family=BPM", None),
+    ("middle_layer", "GET", "/api/explore/channels?system=SR&family=BPM&field=Monitor", None),
+    ("middle_layer", "GET", "/api/explore/device-info?system=SR&family=BPM", None),
+    ("middle_layer", "POST", "/api/structure/family", _ML_FAMILY),
+    ("middle_layer", "DELETE", "/api/structure/family", _ML_FAMILY),
+    ("middle_layer", "POST", "/api/structure/channel", _ML_CHANNEL),
+    ("middle_layer", "DELETE", "/api/structure/channel", _ML_CHANNEL),
+    ("middle_layer", "POST", "/api/structure/impact", _ML_FAMILY),
+    ("in_context", "GET", "/api/channels", None),
+    ("in_context", "POST", "/api/channels", {"channel_name": "SR:X"}),
+    ("in_context", "PUT", "/api/channels/SR:X", {"description": "d"}),
+    ("in_context", "DELETE", "/api/channels/SR:X", None),
+]
+
+_BACKENDS = {
+    "hierarchical": HierarchicalChannelDatabase,
+    "middle_layer": MiddleLayerDatabase,
+    "in_context": FlatChannelDatabase,
+}
+
+_ACTIVE_PARADIGMS = ("hierarchical", "middle_layer", "in_context", "graph")
+
+
+# The graph paradigm answers ``GET /api/channels`` from its roster, so that one
+# pairing is served rather than refused.
+_OTHER_PARADIGM_CASES = [
+    pytest.param(method, path, body, active, id=f"{paradigm}-{method}-{path}-under-{active}")
+    for paradigm, method, path, body in _PARADIGM_ROUTES
+    for active in _ACTIVE_PARADIGMS
+    if active != paradigm and not (active == "graph" and (method, path) == ("GET", "/api/channels"))
+]
+
+
+class TestParadigmAccessors:
+    """Each paradigm route answers only its own paradigm, from that paradigm's backend."""
+
+    @pytest.mark.parametrize(("method", "path", "body", "active"), _OTHER_PARADIGM_CASES)
+    def test_other_paradigm_is_refused_before_the_database_is_read(
+        self, client, method, path, body, active
+    ):
+        _set_pipeline(client, active)
+        with patch(_DB_PATCH) as get_database:
+            resp = client.request(method, path, json=body)
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Not available for this pipeline type"
+        get_database.assert_not_called()
 
 
 class TestGraphParadigmRoutes:
@@ -405,7 +476,7 @@ class TestGraphParadigmRoutes:
         # payload already has the real one and must not grow a second answer.
         _set_pipeline(client, "in_context")
         client.app.state.graph_ttl_filename = "facility.ttl"
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.db_path = "/tmp/ic.json"
         mock_db.get_statistics.return_value = {"total_channels": 3}
         mock_db.chunk_database.return_value = [[], []]
@@ -420,7 +491,7 @@ class TestGraphParadigmRoutes:
 
     def test_info_marks_file_backed_paradigms_as_not_graph_backed(self, client):
         _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.db_path = "/tmp/ml.json"
         mock_db.list_systems.return_value = []
         with patch(_DB_PATCH, return_value=mock_db):

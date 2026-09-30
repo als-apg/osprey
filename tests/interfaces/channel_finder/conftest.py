@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.services.channel_finder.databases import FlatChannelDatabase
+
 #: The config seam these fixtures and their tests BOTH repoint. It is patched
 #: through ``monkeypatch`` on purpose: a test body that repoints it again (see
 #: ``_artifact_store_dir`` in test_pending_review_api.py) must stack on the same
@@ -41,7 +43,7 @@ def mock_config():
 def mock_registry():
     """Mock the in-context registry initialization."""
     mock_reg = MagicMock()
-    mock_reg.database = MagicMock()
+    mock_reg.database = MagicMock(spec=FlatChannelDatabase)
     mock_reg.facility_name = "TEST"
 
     with patch(
