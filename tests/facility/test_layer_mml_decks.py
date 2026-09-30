@@ -380,3 +380,31 @@ def test_two_elements_named_alike_are_refused() -> None:
     model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
     with pytest.raises(ValueError, match="2 elements named 'QF_1_1', at positions 1, 2"):
         address_elements(model, deck, va)
+
+
+# --- the build ----------------------------------------------------------------------
+
+
+def test_a_deck_the_layer_serves_passes_the_build_deck_checks(tmp_path: Path) -> None:
+    from osprey.facility.build import build_facility
+    from tests.facility._synthetic_trees import deck_tree, model, sr_deck, write_tree
+
+    def frozen(at: Any) -> Any:
+        cavity = at.RFCavity("RFC", 0.0, 1e6, 5e8, 300, 3e9)
+        cavity.PassMethod = "IdentityPass"
+        return cavity
+
+    tree = deck_tree()
+    record = model(tree, "SR")
+    tree["models.yaml"].remove(record)
+    tree["imported/mml/models.yaml"] = [{**record, "deck": f"{DECKS_DIR}/SR.json"}]
+    del tree["decks/sr.json"]
+    root = write_tree(tmp_path / "facility", tree)
+    raw = sr_deck(frozen, lambda at: at.Monitor("G"), lambda at: at.Monitor("G")).elements(at)
+    deck = at.Lattice(raw, energy=3e9, periodicity=1)
+    addressing = address_elements(Model("SR", "SR", None, "stated"), deck, {"families": {}})
+
+    write_deck(served_deck(addressing), root, "SR")
+
+    names = {m["name"] for m in build_facility(root, project_name="demo")["models"]}
+    assert "SR" in names
