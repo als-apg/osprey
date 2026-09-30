@@ -30,7 +30,7 @@ PROBE_PROVEN_GATEWAY_SHAPE = {
 # gateways, `probe_channel` and the operator acknowledgment are all commented
 # out — a facility's machine cannot be guessed, so authoring them is the
 # go-live edit and a fresh deployment's live target reads "not configured".
-SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
+SHIPPED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 
 def _control_system_config():

@@ -7,14 +7,25 @@ every connector that bounds its calls names and refuses that bound alike.
 """
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any, SupportsFloat
+
+from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, TANGO, VIRTUAL_ACCELERATOR
 
 #: Seconds a control-system call is given when its connector block names none.
 DEFAULT_TIMEOUT_S = 5.0
 
 #: The connector block's key for that bound.
 TIMEOUT_KEY = "timeout_s"
+
+#: The spelling the connector block no longer reads.
+_RENAMED_KEY = "timeout"
+
+#: Every old-spelled key, as the dotted path a whole config names it by.
+_RENAMED_PATHS = frozenset(
+    f"control_system.connector.{connector_type}.{_RENAMED_KEY}"
+    for connector_type in (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN, TANGO, DOOCS)
+)
 
 
 def call_timeout_s(config: Mapping[str, Any], connector_type: str | None) -> float:
@@ -32,10 +43,13 @@ def call_timeout_s(config: Mapping[str, Any], connector_type: str | None) -> flo
         block declares none.
 
     Raises:
-        ValueError: If ``timeout_s`` is a bool, neither a number nor a numeric
-            string, not finite, or not positive.
+        ValueError: If the block still carries ``timeout``, or if ``timeout_s``
+            is a bool, neither a number nor a numeric string, not finite, or
+            not positive.
     """
     block = f"control_system.connector.{connector_type or '<type>'}"
+    if _RENAMED_KEY in config:
+        raise ValueError(f"{block}.{_RENAMED_KEY} is renamed to {TIMEOUT_KEY}")
     value = config.get(TIMEOUT_KEY, DEFAULT_TIMEOUT_S)
     seconds = _positive_seconds(value)
     if seconds is None:
@@ -63,3 +77,33 @@ def _positive_seconds(value: object) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return seconds if math.isfinite(seconds) and seconds > 0 else None
+
+
+def refuse_renamed_timeout_keys(config: Mapping[str, Any]) -> None:
+    """Refuse a whole config that still spells a connector's call bound ``timeout``.
+
+    Checked when a config is read, so the old key fails before any connector is
+    built; :func:`call_timeout_s` refuses it again at connect. Nested and dotted
+    spellings are read alike, so a ``config.yml`` and a profile's ``config:``
+    block are both covered.
+
+    Args:
+        config: A whole config mapping, nested, dotted or both.
+
+    Raises:
+        ValueError: Naming every old-spelled key and :data:`TIMEOUT_KEY`.
+    """
+    renamed = sorted(path for path in _dotted_paths(config) if path in _RENAMED_PATHS)
+    if renamed:
+        raise ValueError("; ".join(f"{path} is renamed to {TIMEOUT_KEY}" for path in renamed))
+
+
+def _dotted_paths(node: Mapping[str, Any], prefix: str = "") -> Iterator[str]:
+    """Every key of *node*, nested ones included, as a dotted path."""
+    for key, value in node.items():
+        if not isinstance(key, str):
+            continue
+        path = f"{prefix}.{key}" if prefix else key
+        yield path
+        if isinstance(value, Mapping):
+            yield from _dotted_paths(value, path)

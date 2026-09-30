@@ -72,7 +72,6 @@ control_system:
       simulate_delays: true  # RETIRED (P2 #19) — superseded by response_delay_ms / noise_level
       simulation_file: data/simulation/machine.json
     epics:
-      timeout: 5.0
       gateways:
         read_only:
           address: gateway.example.com

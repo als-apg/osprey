@@ -362,7 +362,8 @@ class EPICSConnector(ControlSystemConnector):
         Raises:
             ImportError: If pyepics is not installed, or if PVA channels are
                 configured and p4p is not installed
-            ValueError: If ``timeout_s`` is not a positive, finite number
+            ValueError: If the block still carries ``timeout``, or if
+                ``timeout_s`` is not a positive, finite number
         """
         # Ensure pyepics loads a correct-architecture libca before first CA use.
         _configure_pyepics_libca()

@@ -128,7 +128,7 @@ control_system:
   channel_read_artifact_retention: 20
   connector:
     epics:
-      timeout: 5.0
+      timeout_s: 5.0
       writes_enabled: false
     live_standin:
       gateways:
@@ -156,7 +156,7 @@ control_system:
         enabled: true
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       simulation_file: data/simulation/machine.json
-      timeout: 5.0
+      timeout_s: 5.0
       writes_enabled: false
   limits_checking:
     allow_unlisted_channels: false
