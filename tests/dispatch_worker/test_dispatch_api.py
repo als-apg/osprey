@@ -549,6 +549,43 @@ def test_dashboard_runs_owner_is_none_when_unattributed(client, monkeypatch):
     assert legacy["owner"] is None
 
 
+def test_dashboard_runs_dates_and_orders_finished_runs_by_when_they_were_fired(client, monkeypatch):
+    """Finished runs keep their accepted time, so the feed dates and orders them."""
+
+    async def _run(**kwargs):
+        await kwargs["event_queue"].put({"type": "done"})
+        await asyncio.sleep(0.01)
+        if kwargs["prompt"] == "fail":
+            raise ValueError("boom")
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _run)
+    persisted = _capture_persisted(monkeypatch)
+
+    completed_id = client.post(
+        "/dispatch", json={"prompt": "ok", "allowed_tools": ["Read"]}, headers=_auth()
+    ).json()["run_id"]
+    _wait_for_terminal(client, completed_id)
+    failed_id = client.post(
+        "/dispatch", json={"prompt": "fail", "allowed_tools": ["Read"]}, headers=_auth()
+    ).json()["run_id"]
+    _wait_for_terminal(client, failed_id)
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert [r["run_id"] for r in rows[:2]] == [failed_id, completed_id]
+    assert [r["status"] for r in rows[:2]] == ["error", "completed"]
+    for row in rows[:2]:
+        created_at = row["created_at"]
+        assert created_at == persisted[row["run_id"]]["created_at"]
+        assert isinstance(created_at, float)
+        assert created_at > 0
+        assert isinstance(row["age_sec"], (int, float))
+        assert row["age_sec"] >= 0
+    assert persisted[failed_id]["prompt"] == "fail"
+
+
 # ---------------------------------------------------------------------------
 # Startup lifecycle: provider-env injection, no artifact regeneration
 # ---------------------------------------------------------------------------

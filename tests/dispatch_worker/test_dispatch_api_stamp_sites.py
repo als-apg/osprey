@@ -40,6 +40,18 @@ def persist_calls(monkeypatch):
     return calls
 
 
+@pytest.fixture
+def persisted_records(monkeypatch):
+    """Record every persisted ``(run_id, record)`` and neutralise the on-disk write."""
+    records: list[tuple[str, dict]] = []
+
+    def _fake_persist(run_id, run):
+        records.append((run_id, dict(run)))
+
+    monkeypatch.setattr(dispatch_api, "_persist_run", _fake_persist)
+    return records
+
+
 @pytest.fixture(autouse=True)
 def _clean_state():
     """Isolate the module-level run/stats maps between tests."""
@@ -54,60 +66,103 @@ def _clean_state():
     run_stats._run_stats.clear()
 
 
+_PROMPT = "hello"
+
+
 def _req(owner: str | None = None) -> DispatchRequest:
-    return DispatchRequest(prompt="hello", allowed_tools=[], owner=owner)
+    return DispatchRequest(prompt=_PROMPT, allowed_tools=[], owner=owner)
 
 
 def _pending(created_at: float, owner: str | None) -> dict:
     """A pending record as ``dispatch()`` writes it, naming the owner only when there is one."""
-    record: dict = {"status": "pending", "created_at": created_at}
+    record: dict = {"status": "pending", "created_at": created_at, "prompt": _PROMPT}
     if owner is not None:
         record["owner"] = owner
     return record
 
 
 # ---------------------------------------------------------------------------
-# Per-site drivers: each drives one terminal error site to completion and
-# leaves the terminal record in dispatch_api._runs[run_id].
+# Per-site drivers: each seeds the pending record ``dispatch()`` writes, drives
+# one terminal site to completion, leaves the terminal record in
+# dispatch_api._runs[run_id], and returns the ``created_at`` it seeded.
 # ---------------------------------------------------------------------------
 
 
-async def _drive_timeout(monkeypatch, run_id: str, owner: str | None = None) -> None:
+async def _drive_timeout(monkeypatch, run_id: str, owner: str | None = None) -> float:
     monkeypatch.setattr(dispatch_api, "DISPATCH_TIMEOUT_SEC", 0.05)
 
     async def _slow(**_kwargs):
         await asyncio.sleep(5)
 
     monkeypatch.setattr(sdk_runner, "run_dispatch", _slow)
+    created_at = time.time()
+    dispatch_api._runs[run_id] = _pending(created_at, owner)
     await dispatch_api._run_dispatch_task(run_id, _req(owner))
+    return created_at
 
 
-async def _drive_generic(monkeypatch, run_id: str, owner: str | None = None) -> None:
+async def _drive_generic(monkeypatch, run_id: str, owner: str | None = None) -> float:
     async def _boom(**_kwargs):
         raise ValueError("orchestration blew up")
 
     monkeypatch.setattr(sdk_runner, "run_dispatch", _boom)
+    created_at = time.time()
+    dispatch_api._runs[run_id] = _pending(created_at, owner)
     await dispatch_api._run_dispatch_task(run_id, _req(owner))
+    return created_at
 
 
-async def _drive_cancel(monkeypatch, run_id: str, owner: str | None = None) -> None:
+async def _drive_cancel(monkeypatch, run_id: str, owner: str | None = None) -> float:
     async def _slow(**_kwargs):
         await asyncio.sleep(5)
 
     monkeypatch.setattr(sdk_runner, "run_dispatch", _slow)
-    dispatch_api._runs[run_id] = _pending(time.time(), owner)
+    created_at = time.time()
+    dispatch_api._runs[run_id] = _pending(created_at, owner)
     task = asyncio.create_task(dispatch_api._run_dispatch_task(run_id, _req(owner)))
     await asyncio.sleep(0.05)  # let the coroutine enter run_dispatch
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    return created_at
 
 
-async def _drive_sweep(_monkeypatch, run_id: str, owner: str | None = None) -> None:
+async def _drive_sweep(_monkeypatch, run_id: str, owner: str | None = None) -> float:
     # A stale *pending* run, created long enough ago to exceed the sweep cutoff.
     stale_age = dispatch_api.DISPATCH_TIMEOUT_SEC + 100
-    dispatch_api._runs[run_id] = _pending(time.time() - stale_age, owner)
+    created_at = time.time() - stale_age
+    dispatch_api._runs[run_id] = _pending(created_at, owner)
     dispatch_api._sweep_stale_runs()
+    return created_at
+
+
+def _completed_result() -> dict:
+    return {
+        "status": "completed",
+        "text_output": "ok",
+        "tool_calls": [],
+        "error": None,
+        "duration_sec": 0.0,
+        "cost_usd": 0.0,
+        "num_turns": 1,
+    }
+
+
+def _no_artifact_descriptors(monkeypatch) -> None:
+    monkeypatch.setattr(dispatch_api, "describe_run_artifacts", lambda run_id: [])
+    monkeypatch.setattr(dispatch_api, "describe_run_input_artifacts", lambda run_id: [])
+
+
+async def _drive_completed(monkeypatch, run_id: str, owner: str | None = None) -> float:
+    async def _ok(**_kwargs):
+        return _completed_result()
+
+    monkeypatch.setattr(sdk_runner, "run_dispatch", _ok)
+    _no_artifact_descriptors(monkeypatch)
+    created_at = time.time()
+    dispatch_api._runs[run_id] = _pending(created_at, owner)
+    await dispatch_api._run_dispatch_task(run_id, _req(owner))
+    return created_at
 
 
 _DRIVERS = {
@@ -115,6 +170,12 @@ _DRIVERS = {
     "generic": (_drive_generic, failure_class.FAILURE_INFRASTRUCTURE),
     "cancel": (_drive_cancel, failure_class.FAILURE_RUN),
     "sweep": (_drive_sweep, failure_class.FAILURE_INFRASTRUCTURE),
+}
+
+# Every way a run ends, including a successful completion.
+_TERMINAL_DRIVERS = {
+    **{site: driver for site, (driver, _cls) in _DRIVERS.items()},
+    "completed": _drive_completed,
 }
 
 
@@ -164,6 +225,61 @@ async def test_every_terminal_site_of_an_owner_less_run_has_no_owner_key(site, m
     await driver(monkeypatch, run_id, owner=None)
 
     assert "owner" not in dispatch_api._runs[run_id]
+
+
+# ---------------------------------------------------------------------------
+# The accepted record survives every outcome
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("site", sorted(_TERMINAL_DRIVERS))
+@pytest.mark.parametrize("owner", ["alice", None])
+@pytest.mark.usefixtures("counter_calls")
+async def test_every_terminal_record_keeps_the_accepted_stamps(
+    site, owner, monkeypatch, persisted_records
+):
+    """Each terminal record, in memory and on disk, keeps what was stamped at acceptance."""
+    run_id = f"accepted-{site}"
+
+    accepted_at = await _TERMINAL_DRIVERS[site](monkeypatch, run_id, owner)
+
+    persisted = [record for rid, record in persisted_records if rid == run_id]
+    assert len(persisted) == 1
+    for record in (dispatch_api._runs[run_id], persisted[0]):
+        assert record["created_at"] == accepted_at
+        assert record["prompt"] == _PROMPT
+        assert record.get("owner") == owner
+        if owner is None:
+            assert "owner" not in record
+        assert record["status"] in ("completed", "error")
+        assert "completed_at" in record
+
+
+@pytest.mark.usefixtures("counter_calls")
+async def test_a_run_evicted_from_memory_while_in_flight_still_finishes_with_its_stamps(
+    monkeypatch, persisted_records
+):
+    """The terminal record is built on the record taken at task start, not a later read."""
+    run_id = "evicted"
+    created_at = time.time()
+    dispatch_api._runs[run_id] = _pending(created_at, None)
+
+    async def _evicting(**_kwargs):
+        del dispatch_api._runs[run_id]  # the store cap drops the entry mid-run
+        return _completed_result()
+
+    monkeypatch.setattr(sdk_runner, "run_dispatch", _evicting)
+    _no_artifact_descriptors(monkeypatch)
+
+    await dispatch_api._run_dispatch_task(run_id, _req())
+
+    record = dispatch_api._runs[run_id]
+    assert record["status"] == "completed"
+    assert record["created_at"] == created_at
+    persisted = [r for rid, r in persisted_records if rid == run_id]
+    assert len(persisted) == 1
+    assert persisted[0]["status"] == "completed"
+    assert persisted[0]["created_at"] == created_at
 
 
 # ---------------------------------------------------------------------------
