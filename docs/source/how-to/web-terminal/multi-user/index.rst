@@ -464,9 +464,11 @@ Build each image from that persona's rendered project: the same render
 Registry mode also pulls the auth sidecar from
 ``modules.web_terminals.auth.image`` when login is on; see :doc:`login`.
 
-``osprey scaffold web-terminals lint`` refuses a registry-mode config that has a
-``personas`` catalog but no ``registry.url`` (code
-``web_terminals.registry_mode_missing_url``).
+``osprey scaffold web-terminals lint``, ``osprey profile validate`` and
+``osprey build`` refuse a registry-mode config with no ``registry.url`` (code
+``web_terminals.registry_mode_missing_url``), with or without a ``personas``
+catalog.
+``osprey up`` refuses to render it.
 
 For example, with this config:
 
