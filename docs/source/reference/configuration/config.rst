@@ -8,8 +8,9 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Six parts of that file are gathered here — the facility this deployment
-belongs to (``facility:``), the diagnostic suite (``health:``), the browser
+Seven parts of that file are gathered here — the facility this deployment
+belongs to (``facility:``), the models its simulator serves
+(``simulation:``), the diagnostic suite (``health:``), the browser
 UI's documentation and feedback settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), and the deployment keys that decide which container
@@ -72,6 +73,31 @@ Three behaviours are worth knowing before you set it:
 The ``control_assistant`` and ``channel_finder_standalone`` templates ship a
 copy of the demo machine's compiled table at that path, so both render a
 working vocabulary out of the box.
+
+.. _config-simulation:
+
+``simulation:`` — which models the simulator serves
+----------------------------------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - What it does
+   * - ``simulation.models``
+     - The models the simulator serves, by name from the facility file's
+       ``models.yaml``. ``null`` or absent serves every model; ``[texture]``
+       and ``[]`` serve no physics. Every shipped preset sets ``null``.
+
+``texture`` is always served, and always last. A name the facility file does
+not hold stops the build with a ``profile-invalid`` line that lists the valid
+names.
+
+.. code-block:: yaml
+
+   config:
+     simulation.models: [SR]
 
 .. _config-health:
 

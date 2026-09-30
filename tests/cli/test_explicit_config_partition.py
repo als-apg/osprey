@@ -309,7 +309,8 @@ def test_root_render_is_partitioned_between_its_sources(
     # the tool-content gate and the content limit, which the telemetry block
     # did not carry when the freeze ran; and every preset that turns on the
     # full tool-call record gains its two `audit.tool_call.*` keys, which
-    # did not exist when the freeze ran.
+    # did not exist when the freeze ran; and every preset gains
+    # `simulation.models`, which did not exist when the freeze ran either.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -330,6 +331,8 @@ def test_root_render_is_partitioned_between_its_sources(
     for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
         if key in config:
             expected_gain = expected_gain | {key}
+    if "simulation.models" in config:
+        expected_gain = expected_gain | {"simulation.models"}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )
