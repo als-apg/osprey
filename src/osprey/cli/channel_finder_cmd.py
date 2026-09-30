@@ -457,25 +457,13 @@ def web(ctx, host: str | None, port: int | None):
     from osprey.interfaces.channel_finder.app import create_app
     from osprey.interfaces.common_middleware import WEB_PORT_ENV
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
-    from osprey.registry.web import resolve_web_server_address
+    from osprey.registry.web import resolve_web_server_bind
     from osprey.utils.config import get_config_builder
 
-    if host is None or port is None:
-        # Explicit flags win. Otherwise the framework's shared derivation runs
-        # over the config ``_setup_config`` selected through CONFIG_FILE, the
-        # one the app serves from: the section's own host, else loopback; the
-        # OSPREY_CHANNEL_FINDER_PORT override a multi-user deployment exports,
-        # then the section's port, then the Channel Finder's slot at the base
-        # this deployment resolved. A config-less resolve would read the
-        # working directory's config, which under --project is another
-        # deployment's.
-        default_host, default_port = resolve_web_server_address(
-            "channel_finder", get_config_builder().raw_config
-        )
-        if host is None:
-            host = default_host
-        if port is None:
-            port = default_port
+    # The config _setup_config selected, not the working directory's: under --project they differ.
+    # It is read only when a flag is missing, because a fully flagged run may have no config.
+    config = get_config_builder().raw_config if host is None or port is None else None
+    host, port = resolve_web_server_bind("channel_finder", config, host=host, port=port)
 
     # Publish the settled port before the app is constructed: cookies ignore
     # ports, so two OSPREY servers on this host share an origin as far as the

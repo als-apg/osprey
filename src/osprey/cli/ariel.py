@@ -706,23 +706,13 @@ def web_command(port: int | None, host: str | None, reload: bool) -> None:
         osprey ariel web --host 0.0.0.0     # Bind to all interfaces
         osprey ariel web --reload           # Development mode with auto-reload
     """
-    from osprey.registry.web import resolve_web_server_address
+    from osprey.registry.web import resolve_web_server_bind
 
     _load_ariel_config()
 
-    if host is None or port is None:
-        # Explicit flags win. Otherwise the framework's shared derivation runs
-        # over the config this verb just read: the section's own host, else
-        # loopback; the OSPREY_ARIEL_PORT override a multi-user deployment
-        # exports, then the section's port, then ARIEL's slot at the base this
-        # deployment resolved.
-        default_host, default_port = resolve_web_server_address(
-            "ariel", get_config_builder().raw_config
-        )
-        if host is None:
-            host = default_host
-        if port is None:
-            port = default_port
+    host, port = resolve_web_server_bind(
+        "ariel", get_config_builder().raw_config, host=host, port=port
+    )
 
     output.report(f"Starting ARIEL Web Interface on http://{host}:{port}")
     output.note("Press Ctrl+C to stop")
