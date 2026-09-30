@@ -31,7 +31,11 @@ from osprey.services.channel_finder.benchmarks.runner import (
     model_slug,
     read_db_path_from_config,
 )
-from osprey.services.channel_finder.core.exceptions import CoverageJudgeError, PipelineModeError
+from osprey.services.channel_finder.core.exceptions import (
+    ConfigurationError,
+    CoverageJudgeError,
+    PipelineModeError,
+)
 
 # Module path for patching
 _RUNNER_MOD = "osprey.services.channel_finder.benchmarks.runner"
@@ -205,6 +209,13 @@ class TestConfigReading:
         (project_dir / "config.yml").unlink()
         with pytest.raises(FileNotFoundError):
             runner._read_config()
+
+    def test_a_malformed_config_refuses_the_runner(self, tmp_path: Path):
+        # The auto backend reads the pipeline mode while the runner is built.
+        project_dir = _make_project_dir(tmp_path)
+        (project_dir / "config.yml").write_text("channel_finder: [unclosed\n")
+        with pytest.raises(ConfigurationError, match="config.yml"):
+            BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
 
     def test_resolve_pipeline_mode(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path, pipeline_mode="hierarchical")
@@ -662,6 +673,14 @@ class TestReadDbPathFromConfig:
     def test_missing_config_raises(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):
             read_db_path_from_config(tmp_path, "in_context")
+
+    def test_malformed_config_is_refused_by_path(self, tmp_path: Path):
+        (tmp_path / "config.yml").write_text("- a\n- b\n")
+
+        with pytest.raises(ConfigurationError) as info:
+            read_db_path_from_config(tmp_path, "in_context")
+
+        assert str(tmp_path / "config.yml") in str(info.value)
 
     def test_missing_key_raises(self, tmp_path: Path):
         project_dir = tmp_path / "proj"

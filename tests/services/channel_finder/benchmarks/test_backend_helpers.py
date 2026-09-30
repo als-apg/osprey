@@ -23,7 +23,9 @@ from osprey.services.channel_finder.benchmarks.backends.react_backend import (
     ReactBackend,
     _resolve_litellm_endpoint,
 )
+from osprey.services.channel_finder.benchmarks.project_env import project_config
 from osprey.services.channel_finder.benchmarks.sdk import SDKWorkflowResult, ToolTrace
+from osprey.services.channel_finder.core.exceptions import ConfigurationError
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter, get_rate_limiter
 
 
@@ -56,14 +58,14 @@ class TestExtractText:
 
 class TestResolveLitellmEndpoint:
     def test_ollama_returns_none(self, tmp_path: Path):
-        assert _resolve_litellm_endpoint(tmp_path, "ollama") is None
+        assert _resolve_litellm_endpoint(tmp_path, {}, "ollama") is None
 
-    def test_missing_config_file_returns_none(self, tmp_path: Path):
+    def test_missing_config_returns_none(self, tmp_path: Path):
         # No config.yml in the project dir -> resolver bails out early.
-        assert _resolve_litellm_endpoint(tmp_path, "als-apg") is None
+        assert _resolve_litellm_endpoint(tmp_path, None, "als-apg") is None
 
     @staticmethod
-    def _gateway_project(tmp_path: Path) -> Path:
+    def _gateway_config(tmp_path: Path) -> dict | None:
         """A project whose provider names its endpoint through a variable.
 
         The shape the shipped provider catalog writes: the gateway host is the
@@ -76,7 +78,7 @@ class TestResolveLitellmEndpoint:
             "      base_url: ${BENCH_GATEWAY_URL}\n"
             "      api_key: ${ALS_APG_API_KEY}\n"
         )
-        return tmp_path
+        return project_config(tmp_path)
 
     def test_unset_endpoint_variable_is_refused_by_name(self, tmp_path: Path, monkeypatch):
         """An unexported ${VAR} is not a hostname to hand to litellm.
@@ -89,13 +91,13 @@ class TestResolveLitellmEndpoint:
         monkeypatch.setenv("ALS_APG_API_KEY", "test-key")
 
         with pytest.raises(ValueError, match="BENCH_GATEWAY_URL"):
-            _resolve_litellm_endpoint(self._gateway_project(tmp_path), "als-apg")
+            _resolve_litellm_endpoint(tmp_path, self._gateway_config(tmp_path), "als-apg")
 
     def test_endpoint_variable_is_expanded(self, tmp_path: Path, monkeypatch):
         monkeypatch.setenv("BENCH_GATEWAY_URL", "https://gateway.example.com/v1")
         monkeypatch.setenv("ALS_APG_API_KEY", "test-key")
 
-        resolved = _resolve_litellm_endpoint(self._gateway_project(tmp_path), "als-apg")
+        resolved = _resolve_litellm_endpoint(tmp_path, self._gateway_config(tmp_path), "als-apg")
 
         assert resolved == {"api_base": "https://gateway.example.com", "api_key": "test-key"}
 
@@ -105,12 +107,12 @@ class TestResolveLitellmEndpoint:
         """A benchmark run reads the deployment's ``.env``, as it does for the key."""
         monkeypatch.delenv("BENCH_GATEWAY_URL", raising=False)
         monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
-        project = self._gateway_project(tmp_path)
-        (project / ".env").write_text(
+        config = self._gateway_config(tmp_path)
+        (tmp_path / ".env").write_text(
             "BENCH_GATEWAY_URL=https://from-dotenv.example.com\nALS_APG_API_KEY=dotenv-key\n"
         )
 
-        resolved = _resolve_litellm_endpoint(project, "als-apg")
+        resolved = _resolve_litellm_endpoint(tmp_path, config, "als-apg")
 
         assert resolved == {"api_base": "https://from-dotenv.example.com", "api_key": "dotenv-key"}
 
@@ -161,6 +163,13 @@ class TestReactBackendPacing:
         ReactBackend(tmp_path, "gw/m-1", 3)
         assert get_rate_limiter() is None
 
+    @pytest.mark.parametrize("model", ["gw/m-1", "ollama/gpt-oss:20b"])
+    def test_a_malformed_config_is_refused(self, tmp_path: Path, model: str):
+        (tmp_path / "config.yml").write_text("- not\n- a mapping\n")
+
+        with pytest.raises(ConfigurationError, match="config.yml"):
+            ReactBackend(tmp_path, model, 3)
+
 
 def _graph_project(tmp_path: Path) -> Path:
     """A project directory configured for the graph paradigm."""
@@ -182,6 +191,20 @@ class TestGraphIsSdkOnly:
 
     def test_auto_sends_a_graph_project_to_the_sdk_backend(self, tmp_path: Path):
         backend = create_backend("auto", _graph_project(tmp_path), "anthropic/claude-haiku-4-5")
+        assert isinstance(backend, SdkBackend)
+
+
+class TestAutoBackendReadsTheMode:
+    """``auto`` reads the project's pipeline mode, and a file it cannot read is no mode."""
+
+    def test_auto_refuses_a_malformed_config(self, tmp_path: Path):
+        (tmp_path / "config.yml").write_text("channel_finder: [unclosed\n")
+
+        with pytest.raises(ConfigurationError, match="config.yml"):
+            create_backend("auto", tmp_path, "anthropic/claude-haiku-4-5")
+
+    def test_auto_without_a_config_takes_the_default_backend(self, tmp_path: Path):
+        backend = create_backend("auto", tmp_path, "anthropic/claude-haiku-4-5")
         assert isinstance(backend, SdkBackend)
 
 
