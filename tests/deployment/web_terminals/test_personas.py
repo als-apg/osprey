@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -15,7 +16,7 @@ from osprey.deployment.web_terminals.personas import (
     _is_shared_entry,
     access_wire_value,
     bluesky_server_enabled,
-    config_archiver_password_env,
+    config_archiver_credential_envs,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
@@ -32,7 +33,7 @@ from osprey.deployment.web_terminals.personas import (
     freeze_user_indices,
     lane_control_target,
     normalize_users,
-    personas_needing_archiver_password,
+    personas_needing_archiver_credentials,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_graphdb_password,
@@ -2995,88 +2996,141 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
 
 
 # ---------------------------------------------------------------------------
-# Archiver connector -> per-user store password
+# Archiver connector -> per-user credential variables
 #
-# The archiver connector authenticates with the variable its own config block
-# names (`archiver.<type>.auth.password_env`); `osprey up` mints it into the deploy
-# `.env` for a store the project deploys. `.env.users` excludes service tokens
-# by design and cannot say "the personas whose archiver reads this", so the
-# grant is per-user, and it carries the configured NAME because the block may
-# point at a facility-run store under any variable.
+# The archiver connector authenticates with the variables its own config block
+# names under `auth:` (`auth.token_env`, or `auth.username` + `auth.password_env`);
+# `osprey up` mints the MongoDB password into the deploy `.env` for a store the
+# project deploys. `.env.users` excludes service tokens by design and cannot say
+# "the personas whose archiver reads this", so the grant is per-user, and it
+# carries the configured NAMES because the block may point at a facility-run
+# store under any variable.
 # ---------------------------------------------------------------------------
 
 _MONGO_ARCHIVER = {
     "type": "mongodb_archiver",
-    "mongodb_archiver": {"host": "localhost", "auth": {"password_env": "MONGO_ROOT_PASSWORD"}},
+    "mongodb_archiver": {
+        "host": "localhost",
+        "auth": {"username": "root", "password_env": "MONGO_ROOT_PASSWORD", "source": "admin"},
+    },
 }
 
 
-def test_config_archiver_password_env_reads_the_selected_connector_block() -> None:
-    """The variable named by the SELECTED connector's block is the entitlement."""
-    assert config_archiver_password_env({"archiver": _MONGO_ARCHIVER}) == "MONGO_ROOT_PASSWORD"
+def test_config_archiver_credential_envs_reads_the_selected_connector_block() -> None:
+    """The variables named by the SELECTED connector's block are the entitlement."""
+    assert config_archiver_credential_envs({"archiver": _MONGO_ARCHIVER}) == (
+        "MONGO_ROOT_PASSWORD",
+    )
 
 
-def test_config_archiver_password_env_ignores_an_unselected_connector_block() -> None:
+def test_config_archiver_credential_envs_ignores_an_unselected_connector_block() -> None:
     """The shipped config carries a `mongodb_archiver:` block under `type: mock_archiver`;
     a block the selected type never reads entitles nothing."""
     archiver = {**_MONGO_ARCHIVER, "type": "mock_archiver"}
 
-    assert config_archiver_password_env({"archiver": archiver}) is None
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
 
 
-def test_config_archiver_password_env_ignores_a_flat_password_env() -> None:
+def test_config_archiver_credential_envs_reads_no_flat_password_env() -> None:
     """The variable is named under `auth:`; a flat `password_env` grants nothing."""
+    archiver = {"type": "my_facility.stores.Archive", "settings": {"password_env": "X"}}
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+def test_config_archiver_credential_envs_follows_any_connector_that_names_one() -> None:
+    """The key, not the connector name, is what is read: a future connector with an
+    `auth.password_env` is granted exactly like MongoDB's."""
     archiver = {
-        "type": "mongodb_archiver",
-        "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+        "type": "facility_db",
+        "facility_db": {"auth": {"username": "u", "password_env": "FACILITY_DB_PW"}},
     }
 
-    assert config_archiver_password_env({"archiver": archiver}) is None
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("FACILITY_DB_PW",)
 
 
-def test_config_archiver_password_env_follows_any_connector_that_names_one() -> None:
-    """The key, not the connector name, is what is read: a future connector with a
-    `auth.password_env` is granted exactly like MongoDB's."""
-    archiver = {"type": "facility_db", "facility_db": {"auth": {"password_env": "FACILITY_DB_PW"}}}
+def test_config_archiver_credential_envs_grants_the_bearer_token_variable() -> None:
+    archiver = {
+        "type": "epics_archiver",
+        "settings": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
+    }
 
-    assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("ARCHIVER_TOKEN",)
+
+
+def test_config_archiver_credential_envs_grants_the_login_password_variable() -> None:
+    """The username is not a secret: it is read from the container's own config.yml."""
+    archiver = {
+        "type": "epics_archiver",
+        "settings": {
+            "url": "https://a.example",
+            "auth": {"username": "reader", "password_env": "ARCHIVER_PW"},
+        },
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("ARCHIVER_PW",)
+
+
+def test_config_archiver_credential_envs_ignores_an_unselected_epics_token() -> None:
+    archiver = {
+        "type": "mock_archiver",
+        "epics_archiver": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+@pytest.mark.parametrize("present", [True, False])
+def test_config_archiver_credential_envs_reads_no_environment(monkeypatch, present: bool) -> None:
+    """The grant names what the block names, whether or not the variable is set here."""
+    if present:
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "s3cr3t")
+    else:
+        monkeypatch.delenv("MONGO_ROOT_PASSWORD", raising=False)
+
+    assert config_archiver_credential_envs({"archiver": _MONGO_ARCHIVER}) == (
+        "MONGO_ROOT_PASSWORD",
+    )
 
 
 @pytest.mark.parametrize(
     "missing", [{}, {"archiver": None}, {"archiver": {"type": "mock_archiver"}}]
 )
-def test_config_archiver_password_env_is_none_without_a_named_variable(missing: dict) -> None:
-    assert config_archiver_password_env(missing) is None
+def test_config_archiver_credential_envs_is_empty_without_a_named_variable(missing: dict) -> None:
+    assert config_archiver_credential_envs(missing) == ()
 
 
 @pytest.mark.parametrize("blank", ["", "   ", None, 7])
-def test_config_archiver_password_env_treats_a_blank_name_as_unset(blank: Any) -> None:
+def test_config_archiver_credential_envs_treats_a_blank_name_as_unset(blank: Any) -> None:
     archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {"password_env": blank}}}
 
-    assert config_archiver_password_env({"archiver": archiver}) is None
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
 
 
+@pytest.mark.parametrize("key", ["token_env", "password_env"])
 @pytest.mark.parametrize("bad", ["MONGO PASSWORD", "1PASS", "PW=x", "${PW}", "pw-name"])
-def test_config_archiver_password_env_refuses_a_name_compose_cannot_carry(bad: str) -> None:
+def test_config_archiver_credential_envs_refuses_a_name_compose_cannot_carry(
+    bad: str, key: str
+) -> None:
     """The name is emitted into a compose `environment:` line verbatim, so anything
     that is not a plain identifier is refused here rather than rendered broken."""
-    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {"password_env": bad}}}
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {key: bad}}}
 
-    with pytest.raises(ValueError, match=r"auth\.password_env"):
-        config_archiver_password_env({"archiver": archiver})
+    with pytest.raises(ValueError, match=re.escape(f"archiver.mongodb_archiver.auth.{key}")):
+        config_archiver_credential_envs({"archiver": archiver})
 
 
-def test_config_archiver_password_env_reads_the_settings_block() -> None:
+def test_config_archiver_credential_envs_reads_the_settings_block() -> None:
     """A connector selected by dotted module path is configured from `archiver.settings`."""
     archiver = {
         "type": "my_facility.stores.Archive",
-        "settings": {"auth": {"password_env": "FACILITY_DB_PW"}},
+        "settings": {"auth": {"username": "u", "password_env": "FACILITY_DB_PW"}},
     }
 
-    assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("FACILITY_DB_PW",)
 
 
-def test_config_archiver_password_env_refusal_names_the_settings_key() -> None:
+def test_config_archiver_credential_envs_refusal_names_the_settings_key() -> None:
     """The refusal names the block the operator wrote."""
     archiver = {
         "type": "my_facility.stores.Archive",
@@ -3084,12 +3138,14 @@ def test_config_archiver_password_env_refusal_names_the_settings_key() -> None:
     }
 
     with pytest.raises(ValueError, match=r"archiver\.settings\.auth\.password_env"):
-        config_archiver_password_env({"archiver": archiver})
+        config_archiver_credential_envs({"archiver": archiver})
 
 
-def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tmp_path) -> None:
-    """The grant is a persona -> variable-name map, so two personas reading two
-    different stores each get their own line and a persona with no archiver gets none."""
+def test_personas_needing_archiver_credentials_maps_each_persona_to_its_variables(
+    tmp_path,
+) -> None:
+    """The grant is a persona -> variable-names map, so two personas reading two
+    different stores each get their own lines and a persona with no archiver gets none."""
     # Arrange
     catalog = {
         "readwrite": {
@@ -3105,8 +3161,11 @@ def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tm
                 "fac",
                 {
                     "archiver": {
-                        "type": "other_db",
-                        "other_db": {"auth": {"password_env": "OTHER_DB_PW"}},
+                        "type": "epics_archiver",
+                        "epics_archiver": {
+                            "url": "https://a.example",
+                            "auth": {"token_env": "OTHER_TOKEN"},
+                        },
                     }
                 },
             ),
@@ -3128,13 +3187,15 @@ def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tm
     )
 
     # Act
-    result = personas_needing_archiver_password(config, tmp_path)
+    result = personas_needing_archiver_credentials(config, tmp_path)
 
     # Assert
-    assert result == {"readwrite": "MONGO_ROOT_PASSWORD", "facility": "OTHER_DB_PW"}
+    assert result == {"readwrite": ("MONGO_ROOT_PASSWORD",), "facility": ("OTHER_TOKEN",)}
 
 
-def test_personas_needing_archiver_password_skips_unrendered_persona_projects(tmp_path) -> None:
+def test_personas_needing_archiver_credentials_skips_unrendered_persona_projects(
+    tmp_path,
+) -> None:
     """A persona whose project isn't on disk contributes nothing: a credential is
     never granted on a guess."""
     config = _catalog_config(
@@ -3142,7 +3203,7 @@ def test_personas_needing_archiver_password_skips_unrendered_persona_projects(tm
         [{"name": "alice", "index": 0, "persona": "ghost"}],
     )
 
-    assert personas_needing_archiver_password(config, tmp_path) == {}
+    assert personas_needing_archiver_credentials(config, tmp_path) == {}
 
 
 # ---------------------------------------------------------------------------

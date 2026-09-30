@@ -10,6 +10,7 @@ import pytest
 from osprey_connectors.connection import (
     ConnectionSettings,
     read_connection_settings,
+    read_credential_env_names,
     urllib_opener,
 )
 from tests.connectors._loopback_https import Reply, loopback_pair
@@ -212,6 +213,61 @@ def test_a_connection_that_sends_no_ca_refuses_tls_with_its_reason():
 def test_a_restriction_without_a_reason_is_a_programming_error(kwargs):
     with pytest.raises(TypeError):
         _read({}, **kwargs)
+
+
+# -- credential variable names -------------------------------------------------------
+
+
+def _names(block):
+    return read_credential_env_names(block, where=WHERE)
+
+
+def test_the_names_accessor_reports_a_token_variable_by_its_ruled_key():
+    assert _names({"auth": {"token_env": "ARCHIVER_TOKEN"}}) == (
+        ("auth.token_env", "ARCHIVER_TOKEN"),
+    )
+
+
+def test_the_names_accessor_reports_a_password_variable_but_never_the_username():
+    block = {"auth": {"username": "reader", "password_env": "ARCHIVER_PW"}}
+    assert _names(block) == (("auth.password_env", "ARCHIVER_PW"),)
+
+
+@pytest.mark.parametrize("block", [None, {}, {"url": "https://a.example"}])
+def test_the_names_accessor_reports_nothing_without_a_login(block):
+    assert _names(block) == ()
+
+
+def test_the_names_accessor_tolerates_auth_keys_outside_the_login_pair():
+    block = {"auth": {"username": "u", "password_env": "PW", "source": "admin"}}
+    assert _names(block) == (("auth.password_env", "PW"),)
+
+
+def test_the_names_accessor_reads_no_flat_spelling():
+    assert _names({"password_env": "PW", "token_env": "TOK"}) == ()
+
+
+def test_the_names_accessor_reports_a_name_as_written():
+    assert _names({"auth": {"token_env": "not a name"}}) == (("auth.token_env", "not a name"),)
+
+
+def test_the_names_accessor_refuses_two_logins():
+    block = {"auth": {"token_env": "T", "username": "u", "password_env": "P"}}
+    with pytest.raises(ValueError, match=r"`archiver\.settings\.auth` names two logins"):
+        _names(block)
+
+
+def test_the_names_accessor_refuses_an_auth_that_is_not_a_mapping():
+    with pytest.raises(ValueError, match=r"`archiver\.settings\.auth` must be a mapping"):
+        _names({"auth": "admin"})
+
+
+def test_the_names_accessor_reads_no_environment(monkeypatch):
+    block = {"auth": {"token_env": "ARCHIVER_TOKEN"}}
+    monkeypatch.delenv("ARCHIVER_TOKEN", raising=False)
+    unset = _names(block)
+    monkeypatch.setenv("ARCHIVER_TOKEN", SECRET)
+    assert _names(block) == unset == (("auth.token_env", "ARCHIVER_TOKEN"),)
 
 
 # -- credential ----------------------------------------------------------------------

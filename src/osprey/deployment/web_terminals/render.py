@@ -43,7 +43,7 @@ from osprey.deployment.web_terminals.personas import (
     USERNAME_CHARSET_RE,
     access_wire_value,
     as_dict,
-    config_archiver_password_env,
+    config_archiver_credential_envs,
     config_needs_ariel_mirror,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
@@ -772,7 +772,7 @@ def render_web_terminals(
     facility_bundle_gid: int | None = None,
     ariel_mirror_personas: set[str] | None = None,
     ariel_mirror_gid: int | None = None,
-    archiver_password_personas: dict[str, str] | None = None,
+    archiver_credential_personas: dict[str, tuple[str, ...]] | None = None,
     telemetry_vars_personas: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
@@ -898,14 +898,15 @@ def render_web_terminals(
         ariel_mirror_gid: Group id of the mirror directory on the host, for
             the same ``group_add:`` reason as ``facility_bundle_gid``. ``None``
             emits no group for it.
-        archiver_password_personas: ``{persona_name: env_var_name}`` for the
-            personas whose archiver connector authenticates with a password,
-            resolved from disk by
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_password`.
+        archiver_credential_personas: ``{persona_name: (env_var_name, ...)}``
+            for the personas whose archiver connector authenticates, resolved
+            from disk by
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_credentials`.
             Same placement and same reason as ``dispatcher_personas``; a map
-            rather than a set because the connector reads the variable its own
-            ``archiver.<type>.password_env`` names, and the line emitted into
-            the user's ``environment:`` block carries exactly that name (the
+            rather than a set because the connector reads the variables its own
+            block names under ``auth:`` (``auth.token_env``, or
+            ``auth.password_env``), and each becomes one line in the user's
+            ``environment:`` block carrying exactly that name (the
             control-assistant preset spells it ``MONGO_ROOT_PASSWORD``, which
             ``osprey up`` mints). Without it the agent's every archiver read
             fails with "Environment variable '…' is not set" while the same
@@ -915,7 +916,7 @@ def render_web_terminals(
             whose telemetry block needs variables no fixed route delivers,
             resolved from disk by
             :func:`osprey.deployment.web_terminals.env_production.personas_needing_telemetry_vars`.
-            Same placement and same reason as ``archiver_password_personas``:
+            Same placement and same reason as ``archiver_credential_personas``:
             the names are the persona's own (the collector's bearer token that
             ``claude_code.telemetry.auth.token_env`` names, and every variable
             the block references), and each becomes one ``${VAR:-}`` line in
@@ -1238,15 +1239,15 @@ def render_web_terminals(
                     if entry.get("persona")
                     else config_needs_graphdb_password(root)
                 ),
-                # The NAME of the variable this user's archiver connector
-                # authenticates with (see the `archiver_password_personas`
-                # arg), or None for no grant. Persona-less entries are
-                # answered from this same config, with no disk read, exactly
-                # as above.
-                "archiver_password_env": (
-                    (archiver_password_personas or {}).get(entry["persona"])
+                # The NAMES of the variables this user's archiver connector
+                # authenticates with (see the `archiver_credential_personas`
+                # arg), or an empty tuple for no grant. Persona-less entries
+                # are answered from this same config, with no disk read,
+                # exactly as above.
+                "archiver_credential_envs": (
+                    (archiver_credential_personas or {}).get(entry["persona"], ())
                     if entry.get("persona")
-                    else config_archiver_password_env(root)
+                    else config_archiver_credential_envs(root)
                 ),
                 # The NAMES of the variables this user's telemetry block needs
                 # (see the `telemetry_vars_personas` arg), or () for none.

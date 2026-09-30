@@ -51,6 +51,7 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors import yaml_loader
+from osprey_connectors.connection import read_credential_env_names
 from osprey_connectors.types import (
     archiver_settings_key,
     baseline_target,
@@ -611,23 +612,24 @@ def config_needs_graphdb_password(config: Any) -> bool:
     return as_dict(servers.get("graph")).get("enabled", True) is not False
 
 
-#: What a ``password_env`` name must look like to be emitted into a compose
+#: What a credential variable name must look like to be emitted into a compose
 #: ``environment:`` line verbatim. Anything else is refused rather than rendered.
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def config_archiver_password_env(config: Any) -> str | None:
-    """The variable ``config``'s archiver connector authenticates with, or ``None``.
+def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
+    """The variables ``config``'s archiver connector authenticates with, in order.
 
-    The archiver connector reads its password from the environment variable its
-    settings block names — ``archiver.settings.auth.password_env`` — and raises on every
-    read when that variable is unset. For a store the project deploys itself,
+    The archiver connector reads its secret from the environment variable its
+    settings block names under ``auth:`` (``auth.token_env``, or
+    ``auth.password_env`` beside ``auth.username``) and raises on every read
+    when that variable is unset. For a store the project deploys itself,
     ``osprey up`` mints the value into the deploy ``.env`` under that name; for
     a facility-run store the operator puts it there. Either way the web
-    terminal's agent can only authenticate if its container is handed *that*
-    variable, which is why this returns the configured NAME rather than a
-    boolean: the grant carries it, so a project reading a store under any
-    spelling is served.
+    terminal's agent can only authenticate if its container is handed *those*
+    variables, which is why this returns the configured NAMES rather than a
+    boolean. The names come from the connection-settings reader, so the grant
+    matches what the connector will look up; an empty tuple is no grant.
 
     Only the SELECTED connector's block counts. The shipped ``config.yml``
     carries a filled-in ``mongodb_archiver:`` block under ``type:
@@ -636,27 +638,30 @@ def config_archiver_password_env(config: Any) -> str | None:
     gated on what its consumer actually reads.
 
     Raises:
-        ValueError: when the configured name is not a plain identifier. The
+        ValueError: when a configured name is not a plain identifier. The
             name is emitted into a compose ``environment:`` line verbatim, so
             a value compose would mangle (a space, an ``=``, a ``${``) is
-            refused at the deploy gate rather than rendered broken.
+            refused at the deploy gate rather than rendered broken. A refusal
+            of the block itself by the connection-settings reader propagates.
     """
     archiver = as_dict(as_dict(config).get("archiver"))
     connector = archiver.get("type")
     if not isinstance(connector, str) or not connector:
-        return None
-    auth = resolve_archiver_settings(archiver).get("auth")
-    password_env = auth.get("password_env") if isinstance(auth, dict) else None
-    if not isinstance(password_env, str) or not password_env.strip():
-        return None
-    password_env = password_env.strip()
-    if not _ENV_VAR_NAME_RE.match(password_env):
-        raise ValueError(
-            f"{archiver_settings_key(archiver)}.auth.password_env must name an environment "
-            f"variable (letters, digits and underscores, not starting with a digit), got "
-            f"{password_env!r}"
-        )
-    return password_env
+        return ()
+    where = archiver_settings_key(archiver)
+    names: list[str] = []
+    for key, raw in read_credential_env_names(resolve_archiver_settings(archiver), where=where):
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        name = raw.strip()
+        if not _ENV_VAR_NAME_RE.match(name):
+            raise ValueError(
+                f"{where}.{key} must name an environment variable (letters, digits and "
+                f"underscores, not starting with a digit), got {name!r}"
+            )
+        if name not in names:
+            names.append(name)
+    return tuple(names)
 
 
 def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
@@ -756,7 +761,7 @@ def _persona_configs(
     """Yield ``(persona_name, parsed config.yml)`` for every readable referenced persona.
 
     The one disk walk behind :func:`_personas_whose_config` and
-    :func:`personas_needing_archiver_password`; see the former for why a
+    :func:`personas_needing_archiver_credentials`; see the former for why a
     persona that cannot be read is skipped rather than guessed at.
 
     :param persona_root: The directory standing in for ``<project_root>/build``
@@ -1061,12 +1066,14 @@ def personas_needing_graphdb_password(config: Any, project_root: Any) -> set[str
     return _personas_whose_config(config, project_root, config_needs_graphdb_password)
 
 
-def personas_needing_archiver_password(config: Any, project_root: Any) -> dict[str, str]:
-    """Map each catalog persona whose archiver reads a password to the variable it reads.
+def personas_needing_archiver_credentials(
+    config: Any, project_root: Any
+) -> dict[str, tuple[str, ...]]:
+    """Map each catalog persona whose archiver names credentials to the variables it reads.
 
-    A map rather than a set because the grant carries the variable NAME (see
-    :func:`config_archiver_password_env`): two personas reading two stores each
-    get their own line, and the render emits exactly the name the connector
+    A map rather than a set because the grant carries the variable NAMES (see
+    :func:`config_archiver_credential_envs`): two personas reading two stores each
+    get their own lines, and the render emits exactly the names the connector
     will look up. Walks the same per-persona ``config.yml`` files the other
     grants walk, so this cannot disagree with them about which personas a
     roster deploys.
@@ -1074,16 +1081,16 @@ def personas_needing_archiver_password(config: Any, project_root: Any) -> dict[s
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
-    :return: ``{persona_name: env_var_name}`` for the referenced personas whose
-        selected archiver connector names a ``password_env``.
+    :return: ``{persona_name: (env_var_name, ...)}`` for the referenced personas
+        whose selected archiver connector names a credential variable.
     :raises ValueError: when a persona names a variable compose cannot carry
-        (see :func:`config_archiver_password_env`).
+        (see :func:`config_archiver_credential_envs`).
     """
-    grants: dict[str, str] = {}
+    grants: dict[str, tuple[str, ...]] = {}
     for persona_name, persona_config in _persona_configs(config, project_root):
-        password_env = config_archiver_password_env(persona_config)
-        if password_env is not None:
-            grants[persona_name] = password_env
+        names = config_archiver_credential_envs(persona_config)
+        if names:
+            grants[persona_name] = names
     return grants
 
 

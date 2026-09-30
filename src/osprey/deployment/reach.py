@@ -1090,7 +1090,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         derived_by="va_archiver",
         # The connector's connection keys and MONGO_ROOT_PASSWORD's name come
         # from the ``va_archiver:`` block on their own path
-        # (``archiver.mongodb_archiver.*``, ``config_archiver_password_env``),
+        # (``archiver.mongodb_archiver.*``, ``config_archiver_credential_envs``),
         # which an attached project also gets and which refuses an attached
         # profile that names no host.
         note="derived from the va_archiver block; the archiver connector dials it on loopback",
