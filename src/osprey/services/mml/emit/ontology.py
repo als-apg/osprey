@@ -36,14 +36,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.mml.emit.context import EmitContext
-from osprey.services.mml.mapping.branches import ROOT_CLASS, packaged_classes
+from osprey.services.mml.mapping.branches import ROOT_CLASS, PackagedClass, packaged_classes
 from osprey.services.mml.mapping.schema import Family, Mapping
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey.services.facility_knowledge.ttl_generator.ontology_map import (
-        ClassDef,
-        OntologyMap,
-    )
+    from osprey.services.facility_knowledge.ttl_generator.ontology_map import OntologyMap
 
 __all__ = ["FAMILY_ENUM", "NARAD_SEM_PREFIX", "build_ontology_yaml", "compile_to_json"]
 
@@ -69,7 +66,7 @@ def _emitted_families(mapping: Mapping) -> list[Family]:
     ]
 
 
-def _parent_of(name: str, mapping: Mapping, packaged: dict[str, ClassDef]) -> str | None:
+def _parent_of(name: str, mapping: Mapping, packaged: dict[str, PackagedClass]) -> str | None:
     if name == ROOT_CLASS:
         return None
     if name in mapping.branches:
@@ -81,7 +78,7 @@ def _parent_of(name: str, mapping: Mapping, packaged: dict[str, ClassDef]) -> st
     )
 
 
-def _close(names: set[str], mapping: Mapping, packaged: dict[str, ClassDef]) -> set[str]:
+def _close(names: set[str], mapping: Mapping, packaged: dict[str, PackagedClass]) -> set[str]:
     """Return *names* plus every ancestor, walking branches and packaged classes."""
     closed: set[str] = set()
     for start in names:
