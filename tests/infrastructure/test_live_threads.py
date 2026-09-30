@@ -24,12 +24,17 @@ import pytest
 
 from tests import _live_threads
 from tests._live_threads import report_live_threads
+from tests._nested_pytest import run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Keys of the outer run that must not reach an inner pytest: its worker id,
 #: its diagnostics directory, and any options it was started with.
 _OUTER_RUN_KEYS = ("PYTEST_XDIST_", "PYTEST_ADDOPTS", "OSPREY_CI_DIAG_DIR")
+
+#: The inner run loads only the plugins it names, so its start-up cost does not
+#: grow with every plugin installed in the environment.
+_INNER_PLUGINS = ("xdist.plugin", "tests._live_threads", "no:cacheprovider")
 
 
 def _hold(release: threading.Event) -> None:
@@ -49,15 +54,14 @@ def _run_inner_pytest(
     tmp_path: Path, module_file: Path, extra: list[str]
 ) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(_OUTER_RUN_KEYS)}
-    return subprocess.run(
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    plugin_args = [arg for name in _INNER_PLUGINS for arg in ("-p", name)]
+    return run_nested_pytest(
         [
             sys.executable,
             "-m",
             "pytest",
-            "-p",
-            "tests._live_threads",
-            "-p",
-            "no:cacheprovider",
+            *plugin_args,
             "-c",
             os.devnull,
             "--rootdir",
@@ -68,9 +72,6 @@ def _run_inner_pytest(
         ],
         cwd=_REPO_ROOT,
         env=env,
-        capture_output=True,
-        text=True,
-        timeout=120,
     )
 
 
