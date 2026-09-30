@@ -76,8 +76,7 @@ from osprey.services.mml.normalize import normalize_family
 from osprey.services.mml.systems import resolve_system
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MML_DIR = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data" / "mml"
-EXPORTER = MML_DIR / "mml_export.m"
+EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
 MML_PROD_ROOT_ENV = "OSPREY_MML_PROD_ROOT"
