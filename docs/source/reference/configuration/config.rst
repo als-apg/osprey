@@ -94,6 +94,11 @@ working vocabulary out of the box.
 not hold stops the build with a ``profile-invalid`` line that lists the valid
 names.
 
+A persona's list applies to its own in-process mock only. On a persona whose
+baseline target is a VA instance (``va`` or ``standin``) the deployment's
+container serves the deployment's list, so a persona delta that sets the key
+there stops the build with ``profile-invalid``.
+
 .. code-block:: yaml
 
    config:
