@@ -20,6 +20,7 @@ import urllib.request
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
@@ -28,6 +29,9 @@ from osprey.registry.web import (
     web_server_config_section,
 )
 from osprey.utils.workspace import load_osprey_config
+
+if TYPE_CHECKING:
+    from starlette.types import ASGIApp
 
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
 
@@ -174,7 +178,7 @@ class ServerLauncher:
         name: str,
         config_reader: Callable[[], tuple[str, int]],
         auto_launch_checker: Callable[[], bool],
-        app_factory: Callable[..., object],
+        app_factory: Callable[..., ASGIApp],
         pass_workspace: bool = False,
         release_grace_attempts: int = _PORT_RELEASE_GRACE_ATTEMPTS,
         release_grace_interval: float = _PORT_RELEASE_GRACE_INTERVAL,
@@ -279,7 +283,8 @@ class ServerLauncher:
         try:
             req = urllib.request.Request(_probe_url(host, port, "/health"), method="GET")
             with urllib.request.urlopen(req, timeout=1) as resp:
-                return resp.status == 200
+                status: int = resp.status
+                return status == 200
         except Exception:
             return False
 
@@ -746,11 +751,11 @@ def _resolve_dotted(config: dict, dotted: str) -> object:
     return obj
 
 
-def _make_app_factory(defn: WebServerDefinition) -> Callable[..., object]:
+def _make_app_factory(defn: WebServerDefinition) -> Callable[..., ASGIApp]:
     """Return a callable that dynamically imports and invokes the factory."""
     module_path, attr_name = defn.factory_path.rsplit(":", 1)
 
-    def _factory(workspace_root: Path | None = None) -> object:
+    def _factory(workspace_root: Path | None = None) -> ASGIApp:
         try:
             mod = importlib.import_module(module_path)
         except ImportError as err:
@@ -766,7 +771,8 @@ def _make_app_factory(defn: WebServerDefinition) -> Callable[..., object]:
             config = load_osprey_config()
             for kwarg_name, dotted_path in defn.factory_config_kwargs.items():
                 kwargs[kwarg_name] = _resolve_dotted(config, dotted_path)
-        return create_app(**kwargs)
+        app: ASGIApp = create_app(**kwargs)
+        return app
 
     return _factory
 

@@ -59,7 +59,7 @@ def create_notebook_from_code(
             parts.append(f"## Errors\n\n```\n{stderr}\n```")
         cells.append(nbformat.v4.new_markdown_cell("\n\n".join(parts)))
 
-    notebook = nbformat.v4.new_notebook()
+    notebook: nbformat.NotebookNode = nbformat.v4.new_notebook()
     notebook.cells = cells
     return notebook
 

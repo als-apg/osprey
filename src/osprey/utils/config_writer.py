@@ -110,7 +110,7 @@ def _steal_section_comment(container: Any) -> str | None:
     token = entry[slot] if entry else None
     if token is None:
         return None
-    text = token.value
+    text: str = token.value
     newline = text.find("\n")
     if newline == -1 or not text[newline + 1 :].strip():
         return None  # inline-only comment — nothing trails onto later lines

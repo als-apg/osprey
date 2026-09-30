@@ -1887,7 +1887,7 @@ def _custom_agent_from_spec(name: str, spec: dict) -> AgentDefinition:
     )
 
 
-def _parse_agent_frontmatter(path) -> str:
+def _parse_agent_frontmatter(path: Path) -> str:
     """Extract description from YAML frontmatter of an agent .md file."""
     try:
         text = path.read_text(encoding="utf-8")
