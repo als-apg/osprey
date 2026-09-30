@@ -8,9 +8,47 @@ import pytest
 
 from osprey.services.channel_finder.benchmarks.project_env import (
     expand_api_providers,
+    project_config,
     project_dotenv,
     project_env,
 )
+from osprey.services.channel_finder.core.exceptions import ConfigurationError
+
+
+class TestProjectConfig:
+    def test_no_config_file_is_none(self, tmp_path: Path):
+        assert project_config(tmp_path) is None
+
+    def test_an_empty_file_is_an_empty_mapping(self, tmp_path: Path):
+        (tmp_path / "config.yml").write_text("")
+
+        assert project_config(tmp_path) == {}
+
+    def test_a_mapping_is_returned_as_written(self, tmp_path: Path):
+        (tmp_path / "config.yml").write_text(
+            "api:\n  providers:\n    gw:\n      api_key: ${GW_TOKEN}\n"
+        )
+
+        assert project_config(tmp_path) == {
+            "api": {"providers": {"gw": {"api_key": "${GW_TOKEN}"}}}
+        }
+
+    @pytest.mark.parametrize(
+        ("body", "match"),
+        [
+            ("- a\n- b\n", "list"),
+            ("just text\n", "str"),
+            ("api: [unclosed\n", "not valid YAML"),
+        ],
+        ids=["list", "scalar", "unparsable"],
+    )
+    def test_a_malformed_file_is_refused_by_path(self, tmp_path: Path, body: str, match: str):
+        (tmp_path / "config.yml").write_text(body)
+
+        with pytest.raises(ConfigurationError, match=match) as info:
+            project_config(tmp_path)
+
+        assert str(tmp_path / "config.yml") in str(info.value)
 
 
 class TestProjectDotenv:
