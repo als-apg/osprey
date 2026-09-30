@@ -233,7 +233,7 @@ class TestHelloWorldBuildOutput:
         # The config-drift SessionStart guard ships in every preset so a
         # hand-edited config.yml never silently runs stale settings (#244).
         assert (hooks_dir / "osprey_config_drift.py").exists()
-        # memory-guard gates Write/MultiEdit to Claude memory files and
+        # memory-guard gates Write to Claude memory files and
         # NotebookEdit to the agent-data artifacts and notebooks trees.
         assert (hooks_dir / "osprey_memory_guard.py").exists()
 

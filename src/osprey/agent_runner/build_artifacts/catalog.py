@@ -261,9 +261,9 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_memory_guard.py",
             output_path=".claude/hooks/osprey_memory_guard.py",
             description=(
-                "PreToolUse gate for every file-writing tool: Write/MultiEdit are held "
-                "to Claude memory files, NotebookEdit to the agent-data artifacts and "
-                "notebooks trees"
+                "PreToolUse gate for the file-writing tools the deny floor leaves "
+                "reachable: Write is held to Claude memory files, NotebookEdit to the "
+                "agent-data artifacts and notebooks trees"
             ),
         ),
         BuildArtifact(

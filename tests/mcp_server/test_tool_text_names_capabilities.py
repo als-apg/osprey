@@ -13,7 +13,7 @@ from pathlib import Path
 import osprey.mcp_server
 
 _HARNESS_TOOL = re.compile(
-    r"\b(Read|Write|Edit|MultiEdit|Bash|Glob|Grep|WebFetch|WebSearch|NotebookEdit)\s+tool\b"
+    r"\b(Read|Write|Edit|Bash|Glob|Grep|WebFetch|WebSearch|NotebookEdit)\s+tool\b"
 )
 
 

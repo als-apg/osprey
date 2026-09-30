@@ -1428,7 +1428,7 @@ class TestTemplateRendering:
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
         # One matcher covering every write tool: the memory guard's frontmatter
         # is copied verbatim into the rule, so this string is the guard's reach.
-        assert "Write|MultiEdit|NotebookEdit" in pre_matchers
+        assert "Write|NotebookEdit" in pre_matchers
         assert "mcp__controls__channel_write" in pre_matchers
         post_matchers = [r["matcher"] for r in data["hooks"]["PostToolUse"]]
         assert "NotebookEdit" in post_matchers  # Framework standalone hook (notebook-update)

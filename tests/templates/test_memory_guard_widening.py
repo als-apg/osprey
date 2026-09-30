@@ -1,16 +1,14 @@
 """Coverage for the shipped ``osprey_memory_guard`` hook across every write tool.
 
-Claude Code can put bytes on disk through three tools — ``Write``, ``MultiEdit``
-and ``NotebookEdit`` — and the guard used to declare only ``Write``. The other
-two reached no hook at all, so a build that looked fully gated let the agent
-create arbitrary files under a different tool name. Nothing about that gap was
-visible in a rendered project: ``settings.json`` carried a ``PreToolUse`` rule,
-it just carried a matcher one tool wide.
+Claude Code writes files through ``Write``, ``Edit`` and ``NotebookEdit``.
+``Edit`` is denied by the ``DENY_DEFAULTS`` floor, and this guard gates the
+other two; a tool the matcher leaves out reaches no hook at all, which a
+rendered ``settings.json`` does not show, because it still carries a
+``PreToolUse`` rule.
 
-These tests pin the widened contract at the template level, where the gap was
-introduced:
+These tests pin the contract at the template level, where both spellings live:
 
-* the ``tools:`` frontmatter names all three tools, because that string is
+* the ``tools:`` frontmatter names both tools, because that string is
   copied verbatim into the ``PreToolUse`` matcher
   (``osprey.cli.templates.claude_code`` builds the rule from it), so the
   frontmatter *is* the matcher;
@@ -48,10 +46,10 @@ SETTINGS_TEMPLATE = (
     REPO_ROOT / "src" / "osprey" / "templates" / "claude_code" / "claude" / "settings.json.j2"
 )
 
-#: Every tool Claude Code offers that writes a file. The guard must have an
-#: opinion about each one; a tool missing here is a tool the agent can write
-#: through unchallenged.
-WRITE_TOOLS = frozenset({"Write", "MultiEdit", "NotebookEdit"})
+#: Every file-writing tool the permission floor leaves reachable. The guard
+#: must have an opinion about each one; a tool missing here is a tool the agent
+#: can write through unchallenged.
+WRITE_TOOLS = frozenset({"Write", "NotebookEdit"})
 
 #: The agent-data subdirectories ``NotebookEdit`` is scoped to: the artifact
 #: tree the gallery serves, and the notebooks tree the Jupyter panel serves.
@@ -176,7 +174,7 @@ def memory_dir_for(hook_home, project):
 
 
 def test_frontmatter_declares_every_write_tool():
-    """``tools:`` names all three write tools.
+    """``tools:`` names both write tools.
 
     The build copies this string into the ``PreToolUse`` matcher verbatim, so a
     tool absent here never reaches the hook — the gap is invisible in the
@@ -194,7 +192,7 @@ def test_frontmatter_uses_alternation_not_commas():
     name at all, which would take the guard dark while leaving the rule in
     place.
     """
-    assert _frontmatter()["tools"] == "Write|MultiEdit|NotebookEdit"
+    assert _frontmatter()["tools"] == "Write|NotebookEdit"
 
 
 def test_guard_stays_the_outermost_pretooluse_gate():
@@ -233,36 +231,6 @@ def test_hook_scopes_notebookedit_to_the_same_subdirectories():
     """The guard names exactly the subdirectories the allow rules do."""
     assert _hook_notebook_subdirs() == NOTEBOOK_SUBDIRS
     assert _hook_notebook_subdirs() == _template_notebook_subdirs()
-
-
-# -- MultiEdit is gated like Write --
-
-
-def test_multiedit_outside_memory_dir_is_denied(run_guard, project):
-    """``MultiEdit`` to an arbitrary file is refused, as ``Write`` always was."""
-    target = str(project / "evil.py")
-
-    result = run_guard("MultiEdit", {"file_path": target, "edits": []})
-
-    assert _decision(result) == "deny"
-
-
-def test_multiedit_to_memory_file_is_allowed(run_guard, project, hook_home):
-    """``MultiEdit`` on a memory ``.md`` file is allowed, like ``Write``."""
-    target = str(memory_dir_for(hook_home, project) / "channels.md")
-
-    result = run_guard("MultiEdit", {"file_path": target, "edits": []})
-
-    assert _decision(result) == "allow"
-
-
-def test_multiedit_deny_message_names_the_memory_directory(run_guard, project):
-    """The refusal tells the agent where it may write instead."""
-    result = run_guard("MultiEdit", {"file_path": str(project / "evil.py"), "edits": []})
-
-    reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-    assert "WRITE DENIED" in reason
-    assert "memory" in reason.lower()
 
 
 # -- NotebookEdit is scoped to the agent-data artifacts and notebooks trees --

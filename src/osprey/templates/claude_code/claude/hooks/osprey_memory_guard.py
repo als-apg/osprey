@@ -2,10 +2,10 @@
 """
 ---
 name: Memory Write Guard
-description: Gates every file-writing tool — Write/MultiEdit to Claude memory files, NotebookEdit to the agent-data artifacts and notebooks trees
-summary: Restricts Write/MultiEdit to the Claude memory directory and NotebookEdit to the agent-data artifacts and notebooks trees
+description: Gates the file-writing tools the permission floor leaves reachable — Write to Claude memory files, NotebookEdit to the agent-data artifacts and notebooks trees
+summary: Restricts Write to the Claude memory directory and NotebookEdit to the agent-data artifacts and notebooks trees
 event: PreToolUse
-tools: Write|MultiEdit|NotebookEdit
+tools: Write|NotebookEdit
 safety_layer: 0
 wiring: standalone
 timeout: 5
@@ -18,11 +18,11 @@ stdin ──► Parse JSON
               │
               ▼
          tool_name is one of      ──NO──► EXIT (no opinion)
-         Write/MultiEdit/NotebookEdit
+         Write/NotebookEdit
               │
              YES
               │
-              ├──── Write / MultiEdit ────┐
+              ├──── Write ────────────────┐
               │                           ▼
               │                  Resolve file_path
               │                           │
@@ -49,15 +49,15 @@ stdin ──► Parse JSON
 
 ## Details
 
-Gate for every tool that can put bytes on disk. Claude Code ships three:
-``Write``, ``MultiEdit`` and ``NotebookEdit``. Leaving any of them ungated is
-the whole failure this hook exists to prevent — a build that gated only
-``Write`` still let the agent create arbitrary files through the other two.
+Gate for every file-writing tool the permission floor leaves reachable. Claude
+Code writes files through ``Write``, ``Edit`` and ``NotebookEdit``; ``Edit`` is
+denied outright by the ``DENY_DEFAULTS`` floor, so this hook gates the other
+two. Leaving either ungated is the whole failure this hook exists to prevent.
 
-``Write`` and ``MultiEdit`` are held to the Claude Code memory directory for
-the current project (``$CLAUDE_CONFIG_DIR/projects/<encoded>/memory/``, with
-``~/.claude`` as the root when the variable is unset), and only for
-``.md`` files directly inside it. This lets the agent use Claude Code's native
+``Write`` is held to the Claude Code memory directory for the current project
+(``$CLAUDE_CONFIG_DIR/projects/<encoded>/memory/``, with ``~/.claude`` as the
+root when the variable is unset), and only for ``.md`` files directly inside
+it. This lets the agent use Claude Code's native
 memory system while preventing arbitrary file creation. The memory gallery
 frontend reads from the same directory, so saved memories appear in the UI
 automatically.
@@ -99,10 +99,8 @@ from osprey_hook_log import (
 # not be importable at hook-execution time.
 _CLAUDE_PROJECT_DIR_NORMALIZE = re.compile(r"[^A-Za-z0-9-]")
 
-#: Tools held to the Claude memory directory. ``MultiEdit`` writes the same
-#: bytes ``Write`` does, so the two share one rule; splitting them is how the
-#: guard came to cover only half the surface it names.
-_MEMORY_TOOLS = frozenset({"Write", "MultiEdit"})
+#: The one tool held to the Claude memory directory.
+_MEMORY_TOOL = "Write"
 
 #: The one tool held to the agent-data notebook trees instead.
 _NOTEBOOK_TOOL = "NotebookEdit"
@@ -111,13 +109,12 @@ _NOTEBOOK_TOOL = "NotebookEdit"
 #: Must stay in step with the ``tools:`` matcher in the frontmatter above —
 #: that string becomes the ``PreToolUse`` matcher verbatim, so a tool listed
 #: there and missing here would reach the hook and be waved through.
-_GUARDED_TOOLS = frozenset(_MEMORY_TOOLS | {_NOTEBOOK_TOOL})
+_GUARDED_TOOLS = frozenset({_MEMORY_TOOL, _NOTEBOOK_TOOL})
 
 #: Where each tool names its target. ``NotebookEdit`` uses ``notebook_path``;
-#: the others use ``file_path``.
+#: ``Write`` uses ``file_path``.
 _PATH_KEYS = {
-    "Write": ("file_path",),
-    "MultiEdit": ("file_path",),
+    _MEMORY_TOOL: ("file_path",),
     _NOTEBOOK_TOOL: ("notebook_path", "file_path"),
 }
 

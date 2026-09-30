@@ -716,7 +716,7 @@ class TestSafetyPreservation:
         settings_path = regen_project / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
-        assert "Write|MultiEdit|NotebookEdit" in pre_matchers
+        assert "Write|NotebookEdit" in pre_matchers
 
     def test_hooks_remain_executable(self, regen_project):
         """After regen, all hook .py files retain executable permissions."""
