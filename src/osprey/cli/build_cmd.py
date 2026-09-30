@@ -44,13 +44,14 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import uuid4
 
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
+from osprey.facility.errors import FacilityBuildError
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
@@ -103,6 +104,9 @@ from .build_persistence import (
 )
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
+
+if TYPE_CHECKING:
+    from osprey.facility.build import FacilityDocument
 
 logger = get_logger("build")
 
@@ -1244,6 +1248,17 @@ class _SharedRenderInputs(NamedTuple):
     something different, so it still gets its own line.
     """
 
+    facility: FacilityDocument
+    """The facility file, built once from ``data/facility/`` before any render.
+
+    Every render of one build copies the same profile ``data/`` tree, so the
+    file is a fact about the build: built once, identified by the sha256 of the
+    tree, and written byte-equal at the root of every render.
+    """
+
+    facility_sha256: str
+    """The sha256 of the ``data/facility/`` tree :attr:`facility` was built from."""
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -2030,11 +2045,11 @@ def _render_project(
     # The profile's own tree is the only one there is: `data:` is required of
     # every profile file, so nothing falls back to a packaged bundle here and
     # the manifest describes the facility's databases or the build refuses.
-    va_data_root = build_profile.resolved_data_root(repo_root)
-    assert va_data_root is not None  # `data:` required; narrows for type-checkers
-    va_key = (str(va_data_root), build_profile.resolved_tier())
+    data_root = build_profile.resolved_data_root(repo_root)
+    assert data_root is not None  # `data:` required; narrows for type-checkers
+    va_key = (str(data_root), build_profile.resolved_tier())
     if va_key not in shared.va_manifests:
-        shared.va_manifests[va_key] = prepare_project_manifest(va_data_root, va_key[1])
+        shared.va_manifests[va_key] = prepare_project_manifest(data_root, va_key[1])
     prepared_va_manifest = shared.va_manifests[va_key]
     # A graph-mode tree that stages no paradigm database is not yet a verdict:
     # its channels live in the knowledge-graph corpus, and the corpus is a
@@ -2051,7 +2066,7 @@ def _render_project(
         _report_va_manifest_outcome(
             shared,
             build_profile,
-            data_root=va_data_root,
+            data_root=data_root,
             tier=va_key[1],
             prepared=prepared_va_manifest,
         )
@@ -2095,7 +2110,7 @@ def _render_project(
             force=True,
             artifacts=effective_artifacts,
             tier=pinned_tier,
-            data_root=va_data_root,
+            data_root=data_root,
         )
         progress("  ✓ Base template rendered")
 
@@ -2293,6 +2308,13 @@ def _render_project(
         rendered = _rendered_config(render_dir)
         rendered["config_dir"] = str(render_dir)
 
+        # The build's facility outputs, written before the search index and the
+        # manifest so both are taken over a render that already carries them.
+        from osprey.facility.render import render_facility_outputs
+
+        render_facility_outputs(render_dir, shared.facility, rendered)
+        progress("  ✓ Wrote the facility file")
+
         # The graph paradigm's roster, explorer and keyword tool all read the
         # search index rather than the corpus, so a graph-mode render that ships
         # a corpus ships the index too. Gated on the paradigm the profile
@@ -2310,14 +2332,12 @@ def _render_project(
             # the same resolution every other roster consumer applies. The refusal
             # (a virtual accelerator with an unreadable or empty corpus) fires
             # here, still before anything is published outside the render zone.
-            prepared_va_manifest = prepare_project_manifest(
-                va_data_root, va_key[1], config=rendered
-            )
+            prepared_va_manifest = prepare_project_manifest(data_root, va_key[1], config=rendered)
             shared.va_manifests[va_key] = prepared_va_manifest
             _report_va_manifest_outcome(
                 shared,
                 build_profile,
-                data_root=va_data_root,
+                data_root=data_root,
                 tier=va_key[1],
                 prepared=prepared_va_manifest,
                 config=rendered,
@@ -3517,6 +3537,18 @@ def _build_repo(
                 stream=stream,
             )
 
+        # The facility file, before the venv and every render: a facility stop
+        # is the author's to fix, and nothing is installed or rendered first.
+        from osprey.facility.build import build_facility
+        from osprey.facility.render import facility_digest
+
+        data_root = build_profile.resolved_data_root(repo_root)
+        assert data_root is not None  # `data:` required; narrows for type-checkers
+        facility_dir = data_root / "facility"
+        facility_sha256 = facility_digest(facility_dir)
+        facility = build_facility(facility_dir, project_name=name)
+        logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
+
         # The project venv, at its final path. It is the one artifact that
         # cannot be rendered somewhere and moved (see `_swap_in_render`), so it
         # is written where it will be read from and joins the staged tree at
@@ -3548,6 +3580,8 @@ def _build_repo(
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
+            facility=facility,
+            facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,
         )
 
@@ -3712,6 +3746,8 @@ def _build_repo(
         if remedy is not None:
             logger.error("→ %s", remedy)
         raise click.Abort() from e
+    except FacilityBuildError:
+        raise
     except Exception as e:
         logger.error("✗ Unexpected error: %s", e)
         import traceback
