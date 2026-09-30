@@ -398,6 +398,29 @@ class TestParadigmAccessors:
         assert resp.json()["detail"] == "Not available for this pipeline type"
         get_database.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("paradigm", "method", "path", "body"),
+        [pytest.param(*row, id=f"{row[0]}-{row[1]}-{row[2]}") for row in _PARADIGM_ROUTES],
+    )
+    def test_absent_database_is_503_naming_the_paradigm(self, client, paradigm, method, path, body):
+        _set_pipeline(client, paradigm)
+        client.app.state.databases = {}
+        resp = client.request(method, path, json=body)
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == f"Database not available for pipeline '{paradigm}'"
+
+    @pytest.mark.parametrize(
+        ("paradigm", "method", "path", "body"),
+        [pytest.param(*row, id=f"{row[0]}-{row[1]}-{row[2]}") for row in _PARADIGM_ROUTES],
+    )
+    def test_another_paradigms_backend_is_503(self, client, paradigm, method, path, body):
+        other = next(cls for name, cls in _BACKENDS.items() if name != paradigm)
+        _set_pipeline(client, paradigm)
+        client.app.state.databases = {paradigm: MagicMock(spec=other)}
+        resp = client.request(method, path, json=body)
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == f"Database not available for pipeline '{paradigm}'"
+
 
 class TestGraphParadigmRoutes:
     """The graph paradigm has no database file, and the routes say so plainly."""
