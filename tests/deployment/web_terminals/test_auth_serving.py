@@ -170,6 +170,7 @@ _PACKAGES = (
     "pyyaml",
     "click",
     "rich",
+    "questionary",
 )
 """The sidecar's import closure, by distribution name.
 

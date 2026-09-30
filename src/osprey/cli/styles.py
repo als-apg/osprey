@@ -18,6 +18,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from questionary import Style as QuestionaryStyle
 from rich import box
 from rich.box import Box
 from rich.console import Console, RenderableType
@@ -28,14 +29,6 @@ from rich.theme import Theme
 from osprey.utils.logger import get_logger
 
 logger = get_logger("base")
-
-try:
-    from questionary import Style as QuestionaryStyle
-
-    QUESTIONARY_AVAILABLE = True
-except ImportError:
-    QuestionaryStyle = None
-    QUESTIONARY_AVAILABLE = False
 
 
 @dataclass
@@ -266,18 +259,15 @@ def _build_rich_theme(theme: ColorTheme) -> Theme:
     )
 
 
-def _build_questionary_style(theme: ColorTheme) -> "QuestionaryStyle | None":
+def _build_questionary_style(theme: ColorTheme) -> QuestionaryStyle:
     """Build a Questionary style from a ColorTheme.
 
     Args:
         theme: The ColorTheme to convert
 
     Returns:
-        QuestionaryStyle object or None if questionary not installed
+        QuestionaryStyle object
     """
-    if QuestionaryStyle is None:
-        return None
-
     return QuestionaryStyle(
         [
             ("qmark", f"fg:{theme.accent} bold"),  # Question mark (accent)
@@ -349,13 +339,13 @@ def _retheme_consoles(theme: ColorTheme) -> None:
     _theme_pushed = True
 
 
-def get_questionary_style() -> "QuestionaryStyle | None":
+def get_questionary_style() -> QuestionaryStyle:
     """Get the Questionary style for interactive prompts.
 
     Returns the current active theme's questionary style.
 
     Returns:
-        QuestionaryStyle object or None if questionary not installed
+        QuestionaryStyle object
     """
     return custom_style
 
