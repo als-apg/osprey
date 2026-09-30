@@ -9,6 +9,7 @@ Tests the Click command group including:
 """
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import click
@@ -672,6 +673,66 @@ class TestValidateSubcommand:
                 )
         assert result.exit_code == 1
         assert "INVALID" in result.output
+
+    def test_validate_pipeline_reads_that_pipelines_configured_database(self, runner, tmp_path):
+        """``--pipeline X`` without ``--database`` validates X's configured file."""
+        hier = tmp_path / "hier.json"
+        hier.write_text(
+            json.dumps(
+                {
+                    "hierarchy": {
+                        "levels": [
+                            {"name": "system", "type": "tree"},
+                            {"name": "signal", "type": "tree"},
+                        ],
+                        "naming_pattern": "{system}:{signal}",
+                    },
+                    "tree": {"SR": {"X": {}}},
+                }
+            )
+        )
+        config = {
+            "channel_finder": {
+                "pipeline_mode": "in_context",
+                "pipelines": {
+                    "in_context": {"database": {"path": str(tmp_path / "ctx.json")}},
+                    "hierarchical": {"database": {"path": str(hier)}},
+                },
+            }
+        }
+
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                with patch("osprey.utils.config.load_config", return_value=config):
+                    with patch("osprey.utils.workspace.resolve_path", side_effect=Path):
+                        result = runner.invoke(
+                            channel_finder, ["validate", "--pipeline", "hierarchical"]
+                        )
+
+        printed = " ".join(result.output.split())
+        assert result.exit_code == 0
+        assert "Hierarchical" in printed
+        assert "ctx.json" not in printed
+
+    def test_validate_pipeline_without_its_database_names_the_key(self, runner, tmp_path):
+        """``--pipeline X`` with no database configured for X refuses, naming the key."""
+        config = {
+            "channel_finder": {
+                "pipelines": {"in_context": {"database": {"path": str(tmp_path / "ctx.json")}}},
+            }
+        }
+
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                with patch("osprey.utils.config.load_config", return_value=config):
+                    result = runner.invoke(
+                        channel_finder, ["validate", "--pipeline", "middle_layer"]
+                    )
+
+        assert result.exit_code == 1
+        assert "channel_finder.pipelines.middle_layer.database.path" in " ".join(
+            result.output.split()
+        )
 
 
 # ============================================================================

@@ -291,16 +291,20 @@ def build_database(
     "--pipeline",
     type=click.Choice(FILE_DATABASE_PARADIGMS),
     default=None,
-    help="Override pipeline type detection (default: auto-detect from config)",
+    help=(
+        "Paradigm to validate as; without --database, validates "
+        "channel_finder.pipelines.<paradigm>.database.path (default: auto-detect from config)"
+    ),
 )
 @click.pass_context
 def validate(ctx, database: str | None, verbose: bool, pipeline: str | None):
     """Validate a channel database JSON file.
 
     Checks JSON structure, schema validity, and database loading.
-    Auto-detects the paradigm from config when --pipeline is not given. A
-    graph project has no database file: it is told how to seed and inspect
-    its store instead.
+    --pipeline names the paradigm; without --database it validates the file
+    configured for that paradigm. Without --pipeline the paradigm is
+    auto-detected from config, and a graph project, which has no database
+    file, is told how to seed and inspect its store instead.
 
     Examples:
 
