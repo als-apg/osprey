@@ -32,11 +32,13 @@ from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
 from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
     ALL_PRIVILEGES,
+    REGISTRY_MODE_MISSING_URL,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     _is_shared_entry,
     as_dict,
     auth_is_enforced,
+    configured_registry_url,
     control_identity_collision_warnings,
     control_identity_problems,
     deployment_wide_privileged_exposure_problems,
@@ -2118,27 +2120,20 @@ def _check_registry_url_coherence(
 ) -> list[Finding]:
     """``image_source`` and ``registry.url`` must agree.
 
-    Only evaluated once a persona catalog is actually configured. A config
-    with no ``personas:`` block at all resolves every user through
-    :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
-    zero-migration path — this check never demands a ``registry.url`` from a
-    deployment that has not opted into the persona system.
+    Registry mode names every web-terminal image under ``registry.url``, the
+    no-catalog default image included, so the check runs whether or not a
+    persona catalog is configured. Local mode builds its images, so a URL set
+    there only draws a warning.
     """
-    if not _persona_catalog(web_terminals):
-        return []
-    registry_url = as_dict(root.get("registry")).get("url")
-    has_url = isinstance(registry_url, str) and bool(registry_url)
+    registry_url = configured_registry_url(root.get("registry"))
+    has_url = bool(registry_url)
     image_source = effective_image_source(web_terminals)
     if image_source == "registry" and not has_url:
         return [
             Finding(
                 severity="error",
                 code="web_terminals.registry_mode_missing_url",
-                message=(
-                    "modules.web_terminals.image_source is 'registry' (the "
-                    "default) but registry.url is not set; registry mode needs "
-                    "it to pull every persona's image"
-                ),
+                message=REGISTRY_MODE_MISSING_URL,
             )
         ]
     if image_source == "local" and has_url:

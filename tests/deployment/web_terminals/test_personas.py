@@ -24,6 +24,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_launch_token,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
+    configured_registry_url,
     control_identity_collision_warnings,
     control_identity_problems,
     effective_persona,
@@ -479,9 +480,28 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("registry_cfg", "expected"),
+    [
+        (None, ""),
+        ({}, ""),
+        ({"url": None}, ""),
+        ({"url": 5}, ""),
+        ({"url": "registry.example.org/osprey"}, "registry.example.org/osprey"),
+    ],
+)
+def test_configured_registry_url_reads_only_a_string_url(registry_cfg: Any, expected: str) -> None:
+    """Only a string `registry.url` inside a mapping counts as configured."""
+    # Act
+    result = configured_registry_url(registry_cfg)
+
+    # Assert
+    assert result == expected
+
+
 def test_resolve_personas_no_catalog_empty_registry_url_matches_template_concat() -> None:
-    """An unset registry.url must reproduce the exact (leading-slash) string the
-    compose template built by direct concatenation before this function existed."""
+    """An unset registry.url still resolves: the resolver stays total and yields
+    the leading-slash name, and the render is where this shape is refused."""
     # Arrange
     web_terminals = {"users": ["alice"]}
 
