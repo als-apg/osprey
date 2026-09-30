@@ -34,6 +34,7 @@ from osprey.services.channel_finder.benchmarks.models import (
     BenchmarkRun,
     QueryResult,
 )
+from osprey.services.channel_finder.benchmarks.project_env import project_config
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from osprey.services.channel_finder.graph_queries import GRAPH_CHANNEL_COUNT_CYPHER
 
@@ -91,15 +92,11 @@ def read_db_path_from_config(project_dir: Path, paradigm: str) -> Path:
             reaching here.
         KeyError: If the config key path is missing.
         FileNotFoundError: If config.yml does not exist.
+        ConfigurationError: If config.yml does not read as a mapping.
     """
-    import yaml
-
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
+    config = project_config(project_dir)
+    if config is None:
         raise FileNotFoundError(f"config.yml not found in {project_dir}")
-
-    with open(config_path) as f:
-        config = yaml.safe_load(f) or {}
 
     try:
         keys = PARADIGM_CONFIG_KEYS[paradigm]
@@ -200,13 +197,10 @@ class BenchmarkRunner:
 
     def _read_config(self) -> dict[str, Any]:
         """Read and return the project's config.yml as a dict."""
-        import yaml
-
-        config_path = self.project_dir / "config.yml"
-        if not config_path.exists():
+        config = project_config(self.project_dir)
+        if config is None:
             raise FileNotFoundError(f"config.yml not found in {self.project_dir}")
-        with open(config_path) as f:
-            return yaml.safe_load(f) or {}
+        return config
 
     def _count_channels(self) -> int:
         """Count the channels the active pipeline can retrieve.

@@ -35,16 +35,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel
 
 from osprey.models.config import main_model_id
 from osprey.models.provider_registry import get_provider_registry
 from osprey.services.channel_finder.benchmarks.project_env import (
     expand_api_providers,
+    project_config,
     project_env,
 )
-from osprey.services.channel_finder.core.exceptions import CoverageJudgeError
+from osprey.services.channel_finder.core.exceptions import ConfigurationError, CoverageJudgeError
 from osprey_connectors.config import is_unresolved_placeholder
 
 # ---------------------------------------------------------------------------
@@ -138,11 +138,14 @@ def resolve_judge(
             the message names the provider and the config path.
     """
     config_path = project_dir / "config.yml"
-    if not config_path.is_file():
+    try:
+        config = project_config(project_dir)
+    except ConfigurationError as exc:
+        raise CoverageJudgeError(f"The coverage judge on '{provider}' cannot run: {exc}") from exc
+    if config is None:
         raise CoverageJudgeError(
             f"The coverage judge on '{provider}' needs {config_path}, and it does not exist."
         )
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
     env = project_env(project_dir)
     providers = expand_api_providers(config, env)

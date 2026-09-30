@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,24 +18,15 @@ from osprey.services.channel_finder.benchmarks.harness import (
 from osprey.services.channel_finder.benchmarks.sdk import _read_agent_prompt
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
 
-from ..project_env import expand_api_providers, project_dotenv
+from ..project_env import expand_api_providers, project_config, project_dotenv
 from .base import Backend, WorkflowOutput
 
 logger = logging.getLogger(__name__)
 
 
-def _project_config(project_dir: Path) -> dict[str, Any]:
-    """Read the project's ``config.yml``; empty when there is none or it is no mapping."""
-    import yaml
-
-    config_path = project_dir / "config.yml"
-    if not config_path.is_file():
-        return {}
-    loaded = yaml.safe_load(config_path.read_text())
-    return loaded if isinstance(loaded, dict) else {}
-
-
-def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
+def _resolve_litellm_endpoint(
+    project_dir: Path, config: Mapping[str, Any] | None, provider: str
+) -> dict | None:
     """Resolve provider routing kwargs for a non-ollama provider.
 
     The SDK path injects ``ANTHROPIC_BASE_URL`` + ``ANTHROPIC_AUTH_TOKEN``
@@ -43,11 +35,13 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     so env inheritance can't carry the override — we have to pass
     ``api_base`` / ``api_key`` explicitly to ``litellm.acompletion()``.
 
-    Returns ``None`` for ollama (already handled by ``_litellm_call_kwargs``)
-    and for direct Anthropic (LiteLLM's default routing is correct).
+    Returns ``None`` for ollama (already handled by ``_litellm_call_kwargs``),
+    for a project with no ``config.yml`` (``config`` is ``None``), and for
+    direct Anthropic (LiteLLM's default routing is correct).
 
-    This benchmark-only path does a raw ``yaml.safe_load`` +
-    ``ClaudeCodeModelResolver.resolve`` rather than going through
+    This benchmark-only path takes the project's config as
+    :func:`~osprey.services.channel_finder.benchmarks.project_env.project_config`
+    read it and calls ``ClaudeCodeModelResolver.resolve`` rather than going through
     ``load_provider_spec``, because the contract differs (synthetic
     ``{"provider": provider}`` config + litellm ``api_base``). It does expand
     ``${VAR}`` in a provider's ``base_url``, against the overlay
@@ -59,15 +53,11 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     if provider == "ollama":
         return None
 
-    import yaml
-
     from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
     from osprey_connectors.config import is_unresolved_placeholder
 
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
+    if config is None:
         return None
-    config = yaml.safe_load(config_path.read_text()) or {}
     # os.environ wins over the project .env, so a sweep can redirect a provider
     # for one run without editing the deployment's file.
     dotenv = project_dotenv(project_dir)
@@ -119,12 +109,11 @@ class ReactBackend(Backend):
         self.litellm_model = get_litellm_model_name(self.provider, self.wire_id)
         self.max_turns = max_turns
         self.system_prompt = _read_agent_prompt(project_dir)
-        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, self.provider)
+        config = project_config(project_dir)
+        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, config, self.provider)
 
         # Pace calls to the provider's catalog cap; a provider without one is not paced.
-        configure_rate_limiter(
-            provider_requests_per_minute(_project_config(project_dir), self.provider)
-        )
+        configure_rate_limiter(provider_requests_per_minute(config or {}, self.provider))
 
     async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:
         async with mcp_client_session(self.project_dir, pipeline_mode) as client:

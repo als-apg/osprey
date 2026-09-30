@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..project_env import project_config
 from .base import Backend, WorkflowOutput
 from .in_context_backend import InContextBackend
 from .react_backend import ReactBackend
@@ -48,18 +49,17 @@ __all__ = [
 
 
 def _read_pipeline_mode(project_dir: Path) -> str | None:
-    """Return ``channel_finder.pipeline_mode`` from config.yml, or None."""
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
-        return None
-    try:
-        import yaml
+    """Return ``channel_finder.pipeline_mode`` from config.yml.
 
-        config = yaml.safe_load(config_path.read_text()) or {}
-        mode = config.get("channel_finder", {}).get("pipeline_mode")
-        return mode if isinstance(mode, str) else None
-    except Exception:
+    ``None`` when the project has no ``config.yml`` or names no mode; a file that
+    does not read as a mapping is refused by
+    :func:`~osprey.services.channel_finder.benchmarks.project_env.project_config`.
+    """
+    config = project_config(project_dir)
+    if config is None:
         return None
+    mode = config.get("channel_finder", {}).get("pipeline_mode")
+    return mode if isinstance(mode, str) else None
 
 
 def create_backend(

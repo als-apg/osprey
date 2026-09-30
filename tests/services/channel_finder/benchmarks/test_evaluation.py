@@ -26,7 +26,10 @@ from osprey.services.channel_finder.benchmarks.evaluation import (
     programmatic_recall_check,
     resolve_judge,
 )
-from osprey.services.channel_finder.core.exceptions import CoverageJudgeError
+from osprey.services.channel_finder.core.exceptions import (
+    ConfigurationError,
+    CoverageJudgeError,
+)
 
 _ROUTE = JudgeRoute("als-apg", "claude-sonnet-5", "https://gateway.example.org/v1", api_key="k")
 
@@ -399,6 +402,16 @@ class TestResolveJudge:
 
         with pytest.raises(CoverageJudgeError, match=match):
             resolve_judge(tmp_path, provider)
+
+    def test_a_malformed_config_is_refused_naming_provider_and_path(self, tmp_path):
+        (tmp_path / "config.yml").write_text("- a\n- b\n")
+
+        with pytest.raises(CoverageJudgeError) as info:
+            resolve_judge(tmp_path, "als-apg")
+
+        assert "'als-apg'" in str(info.value)
+        assert str(tmp_path / "config.yml") in str(info.value)
+        assert isinstance(info.value.__cause__, ConfigurationError)
 
 
 # ---------------------------------------------------------------------------
