@@ -41,13 +41,24 @@ reads back through its ``Monitor`` field when the family has both; every other
 setpoint is its own pair. A pair is always a readback, so a ``Monitor`` whose
 direction is ``write`` is a setpoint of its own and pairs with nothing.
 
+:func:`check_mapping` checks meaning: identity and model names are PN_LOCAL,
+``section_order`` lists every model once, classes and branches resolve against
+the vocabulary, every direction and wiring family names a field the mapping
+describes, and -- given the export -- the mapping names exactly the export's
+systems and families, gives every channel-bearing field a direction, a
+``stated`` direction agrees with the export's own vote unless ``override``, and
+the judgment answers match what the export pends: every pending row, unbound
+device and shared supply has a slot, every answer names a judgment the export
+pends, an owner is a member of its supply group, and a ``field:`` answer is a
+name the family can take.
+
 The importer's stops are :class:`ImportStop`: one line each, prefixed
 ``import mml: <problem>:``, exit status 1.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Literal, TypeGuard, overload
@@ -77,8 +88,10 @@ __all__ = [
     "OwnerMap",
     "RowAnswer",
     "SharedAnswer",
+    "Problem",
     "UnboundAnswer",
     "WiringFamily",
+    "check_mapping",
     "field_roles",
     "judgment_key",
     "parse_mapping",
@@ -785,10 +798,18 @@ _ANSWER_UNBOUND = "answer drop or keep"
 _ANSWER_SHARED = "answer keep_all or name each group's owner"
 
 
-def _vocabulary_classes() -> frozenset[str]:
-    from osprey.facility.validate import known_classes
+def _vocabulary() -> dict[str, str | None]:
+    """The vocabulary's device classes, each mapped to its parent (the root to None)."""
+    import json
+    from importlib import resources
 
-    return known_classes()
+    table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
+    classes = json.loads(table.read_text(encoding="utf-8"))["classes"]
+    return {row["name"]: row["parent"] for row in classes}
+
+
+def _vocabulary_classes() -> frozenset[str]:
+    return frozenset(_vocabulary())
 
 
 def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
@@ -853,15 +874,540 @@ def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
     return found
 
 
-def require_decided(mapping: Mapping) -> None:
+def require_decided(mapping: Mapping, ao: dict | None = None) -> None:
     """Stop the import while any slot of the mapping is undecided.
+
+    Given the export, a judgment it pends that the document leaves no slot
+    for is undecided too: it is listed after the document's own ``null``
+    slots, in export order.
 
     Args:
         mapping: The parsed mapping.
+        ao: The merged export the mapping answers, or ``None`` to read the
+            document alone.
 
     Raises:
         ImportStop: ``mapping-undecided``, one line per undecided slot.
     """
     found = undecided_slots(mapping)
+    if ao is not None:
+        missing = _all_missing_slots(mapping, _pending_by_family(ao))
+        found.extend((key, what) for key, _, what in missing)
     if found:
         raise ImportStop("mapping-undecided", [f"{key}: {what}" for key, what in found])
+
+
+# -- semantic check -----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One refusal of :func:`check_mapping`: the offending key path and what is wrong."""
+
+    key: str
+    message: str
+
+    def __str__(self) -> str:
+        """Return ``"<key>: <message>"``."""
+        return f"{self.key}: {self.message}"
+
+
+def _pn_local(token: str) -> bool:
+    from osprey.facility import PN_LOCAL
+
+    return PN_LOCAL.fullmatch(token) is not None
+
+
+def _not_pn_local(key: str, token: str) -> Problem:
+    return Problem(key, f"{token!r} is not PN_LOCAL")
+
+
+def _identity_code(mapping: Mapping) -> Iterator[Problem]:
+    if mapping.identity is not None and not _pn_local(mapping.identity.code):
+        yield _not_pn_local("facility.code", mapping.identity.code)
+
+
+def _model_names(mapping: Mapping) -> Iterator[Problem]:
+    folded: dict[str, str] = {}
+    for raw, model in mapping.models.items():
+        key = f"models.{raw}.name"
+        if not _pn_local(model.name):
+            yield _not_pn_local(key, model.name)
+            continue
+        first = folded.setdefault(model.name.lower(), raw)
+        if first != raw:
+            yield Problem(key, f"{model.name!r} is models.{first}'s name up to case")
+
+
+def _section_order(mapping: Mapping) -> Iterator[Problem]:
+    names = {model.name for model in mapping.models.values()}
+    seen: set[str] = set()
+    for index, name in enumerate(mapping.section_order):
+        key = f"section_order[{index}]"
+        if name not in names:
+            yield Problem(key, f"{name!r} is no model name")
+        elif name in seen:
+            yield Problem(key, f"{name!r} is listed twice")
+        seen.add(name)
+    for model in mapping.models.values():
+        if model.name not in seen:
+            yield Problem("section_order", f"leaves out the model {model.name}")
+
+
+def _family_tokens(mapping: Mapping) -> Iterator[Problem]:
+    folded: dict[str, str] = {}
+    for raw, family in mapping.families.items():
+        if family.rename is not None and not _pn_local(family.rename):
+            yield _not_pn_local(f"families.{raw}.rename", family.rename)
+            continue
+        token = mapping.mapped(raw)
+        first = folded.setdefault(token.lower().replace("-", "_"), raw)
+        if first != raw:
+            yield Problem(
+                f"families.{raw}", f"maps to {token!r}, which families.{first} also maps to"
+            )
+
+
+def _unknown_class(name: str) -> str:
+    return f"{name!r} is no vocabulary class and no declared branch"
+
+
+def _family_classes(mapping: Mapping) -> Iterator[Problem]:
+    vocabulary = _vocabulary()
+    for raw, family in mapping.families.items():
+        path = f"families.{raw}"
+        if family.class_ is None:
+            continue
+        if not _pn_local(family.class_):
+            yield _not_pn_local(f"{path}.class", family.class_)
+            continue
+        if family.class_ in vocabulary and vocabulary[family.class_] is None:
+            yield Problem(
+                f"{path}.class",
+                f"{family.class_!r} is the vocabulary root; name a class under it",
+            )
+            continue
+        branch = family.branch
+        if branch is None:
+            continue
+        parent = vocabulary.get(family.class_)
+        if parent is not None and branch != parent:
+            yield Problem(
+                f"{path}.branch",
+                f"{family.class_} is a vocabulary class under {parent}, not {branch}",
+            )
+        elif branch not in vocabulary and branch not in mapping.branches:
+            yield Problem(f"{path}.branch", _unknown_class(branch))
+
+
+def _declared_branches(mapping: Mapping) -> Iterator[Problem]:
+    vocabulary = _vocabulary()
+    for name, branch in mapping.branches.items():
+        path = f"branches.{name}"
+        if name in vocabulary:
+            yield Problem(path, "is a vocabulary class already")
+            continue
+        if branch.parent not in vocabulary and branch.parent not in mapping.branches:
+            yield Problem(f"{path}.parent", _unknown_class(branch.parent))
+            continue
+        chain: list[str] = []
+        parent = branch.parent
+        while parent in mapping.branches and parent not in chain and parent != name:
+            chain.append(parent)
+            parent = mapping.branches[parent].parent
+        if parent == name:
+            yield Problem(f"{path}.parent", f"{name} extends itself through {' -> '.join(chain)}")
+
+
+def _family_field(mapping: Mapping, family: str, name: str) -> str | None:
+    """Say why ``family.name`` is no field the mapping describes, else ``None``."""
+    if family not in mapping.families:
+        return f"{family} is no family"
+    if name not in mapping.families[family].fields:
+        return f"{family} has no field {name}"
+    return None
+
+
+def _direction_fields(mapping: Mapping) -> Iterator[Problem]:
+    for key in mapping.directions:
+        family, _, name = key.partition(".")
+        why = _family_field(mapping, family, name)
+        if why is not None:
+            yield Problem(f"directions.{key}", why)
+
+
+def _wiring_fields(mapping: Mapping) -> Iterator[Problem]:
+    for raw, model in mapping.models.items():
+        for family, wiring in model.wiring.items():
+            entry = f"models.{raw}.wiring.{family}"
+            if family not in mapping.families:
+                yield Problem(entry, f"{family} is no family")
+            elif wiring.element_field is not None:
+                why = _family_field(mapping, family, wiring.element_field)
+                if why is not None:
+                    yield Problem(f"{entry}.element_field", why)
+
+
+def _judgment_families(mapping: Mapping) -> Iterator[Problem]:
+    for family in mapping.judgments:
+        if family not in mapping.families:
+            yield Problem(f"judgments.{family}", f"{family} is no family")
+
+
+_RULES: tuple[Callable[[Mapping], Iterator[Problem]], ...] = (
+    _identity_code,
+    _model_names,
+    _section_order,
+    _family_tokens,
+    _family_classes,
+    _declared_branches,
+    _direction_fields,
+    _wiring_fields,
+    _judgment_families,
+)
+
+
+def _created_fields(mapping: Mapping) -> set[str]:
+    """The ``<family>.<field>`` keys a ``field:`` judgment answer creates."""
+    return {
+        f"{family}.{answer.name}"
+        for family, judgments in mapping.judgments.items()
+        for answers in judgments.rows_beyond.values()
+        for answer in answers.values()
+        if isinstance(answer, FieldAnswer)
+    }
+
+
+def _against_export(mapping: Mapping, ao: dict) -> Iterator[Problem]:
+    from osprey.services.mml.directions import vote_directions
+    from osprey.services.mml.family import family_views, system_bodies
+
+    systems = dict(system_bodies(ao))
+    views = {
+        raw: {view.raw_name: view for view in family_views(raw, body)}
+        for raw, body in systems.items()
+    }
+    for raw in mapping.models:
+        if raw not in systems:
+            yield Problem(f"models.{raw}", f"{raw} is no exported system")
+    for raw in systems:
+        if raw not in mapping.models:
+            yield Problem("models", f"leaves out the exported system {raw}")
+
+    exported: dict[str, set[str]] = {}
+    for carried_by in views.values():
+        for family, found in carried_by.items():
+            exported.setdefault(family, set()).update(found.fields)
+    for family in mapping.families:
+        if family not in exported:
+            yield Problem(f"families.{family}", f"{family} is no exported family")
+    for family in exported:
+        if family not in mapping.families:
+            yield Problem("families", f"leaves out the exported family {family}")
+
+    created = _created_fields(mapping)
+    carried = {f"{family}.{name}" for family, names in exported.items() for name in names}
+    for key in mapping.directions:
+        if key not in carried and key not in created:
+            yield Problem(f"directions.{key}", f"the export carries no channels under {key}")
+    for key in sorted(carried - set(mapping.directions)):
+        yield Problem("directions", f"{key} carries channels and has no direction")
+
+    for raw, model in mapping.models.items():
+        system = views.get(raw)
+        if system is None:
+            continue
+        for family, wiring in model.wiring.items():
+            entry = f"models.{raw}.wiring.{family}"
+            view = system.get(family)
+            if view is None:
+                yield Problem(entry, f"{raw} carries no family {family}")
+            elif wiring.element_field is not None and wiring.element_field not in view.fields:
+                yield Problem(
+                    f"{entry}.element_field",
+                    f"{raw} carries no channels under {family}.{wiring.element_field}",
+                )
+
+    votes = vote_directions(ao)
+    for key, direction in mapping.directions.items():
+        family, _, name = key.partition(".")
+        vote = votes.get((family, name))
+        if (
+            vote is None
+            or vote.direction is None
+            or direction.direction is None
+            or direction.override
+            or direction.provenance != "stated"
+            or vote.direction == direction.direction
+        ):
+            continue
+        yield Problem(
+            f"directions.{key}",
+            f"stated {direction.direction}, the export votes {vote.direction}; "
+            "set override: true to keep it",
+        )
+
+    yield from _judgment_problems(mapping, _pending_by_family(ao))
+
+
+# -- judgment answers against the export ---------------------------------------
+
+
+def _pending_by_family(ao: dict) -> dict[str, list[Any]]:
+    """What each raw family asks its reviewer, one entry per system carrying it.
+
+    The judgments are read off the raw export, before any answer is applied,
+    in export order; a family pending nothing is listed too.
+    """
+    from osprey.services.mml.judgments import all_pending_judgments
+
+    found: dict[str, list[Any]] = {}
+    for judged in all_pending_judgments(ao).values():
+        found.setdefault(judged.family, []).append(judged)
+    return found
+
+
+def _answer_kind(answer: RowAnswer) -> str:
+    """The word a problem calls this kind of row answer by."""
+    return "field:" if isinstance(answer, FieldAnswer) else answer
+
+
+def _unpended_answers(raw: str, judgments: FamilyJudgments, found: list[Any]) -> Iterator[Problem]:
+    """Refuse every row and device answer no system of the export pends."""
+    rows = {(row.field, row.signal) for judged in found for row in judged.rows_beyond}
+    for name, answers in judgments.rows_beyond.items():
+        for signal, answer in answers.items():
+            if answer is not None and (name, signal) not in rows:
+                yield Problem(
+                    judgment_key(raw, ROWS_BEYOND_KIND, name, signal),
+                    f"names no row beyond the devices of {raw} in any system",
+                )
+    ordinals = {ordinal for judged in found for ordinal in judged.unbound_devices}
+    for ordinal, unbound in judgments.unbound_devices.items():
+        if unbound is not None and ordinal not in ordinals:
+            yield Problem(
+                judgment_key(raw, UNBOUND_KIND, ordinal=ordinal),
+                f"names no unbound device of {raw} in any system",
+            )
+
+
+def _group_collisions(raw: str, found: list[Any]) -> Iterator[Problem]:
+    """Refuse an owner map whose group keys cannot say which devices they own.
+
+    A group is keyed by its lowest ordinal, so two groups sharing a device in
+    one system, or one ordinal keying different members in two systems, leave
+    a key naming no single group. ``keep_all`` needs no key.
+    """
+    from itertools import combinations
+
+    key = judgment_key(raw, SHARED_KIND)
+    for judged in found:
+        for first, second in combinations(judged.groups, 2):
+            if shared := sorted(set(first.ordinals) & set(second.ordinals)):
+                yield Problem(
+                    key,
+                    f"supply groups {first.lowest} and {second.lowest} of {raw} in "
+                    f"{judged.system} share device {shared[0]}; answer `keep_all`",
+                )
+    members: dict[int, tuple[str, tuple[int, ...]]] = {}
+    for judged in found:
+        for group in judged.groups:
+            system, ordinals = members.setdefault(group.lowest, (judged.system, group.ordinals))
+            if ordinals != group.ordinals:
+                yield Problem(
+                    key,
+                    f"supply group {group.lowest} of {raw} has the members "
+                    f"{list(ordinals)} in {system} and {list(group.ordinals)} in "
+                    f"{judged.system}; answer `keep_all`",
+                )
+
+
+def _owner_problems(raw: str, judgments: FamilyJudgments, found: list[Any]) -> Iterator[Problem]:
+    """Refuse an owner map naming a group or an owner the export does not have.
+
+    ``keep_all`` keeps every channel where the export put it, so no export
+    refuses it. An owner map names one member of every supply group; a
+    collision refuses the whole map at the family's key.
+    """
+    answer = judgments.shared_pvs
+    if not isinstance(answer, OwnerMap):
+        return
+    groups = [(judged, group) for judged in found for group in judged.groups]
+    if not groups:
+        yield Problem(
+            judgment_key(raw, SHARED_KIND), f"names no shared supply of {raw} in any system"
+        )
+        return
+    collision = next(_group_collisions(raw, found), None)
+    if collision is not None:
+        yield collision
+        return
+    keyed = {group.lowest for _, group in groups}
+    for ordinal in answer.owners:
+        if ordinal not in keyed:
+            yield Problem(
+                judgment_key(raw, SHARED_KIND, ordinal=ordinal),
+                f"names no supply group of {raw} in any system",
+            )
+    for judged, group in groups:
+        slot = judgment_key(raw, SHARED_KIND, ordinal=group.lowest)
+        owner = answer.owners.get(group.lowest)
+        where = f"{raw} in {judged.system}"
+        if owner is None:
+            yield Problem(slot, f"supply group {group.lowest} of {where} has no owner")
+        elif owner != "keep_all" and owner not in group.ordinals:
+            yield Problem(
+                slot, f"device {owner} is not a member of supply group {group.lowest} of {where}"
+            )
+
+
+def _answered_rows(
+    raw: str, judgments: FamilyJudgments, judged: Any
+) -> list[tuple[str, Any, RowAnswer]]:
+    """The rows one system pends that the document answers, in document order."""
+    rows = {(row.field, row.signal): row for row in judged.rows_beyond}
+    answered: list[tuple[str, Any, RowAnswer]] = []
+    for name, answers in judgments.rows_beyond.items():
+        for signal, answer in answers.items():
+            row = rows.get((name, signal))
+            if row is not None and answer is not None:
+                answered.append((judgment_key(raw, ROWS_BEYOND_KIND, name, signal), row, answer))
+    return answered
+
+
+def _row_problems(raw: str, judgments: FamilyJudgments, judged: Any) -> Iterator[Problem]:
+    """Refuse the row answers one system's export cannot carry.
+
+    A row answered ``device`` must not already be bound below the family's
+    devices, or it would mint a supply group nobody answered; a ``field:``
+    name must be PN_LOCAL, must not collide with a key of the family body or
+    another row's field, and every channel key of its row is answered alike.
+    """
+    answered = _answered_rows(raw, judgments, judged)
+    kinds: dict[tuple[str, int], set[str]] = {}
+    for _, row, answer in answered:
+        kinds.setdefault((row.field, row.index), set()).add(_answer_kind(answer))
+    named: dict[str, tuple[str, int]] = {}
+    where = f"{raw} in {judged.system}"
+    for key, row, answer in answered:
+        if answer == "device":
+            if row.signal in judged.bound_below:
+                yield Problem(
+                    key,
+                    f"{row.signal!r} is also bound below device {judged.n_devices + 1} of "
+                    f"{where}; answer `drop` or `field:`",
+                )
+            continue
+        if not isinstance(answer, FieldAnswer):
+            continue
+        name = answer.name
+        if not _pn_local(name):
+            yield Problem(key, f"the field name {name!r} for {where} is not PN_LOCAL")
+        elif name in judged.body_keys:
+            yield Problem(
+                key, f"the field name {name!r} is a key {raw} already carries in {judged.system}"
+            )
+        elif named.setdefault(name, (row.field, row.index)) != (row.field, row.index):
+            yield Problem(key, f"the field name {name!r} is answered on another row of {where}")
+        elif others := sorted(kinds[(row.field, row.index)] - {"field:"}):
+            yield Problem(
+                key, f"the other channel key of this row is answered {others[0]} in {judged.system}"
+            )
+
+
+def _created_field_problems(
+    raw: str, judgments: FamilyJudgments, found: list[Any], mapping: Mapping, refused: set[str]
+) -> Iterator[Problem]:
+    """Ask for the family field and direction every accepted ``field:`` answer creates."""
+    family = mapping.families.get(raw)
+    for judged in found:
+        for key, _, answer in _answered_rows(raw, judgments, judged):
+            if key in refused or not isinstance(answer, FieldAnswer):
+                continue
+            described = family is not None and answer.name in family.fields
+            if not described or f"{raw}.{answer.name}" not in mapping.directions:
+                yield Problem(
+                    key,
+                    f"creates the field {answer.name!r} of {raw} in {judged.system}; add "
+                    f"families.{raw}.fields.{answer.name} and directions.{raw}.{answer.name}",
+                )
+
+
+def _missing_slots(
+    raw: str, judgments: FamilyJudgments | None, found: list[Any]
+) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(key, system, what to write)`` per pending judgment the document leaves out."""
+    rows = {} if judgments is None else judgments.rows_beyond
+    ordinals = {} if judgments is None else judgments.unbound_devices
+    shared = judgments is not None and judgments.shared_pvs_present
+    for judged in found:
+        for row in judged.rows_beyond:
+            if row.signal not in rows.get(row.field, {}):
+                key = judgment_key(raw, ROWS_BEYOND_KIND, row.field, row.signal)
+                yield key, judged.system, _ANSWER_ROW
+        for ordinal in judged.unbound_devices:
+            if ordinal not in ordinals:
+                key = judgment_key(raw, UNBOUND_KIND, ordinal=ordinal)
+                yield key, judged.system, _ANSWER_UNBOUND
+        if judged.groups and not shared:
+            yield judgment_key(raw, SHARED_KIND), judged.system, _ANSWER_SHARED
+
+
+def _all_missing_slots(
+    mapping: Mapping, pending: dict[str, list[Any]]
+) -> list[tuple[str, str, str]]:
+    """Every pending judgment the document leaves out, once per key, in export order."""
+    found: dict[str, tuple[str, str, str]] = {}
+    for raw, carried in pending.items():
+        for entry in _missing_slots(raw, mapping.judgments.get(raw), carried):
+            found.setdefault(entry[0], entry)
+    return list(found.values())
+
+
+def _judgment_problems(mapping: Mapping, pending: dict[str, list[Any]]) -> list[Problem]:
+    """Hold every judgment answer to what the export pends.
+
+    Per family, in document order: answers the export cannot carry, then the
+    mapping entries an accepted ``field:`` answer needs; after them, every
+    pending judgment the document leaves no slot for. A key is reported once,
+    at the first system that refuses it. A family the export does not carry is
+    left to the family rules.
+    """
+    found: dict[str, Problem] = {}
+    for raw, judgments in mapping.judgments.items():
+        carried = pending.get(raw)
+        if carried is None:
+            continue
+        refused = [
+            *_unpended_answers(raw, judgments, carried),
+            *_owner_problems(raw, judgments, carried),
+            *(problem for judged in carried for problem in _row_problems(raw, judgments, judged)),
+        ]
+        created = _created_field_problems(
+            raw, judgments, carried, mapping, {problem.key for problem in refused}
+        )
+        for problem in (*refused, *created):
+            found.setdefault(problem.key, problem)
+    for key, system, _ in _all_missing_slots(mapping, pending):
+        found.setdefault(key, Problem(key, f"is pending in {system} and has no answer"))
+    return list(found.values())
+
+
+def check_mapping(mapping: Mapping, ao: dict | None = None) -> list[Problem]:
+    """Check what a parsed mapping means, alone and against its export.
+
+    Undecided slots are not problems here; :func:`require_decided` stops on
+    them.
+
+    Args:
+        mapping: The parsed mapping.
+        ao: The merged export, ``{system: {family: body}}`` plus ``_``-prefixed
+            bookkeeping keys; ``None`` checks the mapping alone.
+
+    Returns:
+        Every problem, in rule order and document order within a rule.
+    """
+    problems = [problem for rule in _RULES for problem in rule(mapping)]
+    if ao is not None:
+        problems.extend(_against_export(mapping, ao))
+    return problems
