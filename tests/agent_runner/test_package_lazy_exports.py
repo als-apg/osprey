@@ -145,7 +145,7 @@ def test_an_unknown_name_is_an_attribute_error() -> None:
 
 def test_importing_a_submodule_does_not_load_the_agent_sdk() -> None:
     """A module of the package costs only itself: no agent SDK, no primitives."""
-    added = _modules_added_by_import("osprey.agent_runner.clean_env")
+    added = _modules_added_by_import("osprey.agent_runner.provider_env")
 
     assert "claude_agent_sdk" not in added
     assert "osprey.agent_runner.primitives" not in added

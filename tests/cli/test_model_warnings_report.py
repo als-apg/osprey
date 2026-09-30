@@ -149,7 +149,7 @@ class TestTheBuildSaysItOnce:
         records = [
             r
             for r in openai_build.records
-            if r.name == "osprey.build.claude_code_resolver" and fact in r.getMessage()
+            if r.name == "osprey.agent_runner.provider_env" and fact in r.getMessage()
         ]
         assert records
         assert all(r.levelno == logging.INFO for r in records)

@@ -1025,7 +1025,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """
     import os
 
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         ALIAS_SUBSTITUTION_REMEDY,
         DROPPED_ALIAS_KEY_REMEDY,
         alias_substitution,

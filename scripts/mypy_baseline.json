@@ -170,7 +170,7 @@
       "count": 1
     },
     {
-      "path": "src/osprey/build/claude_code_resolver.py",
+      "path": "src/osprey/agent_runner/provider_env.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"str | None\"",
       "count": 1

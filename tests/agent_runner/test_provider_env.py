@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner.provider_env import (
     CLAUDE_CODE_PROVIDERS,
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
@@ -392,7 +392,7 @@ class TestAgentModel:
             )
 
     def test_an_unserved_id_is_trusted_and_logged(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "cborg", "agent_models": {"channel-finder": "claude-next"}}
             )
@@ -415,7 +415,7 @@ class TestPerAliasOverrides:
         assert spec.alias_origin["haiku"] == "derived"
 
     def test_a_key_that_is_not_an_alias_name_is_dropped_and_recorded(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "cborg", "aliases": {"sonet": "claude-sonnet-9"}}
             )
@@ -496,7 +496,7 @@ class TestAliasDerivation:
     def test_a_gateway_serving_no_claude_model_runs_the_main_model_and_records_it(self, caplog):
         """One INFO record for the sinks; the verbs promote the sentence themselves."""
         entry = _gateway("gpt-6-sol", ("gpt-6-astra", "gpt-6-sol", "gpt-6-luna"))
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve({"provider": "openai"}, {"openai": entry})
         assert spec.alias_models == dict.fromkeys(TIER_MODEL_ENV_VARS, "gpt-6-sol")
         assert spec.alias_origin == dict.fromkeys(TIER_MODEL_ENV_VARS, "main model")
@@ -510,7 +510,7 @@ class TestAliasDerivation:
 
     def test_a_partial_family_names_only_the_missing_alias(self, caplog):
         entry = _gateway("claude-sonnet-5", ("claude-sonnet-5", "claude-opus-5"))
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve({"provider": "gw"}, {"gw": entry})
         assert spec.alias_models["haiku"] == "claude-sonnet-5"
         assert spec.alias_origin["haiku"] == "main model"
@@ -752,7 +752,7 @@ class TestDefaultModel:
 
     def test_an_unserved_id_is_trusted(self, caplog):
         """Full coverage lives in test_default_model_three_branch.py."""
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
         assert spec.env_block["ANTHROPIC_MODEL"] == "gpt-4"
         assert spec.default_model_id == "gpt-4"
@@ -884,7 +884,7 @@ class TestLoadProviderSpec:
 
     def test_expands_custom_base_url_from_dotenv(self, tmp_path, monkeypatch):
         """${VAR} in a custom provider base_url is expanded from the project .env."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ARGO_PROD_URL", raising=False)
         proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://argo.example/v1\n")
@@ -900,7 +900,7 @@ class TestLoadProviderSpec:
 
     def test_expands_from_os_environ_when_no_dotenv(self, tmp_path, monkeypatch):
         """${VAR} also resolves from os.environ when there is no .env."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setenv("ARGO_PROD_URL", "https://argo.from-env/v1")
         proj = _write_project(tmp_path, ARGO_CONFIG)
@@ -913,7 +913,7 @@ class TestLoadProviderSpec:
 
     def test_dotenv_overrides_os_environ(self, tmp_path, monkeypatch):
         """A project .env value wins over a stale shell export."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setenv("ARGO_PROD_URL", "https://stale-shell/v1")
         proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://fresh-dotenv/v1\n")
@@ -926,7 +926,7 @@ class TestLoadProviderSpec:
 
     def test_native_config_byte_identical(self, tmp_path):
         """A literal-URL native config resolves identically to the raw resolver."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         proj = _write_project(tmp_path, CBORG_CONFIG)
         loaded = load_provider_spec(proj)
@@ -935,21 +935,21 @@ class TestLoadProviderSpec:
 
     def test_provider_override(self, tmp_path):
         """provider= overrides claude_code.provider before resolving."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         proj = _write_project(tmp_path, CBORG_CONFIG)
         spec = load_provider_spec(proj, provider="anthropic")
         assert spec.provider == "anthropic"
 
     def test_returns_none_when_no_provider(self, tmp_path):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         proj = _write_project(tmp_path, "api:\n  providers: {}\n")
         assert load_provider_spec(proj) is None
 
     def test_does_not_mutate_os_environ(self, tmp_path, monkeypatch):
         """Resolving against the .env overlay must not leak into os.environ."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ARGO_PROD_URL", raising=False)
         proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://argo.example/v1\n")

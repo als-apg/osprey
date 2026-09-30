@@ -17,7 +17,7 @@ import logging
 import pytest
 import yaml
 
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner.provider_env import (
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
 )
@@ -62,7 +62,7 @@ class TestModelLessProviderIsRefused:
         With no served list, every Claude Code alias runs that model, and the
         resolver's record names the substitution.
         """
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws", "default_model": "gateway-model-id"},
                 api_providers=self._MODEL_LESS,
@@ -82,7 +82,7 @@ class TestAliasSubstitutionIsLoud:
     """An alias no source fills runs the main model, and the build says so."""
 
     def test_a_partial_family_is_recorded_and_falls_back(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws"},
                 api_providers={
@@ -99,7 +99,7 @@ class TestAliasSubstitutionIsLoud:
         assert "claude-opus" not in message  # no Anthropic ids borrowed or named
 
     def test_claude_code_aliases_can_complete_the_set(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {
                     "provider": "lbl-aws",
@@ -112,7 +112,7 @@ class TestAliasSubstitutionIsLoud:
         assert not caplog.records
 
     def test_a_key_that_is_not_an_alias_name_is_named(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             ClaudeCodeModelResolver.resolve({"provider": "cborg", "aliases": {"opusx": "some-id"}})
         message = "\n".join(record.getMessage() for record in caplog.records)
         assert "claude_code.aliases" in message
@@ -122,7 +122,7 @@ class TestAliasSubstitutionIsLoud:
         )
 
     def test_a_catalog_alias_key_that_is_not_an_alias_name_is_named(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             ClaudeCodeModelResolver.resolve(
                 {"provider": "gw"},
                 api_providers={
@@ -142,7 +142,7 @@ class TestAliasSubstitutionIsLoud:
         )
 
     def test_a_claude_gateway_warns_nothing(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.WARNING, logger="osprey.agent_runner.provider_env"):
             ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         assert not caplog.records
 

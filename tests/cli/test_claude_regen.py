@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.build.claude_code_resolver import MANAGED_ENV_VARS
+from osprey.agent_runner.provider_env import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 

@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.build import claude_code_resolver
+from osprey.agent_runner import provider_env
 from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal import app as web_app
@@ -48,7 +48,7 @@ def injected(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         seen.append(spec)
         return []
 
-    monkeypatch.setattr(claude_code_resolver, "inject_provider_env", _record)
+    monkeypatch.setattr(provider_env, "inject_provider_env", _record)
     return seen
 
 

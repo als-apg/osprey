@@ -73,7 +73,7 @@ def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
     launch test would refuse for a reason none of them is about.
     """
     monkeypatch.setattr(
-        "osprey.build.claude_code_resolver.detect_managed_policy_conflicts",
+        "osprey.agent_runner.provider_env.detect_managed_policy_conflicts",
         lambda paths=None: {},
     )
 
@@ -527,7 +527,7 @@ class TestProviderEnvironment:
         """Policy env outranks provider isolation, so the wrong backend is possible."""
         stub_build(lifecycle_repo)
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.detect_managed_policy_conflicts",
+            "osprey.agent_runner.provider_env.detect_managed_policy_conflicts",
             lambda paths=None: {
                 "ANTHROPIC_BASE_URL": ("https://elsewhere.example.org", "/etc/policy.json")
             },

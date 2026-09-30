@@ -105,7 +105,7 @@ def _apply_e2e_overrides(spec: Any) -> Any:
     changes: dict[str, Any] = {}
     env_block = dict(spec.env_block)
     if force_model:
-        from osprey.build.claude_code_resolver import TIER_MODEL_ENV_VARS
+        from osprey.agent_runner.provider_env import TIER_MODEL_ENV_VARS
 
         changes["default_model_id"] = force_model
         changes["alias_models"] = dict.fromkeys(spec.alias_models, force_model)
@@ -161,7 +161,7 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
             config before resolving — used by cross-provider model sweeps in
             the benchmark runner.
     """
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.build.claude_code_telemetry import (
         ObservabilityCredentialError,
         telemetry_creds_are_store_issued,
@@ -255,7 +255,7 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     # shell exports; strictly a superset of reading os.environ alone. Uses the
     # shared overlay helper (no circular import: resolver never imports primitives),
     # against the repo's secrets zone rather than the render — see _secrets_dir.
-    from osprey.build.claude_code_resolver import _env_lookup, provider_base_url_env
+    from osprey.agent_runner.provider_env import _env_lookup, provider_base_url_env
 
     lookup: dict[str, str] = _env_lookup(_secrets_dir(project_dir))
 

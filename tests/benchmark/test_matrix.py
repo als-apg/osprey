@@ -285,7 +285,7 @@ def test_cell_env_non_cborg_sut_exposes_its_own_key_var(monkeypatch):
 
 def test_provider_key_env_derives_by_convention_when_undeclared():
     # No key_env declared -> OSPREY's {NAME}_API_KEY convention (matches
-    # provider_registry.PROVIDER_API_KEYS / claude_code_resolver).
+    # provider_registry.PROVIDER_API_KEYS / agent_runner.provider_env).
     assert matrix.provider_key_env("stanford", {}) == "STANFORD_API_KEY"
     assert matrix.provider_key_env("als-apg", {}) == "ALS_APG_API_KEY"
     # keyless local servers expose nothing

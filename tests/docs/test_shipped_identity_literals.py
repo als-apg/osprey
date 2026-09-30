@@ -162,7 +162,7 @@ DENIED: tuple[Denied, ...] = (
                 "docs/source/getting-started/installation.rst",
                 "docs/source/how-to/llm-providers/configure-providers.rst",
                 "docs/source/how-to/llm-providers/run-open-models.rst",
-                "src/osprey/build/claude_code_resolver.py",
+                "src/osprey/agent_runner/provider_env.py",
                 "src/osprey/models/providers/als_apg.py",
                 "src/osprey/models/providers/cborg.py",
                 "src/osprey/profiles/providers.yml",
@@ -176,7 +176,7 @@ DENIED: tuple[Denied, ...] = (
                 # rewrite here would pin an address no deployment renders.
                 "tests/cli/test_base_url_override.py",
                 "tests/cli/test_chat_verb.py",
-                "tests/cli/test_claude_code_resolver.py",
+                "tests/agent_runner/test_provider_env.py",
                 "tests/cli/test_init_providers.py",
                 "tests/cli/test_provider_isolation.py",
                 "tests/cli/test_resolver_cborg_oss.py",

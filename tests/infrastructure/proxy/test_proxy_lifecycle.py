@@ -176,7 +176,7 @@ def test_resolution_imports_no_adapter_module():
     """Resolving a launch never imports an adapter module or LiteLLM."""
     script = """
 import sys
-from osprey.build.claude_code_resolver import ClaudeCodeModelResolver as R
+from osprey.agent_runner.provider_env import ClaudeCodeModelResolver as R
 served = {"models": ["m"], "default_model": "m"}
 for p in ("anthropic", "cborg", "als-apg"):
     R.resolve({"provider": p}, {p: {}})

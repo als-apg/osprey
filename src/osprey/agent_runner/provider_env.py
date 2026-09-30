@@ -43,7 +43,7 @@ from osprey.utils.dotenv import chain_files
 from osprey_connectors import yaml_loader
 from osprey_connectors.config import is_unresolved_placeholder
 
-logger = logging.getLogger("osprey.build.claude_code_resolver")
+logger = logging.getLogger(__name__)
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {

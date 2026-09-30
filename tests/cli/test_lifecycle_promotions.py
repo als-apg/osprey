@@ -1314,7 +1314,7 @@ def _prose_of(node: ast.expr) -> str:
 
 def _offer_the_env_seed(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> None:
     """Put ``ensure_repo_env`` in the state where it offers to seed a ``.env``."""
-    from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.agent_runner.provider_env import provider_auth_secret_env
 
     secret_var = provider_auth_secret_env(_SEED_PROVIDER, None)
     assert secret_var, "the seed offer needs a provider with a secret variable"

@@ -748,7 +748,7 @@ def build_claude_code_context(
                     )
 
     # Model provider resolution for Claude Code
-    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
     from osprey.build.claude_code_telemetry import openobserve_published_port
 
     api_providers = config.get("api", {}).get("providers", {})
