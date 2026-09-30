@@ -1264,9 +1264,11 @@ A step that writes JUnit XML to ``{project_root}/check_results.xml`` has its
 tests printed as an **Integration Test Results** table when it finishes: each
 test's name, whether it passed, failed or was skipped, and its time. The file is
 read from the project root whatever the step's ``cwd``, so name it with
-``{project_root}`` rather than relying on the working directory. A step that
-writes no such file prints no table. ``validate`` is the usual phase for a test
-run, because its failures warn instead of stopping the build:
+``{project_root}`` rather than relying on the working directory. The table
+prints after the step that wrote the file and after no other: a step that writes
+no such file, or leaves an earlier step's file as it found it, prints no table.
+The file stays in place, so a later step can read it. ``validate`` is the usual
+phase for a test run, because its failures warn instead of stopping the build:
 
 .. code-block:: yaml
 
