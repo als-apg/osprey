@@ -3,8 +3,10 @@
 Every view is one row of :data:`VIEWS`: its name, its directory under the
 render's ``data/``, the predicate that decides whether a render carries it and
 the writer that writes it. :func:`osprey.facility.render.render_facility_outputs`
-is the only caller: it asks each view's predicate of every render and writes the
-views whose predicate holds.
+is the only caller: it asks each view's predicate of every render, writes the
+views whose predicate holds and names each other one on stderr, which
+``osprey build`` and ``osprey facility validate`` both keep while ``validate``
+drops the render's stdout.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from typing import Any
 
 from osprey.facility.build import FacilityDocument
 
-__all__ = ["VIEWS", "View", "ViewInputs", "view_bytes"]
+__all__ = ["VIEWS", "View", "ViewInputs", "report_omitted", "view_bytes"]
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,17 @@ def view_bytes(document: Mapping[str, Any]) -> bytes:
 
     text = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
     return (text + "\n").encode("utf-8")
+
+
+def report_omitted(view: View) -> None:
+    """Name a view a render does not carry, and why, on stderr.
+
+    Args:
+        view: The view whose predicate was false.
+    """
+    from osprey.cli.output import warn
+
+    warn(f"view {view.name} not written: {view.reason}")
 
 
 def _always(_inputs: ViewInputs) -> bool:

@@ -87,6 +87,8 @@ def render_facility_outputs(
         facility_dir: The build's ``data/facility`` directory, the source of the
             files a view copies.
 
+    Each view whose predicate is false is named on stderr, one line each.
+
     Returns:
         The files written, sorted.
 
@@ -109,4 +111,6 @@ def render_facility_outputs(
     for view in views.VIEWS:
         if view.written_when(inputs):
             written.extend(view.write(render_dir / "data" / view.path, inputs))
+        else:
+            views.report_omitted(view)
     return sorted(written)

@@ -154,6 +154,27 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
     assert not render_dir.exists()
 
 
+def test_an_omitted_view_is_named_on_stderr_and_the_run_passes(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.facility import views
+
+    stub = views.View(
+        name="stub",
+        path="stub",
+        written_when=lambda _inputs: False,
+        reason="stub.enabled",
+        write=lambda _root, _inputs: pytest.fail("an omitted view is never written"),
+    )
+    monkeypatch.setattr(views, "VIEWS", (*views.VIEWS, stub))
+
+    result = _validate(repo)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    assert "view stub not written: stub.enabled" in result.stderr
+
+
 def test_a_stale_fix_prints_the_block_to_paste(repo: Path) -> None:
     imported = repo / "data" / "facility" / "imported" / "mml" / "channels.yaml"
     imported.parent.mkdir(parents=True)
