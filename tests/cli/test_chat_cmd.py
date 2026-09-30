@@ -53,10 +53,10 @@ def _restore_process_state():
 
 @pytest.fixture(autouse=True)
 def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
-    """Pin the managed-policy scan to "no conflicts" so a launch does not refuse
-    for a machine-local policy file none of these tests is about."""
+    """Pin the policy read to an empty policy so a launch does not refuse for a
+    machine-local policy file none of these tests is about."""
     monkeypatch.setattr(
-        "osprey.agent_runner.provider_env.detect_managed_policy_conflicts",
+        "osprey.agent_runner.provider_env.read_managed_policy_env",
         lambda paths=None: {},
     )
 

@@ -20,9 +20,12 @@ from osprey.agent_runner.provider_env import (
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
+    ManagedPolicyConflict,
     detect_managed_policy_conflicts,
     inject_provider_env,
+    load_provider_spec,
     provider_auth_secret_env,
+    read_managed_policy_env,
 )
 from osprey.models.provider_registry import PROVIDER_API_KEYS, ProviderRegistry
 from osprey.models.providers.base import BaseProvider
@@ -343,22 +346,22 @@ class TestDetectEnvConflicts:
 
 
 class TestManagedPolicyConflicts:
-    """detect_managed_policy_conflicts scans the enterprise policy scope.
+    """The enterprise policy scope is read, then compared with the launch.
 
     Managed policy outranks the process environment and the
-    ``--setting-sources project`` restriction, so a policy ``env`` block setting
-    a provider variable silently redirects the agent. The CLI refuses to launch
-    on a non-empty result.
+    ``--setting-sources project`` restriction, so a policy ``env`` value that
+    differs from the one the agent is launched with silently redirects it. Every
+    launch path refuses on a non-empty comparison.
     """
 
     def _write(self, path, obj):
         path.write_text(json.dumps(obj))
 
-    def test_flags_managed_var_in_policy_env(self, tmp_path):
+    def test_reads_managed_var_from_policy_env(self, tmp_path):
         policy = tmp_path / "managed-settings.json"
         self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://evil.example"}})
 
-        conflicts = detect_managed_policy_conflicts([policy])
+        conflicts = read_managed_policy_env([policy])
 
         assert conflicts["ANTHROPIC_BASE_URL"] == (
             "https://evil.example",
@@ -369,22 +372,22 @@ class TestManagedPolicyConflicts:
         policy = tmp_path / "managed-settings.json"
         self._write(policy, {"env": {"CLAUDE_CODE_ENABLE_TELEMETRY": "1"}})
 
-        assert detect_managed_policy_conflicts([policy]) == {}
+        assert read_managed_policy_env([policy]) == {}
 
     def test_empty_when_no_file(self, tmp_path):
-        assert detect_managed_policy_conflicts([tmp_path / "absent.json"]) == {}
+        assert read_managed_policy_env([tmp_path / "absent.json"]) == {}
 
     def test_empty_when_no_env_block(self, tmp_path):
         policy = tmp_path / "managed-settings.json"
         self._write(policy, {"permissions": {"allow": []}})
 
-        assert detect_managed_policy_conflicts([policy]) == {}
+        assert read_managed_policy_env([policy]) == {}
 
     def test_malformed_json_is_skipped(self, tmp_path):
         policy = tmp_path / "managed-settings.json"
         policy.write_text("{ not valid json")
 
-        assert detect_managed_policy_conflicts([policy]) == {}
+        assert read_managed_policy_env([policy]) == {}
 
     def test_dropin_fragment_overrides_main_source(self, tmp_path):
         """A later fragment wins, and its path is the one reported."""
@@ -393,9 +396,85 @@ class TestManagedPolicyConflicts:
         self._write(main, {"env": {"ANTHROPIC_MODEL": "from-main"}})
         self._write(fragment, {"env": {"ANTHROPIC_MODEL": "from-fragment"}})
 
-        conflicts = detect_managed_policy_conflicts([main, fragment])
+        conflicts = read_managed_policy_env([main, fragment])
 
         assert conflicts["ANTHROPIC_MODEL"] == ("from-fragment", str(fragment))
+
+    def test_a_policy_value_equal_to_the_launch_value_is_not_a_conflict(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+
+        assert detect_managed_policy_conflicts(launch, [policy]) == []
+
+    def test_a_differing_policy_value_is_a_conflict_carrying_both_values(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://elsewhere.example.org"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+
+        assert detect_managed_policy_conflicts(launch, [policy]) == [
+            ManagedPolicyConflict(
+                "ANTHROPIC_BASE_URL",
+                "https://elsewhere.example.org",
+                "https://gateway.example.org",
+                str(policy),
+            )
+        ]
+
+    def test_a_policy_key_the_launch_does_not_set_is_a_conflict(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+        conflicts = detect_managed_policy_conflicts(launch, [policy])
+
+        assert [c.var for c in conflicts] == ["CLAUDE_CODE_USE_BEDROCK"]
+        assert conflicts[0].launch_value is None
+
+    def test_with_no_provider_injected_every_policy_key_is_a_conflict(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(
+            policy,
+            {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org", "ANTHROPIC_MODEL": "m"}},
+        )
+
+        conflicts = detect_managed_policy_conflicts({}, [policy])
+
+        assert [c.var for c in conflicts] == ["ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"]
+
+    def test_the_policy_value_is_compared_verbatim(self, tmp_path):
+        """Claude Code appends /v1/messages to the policy value as written, so a
+        policy ``…/v1`` really does point somewhere else."""
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org/v1"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+
+        assert len(detect_managed_policy_conflicts(launch, [policy])) == 1
+
+    def test_a_v1_endpoint_agrees_with_the_origin_the_launch_exports(self, tmp_path):
+        """The deployment side is the value after the resolver's /v1 strip."""
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    gw:\n"
+            "      base_url: https://gateway.example.org/v1\n"
+            "      api_protocol: anthropic\n"
+            "      default_model: gw-large\n"
+            "      models: [gw-small, gw-large]\n"
+            "claude_code:\n"
+            "  provider: gw\n"
+        )
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec is not None
+        env = {"GW_API_KEY": "sk-gw"}
+        inject_provider_env(env, spec)
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}})
+
+        assert detect_managed_policy_conflicts(env, [policy]) == []
 
 
 # ── Chat command provider isolation ──────────────────────────────

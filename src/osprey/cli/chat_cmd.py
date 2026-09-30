@@ -349,16 +349,6 @@ def chat(
 
     # ── Provider isolation: inject env block + auth, scrub managed vars ──
     #
-    # Managed (enterprise) policy settings outrank the process environment AND
-    # the --setting-sources project restriction below, so a policy `env` block
-    # setting a provider variable would silently redirect the agent to a backend
-    # the deployment did not configure. For a framework driving control systems,
-    # refuse to launch rather than start against the wrong provider.
-    policy_conflicts = detect_managed_policy_conflicts()
-    if policy_conflicts:
-        output.fail("Refusing to launch", format_managed_policy_conflicts(policy_conflicts))
-        raise SystemExit(1)
-
     # This call refuses when there is no build, so it has to run before anything
     # with a side effect — the proxy, the companion servers, the environment
     # overlay. Moving it below any of them would start something on behalf of a
@@ -456,6 +446,19 @@ def chat(
             )
             os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
             output.note(f"Translation proxy on :{proxy_port} forwards to {spec.upstream_base_url}")
+
+    # Managed (enterprise) policy settings outrank this environment and the
+    # --setting-sources project restriction below, so a policy value that
+    # differs from the deployment's would silently redirect the agent. The check
+    # reads the finished environment, translation-proxy loopback included,
+    # because that is what the agent would otherwise run on. A build with no
+    # provider compares against nothing, so every policy provider key refuses.
+    # A refusal here leaves only the proxy daemon thread behind, which exits
+    # with the process.
+    policy_conflicts = detect_managed_policy_conflicts(os.environ if spec is not None else {})
+    if policy_conflicts:
+        output.fail("Refusing to launch", format_managed_policy_conflicts(policy_conflicts))
+        raise SystemExit(1)
 
     # Build the agent CLI args (it uses cwd as the project root — there is no
     # --project-dir flag). When claude_code.cli_version is set,

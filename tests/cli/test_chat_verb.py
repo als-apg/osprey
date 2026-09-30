@@ -33,6 +33,16 @@ from tests.cli._scoped_subprocess import patch_subprocess
 #: three to have anything to assert. The default (anthropic) rendered config is
 #: :data:`tests.cli._lifecycle_build.STUB_CONFIG`.
 CBORG_CONFIG = "claude_code:\n  provider: cborg\n"
+ARGO_CONFIG = """\
+api:
+  providers:
+    argo:
+      base_url: https://argo.example/v1
+      default_model: claudesonnet45
+      models: [claudehaiku45, claudesonnet45, claudeopus41]
+claude_code:
+  provider: argo
+"""
 
 
 @dataclass
@@ -67,13 +77,13 @@ def _restore_process_state():
 
 @pytest.fixture(autouse=True)
 def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
-    """Pin the managed-policy scan to "no conflicts".
+    """Pin the policy read to an empty policy.
 
     It reads OS-standard policy files, so on a machine that has one, every
     launch test would refuse for a reason none of them is about.
     """
     monkeypatch.setattr(
-        "osprey.agent_runner.provider_env.detect_managed_policy_conflicts",
+        "osprey.agent_runner.provider_env.read_managed_policy_env",
         lambda paths=None: {},
     )
 
@@ -524,20 +534,70 @@ class TestProviderEnvironment:
     def test_managed_policy_conflict_refuses_to_launch(
         self, runner, launches, lifecycle_repo, monkeypatch
     ):
-        """Policy env outranks provider isolation, so the wrong backend is possible."""
-        stub_build(lifecycle_repo)
-        monkeypatch.setattr(
-            "osprey.agent_runner.provider_env.detect_managed_policy_conflicts",
-            lambda paths=None: {
-                "ANTHROPIC_BASE_URL": ("https://elsewhere.example.org", "/etc/policy.json")
-            },
-        )
+        """Policy env outranks provider isolation, so a differing value refuses."""
+        stub_build(lifecycle_repo, config=CBORG_CONFIG)
+        monkeypatch.setenv("CBORG_API_KEY", "test-secret-123")
+        _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://elsewhere.example.org")
 
         result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
 
         assert result.exit_code == 1
         assert "Refusing to launch" in result.output
         assert launches == []
+
+    def test_managed_policy_equal_to_the_launch_value_launches(
+        self, runner, launches, lifecycle_repo, monkeypatch
+    ):
+        """A policy that pins the deployment's own endpoint is no reason to refuse."""
+        stub_build(lifecycle_repo, config=CBORG_CONFIG)
+        monkeypatch.setenv("CBORG_API_KEY", "test-secret-123")
+        _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://api.cborg.lbl.gov")
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 0
+        assert len(launches) == 1
+        assert launches[0].env["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
+
+    def test_managed_policy_cannot_send_a_proxied_provider_past_its_proxy(
+        self, runner, launches, lifecycle_repo, monkeypatch
+    ):
+        """The policy is compared with the loopback the agent is launched on, not
+        with the upstream the env holds between injection and the proxy rewrite."""
+        stub_build(lifecycle_repo, config=ARGO_CONFIG)
+        monkeypatch.setenv("ARGO_API_KEY", "sk-argo")
+        monkeypatch.setattr(
+            "osprey.infrastructure.proxy.lifecycle.start_proxy", lambda *a, **k: 7777
+        )
+        _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://argo.example")
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 1
+        assert launches == []
+
+    def test_managed_policy_refuses_a_provider_less_build_on_presence(
+        self, runner, launches, lifecycle_repo, monkeypatch
+    ):
+        """With no provider injected there is nothing to agree with, so any policy
+        provider key refuses."""
+        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://shell.example.org")
+        _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://shell.example.org")
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 1
+        assert launches == []
+
+
+def _pin_policy(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
+    """Make the managed-policy read return ``env`` from a fixed source file."""
+    policy = {var: (value, "/etc/claude-code/managed-settings.json") for var, value in env.items()}
+    monkeypatch.setattr(
+        "osprey.agent_runner.provider_env.read_managed_policy_env",
+        lambda paths=None: policy,
+    )
 
 
 def _telemetry_config(password: str, *, user: str = "ingest@example.com") -> str:

@@ -245,17 +245,15 @@ def _managed_policy_settings_paths() -> list[Path]:
     return paths
 
 
-def detect_managed_policy_conflicts(
+def read_managed_policy_env(
     paths: list[Path] | None = None,
 ) -> dict[str, tuple[str, str]]:
-    """Return managed-policy ``env`` entries that shadow OSPREY-managed vars.
+    """Read the managed-policy ``env`` entries that name OSPREY-managed vars.
 
     A managed-policy ``env`` block outranks OSPREY's runtime-injected provider
-    configuration and the ``--setting-sources project`` restriction, so any key
-    it sets that OSPREY also manages silently redirects the agent — the wrong
-    failure mode for a framework driving control systems. Callers refuse to
-    launch on a non-empty result rather than start against a provider the
-    project did not configure.
+    configuration and the ``--setting-sources project`` restriction. This only
+    reads what the policy sets; deciding whether a value conflicts with the
+    launch is :func:`detect_managed_policy_conflicts`'s job.
 
     Args:
         paths: Override the managed-policy files to scan (for testing).
@@ -269,7 +267,7 @@ def detect_managed_policy_conflicts(
     """
     if paths is None:
         paths = _managed_policy_settings_paths()
-    conflicts: dict[str, tuple[str, str]] = {}
+    found: dict[str, tuple[str, str]] = {}
     for path in paths:
         try:
             data = json.loads(Path(path).read_text())
@@ -282,11 +280,54 @@ def detect_managed_policy_conflicts(
             continue
         for var, value in env.items():
             if var in MANAGED_ENV_VARS:
-                conflicts[var] = (str(value), str(path))
+                found[var] = (str(value), str(path))
+    return found
+
+
+@dataclass(frozen=True)
+class ManagedPolicyConflict:
+    """One managed-policy provider variable that disagrees with the launch.
+
+    ``launch_value`` is ``None`` when the launch environment does not set the
+    variable at all.
+    """
+
+    var: str
+    policy_value: str
+    launch_value: str | None
+    source: str
+
+
+def detect_managed_policy_conflicts(
+    launch_env: Mapping[str, str],
+    paths: list[Path] | None = None,
+) -> list[ManagedPolicyConflict]:
+    """Return the managed-policy provider variables that disagree with the launch.
+
+    ``launch_env`` is the environment the agent process is started with, after
+    provider injection and, for a proxied provider, after ``ANTHROPIC_BASE_URL``
+    has been repointed at the local translation proxy. A caller that injected no
+    provider passes ``{}``, and then every policy key disagrees. The policy
+    value is compared as written, because Claude Code uses it as written.
+
+    Args:
+        launch_env: The finished environment the agent is launched with.
+        paths: Override the managed-policy files to scan (for testing).
+
+    Returns:
+        One :class:`ManagedPolicyConflict` per disagreeing key, sorted by
+        variable name; empty when every policy key agrees with the launch.
+    """
+    policy = read_managed_policy_env(paths)
+    conflicts = []
+    for var, (policy_value, source) in sorted(policy.items()):
+        launch_value = launch_env.get(var)
+        if policy_value != launch_value:
+            conflicts.append(ManagedPolicyConflict(var, policy_value, launch_value, source))
     return conflicts
 
 
-def format_managed_policy_conflicts(conflicts: dict[str, tuple[str, str]]) -> str:
+def format_managed_policy_conflicts(conflicts: list[ManagedPolicyConflict]) -> str:
     """Render a launch-refusal message for managed-policy conflicts.
 
     Shared by every launch path (CLI, Web Terminal, dispatch worker) so the
@@ -295,8 +336,8 @@ def format_managed_policy_conflicts(conflicts: dict[str, tuple[str, str]]) -> st
     lines = [
         "Managed-policy settings override OSPREY-managed provider variables:",
     ]
-    for var, (value, source) in sorted(conflicts.items()):
-        lines.append(f"    {var} = {value}  ({source})")
+    for conflict in conflicts:
+        lines.append(f"    {conflict.var} = {conflict.policy_value}  ({conflict.source})")
     lines.append(
         "Managed policy outranks the project's provider configuration. Remove "
         "these keys from the policy file or reconcile them with config.yml "

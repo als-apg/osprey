@@ -35,6 +35,19 @@ _CANNED_RESULT: dict[str, Any] = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
+    """Pin the policy read to an empty policy.
+
+    It reads OS-standard policy files, so on a machine that has one every
+    provider-injection test here would refuse for a reason none of them is about.
+    """
+    monkeypatch.setattr(
+        "osprey.agent_runner.provider_env.read_managed_policy_env",
+        lambda paths=None: {},
+    )
+
+
 @pytest.fixture
 def client(monkeypatch):
     """A TestClient with auth configured and run_dispatch stubbed out.
@@ -771,18 +784,73 @@ def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypat
     )
 
 
-def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):
-    """A managed-policy env override aborts worker startup rather than starting
-    the agent against a backend the project did not configure (#355).
+def _pin_policy(monkeypatch, **env: str) -> None:
+    """Make the managed-policy read return ``env`` from a fixed source file."""
+    policy = {var: (value, "/etc/claude-code/managed-settings.json") for var, value in env.items()}
+    monkeypatch.setattr(
+        "osprey.agent_runner.provider_env.read_managed_policy_env",
+        lambda paths=None: policy,
+    )
 
-    The refusal must propagate — it is raised before the broad ``except`` that
+
+def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):
+    """A managed-policy value that differs from the deployment's aborts worker
+    startup rather than starting the agent against a backend the project did
+    not configure.
+
+    The refusal must propagate: it is raised outside the broad ``except`` that
     otherwise swallows provider-injection errors."""
     _render_config(tmp_path, _CBORG_CONFIG)
     _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://evil.example")
+
+    with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
+        dispatch_api._inject_provider_env_once()
+
+
+def test_inject_provider_env_accepts_a_managed_policy_equal_to_the_launch_value(
+    tmp_path, monkeypatch
+):
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    _render_config(tmp_path, _CBORG_CONFIG)
+    fake = _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    spec = load_provider_spec(tmp_path / "build", include_telemetry=False)
+    assert spec is not None
+    deployed = spec.env_block["ANTHROPIC_BASE_URL"]
+    _pin_policy(monkeypatch, ANTHROPIC_BASE_URL=deployed)
+
+    dispatch_api._inject_provider_env_once()
+
+    assert fake["ANTHROPIC_BASE_URL"] == deployed
+
+
+def test_inject_provider_env_compares_the_policy_with_the_proxy_loopback(tmp_path, monkeypatch):
+    """The upstream origin the env holds before the proxy rewrite is not what the
+    agent runs on, so a policy pinning it still refuses."""
+    _render_config(tmp_path, _ARGO_CONFIG)
+    (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
+    _isolated_environ(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "osprey.agent_runner.provider_env.detect_managed_policy_conflicts",
-        lambda: {"ANTHROPIC_BASE_URL": ("https://evil.example", "/etc/.../managed-settings.json")},
+        "osprey.infrastructure.proxy.lifecycle.start_proxy", MagicMock(return_value=7777)
     )
+    _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://argo.example")
+
+    with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
+        dispatch_api._inject_provider_env_once()
+
+
+def test_inject_provider_env_refuses_on_presence_after_a_failed_injection(tmp_path, monkeypatch):
+    """A failed injection compares against nothing, so any policy key refuses even
+    though the broad ``except`` swallowed the injection error."""
+    _render_config(tmp_path, _CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+
+    def _broken(*args, **kwargs):
+        raise ValueError("unreadable provider")
+
+    monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _broken)
+    _pin_policy(monkeypatch, ANTHROPIC_MODEL="anything")
 
     with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
         dispatch_api._inject_provider_env_once()
