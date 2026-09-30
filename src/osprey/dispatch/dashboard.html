@@ -986,6 +986,15 @@ function formatNextFire(iso) {
     weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short',
   });
 }
+/** A timeline mark's instant on the facility clock; it names the zone when the viewer's clock reads differently. */
+function formatMarkTime(ms) {
+  if (!facilityTime) return '';
+  return facilityTime.formatFacilityTime(ms, {
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', second: '2-digit',
+    ...(facilityTime.viewerSharesFacilityClock(ms) ? {} : { timeZoneName: 'short' }),
+  });
+}
 /** Stamp the zone the state names on <html>, where the facility-time module reads it. */
 function stampFacilityTimezone(zone) {
   if (zone) document.documentElement.setAttribute('data-facility-timezone', zone);
@@ -1379,7 +1388,7 @@ function renderLanes() {
       rail.appendChild(el('div', {
         className: 'lane-mark ' + kind,
         style: { left: pct + '%' },
-        title: `${new Date(ts).toLocaleString()} — ${ev.status}`,
+        title: [formatMarkTime(ts), ev.status].filter(Boolean).join(' — '),
         onclick: () => openNearestRunForTrigger(t.name, ts),
       }));
     }
