@@ -1,26 +1,30 @@
 """Every stop of the facility build: one synthetic tree, one line, exit 1.
 
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
-Each case is a minimal tree that breaks exactly that rule; it runs through the
-in-memory ``build_facility`` and through ``validate``'s gather path, and both
-must print the case's line byte for byte and exit 1.
+Each case is a minimal tree that breaks exactly that rule. It replaces the
+``data/facility`` tree of a control-assistant repo and runs through
+``osprey build --skip-deps`` and through ``osprey facility validate``; both must
+print the case's line byte for byte on stderr and exit 1.
 """
 
 from __future__ import annotations
 
 import copy
-import io
 import itertools
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from click.testing import CliRunner
 
+from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
+from osprey.cli.main import cli
 from osprey.facility.build import build_facility
-from osprey.facility.errors import KINDS, FacilityBuildError
-from osprey.facility.validate import validate
+from osprey.facility.errors import KINDS
 from tests.facility._synthetic_trees import (
     BPM,
     QUAD,
@@ -1376,25 +1380,44 @@ def _write(tmp_path: Path, case: str) -> Path:
 # --- every stop ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("case", IDS)
-def test_build_stops_on_the_line(
-    tmp_path: Path, case: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    root = _write(tmp_path, case)
-    with pytest.raises(FacilityBuildError) as caught:
-        build_facility(root, project_name=PROJECT)
-    assert caught.value.exit_code == 1
-    capsys.readouterr()
-    caught.value.show()
-    assert capsys.readouterr().err == CASES[case][1] + "\n"
+@pytest.fixture(scope="module")
+def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A control-assistant repo named for the project, never edited."""
+    repo = tmp_path_factory.mktemp("ca") / PROJECT
+    result = CliRunner().invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    assert result.exit_code == 0, result.output
+    return repo
 
 
+def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
+    """A copy of the initialised repo whose ``data/facility`` is the case's tree."""
+    repo = tmp_path / PROJECT
+    shutil.copytree(initialised, repo, symlinks=True)
+    shutil.rmtree(repo / "data" / "facility")
+    _write(repo / "data", case)
+    return repo
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize("case", IDS)
-def test_validate_prints_the_one_line(tmp_path: Path, case: str) -> None:
-    root = _write(tmp_path, case)
-    stream = io.StringIO()
-    assert validate(root, project_name=PROJECT, file=stream) == 1
-    assert stream.getvalue() == CASES[case][1] + "\n"
+def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -> None:
+    repo = _repo(initialised, tmp_path, case)
+
+    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps"])
+
+    assert result.exit_code == 1, result.output
+    assert result.stderr == CASES[case][1] + "\n"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("case", IDS)
+def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: str) -> None:
+    repo = _repo(initialised, tmp_path, case)
+
+    result = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
+
+    assert result.exit_code == 1, result.output
+    assert (result.stdout, result.stderr) == ("", CASES[case][1] + "\n")
 
 
 # --- the table and the cases agree -------------------------------------------------
