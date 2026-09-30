@@ -64,12 +64,14 @@ class BuiltProject:
 
     Attributes:
         repo: The repo.
-        written: Each render root, to the files ``render_facility_outputs``
-            wrote there.
+        outputs: One entry per render, in render order: each file
+            ``render_facility_outputs`` wrote, by its path relative to the
+            render root, to the bytes it wrote. A render is staged before it
+            moves into ``build/``, so the bytes are taken as they are written.
     """
 
     repo: Path
-    written: dict[Path, list[Path]] = field(default_factory=dict)
+    outputs: list[dict[str, bytes]] = field(default_factory=list)
 
     @property
     def build_dir(self) -> Path:
@@ -111,7 +113,9 @@ def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> Iterato
 
     def spy(render_dir: Path, doc: Any, rendered_config: Any) -> list[Path]:
         written = real(render_dir, doc, rendered_config)
-        built.written[render_dir] = list(written)
+        built.outputs.append(
+            {path.relative_to(render_dir).as_posix(): path.read_bytes() for path in written}
+        )
         return written
 
     with pytest.MonkeyPatch.context() as patch:
