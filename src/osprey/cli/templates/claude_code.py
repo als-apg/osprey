@@ -381,7 +381,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # entry, derived from the same phoebus.host/phoebus.port the backend is
         # deployed on. One spelling with the runtime resolution (the shared
         # helper in osprey.mcp_server.http), so the rendered client and the
-        # deployed bridge cannot drift onto different ports (#829).
+        # deployed bridge cannot drift onto different ports.
         "phoebus_bridge_default": phoebus_bridge_default(config),
         # `phoebus.agent_access`, the key resolve_servers reads to decide
         # whether phoebus_drive is offered. It must be merged before

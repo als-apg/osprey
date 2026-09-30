@@ -3874,9 +3874,8 @@ def _profile_preset(build_profile: BuildProfile) -> str | None:
     2. ``inherited_preset`` — the bundled preset the profile's ``extends:``
        chain reached, stamped on by resolution. This is what answers for a
        hand-written profile that says ``extends: hello-world`` and records no
-       ``provenance:`` block: the deep merge used to hand it the preset's
-       ``app_template:`` directly, and without this it would silently build on
-       the framework default instead of the preset it inherited.
+       ``provenance:`` block; without it that profile would build on the
+       framework default instead of the preset it inherited.
 
     One rule, asked in one place: the packaged trees the build copies and the
     preset the project's manifest is stamped with must name the same preset, or
