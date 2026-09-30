@@ -63,7 +63,7 @@ control_system:
     mock:
       noise_level: 0.01
     epics:
-      timeout: 5.0
+      timeout_s: 5.0
 
 # ============================================================
 # ARTIFACT SERVER
@@ -191,11 +191,11 @@ class TestNumericUpdates:
         config_update_fields(
             config_file,
             {
-                "control_system.connector.epics.timeout": 10.0,
+                "control_system.connector.epics.timeout_s": 10.0,
             },
         )
         data = config_read(config_file)
-        assert data["control_system"]["connector"]["epics"]["timeout"] == 10.0
+        assert data["control_system"]["connector"]["epics"]["timeout_s"] == 10.0
 
     def test_float_in_a_sibling_block(self, config_file):
         config_update_fields(
@@ -302,7 +302,7 @@ class TestBatchUpdates:
                 "control_system.type": "epics",
                 "artifact_server.port": 7777,
                 "approval.enabled": False,
-                "control_system.connector.epics.timeout": 15.0,
+                "control_system.connector.epics.timeout_s": 15.0,
             },
         )
         data = config_read(config_file)
@@ -310,7 +310,7 @@ class TestBatchUpdates:
         assert data["control_system"]["type"] == "epics"
         assert data["artifact_server"]["port"] == 7777
         assert data["approval"]["enabled"] is False
-        assert data["control_system"]["connector"]["epics"]["timeout"] == 15.0
+        assert data["control_system"]["connector"]["epics"]["timeout_s"] == 15.0
 
     def test_batch_preserves_comments(self, config_file):
         text_before = config_file.read_text()

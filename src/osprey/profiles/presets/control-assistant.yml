@@ -296,7 +296,7 @@ config:
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
   #
   # Channel Access timeout in seconds.
-  control_system.connector.virtual_accelerator.timeout: 5.0
+  control_system.connector.virtual_accelerator.timeout_s: 5.0
   # Same machine model as the mock connector, so `osprey sim apply` stays
   # consistent whichever connector is active.
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
@@ -330,7 +330,7 @@ config:
   # edit; until then the live target shows as not configured.
   #
   # Channel Access timeout in seconds.
-  control_system.connector.epics.timeout: 5.0
+  control_system.connector.epics.timeout_s: 5.0
   # How long the pre-write `max_step` check waits for a channel's present
   # value, in seconds. Running out of budget refuses the write, so raise this
   # for a slow gateway — it buys room, never a weaker check.
@@ -384,7 +384,7 @@ config:
   # database, not a port this deployment publishes.
   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
-  # control_system.connector.tango.timeout: 5.0
+  # control_system.connector.tango.timeout_s: 5.0
   # The same four leaves as every other connector type, for the TANGO machine.
   # control_system.connector.tango.writes_enabled: false
   # control_system.connector.tango.limits_checking.enabled: true

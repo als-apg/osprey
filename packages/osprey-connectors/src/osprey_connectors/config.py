@@ -482,6 +482,8 @@ class ConfigBuilder:
 
         Raises:
             FileNotFoundError: If config.yml is not found and no path is provided.
+            ValueError: If a connector block still spells its call bound
+                ``timeout`` instead of ``timeout_s``.
         """
         if load_env:
             load_project_dotenv()
@@ -527,6 +529,10 @@ class ConfigBuilder:
             )
 
         self.raw_config, self._unexpanded_config = self._load_config()
+
+        from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
+
+        refuse_renamed_timeout_keys(self.raw_config)
 
         self._warn_on_runtime_write_paths_under_data()
 

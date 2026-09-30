@@ -297,7 +297,7 @@ class TestConnect:
         assert conn._connected is False
         mock_tango.Database.assert_not_called()
 
-    async def test_the_old_timeout_key_is_not_read(self):
+    async def test_the_old_timeout_key_is_refused(self):
         mock_tango = _make_tango()
         with (
             patch.dict(sys.modules, {"tango": mock_tango}),
@@ -308,9 +308,11 @@ class TestConnect:
             from osprey.connectors.control_system.tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({"timeout": 0.2})
+            with pytest.raises(ValueError, match="renamed to timeout_s"):
+                await conn.connect({"timeout": 0.2})
 
-        assert conn._timeout_s == 5.0
+        assert conn._connected is False
+        mock_tango.Database.assert_not_called()
 
 
 class TestDisconnect:

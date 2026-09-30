@@ -2,7 +2,11 @@
 
 import pytest
 
-from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
+from osprey_connectors.control_system.call_timeout import (
+    DEFAULT_TIMEOUT_S,
+    call_timeout_s,
+    refuse_renamed_timeout_keys,
+)
 
 
 def test_an_absent_timeout_s_is_the_default():
@@ -50,10 +54,56 @@ def test_an_unusable_value_is_refused_naming_the_key_and_the_value(bad):
     assert repr(bad) in message
 
 
-def test_the_old_spelling_is_not_read():
-    assert call_timeout_s({"timeout": 0.5}, "tango") == DEFAULT_TIMEOUT_S
+def test_the_old_spelling_is_refused():
+    with pytest.raises(ValueError, match="renamed to timeout_s") as refused:
+        call_timeout_s({"timeout": 0.5}, "tango")
+    assert "control_system.connector.tango.timeout" in str(refused.value)
 
 
 def test_a_block_with_no_type_names_a_placeholder():
     with pytest.raises(ValueError, match=r"control_system\.connector\.<type>\.timeout_s"):
         call_timeout_s({"timeout_s": 0}, None)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"control_system": {"connector": {"epics": {"timeout": 5.0}}}},
+        {"control_system.connector.tango.timeout": 5.0},
+        {"control_system.connector": {"doocs": {"timeout": 5.0}}},
+        {"control_system": {"connector.virtual_accelerator.timeout": 5.0}},
+        {"control_system": {"connector": {"live_standin": {"timeout": 5.0}}}},
+    ],
+)
+def test_a_config_that_still_spells_timeout_is_refused(config):
+    with pytest.raises(ValueError, match=r"control_system\.connector\.\w+\.timeout is renamed"):
+        refuse_renamed_timeout_keys(config)
+
+
+def test_the_refusal_names_every_old_key_and_the_new_one():
+    config = {
+        "control_system": {
+            "connector": {"epics": {"timeout": 5.0}, "tango": {"timeout": 2.0}},
+        }
+    }
+    with pytest.raises(ValueError) as refused:
+        refuse_renamed_timeout_keys(config)
+    message = str(refused.value)
+    assert "control_system.connector.epics.timeout" in message
+    assert "control_system.connector.tango.timeout" in message
+    assert "timeout_s" in message
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {},
+        {"control_system": {"connector": {"epics": {"timeout_s": 5.0}}}},
+        {"control_system": {"connector": {"epics": {"step_read_timeout_s": 2.0}}}},
+        {"archiver": {"mongodb_archiver": {"timeout": 60}}},
+        {"scheduling": {"limits": {"timeout": 30}}},
+        {"control_system": "not-a-mapping"},
+    ],
+)
+def test_a_config_with_no_old_connector_key_passes(config):
+    refuse_renamed_timeout_keys(config)

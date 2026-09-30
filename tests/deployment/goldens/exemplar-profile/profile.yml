@@ -359,7 +359,7 @@ config:
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
 
   # Channel Access timeout in seconds.
-  control_system.connector.virtual_accelerator.timeout: 5.0
+  control_system.connector.virtual_accelerator.timeout_s: 5.0
   # Same machine model as the mock connector, so `osprey sim apply` stays
   # consistent whichever connector is active.
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
@@ -388,7 +388,7 @@ config:
   # edit; until then the live target shows as not configured.
 
   # Channel Access timeout in seconds.
-  control_system.connector.epics.timeout: 5.0
+  control_system.connector.epics.timeout_s: 5.0
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false

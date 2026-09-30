@@ -1007,13 +1007,13 @@ keys:
       falls through to control_system.connector.mock.noise_level, and then to the
       entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
+  control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
     rendered: false
     evidence: 'config\.get\(STEP_READ_TIMEOUT_KEY\)'
     note: >-
       Ceiling on the fresh read a `max_step` check makes before a write, in
-      seconds. A facility-network fact like `timeout` beside it — a gateway two
+      seconds. A facility-network fact like `timeout_s` beside it — a gateway two
       hops away answers slower than a soft IOC on the deploy host — and read
       from the same connector block, by the connector and by the python
       executor's sandbox alike, so a script's step check and the connector's
@@ -1074,9 +1074,9 @@ keys:
     default: derived
     default_note: >-
       unset leaves PyTango reading the TANGO_HOST already in the container's environment
-  control_system.connector.tango.timeout: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
+  control_system.connector.tango.timeout_s: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
+  control_system.connector.virtual_accelerator.timeout_s: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
   # `super().connect()`, so the step-read budget above is read from this type's
   # block too; the evidence is that one site.
@@ -2969,6 +2969,10 @@ deleted:
 - workspace
   # Ledger 18
 - control_system.connector.timeout
+  # The connector call bound: one spelling, timeout_s, on every connector type
+- control_system.connector.epics.timeout
+- control_system.connector.tango.timeout
+- control_system.connector.virtual_accelerator.timeout
   # Ledger 29
 - api.providers.ollama.host
 - api.providers.ollama.port

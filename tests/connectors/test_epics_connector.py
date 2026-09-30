@@ -152,14 +152,14 @@ class TestTimeoutKey:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
-    async def test_the_old_timeout_key_is_not_read(self, monkeypatch):
+    async def test_the_old_timeout_key_is_refused(self, monkeypatch):
         _patch_writes_enabled(monkeypatch, False)
         _fake_pyepics(monkeypatch)
 
         connector = EPICSConnector()
-        await connector.connect({"timeout": 7.5, "gateways": _GATEWAYS})
-
-        assert connector._timeout == 5.0
+        connector._connector_type = "epics"
+        with pytest.raises(ValueError, match="renamed to timeout_s"):
+            await connector.connect({"timeout": 7.5, "gateways": _GATEWAYS})
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
