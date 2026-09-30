@@ -1179,6 +1179,7 @@ class TestEmbeddingGenerationQuality:
     """Quality assertions for embedding generation (QUAL-003)."""
 
     @pytest.mark.requires_ollama
+    @pytest.mark.usefixtures("litellm_callback_pool")
     @pytest.mark.asyncio
     async def test_actual_embedding_generation(self):
         """Test actual embedding generation with Ollama.

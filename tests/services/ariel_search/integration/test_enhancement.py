@@ -34,6 +34,7 @@ def is_ollama_available() -> bool:
 
 
 @pytest.mark.requires_ollama
+@pytest.mark.usefixtures("litellm_callback_pool")
 class TestEnhancementWithOllama:
     """Test enhancement modules with real Ollama service."""
 
@@ -207,6 +208,7 @@ class TestEnhancementWithOllama:
 
 
 @pytest.mark.requires_ollama
+@pytest.mark.usefixtures("litellm_callback_pool")
 class TestMultipleEmbeddingModels:
     """Test enhancement with multiple embedding models."""
 
