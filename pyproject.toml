@@ -280,6 +280,9 @@ dev = [
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
     "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
     "PyJWT[crypto]>=2.8",  # Teams relay token validation; its tests import jwt plainly, so a missing install must fail
+    # The HTTP client starlette's TestClient is built on. Without it the test
+    # client falls back to httpx, which starlette deprecates.
+    "httpx2>=2.13.0",
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
