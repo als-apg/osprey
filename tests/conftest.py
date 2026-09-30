@@ -674,9 +674,9 @@ def reset_state_between_tests():
 #
 # ``WebAuthMiddleware`` is installed outermost on every interface app by
 # ``configure_interface_app``, so every request a ``starlette.testclient``
-# (a.k.a. ``fastapi.testclient``) ``TestClient`` — or an ``httpx.AsyncClient``
-# wrapping an ``ASGITransport`` — makes is 401'd unless it carries a live
-# operator credential. Hundreds of existing tests drive interface routes through
+# ``TestClient`` (re-exported as ``fastapi.testclient``; an ``httpx2.Client``
+# subclass) — or an ``httpx.AsyncClient`` wrapping an ``httpx.ASGITransport`` —
+# makes is 401'd unless it carries a live operator credential. Hundreds of existing tests drive interface routes through
 # these clients and predate the gate; they assert the route's own behaviour, not
 # the absence of authentication. Rather than touch each of them, this seam makes
 # every such client present the operator credential by default.
@@ -712,6 +712,8 @@ def reset_state_between_tests():
 # at any other ASGI app, or at a real network host, is left untouched. Both
 # client shapes are covered: ``TestClient`` over HTTP *and* its
 # ``websocket_connect`` handshake, and ``httpx.AsyncClient`` over ``ASGITransport``.
+# The two shapes come from different packages, ``httpx2`` for ``TestClient`` and
+# ``httpx`` for the async client, which is why the seam patches each class by name.
 #
 # Install is session-scoped so it wraps client fixtures of every scope — a
 # module-scoped client is built before any function-scoped fixture would run.
@@ -777,7 +779,7 @@ def reset_web_credentials_between_tests(monkeypatch: pytest.MonkeyPatch):
 def _gated_interface_app(client):
     """Return the client's target app if it is a gated interface app, else None.
 
-    A ``TestClient`` records the app on ``self.app``; an httpx client wrapping an
+    A ``TestClient`` records the app on ``self.app``; an ``httpx.AsyncClient`` wrapping an
     ``ASGITransport`` carries it on the transport. The tell that the app installed
     :class:`WebAuthMiddleware` is a real :class:`WebCredentials` on
     ``app.state`` — seeded by ``configure_interface_app`` and read by the gate.
@@ -802,7 +804,8 @@ def _current_operator_secret(app):
 
 
 def _install_client_auth(client) -> None:
-    """Arm one httpx client to present the operator secret to its gated app.
+    """Arm one test client — a ``TestClient`` (httpx2) or an ``httpx.AsyncClient`` — to
+    present the operator secret to its gated app.
 
     A no-op for a client not aimed at a gated interface app. Otherwise it appends
     a request event hook (async for an ``AsyncClient``, sync otherwise) that
