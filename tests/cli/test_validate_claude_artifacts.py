@@ -123,6 +123,20 @@ def test_tool_in_ask_and_deny_fails(tmp_path):
     )
 
 
+def test_tool_under_a_denied_namespace_fails(tmp_path):
+    """deny wins at runtime for a namespace glob as for a literal entry."""
+    project = _write_project(
+        tmp_path,
+        allow=["mcp__plugin_x__y"],
+        ask=[],
+        deny=["mcp__plugin_*"],
+        agent_tools="mcp__plugin_x__y, Read",
+    )
+    errors = validate_agent_tools_against_permissions(project)
+    assert len(errors) == 1, errors
+    assert "mcp__plugin_x__y" in errors[0]
+
+
 def test_wildcard_still_rejected(tmp_path):
     """Wildcards are rejected regardless of the ask/allow membership rule."""
     project = _write_project(

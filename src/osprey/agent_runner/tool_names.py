@@ -9,6 +9,10 @@ are pinned by tests, not by construction.
 
 from __future__ import annotations
 
+import re
+
+from osprey.utils.tool_rules import matches_denylist
+
 #: Tool-name namespaces of MCP servers the agent CLI takes from somewhere other
 #: than the rendered ``.mcp.json``: Claude Code plugins
 #: (``mcp__plugin_<plugin>_<server>__<tool>``) and claude.ai connectors
@@ -20,6 +24,33 @@ from __future__ import annotations
 #: unpacking this tuple, and ``tests/agent_runner/test_write_tools.py`` pins
 #: that none drops them.
 FOREIGN_MCP_NAMESPACES: tuple[str, ...] = ("mcp__plugin_*", "mcp__claude_ai_*")
+
+#: Characters the agent CLI keeps in an MCP server's name when it forms tool
+#: names; every other character becomes ``_``.
+_MCP_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def foreign_mcp_namespace(server_name: str) -> str | None:
+    """Return the :data:`FOREIGN_MCP_NAMESPACES` entry a server's tools fall under.
+
+    The agent CLI names a server's tools ``mcp__<name>__<tool>``, with every
+    character of ``<name>`` outside ``[A-Za-z0-9_-]`` replaced by ``_``. The
+    entries match by case-sensitive prefix, as
+    :func:`~osprey.utils.tool_rules.matches_denylist` does, so ``plugin.x`` falls
+    under ``mcp__plugin_*`` and ``pluginx`` does not.
+
+    Args:
+        server_name: The server's name as declared in ``.mcp.json``.
+
+    Returns:
+        The first namespace entry that covers the server's tools, or ``None``.
+    """
+    prefix = f"mcp__{_MCP_NAME_UNSAFE.sub('_', server_name)}__"
+    for entry in FOREIGN_MCP_NAMESPACES:
+        if matches_denylist(prefix, (entry,)):
+            return entry
+    return None
+
 
 #: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
 #:

@@ -66,6 +66,26 @@ class TestResolveServers:
         # Conditional servers off (conditions not in ctx); opt-in servers off by default
         assert {"channel-finder", "health", "graph"} <= disabled
 
+    def test_a_custom_server_in_a_foreign_namespace_is_refused(self):
+        with pytest.raises(ValueError) as excinfo:
+            resolve_servers({"servers": {"plugin_tools": {"command": "x"}}}, _base_ctx())
+
+        assert "'plugin_tools'" in str(excinfo.value)
+        assert "'mcp__plugin_*'" in str(excinfo.value)
+
+    def test_a_disabled_server_in_a_foreign_namespace_is_not_refused(self):
+        servers = resolve_servers(
+            {"servers": {"plugin_tools": {"command": "x", "enabled": False}}}, _base_ctx()
+        )
+
+        assert "plugin_tools" not in {s["name"] for s in servers if s["enabled"]}
+
+    def test_no_framework_server_is_in_a_foreign_namespace(self):
+        from osprey.agent_runner.tool_names import foreign_mcp_namespace
+
+        resolve_servers({}, _base_ctx())
+        assert [name for name in FRAMEWORK_SERVERS if foreign_mcp_namespace(name)] == []
+
     def test_resolve_disable_framework_server(self):
         """New format: servers: {ariel: {enabled: false}}."""
         ctx = _base_ctx()

@@ -464,6 +464,13 @@ configuration) and ``.claude/settings.json`` (tool permissions) — so a later
 ``osprey build`` re-renders them instead of losing them. For the procedure, see
 :doc:`/how-to/agent-interfaces/add-mcp-server`.
 
+The agent loads only the servers this build renders into ``.mcp.json``: every
+launch passes ``--strict-mcp-config`` with that file, so a Claude Code plugin's
+server or a claude.ai connector never starts, and declaring a server here is how
+you give the agent one. A server whose name puts its tools under
+``mcp__plugin_`` or ``mcp__claude_ai_`` is refused at build, because those
+namespaces are denied on every launch.
+
 .. code-block:: yaml
 
    mcp_servers:
