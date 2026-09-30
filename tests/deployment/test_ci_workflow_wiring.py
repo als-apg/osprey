@@ -7636,9 +7636,9 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 # An import in `src/` that ships no inline types needs its stub distribution in
 # the `dev` extra. Without it the checker reports a per-module `import-untyped`
 # error ("Library stubs not installed for ...") and gives every value from that
-# library the type `Any`, and `scripts/mypy_gate.py` refuses to score a run
-# carrying one: it exits 2 rather than measure a weakened report against the
-# baseline. So an undeclared stub distribution turns the type-check lane red
+# library the type `Any`, and `scripts/mypy_gate.py` refuses to judge a run
+# carrying one: it exits 2 rather than pass a report in which those values are
+# `Any`. So an undeclared stub distribution turns the type-check lane red
 # instead of quietly widening the modules that import it.
 
 
@@ -7666,15 +7666,15 @@ def test_the_type_check_declares_a_stub_for_every_stubless_import(
     pyproject: dict[str, Any],
 ) -> None:
     """Every import named here appears in `src/` and ships no types of its own,
-    so an undeclared stub distribution costs the run its score: the checker
-    reports `import-untyped` for that import and the gate refuses to measure
+    so an undeclared stub distribution costs the run its verdict: the checker
+    reports `import-untyped` for that import and the gate refuses to judge
     what it produced."""
     declared = _declared_names(_dev_extra(pyproject))
     for distribution, module in STUB_DISTRIBUTIONS.items():
         assert canonicalize_name(distribution) in declared, (
             f"the `dev` extra must declare {distribution} — without it every "
             f"`import {module}` in src/ reports `import-untyped` and the type-check "
-            f"gate refuses to score the run"
+            f"gate refuses to judge the run"
         )
 
 
@@ -7693,9 +7693,9 @@ def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -
 
 
 def test_the_type_checker_is_pinned_to_one_minor(pyproject: dict[str, Any]) -> None:
-    """The baseline beside the gate was measured with one checker, so the checker
-    is named as precisely as the measurement it produced. A floor alone lets a new
-    minor report errors no diff introduced, and the gate would blame the change."""
+    """The gate holds the tree to zero errors under one checker, so the checker is
+    named as precisely as that verdict. A floor alone lets a new minor report errors
+    no diff introduced, and the gate would blame the change."""
     requirements = [
         Requirement(dep)
         for dep in _dev_extra(pyproject)
@@ -7706,7 +7706,7 @@ def test_the_type_checker_is_pinned_to_one_minor(pyproject: dict[str, Any]) -> N
     assert ">=" in operators, "the mypy requirement must carry a lower bound"
     assert "<" in operators, (
         "the mypy requirement must carry an upper bound — an unpinned minor "
-        "moves the baseline the gate scores against"
+        "can red the gate on a change that introduced nothing"
     )
 
 
@@ -7854,10 +7854,10 @@ def _load_mypy_gate() -> Any:
 
 
 def test_the_type_check_step_runs_the_gate(workflow: dict[str, Any]) -> None:
-    """The build scores the type check against the baseline beside the gate.
+    """The build runs the type check through the gate.
 
-    A bare ``mypy`` invocation prints a count nobody compares to anything; the gate
-    is what turns that count into a verdict about the diff under it.
+    The gate reads the declared trees and refuses a run without the declared stubs,
+    which a bare ``mypy`` invocation does neither of.
     """
     run = _find_named_step(workflow, MYPY_JOB, MYPY_STEP)["run"]
     assert "scripts/mypy_gate.py" in run, (

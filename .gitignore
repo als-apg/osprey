@@ -55,6 +55,7 @@ coverage.json
 # whenever OSPREY_CI_DIAG_DIR is set; uploaded as an artifact, never committed.
 /ci-diag/
 .pytest_cache/
+.mypy_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints
