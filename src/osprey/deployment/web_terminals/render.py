@@ -1772,11 +1772,13 @@ def origin_host(origin: str) -> str:
     return match.group("host")
 
 
-def _configured_external_origin(root: dict[str, Any]) -> str:
+def _configured_external_origin(root: dict[str, Any]) -> DeploymentOrigin | None:
     """``modules.web_terminals.external_origin`` as configured, validated.
 
-    Returns the empty string when the key is absent or blank — the derived
-    origin then applies (:func:`_external_origin`).
+    Returns ``None`` when the key is absent or blank — the derived origin then
+    applies (:func:`_external_origin`). Otherwise the value is returned as a
+    :class:`DeploymentOrigin` read off the match that validated it, its origin
+    string verbatim after ``strip()``.
 
     Raises:
         ValueError: If the value is not a string, is not
@@ -1790,10 +1792,10 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
     """
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
     if "external_origin" not in web_terminals:
-        return ""
+        return None
     value = web_terminals.get("external_origin")
     if value is None:
-        return ""
+        return None
     if not isinstance(value, str):
         raise ValueError(
             f"modules.web_terminals.external_origin {value!r} is not a string; it must "
@@ -1802,7 +1804,7 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
         )
     origin = value.strip()
     if not origin:
-        return ""
+        return None
     match = _EXTERNAL_ORIGIN_RE.fullmatch(origin)
     if not match:
         raise ValueError(
@@ -1818,7 +1820,7 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
             "plain port redirects every browser to this origin, so a cleartext one either "
             "returns them to the redirect itself or leaves TLS unused"
         )
-    return origin
+    return _origin_from_match(match)
 
 
 @dataclass(frozen=True)
@@ -1851,6 +1853,13 @@ class DeploymentOrigin:
     def is_loopback(self) -> bool:
         """Whether only this machine is named by the origin's host."""
         return is_loopback_bind(self.host)
+
+
+def _origin_from_match(match: re.Match[str]) -> DeploymentOrigin:
+    """The :class:`DeploymentOrigin` an :data:`_EXTERNAL_ORIGIN_RE` full match names."""
+    return DeploymentOrigin(
+        origin=match.group(0), scheme=match.group("scheme"), host=match.group("host").lower()
+    )
 
 
 def _external_origin(
@@ -1935,12 +1944,8 @@ def _origin_parts(
             a host name or IPv4 address.
     """
     configured = _configured_external_origin(root)
-    if configured:
-        return DeploymentOrigin(
-            origin=configured,
-            scheme=configured.partition("://")[0],
-            host=origin_host(configured).lower(),
-        )
+    if configured is not None:
+        return configured
     deploy = as_dict(root.get("deploy"))
     host = str(deploy.get("fqdn") or "").strip()
     if not host:
@@ -1957,15 +1962,14 @@ def _origin_parts(
         origin = f"https://{host}"
     else:
         origin = f"https://{host}:{tls_port}"
-    if not _EXTERNAL_ORIGIN_RE.fullmatch(origin):
+    match = _EXTERNAL_ORIGIN_RE.fullmatch(origin)
+    if match is None:
         raise ValueError(
             f"deploy.fqdn {host!r} is not a host. Set it to a DNS host name or IPv4 "
             "address, or set modules.web_terminals.external_origin to the address "
             f"browsers open. See {PERIMETER_LIMITS_URL}"
         )
-    return DeploymentOrigin(
-        origin=origin, scheme="https" if tls_enabled else "http", host=origin_host(origin).lower()
-    )
+    return _origin_from_match(match)
 
 
 def deployment_origin(config: Any) -> DeploymentOrigin:
