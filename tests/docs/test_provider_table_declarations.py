@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.infrastructure.proxy.translator import _not_carried
 from osprey.models.provider_registry import get_provider_registry
 from osprey.models.providers.base import BaseProvider
 
@@ -102,3 +103,8 @@ def test_the_thinking_column_is_what_reaches_the_model(name):
     cls = _adapters()[name]
     native = cls.api_protocol == "anthropic"
     assert _cell(name, "Thinking") == _yes_no(native or cls.supports_thinking)
+
+
+def test_the_guide_quotes_the_note_the_model_reads_for_an_image():
+    text = " ".join(GUIDE.read_text(encoding="utf-8").split())
+    assert f"``{_not_carried('image')}``" in text

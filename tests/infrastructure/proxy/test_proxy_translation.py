@@ -10,12 +10,14 @@ Experiment branch: experiment/cborg-claude-code (issue #259).
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 
 import pytest
 
+from osprey.infrastructure.proxy import translator
 from osprey.infrastructure.proxy.translator import (
-    _IMAGE_NOT_CARRIED,
     _IMAGE_SOURCE_NOT_CARRIED,
     anthropic_to_openai_request,
     openai_to_anthropic_response,
@@ -272,6 +274,14 @@ def test_no_temperature_goes_out_where_the_upstream_refuses_one():
 
 # ── Images, and what the route does not carry ────────────────────────
 
+#: The note the model reads in place of a kind of content the route does not carry.
+_NOT_CARRIED_NOTE = "[{kind} not sent: this provider's route does not carry it]"
+
+_PDF = {
+    "type": "document",
+    "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0="},
+}
+
 
 def test_a_text_only_request_translates_as_before():
     body = {
@@ -423,7 +433,7 @@ def test_an_image_on_a_route_without_images_is_named_in_the_turn(where):
             },
         ]
     out = anthropic_to_openai_request({"model": "m", "messages": messages})
-    assert _IMAGE_NOT_CARRIED in json.dumps(out.body)
+    assert _NOT_CARRIED_NOTE.format(kind="image") in json.dumps(out.body)
     assert "image_url" not in json.dumps(out.body)
     assert "image" in out.dropped
     assert out.images_sent == 0
@@ -439,19 +449,60 @@ def test_an_image_by_file_reference_is_named_as_not_carried():
 
 
 def test_a_document_is_named_in_the_turn():
-    document = {
-        "type": "document",
-        "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0="},
-    }
     body = {
         "model": "m",
-        "messages": [{"role": "user", "content": [{"type": "text", "text": "read"}, document]}],
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "read"}, _PDF]}],
     }
     out = anthropic_to_openai_request(body, supports_images=True)
-    assert out.body["messages"][0]["content"] == (
-        "read\n[document not sent: this provider's route does not carry it]"
+    assert out.body["messages"][0]["content"] == "read\n" + _NOT_CARRIED_NOTE.format(
+        kind="document"
     )
     assert "document" in out.dropped
+
+
+@pytest.mark.parametrize(
+    ("block", "kind"),
+    [
+        (_png_block(), "image"),
+        (_PDF, "document"),
+        ({"type": "container_upload"}, "container_upload"),
+    ],
+)
+@pytest.mark.parametrize("where", ["user", "tool_result"])
+def test_every_kind_the_route_does_not_carry_reads_the_same_note(block, kind, where):
+    if where == "user":
+        messages = [{"role": "user", "content": [block]}]
+    else:
+        messages = [
+            _tool_use_turn("toolu_1"),
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": [block]}],
+            },
+        ]
+    out = anthropic_to_openai_request({"model": "m", "messages": messages})
+    assert out.body["messages"][-1]["content"] == _NOT_CARRIED_NOTE.format(kind=kind)
+    assert kind in out.dropped
+
+
+def test_one_producer_writes_every_not_carried_note():
+    tree = ast.parse(inspect.getsource(translator))
+    producer = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_not_carried"
+    )
+    inside = {id(node) for node in ast.walk(producer)}
+    others = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and " not sent:" in node.value
+        and id(node) not in inside
+        and node.value != _IMAGE_SOURCE_NOT_CARRIED
+    ]
+    assert others == []
 
 
 def test_a_thinking_request_is_named_as_dropped():
