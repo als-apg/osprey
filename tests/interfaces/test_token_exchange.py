@@ -258,10 +258,12 @@ def test_exchanged_cookie_clears_a_gated_api_route(app):
 
     assert _client(app).get("/api/session").status_code == 401
 
-    authenticated = _client(app)
-    authenticated.cookies.set(name, value)
-    assert authenticated.get("/api/session").status_code == 200
-    assert authenticated.get("/", follow_redirects=False).status_code == 200
+    # The landing page renders the bar layout the lifespan resolves, so this
+    # client runs it.
+    with _client(app) as authenticated:
+        authenticated.cookies.set(name, value)
+        assert authenticated.get("/api/session").status_code == 200
+        assert authenticated.get("/", follow_redirects=False).status_code == 200
 
 
 # --------------------------------------------------------------------------- #
