@@ -3362,6 +3362,7 @@ def _build_repo(
     )
     from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
+    from .profile_conventions import PROJECT_MIRROR_DIR, facility_mirror_violation
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
     # Whatever the verb at the top of this run installed — this build's own
@@ -3392,6 +3393,13 @@ def _build_repo(
     config: dict[str, Any] | None = None
 
     try:
+        # A mirror file at a path the facility build writes is its own one-line
+        # stop, raised ahead of profile validation, which gathers every other
+        # profile error and leaves this one out.
+        mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
+        if mirror_stop is not None:
+            raise mirror_stop
+
         # Which profile this HOST builds, decided before anything is resolved.
         # The overlay is an inheritance layer: it merges over `profile.yml` by
         # the same deep merge a persona delta uses, ahead of `extends:`

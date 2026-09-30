@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli import profile_conventions as conventions
+from osprey.cli.build_profile import BuildProfile, McpServerDef
 from osprey.cli.profile_conventions import (
     BUILD_OUTPUT_DIR,
     CONTEXT_BASELINE_FILENAME,
@@ -30,6 +31,7 @@ from osprey.cli.profile_conventions import (
     PROTECTED_CONFIG_KEYS,
     PROTECTED_KEY_EXEMPTIONS,
     RESERVED_EXACT_PATHS,
+    RESERVED_MIRROR_PATTERNS,
     RESERVED_PATH_CHANNELS,
     RESERVED_PATH_PATTERNS,
     RESERVED_PROJECT_PATHS,
@@ -41,6 +43,7 @@ from osprey.cli.profile_conventions import (
     convention_for,
     convention_slot_for,
     destination_for,
+    facility_mirror_violation,
     flatten_dotted,
     flatten_key_paths,
     is_protected_key,
@@ -314,6 +317,91 @@ def test_convention_slot_for_inverts_destination_for():
 
 def test_validate_project_mirror_tolerates_a_missing_mirror(profile_dir: Path):
     validate_project_mirror(profile_dir / "project")
+
+
+# ── Facility mirror patterns ─────────────────────────────────────────
+
+
+def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
+    assert RESERVED_MIRROR_PATTERNS == ("facility.json", "data/facility/**")
+
+
+@pytest.mark.parametrize(
+    ("mirrored", "line"),
+    [
+        (
+            "facility.json",
+            "facility: profile-invalid: path project/facility.json — the project/ mirror "
+            "writes facility.json, which the build writes from data/facility/; fix: remove "
+            "project/facility.json and author the facility in data/facility/",
+        ),
+        (
+            "data/facility/records/devices.yaml",
+            "facility: profile-invalid: path project/data/facility/records/devices.yaml — the "
+            "project/ mirror writes data/facility/records/devices.yaml, which the build writes "
+            "from data/facility/; fix: remove project/data/facility/records/devices.yaml and "
+            "author the facility in data/facility/",
+        ),
+    ],
+)
+def test_a_mirrored_facility_path_is_one_profile_invalid_line(
+    profile_dir: Path, mirrored: str, line: str
+):
+    _write(profile_dir / "project" / mirrored)
+
+    error = facility_mirror_violation(profile_dir / "project")
+
+    assert error is not None
+    assert error.kind == "profile-invalid"
+    assert error.format_message() == line
+
+
+def test_the_facility_mirror_check_returns_the_first_hit(profile_dir: Path):
+    mirror = profile_dir / "project"
+    _write(mirror / "facility.json")
+    _write(mirror / "data" / "facility" / "identity.yaml")
+
+    error = facility_mirror_violation(mirror)
+
+    assert error is not None
+    assert error.record_id == "project/data/facility/identity.yaml"
+
+
+@pytest.mark.parametrize(
+    "allowed", ["docs/facility.json", "data/facility.json", "data/facility_notes.md"]
+)
+def test_the_facility_mirror_check_passes_near_misses(profile_dir: Path, allowed: str):
+    _write(profile_dir / "project" / allowed)
+    assert facility_mirror_violation(profile_dir / "project") is None
+
+
+def test_the_facility_mirror_check_tolerates_a_missing_mirror(profile_dir: Path):
+    assert facility_mirror_violation(profile_dir / "project") is None
+
+
+def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path):
+    """The facility stop is its own line; the gather neither repeats nor raises it."""
+    mirror = profile_dir / "project"
+    _write(mirror / "facility.json")
+    _write(mirror / "data" / "facility" / "identity.yaml")
+    _write(mirror / ".mcp.json")
+
+    violations = conventions._mirror_violations(mirror)
+
+    assert violations == [(".mcp.json", RESERVED_PATH_CHANNELS[".mcp.json"])]
+
+
+def test_profile_validation_still_gathers_past_a_facility_mirror_hit(profile_dir: Path):
+    _write(profile_dir / "project" / "facility.json")
+    (profile_dir / "data").mkdir()
+    profile = BuildProfile(name="x", data="data", mcp_servers={"empty": McpServerDef()})
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        profile.validate(profile_dir)
+
+    message = str(excinfo.value)
+    assert "MCP server 'empty' missing 'command' or 'url'" in message
+    assert "facility.json" not in message
 
 
 # ── Source validation ────────────────────────────────────────────────

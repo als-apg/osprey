@@ -14,6 +14,9 @@ module is that channel table, plus the validation that keeps it honest:
   mirror may not write, each naming the channel that *does* own them. These
   enforce pipeline coherence (exactly one writer per artifact), not sandboxing:
   the profile is operator-trusted.
+* :func:`facility_mirror_violation` — the ``profile-invalid`` stop for a
+  ``project/`` mirror file at a path the facility build writes
+  (:data:`RESERVED_MIRROR_PATTERNS`).
 * :func:`is_reserved_write` and :func:`is_protected_key` — the *protected set*:
   the paths and config keys a running agent may not rewrite, consulted by every
   framework writer. A separate question from the reservations above, which ask
@@ -38,7 +41,7 @@ from enum import Enum
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
@@ -50,6 +53,9 @@ from osprey.utils.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+
+if TYPE_CHECKING:
+    from osprey.facility.errors import FacilityBuildError
 
 logger = get_logger("build")
 
@@ -360,6 +366,18 @@ RESERVED_PATH_CHANNELS: dict[str, str] = {r.path: r.channel for r in RESERVED_PR
 #: convention directory — which is what makes those artifacts ownable in the
 #: first place — so a rule applying them would refuse the whole channel.
 RESERVED_EXACT_PATHS: frozenset[str] = frozenset(RESERVED_PATH_CHANNELS)
+
+#: Project paths the facility build writes from the profile's ``data/facility/``
+#: tree, as globs matched like :class:`ReservedPattern` (``*`` spans path
+#: separators, both sides casefolded). A ``project/`` mirror file at one of them
+#: stops the build with a ``profile-invalid`` line
+#: (:func:`facility_mirror_violation`) ahead of profile validation, so
+#: :func:`_mirror_violations` leaves them out and the gathered profile errors
+#: never repeat that stop.
+RESERVED_MIRROR_PATTERNS: tuple[str, ...] = ("facility.json", "data/facility/**")
+
+#: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in.
+FACILITY_AUTHORING_ROUTE = "data/facility/"
 
 #: The same exact reservations keyed by their casefolded path, for
 #: :func:`is_reserved_write`'s lookup only. Private, and derived rather than
@@ -1151,11 +1169,24 @@ def _iter_files(root: Path, *, include_hidden: bool = False) -> Iterator[Path]:
             yield path
 
 
+def _is_facility_mirror_path(rel: str) -> bool:
+    """Whether ``rel`` matches one of :data:`RESERVED_MIRROR_PATTERNS`."""
+    folded = rel.casefold()
+    return any(fnmatchcase(folded, pattern.casefold()) for pattern in RESERVED_MIRROR_PATTERNS)
+
+
 def _mirror_violations(mirror_dir: Path) -> list[tuple[str, str]]:
-    """Return ``(project-relative path, owning channel)`` for reserved writes."""
+    """Return ``(project-relative path, owning channel)`` for reserved writes.
+
+    Pure: it reports and never raises. A path matching
+    :data:`RESERVED_MIRROR_PATTERNS` is left out; :func:`facility_mirror_violation`
+    owns that stop.
+    """
     violations: list[tuple[str, str]] = []
     for path in _iter_files(mirror_dir, include_hidden=True):
         rel = path.relative_to(mirror_dir).as_posix()
+        if _is_facility_mirror_path(rel):
+            continue
         channel = reserved_path_channel(rel)
         if channel is not None:
             violations.append((rel, channel))
@@ -1206,6 +1237,42 @@ def validate_project_mirror(mirror_dir: Path) -> None:
     violations = _mirror_violations(mirror_dir)
     if violations:
         raise BuildProfileError(_format_mirror_violations(violations))
+
+
+def facility_mirror_violation(mirror_dir: Path) -> FacilityBuildError | None:
+    """The stop for the first ``project/`` mirror file the facility build writes.
+
+    Files are visited in sorted order, so the answer is the same on every run.
+
+    Args:
+        mirror_dir: The profile's ``project/`` directory (missing is fine).
+
+    Returns:
+        A ``profile-invalid`` error naming the first mirror file matching
+        :data:`RESERVED_MIRROR_PATTERNS` and ``data/facility/`` as the tree it
+        is authored in, or ``None`` when the mirror writes none of them.
+    """
+    if not mirror_dir.is_dir():
+        return None
+    for path in _iter_files(mirror_dir, include_hidden=True):
+        rel = path.relative_to(mirror_dir).as_posix()
+        if not _is_facility_mirror_path(rel):
+            continue
+        from osprey.facility.errors import FacilityBuildError
+
+        mirrored = f"{PROJECT_MIRROR_DIR}/{rel}"
+        return FacilityBuildError(
+            "profile-invalid",
+            mirrored,
+            [mirrored],
+            f"remove {mirrored} and author the facility in {FACILITY_AUTHORING_ROUTE}",
+            record_kind="path",
+            detail=(
+                f"the {PROJECT_MIRROR_DIR}/ mirror writes {rel}, which the build writes "
+                f"from {FACILITY_AUTHORING_ROUTE}"
+            ),
+        )
+    return None
 
 
 def _symlink_escapes(path: Path, profile_dir: Path) -> bool:
