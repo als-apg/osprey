@@ -35,7 +35,7 @@ VALID_EDGES = frozenset({"rising", "falling", "both"})
 
 
 def _number_setting(
-    cfg: Mapping[str, Any], key: str, default: float, *, minimum: float | None = None
+    cfg: Mapping[str, Any], key: str, default: float, *, non_negative: bool = False
 ) -> float:
     """Read one numeric ``source_config`` setting, or refuse it.
 
@@ -46,7 +46,7 @@ def _number_setting(
 
     Raises:
         ValueError: The value is a ``bool``, is not readable by ``float()``, is
-            not finite, or is below ``minimum``. The message reads
+            not finite, or is negative under ``non_negative``. The message reads
             ``<qualifier> '<key>' (<value>)``.
     """
     value = cfg.get(key)
@@ -61,7 +61,7 @@ def _number_setting(
         raise ValueError(f"non-numeric {key!r} ({value!r})") from None
     if not math.isfinite(number):
         raise ValueError(f"non-finite {key!r} ({value!r})")
-    if minimum is not None and number < minimum:
+    if non_negative and number < 0:
         raise ValueError(f"negative {key!r} ({value!r})")
     return number
 
@@ -85,7 +85,7 @@ class _PvWatcher:
         self._pv_name: str = cfg["pv"]
         self._threshold: float = _number_setting(cfg, "threshold", 0.0)
         self._edge: str = cfg.get("edge", "rising")  # rising | falling | both
-        self._cool_down: float = _number_setting(cfg, "cool_down_sec", 60.0, minimum=0.0)
+        self._cool_down: float = _number_setting(cfg, "cool_down_sec", 60.0, non_negative=True)
         self._trigger = trigger
         self._fire = fire_callback
         self._loop = loop

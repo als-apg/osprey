@@ -65,16 +65,13 @@ export function applyConfigTabGate(panelsPayload) {
  * keeps one notice.
  *
  * @param {any} panelsPayload - the `GET /api/panels` response, or null.
- * @param {{root?: ParentNode & { querySelector: typeof document.querySelector }}} [options]
- *   `root` scopes the lookup (tests mount a fragment); defaults to `document`.
  * @returns {boolean} true when a notice is present afterwards.
  */
-export function applyConfigUnreadableNotice(panelsPayload, options = {}) {
-  const root = options.root ?? document;
+export function applyConfigUnreadableNotice(panelsPayload) {
   const path = panelsPayload?.config_unreadable_path;
   if (typeof path !== 'string' || !path) return false;
-  if (root.querySelector(`#${CONFIG_UNREADABLE_NOTICE_ID}`)) return true;
-  const header = root.querySelector('#settings-drawer .drawer-header');
+  if (document.querySelector(`#${CONFIG_UNREADABLE_NOTICE_ID}`)) return true;
+  const header = document.querySelector('#settings-drawer .drawer-header');
   if (!header) return false;
   const notice = document.createElement('p');
   notice.className = 'drawer-notice';
