@@ -45,12 +45,14 @@ except ImportError:  # pragma: no cover - exercised only without the SDK
 
 logger = logging.getLogger(__name__)
 
-# Permission-free harness tools the CLI lets an agent use without any allow
-# rule; a strict deny-only hook would otherwise starve them (TodoWrite
-# progress tracking, WaitForMcpServers for MCP cold-start races). Deliberately
-# NOT included: Read/Glob/Grep — main-thread file access would expose e.g.
-# config.yml provider settings. Denylist entries still beat this set.
-PASSTHROUGH_TOOLS = frozenset({"TodoWrite", "WaitForMcpServers"})
+# The CLI's task-list tools. The CLI lets an agent use them without an allow
+# rule, and a strict deny-only hook would otherwise starve a job's progress
+# tracking. Every name is a tool the SDK-bundled CLI build lists -- the build
+# dispatch runs -- which tests/agent_runner/test_tool_name_conformance.py
+# checks. Deliberately NOT included: TaskOutput/TaskStop (background commands),
+# Task (delegation), and Read/Glob/Grep, because main-thread file access would
+# expose e.g. config.yml provider settings. Denylist entries still beat this set.
+PASSTHROUGH_TOOLS = frozenset({"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"})
 
 # Both names the CLI has used for the subagent-delegation tool.
 DELEGATION_TOOLS = ("Task", "Agent")
