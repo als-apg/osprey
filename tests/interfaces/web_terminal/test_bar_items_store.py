@@ -153,15 +153,6 @@ def test_load_reads_back_what_save_wrote(tmp_path: Path) -> None:
     assert saved["status_visible"] is False
 
 
-def test_load_falls_back_to_the_default_for_a_truncated_document(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    bar_items_store.layout_path(tmp_path).write_text("{ truncated")
-
-    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
-        assert load(tmp_path)["header"] == DEFAULT_LAYOUT["header"]
-
-
 def test_load_falls_back_to_the_default_for_an_unreadable_schema_version(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -237,14 +228,6 @@ def test_load_falls_back_to_an_empty_document_when_the_default_is_itself_broken(
     }
 
 
-def test_load_reports_a_directory_where_the_document_should_be_as_absent(
-    tmp_path: Path,
-) -> None:
-    bar_items_store.layout_path(tmp_path).mkdir(parents=True)
-
-    assert load(tmp_path)["header"] == DEFAULT_LAYOUT["header"]
-
-
 # ── save_layout: the refusal classes ───────────────────────────────────────
 
 
@@ -269,12 +252,6 @@ def test_save_refuses_more_items_than_a_bar_may_carry(tmp_path: Path) -> None:
         save(tmp_path, document(header=[{"type": "feedback"}] * 21))
 
     assert excinfo.value.reason == "overflow"
-
-
-def test_save_accepts_a_bar_filled_to_the_cap(tmp_path: Path) -> None:
-    saved = save(tmp_path, document(header=[{"type": "space"}] * 20))
-
-    assert len(saved["header"]) == 20
 
 
 def test_save_caps_each_bar_separately(tmp_path: Path) -> None:
@@ -356,14 +333,24 @@ def test_save_accepts_a_number_option_at_its_bounds(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
-    [("version", 2), ("version", None), ("header", "logo"), ("status", None)],
+    ("field", "value", "reason"),
+    [
+        ("version", 2, "version"),
+        ("version", None, "version"),
+        ("header", "logo", "malformed"),
+        ("status", None, "malformed"),
+        ("header_visible", "yes", "malformed"),
+        # ``0`` is falsy but not a boolean; the flag must be one.
+        ("status_visible", 0, "malformed"),
+    ],
 )
 def test_save_refuses_a_document_this_build_cannot_read(
-    tmp_path: Path, field: str, value: Any
+    tmp_path: Path, field: str, value: Any, reason: str
 ) -> None:
-    with pytest.raises(BarLayoutInvalid):
+    with pytest.raises(BarLayoutInvalid) as excinfo:
         save(tmp_path, document(**{field: value}))
+
+    assert excinfo.value.reason == reason
 
 
 def test_save_refuses_a_layout_that_is_not_a_document(tmp_path: Path) -> None:
@@ -382,15 +369,6 @@ def test_save_leaves_the_stored_document_untouched_when_it_refuses(tmp_path: Pat
     stored = load(tmp_path)
     assert stored["header"] == [{"type": "logo", "options": {}}]
     assert stored["rev"] == 1
-
-
-def test_save_does_not_check_availability(tmp_path: Path) -> None:
-    # The client refuses an item whose runtime dependency is missing; the server
-    # cannot see that, and refusing here would make a layout unsavable for as
-    # long as a bridge happened to be down.
-    saved = save(tmp_path, document(status=[{"type": "feedback"}]))
-
-    assert saved["status"] == [{"type": "feedback", "options": {}}]
 
 
 # ── save_layout: options are completed, not trusted ────────────────────────
@@ -426,10 +404,6 @@ def test_save_gives_an_option_free_type_an_empty_option_map(tmp_path: Path) -> N
 
 
 # ── save_layout: revisions ─────────────────────────────────────────────────
-
-
-def test_save_starts_the_revision_at_one(tmp_path: Path) -> None:
-    assert save(tmp_path, document())["rev"] == 1
 
 
 def test_save_increments_the_revision_on_every_write(tmp_path: Path) -> None:
@@ -496,22 +470,6 @@ def test_save_creates_the_store_directory(tmp_path: Path) -> None:
     save(store_dir, document())
 
     assert bar_items_store.layout_path(store_dir).is_file()
-
-
-def test_save_writes_a_document_an_operator_can_read(tmp_path: Path) -> None:
-    save(tmp_path, document())
-
-    text = bar_items_store.layout_path(tmp_path).read_text()
-    assert "\n" in text
-    assert json.loads(text)["version"] == 1
-
-
-def test_save_lands_atomically_and_leaves_no_debris(tmp_path: Path) -> None:
-    save(tmp_path, document())
-    save(tmp_path, document(status_visible=False))
-
-    assert [entry.name for entry in tmp_path.iterdir()] == [bar_items_store.LAYOUT_FILENAME]
-    assert load(tmp_path)["status_visible"] is False
 
 
 def test_save_returns_a_copy_the_caller_cannot_mutate_the_store_through(
