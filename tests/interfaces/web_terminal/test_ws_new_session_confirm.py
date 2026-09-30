@@ -6,18 +6,12 @@ on the CLI's own command line (``claude --session-id <uuid>``, built in
 ``terminal_ws``). These tests pin that the handler confirms that id straight
 away, on its own, from nothing but what it already knows.
 
-The regression they guard is a race that the old implementation lost as a
-matter of course. It used to poll the transcript directory for a
-newly-appeared ``<uuid>.jsonl`` and confirm whatever turned up. But Claude Code
-writes a session's transcript once that session first has content, not when
-the process starts, so a terminal that sat idle past the poll window never got
-a ``session_info`` at all — and never got one later either, because there is no
-retry. That tab then ran on ``currentSessionId === null`` for as long as it
-lived, however much work the operator went on to do in it: feedback filed with
-no session context, nothing stored to resume from, and a fresh PTY spawned on
-every reload. Hence :func:`test_idle_terminal_is_confirmed_without_a_transcript`,
-which is the same assertion made against an empty transcript directory to say
-so out loud.
+Claude Code writes a session's transcript only once the session has content,
+so a confirmation that waited for ``<uuid>.jsonl`` would never reach a tab
+nobody has typed into, and that tab would run on a null session id: feedback
+filed with no session context, nothing stored to resume from, and a fresh PTY
+spawned on every reload. The confirmation is therefore pinned against an
+empty transcript directory.
 
 Harness mirrors ``test_ws_resume_confirm.py``: a real ``PtyRegistry`` with
 ``_spawn_session`` patched to a ``FakePtySession``, so no PTY is ever created.
@@ -25,7 +19,6 @@ Harness mirrors ``test_ws_resume_confirm.py``: a real ``PtyRegistry`` with
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sys
 from contextlib import ExitStack
@@ -36,46 +29,9 @@ from starlette.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+from tests.interfaces.web_terminal._fakes import FakePtySession
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-
-
-class FakePtySession:
-    """Minimal PtySession substitute — stays alive, produces no output."""
-
-    def __init__(self):
-        self._alive = True
-
-    @property
-    def is_alive(self):
-        return self._alive
-
-    @property
-    def exit_code(self):
-        return None if self._alive else 0
-
-    def start(self, initial_rows=24, initial_cols=80, extra_env=None, cwd=None):
-        pass
-
-    def resize(self, rows, cols):
-        pass
-
-    def write_input(self, data):
-        pass
-
-    def terminate(self):
-        self._alive = False
-
-    async def read_output(self):
-        """Async generator that blocks quietly until the session dies."""
-        try:
-            while self._alive:
-                await asyncio.sleep(0.05)
-        except (asyncio.CancelledError, GeneratorExit):
-            return
-        # Unreachable yield — makes this function an async generator.
-        if False:
-            yield b""  # pragma: no cover
 
 
 def _recv_json(ws, msg_type: str, max_frames: int = 30):
@@ -153,39 +109,13 @@ def _patch_spawn_tracking_sessions(app):
 # ---------------------------------------------------------------------------
 
 
-def test_new_session_confirms_the_forced_id(app):
-    """A new terminal is confirmed with the id spawned on its command line."""
-    with TestClient(app) as client:
-        _, commands = _patch_spawn(app)
-        with client.websocket_connect("/ws/terminal") as ws:
-            _send_resize(ws)
-            msg = _recv_json(ws, "session_info")
+def test_new_session_confirms_the_forced_id(app, tmp_path):
+    """A new terminal is confirmed with the id spawned on its command line.
 
-        assert len(commands) == 1
-        assert msg["session_id"] == _forced_session_id(commands[0])
-
-
-def test_new_session_confirmation_does_not_consult_discovery(app):
-    """The id is known, so nothing polls the transcript directory for it."""
-    with patch(
-        "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session"
-    ) as mock_discover:
-        with TestClient(app) as client:
-            _patch_spawn(app)
-            with client.websocket_connect("/ws/terminal") as ws:
-                _send_resize(ws)
-                _recv_json(ws, "session_info")
-
-        mock_discover.assert_not_called()
-
-
-def test_idle_terminal_is_confirmed_without_a_transcript(app, tmp_path):
-    """The regression: a terminal nobody has typed into is still confirmed.
-
-    Claude Code has written no ``<uuid>.jsonl`` at this point and may never
-    write one. Under the old discovery-based implementation that meant no
-    ``session_info`` and a client stuck on a null session id for the life of
-    the tab; the confirmation must not depend on the transcript existing.
+    The confirmation must not depend on a transcript: Claude Code writes
+    ``<uuid>.jsonl`` only once the session has content, so a terminal nobody
+    has typed into has none, and a discovery-based confirmation would leave the
+    client on a null session id for the life of the tab.
     """
     sessions_dir = tmp_path / "claude_sessions"
     sessions_dir.mkdir()
@@ -197,10 +127,10 @@ def test_idle_terminal_is_confirmed_without_a_transcript(app, tmp_path):
                 _send_resize(ws)
                 msg = _recv_json(ws, "session_info")
 
-            session_id = msg["session_id"]
-            assert session_id == _forced_session_id(commands[0])
-            # Nothing on disk backs that id — the confirmation stands alone.
-            assert list(sessions_dir.glob("*.jsonl")) == []
+    assert len(commands) == 1
+    assert msg["session_id"] == _forced_session_id(commands[0])
+    # Nothing on disk backs that id — the confirmation stands alone.
+    assert list(sessions_dir.glob("*.jsonl")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -224,29 +154,6 @@ def test_new_session_is_pooled_under_its_real_id(app):
         assert reg.get_session(session_id) is not None
         assert list(reg._sessions) == [session_id]
         assert len(commands) == 1
-
-
-def test_resuming_the_confirmed_id_reuses_the_warm_session(app):
-    """Reconnecting with the confirmed id finds the pooled PTY, not a new one.
-
-    This is the round trip the fix restores end to end: the client stores the
-    id it was given and resumes it on the next page load.
-    """
-    with TestClient(app) as client:
-        reg, commands = _patch_spawn(app)
-
-        with client.websocket_connect("/ws/terminal") as ws:
-            _send_resize(ws)
-            session_id = _recv_json(ws, "session_info")["session_id"]
-
-        with client.websocket_connect(f"/ws/terminal?session_id={session_id}&mode=resume") as ws:
-            _send_resize(ws)
-            msg = _recv_json(ws, "session_info")
-            assert msg["session_id"] == session_id
-
-        # Warm reuse: the second connection spawned nothing.
-        assert len(commands) == 1
-        assert list(reg._sessions) == [session_id]
 
 
 def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):

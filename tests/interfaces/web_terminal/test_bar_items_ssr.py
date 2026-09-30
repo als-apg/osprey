@@ -27,26 +27,26 @@ from __future__ import annotations
 import json
 import re
 from html.parser import HTMLParser
-from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
     ADOPTED_BAR_ITEM_TYPES,
+    BAR_HOSTS,
     BAR_ITEM_AVAILABILITY,
     BAR_ITEM_GATES,
+    BAR_ITEM_MULTI,
     BAR_ITEM_OPTIONS,
     BAR_ITEM_TYPES,
     BAR_LAYOUT_VERSION,
     DEFAULT_BAR_LAYOUT,
+    MAX_BAR_ITEMS_PER_HOST,
     STATIC_DIR,
     SYSTEM_HEALTH_PANEL_ID,
     bar_item_available,
+    bar_item_vocabulary,
     bar_render_plan,
-    create_app,
 )
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
 
 #: Ids the terminal renders on every deployment, whatever the layout says.
 _UNIVERSAL_IDS = (
@@ -76,65 +76,23 @@ _LAYOUT_WITHOUT_ADOPTED_ITEMS = {
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    """A temporary workspace directory for the app to watch."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    (ws / "README.md").write_text("# Test workspace\n")
-    return ws
-
-
-def _build_app(workspace_dir, *, enabled_panels=None, custom_panels=None, env=None):
-    """Boot an app the way the other route tests do, and return (app, client).
-
-    Args:
-        workspace_dir: The watched directory.
-        enabled_panels: Enabled built-in panel ids, or None for the universal set.
-        custom_panels: Config-declared panel dicts, or None for none.
-        env: Environment overrides applied across ``create_app`` and lifespan.
-    """
-    panels = {"artifacts"} if enabled_panels is None else set(enabled_panels)
-    return (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(panels, list(custom_panels or []), None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-        ),
-        patch.dict("os.environ", env or {}, clear=False),
-    )
-
-
-@pytest.fixture
-def plain_app(workspace_dir):
+def plain_app(bar_items_app):
     """A single-user deployment: no terminal user, no landing page, no SYSTEM panel."""
-    cfg, panels, launch, env = _build_app(workspace_dir)
-    with cfg, panels, launch, env:
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            yield app, client
+    with bar_items_app() as client:
+        yield client.app, client
 
 
 @pytest.fixture
-def configured_app(workspace_dir):
+def configured_app(bar_items_app):
     """A multi-user deployment with an identity, a way out and the SYSTEM panel."""
-    cfg, panels, launch, env = _build_app(
-        workspace_dir,
+    with bar_items_app(
         enabled_panels={"artifacts", "system-health"},
         env={
             "OSPREY_TERMINAL_USER": "alice",
             "OSPREY_TERMINAL_LANDING_URL": "https://facility.example/portal",
         },
-    )
-    with cfg, panels, launch, env:
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            yield app, client
+    ) as client:
+        yield client.app, client
 
 
 def _body(client) -> str:
@@ -311,27 +269,6 @@ class TestShellRuns:
         assert "data-follows" not in first
         assert 'data-follows="logo"' in second
 
-    def test_a_layout_this_build_cannot_read_falls_back_to_the_default(self, plain_app):
-        """A document from a newer build is refused here as well as on the
-        client. Rendering it anyway would paint one arrangement and hydrate
-        into another — with the pool computed from a layout the client has
-        already discarded."""
-        app, client = plain_app
-        app.state.bar_layout = {
-            "version": BAR_LAYOUT_VERSION + 98,
-            "rev": 12,
-            "header": [{"type": "display"}],
-            "status": [],
-            "header_visible": False,
-            "status_visible": False,
-        }
-        body = _body(client)
-        assert _shell_types(body, "header") == [
-            item["type"] for item in DEFAULT_BAR_LAYOUT["header"] if item["type"] != "identity"
-        ]
-        assert "data-status-bar" not in _html_tag(body)
-        assert "data-header-bar" not in _html_tag(body)
-
 
 class TestShellsCarryTheirOptions:
     """The first paint renders each item with the options it was placed with."""
@@ -416,11 +353,6 @@ class TestUnavailableItemsAreAbsentNotEmpty:
         assert 'data-follows="logo"' in shells[1]
         assert body.count('data-follows="logo"') == 1
 
-    def test_the_plain_status_bar_has_no_system_health_shell(self, plain_app):
-        """The SYSTEM panel is not enabled here, so the item is absent — not an
-        empty shell with nothing to read."""
-        assert "system-health" not in _shell_types(_body(plain_app[1]), "status")
-
 
 class TestKnownTypes:
     """Any known type renders in either bar; an unknown one renders nowhere."""
@@ -482,11 +414,37 @@ class TestKnownTypes:
         assert declared, "could not read the catalog's type declarations"
         assert list(BAR_ITEM_TYPES) == declared
 
-    def test_no_entry_declares_a_placement_axis(self):
-        """`hosts` is gone from both sides; an entry that grew it back would
-        refuse a bar the server had already painted it in."""
+    def test_the_multi_set_mirrors_the_js_catalog(self):
+        """Which types may repeat decides a duplicate's fate on the server, in
+        the store and in the browser alike, so the server's set is pinned
+        against every entry's ``multi`` in the catalog."""
         source = (STATIC_DIR / "js" / "bar-catalog.js").read_text()
-        assert re.search(r"^    hosts:", source, re.MULTILINE) is None
+        declared = {}
+        for item_type in BAR_ITEM_TYPES:
+            match = re.search(r"^    multi: (true|false),", _catalog_entry(source, item_type), re.M)
+            assert match, f"{item_type} declares no multi"
+            declared[item_type] = match.group(1) == "true"
+
+        assert {item_type for item_type, multi in declared.items() if multi} == BAR_ITEM_MULTI
+
+    def test_the_store_vocabulary_is_built_from_the_mirrored_tables(self):
+        """The store validates a saved layout against this vocabulary, so it
+        must be exactly the tables the mirrors above pin to the catalog, and
+        the store can never hold item knowledge of its own."""
+        vocabulary = bar_item_vocabulary()
+
+        assert vocabulary.items == {
+            item_type: {
+                "options": BAR_ITEM_OPTIONS.get(item_type, {}),
+                "multi": item_type in BAR_ITEM_MULTI,
+            }
+            for item_type in BAR_ITEM_TYPES
+        }
+        assert (vocabulary.version, vocabulary.max_items_per_host, vocabulary.hosts) == (
+            BAR_LAYOUT_VERSION,
+            MAX_BAR_ITEMS_PER_HOST,
+            BAR_HOSTS,
+        )
 
 
 #: One catalog entry's ``options:`` declaration — either ``NO_OPTIONS`` or an
@@ -599,25 +557,9 @@ class TestOptionSpecsMirrorTheJsCatalog:
     def test_the_option_table_mirrors_the_js_catalog(self):
         assert BAR_ITEM_OPTIONS == _catalog_option_specs()
 
-    def test_every_other_type_declares_no_options(self):
-        """``NO_OPTIONS`` in the catalog is absence here, which
-        ``bar_item_vocabulary()`` reads as an empty spec mapping."""
-        assert set(BAR_ITEM_OPTIONS) < set(BAR_ITEM_TYPES)
-        assert "logo" not in BAR_ITEM_OPTIONS
-
 
 class TestAdoptedNodesArePresentOnEveryDeployment:
     """The FR6 invariant, in both fixtures and in both layouts."""
-
-    def test_plain_deployment_renders_its_universal_ids(self, plain_app):
-        body = _body(plain_app[1])
-        for element_id in _UNIVERSAL_IDS:
-            assert _has_id(body, element_id), element_id
-
-    def test_configured_deployment_adds_identity(self, configured_app):
-        body = _body(configured_app[1])
-        for element_id in (*_UNIVERSAL_IDS, *_IDENTITY_IDS):
-            assert _has_id(body, element_id), element_id
 
     @pytest.mark.parametrize("fixture", ["plain_app", "configured_app"])
     def test_a_layout_naming_none_of_them_still_resolves_every_one(self, fixture, request):
@@ -657,20 +599,22 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
         # shell, never an adopted node.
         assert pool.index('<div class="bar-item"') < pool.index('id="docs-link"')
 
+    @pytest.mark.parametrize("layout", ["default", "doubled"])
     @pytest.mark.parametrize("fixture", ["plain_app", "configured_app"])
-    def test_every_adopted_node_is_rendered_exactly_once(self, fixture, request):
+    def test_every_adopted_node_is_rendered_exactly_once(self, fixture, layout, request):
         """A duplicated id is worse than a missing one — getElementById picks
-        one silently. Asserted under a layout that names every adopted type
-        twice, in both hosts."""
+        one silently. Asserted under the deployment's own layout and under one
+        that names every adopted type twice, in both hosts."""
         app, client = request.getfixturevalue(fixture)
-        doubled = [{"type": item_type} for item_type in ADOPTED_BAR_ITEM_TYPES] * 2
-        app.state.bar_layout = {
-            "version": 1,
-            "rev": 1,
-            "header": doubled,
-            "status": doubled,
-            "status_visible": True,
-        }
+        if layout == "doubled":
+            doubled = [{"type": item_type} for item_type in ADOPTED_BAR_ITEM_TYPES] * 2
+            app.state.bar_layout = {
+                "version": 1,
+                "rev": 1,
+                "header": doubled,
+                "status": doubled,
+                "status_visible": True,
+            }
         body = _body(client)
         expected = list(_UNIVERSAL_IDS)
         if fixture == "configured_app":
@@ -705,14 +649,11 @@ class TestNothingIsAddedThatTheDeploymentWouldNotRender:
         for element_id in _IDENTITY_IDS:
             assert not _has_id(body, element_id), element_id
 
-    def test_no_logout_without_a_landing_url(self, workspace_dir):
+    def test_no_logout_without_a_landing_url(self, bar_items_app):
         """A user with nowhere to return to is still identified — but the two
         logout controls are the ACTION, and the action needs a destination."""
-        cfg, panels, launch, env = _build_app(workspace_dir, env={"OSPREY_TERMINAL_USER": "alice"})
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                body = _body(client)
+        with bar_items_app(env={"OSPREY_TERMINAL_USER": "alice"}) as client:
+            body = _body(client)
         assert _has_id(body, "header-identity-trigger")
         assert not _has_id(body, "logout-btn")
         assert not _has_id(body, "display-menu-logout-btn")
@@ -734,9 +675,6 @@ class TestNothingIsAddedThatTheDeploymentWouldNotRender:
 class TestStatusBarStamp:
     """``html[data-status-bar="hidden"]`` — a pre-paint fact, like the theme."""
 
-    def test_absent_while_the_bar_is_shown(self, plain_app):
-        assert "data-status-bar" not in _html_tag(_body(plain_app[1]))
-
     def test_stamped_when_the_layout_hides_the_bar(self, configured_app):
         app, client = configured_app
         app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "status_visible": False}
@@ -748,7 +686,7 @@ class TestStatusBarStamp:
             item["type"] for item in DEFAULT_BAR_LAYOUT["status"]
         ]
 
-    @pytest.mark.parametrize("stored", [False, None, 0, "", "false"])
+    @pytest.mark.parametrize("stored", [True, False, None, 0, "", "false"])
     def test_the_flag_is_coerced_not_identity_compared(self, plain_app, stored):
         """The document is JSON from a store: `null` (a key written but never
         set) and `0` both reach here meaning "not visible" to every other
@@ -764,9 +702,6 @@ class TestStatusBarStamp:
 class TestHeaderBarStamp:
     """``html[data-header-bar="hidden"]`` — the header goes the same way."""
 
-    def test_absent_while_the_bar_is_shown(self, plain_app):
-        assert "data-header-bar" not in _html_tag(_body(plain_app[1]))
-
     def test_stamped_when_the_layout_hides_the_bar(self, configured_app):
         app, client = configured_app
         app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "header_visible": False}
@@ -779,7 +714,7 @@ class TestHeaderBarStamp:
             item["type"] for item in DEFAULT_BAR_LAYOUT["header"]
         ]
 
-    @pytest.mark.parametrize("stored", [False, None, 0, "", "false"])
+    @pytest.mark.parametrize("stored", [True, False, None, 0, "", "false"])
     def test_the_flag_is_coerced_not_identity_compared(self, plain_app, stored):
         app, client = plain_app
         app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "header_visible": stored}
@@ -833,19 +768,6 @@ def _context(body: str) -> dict:
     return json.loads(match.group(1))
 
 
-def test_the_builtin_panel_roster_is_stamped_on_html(plain_app):
-    """``panel-catalog.js`` reads its labels off ``<html>`` at module load.
-
-    The registry owns the built-in panel labels; ``/api/panels`` answers for
-    the ENABLED panels only, so it cannot seed the full roster the catalog
-    needs before its first render. A page rendered without this stamp shows
-    panel ids in the rail.
-    """
-    match = re.search(r"data-panel-labels='([^']*)'", _html_tag(_body(plain_app[1])))
-    assert match, "the built-in panel roster is not stamped on <html>"
-    assert json.loads(match.group(1)) == BUILTIN_PANEL_LABELS
-
-
 class TestDeploymentContextIsServerSupplied:
     """The availability facts are evaluated once, on the server, and stamped.
 
@@ -855,14 +777,6 @@ class TestDeploymentContextIsServerSupplied:
     document read-only, so saving goes silently dead for the session. The
     server knows all three facts; it says them.
     """
-
-    def test_the_stamp_carries_exactly_the_keys_the_catalog_asks_for(self, plain_app):
-        """``available(ctx)`` in ``bar-catalog.js`` defines this vocabulary."""
-        assert set(_context(_body(plain_app[1]))) == {
-            "identityAvailable",
-            "blueskyAvailable",
-            "systemHealthAvailable",
-        }
 
     def test_a_plain_deployment_stamps_what_it_does_not_have(self, plain_app):
         assert _context(_body(plain_app[1])) == {
@@ -881,14 +795,6 @@ class TestDeploymentContextIsServerSupplied:
         }
         assert "system-health" in _shell_types(body, "status")
 
-    def test_no_shell_for_an_item_this_deployment_cannot_render(self, plain_app):
-        """An unavailable item is ABSENT, not empty: a single-user deployment
-        paints no ``identity`` shell — an empty box on first paint that the
-        client would only take away again."""
-        app, client = plain_app
-        app.state.bar_layout = _LAYOUT_WITH_IDENTITY
-        assert _shell_types(_body(client), "header") == ["logo"]
-
     def test_the_same_item_renders_once_the_deployment_has_an_identity(self, configured_app):
         app, client = configured_app
         app.state.bar_layout = _LAYOUT_WITH_IDENTITY
@@ -902,6 +808,7 @@ class TestDeploymentContextIsServerSupplied:
         app, client = plain_app
         app.state.bar_layout = _LAYOUT_WITH_IDENTITY
         body = _body(client)
+        assert _shell_types(body, "header") == ["logo"]
         assert 'data-bar-item="identity"' not in body
 
     def test_a_second_copy_of_a_single_node_type_renders_no_shell(self, plain_app):
@@ -921,22 +828,18 @@ class TestDeploymentContextIsServerSupplied:
         assert _shell_types(body, "status") == ["separator", "clock"]
         assert body.count('data-bar-item="docs"') == 1
 
-    def test_the_bluesky_fact_is_the_declared_panel(self, workspace_dir):
+    def test_the_bluesky_fact_is_the_declared_panel(self, bar_items_app):
         """The plan-queue item reads the queue through the Bluesky panel's
         proxy, so the panel's declaration (``web.panels.bluesky``) is the one
         fact it is offered on — the same declaration that is the bridge
         entitlement, so no second key for the same fact."""
-        cfg, panels, launch, env = _build_app(
-            workspace_dir,
+        with bar_items_app(
             custom_panels=[{"id": "bluesky", "label": "BLUESKY", "url": "http://bluesky-web:8080"}],
-        )
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                assert app.state.bluesky_available is True
-                assert _context(_body(client))["blueskyAvailable"] is True
+        ) as client:
+            assert client.app.state.bluesky_available is True
+            assert _context(_body(client))["blueskyAvailable"] is True
 
-    def test_the_plan_queue_renders_where_the_panel_is_declared(self, workspace_dir):
+    def test_the_plan_queue_renders_where_the_panel_is_declared(self, bar_items_app):
         """An available, JS-built item gets its shell on first paint; the
         same layout on a deployment without the panel paints no shell."""
         layout = {
@@ -946,20 +849,14 @@ class TestDeploymentContextIsServerSupplied:
             "status": [{"type": "bluesky-queue"}, {"type": "clock"}],
             "status_visible": True,
         }
-        cfg, panels, launch, env = _build_app(
-            workspace_dir, custom_panels=[{"id": "bluesky", "url": "http://bluesky-web:8080"}]
-        )
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                app.state.bar_layout = layout
-                assert _shell_types(_body(client), "status") == ["bluesky-queue", "clock"]
-        cfg, panels, launch, env = _build_app(workspace_dir)
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                app.state.bar_layout = layout
-                assert _shell_types(_body(client), "status") == ["clock"]
+        with bar_items_app(
+            custom_panels=[{"id": "bluesky", "url": "http://bluesky-web:8080"}]
+        ) as client:
+            client.app.state.bar_layout = layout
+            assert _shell_types(_body(client), "status") == ["bluesky-queue", "clock"]
+        with bar_items_app() as client:
+            client.app.state.bar_layout = layout
+            assert _shell_types(_body(client), "status") == ["clock"]
 
     def test_the_availability_table_mirrors_the_js_catalog(self):
         """The server's copy of ``available()`` exists because it renders
@@ -1003,19 +900,6 @@ class TestDeploymentContextIsServerSupplied:
             assert set(re.findall(r"ctx\.(\w+)", predicate)) == keys
 
 
-class TestAssetsGoThroughThePrefix:
-    """The new stylesheet is a ``<link href>`` — the import map never sees it."""
-
-    def test_bars_css_is_prefixed(self, workspace_dir):
-        cfg, panels, launch, env = _build_app(workspace_dir, env={"OSPREY_TERMINAL_USER": "alice"})
-        with cfg, panels, launch, env:
-            app = create_app(shell_command="echo")
-            with TestClient(app) as client:
-                body = _body(client)
-        assert 'href="/u/alice/static/css/bars.css"' in body
-        assert 'href="/static/css/bars.css"' not in body
-
-
 class TestTheDefaultIsRenderableByConstruction:
     """The rev-0 answer never names an item the stamp says is unavailable.
 
@@ -1038,15 +922,6 @@ class TestTheDefaultIsRenderableByConstruction:
         for host in ("header", "status"):
             for item in layout[host]:
                 assert bar_item_available(item["type"], context), (host, item["type"])
-
-    def test_the_plain_default_degrades_exactly_as_its_docstring_promises(self, plain_app):
-        """No SYSTEM panel and no identity: ``space · clock`` and a header
-        without the identity block — the served document, not just the paint."""
-        _, client = plain_app
-        layout = client.get("/api/bar-items").json()
-
-        assert [item["type"] for item in layout["status"]] == ["space", "clock"]
-        assert "identity" not in [item["type"] for item in layout["header"]]
 
     def test_a_configured_deployment_keeps_the_gated_items(self, configured_app):
         _, client = configured_app

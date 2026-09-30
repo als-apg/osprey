@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,15 +43,10 @@ class SessionDiscovery:
         """
         return claude_project_dir(self._project_dir)
 
-    def list_sessions(self, allowed_ids: set[str] | None = None) -> list[SessionInfo]:
+    def list_sessions(self) -> list[SessionInfo]:
         """Return sessions sorted newest-first.
 
-        Args:
-            allowed_ids: If provided, only return sessions whose ID is
-                in this set.  Pass :meth:`SessionRegistry.known_ids` to
-                scope to the current project incarnation.
-
-        Skips corrupt or empty JSONL files gracefully.
+        Skips empty JSONL files and any file that cannot be read.
         """
         sessions_dir = self._resolve_sessions_dir()
         if not sessions_dir.is_dir():
@@ -60,8 +54,6 @@ class SessionDiscovery:
 
         results: list[SessionInfo] = []
         for path in sessions_dir.glob("*.jsonl"):
-            if allowed_ids is not None and path.stem not in allowed_ids:
-                continue
             try:
                 info = self._parse_session_file(path)
                 if info is not None:
@@ -73,36 +65,11 @@ class SessionDiscovery:
         return results
 
     def snapshot_session_ids(self) -> set[str]:
-        """Return the current set of JSONL filenames (stems).
-
-        Call this *before* spawning a new Claude Code process, then
-        use :meth:`discover_new_session` to detect the newly created file.
-        """
+        """Return the current set of JSONL filenames (stems)."""
         sessions_dir = self._resolve_sessions_dir()
         if not sessions_dir.is_dir():
             return set()
         return {p.stem for p in sessions_dir.glob("*.jsonl")}
-
-    def discover_new_session(self, before: set[str], timeout: float = 15.0) -> str | None:
-        """Poll for a new JSONL file not in *before*.
-
-        Args:
-            before: Session IDs from :meth:`snapshot_session_ids`.
-            timeout: Maximum seconds to wait.
-
-        Returns:
-            The new session UUID, or ``None`` if none appeared.
-        """
-        sessions_dir = self._resolve_sessions_dir()
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if sessions_dir.is_dir():
-                current = {p.stem for p in sessions_dir.glob("*.jsonl")}
-                new_ids = current - before
-                if new_ids:
-                    return new_ids.pop()
-            time.sleep(0.5)
-        return None
 
     # ------------------------------------------------------------------
     # Internal helpers

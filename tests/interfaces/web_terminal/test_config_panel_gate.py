@@ -20,11 +20,11 @@ Three properties are asserted directly, because each can regress on its own:
   write with the *panel* refusal, never with a protected-key refusal — and
   must leave no backup behind, since a backup is itself a write derived from a
   file this request was never allowed to open.
-* **Absent means enabled.** An app with no ``config_panel_enabled`` on
-  ``app.state`` (every route unit suite, and any deployment that never mentions
-  the key) behaves exactly as it did before this key existed. The default-true
-  path is the shipped single-user posture and must stay byte-for-byte the
-  behaviour it was.
+* **Absent state fails closed.** The lifespan always resolves the key onto
+  ``app.state``, so an app whose state lacks ``config_panel_enabled`` never
+  ran it; the routes refuse there rather than guess the permissive posture.
+  An absent KEY in config is a different thing: the lifespan resolves it to
+  the enabled default (``test_lifespan_resolves_the_flag``).
 * **The lifespan resolves it once.** ``create_app`` reads the key into
   ``app.state.config_panel_enabled``; a quoted ``"false"`` is honoured as the
   boolean a human meant, and a value nobody can interpret falls back to the
@@ -83,9 +83,8 @@ def _client(project_dir, *, config_panel_enabled):
     """A routes-only app pointed at *project_dir*.
 
     ``config_panel_enabled`` of ``None`` leaves the attribute OFF ``app.state``
-    entirely — the state of every app built without the web terminal's
-    lifespan, and the case that proves the routes default to enabled rather
-    than to whatever a fixture happened to set.
+    entirely — the state of an app built without the web terminal's lifespan,
+    which the routes treat as disabled.
     """
     app = FastAPI()
     app.include_router(router)
@@ -111,7 +110,7 @@ def enabled_client(project_dir):
 
 @pytest.fixture
 def default_client(project_dir):
-    """No ``config_panel_enabled`` on state at all — the absent-key posture."""
+    """No ``config_panel_enabled`` on state at all — an app that skipped the lifespan."""
     with _client(project_dir, config_panel_enabled=None) as client:
         yield client
 
@@ -151,15 +150,12 @@ def _requests(client):
 class TestDisabledRefusesEveryVerb:
     """``enabled: false`` closes both surfaces completely."""
 
-    def test_every_verb_refuses_with_403(self, disabled_client):
-        for label, send in _requests(disabled_client):
-            response = send()
-            assert response.status_code == 403, f"{label} returned {response.status_code}"
-
     def test_refusal_names_the_key_that_produced_it(self, disabled_client):
         """An operator who meets the refusal can tell it from a broken deploy."""
         for label, send in _requests(disabled_client):
-            detail = send().json()["detail"]
+            response = send()
+            assert response.status_code == 403, f"{label} returned {response.status_code}"
+            detail = response.json()["detail"]
             assert "Config panel is disabled" in detail, f"{label}: {detail!r}"
             assert CONFIG_PANEL_KEY in detail, f"{label}: {detail!r}"
 
@@ -216,7 +212,7 @@ class TestGateRunsFirst:
 
 
 class TestEnabledIsUnchanged:
-    """Default-true behaviour is exactly what it was before the key existed."""
+    """An explicitly enabled panel behaves exactly as it did before the key existed."""
 
     def test_explicit_true_serves_config(self, enabled_client):
         response = enabled_client.get("/api/config")
@@ -224,31 +220,30 @@ class TestEnabledIsUnchanged:
         assert response.status_code == 200
         assert "sections" in response.json()
 
-    def test_absent_state_attribute_serves_config(self, default_client):
-        """No ``config_panel_enabled`` on state -> the panel is live."""
-        response = default_client.get("/api/config")
-
-        assert response.status_code == 200
-
-    def test_absent_state_attribute_serves_claude_setup(self, default_client):
-        response = default_client.get("/api/claude-setup")
-
-        assert response.status_code == 200
-        assert "files" in response.json()
-
-    def test_unprotected_patch_still_lands(self, default_client, project_dir):
-        response = default_client.patch("/api/config", json={"updates": {COSMETIC_KEY: "opus"}})
+    def test_unprotected_patch_still_lands(self, enabled_client, project_dir):
+        response = enabled_client.patch("/api/config", json={"updates": {COSMETIC_KEY: "opus"}})
 
         assert response.status_code == 200
         document = yaml.safe_load((project_dir / "config.yml").read_text())
         assert document["claude_code"]["default_model"] == "opus"
 
-    def test_protected_patch_still_reports_the_protected_key(self, default_client):
+    def test_protected_patch_still_reports_the_protected_key(self, enabled_client):
         """The protected-set gate is untouched by the new one in front of it."""
-        response = default_client.patch("/api/config", json={"updates": {PROTECTED_KEY: True}})
+        response = enabled_client.patch("/api/config", json={"updates": {PROTECTED_KEY: True}})
 
         assert response.status_code == 403
         assert PROTECTED_KEY in response.json()["detail"]
+
+
+class TestAbsentStateFailsClosed:
+    """No ``config_panel_enabled`` on ``app.state`` is refused, not assumed enabled."""
+
+    @pytest.mark.parametrize("path", ["/api/config", "/api/claude-setup"])
+    def test_absent_state_attribute_refuses(self, default_client, path):
+        response = default_client.get(path)
+
+        assert response.status_code == 403
+        assert "Config panel is disabled" in response.json()["detail"]
 
 
 class TestPanelsPayload:
@@ -259,14 +254,8 @@ class TestPanelsPayload:
         assert response.status_code == 200
         return response.json()
 
-    def test_disabled_payload_says_so(self, disabled_client):
-        assert self._payload(disabled_client)["config_panel_enabled"] is False
-
-    def test_enabled_payload_says_so(self, enabled_client):
-        assert self._payload(enabled_client)["config_panel_enabled"] is True
-
-    def test_absent_state_attribute_reads_as_enabled(self, default_client):
-        assert self._payload(default_client)["config_panel_enabled"] is True
+    def test_absent_state_attribute_reads_as_disabled(self, default_client):
+        assert self._payload(default_client)["config_panel_enabled"] is False
 
     def test_disabled_payload_never_lists_config(self, project_dir):
         """Not as a built-in, not as a custom panel, not as a focus target.
@@ -434,7 +423,7 @@ def _started_app(workspace_dir, configured):
         ),
         patch("osprey.utils.config.get_config_value", fake_get_config_value),
     ):
-        app = create_app(shell_command="echo")
+        app = create_app(shell_command=["echo"])
         with TestClient(app) as client:
             yield client
 

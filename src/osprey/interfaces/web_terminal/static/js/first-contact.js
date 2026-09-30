@@ -51,7 +51,7 @@ const PROMPT_ALLOWED = 'What are you allowed to do in this session?';
 const PROMPT_LOGBOOK = 'What happened in the logbook today?';
 
 /** "a, b, and c" @param {string[]} items */
-export const listPhrase = (items) => {
+const listPhrase = (items) => {
   if (items.length <= 1) return items.join('');
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
   return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
@@ -80,7 +80,7 @@ const joiner = (index, n) => {
  * @param {FirstContactFacts} facts
  * @returns {string[]}
  */
-export function capabilityPhrases(kind, facts) {
+function capabilityPhrases(kind, facts) {
   const read = kind ? KIND_READ_PHRASES[kind] : null;
   return read ? [read, ...facts.capabilities] : [...facts.capabilities];
 }

@@ -30,7 +30,6 @@ import os
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -53,9 +52,6 @@ from tests._control_context_fixtures import (
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
-
-#: The PTY process the terminal card is attached to.
-PTY_PID = 7000
 
 #: A controls server that is running, and one that is not.
 SERVER_PID = 5150
@@ -204,19 +200,6 @@ def ledger():
 
 
 # -- harness ----------------------------------------------------------------
-
-
-@contextmanager
-def attached_pty(client, session_id, pid=PTY_PID):
-    """Make the registry report a PTY with *pid* for *session_id*."""
-    registry = client.app.state.pty_registry
-    pty = SimpleNamespace(pid=pid, is_alive=True, exit_code=None)
-    with patch.object(
-        registry,
-        "get_session",
-        side_effect=lambda sid: pty if sid == session_id else None,
-    ):
-        yield
 
 
 @contextmanager
@@ -421,21 +404,7 @@ class TestSwitchInProgress:
     """A fleet mid-swap owns ``last_switch``; nothing else may write it."""
 
     def test_a_live_server_applying_this_generation_is_409(self, client, agent_data_root):
-        write_server_report(
-            agent_data_root,
-            SERVER_PID,
-            applied_target="live",
-            applied_generation=0,
-            last_switch=applying_block(1),
-        )
-        with only_alive(SERVER_PID, os.getpid()):
-            response = post_target(client)
-        assert response.status_code == 409
-        detail = response.json()["detail"]
-        assert detail["error"] == "switch_in_progress"
-        assert str(SERVER_PID) in detail["message"]
-
-    def test_the_refusal_writes_nothing(self, client, agent_data_root):
+        """Refused by name, and nothing written: the terminus is the fleet's to finish."""
         write_server_report(
             agent_data_root,
             SERVER_PID,
@@ -445,7 +414,11 @@ class TestSwitchInProgress:
         )
         before = read_record()
         with only_alive(SERVER_PID, os.getpid()):
-            post_target(client)
+            response = post_target(client)
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["error"] == "switch_in_progress"
+        assert str(SERVER_PID) in detail["message"]
         assert read_record() == before
 
     def test_a_swap_past_its_own_bound_no_longer_blocks(self, client, agent_data_root):
@@ -476,12 +449,6 @@ class TestSwitchInProgress:
 
 class TestTheGate:
     """The switch gate's own refusals, in the gate's own words."""
-
-    def test_a_read_only_run_is_refused(self, client, monkeypatch):
-        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        response = post_target(client)
-        assert response.status_code == 409
-        assert response.json()["detail"]["error"] == target_eligibility.REASON_READONLY_RUN
 
     def test_an_execution_in_flight_names_the_busy_client(self, client, agent_data_root):
         write_inflight_marker(agent_data_root, pid=9100, session="other-session")
@@ -663,8 +630,11 @@ class TestTheGate:
         assert post_target(client).status_code == 202
 
     def test_a_refusal_is_a_record_write_that_moves_nothing_else(self, client, monkeypatch):
+        """A read-only run refuses in the gate's word, as a terminus that mints nothing."""
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        post_target(client)
+        response = post_target(client)
+        assert response.status_code == 409
+        assert response.json()["detail"]["error"] == target_eligibility.REASON_READONLY_RUN
         record = read_record()
         assert record.target == "live"
         assert record.generation == 1
@@ -691,10 +661,6 @@ class TestApplied:
         assert block["status"] == control_context.SWITCH_APPLIED
         assert block["target"] == "va"
         assert block["generation"] == 2
-
-    def test_the_requester_is_the_session_when_there_is_one(self, client):
-        post_target(client, session_id=SESSION_A)
-        assert read_record().last_switch["requested_by"] == SESSION_A
 
     def test_a_session_less_gesture_is_recorded_against_this_process(self, client):
         post_target(client, session_id=None)
@@ -725,16 +691,15 @@ class TestAudit:
     """One ledger line per POST, joinable to the session that made it."""
 
     def test_an_accepted_gesture_files_exactly_one_record(self, client, ledger):
-        assert post_target(client).status_code == 202
+        response = post_target(client)
+        assert response.status_code == 202
         assert len(ledger) == 1
         assert ledger[0]["decision"] == "allowed"
         assert ledger[0]["subject"] == websocket_routes.AUDIT_SUBJECT_TARGET_SET
-
-    def test_the_record_names_the_target_and_the_generation(self, client, ledger):
-        request_id = post_target(client).json()["request_id"]
+        assert ledger[0]["surface"] == websocket_routes.HTTP_MUTATION_SURFACE
         detail = ledger[0]["detail"]
         assert "target=va" in detail
-        assert f"request_id={request_id}" in detail
+        assert f"request_id={response.json()['request_id']}" in detail
         assert "generation=2" in detail
 
     def test_a_refusal_files_exactly_one_record_too(self, client, ledger):
@@ -751,8 +716,15 @@ class TestAudit:
         assert ledger[0]["decision"] == "refused"
 
     def test_the_record_joins_on_the_session_key(self, client, ledger):
-        """The ledger line and the record's ``requested_by`` name one key."""
-        with attached_pty(client, SESSION_A):
+        """The ledger line and the record's ``requested_by`` name one key.
+
+        The key is the one the request names: the route resolves nothing
+        through the PTY registry to find it.
+        """
+        registry = client.app.state.pty_registry
+        with patch.object(
+            registry, "get_session", side_effect=AssertionError("the gesture resolved a session")
+        ):
             assert post_target(client).status_code == 202
         assert ledger[0]["session"] == SESSION_A
         assert read_record().last_switch["requested_by"] == SESSION_A
@@ -761,7 +733,3 @@ class TestAudit:
         assert post_target(client, session_id=None).status_code == 202
         assert ledger[0]["session"] is None
         assert ledger[0]["surface"] == websocket_routes.LAB_MUTATION_SURFACE
-
-    def test_a_session_gesture_keeps_the_http_surface(self, client, ledger):
-        assert post_target(client).status_code == 202
-        assert ledger[0]["surface"] == websocket_routes.HTTP_MUTATION_SURFACE

@@ -585,17 +585,5 @@ export function createScaffoldGalleryView(gallery) {
     });
   }
 
-  return {
-    renderGallery,
-    renderUntrackedBanner,
-    renderFilterChips,
-    renderFilterToggle,
-    clearFilters,
-    renderSummary,
-    bindSearch,
-    renderCategories,
-    renderArtifactCard,
-    renderSkillGroup,
-    getFilteredArtifacts: boundGetFilteredArtifacts,
-  };
+  return { renderGallery };
 }

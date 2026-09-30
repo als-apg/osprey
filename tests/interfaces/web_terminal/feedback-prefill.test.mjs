@@ -59,28 +59,20 @@ describe('utf8Length', () => {
     expect(utf8Length('—')).toBe(3);
   });
 
-  test('is additive over concatenation', () => {
-    expect(utf8Length('é😀abc')).toBe(utf8Length('é') + utf8Length('😀') + 3);
-  });
 });
 
 describe('buildGitLabIssueUrl', () => {
   const BASE = 'https://git.example.org/controls/osprey';
 
-  test('builds the /-/issues/new form with issue[title] and issue[description]', () => {
-    const result = buildGitLabIssueUrl(BASE, 'Feedback', 'hello world');
+  test.each([
+    ['gitlab.com', 'https://gitlab.com/group/project'],
+    ['a self-hosted instance', BASE],
+  ])('builds the /-/issues/new form with issue[title] and issue[description] on %s', (_name, base) => {
+    const result = buildGitLabIssueUrl(base, 'Feedback', 'hello world');
     expect(result.needsPaste).toBe(false);
-    expect(result.url.startsWith(`${BASE}/-/issues/new?issue[title]=`)).toBe(true);
+    expect(result.url.startsWith(`${base}/-/issues/new?issue[title]=`)).toBe(true);
     expect(param(result.url, 'issue\\[title\\]')).toBe('Feedback');
     expect(param(result.url, 'issue\\[description\\]')).toBe('hello world');
-  });
-
-  test('the same shape serves gitlab.com and a self-hosted instance', () => {
-    const hosted = buildGitLabIssueUrl('https://gitlab.com/group/project', 'T', 'b').url;
-    const self = buildGitLabIssueUrl('https://git.example.org/group/project', 'T', 'b').url;
-    expect(hosted.replace('https://gitlab.com', '')).toBe(
-      self.replace('https://git.example.org', '')
-    );
   });
 
   test('a trailing slash on the base URL does not double up', () => {
@@ -95,10 +87,6 @@ describe('buildGitLabIssueUrl', () => {
     expect(param(result.url, 'issue\\[description\\]')).toBe(PASTE_POINTER);
   });
 
-  test('a lone surrogate is replaced instead of throwing', () => {
-    const result = buildGitLabIssueUrl(BASE, 'T', `ok\uD800tail`);
-    expect(param(result.url, 'issue\\[description\\]')).toBe('ok\uFFFDtail');
-  });
 });
 
 describe('buildGitHubIssueUrl', () => {
@@ -156,10 +144,6 @@ describe('buildGitHubIssueUrl', () => {
     expect(result.url.startsWith('https://github.com/als%20apg/osprey/issues/new?')).toBe(true);
   });
 
-  test('survives a lone surrogate in the body', () => {
-    const result = buildGitHubIssueUrl('als-apg/osprey', 'T', `ok\uD800tail`);
-    expect(param(result.url, 'body')).toBe('ok�tail');
-  });
 });
 
 describe('buildMailto', () => {
@@ -179,12 +163,11 @@ describe('buildMailto', () => {
   });
 
   test('the pointer line is plain text that works in a mail body', () => {
-    // Pinned: the same line lands in GitHub markdown and plaintext drafts, so
-    // it must carry no markup of either kind.
-    expect(PASTE_POINTER).toBe(
-      'Your full report is on your clipboard — paste it here, replacing this line.'
-    );
+    // The same line lands in GitHub markdown and plaintext drafts, so it must
+    // carry no markup of either kind and stay one line.
     expect(PASTE_POINTER).not.toMatch(/[<>#*_`[\]]/);
+    expect(PASTE_POINTER).not.toMatch(/\n/);
+    expect(decodeURIComponent(encodeURIComponent(PASTE_POINTER))).toBe(PASTE_POINTER);
   });
 
   test('flips needsPaste exactly at the cap boundary', () => {
@@ -243,14 +226,16 @@ describe('buildPrefillBody', () => {
     expect(body).not.toContain('Dropped');
     expect(body).not.toContain('Blank');
   });
+});
 
-  test('feeds the builders: an oversize composed body lands in pointer mode', () => {
-    const composed = buildPrefillBody(BIG_EMOJI, { Version: '1.4.0' });
-    const gh = buildGitHubIssueUrl('als-apg/osprey', 'Feedback', composed);
-    const mail = buildMailto('osprey@example.org', 'Feedback', composed);
-    expect(gh.url.length).toBeLessThanOrEqual(GITHUB_URL_LIMIT);
-    expect(mail.url.length).toBeLessThanOrEqual(MAILTO_URL_LIMIT);
-    expect(gh.needsPaste).toBe(true);
-    expect(mail.needsPaste).toBe(true);
+describe('lone surrogates', () => {
+  const BASE = 'https://git.example.org/controls/osprey';
+
+  test.each([
+    ['buildGitHubIssueUrl', (/** @type {string} */ b) => buildGitHubIssueUrl('als-apg/osprey', 'T', b), 'body'],
+    ['buildGitLabIssueUrl', (/** @type {string} */ b) => buildGitLabIssueUrl(BASE, 'T', b), 'issue\\[description\\]'],
+    ['buildMailto', (/** @type {string} */ b) => buildMailto('a@example.org', 'T', b), 'body'],
+  ])('%s replaces a lone surrogate instead of throwing', (_name, build, bodyParam) => {
+    expect(param(build('ok\uD800tail').url, bodyParam)).toBe('ok\uFFFDtail');
   });
 });

@@ -9,12 +9,12 @@
  * transient activity line, and the first-turn bookkeeping that decides
  * whether a `session_reset` is worth a divider.
  *
- * Trust boundary: unlike scaffold/detail-content.js (which renders trusted,
- * on-disk artifact markdown straight to innerHTML), chat renders *model*
- * output — including verbatim tool results from outside the trust boundary —
- * so every markdown-to-HTML path runs through {@link renderMarkdownInto},
- * which sanitises with DOMPurify before anything reaches the DOM and degrades
- * to inert `textContent` when the vendored libraries are absent.
+ * Trust boundary: chat renders *model* output — including verbatim tool
+ * results from outside the trust boundary — so every markdown-to-HTML path
+ * runs through {@link renderMarkdownInto}, which sanitises with DOMPurify
+ * before anything reaches the DOM and degrades to inert `textContent` when the
+ * vendored libraries are absent. The scaffold Preview renders agent-writable
+ * `.claude/` files through the same function rather than a second copy.
  *
  * The libraries (`marked`, `DOMPurify`, `hljs`) are vendored classic-script
  * globals loaded before this module; `DOMPurify` has no ambient declaration,
@@ -76,15 +76,12 @@ let chatParse = null;
  * A `parse(markdown) -> html` function isolated from the shared `marked`
  * singleton, or `null` when `marked` is absent.
  *
- * The scaffold hub configures the global singleton in place —
- * `scaffold/utils.js` calls `marked.use({ renderer, walkTokens, … })`, loaded
- * on every hub page — and that custom renderer emits empty
- * `<pre><code></code></pre>` for chat's fenced blocks. marked v12 exposes its
- * `Marked` class on the UMD global, so chat builds its own instance with a
- * plain config and parses through that, immune to whatever the rest of the page
+ * The global `marked` is a page-wide singleton that any script may
+ * reconfigure with `marked.use(...)`. marked v12 exposes its `Marked` class
+ * on the UMD global, so this module builds its own instance with a plain
+ * config and parses through that, immune to whatever the rest of the page
  * does to the singleton. When the constructor is absent (an older or partial
- * vendored build) we fall back to the global `marked.parse` — degraded, but no
- * worse than before this isolation existed.
+ * vendored build) it falls back to the global `marked.parse`.
  *
  * Resolved lazily rather than at module load: the vendored global loads before
  * this module in the browser, but tests stub `globalThis.marked` per case, so
@@ -116,7 +113,8 @@ function chatMarkedParse() {
 
 /**
  * Render markdown text into `el` as sanitised HTML, then syntax-highlight any
- * code blocks. This is the chat trust boundary.
+ * code blocks. This is the web terminal's one trust boundary for markdown:
+ * the chat log and the scaffold Preview both render through it.
  *
  * HTML is produced only when BOTH `marked` and `DOMPurify` are available: the
  * marked output is untrusted HTML, so it must never reach `innerHTML` without
@@ -162,6 +160,9 @@ export function renderMarkdownInto(el, text) {
 }
 
 // ---- Tool vocabulary ---- //
+
+// The vocabulary below is exported for its own unit suite; the chat itself
+// reaches it only through createChatRenderer's activity line.
 
 /**
  * Operator phrases for the tools a turn is likely to use, keyed by normalised
@@ -385,7 +386,7 @@ export function elem(tag, className, text) {
  * @param {string} text
  * @returns {HTMLElement}
  */
-export function buildUserEntry(text) {
+function buildUserEntry(text) {
   const entry = elem('div', 'op-entry operator');
   entry.appendChild(elem('div', 'op-entry-prefix', 'Operator'));
   entry.appendChild(elem('div', 'op-entry-body', text));
@@ -399,7 +400,7 @@ export function buildUserEntry(text) {
  * writes into as text streams in.
  * @returns {{ entry: HTMLElement, body: HTMLElement }}
  */
-export function buildAgentEntry() {
+function buildAgentEntry() {
   const entry = elem('div', 'op-entry assistant');
   entry.appendChild(elem('div', 'op-entry-prefix', 'Osprey'));
   const body = elem('div', 'op-entry-body osprey-md-rendered');
@@ -412,7 +413,7 @@ export function buildAgentEntry() {
  * @param {string} message
  * @returns {HTMLElement}
  */
-export function buildErrorEntry(message) {
+function buildErrorEntry(message) {
   return elem('div', 'op-error-block', message);
 }
 
@@ -420,7 +421,7 @@ export function buildErrorEntry(message) {
  * Build a session-reset divider (a centred system notice).
  * @returns {HTMLElement}
  */
-export function buildSessionResetDivider() {
+function buildSessionResetDivider() {
   return elem('div', 'op-system', 'session reset');
 }
 
@@ -430,7 +431,7 @@ export function buildSessionResetDivider() {
  * @param {string} label
  * @returns {{ line: HTMLElement, labelEl: HTMLElement }}
  */
-export function buildActivityLine(label) {
+function buildActivityLine(label) {
   const line = elem('div', 'op-processing');
   line.appendChild(elem('span', 'op-processing-led'));
   const labelEl = elem('span', 'op-processing-label', label);

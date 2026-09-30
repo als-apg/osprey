@@ -4,7 +4,8 @@
  *
  * The two read-only detail-view content renderers: Preview (rendered
  * markdown / highlighted code, plus the structured settings.json and
- * mcp.json views) and Diff (unified diff between the active and
+ * mcp.json views; the files are agent-writable, so markdown renders through
+ * chat-render.js's sanitise-or-degrade renderMarkdownInto) and Diff (unified diff between the active and
  * framework-default layers, grouped into hunks and word-diffed per pair
  * via diff-utils). Kept separate from scaffold/detail.js to hold both
  * modules comfortably under the 450-line cap -- Preview/Diff is the
@@ -19,6 +20,7 @@
  */
 
 import { fetchJSON } from '../api.js';
+import { renderMarkdownInto } from '../chat-render.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from '../diff-utils.js';
 import { renderSettingsJson, renderMcpJson } from '../config-renderers.js';
 import {
@@ -98,15 +100,7 @@ export function createScaffoldGalleryDetailContent(gallery) {
 
       const mdDiv = document.createElement('div');
       mdDiv.className = 'osprey-md-rendered';
-      if (typeof marked !== 'undefined') {
-        try {
-          mdDiv.innerHTML = marked.parse(body);
-        } catch {
-          mdDiv.textContent = body;
-        }
-      } else {
-        mdDiv.textContent = body;
-      }
+      renderMarkdownInto(mdDiv, body);
       wrapper.appendChild(mdDiv);
     } else if (language === 'python') {
       const parsed = extractPythonDocstringFrontMatter(content);
@@ -121,15 +115,7 @@ export function createScaffoldGalleryDetailContent(gallery) {
         if (parsed.body) {
           const mdDiv = document.createElement('div');
           mdDiv.className = 'osprey-md-rendered';
-          if (typeof marked !== 'undefined') {
-            try {
-              mdDiv.innerHTML = marked.parse(parsed.body);
-            } catch {
-              mdDiv.textContent = parsed.body;
-            }
-          } else {
-            mdDiv.textContent = parsed.body;
-          }
+          renderMarkdownInto(mdDiv, parsed.body);
           wrapper.appendChild(mdDiv);
         }
 

@@ -31,9 +31,7 @@
  * Parking is the only way a shell leaves a bar, and bar-host.js reports every
  * park through `onItemDetach()`. This module subscribes once, at import, and
  * disposes the parked shell's body in the same call stack as the move — no
- * caller of `reconcile()` or `parkShell()` has to remember to. A shell that
- * leaves the document without being parked is not a detach bar-host can see;
- * {@link syncBarItems} is the pass that catches those.
+ * caller of `reconcile()` or `parkShell()` has to remember to.
  *
  * Re-attach is the mirror image: on detach the shell's `data-bar-built` stamp
  * is cleared, so the next placement rebuilds the body through the builder
@@ -52,7 +50,7 @@
  * localStorage is a measurement of nothing.
  */
 
-import { isLive, onItemDetach, registerItemBuilder } from './bar-host.js';
+import { onItemDetach, registerItemBuilder } from './bar-host.js';
 import { defaultOptions } from './bar-catalog.js';
 
 /** @typedef {import('./bar-host.js').BarBuildContext} BarBuildContext */
@@ -150,20 +148,8 @@ function detachShell(shell) {
 onItemDetach(detachShell);
 
 /**
- * Dispose every item whose shell is no longer live. A parked shell is already
- * disposed by the detach hook; what this pass adds is a shell that left the
- * document without being parked. Idempotent and synchronous.
- */
-export function syncBarItems() {
-  for (const shell of Array.from(instances.keys())) {
-    if (shell.isConnected && isLive(shell)) continue;
-    detachShell(shell);
-  }
-}
-
-/**
- * Dispose every live item. The teardown entry point — a page leaving, or a
- * test starting from a clean module.
+ * Dispose every live item. The teardown a test runs so that no item's
+ * interval, poller or stream outlives it (tests/README.md §2).
  */
 export function disposeBarItems() {
   for (const shell of Array.from(instances.keys())) detachShell(shell);

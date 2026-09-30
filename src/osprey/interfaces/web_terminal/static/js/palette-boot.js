@@ -31,6 +31,7 @@ import {
   popoutPanel,
 } from './panel-manager.js';
 import { openPanelBeside } from './panel-placement.js';
+import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
 import { startNewSession } from './sessions.js';
@@ -163,6 +164,7 @@ function buildPaletteDeps() {
   deps.openPanelBeside = openPanelBeside;
   deps.getPresets = getPresets;
   deps.applyPreset = applyMenuPreset;
+  deps.resetLayout = resetDockLayout;
 
   return deps;
 }

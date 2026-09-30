@@ -136,18 +136,11 @@ def test_write_json_atomic_survives_a_filesystem_that_cannot_fsync(
 def test_write_json_atomic_requires_the_parent_directory_to_exist(tmp_path: Path) -> None:
     # Documented contract: creating the directory belongs to the store, which
     # knows whether an absent directory is a first write or a broken mount.
-    with pytest.raises(OSError):
+    with pytest.raises(FileNotFoundError):
         _json_store.write_json_atomic(tmp_path / "never-created" / "prefs.json", {"ok": True})
 
 
 # ── read_json_object ───────────────────────────────────────────────────────
-
-
-def test_read_json_object_returns_the_document(tmp_path: Path) -> None:
-    target = tmp_path / "prefs.json"
-    target.write_text(json.dumps({"items": ["clock"], "version": 1}))
-
-    assert _json_store.read_json_object(target) == {"items": ["clock"], "version": 1}
 
 
 def test_read_json_object_round_trips_a_written_document(tmp_path: Path) -> None:
@@ -169,51 +162,32 @@ def test_read_json_object_reports_an_absent_document_quietly(
     assert caplog.records == []
 
 
-def test_read_json_object_reports_a_truncated_document_as_absent(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+def _write(text: str):
+    return lambda path: path.write_text(text)
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        pytest.param(_write(""), id="empty"),
+        pytest.param(_write("null"), id="null"),
+        pytest.param(_write("just some text"), id="text"),
+        pytest.param(_write("{ truncated"), id="truncated"),
+        pytest.param(_write(json.dumps(["not", "an", "object"])), id="array"),
+        pytest.param(_write(json.dumps(7)), id="scalar"),
+        pytest.param(lambda path: path.mkdir(), id="directory"),
+    ],
+)
+def test_read_json_object_never_raises_on_the_failure_modes_it_documents(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, make
 ) -> None:
+    # Every degraded document is None, so the caller falls back to its default
+    # without a try block -- and the damage is logged, naming the document, so
+    # it can be found without failing the request over it.
     target = tmp_path / "prefs.json"
-    target.write_text("{ truncated")
+    make(target)
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
         assert _json_store.read_json_object(target) is None
 
     assert "prefs.json" in caplog.text
-
-
-def test_read_json_object_rejects_a_document_that_is_not_an_object(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    array = tmp_path / "array.json"
-    array.write_text(json.dumps(["not", "an", "object"]))
-    scalar = tmp_path / "scalar.json"
-    scalar.write_text(json.dumps(7))
-
-    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
-        assert _json_store.read_json_object(array) is None
-        assert _json_store.read_json_object(scalar) is None
-
-    assert "array.json" in caplog.text
-    assert "scalar.json" in caplog.text
-
-
-def test_read_json_object_reports_an_unreadable_path_as_absent(tmp_path: Path) -> None:
-    directory = tmp_path / "prefs.json"
-    directory.mkdir()
-
-    assert _json_store.read_json_object(directory) is None
-
-
-def test_read_json_object_never_raises_on_the_failure_modes_it_documents(
-    tmp_path: Path,
-) -> None:
-    # One assertion for the contract itself: every degraded input is None, and
-    # the caller can therefore fall back to its default without a try block.
-    (tmp_path / "empty.json").write_text("")
-    (tmp_path / "null.json").write_text("null")
-    (tmp_path / "text.json").write_text("just some text")
-
-    assert [
-        _json_store.read_json_object(tmp_path / name)
-        for name in ("empty.json", "null.json", "text.json", "missing.json")
-    ] == [None, None, None, None]

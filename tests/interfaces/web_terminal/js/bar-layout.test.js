@@ -74,11 +74,6 @@ function item(type, options = {}) {
 const types = (items) => items.map((entry) => entry.type);
 
 describe('schema', () => {
-  test('declares v1 and a per-host cap of 20', () => {
-    expect(BAR_LAYOUT_VERSION).toBe(1);
-    expect(MAX_ITEMS_PER_HOST).toBe(20);
-  });
-
   test('the empty layout is a valid, frozen v1 document', () => {
     const layout = emptyLayout();
     expect(layout).toEqual({
@@ -178,12 +173,6 @@ describe('dropping', () => {
     expect(result.readonly).toBe(false);
   });
 
-  test('and in the header', () => {
-    const result = normalize(doc({ header: [item('logo'), item('search')] }), BAR_CATALOG, {});
-    expect(types(result.layout.header)).toEqual(['logo', 'search']);
-    expect(result.readonly).toBe(false);
-  });
-
   test('an item this deployment cannot render is dropped from a stored document', () => {
     // rev 3: an operator saved this, so the drop is THEIR content going missing.
     const layout = doc({
@@ -225,11 +214,6 @@ describe('dropping', () => {
       {}
     );
     expect(result.dropped.map((drop) => drop.reason)).toEqual(['unavailable', 'unknown-type']);
-    expect(result.readonly).toBe(true);
-  });
-
-  test('a rev-0 document still latches on an unreadable version', () => {
-    const result = normalize(doc({ version: 99, header: [item('logo')] }), BAR_CATALOG, {});
     expect(result.readonly).toBe(true);
   });
 

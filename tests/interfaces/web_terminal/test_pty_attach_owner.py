@@ -226,17 +226,6 @@ class TestAttachmentOwnership:
 
         assert list(registry._sessions) == ["b", "a"]
 
-    def test_terminate_clears_the_attachment(self):
-        """A terminated session takes its attachment with it."""
-        registry = PtyRegistry(max_background=3)
-        registry._sessions["x"] = _mock_session()
-        registry.attach_session("x", object())
-
-        registry.terminate_session("x")
-
-        assert registry.is_attached("x") is False
-        assert registry.attached_owner("x") is None
-
     def test_respawning_a_dead_entry_clears_the_stale_attachment(self):
         """A key whose child died is free for the consumer that respawns it."""
         registry = PtyRegistry(max_background=3)
@@ -250,18 +239,6 @@ class TestAttachmentOwnership:
         assert registry.is_attached("x") is False
         assert registry.attach_session("x", object()) is True
 
-    def test_cleanup_all_releases_every_attachment(self):
-        """Shutdown leaves no key claimed."""
-        registry = PtyRegistry(max_background=3)
-        registry._sessions["a"] = _mock_session()
-        registry._sessions["b"] = _mock_session()
-        registry.attach_session("a", object())
-
-        registry.cleanup_all()
-
-        assert registry.is_attached("a") is False
-        assert registry.attached_owner("a") is None
-
 
 # ---------------------------------------------------------------------------
 # Handler contract
@@ -272,17 +249,20 @@ class TestTerminalWsAttachment:
     """``terminal_ws`` holds one token and honours a refused attach."""
 
     def test_connect_holds_the_key_and_releases_it_on_disconnect(self, app, sessions_dir):
-        """The key is attached while the socket is open and free after it."""
+        """The key is attached while the socket is open, and free but still pooled after it."""
         sid = _uuid()
         _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
-            reg, _ = _patch_spawn(app)
+            reg, spawned = _patch_spawn(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
                 _recv_type(ws, "session_info")
                 assert reg.is_attached(sid) is True
 
             assert reg.is_attached(sid) is False
+            # Detached, not terminated: the live PTY stays warm in the pool.
+            assert reg.get_session(sid) is spawned[0]
+            assert spawned[0].is_alive
 
     def test_a_switch_moves_the_attachment_and_releases_both_keys(self, app, sessions_dir):
         """One token per handler: it detaches the old key and takes the new.

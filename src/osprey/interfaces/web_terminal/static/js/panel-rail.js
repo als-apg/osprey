@@ -9,11 +9,13 @@
  * specifics. (The `＋` add control is NOT the rail's: the template supplies it
  * as the sibling `#panel-add-btn`.)
  *
- * The rail deliberately carries NO per-panel health readout. Backend liveness
- * is reported in one place — the SYSTEM panel's `web_panels` health category —
- * so the rail stays a navigation surface rather than a status board. Health
- * still reaches the rail, but only as the coarse `.disabled` state: an entry
- * whose backend has never answered is dimmed and inert.
+ * The rail deliberately carries no per-poll readout — coarse reachability
+ * only. Backend liveness is reported in one place — the SYSTEM panel's
+ * `web_panels` health category — so the rail stays a navigation surface rather
+ * than a status board. Health reaches the rail as two coarse states: an entry
+ * whose backend has never answered is `.disabled` (dimmed and inert), and one
+ * that answered before but has stopped is `.unreachable` (dimmed, still
+ * clickable, its tooltip saying since when).
  *
  * The rail is a curated MEMBERSHIP list, not a tab strip with open/closed
  * state: an entry exists iff its panel is in the rail, at full brightness.
@@ -60,9 +62,10 @@
  * caller declines keeps its native behaviour on every input route.
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
- * not healthy yet), `.agent-attention` (badge). A badged entry also carries a
- * transient `data-title-base` holding the tooltip text the badge borrowed;
- * clearing the badge restores it and removes the attribute.
+ * never answered), `.unreachable` (backend stopped answering), `.agent-attention`
+ * (badge). While a badge time or an unreachable notice owns the tooltip, the
+ * entry carries a transient `data-title-base` holding the tooltip it borrowed;
+ * clearing both restores it and removes the attribute.
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
@@ -105,11 +108,17 @@ import { flashElement } from '/design-system/js/highlight.js';
 const BUTTON_SELECTOR = '.panel-rail-button';
 
 /**
- * Where an entry's pre-suffix tooltip is parked while the agent-attention
- * badge owns the `title`. Present only for the badge's lifetime — see
- * {@link applyTouchedTooltip}.
+ * Where an entry's own tooltip is parked while a badge time or an unreachable
+ * notice owns the `title`. Present only while one of them does — see
+ * {@link renderTitle}.
  */
 const TITLE_BASE_ATTR = 'data-title-base';
+
+/** The badge's "agent touched" clock time, present while the badge carries one. */
+const TOUCHED_ATTR = 'data-title-touched';
+
+/** The clock time the backend stopped answering, present while `.unreachable`. */
+const UNREACHABLE_ATTR = 'data-title-unreachable';
 
 const TOUCHED_SEPARATOR = ' · agent touched ';
 
@@ -356,32 +365,40 @@ export function setEntryEnabled(railEl, panelId, enabled) {
 }
 
 /**
- * Point an entry's tooltip at the moment the agent touched its panel, or put
- * the tooltip back the way it was.
- *
- * The pre-suffix text is stashed on the entry for the badge's lifetime rather
- * than recomputed, so the restore is exact even if the caller retitled the
- * entry, and so a second event REPLACES the time instead of appending a second
- * suffix. Restoring is keyed on the stash, which makes a clear on an unbadged
- * entry a true no-op.
- * @param {HTMLElement} entry
- * @param {number | null} ts - server epoch seconds, or null to restore the base
+ * A server or poll instant as the rail's tooltips show it: hour and minute.
+ * @param {number} ms - epoch milliseconds
+ * @returns {string}
  */
-function applyTouchedTooltip(entry, ts) {
+function clockTime(ms) {
+  return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/**
+ * Compose an entry's tooltip from its own text and the notices borrowing it.
+ *
+ * The own text is stashed on the entry while any notice is up rather than
+ * recomputed, so the restore is exact even if the caller retitled the entry,
+ * and a repeated notice REPLACES its time instead of appending a second one.
+ * An unreachable notice outranks a badge time: "not answering" is the fact an
+ * operator needs before clicking. With neither notice the stash is restored
+ * and removed, which makes a clear on an untouched entry a true no-op.
+ * @param {HTMLElement} entry
+ */
+function renderTitle(entry) {
   const base = entry.getAttribute(TITLE_BASE_ATTR) ?? entry.title;
-  if (ts === null) {
+  const touched = entry.getAttribute(TOUCHED_ATTR);
+  const unreachable = entry.getAttribute(UNREACHABLE_ATTR);
+  if (touched === null && unreachable === null) {
     if (entry.hasAttribute(TITLE_BASE_ATTR)) {
       entry.title = base;
       entry.removeAttribute(TITLE_BASE_ATTR);
     }
     return;
   }
-  const touchedAt = new Date(ts * 1000).toLocaleTimeString([], {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
   entry.setAttribute(TITLE_BASE_ATTR, base);
-  entry.title = `${base}${TOUCHED_SEPARATOR}${touchedAt}`;
+  entry.title = unreachable !== null
+    ? `not answering since ${unreachable}`
+    : `${base}${TOUCHED_SEPARATOR}${touched}`;
 }
 
 /**
@@ -412,11 +429,41 @@ export function setEntryAttention(railEl, panelId, on, ts) {
   const entry = getEntry(railEl, panelId);
   if (!entry) return false;
   entry.classList.toggle('agent-attention', on);
-  const touchedAt = on && typeof ts === 'number' && Number.isFinite(ts) ? ts : null;
-  applyTouchedTooltip(entry, touchedAt);
+  if (on && typeof ts === 'number' && Number.isFinite(ts)) {
+    entry.setAttribute(TOUCHED_ATTR, clockTime(ts * 1000));
+  } else {
+    entry.removeAttribute(TOUCHED_ATTR);
+  }
+  renderTitle(entry);
   if (on) {
     flashElement(entry);
     entry.scrollIntoView({ block: 'nearest' });
   }
+  return true;
+}
+
+/**
+ * Mark an entry whose backend answered before but has stopped, or bring it
+ * back. Unreachable dims the entry like `.disabled` but leaves it clickable —
+ * its menu, popout and "×" stay live — and points its tooltip at when the
+ * backend stopped answering. Reachable restores the entry and its tooltip.
+ * `.disabled` (never answered) is untouched either way.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ * @param {boolean} reachable
+ * @param {number} [sinceMs] - epoch ms of the first unanswered poll, shown in
+ *   the tooltip while unreachable
+ * @returns {boolean} true when the entry existed and was updated
+ */
+export function setEntryReachable(railEl, panelId, reachable, sinceMs) {
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return false;
+  entry.classList.toggle('unreachable', !reachable);
+  if (reachable) {
+    entry.removeAttribute(UNREACHABLE_ATTR);
+  } else {
+    entry.setAttribute(UNREACHABLE_ATTR, clockTime(sinceMs ?? Date.now()));
+  }
+  renderTitle(entry);
   return true;
 }

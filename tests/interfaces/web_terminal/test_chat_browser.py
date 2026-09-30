@@ -70,9 +70,9 @@ from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
-# The Fake* SDK-message doubles live with the operator_session unit tests; reuse
-# them so isinstance() inside _message_to_events matches what the fake yields.
-from tests.interfaces.web_terminal.test_operator_session import (
+# The shared Fake* SDK-message doubles, so isinstance() inside _message_to_events
+# matches what the fake yields.
+from tests.interfaces.web_terminal._fakes import (
     FakeAssistantMessage,
     FakeResultMessage,
     FakeSystemMessage,
@@ -747,11 +747,16 @@ def test_streamed_markdown_renders_in_chat_card(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.flaky(
-    reruns=2, only_rerun=["AssertionError"]
-)  # browser timing under load; passes in isolation
 def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
-    """A second prompt in the same page-load reuses the session; both show."""
+    """A second prompt sent the moment the input comes back reaches the same session.
+
+    The input is re-enabled when the turn's terminal frame arrives, so that is
+    the moment the operator may type again — and the server must already
+    accept the next turn then, not a beat later. The second prompt is sent
+    with no server-side barrier in between: a guard still held when the
+    browser says the turn is over answers 409, and the operator reads "a turn
+    is already running" for a turn that has finished.
+    """
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["first question"] = [("text", "first answer"), ("result",)]
         _PLANS["second question"] = [("text", "second answer"), ("result",)]
@@ -761,7 +766,6 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
             "first answer", timeout=10_000
         )
-        # Turn must end (input re-enabled) before the second turn is submitted.
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled()
 
         _send(page, "second question")
@@ -769,10 +773,13 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
             "second answer", timeout=10_000
         )
 
-        # Both exchanges are on screen...
+        # Both exchanges are on screen, and nothing was refused on the way.
         expect(page.locator(f"{_OP} .op-entry.operator")).to_have_count(2)
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_have_count(2)
-        # ...and the SDK seam saw both prompts, in order (one reused session).
+        expect(page.locator(f"{_OP} .op-system")).to_have_count(0)
+        # One chat session held both turns, and it saw both prompts in order.
+        state = requests.get(f"{base_url}/__test__/chat-state").json()
+        assert state["n"] == 1, state
         assert _OBSERVED_PROMPTS == ["first question", "second question"]
 
         page.close()
@@ -981,14 +988,16 @@ def test_hostile_markdown_renders_inert(tmp_path, chromium_browser):
 
 
 def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
-    """An eviction with nothing to resume makes the next turn show the divider.
+    """No divider after a fresh first turn; exactly one after an unresumable eviction.
 
     What paints the divider is the conversation ending, not the process dying.
-    The evicted key has no transcript on disk here — the faked SDK writes none
-    — so the re-created session has nothing to continue and starts a
-    conversation of its own, which is what re-emits ``session_reset`` while
-    prior turns are on screen. Its counterpart is the resume below, where the
-    same eviction draws nothing.
+    A fresh page's first turn also opens with ``session_reset`` (the chat has
+    no transcript to continue), and the operator's own prompt is not prior
+    history, so nothing is drawn there. The evicted key has no transcript on
+    disk either — the faked SDK writes none — so the re-created session starts
+    a conversation of its own, and that ``session_reset``, arriving with prior
+    turns on screen, is the one that paints. Its counterpart is the resume
+    below, where the same eviction draws nothing.
     """
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["turn one"] = [("text", "answer one"), ("result",)]
@@ -1001,11 +1010,9 @@ def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
         )
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled()
 
-        # Count dividers BEFORE the eviction and assert the eviction adds exactly
-        # one more. Measuring the delta keeps this test correct whether or not the
-        # separate first-turn-divider bug is present.
+        # The first turn opened a conversation; it did not lose one.
         divider = page.locator(f"{_OP} .op-system").filter(has_text="session reset")
-        before = divider.count()
+        expect(divider).to_have_count(0)
 
         _wait_chat_idle(base_url)
         resp = requests.post(f"{base_url}/__test__/evict-all")
@@ -1013,7 +1020,7 @@ def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
 
         _send(page, "turn two")
         # The eviction's session_reset paints a fresh divider (prior turns present).
-        expect(divider).to_have_count(before + 1, timeout=10_000)
+        expect(divider).to_have_count(1, timeout=10_000)
         expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text("answer two")
 
         page.close()
@@ -1057,28 +1064,6 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
         # The re-created session resumed rather than started.
         options = _wait_for_chat_options(base_url)
         assert [entry.get("resume") for entry in options] == [key]
-        expect(page.locator(f"{_OP} .op-system").filter(has_text="session reset")).to_have_count(0)
-
-        page.close()
-
-
-def test_no_session_reset_divider_on_fresh_first_turn(tmp_path, chromium_browser):
-    """A fresh page's very first turn must NOT show a "session reset" divider.
-
-    The renderer's ``hasPriorExchange`` gate suppresses the first turn's
-    ``session_reset`` even though the controller renders the user message before
-    the stream starts — so no spurious divider paints under the operator's very
-    first prompt. (Regression guard for the first-turn-divider fix.)
-    """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["hello there"] = [("text", "hi back"), ("result",)]
-        page = _open_chat_page(chromium_browser, base_url)
-
-        _send(page, "hello there")
-        expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
-            "hi back", timeout=10_000
-        )
-        # No session-reset divider should exist after a fresh first turn.
         expect(page.locator(f"{_OP} .op-system").filter(has_text="session reset")).to_have_count(0)
 
         page.close()

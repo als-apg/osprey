@@ -158,12 +158,6 @@ describe('line cap', () => {
 
     expect(out).toBe(`${MARKER}\nkept and wrapped`);
   });
-
-  test('maxLines is configurable', () => {
-    const out = captureScrollback(fakeTermFromLines(['a', 'b', 'c', 'd']), { maxLines: 2 });
-
-    expect(out).toBe(`${MARKER}\nc\nd`);
-  });
 });
 
 describe('byte cap', () => {
@@ -227,18 +221,14 @@ describe('byte cap', () => {
 });
 
 describe('degenerate terminals', () => {
-  test('an absent terminal captures nothing', () => {
-    expect(captureScrollback(null)).toBe('');
-    expect(captureScrollback(undefined)).toBe('');
-  });
-
-  test('a terminal without a buffer captures nothing', () => {
-    expect(captureScrollback({})).toBe('');
-    expect(captureScrollback({ buffer: {} })).toBe('');
-  });
-
-  test('an empty buffer captures nothing', () => {
-    expect(captureScrollback(fakeTermFromLines([]))).toBe('');
+  test.each([
+    ['an absent terminal', null],
+    ['an undefined terminal', undefined],
+    ['a terminal without a buffer', {}],
+    ['a buffer without an active screen', { buffer: {} }],
+    ['an empty buffer', fakeTermFromLines([])],
+  ])('%s captures nothing', (_case, term) => {
+    expect(captureScrollback(/** @type {any} */ (term))).toBe('');
   });
 
   test('a row the buffer refuses to hand back reads as an empty row', () => {

@@ -15,11 +15,12 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import {
-  openContextMenu,
-  closeContextMenu,
-  isContextMenuOpen,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/panel-context-menu.js';
+import { openContextMenu } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-context-menu.js';
+
+/** Whether a menu is on screen — the DOM contract, not module state. */
+function isContextMenuOpen() {
+  return document.querySelector('.rail-context-menu') !== null;
+}
 
 /** The open menu element, or null. @returns {HTMLElement | null} */
 function menu() {
@@ -73,7 +74,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  closeContextMenu();
+  // An outside press dismisses whatever a test left open, and with it the
+  // document and window listeners the menu holds.
+  document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
   vi.restoreAllMocks();
 });
 
@@ -304,10 +307,6 @@ describe('dismissal', () => {
     expect(document.activeElement).toBe(other);
   });
 
-  test('closeContextMenu is safe with no menu open', () => {
-    expect(() => closeContextMenu()).not.toThrow();
-    expect(isContextMenuOpen()).toBe(false);
-  });
 });
 
 describe('focus hand-back', () => {
@@ -368,15 +367,6 @@ describe('focus hand-back', () => {
     }
   });
 
-  test('closeContextMenu() does not move focus', () => {
-    const { entry } = mountSurfaces();
-    entry.focus();
-    openServiceMenu({ anchorEl: entry });
-
-    closeContextMenu();
-
-    expect(document.activeElement).not.toBe(entry);
-  });
 });
 
 describe('running an item', () => {
@@ -415,10 +405,4 @@ describe('running an item', () => {
     expect(document.activeElement).toBe(target);
   });
 
-  test('a row with no run closes the menu without throwing', () => {
-    openContextMenu({ x: 0, y: 0, ariaLabel: 'ARIEL actions', items: [{ label: 'Focus ARIEL' }] });
-
-    expect(() => rows()[0].click()).not.toThrow();
-    expect(isContextMenuOpen()).toBe(false);
-  });
 });

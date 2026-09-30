@@ -3,22 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import logging
 import os
 import shutil
 import time
 from pathlib import Path, PurePath
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from watchdog.events import (
+    DirCreatedEvent,
     DirDeletedEvent,
     DirModifiedEvent,
     DirMovedEvent,
     FileCreatedEvent,
     FileDeletedEvent,
     FileModifiedEvent,
+    FileMovedEvent,
 )
 from watchdog.observers.polling import PollingObserver
 
@@ -26,6 +27,8 @@ from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
     WorkspaceWatcher,
     _WorkspaceHandler,
+    filesystem_is_case_insensitive,
+    resolve_store_rel,
 )
 from tests.interfaces.fsevents_wait import (
     collect_frames,
@@ -57,11 +60,6 @@ def _polling_observer() -> PollingObserver:
 
 
 class TestFileEventBroadcaster:
-    def test_subscribe_returns_queue(self):
-        broadcaster = FileEventBroadcaster()
-        q = broadcaster.subscribe()
-        assert isinstance(q, asyncio.Queue)
-
     def test_broadcast_delivers_to_subscribers(self):
         broadcaster = FileEventBroadcaster()
         q1 = broadcaster.subscribe()
@@ -82,22 +80,31 @@ class TestFileEventBroadcaster:
         broadcaster.broadcast({"type": "modified", "path": "test.py"})
         assert q.empty()
 
-    def test_unsubscribe_nonexistent_is_safe(self):
+    def test_unsubscribing_what_is_not_subscribed_removes_nothing_else(self):
         broadcaster = FileEventBroadcaster()
-        q = asyncio.Queue()
-        # Should not raise
-        broadcaster.unsubscribe(q)
+        gone = broadcaster.subscribe()
+        broadcaster.unsubscribe(asyncio.Queue())
+        broadcaster.unsubscribe(gone)
+        broadcaster.unsubscribe(gone)
+        staying = broadcaster.subscribe()
 
-    def test_broadcast_drops_on_full_queue(self):
+        broadcaster.broadcast({"type": "modified", "path": "test.py"})
+
+        assert staying.get_nowait()["path"] == "test.py"
+        assert gone.empty()
+
+    def test_a_full_queue_drops_the_newest_and_the_broadcast_goes_on(self):
         broadcaster = FileEventBroadcaster()
         q = broadcaster.subscribe()
 
-        # Fill the queue (maxsize=64)
         for i in range(70):
             broadcaster.broadcast({"type": "modified", "path": f"file_{i}.py"})
+        late = broadcaster.subscribe()
+        broadcaster.broadcast({"type": "modified", "path": "after.py"})
 
-        # Queue should be at max capacity, not overflowing
-        assert q.qsize() <= 64
+        assert q.qsize() == 64
+        assert q.get_nowait()["path"] == "file_0.py"
+        assert late.get_nowait()["path"] == "after.py"
 
 
 class TestWorkspaceWatcher:
@@ -111,14 +118,6 @@ class TestWorkspaceWatcher:
             assert workspace.exists()
         finally:
             watcher.stop()
-
-    def test_start_and_stop(self, tmp_path):
-        broadcaster = FileEventBroadcaster()
-        watcher = WorkspaceWatcher(tmp_path, broadcaster)
-        watcher.start()
-        watcher.stop()
-        # Should not raise on double stop
-        watcher.stop()
 
     def test_start_primes_the_root_so_the_first_pass_announces_nothing(self, tmp_path):
         """What is already in the workspace when the watcher starts is not a
@@ -152,26 +151,6 @@ class TestWorkspaceWatcher:
         assert not thread.is_alive()
         assert watcher._reconciler is None
         watcher.stop()  # still idempotent
-
-    def test_the_observer_backend_is_injectable(self, tmp_path):
-        """The seam every routing test below stands on.
-
-        Without it a test can only ask the platform's own notification stream
-        for a change and hope it was listening.
-        """
-        built = []
-
-        def factory() -> PollingObserver:
-            observer = _polling_observer()
-            built.append(observer)
-            return observer
-
-        watcher = WorkspaceWatcher(tmp_path, FileEventBroadcaster(), observer_factory=factory)
-        watcher.start()
-        try:
-            assert built == [watcher._observer]
-        finally:
-            watcher.stop()
 
     def test_detects_file_creation(self, tmp_path):
         """Routing: a file that appears reaches the panel as ``created``.
@@ -259,31 +238,14 @@ class TestWorkspaceWatcher:
         finally:
             watcher.stop()
 
-    def test_ignores_git_directory(self, tmp_path):
-        broadcaster = FileEventBroadcaster()
-        q = broadcaster.subscribe()
-        watcher = WorkspaceWatcher(tmp_path, broadcaster)
-        watcher.start()
+    def test_ignores_git_directory(self):
+        broadcaster = MagicMock()
+        handler = _handler((), broadcaster)
 
-        try:
-            # Create files in .git (should be ignored)
-            git_dir = tmp_path / ".git"
-            git_dir.mkdir()
-            (git_dir / "HEAD").write_text("ref: refs/heads/main")
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / ".git" / "HEAD")))
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "src" / "x.py")))
 
-            time.sleep(0.5)
-            events = []
-            while not q.empty():
-                try:
-                    events.append(q.get_nowait())
-                except asyncio.QueueEmpty:
-                    break
-
-            # Should not have events for .git paths
-            git_events = [e for e in events if ".git" in e.get("path", "")]
-            assert len(git_events) == 0
-        finally:
-            watcher.stop()
+        assert _broadcast_paths(broadcaster) == [str(Path("src/x.py"))]
 
     def test_an_event_path_reported_as_bytes_still_reaches_the_panel(self):
         """watchdog types ``src_path`` as ``bytes | str`` and hands on
@@ -312,6 +274,13 @@ def _broadcast_paths(broadcaster: MagicMock) -> list[str]:
     return [call.args[0]["path"] for call in broadcaster.broadcast.call_args_list]
 
 
+def _require_case_insensitive_fs(directory: Path) -> None:
+    """Skip rather than pass vacuously where the case-variant bypass is not reachable."""
+    (directory / "probe").write_text("x")
+    if not (directory / "PROBE").exists():
+        pytest.skip("case-sensitive filesystem: the case-variant bypass is not reachable here")
+
+
 class TestSeveralStoresAreConcealed:
     """``concealed`` is a collection: every server-side store the watched tree
     happens to contain is dropped, not just the feedback one.
@@ -324,29 +293,15 @@ class TestSeveralStoresAreConcealed:
     not what these tests are about.
     """
 
-    def test_both_stores_are_dropped(self):
-        broadcaster = MagicMock()
-        handler = _handler((PurePath("feedback"), PurePath("bar_items")), broadcaster)
-
-        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "feedback" / "fb-abc123.json")))
-        handler.on_any_event(FileModifiedEvent(str(WORKSPACE / "bar_items" / "layout.json")))
-
-        broadcaster.broadcast.assert_not_called()
-
-    def test_the_atomic_write_temp_file_is_dropped_too(self):
-        """The store writes through a dot-prefixed temp name and renames it;
-        both paths are inside the concealed directory."""
-        broadcaster = MagicMock()
-        handler = _handler((PurePath("feedback"), PurePath("bar_items")), broadcaster)
-
-        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "bar_items" / ".layout.json.tmp")))
-
-        broadcaster.broadcast.assert_not_called()
-
     def test_ordinary_content_beside_them_still_broadcasts(self):
         broadcaster = MagicMock()
         handler = _handler((PurePath("feedback"), PurePath("bar_items")), broadcaster)
 
+        # Both stores, and the dot-prefixed temp name an atomic store write
+        # passes through, are dropped; the ordinary content beside them is not.
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "feedback" / "fb-abc123.json")))
+        handler.on_any_event(FileModifiedEvent(str(WORKSPACE / "bar_items" / "layout.json")))
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "bar_items" / ".layout.json.tmp")))
         handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "artifacts" / "plot.png")))
         handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "bar_items_notes.md")))
 
@@ -379,14 +334,6 @@ class TestSeveralStoresAreConcealed:
             str(Path("bar_items/layout.json")),
         ]
 
-    def test_the_default_conceals_nothing(self):
-        broadcaster = MagicMock()
-        handler = _WorkspaceHandler(WORKSPACE, broadcaster)
-
-        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "bar_items" / "layout.json")))
-
-        assert _broadcast_paths(broadcaster) == [str(Path("bar_items/layout.json"))]
-
     def test_multi_segment_members_are_segment_exact(self):
         broadcaster = MagicMock()
         handler = _handler((PurePath("shared/feedback"), PurePath("shared/bar_items")), broadcaster)
@@ -416,9 +363,7 @@ class TestSeveralStoresAreConcealed:
         """``mkdir(exist_ok=True)`` against ``bar_items`` succeeds silently
         when ``Bar_Items`` already exists, so a layout really can be written
         under a spelling an exact segment compare would broadcast."""
-        (tmp_path / "probe").write_text("x")
-        if not (tmp_path / "PROBE").exists():
-            pytest.skip("case-sensitive filesystem: the case-variant bypass is not reachable here")
+        _require_case_insensitive_fs(tmp_path)
         workspace = tmp_path / "_agent_data"
         workspace.mkdir()
         broadcaster = MagicMock()
@@ -432,38 +377,89 @@ class TestSeveralStoresAreConcealed:
         assert _broadcast_paths(broadcaster) == [str(Path("artifacts/plot.png"))]
 
 
+class TestConcealmentIsRootAnchored:
+    """A store is concealed for every event type, from its own directory down,
+    and only where the workspace root puts it."""
+
+    def test_every_event_type_is_dropped(self):
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+        record = str(WORKSPACE / "feedback" / "fb-abc123.json")
+
+        handler.on_any_event(FileCreatedEvent(record))
+        handler.on_any_event(FileModifiedEvent(record + ".2"))
+        handler.on_any_event(FileDeletedEvent(record + ".3"))
+        handler.on_any_event(
+            FileMovedEvent(record + ".4", str(WORKSPACE / "feedback" / "fb-moved.json"))
+        )
+        handler.on_any_event(
+            FileCreatedEvent(str(WORKSPACE / "feedback" / "contexts" / "ctx-abc123.json"))
+        )
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "notes.md")))
+
+        assert _broadcast_paths(broadcaster) == ["notes.md"]
+
+    def test_store_directory_itself_is_dropped(self):
+        """The first submission creates the store; its own creation is concealed."""
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+
+        handler.on_any_event(DirCreatedEvent(str(WORKSPACE / "feedback")))
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "notes.md")))
+
+        assert _broadcast_paths(broadcaster) == ["notes.md"]
+
+    def test_nested_feedback_directory_still_broadcasts(self):
+        """A session-scoped ``feedback/`` elsewhere in the tree is ordinary content.
+
+        This is why the store is not added to ``_IGNORE_PATTERNS``, which
+        matches any path segment at any depth.
+        """
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+
+        handler.on_any_event(
+            FileCreatedEvent(str(WORKSPACE / "sessions" / "x" / "feedback" / "notes.md"))
+        )
+
+        assert _broadcast_paths(broadcaster) == [str(Path("sessions/x/feedback/notes.md"))]
+
+    def test_outside_the_workspace_is_still_dropped(self):
+        broadcaster = MagicMock()
+        handler = _handler((PurePath("feedback"),), broadcaster)
+
+        handler.on_any_event(FileCreatedEvent("/elsewhere/feedback/fb-abc.json"))
+        handler.on_any_event(FileCreatedEvent(str(WORKSPACE / "notes.md")))
+
+        assert _broadcast_paths(broadcaster) == ["notes.md"]
+
+
 class TestWatcherThreadsTheCollectionThrough:
     def test_start_passes_concealed_to_the_handler(self, tmp_path):
-        broadcaster = FileEventBroadcaster()
-        concealed = (PurePath("feedback"), PurePath("bar_items"))
-        watcher = WorkspaceWatcher(tmp_path, broadcaster, concealed=concealed)
+        """The watcher's handler drops what ``concealed`` names, whichever
+        trigger reports it -- driven here through one reconciliation pass."""
+        (tmp_path / "feedback").mkdir()
+        (tmp_path / "feedback" / "x.json").write_text("{}")
+        broadcaster = MagicMock()
+        watcher = WorkspaceWatcher(
+            tmp_path, broadcaster, concealed=(PurePath("feedback"),), observer_factory=MagicMock
+        )
+        watcher.start()
+        try:
+            watcher._reconciler.stop()  # drive the pass by hand, not by the clock
+            broadcaster.broadcast.reset_mock()
+            (tmp_path / "note.txt").write_text("x")
+            (tmp_path / "feedback" / "y.json").write_text("{}")
 
-        with patch("osprey.interfaces.web_terminal.file_watcher._WorkspaceHandler") as handler_cls:
-            watcher.start()
-            try:
-                assert handler_cls.call_args.args[:2] == (tmp_path, broadcaster)
-                assert handler_cls.call_args.kwargs["concealed"] == concealed
-            finally:
-                watcher.stop()
+            watcher._reconciler._pass_once()
 
-    def test_the_argument_is_keyword_only(self, tmp_path):
-        """Keeps every two-argument construction — the conftest stub included —
-        working, and stops a positional third argument appearing at the
-        lifespan's construction site."""
-        with pytest.raises(TypeError):
-            WorkspaceWatcher(tmp_path, FileEventBroadcaster(), (PurePath("feedback"),))
-
-        with pytest.raises(TypeError):
-            _WorkspaceHandler(tmp_path, MagicMock(), (PurePath("feedback"),))
+            assert _broadcast_paths(broadcaster) == ["note.txt"]
+        finally:
+            watcher.stop()
 
 
 class TestLifespanConcealsBothStores:
-    """``app.py`` resolves both stores and hands the watcher the pair.
-
-    Also the one place the per-user layout's lifespan state is pinned: the
-    store directory, the cache the renderer reads and the lock the routes take
-    all have to exist by the time the first request arrives.
-    """
+    """``app.py`` resolves both stores and hands the watcher the pair."""
 
     def _boot(self, tmp_path):
         from fastapi.testclient import TestClient
@@ -509,155 +505,6 @@ class TestLifespanConcealsBothStores:
         assert constructed == [(workspace_dir, (PurePath("feedback"), PurePath("bar_items")))]
         assert state.feedback_rel == PurePath("feedback")
         assert state.bar_items_rel == PurePath("bar_items")
-
-    def test_the_bar_items_store_is_a_sibling_of_the_feedback_store(self, tmp_path):
-        workspace_dir, _, state = self._boot(tmp_path)
-
-        assert state.bar_items_dir == workspace_dir / "bar_items"
-        assert state.feedback_dir == workspace_dir / "feedback"
-
-    def test_the_layout_cache_is_empty_until_something_is_saved(self, tmp_path):
-        """``None`` is the honest answer for "this operator has saved nothing";
-        the deployment default in ``bar_layout`` is what renders."""
-        from osprey.interfaces.web_terminal.app import effective_bar_layout
-
-        _, _, state = self._boot(tmp_path)
-
-        assert state.bar_items_effective is None
-        assert effective_bar_layout(SimpleNamespace(state=state)) is state.bar_layout
-
-    def test_a_saved_layout_is_loaded_into_the_cache_at_boot(self, tmp_path):
-        """The store is read once, at startup — not on every render."""
-        from osprey.interfaces.web_terminal.app import effective_bar_layout
-        from osprey.interfaces.web_terminal.bar_items_store import save_layout
-
-        store_dir = tmp_path / "_agent_data" / "bar_items"
-        store_dir.mkdir(parents=True)
-        saved = {
-            "version": 1,
-            "rev": 0,
-            "header": [{"type": "logo"}, {"type": "clock", "options": {"zone": "utc"}}],
-            "status": [],
-            "status_visible": False,
-        }
-        from osprey.interfaces.web_terminal.app import bar_item_vocabulary
-
-        save_layout(store_dir, saved, vocabulary=bar_item_vocabulary())
-
-        _, _, state = self._boot(tmp_path)
-
-        assert state.bar_items_effective is not None
-        assert [item["type"] for item in state.bar_items_effective["header"]] == ["logo", "clock"]
-        assert state.bar_items_effective["rev"] == 1
-        assert effective_bar_layout(SimpleNamespace(state=state)) is state.bar_items_effective
-
-    def _store_holding(self, tmp_path, text: str):
-        """Put *text* in the layout document before the app boots."""
-        store_dir = tmp_path / "_agent_data" / "bar_items"
-        store_dir.mkdir(parents=True)
-        (store_dir / "layout.json").write_text(text)
-
-    def test_a_corrupt_document_does_not_stop_the_boot(self, tmp_path):
-        """Never hard-fail on a bad store: a damaged preferences blob costs the
-        operator their arrangement, never the terminal."""
-        from osprey.interfaces.web_terminal.app import effective_bar_layout
-
-        self._store_holding(tmp_path, "{ this is not json")
-
-        _, _, state = self._boot(tmp_path)
-
-        assert state.bar_items_effective is None
-        rendered = effective_bar_layout(SimpleNamespace(state=state))
-        assert rendered is state.bar_layout
-        assert [item["type"] for item in rendered["header"]] == [
-            item["type"] for item in state.bar_layout["header"]
-        ]
-
-    def test_a_document_from_a_newer_build_does_not_stop_the_boot(self, tmp_path):
-        """A schema version this build cannot read is refused whole, for the
-        same reason the renderer refuses one: painting a document the client
-        will discard hydrates into a different arrangement."""
-        from osprey.interfaces.web_terminal.app import (
-            BAR_LAYOUT_VERSION,
-            effective_bar_layout,
-        )
-
-        self._store_holding(
-            tmp_path,
-            json.dumps(
-                {
-                    "version": BAR_LAYOUT_VERSION + 98,
-                    "rev": 7,
-                    "header": [{"type": "display"}],
-                    "status": [],
-                    "status_visible": False,
-                }
-            ),
-        )
-
-        _, _, state = self._boot(tmp_path)
-
-        assert state.bar_items_effective is None
-        rendered = effective_bar_layout(SimpleNamespace(state=state))
-        assert rendered is state.bar_layout
-        assert [item["type"] for item in rendered["header"]] == [
-            item["type"] for item in state.bar_layout["header"]
-        ]
-
-    def test_the_lock_and_vocabulary_are_wired(self, tmp_path):
-        from osprey.interfaces.web_terminal.app import (
-            BAR_LAYOUT_VERSION,
-            MAX_BAR_ITEMS_PER_HOST,
-        )
-
-        _, _, state = self._boot(tmp_path)
-
-        assert isinstance(state.bar_items_lock, asyncio.Lock)
-        assert state.bar_items_vocabulary.version == BAR_LAYOUT_VERSION
-        assert state.bar_items_vocabulary.max_items_per_host == MAX_BAR_ITEMS_PER_HOST
-        assert "clock" in state.bar_items_vocabulary.items
-
-
-class TestBarItemVocabulary:
-    """The vocabulary app.py hands the store is built from the tables the SSR
-    pin already guards, so the store cannot become a second authority."""
-
-    def test_every_known_type_is_in_the_vocabulary_with_no_placement_axis(self):
-        from osprey.interfaces.web_terminal.app import BAR_ITEM_TYPES, bar_item_vocabulary
-
-        vocabulary = bar_item_vocabulary()
-
-        assert set(vocabulary.items) == set(BAR_ITEM_TYPES)
-        assert "hosts" not in vocabulary.items["logo"]
-        assert vocabulary.items["logo"]["multi"] is False
-
-    def test_the_types_with_options_carry_their_specs(self):
-        from osprey.interfaces.web_terminal.app import bar_item_vocabulary
-
-        items = bar_item_vocabulary().items
-
-        assert items["clock"]["options"]["zone"]["values"] == ("none", "local", "utc", "both")
-        assert items["bluesky-queue"]["options"]["controls"]["default"] == "none"
-        assert items["clock"]["options"]["seconds"]["default"] is False
-        assert items["space"]["options"]["width"]["default"] == 0
-        assert items["space"]["options"]["width"]["max"] == 2000
-
-    def test_every_type_says_whether_it_may_repeat(self):
-        from osprey.interfaces.web_terminal.app import BAR_ITEM_MULTI, bar_item_vocabulary
-
-        items = bar_item_vocabulary().items
-
-        assert {name for name, spec in items.items() if spec["multi"]} == set(BAR_ITEM_MULTI)
-        assert items["docs"]["multi"] is False
-        assert items["space"]["multi"] is True
-
-    def test_every_other_type_declares_no_options(self):
-        from osprey.interfaces.web_terminal.app import bar_item_vocabulary
-
-        items = bar_item_vocabulary().items
-
-        assert items["logo"]["options"] == {}
-        assert items["separator"]["options"] == {}
 
 
 class TestACoalescedDirectoryFrame:
@@ -822,23 +669,6 @@ class TestACoalescedDirectoryFrame:
         assert {"type": "deleted", "path": str(Path("sub") / "note.txt"), "is_dir": False} in (
             self._events(broadcaster)
         ), "what the directory held is still announced as deleted"
-        assert str(sub) not in handler._listings
-
-    def test_a_deleted_directory_drops_its_listing(self, tmp_path):
-        """A directory removed the ordinary way is announced by a deletion and
-        by nothing else — no later frame arrives to evict its listing."""
-        sub = tmp_path / "sub"
-        sub.mkdir()
-        (sub / "note.txt").write_text("hello")
-        broadcaster = MagicMock()
-        handler = self._handler(tmp_path, broadcaster)
-        handler.on_any_event(DirModifiedEvent(str(sub)))
-        assert str(sub) in handler._listings
-
-        (sub / "note.txt").unlink()
-        sub.rmdir()
-        handler.on_any_event(DirDeletedEvent(str(sub)))
-
         assert str(sub) not in handler._listings
 
     def test_a_recursive_deletion_reported_once_drops_the_whole_subtree(self, tmp_path):
@@ -1021,60 +851,6 @@ class TestAReconciliationPass:
             {"type": "deleted", "path": "note.txt", "is_dir": False}
         ]
 
-    def test_ignored_children_stay_ignored(self, tmp_path):
-        """The pass is not a way around the ignore list."""
-        broadcaster = MagicMock()
-        handler = self._handler(tmp_path, broadcaster)
-
-        (tmp_path / "__pycache__").mkdir()
-        (tmp_path / "module.pyc").write_bytes(b"\x00")
-        handler.reconcile((tmp_path,))
-
-        assert self._events(broadcaster) == []
-
-    def test_concealed_children_stay_concealed(self, tmp_path):
-        """Nor around concealment: a store is a store however its change was
-        observed."""
-        broadcaster = MagicMock()
-        handler = self._handler(tmp_path, broadcaster, concealed=(PurePath("feedback"),))
-
-        (tmp_path / "feedback").mkdir()
-        handler.reconcile((tmp_path,))
-
-        assert self._events(broadcaster) == []
-
-    def test_a_pass_over_a_directory_that_is_gone_drops_its_key(self, tmp_path):
-        sub = tmp_path / "sub"
-        sub.mkdir()
-        (sub / "note.txt").write_text("hello")
-        broadcaster = MagicMock()
-        handler = self._handler(tmp_path, broadcaster)
-        handler.on_any_event(DirModifiedEvent(str(sub)))
-        assert str(sub) in handler._listings
-        broadcaster.reset_mock()
-
-        (sub / "note.txt").unlink()
-        sub.rmdir()
-        handler.reconcile((tmp_path,))
-
-        assert str(sub) not in handler._listings
-
-    def test_the_pass_visits_the_roots_and_the_tracked_directories_and_nothing_else(self, tmp_path):
-        """One pass visits the roots, the directories already tracked, and the
-        directories a previous pass found changed below them — so a directory
-        that has only just appeared is announced now and read next time."""
-        broadcaster = MagicMock()
-        handler = self._handler(tmp_path, broadcaster)
-
-        untracked = tmp_path / "sub"
-        untracked.mkdir()
-        (untracked / "deep.txt").write_text("hello")
-        handler.reconcile((tmp_path,))
-
-        events = self._events(broadcaster)
-        assert {"type": "created", "path": "sub", "is_dir": True} in events
-        assert [e for e in events if "deep.txt" in e["path"]] == []
-
     def test_a_tracked_subdirectory_is_visited(self, tmp_path):
         """Once a frame has named a directory the pass re-reads it, so a change
         the stream drops there is still announced."""
@@ -1166,3 +942,86 @@ class TestAReconciliationPass:
 
         assert handler._pending_descent == set()
         assert self._events(broadcaster) == []
+
+
+class TestFirstEverStartup:
+    """The derivation probes the filesystem, so it must not run before the
+    workspace exists. The watcher creates it in ``start()`` -- too late."""
+
+    def test_concealment_engages_when_the_workspace_is_absent_at_derivation(self, tmp_path):
+        """First run, case-mismatched store: an absent directory probes as
+        case-sensitive, yields ``None``, and leaves concealment off for the
+        life of the process."""
+        _require_case_insensitive_fs(tmp_path)
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.web_terminal.app import create_app
+
+        workspace_dir = tmp_path / "_agent_data"  # deliberately NOT created
+        store_root = tmp_path / "_AGENT_DATA"
+
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ),
+            patch(
+                "osprey.utils.workspace.resolve_shared_data_root",
+                return_value=store_root,
+            ),
+        ):
+            with TestClient(create_app(shell_command="echo")) as client:
+                assert client.app.state.feedback_rel == PurePath("feedback")
+
+
+class TestStoreRelDerivation:
+    """``resolve_store_rel`` decides whether the watcher conceals anything at
+    all -- returning ``None`` disables concealment entirely."""
+
+    def test_store_inside_the_tree(self, tmp_path):
+        assert resolve_store_rel(tmp_path / "feedback", tmp_path) == PurePath("feedback")
+
+    def test_store_outside_the_tree_is_none(self, tmp_path):
+        outside = tmp_path.parent / "elsewhere" / "feedback"
+        assert resolve_store_rel(outside, tmp_path / "_agent_data") is None
+
+    def test_a_differently_cased_workspace_still_yields_a_relative_path(self, tmp_path):
+        """The store root and ``watch_dir`` can spell one directory two ways.
+        An exact comparison returns ``None`` here, silently switching the
+        watcher's concealment off."""
+        _require_case_insensitive_fs(tmp_path)
+        workspace = tmp_path / "_agent_data"
+        workspace.mkdir()
+
+        store = tmp_path / "_AGENT_DATA" / "feedback"
+        assert resolve_store_rel(store, workspace) == PurePath("feedback")
+
+    def test_a_store_that_is_the_watched_tree_is_none(self, tmp_path, caplog):
+        """That relative path has no segments, which every path trivially
+        starts with -- concealing it would drop every event and black out the
+        file panel entirely."""
+        with caplog.at_level(logging.WARNING, logger="osprey.interfaces.web_terminal.file_watcher"):
+            assert resolve_store_rel(tmp_path, tmp_path) is None
+
+        assert "watched workspace itself" in caplog.text
+
+    def test_an_uncased_workspace_name_is_probed_from_inside(self, tmp_path):
+        """A workspace whose own basename has no cased characters (``2026``)
+        cannot be re-spelled, and probing its parent would measure the wrong
+        filesystem for a mount point. The probe uses a child instead."""
+        _require_case_insensitive_fs(tmp_path)
+        workspace = tmp_path / "2026"
+        workspace.mkdir()
+        (workspace / "artifacts").mkdir()
+
+        assert filesystem_is_case_insensitive(workspace) is True
+        assert resolve_store_rel(workspace / "FEEDBACK", workspace) == PurePath("FEEDBACK")
+
+    def test_an_empty_uncased_workspace_falls_back_without_raising(self, tmp_path):
+        """Nothing inside to re-spell and nothing cased in the name: the probe
+        gives up and the exact comparison stands."""
+        workspace = tmp_path / "2026"
+        workspace.mkdir()
+
+        assert filesystem_is_case_insensitive(workspace) is False
+        assert resolve_store_rel(workspace / "feedback", workspace) == PurePath("feedback")

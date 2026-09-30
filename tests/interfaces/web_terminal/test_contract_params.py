@@ -9,7 +9,7 @@ requires a real browser evaluating real page script:
   (design-system ``frame-params.js``) adds the ``embedded`` class to
   ``document.body``; ``?theme=<id>`` -> ``theme-boot.js`` applies
   ``data-theme`` before first paint and ``theme-manager.js`` follows it.
-  See :func:`test_query_params_configure_embedded_and_theme`.
+  See :func:`test_embedded_hides_branding_and_switcher`.
 - **hash = panel-owned deep-link.** okf_panel reads its own
   ``location.hash`` and routes to that concept on load
   (``readPanelParams``/``bootFromParams`` in okf_panel's ``app.js``); the hub
@@ -76,60 +76,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 
 # ---------------------------------------------------------------------------
-# (1) query = creation-time config: ?embedded=true, ?theme=<id>
-# ---------------------------------------------------------------------------
-
-
-# Every panel that the hub embeds shares one reader (frame-params.applyEmbedded())
-# and one theme follower (theme-manager + pre-paint theme-boot.js), but each calls
-# applyEmbedded() at a different site/timing (inline top-level, inside init(),
-# inside checkEmbedded(), inside a DOMContentLoaded handler) -- so the query=config
-# arm is asserted for ALL five, not just one, to prove no per-panel migration
-# regressed the observable outcome.
-_EMBEDDED_PANELS = [
-    ("channel_finder", _launch_channel_finder),
-    ("okf_panel", _launch_okf_panel),
-    ("ariel", _launch_ariel),
-    ("lattice_dashboard", _launch_lattice_dashboard),
-]
-
-
-@pytest.mark.parametrize(
-    ("_panel_name", "launch"),
-    _EMBEDDED_PANELS,
-    ids=[name for name, _ in _EMBEDDED_PANELS],
-)
-def test_query_params_configure_embedded_and_theme(
-    _panel_name, launch, tmp_path, monkeypatch, chromium_browser
-):
-    """``?embedded=true`` adds ``body.embedded``; ``?theme=dark`` applies data-theme -- every panel.
-
-    Drives each of the five embedded panels with the same creation-time query
-    config and asserts the observable outcome -- the ``embedded`` body class
-    (from ``frame-params.applyEmbedded()``) and the requested ``data-theme``
-    (from pre-paint ``theme-boot.js`` + the ``theme-manager`` follower).
-    Requesting theme id 'dark' -- rather than relying on the auto-resolved
-    default, which is 'light' under headless Chromium's default no-preference
-    color scheme -- proves the query param, not the auto default, drove the
-    result.
-    """
-    # Arrange
-    with launch(tmp_path, monkeypatch) as base_url:
-        page = chromium_browser.new_page()
-
-        # Act
-        page.goto(f"{base_url}?embedded=true&theme=dark", wait_until="load")
-
-        # Assert -- applyEmbedded() (frame-params.js) added the embedded class.
-        expect(page.locator("body.embedded")).to_have_count(1)
-        # Assert -- theme-boot.js (pre-paint) + theme-manager.js applied 'dark'.
-        expect(page.locator("html[data-theme='dark']")).to_have_count(1)
-
-        page.close()
-
-
-# ---------------------------------------------------------------------------
-# (2) hash = panel-owned deep-link
+# (1) hash = panel-owned deep-link
 # ---------------------------------------------------------------------------
 
 
@@ -164,7 +111,7 @@ def test_hash_deep_links_to_concept(tmp_path, monkeypatch, chromium_browser):
 
 
 # ---------------------------------------------------------------------------
-# (3) postMessage = live push
+# (2) postMessage = live push
 # ---------------------------------------------------------------------------
 
 
@@ -396,7 +343,7 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 
 
 # ---------------------------------------------------------------------------
-# (4) chrome contract: theme control + embedded-hide + D15 reload-strip
+# (3) chrome contract: query config, theme control, embedded-hide, D15 reload-strip
 # ---------------------------------------------------------------------------
 # Every panel exposes a theme control, and `applyEmbedded()` is wired into
 # each of the 6 panels below -- this is the automated proof that the chrome
@@ -412,7 +359,7 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 # chrome of its own to hide, so its entry is `None` and the branding
 # assertion is skipped for it.
 # `theme_control_selector` + `toggle_action` are the per-panel pair the
-# three chrome tests below drive: the element the D15 embedded-hide rule
+# two chrome tests below drive: the element the D15 embedded-hide rule
 # targets, and the callable that flips its appearance away from dark. Every
 # panel mounts `<osprey-display-menu>`, which collapses the preference behind
 # a popover, so its action opens the card first; session.html still mounts
@@ -472,6 +419,11 @@ _CHROME_CONTRACT_PANELS = [
     ),
 ]
 
+#: Pages whose theme-manager runs in the follower role even when opened
+#: standalone: they apply a pick but never persist one (theme-manager.js,
+#: ``initTheme({role})``). session.html is always a follower.
+_FOLLOWER_PAGES = frozenset({"web_terminal_session"})
+
 _CHROME_CONTRACT_ARGNAMES = (
     "_panel_name",
     "launch",
@@ -501,6 +453,11 @@ def test_embedded_hides_branding_and_switcher(
 ):
     """``?embedded=true`` hides the page's own branding AND its theme control.
 
+    It also carries the query=config arm for every embedded panel: each calls
+    ``applyEmbedded()`` at a different site and timing (inline top-level,
+    inside init(), inside checkEmbedded(), inside a DOMContentLoaded handler),
+    so ``body.embedded`` and a ``?theme=dark`` load are asserted per panel.
+
     The theme control's own D15 rule (``body.embedded <tag> { display: none
     }``, injected once by the component itself -- osprey-theme-switcher.js
     or osprey-display-menu.js) is what hides it -- no per-panel CSS is
@@ -509,16 +466,21 @@ def test_embedded_hides_branding_and_switcher(
     display: none }`` rule; this proves the theme-control rollout didn't
     disturb it.
     """
-    del toggle_action  # unused here; shared parametrization with the toggle tests below
+    del toggle_action  # unused here; shared parametrization with the toggle test below
     # Arrange
     with launch(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         # Act
-        page.goto(f"{base_url}{path}?embedded=true", wait_until="load")
+        page.goto(f"{base_url}{path}?embedded=true&theme=dark", wait_until="load")
 
         # Assert -- applyEmbedded() ran.
         expect(page.locator("body.embedded")).to_have_count(1)
+        # Assert -- the creation-time ?theme= applies in the embedded role too
+        # (pre-paint theme-boot.js + the theme-manager follower). 'dark' rather
+        # than the auto default, which is 'light' under headless Chromium, so
+        # the query param is what drove it.
+        expect(page.locator("html[data-theme='dark']")).to_have_count(1)
         # Assert -- the theme control is hidden by its component's own injected rule.
         assert (
             page.evaluate(
@@ -544,49 +506,6 @@ def test_embedded_hides_branding_and_switcher(
     _CHROME_CONTRACT_PANELS,
     ids=_CHROME_CONTRACT_IDS,
 )
-def test_switcher_present_and_toggles_theme_standalone(
-    _panel_name,
-    launch,
-    path,
-    branding_selector,
-    theme_control_selector,
-    toggle_action,
-    tmp_path,
-    monkeypatch,
-    chromium_browser,
-):
-    """Standalone (no ``?embedded``), the theme control is visible and toggles the theme.
-
-    Starts from an explicit ``?theme=dark`` (rather than relying on the
-    auto-resolved default) so the post-click assertion -- 'light' -- proves
-    the click actually drove ``toggleTheme()``, not a coincidental default.
-    """
-    del branding_selector  # unused here; shared parametrization with the embedded test above
-    # Arrange
-    with launch(tmp_path, monkeypatch) as base_url:
-        page = chromium_browser.new_page()
-
-        # Act
-        page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
-
-        # Assert -- the control is visible standalone (the inverse of the embedded case).
-        expect(page.locator(theme_control_selector)).to_be_visible()
-        expect(page.locator("html[data-theme='dark']")).to_have_count(1)
-
-        # Act -- drive the panel's own theme chrome.
-        toggle_action(page)
-
-        # Assert -- toggleTheme() cycled dark -> light.
-        expect(page.locator("html[data-theme='light']")).to_have_count(1)
-
-        page.close()
-
-
-@pytest.mark.parametrize(
-    _CHROME_CONTRACT_ARGNAMES,
-    _CHROME_CONTRACT_PANELS,
-    ids=_CHROME_CONTRACT_IDS,
-)
 def test_theme_toggle_strips_stale_query_param_and_survives_reload(
     _panel_name,
     launch,
@@ -598,34 +517,47 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
     monkeypatch,
     chromium_browser,
 ):
-    """D15: a toggle strips ``?theme=`` from the URL, so a reload can't resurrect it.
+    """Standalone, the theme control toggles dark to light and the pick survives reload.
 
-    Starts from a real ``?theme=dark`` query param (not merely its absence)
+    D15: the toggle strips ``?theme=`` from the URL, so the reload resolves the
+    stored pick instead of resurrecting the param. Starts from a real ``?theme=dark`` query param (not merely its absence)
     so the post-toggle assertion proves setTheme()'s ``history.replaceState``
     strip actually removed something, rather than passing vacuously on a URL
     that never had the param to begin with.
     """
-    del branding_selector, theme_control_selector  # shared parametrization with the tests above
+    del branding_selector  # unused here; shared parametrization with the embedded test above
     # Arrange
     with launch(tmp_path, monkeypatch) as base_url:
-        page = chromium_browser.new_page()
+        # A dark OS preference, so the auto-resolved theme a reload would fall
+        # back to without a stored pick is dark — the opposite of the pick.
+        page = chromium_browser.new_page(color_scheme="dark")
         page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
+        # Assert -- standalone, the control is visible (the inverse of the
+        # embedded case) and the query param applied.
+        expect(page.locator(theme_control_selector)).to_be_visible()
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
         # Act -- toggle via the panel's theme chrome (the only path a
         # follower ever reaches setTheme() through).
         toggle_action(page)
 
-        # Assert -- the leftover ?theme=dark is gone from the URL immediately.
+        # Assert -- toggleTheme() cycled dark -> light, and the leftover
+        # ?theme=dark is gone from the URL immediately.
+        expect(page.locator("html[data-theme='light']")).to_have_count(1)
         assert "theme=" not in page.url
 
         # Act -- reload.
         page.reload(wait_until="load")
 
         # Assert -- the stale param can't be resurrected because it was
-        # actually stripped (not just visually ignored): reload falls back
-        # to OS/localStorage resolution, and the URL still carries no
-        # ``theme=`` fragment for a future reload to trip over either.
+        # actually stripped (not just visually ignored): reload falls back to
+        # localStorage, then the OS preference. A hub-role page persisted the
+        # toggled pick, so it comes back light rather than the OS's dark; a
+        # follower-role page persists nothing, so it comes back on the OS
+        # preference — and in neither case on the param's dark by way of the
+        # param, which the URL check below rules out.
+        after_reload = "dark" if _panel_name in _FOLLOWER_PAGES else "light"
+        expect(page.locator(f"html[data-theme='{after_reload}']")).to_have_count(1)
         assert "theme=" not in page.url
 
         page.close()

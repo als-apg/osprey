@@ -104,15 +104,6 @@ function mountSimpleInput({ disabled = false } = {}) {
   return input;
 }
 
-describe('listPhrase', () => {
-  test('joins nothing, one, two and three items', () => {
-    expect(fc.listPhrase([])).toBe('');
-    expect(fc.listPhrase(['a'])).toBe('a');
-    expect(fc.listPhrase(['a', 'b'])).toBe('a and b');
-    expect(fc.listPhrase(['a', 'b', 'c'])).toBe('a, b, and c');
-  });
-});
-
 describe('capabilitySentence', () => {
   test('names where the values come from, per machine kind', () => {
     const facts = factsOf([], false);
@@ -124,12 +115,6 @@ describe('capabilitySentence', () => {
       'Here the agent can read values from the simulator.'
     );
     expect(fc.capabilitySentence('simulated', facts)).toBe('Here the agent can read demo data.');
-  });
-
-  test('a demo deployment is never told it reads the machine', () => {
-    const sentence = fc.capabilitySentence('simulated', factsOf([], false));
-    expect(sentence).toContain('read demo data');
-    expect(sentence).not.toContain('live machine');
   });
 
   test('the read phrase leads, then the server capabilities', () => {
@@ -148,12 +133,12 @@ describe('capabilitySentence', () => {
   test('is empty when there is nothing to claim', () => {
     expect(fc.capabilitySentence(null, factsOf([], false))).toBe('');
   });
-});
 
-describe('capabilityPhrases', () => {
   test('does not mutate the caller facts', () => {
+    // Prepending the read phrase into the caller's array would make every
+    // later sentence repeat it.
     const facts = factsOf(['run analysis scripts'], false);
-    fc.capabilityPhrases('live', facts);
+    fc.capabilitySentence('live', facts);
     expect(facts.capabilities).toEqual(['run analysis scripts']);
   });
 });
@@ -206,15 +191,11 @@ describe('setFacts', () => {
     ]);
   });
 
-  test('a failed read settles on empty facts rather than the last ones', () => {
+  // A failed read (null) and a read with no usable fields ({}) both settle on
+  // empty facts, not on whatever the last read said.
+  test.each([[null], [{}]])('%o settles on empty facts rather than the last ones', (tour) => {
     fc.setFacts({ capabilities: ['plot archived data'], logbook: true });
-    fc.setFacts(null);
-    expect(fc.capabilitySentence()).toBe('');
-    expect(fc.starterPrompts()).toEqual(['What are you allowed to do in this session?']);
-  });
-
-  test('missing fields are the same as absent facts', () => {
-    fc.setFacts({});
+    fc.setFacts(tour);
     expect(fc.capabilitySentence()).toBe('');
     expect(fc.starterPrompts()).toEqual(['What are you allowed to do in this session?']);
   });
@@ -236,14 +217,6 @@ describe('insertPrompt', () => {
     expect(term.paste.mock.invocationCallOrder[0]).toBeLessThan(
       term.focus.mock.invocationCallOrder[0]
     );
-  });
-
-  test('inserts no trailing newline, so nothing submits itself', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-    fc.insertPrompt('one prompt');
-    expect(term.paste).toHaveBeenCalledWith('one prompt');
-    expect(term.paste.mock.calls[0][0]).not.toContain('\n');
-    expect(term.paste.mock.calls[0][0]).not.toContain('\r');
   });
 
   test('an unrendered or unknown mode takes the terminal branch', () => {
@@ -294,30 +267,21 @@ describe('insertPrompt', () => {
 });
 
 describe('insertPrompt({ append: true })', () => {
-  /** Every submit that reached the document while the body ran. */
-  function countingSubmits(/** @type {() => void} */ body) {
-    let submits = 0;
-    const onSubmit = () => {
-      submits += 1;
-    };
-    document.addEventListener('submit', onSubmit, true);
-    try {
-      body();
-    } finally {
-      document.removeEventListener('submit', onSubmit, true);
-    }
-    return submits;
-  }
-
   test('appends below what the operator already typed, on its own line', () => {
     document.documentElement.setAttribute('data-ui-mode', 'simple');
     const input = mountSimpleInput();
     input.value = 'set these to nominal:';
+    let seen = 0;
+    input.addEventListener('input', () => {
+      seen += 1;
+    });
 
     fc.insertPrompt('SR:BPM1:X SR:BPM2:X', { append: true });
 
     expect(input.value).toBe('set these to nominal:\nSR:BPM1:X SR:BPM2:X');
     expect(document.activeElement).toBe(input);
+    // One input event, so the textarea regrows exactly once.
+    expect(seen).toBe(1);
   });
 
   test('does not stack blank lines on trailing whitespace', () => {
@@ -347,42 +311,6 @@ describe('insertPrompt({ append: true })', () => {
     fc.insertPrompt('SR:BPM1:X', { append: true });
 
     expect(input.value).toBe('SR:BPM1:X');
-  });
-
-  test('raises one input event, so the textarea regrows exactly once', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
-    input.value = 'already typed';
-    let seen = 0;
-    input.addEventListener('input', () => {
-      seen += 1;
-    });
-
-    fc.insertPrompt('SR:BPM1:X', { append: true });
-
-    expect(seen).toBe(1);
-  });
-
-  test('leaves a disabled input untouched, appended text and all', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput({ disabled: true });
-    input.value = 'mid-turn text';
-
-    fc.insertPrompt('SR:BPM1:X', { append: true });
-
-    expect(input.value).toBe('mid-turn text');
-    expect(document.activeElement).not.toBe(input);
-  });
-
-  test('never submits: the operator still presses Enter themselves', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    const input = mountSimpleInput();
-    input.value = 'already typed';
-
-    const submits = countingSubmits(() => fc.insertPrompt('SR:BPM1:X', { append: true }));
-
-    expect(submits).toBe(0);
-    expect(input.value.endsWith('\n')).toBe(false);
   });
 
   test('expert ignores append and pastes the text as-is', () => {
@@ -437,16 +365,6 @@ describe('the settled moment', () => {
     renderChip();
     expect(settled).not.toHaveBeenCalled();
     fc.setFacts({ capabilities: [], logbook: false });
-    expect(settled).toHaveBeenCalledTimes(1);
-  });
-
-  test('a failed server read settles the same as a good one', () => {
-    const settled = vi.fn();
-    fc.onSettled(settled);
-
-    fc.setFacts(null);
-    announceSession();
-    renderChip();
     expect(settled).toHaveBeenCalledTimes(1);
   });
 

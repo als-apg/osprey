@@ -270,9 +270,9 @@ function targetServiceGroup(api) {
  *
  *   'replace' (an activation — rail click, agent focus): the new placeholder
  *   takes over the target service tile and the tile's previous occupant is
- *   evicted (removed + reported through the replaced-panel handler, so the
- *   panel manager can close it server-side). The rail is the tab system; an
- *   activation switches the tile rather than stacking a tab into it.
+ *   evicted: its placeholder is removed and its iframe concealed, a purely
+ *   local vacate that leaves its rail membership alone. The rail is the tab
+ *   system; an activation switches the tile rather than stacking a tab into it.
  *
  *   'beside' (a redock after a layout rebuild): the placeholder docks as a
  *   NEW tile beside the target group — re-materializing several visible
@@ -313,20 +313,6 @@ function ensurePlaceholder(api, entry, intent = 'replace') {
 }
 
 /**
- * Optional observer of replace-evictions, called with the evicted panel's
- * service id. Eviction is a purely LOCAL vacate under the launcher-rail model
- * (the evicted panel keeps its rail membership; the server is not told), so
- * nothing registers this in production — it remains as a test/diagnostic seam.
- * @type {((serviceId: string) => void) | null}
- */
-let replacedHandler = null;
-
-/** @param {((serviceId: string) => void) | null} fn */
-export function setReplacedPanelHandler(fn) {
-  replacedHandler = fn;
-}
-
-/**
  * Remove every OTHER service placeholder from the group that just received a
  * 'replace' placement — the tile's previous occupant(s). Native panels (the
  * terminal) are never evicted. The evicted iframe is concealed but kept cached
@@ -355,7 +341,6 @@ function evictReplacedOccupants(api, keptPlaceholderId) {
       evicted.visible = false;
       evicted.iframe.style.display = 'none';
     }
-    replacedHandler?.(serviceId);
   }
 }
 

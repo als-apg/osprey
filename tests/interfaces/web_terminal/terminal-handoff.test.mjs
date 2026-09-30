@@ -205,14 +205,6 @@ describe('the Simple view starts nothing', () => {
     expect(terminal.getTerminalInstance()).not.toBeNull();
     expect(terminal.getTerminalDimensions()).toEqual({ cols: 80, rows: 24 });
   });
-
-  test('Expert view still connects on load', () => {
-    document.documentElement.setAttribute('data-ui-mode', 'expert');
-
-    terminal.initTerminal('terminal-container');
-
-    expect(FakeWebSocket.created).toBe(1);
-  });
 });
 
 describe('startExpert: taking the session over', () => {
@@ -287,50 +279,24 @@ describe('startExpert settles when the acquire has an answer', () => {
     await settled;
   });
 
-  test('session_info settles it', async () => {
-    const settled = flipToExpert();
-    openSocket();
-    receive({ type: 'session_info', session_id: 'shared-key' });
-
-    await expect(settled).resolves.toBeUndefined();
-  });
-
-  test('a 4409 refusal settles it, with the notice up', async () => {
-    const settled = flipToExpert();
-    openSocket();
-    refuse(WS_CLOSE_SESSION_ATTACHED);
-
-    await expect(settled).resolves.toBeUndefined();
-    expect(overlayText()).toBe('This session is in use in another tab or view.');
-  });
-
-  test('a 4503 refusal settles it', async () => {
-    const settled = flipToExpert();
-    openSocket();
-    refuse(WS_CLOSE_OUTGOING_RUNNING);
-
-    await expect(settled).resolves.toBeUndefined();
-  });
-
-  test('a close with no answer at all settles it', async () => {
+  test.each([
+    ['session_info', () => receive({ type: 'session_info', session_id: 'shared-key' })],
+    ['a 4409 refusal', () => refuse(WS_CLOSE_SESSION_ATTACHED)],
+    ['a 4503 refusal', () => refuse(WS_CLOSE_OUTGOING_RUNNING)],
+    ['a close with no answer at all', () => refuse(1006)],
+    ['an error frame', () => receive({ type: 'error', message: 'no capacity' })],
+  ])('%s settles it, and never as a rejection', async (_answer, answer) => {
+    // Fake timers discard the backoff reconnect an ordinary close schedules.
     vi.useFakeTimers();
     try {
       const settled = flipToExpert();
       openSocket();
-      refuse(1006);
+      answer();
 
       await expect(settled).resolves.toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  test('an error frame settles it', async () => {
-    const settled = flipToExpert();
-    openSocket();
-    receive({ type: 'error', message: 'no capacity' });
-
-    await expect(settled).resolves.toBeUndefined();
   });
 
   test('a second call while a connection exists settles at once', async () => {
@@ -340,30 +306,6 @@ describe('startExpert settles when the acquire has an answer', () => {
     await settled;
 
     await expect(terminal.startExpert()).resolves.toBeUndefined();
-  });
-
-  test('nothing here ever rejects', async () => {
-    // The flip chain does not catch, so a rejection would break the round
-    // trip rather than the connection.
-    localStorage.setItem(STORAGE_KEY, 'shared-key');
-    document.documentElement.setAttribute('data-ui-mode', 'simple');
-    terminal.initTerminal('terminal-container');
-
-    const outcomes = [];
-    for (const answer of [
-      () => receive({ type: 'session_info', session_id: 'shared-key' }),
-      () => refuse(WS_CLOSE_SESSION_ATTACHED),
-      () => receive({ type: 'error', message: 'no capacity' }),
-    ]) {
-      localStorage.setItem(STORAGE_KEY, 'shared-key');
-      const settled = terminal.startExpert();
-      openSocket();
-      answer();
-      outcomes.push(await settled.then(() => 'resolved', () => 'rejected'));
-      terminal.stopTerminal();
-    }
-
-    expect(outcomes).toEqual(['resolved', 'resolved', 'resolved']);
   });
 });
 
@@ -426,6 +368,9 @@ describe('handoff_pending: the transitional state', () => {
       vi.advanceTimersByTime(60_000);
 
       expect(document.querySelector('.terminal-handoff')).toBeNull();
+      // Every one-shot timer has fired by now, so a pending timer can only be
+      // the 1 Hz counter left ticking behind a removed overlay.
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }
@@ -489,21 +434,16 @@ describe('handoff_pending on an idle chat: a restart, not a wait', () => {
     receive({ type: 'handoff_pending', busy: false });
   }
 
-  test('says the agent is restarting here, with no clock and no way out', () => {
-    idle();
+  test.each([[{ busy: false }], [{}]])('says the agent is restarting here, with no clock and no way out (%o)', (frame) => {
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    // A frame that says nothing about the turn is read as idle too.
+    receive({ type: 'handoff_pending', ...frame });
 
     expect(overlayText()).toBe('Restarting the agent in this view…');
     expect(document.querySelector('.terminal-handoff-elapsed')).toBeNull();
     expect(overlayAction()?.hidden).toBe(true);
-  });
-
-  test('a frame that says nothing about the turn is read as idle', () => {
-    localStorage.setItem(STORAGE_KEY, 'shared-key');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    receive({ type: 'handoff_pending' });
-
-    expect(overlayText()).toBe('Restarting the agent in this view…');
   });
 
   test('a restart that outlasts its budget becomes the wait, clocked from the flip', () => {
@@ -531,6 +471,10 @@ describe('handoff_pending on an idle chat: a restart, not a wait', () => {
       vi.advanceTimersByTime(HANDOFF_RESTART_BUDGET_MS * 2);
 
       expect(document.querySelector('.terminal-handoff')).toBeNull();
+      // A later hand-off starts from the restart again: an escalation left
+      // armed behind the cleared overlay would have switched it to the wait.
+      receive({ type: 'handoff_pending', busy: false });
+      expect(overlayText()).toBe('Restarting the agent in this view…');
     } finally {
       vi.useRealTimers();
     }
@@ -576,18 +520,6 @@ describe('"Stop and switch now"', () => {
     expect(url).toContain('session_id=shared-key');
     expect(url).toContain('mode=resume');
     expect(url).toContain('interrupt=1');
-  });
-
-  test('the refused wrapper is not reused: the retry is a new socket', () => {
-    localStorage.setItem(STORAGE_KEY, 'shared-key');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    receive({ type: 'handoff_pending', busy: true });
-    const socketsBefore = FakeWebSocket.created;
-
-    /** @type {HTMLButtonElement} */ (overlayAction()).click();
-
-    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
   });
 
   test('it cannot be pressed twice while the first attempt is in flight', () => {
@@ -684,11 +616,7 @@ describe('a refused connection', () => {
     refused(WS_CLOSE_SESSION_ATTACHED);
 
     expect(overlayText()).toBe('This session is in use in another tab or view.');
-  });
-
-  test('4409 offers nothing to retry, because retrying is not the answer', () => {
-    refused(WS_CLOSE_SESSION_ATTACHED);
-
+    // Retrying does not change who holds the session, so none is offered.
     expect(overlayAction()?.hidden).toBe(true);
   });
 

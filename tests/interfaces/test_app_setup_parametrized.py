@@ -11,11 +11,11 @@ shared invariants hold uniformly:
 
 1. The three static mounts (``/static/fonts``, ``/design-system``, ``/static``)
    are all present.
-2. :class:`NoCacheStaticMiddleware`, :class:`ExceptionLoggingMiddleware` and
-   :class:`HttpAuditMiddleware` (the audit layer for admitted mutations) are
-   all registered.
-3. :class:`WebAuthMiddleware` is registered (the auth gate).
-4. The two safety layers sit at the two ends of the shared block:
+2. The four shared layers are registered — :class:`WebAuthMiddleware` (the
+   auth gate), :class:`NoCacheStaticMiddleware`,
+   :class:`ExceptionLoggingMiddleware` and :class:`HttpAuditMiddleware` (the
+   audit layer for admitted mutations) — and the two safety layers sit at the
+   two ends of the shared block:
    :class:`WebAuthMiddleware` outermost of everything,
    :class:`HttpAuditMiddleware` inside every other layer
    ``configure_interface_app`` installs. Pinned here, on the nine real apps,
@@ -30,7 +30,7 @@ shared invariants hold uniformly:
    only fills in response headers — it decides nothing and rewrites no status
    — so the status the audit layer records is still the one the route
    produced.
-5. ``CORSMiddleware`` is **absent** — nothing here is cross-origin.
+3. ``CORSMiddleware`` is **absent** — nothing here is cross-origin.
 
 Each factory has a slightly different signature, so a small per-interface builder
 mirrors exactly how that interface's own tests construct the app (see e.g.
@@ -187,21 +187,11 @@ def test_static_mounts_present(interface_app: FastAPI) -> None:
         assert "/static" in paths, f"missing mount /static; got {sorted(paths)}"
 
 
-def test_both_middlewares_present(interface_app: FastAPI) -> None:
-    classes = {mw.cls for mw in interface_app.user_middleware}
-    assert NoCacheStaticMiddleware in classes
-    assert ExceptionLoggingMiddleware in classes
-    assert HttpAuditMiddleware in classes, "HttpAuditMiddleware (the audit layer) not registered"
-
-
-def test_web_auth_middleware_present(interface_app: FastAPI) -> None:
-    classes = {mw.cls for mw in interface_app.user_middleware}
-    assert WebAuthMiddleware in classes, "WebAuthMiddleware (the auth gate) not registered"
-
-
 def test_web_auth_middleware_is_outermost(interface_app: FastAPI) -> None:
     # Added last => outermost => runs first: the gate authenticates before any
     # other middleware or route. Starlette lists user_middleware outermost-first.
+    classes = {mw.cls for mw in interface_app.user_middleware}
+    assert WebAuthMiddleware in classes, "WebAuthMiddleware (the auth gate) not registered"
     assert interface_app.user_middleware[0].cls is WebAuthMiddleware
 
 
@@ -213,6 +203,8 @@ def test_http_audit_middleware_is_innermost(interface_app: FastAPI) -> None:
     # user_middleware[-1] because bluesky_web registers a header-only no-cache
     # wrapper of its own before the block (see this module's docstring).
     classes = [mw.cls for mw in interface_app.user_middleware]
+    for cls in (HttpAuditMiddleware, NoCacheStaticMiddleware, ExceptionLoggingMiddleware):
+        assert cls in classes, f"{cls.__name__} not registered"
     audit_at = classes.index(HttpAuditMiddleware)
     outside = [WebAuthMiddleware, ExceptionLoggingMiddleware, NoCacheStaticMiddleware]
     assert all(classes.index(cls) < audit_at for cls in outside), classes
@@ -267,7 +259,7 @@ def _configure_interface_app_callers() -> set[str]:
 
 
 def test_builders_cover_every_configure_interface_app_caller() -> None:
-    # The WebAuthMiddleware-present/outermost/CORS-absent guards above are only
+    # The WebAuthMiddleware-outermost and CORS-absent guards above are only
     # as complete as INTERFACE_BUILDERS. If a new interface starts calling
     # configure_interface_app without being added here, its auth gate would go
     # unguarded — so assert the two sets agree exactly.
