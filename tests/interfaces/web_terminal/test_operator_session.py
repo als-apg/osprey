@@ -1441,7 +1441,7 @@ class TestOperatorChatLaunchParity:
             patch(_PRIMITIVES + "sdk_env", side_effect=refuse),
             patch(_PRIMITIVES + "resolve_default_model", side_effect=refuse),
             patch(_PRIMITIVES + "_resolve_project_spec", side_effect=refuse),
-            patch(_PRIMITIVES + "start_proxy", side_effect=refuse),
+            patch(_PRIMITIVES + "start_proxy_for", side_effect=refuse),
             patch(_PRIMITIVES + "await_mcp_ready", side_effect=refuse),
             sdk_seam(),
         ):

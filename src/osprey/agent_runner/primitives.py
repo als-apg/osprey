@@ -59,7 +59,7 @@ from osprey.agent_runner.events import (
     translate_message,
 )
 from osprey.agent_runner.launcher import RENDERED_MCP_CONFIG
-from osprey.infrastructure.proxy.lifecycle import start_proxy
+from osprey.infrastructure.proxy.lifecycle import start_proxy_for
 
 logger = logging.getLogger(__name__)
 
@@ -710,8 +710,7 @@ def build_agent_options(
         )
         spec = _resolve_project_spec(project_dir, provider=provider)
         if spec and spec.needs_proxy and spec.upstream_base_url:
-            auth_token = run_env.get(spec.auth_env_var)
-            if not auth_token:
+            if not run_env.get(spec.auth_env_var):
                 # A missing token otherwise surfaces only as an opaque proxy 401
                 # mid-query; warn early naming the var and provider.
                 logger.warning(
@@ -720,15 +719,7 @@ def build_agent_options(
                     spec.auth_env_var,
                     spec.provider,
                 )
-            from osprey.models.spend_attribution import declared_header_names
-
-            port = start_proxy(
-                spec.upstream_base_url,
-                auth_token,
-                provider=spec.provider,
-                forward_headers=declared_header_names(run_env),
-                supports_images=spec.supports_images,
-            )
+            port = start_proxy_for(spec, run_env)
             run_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
     sources: list[SettingSource] = ["project"] if setting_sources is None else list(setting_sources)

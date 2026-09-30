@@ -219,16 +219,9 @@ def _inject_provider_env_once() -> None:
             # resolver strips of /v1 for Claude Code; sourcing the upstream from
             # the env var would forward to a /v1-less endpoint.
             if spec.needs_proxy and spec.upstream_base_url:
-                from osprey.infrastructure.proxy.lifecycle import start_proxy
-                from osprey.models.spend_attribution import declared_header_names
+                from osprey.infrastructure.proxy.lifecycle import start_proxy_for
 
-                port = start_proxy(
-                    spec.upstream_base_url,
-                    os.environ.get(spec.auth_env_var),
-                    provider=spec.provider,
-                    forward_headers=declared_header_names(os.environ),
-                    supports_images=spec.supports_images,
-                )
+                port = start_proxy_for(spec, os.environ)
                 os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
                 logger.info("Translation proxy on :%d (provider=%s)", port, spec.provider)
             launch_env = os.environ

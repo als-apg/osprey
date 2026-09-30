@@ -445,7 +445,7 @@ def _gateway_spec(**entry):
 class TestStartProxyFor:
     def test_every_argument_comes_from_the_spec_and_the_launch_env(self, monkeypatch):
         primitive = MagicMock(return_value=41234)
-        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
         env = {
             "ANTHROPIC_AUTH_TOKEN": "sk-gw",
             "ANTHROPIC_BASE_URL": "https://gw.example",
@@ -465,7 +465,7 @@ class TestStartProxyFor:
 
     def test_a_missing_key_starts_the_proxy_without_one(self, monkeypatch):
         primitive = MagicMock(return_value=41234)
-        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
 
         lifecycle.start_proxy_for(_gateway_spec(), {})
 
@@ -474,7 +474,7 @@ class TestStartProxyFor:
 
     def test_the_entrys_image_declaration_is_passed_on(self, monkeypatch):
         primitive = MagicMock(return_value=41234)
-        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
 
         lifecycle.start_proxy_for(_gateway_spec(supports_images=True), {})
 
@@ -484,7 +484,7 @@ class TestStartProxyFor:
         from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
 
         primitive = MagicMock(return_value=41234)
-        monkeypatch.setattr(lifecycle, "start_proxy", primitive)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"}, {"anthropic": {}})
 
         with pytest.raises(
@@ -493,3 +493,42 @@ class TestStartProxyFor:
             lifecycle.start_proxy_for(spec, {})
 
         primitive.assert_not_called()
+
+
+def test_only_the_lifecycle_module_starts_the_proxy_primitive():
+    """No module under ``src/osprey/`` but ``lifecycle.py`` imports or calls ``start_proxy``."""
+    import ast
+    from pathlib import Path
+
+    import osprey
+
+    root = Path(osprey.__file__).parent
+    own = Path(lifecycle.__file__).resolve()
+    primitive = lifecycle.start_proxy.__name__
+    hits: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        if path.resolve() == own:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        where = path.relative_to(root)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and any(
+                alias.name == primitive for alias in node.names
+            ):
+                hits.append(f"{where}:{node.lineno}")
+            elif isinstance(node, ast.Call):
+                func = node.func
+                name = (
+                    func.id
+                    if isinstance(func, ast.Name)
+                    else func.attr
+                    if isinstance(func, ast.Attribute)
+                    else None
+                )
+                if name == primitive:
+                    hits.append(f"{where}:{node.lineno}")
+
+    assert not hits, (
+        "A launch path starts the proxy with start_proxy_for(spec, env), "
+        f"not the start_proxy primitive: {hits}"
+    )

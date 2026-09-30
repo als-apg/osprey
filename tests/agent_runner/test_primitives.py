@@ -649,7 +649,7 @@ class TestBuildAgentOptions:
             "sdk_env": MagicMock(side_effect=lambda *_a, **_k: dict(self._ROUTED_ENV)),
             "resolve_default_model": MagicMock(return_value="main-model"),
             "_resolve_project_spec": MagicMock(return_value=_RoutedSpec()),
-            "start_proxy": MagicMock(return_value=8123),
+            "start_proxy_for": MagicMock(return_value=8123),
         }
         for name, stub in stubs.items():
             monkeypatch.setattr(primitives, name, stub)
@@ -811,7 +811,12 @@ class TestBuildAgentOptions:
         assert options.env == env
         assert options.env is not env
         assert options.model is None
-        for name in ("sdk_env", "resolve_default_model", "_resolve_project_spec", "start_proxy"):
+        for name in (
+            "sdk_env",
+            "resolve_default_model",
+            "_resolve_project_spec",
+            "start_proxy_for",
+        ):
             routing[name].assert_not_called()
 
     def test_a_provider_override_routes_env_model_and_proxy_through_that_provider(
@@ -832,13 +837,10 @@ class TestBuildAgentOptions:
         routing["sdk_env"].assert_called_once_with(tmp_path, provider="argo")
         routing["resolve_default_model"].assert_called_once_with(tmp_path, provider="argo")
         routing["_resolve_project_spec"].assert_called_once_with(tmp_path, provider="argo")
-        routing["start_proxy"].assert_called_once_with(
-            "https://gateway.example/v1",
-            "sk-gw",
-            provider="argo",
-            forward_headers=frozenset(),
-            supports_images=None,
+        routing["start_proxy_for"].assert_called_once_with(
+            routing["_resolve_project_spec"].return_value, options.env
         )
+        assert routing["start_proxy_for"].call_args.args[1] is options.env
         assert options.model == "argo-main"
         assert options.env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8123"
 

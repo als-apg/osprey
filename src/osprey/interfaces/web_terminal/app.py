@@ -2361,16 +2361,9 @@ def _create_lifespan(
 
                 # Start translation proxy for OpenAI-compatible providers
                 if _spec.needs_proxy and _spec.upstream_base_url:
-                    from osprey.infrastructure.proxy.lifecycle import start_proxy
-                    from osprey.models.spend_attribution import declared_header_names
+                    from osprey.infrastructure.proxy.lifecycle import start_proxy_for
 
-                    proxy_port = start_proxy(
-                        _spec.upstream_base_url,
-                        os.environ.get(_spec.auth_env_var),
-                        provider=_spec.provider,
-                        forward_headers=declared_header_names(os.environ),
-                        supports_images=_spec.supports_images,
-                    )
+                    proxy_port = start_proxy_for(_spec, os.environ)
                     os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
                     logger.info(
                         "Translation proxy on :%d → %s",
