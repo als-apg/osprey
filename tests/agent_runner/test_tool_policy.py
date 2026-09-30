@@ -167,10 +167,10 @@ class TestPretooluseHookDenylist:
 
     async def test_hook_denylist_beats_passthrough(self):
         # Arrange — a passthrough name placed on the denylist stays denied
-        hook = make_pretooluse_hook(TRIGGER_TOOLS, SURFACES, ["TodoWrite"])
+        hook = make_pretooluse_hook(TRIGGER_TOOLS, SURFACES, ["TaskCreate"])
 
         # Act
-        result = await hook(_main_input("TodoWrite"), "t1", None)
+        result = await hook(_main_input("TaskCreate"), "t1", None)
 
         # Assert
         assert _decision(result) == "deny"
@@ -178,8 +178,43 @@ class TestPretooluseHookDenylist:
 
 class TestPretooluseHookPassthrough:
     async def test_hook_passthrough_set_is_exactly_pinned(self):
-        # Assert — CF-2: permission-free harness tools only; Read/Glob/Grep excluded
-        assert PASSTHROUGH_TOOLS == frozenset({"TodoWrite", "WaitForMcpServers"})
+        # Assert — permission-free task-list tools only; Read/Glob/Grep excluded
+        assert PASSTHROUGH_TOOLS == frozenset({"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"})
+
+    @pytest.mark.parametrize("tool", ["TodoWrite", "WaitForMcpServers"])
+    async def test_hook_denies_names_outside_the_passthrough_set(self, tool):
+        # Arrange — neither name passes without a trigger allow rule
+        hook = _hook()
+
+        # Act
+        result = await hook(_main_input(tool), "t1", None)
+
+        # Assert
+        assert _decision(result) == "deny"
+
+    def test_passthrough_set_never_names_a_floor_or_delegation_tool(self):
+        # Arrange
+        from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
+
+        # Assert — the Task-prefixed background-command tools never pass through
+        assert not PASSTHROUGH_TOOLS & (DISPATCH_DENIED_TOOLS | set(DELEGATION_TOOLS))
+        assert {"TaskOutput", "TaskStop"}.isdisjoint(PASSTHROUGH_TOOLS)
+
+    async def test_hook_floor_beats_passthrough_under_the_server_denylist(self):
+        # Arrange — built the way a real dispatch run is wired
+        from osprey.agent_runner import tool_names
+
+        hook = make_pretooluse_hook(
+            ["TaskOutput"], SURFACES, sorted(tool_names.DISPATCH_DENIED_TOOLS)
+        )
+
+        # Act
+        floored = await hook(_main_input("TaskOutput"), "t1", None)
+        passed = await hook(_main_input("TaskCreate"), "t2", None)
+
+        # Assert
+        assert _decision(floored) == "deny"
+        assert passed == {}
 
     @pytest.mark.parametrize("tool", sorted(PASSTHROUGH_TOOLS))
     async def test_hook_allows_passthrough_in_both_contexts(self, tool):
@@ -353,8 +388,8 @@ class TestBackstop:
         backstop = make_backstop(TRIGGER_TOOLS, SURFACES, DENIED)
 
         # Act
-        main = await backstop("WaitForMcpServers", {}, _ctx())
-        sub = await backstop("TodoWrite", {}, _ctx(agent_id="a"))
+        main = await backstop("TaskList", {}, _ctx())
+        sub = await backstop("TaskUpdate", {}, _ctx(agent_id="a"))
 
         # Assert
         assert _is_allow(main)
