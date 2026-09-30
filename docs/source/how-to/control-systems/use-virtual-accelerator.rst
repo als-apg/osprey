@@ -326,21 +326,16 @@ Another backend
 4. Set ``VA_ENTRYPOINT_MODULE=<your.module>`` in the project ``.env``. Empty
    or unset runs the shipped entrypoint. ``osprey build`` never writes it.
 
-.. warning::
-
-   Every deploy that builds images --- an attached ``osprey up`` or
-   ``osprey restart``, and any ``--dev`` deploy --- builds this service from
-   OSPREY's recipe and tags the result with the name you gave, replacing your
-   image. Deploy with prebuilt images (:ref:`deployment-prebuilt-images`), or
-   with ``osprey up -d`` without ``--dev``, which builds only images that are
-   missing.
-
    .. code-block:: bash
 
       # project .env
       VA_ENTRYPOINT_MODULE=my_facility.va_entrypoint
 
-      osprey up -d
+Naming the image in ``services.virtual_accelerator.image`` renders the service
+without a build, so no deploy rebuilds it from OSPREY's recipe.
+``OSPREY_VA_IMAGE`` keeps it out of every build a start makes. Either way the
+image has to be on the host or pullable where it is named;
+:ref:`deployment-image-builds` says when each start builds.
 
 Running from a source checkout
 ==============================

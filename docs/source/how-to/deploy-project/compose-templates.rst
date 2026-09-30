@@ -100,6 +100,60 @@ default — and the two stack-wide axes assemble the default name of an
 OSPREY-built image. The thirteen images, the two axes and their precedence are
 catalogued in :ref:`config-deployment`.
 
+.. _deployment-image-builds:
+
+When a deploy builds an image
+-----------------------------
+
+A service is built on the deploy host only when its rendered compose document
+carries a ``build:`` block. Upstream pins never do. The OSPREY-built services
+(the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
+Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
+accelerator) each do, with one exception: a virtual-accelerator instance whose
+``services.virtual_accelerator.image`` or ``services.live_standin.image`` names
+an image other than the one OSPREY builds renders without ``build:``, and that
+image is pulled and run as named.
+
+Which start builds what:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Start
+     - What is built
+   * - ``osprey up --dev``, with or without ``-d``
+     - A build step rebuilds every service with ``build:``, then
+       ``up --no-build``.
+   * - ``osprey up`` or ``osprey restart`` without ``-d``
+     - The same build step, because the ``up`` replaces the ``osprey``
+       process.
+   * - ``osprey up -d`` without ``--dev``
+     - No build step. Compose builds a service's image on ``up`` only when
+       that image is not on the host.
+   * - A deployment with ``modules.web_terminals.enabled``
+     - Starts detached whatever the flag, so only ``--dev`` gives it a build
+       step.
+   * - ``prebuilt_images: true`` or ``OSPREY_PREBUILT_IMAGES=1``
+     - Nothing, on any start (:ref:`deployment-prebuilt-images`).
+
+An ``OSPREY_<SERVICE>_IMAGE`` naming an image other than the one the
+``build:`` block produces keeps that service out of every build. The start
+reports ``<service> runs <image> (<variable>); not built``, builds the others
+in a step of its own even under ``-d``, and starts everything with
+``up --no-build``, so an image that is neither on the host nor pullable fails
+with compose's own error naming it.
+
+For the services other than the virtual accelerator, ``services.<name>.image``
+does not remove the ``build:`` block, so a start that builds rebuilds OSPREY's
+recipe under the name given. Use the variable or ``prebuilt_images`` to run
+your own image for those.
+
+The project image (dispatch worker, ARIEL sync, record archive) has no
+``build:`` block. The deploy builds it itself on every start unless the host
+is prebuilt or every one of those services it deploys names another image
+(``OSPREY_WORKER_IMAGE`` or ``services.<name>.image``).
+
 The web tier names its registry separately
 ------------------------------------------
 
@@ -229,16 +283,17 @@ the config key in both directions, so ``OSPREY_PREBUILT_IMAGES=0`` forces a
 build for one shell even on a host whose ``config.yml`` pins the key. With
 neither set, deploys build as they always have.
 
-The switch covers both ways a build can start:
+The switch covers both ways a build can start
+(:ref:`deployment-image-builds`):
 
-* In :ref:`dev mode <development-mode>` it skips the wheel-and-image build
-  step, and the deploy reports ``skipped image build (prebuilt images)`` where
-  it would otherwise have built.
-* In ordinary (non-dev) mode there is no build step to skip — but compose
-  would still build any service whose compose document carries a ``build:``
-  block the first time it brings it up. The switch passes ``--no-build``, so
-  compose starts what is there instead. Nothing is reported as skipped,
-  because nothing was scheduled.
+* A start with a build step of its own (any :ref:`dev mode
+  <development-mode>` start, any start without ``-d``) skips it, and a
+  ``--dev`` start reports ``skipped image build (prebuilt images)`` where it
+  would otherwise have built.
+* A detached non-dev start has no build step, but compose would still build a
+  service whose compose document carries a ``build:`` block when its image is
+  not on the host. The switch passes ``--no-build``, so compose starts what is
+  there instead.
 
 **What the switch does not reach.** It governs compose's implicit builds only.
 The persona images and the auth sidecar are built explicitly, by a different

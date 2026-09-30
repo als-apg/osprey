@@ -1160,6 +1160,8 @@ default. Seventeen images, one row each:
 Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
+Which of these images a deploy builds, and what naming another image does to
+that, is in :ref:`deployment-image-builds`.
 
 Six of the seventeen are **upstream pins** — images somebody else publishes,
 named exactly as they publish them. The other eleven are **built by OSPREY**
