@@ -461,6 +461,16 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         "the profile's `data/` directory — this is the device table that decides "
         "which channels a Bluesky plan may drive",
     ),
+    ReservedPattern(
+        "facility.json",
+        "the build, from the profile's `data/facility/` tree — this is the facility "
+        "file every view and served channel is derived from",
+    ),
+    ReservedPattern(
+        "data/facility/**",
+        "the profile's `data/facility/` tree — the facility is authored there and the "
+        "build derives the facility file from it",
+    ),
 )
 
 
