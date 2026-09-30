@@ -571,20 +571,18 @@ def seeded_logins_report(project_root: str | Path, usernames: Iterable[str]) -> 
     root = Path(project_root)
     try:
         declared = _profile_env_defaults(root)
-        if not declared:
-            return SeededLoginsReport()
-        env_path = root / ENV_LOCAL_FILENAME
-        project_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
     except Exception as exc:  # pragma: no cover - advisory read
         logger.debug(f"Seeded logins skipped: {exc}")
         return SeededLoginsReport()
+    if not declared:
+        return SeededLoginsReport()
 
-    try:
-        env_auth_path = root / AUTH_ENV_FILENAME
-        stored = parse_dotenv_file(env_auth_path) if env_auth_path.is_file() else {}
-    except Exception as exc:  # advisory read — verify nothing, demote nothing
-        logger.debug(f"Seeded-login verification skipped: {exc}")
-        stored = {}
+    project_env = _advisory_dotenv(root / ENV_LOCAL_FILENAME, "Seeded logins skipped")
+    # No plaintext in `.env` means no candidate: an empty or unreadable `.env` is the empty report.
+    if not project_env:
+        return SeededLoginsReport()
+    # An unreadable `.env.auth` verifies nothing and demotes nothing.
+    stored = _advisory_dotenv(root / AUTH_ENV_FILENAME, "Seeded-login verification skipped")
 
     printable: list[tuple[str, str]] = []
     stale: list[str] = []
@@ -651,18 +649,9 @@ def seeded_password_users(
     if not declared:
         return ()
 
-    try:
-        env_auth_path = root / AUTH_ENV_FILENAME
-        stored = parse_dotenv_file(env_auth_path) if env_auth_path.is_file() else {}
-    except Exception as exc:  # read as holding no hashes
-        logger.debug(f"Seeded-password hashes unreadable: {exc}")
-        stored = {}
-    try:
-        env_path = root / ENV_LOCAL_FILENAME
-        project_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    except Exception as exc:
-        logger.debug(f"Seeded-password .env unreadable: {exc}")
-        project_env = {}
+    # An unreadable `.env.auth` is read as holding no hashes.
+    stored = _advisory_dotenv(root / AUTH_ENV_FILENAME, "Seeded-password hashes unreadable")
+    project_env = _advisory_dotenv(root / ENV_LOCAL_FILENAME, "Seeded-password .env unreadable")
 
     seeded: list[str] = []
     for name in usernames:
@@ -680,6 +669,22 @@ def seeded_password_users(
         elif name not in shared and project_env.get(variable, "").strip() == published:
             seeded.append(name)
     return tuple(seeded)
+
+
+def _advisory_dotenv(path: Path, unreadable: str) -> dict[str, str]:
+    """``path`` parsed as a dotenv file, or an empty mapping.
+
+    For reads nothing depends on: an absent file and one that cannot be read
+    or parsed both read as holding no variables, so a report built from them
+    can never fail the command that asked for it. A failure is logged at
+    debug level as ``"<unreadable>: <error>"``, where ``unreadable`` is the
+    caller's words for what the empty read means to it.
+    """
+    try:
+        return parse_dotenv_file(path) if path.is_file() else {}
+    except Exception as exc:  # advisory read
+        logger.debug(f"{unreadable}: {exc}")
+        return {}
 
 
 def _profile_env_defaults(root: Path) -> dict[str, Any]:

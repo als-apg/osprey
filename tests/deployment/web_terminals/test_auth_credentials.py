@@ -19,6 +19,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     STATE_SECRET_VAR,
     TERMINAL_SECRET_VAR_PREFIX,
     SeededLoginsReport,
+    _advisory_dotenv,
     ensure_auth_credentials,
     ensure_auth_session_secrets,
     ensure_terminal_secrets,
@@ -1627,3 +1628,43 @@ def test_seeded_password_users_reads_an_unreadable_env_as_setting_nothing(
 
     # Assert
     assert users == ()
+
+
+def test_advisory_dotenv_parses_a_readable_file(tmp_path: Path) -> None:
+    """A readable file reads as its variables."""
+    # Arrange
+    path = tmp_path / ".env"
+    path.write_text("A=1\nB=two\n")
+
+    # Act
+    values = _advisory_dotenv(path, "Seeded logins skipped")
+
+    # Assert
+    assert values == {"A": "1", "B": "two"}
+
+
+def test_advisory_dotenv_reads_an_absent_file_as_empty(tmp_path: Path) -> None:
+    """An absent file holds no variables."""
+    # Act
+    values = _advisory_dotenv(tmp_path / ".env", "Seeded logins skipped")
+
+    # Assert
+    assert values == {}
+
+
+def test_advisory_dotenv_reads_an_unreadable_file_as_empty_in_the_callers_words(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unreadable file holds no variables, and the debug line carries the
+    caller's words."""
+    # Arrange
+    path = tmp_path / ".env"
+    path.write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    with caplog.at_level(logging.DEBUG):
+        values = _advisory_dotenv(path, "Seeded logins skipped")
+
+    # Assert
+    assert values == {}
+    assert "Seeded logins skipped: " in caplog.text
