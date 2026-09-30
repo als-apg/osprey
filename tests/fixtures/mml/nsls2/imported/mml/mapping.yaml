@@ -105,6 +105,7 @@ models:
         engine:
           attribute: Frequency
         calibration: linear
+        voltage: 3000000.0
   LTB:
     name: LTB
     description: 'The NSLS-II linac-to-booster transfer line at 200 MeV: bends, quadrupoles, orbit correctors,

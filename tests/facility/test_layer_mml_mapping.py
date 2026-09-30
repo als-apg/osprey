@@ -121,6 +121,23 @@ class TestParse:
             ),
         }
 
+    def test_a_frequency_family_takes_a_voltage_in_volts(self) -> None:
+        document = _document()
+        document["models"]["SR"]["wiring"]["RF"] = {
+            "element_field": "Setpoint",
+            "engine": {"attribute": "Frequency"},
+            "calibration": "linear",
+            "voltage": 3000000.0,
+        }
+        wiring = parse_mapping(document).models["SR"].wiring
+        assert wiring["RF"].voltage == 3000000.0
+        assert wiring["QF"].voltage is None
+
+    def test_the_nsls2_fixture_answers_its_cavity_voltage(self) -> None:
+        fixture = Path(__file__).resolve().parents[1] / "fixtures" / "mml" / "nsls2"
+        mapping = read_mapping(fixture / "imported" / "mml" / "mapping.yaml")
+        assert mapping.models["StorageRing"].wiring["RF"].voltage == 3000000.0
+
     def test_a_model_without_wiring_wires_nothing(self) -> None:
         document = _document()
         del document["models"]["SR"]["wiring"]
@@ -214,6 +231,33 @@ class TestRefusals:
                 lambda d: d["models"]["SR"]["wiring"]["QF"]["engine"].update(plane=0),
                 "models.SR.wiring.QF.engine.plane",
                 "unknown key",
+            ),
+            (
+                lambda d: d["models"]["SR"]["wiring"]["QF"].update(voltage=1.0),
+                "models.SR.wiring.QF.voltage",
+                "only a family whose engine attribute is Frequency takes a voltage",
+            ),
+            (
+                lambda d: d["models"]["SR"]["wiring"]["QF"].update(engine=None, voltage=1.0),
+                "models.SR.wiring.QF.voltage",
+                "only a family whose engine attribute is Frequency takes a voltage",
+            ),
+            *(
+                (
+                    lambda d, v=voltage: d["models"]["SR"]["wiring"]["QF"].update(
+                        engine={"attribute": "Frequency"}, voltage=v
+                    ),
+                    "models.SR.wiring.QF.voltage",
+                    f"must be a positive number of volts, got {shown}",
+                )
+                for voltage, shown in (
+                    (0, "0"),
+                    (-3.0, "-3.0"),
+                    (float("inf"), "inf"),
+                    (True, "bool"),
+                    (None, "null"),
+                    ("3 MV", "'3 MV'"),
+                )
             ),
             (
                 lambda d: d["directions"]["QF.Setpoint"].update(direction="both"),

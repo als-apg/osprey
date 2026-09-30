@@ -9,13 +9,21 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from osprey.facility.layers.mml.decks import Addressing, address_elements
-from osprey.facility.layers.mml.mapping import EngineBlock, Model, WiringFamily, read_mapping
+from osprey.facility.layers.mml.mapping import (
+    EngineBlock,
+    ImportStop,
+    MappingError,
+    Model,
+    WiringFamily,
+    read_mapping,
+)
 
 at = pytest.importorskip("at")
 
@@ -41,7 +49,7 @@ def _fixture(tree: str, stem: str, raw: str) -> tuple[Model, Any, dict, dict]:
 @pytest.fixture(scope="module", params=STORAGE, ids=[tree for tree, _, _ in STORAGE])
 def addressed(request: pytest.FixtureRequest) -> Addressing:
     model, deck, va, ad = _fixture(*request.param)
-    return address_elements(model, deck, va)
+    return address_elements(model, deck, va, ad)
 
 
 def _wired(addressing: Addressing) -> set[str]:
@@ -75,24 +83,89 @@ def test_every_wired_family_the_export_places_binds_elements(addressed: Addressi
 
 def test_a_device_is_named_for_its_family_and_row() -> None:
     model, deck, va, ad = _fixture(*STORAGE[0])
-    addressing = address_elements(model, deck, va)
+    addressing = address_elements(model, deck, va, ad)
     first = addressing.bindings["BPMx"][0]
     assert (first.device, first.element, first.owner) == ((1, 1), "BPMx_1_1", "BPMx")
 
 
 def test_the_horizontal_corrector_names_the_magnet_both_planes_drive() -> None:
     model, deck, va, ad = _fixture(*STORAGE[0])
-    addressing = address_elements(model, deck, va)
+    addressing = address_elements(model, deck, va, ad)
     horizontal, vertical = addressing.bindings["HCM"][0], addressing.bindings["VCM"][0]
     assert horizontal.element == vertical.element == "HCM_1_1"
     assert vertical.owner == "HCM"
     assert vertical.engine == EngineBlock(attribute="KickAngle", index=1)
 
 
+def test_a_deck_holding_its_cavity_is_served_that_cavity() -> None:
+    model, deck, va, ad = _fixture(*STORAGE[0])
+    addressing = address_elements(model, deck, va, ad)
+    assert addressing.cavity is None
+    assert len(addressing.deck) == len(deck)
+    (rf,) = addressing.bindings["RF"]
+    assert (rf.element, rf.slices[0].position) == ("RF_1_1", 0)
+
+
+def test_a_deck_without_a_cavity_is_built_one_from_the_answered_voltage() -> None:
+    model, deck, va, ad = _fixture(*STORAGE[1])
+    addressing = address_elements(model, deck, va, ad)
+    built = addressing.deck
+    cavity = built[-1]
+    assert len(built) == len(deck) + 1
+    assert isinstance(cavity, at.RFCavity)
+    assert (cavity.FamName, cavity.Length, cavity.Voltage) == ("RF_1_1", 0.0, 3000000.0)
+    assert cavity.HarmNumber == 1320
+    revolution = at.clight / built.circumference
+    assert cavity.Frequency == pytest.approx(1320 * revolution)
+    assert addressing.cavity is not None
+    assert (addressing.cavity.family, addressing.cavity.harmonic) == ("RF", 1320)
+    assert addressing.cavity.frequency_hz == pytest.approx(cavity.Frequency)
+    (rf,) = addressing.bindings["RF"]
+    assert rf.slices[0].position == len(deck)
+
+
+def test_a_cavity_to_build_without_a_voltage_stops_the_import() -> None:
+    model, deck, va, ad = _fixture(*STORAGE[1])
+    unanswered = replace(
+        model, wiring={**model.wiring, "RF": replace(model.wiring["RF"], voltage=None)}
+    )
+    with pytest.raises(ImportStop) as caught:
+        address_elements(unanswered, deck, va, ad)
+    assert caught.value.lines == (
+        "models.StorageRing.wiring.RF.voltage: answer the cavity voltage in volts; "
+        "the deck holds no cavity",
+    )
+
+
+def test_a_voltage_on_a_deck_holding_its_cavity_is_refused() -> None:
+    model, deck, va, ad = _fixture(*STORAGE[0])
+    answered = replace(
+        model, wiring={**model.wiring, "RF": replace(model.wiring["RF"], voltage=1.0)}
+    )
+    with pytest.raises(MappingError) as caught:
+        address_elements(answered, deck, va, ad)
+    assert str(caught.value) == (
+        "models.StorageRing.wiring.RF.voltage: the deck holds a cavity; remove voltage"
+    )
+
+
+def test_a_cavity_is_not_built_without_a_harmonic_number() -> None:
+    model, deck, va, _ad = _fixture(*STORAGE[1])
+    with pytest.raises(ValueError, match="family RF drives a cavity the deck does not hold"):
+        address_elements(model, deck, va, {"HarmonicNumber": []})
+
+
+def test_a_cavity_is_not_built_into_one_period_of_a_deck() -> None:
+    model, deck, va, ad = _fixture(*STORAGE[1])
+    deck.periodicity = 2
+    with pytest.raises(ValueError, match="saved as 2 periods"):
+        address_elements(model, deck, va, ad)
+
+
 def test_the_deck_passed_in_is_left_as_it_was() -> None:
     model, deck, va, ad = _fixture(*STORAGE[0])
     before = [element.FamName for element in deck]
-    address_elements(model, deck, va)
+    address_elements(model, deck, va, ad)
     assert [element.FamName for element in deck] == before
 
 

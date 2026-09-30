@@ -19,6 +19,7 @@ judgment the export pends, and what each model wires. The document shape is::
             element_field: <the family field the model wires | null>
             engine: {attribute?, index?, axis?} | null   # pyAT's words
             calibration: linear | table | null
+            voltage: <volts>  # optional; a Frequency family's cavity voltage
     section_order: [<model name>, ...]
     branches: {<class>: {parent, description}}            # optional
     families: {<raw family>: {rename?, branch?, class?, aliases, description,
@@ -63,6 +64,7 @@ The importer's stops are :class:`ImportStop`: one line each, prefixed
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -209,13 +211,16 @@ class WiringFamily:
     """How one model wires one family.
 
     The mapping states only family words; the element of each device and the
-    numbers of its calibration come from the export. ``None`` in any slot is a
-    decision nobody has made yet.
+    numbers of its calibration come from the export. ``None`` in any slot but
+    ``voltage`` is a decision nobody has made yet. ``voltage`` is the volts of
+    the cavity a ``Frequency`` family drives, answered only where the deck
+    holds no cavity and one is built for it; ``None`` everywhere else.
     """
 
     element_field: str | None
     engine: EngineBlock | None
     calibration: str | None
+    voltage: float | None = None
 
 
 @dataclass(frozen=True)
@@ -458,6 +463,7 @@ _FACILITY_OPTIONAL = frozenset({"name", "description"})
 _MODEL_REQUIRED = frozenset({"name", "description", "provenance"})
 _MODEL_OPTIONAL = frozenset({"wiring"})
 _WIRING_KEYS = frozenset({"element_field", "engine", "calibration"})
+_WIRING_OPTIONAL = frozenset({"voltage"})
 _ENGINE_KEYS = frozenset({"attribute", "index", "axis"})
 _BRANCH_KEYS = frozenset({"parent", "description"})
 _FAMILY_REQUIRED = frozenset({"aliases", "description", "provenance", "channels", "fields"})
@@ -502,18 +508,37 @@ def _engine(value: Any, path: str) -> EngineBlock | None:
 def _wiring(value: Any, path: str) -> dict[str, WiringFamily]:
     wiring: dict[str, WiringFamily] = {}
     for raw, body, entry in _entries(value, path):
-        _keys(body, entry, _WIRING_KEYS, _NONE)
+        _keys(body, entry, _WIRING_KEYS, _WIRING_OPTIONAL)
         calibration = body["calibration"]
         if not (calibration is None or calibration in CALIBRATION_KINDS):
             raise MappingError(
                 f"{entry}.calibration", f"must be linear, table or null, got {_shown(calibration)}"
             )
+        engine = _engine(body["engine"], f"{entry}.engine")
         wiring[raw] = WiringFamily(
             element_field=_str(body, "element_field", entry, nullable=True),
-            engine=_engine(body["engine"], f"{entry}.engine"),
+            engine=engine,
             calibration=calibration,
+            voltage=_voltage(body, engine, entry),
         )
     return wiring
+
+
+def _voltage(body: dict, engine: EngineBlock | None, entry: str) -> float | None:
+    """The cavity voltage a ``Frequency`` family answers, or ``None`` when it states none."""
+    if "voltage" not in body:
+        return None
+    path = f"{entry}.voltage"
+    if engine is None or engine.attribute != "Frequency":
+        raise MappingError(
+            path, "only a family whose engine attribute is Frequency takes a voltage"
+        )
+    value = body["voltage"]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MappingError(path, f"must be a positive number of volts, got {_shown(value)}")
+    if not (math.isfinite(value) and value > 0):
+        raise MappingError(path, f"must be a positive number of volts, got {value}")
+    return float(value)
 
 
 def _models(value: Any) -> dict[str, Model]:

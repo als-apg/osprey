@@ -1,1 +1,1 @@
-Add the mml layer's deck pass, `osprey.facility.layers.mml.decks`, which names each imported deck's wired elements after their owning families so every wired element carries a unique name. No command runs it yet.
+Add the mml layer's deck pass, `osprey.facility.layers.mml.decks`, which names each imported deck's wired elements after their owning families so every wired element carries a unique name, and builds the cavity a deck lacks from the voltage its mapping answers on the `Frequency` family (the new optional `voltage` wiring slot). No command runs it yet.
