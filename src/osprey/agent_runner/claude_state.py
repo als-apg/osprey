@@ -206,7 +206,7 @@ def _api_key_digest(render_dir: Path, env: Mapping[str, str]) -> str | None:
     try:
         import yaml
 
-        from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+        from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
 
         config = yaml.safe_load(config_path.read_text()) or {}
         spec = ClaudeCodeModelResolver.resolve(

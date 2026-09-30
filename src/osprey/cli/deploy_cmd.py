@@ -365,7 +365,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
     if env_path.exists():
         return
 
-    from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.agent_runner.provider_env import provider_auth_secret_env
     from osprey.deployment.web_terminals.env_production import required_provider_endpoint_var
 
     provider = (config.get("claude_code") or {}).get("provider")

@@ -61,7 +61,7 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
 
     import yaml
 
-    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
     from osprey_connectors.config import is_unresolved_placeholder
 
     config_path = project_dir / "config.yml"

@@ -448,7 +448,7 @@ def test_the_web_launch_probe_resolves_the_provider_against_the_repo(tmp_path, m
     provider than the one that starts — a pre-flight answering for the wrong
     thing is worse than none.
     """
-    from osprey.build import claude_code_resolver
+    from osprey.agent_runner import provider_env
     from osprey.cli import web_cmd
 
     seen: dict[str, object] = {}
@@ -458,7 +458,7 @@ def test_the_web_launch_probe_resolves_the_provider_against_the_repo(tmp_path, m
         seen.update(kwargs)
         return None
 
-    monkeypatch.setattr(claude_code_resolver, "load_provider_spec", _spy)
+    monkeypatch.setattr(provider_env, "load_provider_spec", _spy)
     repo = tmp_path / "als-exemplar"
     render = _synthetic_deployment(repo)
 
@@ -484,7 +484,7 @@ def test_the_web_terminal_lifespan_resolves_the_provider_against_the_repo(tmp_pa
     """
     from fastapi.testclient import TestClient
 
-    from osprey.build import claude_code_resolver
+    from osprey.agent_runner import provider_env
     from osprey.interfaces.web_terminal import app as web_app
 
     repo = tmp_path / "als-exemplar"
@@ -497,13 +497,13 @@ def test_the_web_terminal_lifespan_resolves_the_provider_against_the_repo(tmp_pa
     (render / "_agent_data").mkdir(exist_ok=True)
 
     resolved: list[object] = []
-    real = claude_code_resolver.load_provider_spec
+    real = provider_env.load_provider_spec
 
     def _record_then_stop(project_dir, **kwargs):
         resolved.append(real(project_dir, **kwargs))
         return None
 
-    monkeypatch.setattr(claude_code_resolver, "load_provider_spec", _record_then_stop)
+    monkeypatch.setattr(provider_env, "load_provider_spec", _record_then_stop)
     monkeypatch.setattr(
         web_app, "_load_web_config", lambda *_a, **_k: {"watch_dir": str(render / "_agent_data")}
     )

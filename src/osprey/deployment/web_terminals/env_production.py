@@ -696,7 +696,7 @@ def _claude_code_auth_secret_vars(
     """Auth-secret env-var names every ``claude_code.provider`` in play needs.
 
     This is the web-terminal counterpart of the launch-time secret injection
-    in :mod:`osprey.build.claude_code_resolver`: a per-user web container runs
+    in :mod:`osprey.agent_runner.provider_env`: a per-user web container runs
     its persona project's agent, which authenticates via the provider named in
     that project's ``claude_code.provider`` — and the *only* env its container
     sees is ``docker-compose.web.yml``'s ``env_file: .env.users``. A
@@ -737,7 +737,7 @@ def _claude_code_auth_secret_vars(
     ``api.providers`` is likewise skipped here (the resolver raises its own
     actionable error for that at launch).
     """
-    from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.agent_runner.provider_env import provider_auth_secret_env
 
     def _provider_is_keyless(provider: str) -> bool:
         # The models adapter registry is the authority on whether a provider
@@ -830,7 +830,7 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
 
     ``required`` is the narrower question: whether the container resolves NO
     endpoint without this variable. Only a provider that ships no default host
-    (:func:`~osprey.build.claude_code_resolver.provider_requires_base_url`) can
+    (:func:`~osprey.agent_runner.provider_env.provider_requires_base_url`) can
     reach that state, and only when nothing else in the config answers for the
     URL — a literal endpoint resolves on its own, and so does a reference
     carrying its own ``:-default``.
@@ -840,7 +840,7 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
     :return: ``(var, required)``, or ``None`` when no variable names this
         provider's endpoint at all.
     """
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         provider_base_url_env,
         provider_requires_base_url,
     )

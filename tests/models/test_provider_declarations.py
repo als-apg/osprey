@@ -14,7 +14,7 @@ from typing import Any, get_args, get_type_hints
 import pytest
 import yaml
 
-from osprey.build.claude_code_resolver import provider_auth_secret_env
+from osprey.agent_runner.provider_env import provider_auth_secret_env
 from osprey.models.provider_registry import (
     _BUILTIN_PROVIDERS,
     ProviderRegistry,

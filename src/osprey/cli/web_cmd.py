@@ -645,7 +645,7 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     duplicating that diagnosis.
 
     A provider that resolves no gateway endpoint
-    (:class:`~osprey.build.claude_code_resolver.ProviderEndpointError`) is the
+    (:class:`~osprey.agent_runner.provider_env.ProviderEndpointError`) is the
     other refusal this probe reports rather than skips, and it aborts: the
     server's own startup resolves the same spec and exits on it.
 
@@ -657,7 +657,7 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     going (telemetry credentials are orthogonal to whether the terminal can
     authenticate) while saying why the auth check never ran.
     """
-    from osprey.build.claude_code_resolver import ProviderEndpointError, load_provider_spec
+    from osprey.agent_runner.provider_env import ProviderEndpointError, load_provider_spec
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
     try:

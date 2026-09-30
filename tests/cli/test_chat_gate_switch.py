@@ -82,7 +82,7 @@ def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
     here would refuse for a reason none of these tests is about.
     """
     monkeypatch.setattr(
-        "osprey.build.claude_code_resolver.detect_managed_policy_conflicts",
+        "osprey.agent_runner.provider_env.detect_managed_policy_conflicts",
         lambda paths=None: {},
     )
 

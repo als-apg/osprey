@@ -1725,7 +1725,7 @@ keys:
       guard checks SHAPE per provider (base_url present, default_model
       present and in the models list, models a non-empty list of ids), never
       membership. A provider that names no default_model and lists no models
-      hard-errors in build/claude_code_resolver.py, which is the quoted
+      hard-errors in agent_runner/provider_env.py, which is the quoted
       evidence.
     default: {}
 

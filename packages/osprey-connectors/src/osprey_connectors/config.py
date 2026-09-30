@@ -15,7 +15,7 @@ callers' own ``os.environ`` writes depending on import order.
 Applications load ``.env`` explicitly at startup: the CLI in
 ``osprey.cli.main``, MCP servers via :func:`osprey.mcp_env.load_dotenv_from_project`,
 and the Claude Code launch paths via
-:func:`osprey.build.claude_code_resolver.inject_provider_env`.
+:func:`osprey.agent_runner.provider_env.inject_provider_env`.
 """
 
 import copy

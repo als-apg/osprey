@@ -110,7 +110,7 @@ def test_existing_file_missing_a_required_endpoint_is_an_error(
     .env and .env.users agree, both lack it, and every terminal restarts
     forever. Agreement with the chain is not health here -- the row names the
     variable and the remedy."""
-    from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+    from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 
     monkeypatch.setitem(CLAUDE_CODE_PROVIDERS, _GATEWAY, _GATEWAY_TABLE_ENTRY)
     _dotenv(tmp_path / ".env", {_GATEWAY_SECRET_VAR: "k"})

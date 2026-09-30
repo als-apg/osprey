@@ -15,7 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 import osprey.models.provider_registry
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner.provider_env import (
     MANAGED_ENV_VARS,
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
@@ -283,7 +283,7 @@ class TestAuthFieldPassthrough:
     def test_resolving_a_builtin_imports_no_adapter(self):
         code = (
             "import sys\n"
-            "from osprey.build.claude_code_resolver import (\n"
+            "from osprey.agent_runner.provider_env import (\n"
             "    ClaudeCodeModelResolver, provider_auth_secret_env)\n"
             "for name in ('anthropic', 'cborg', 'als-apg'):\n"
             "    ClaudeCodeModelResolver.resolve({'provider': name}, {})\n"
@@ -585,7 +585,7 @@ class TestProxyEnvWarning:
     cannot masquerade as a passing negative assertion.
     """
 
-    LOGGER = "osprey.build.claude_code_resolver"
+    LOGGER = "osprey.agent_runner.provider_env"
 
     def _records(self, caplog):
         return [r for r in caplog.records if r.name == self.LOGGER]

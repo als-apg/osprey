@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 from typing import cast
 
-from osprey.build.claude_code_resolver import load_provider_spec
+from osprey.agent_runner.provider_env import load_provider_spec
 from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step

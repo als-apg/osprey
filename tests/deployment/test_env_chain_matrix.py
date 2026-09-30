@@ -332,7 +332,7 @@ def resolve_via_inject_provider_env(repo: Path, _monkeypatch: pytest.MonkeyPatch
     would silently mis-address the control system rather than fail — so this
     suite's keys ride along like any other.
     """
-    from osprey.build.claude_code_resolver import ClaudeCodeModelSpec, inject_provider_env
+    from osprey.agent_runner.provider_env import ClaudeCodeModelSpec, inject_provider_env
 
     environ: dict[str, str] = {}
     inject_provider_env(
@@ -343,7 +343,7 @@ def resolve_via_inject_provider_env(repo: Path, _monkeypatch: pytest.MonkeyPatch
 
 def resolve_via_resolver_env_lookup(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The ``${VAR}`` view a provider spec is resolved against (chain over shell)."""
-    from osprey.build.claude_code_resolver import _env_lookup
+    from osprey.agent_runner.provider_env import _env_lookup
 
     return chain_keys_of(_env_lookup(repo))
 

@@ -539,7 +539,7 @@ _GATEWAY_WITHOUT_ENDPOINT_ENTRY = {
 @pytest.fixture
 def a_gateway_that_ships_no_endpoint(monkeypatch):
     """Register the synthetic built-in for the length of one test."""
-    from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+    from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 
     monkeypatch.setitem(
         CLAUDE_CODE_PROVIDERS, _GATEWAY_WITHOUT_ENDPOINT, _GATEWAY_WITHOUT_ENDPOINT_ENTRY

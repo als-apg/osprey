@@ -12,8 +12,8 @@ import base64
 
 import pytest
 
-from osprey.build import claude_code_resolver as resolver
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner import provider_env as resolver
+from osprey.agent_runner.provider_env import (
     MANAGED_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
@@ -506,7 +506,7 @@ def test_load_provider_spec_reads_the_token_from_the_project_env(tmp_path, monke
     """The runtime launch reads the token from the project's ``.env``."""
     import yaml
 
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.agent_runner.provider_env import load_provider_spec
 
     monkeypatch.delenv("OTLP_TOKEN", raising=False)
     (tmp_path / "config.yml").write_text(
@@ -801,7 +801,7 @@ def test_load_provider_spec_dials_the_published_port(tmp_path, monkeypatch):
     """The runtime launch path threads ``services.openobserve.port`` through."""
     import yaml
 
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_ENV_VAR
 
     monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
@@ -1117,7 +1117,7 @@ class TestTelemetryPortIsATelemetryInput:
     )
 
     def test_without_telemetry_the_port_is_never_resolved(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         (tmp_path / "config.yml").write_text(self._CONFIG)
@@ -1130,7 +1130,7 @@ class TestTelemetryPortIsATelemetryInput:
     def test_with_telemetry_the_port_fault_is_loud(self, tmp_path, monkeypatch):
         import pytest
 
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
         from osprey.build.claude_code_telemetry import TelemetryConfigError
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -1232,7 +1232,7 @@ def test_build_refuses_empty_signals(tmp_path, monkeypatch):
     """The build's own spec load stops on an empty list."""
     import yaml
 
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.agent_runner.provider_env import load_provider_spec
 
     monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
     (tmp_path / "config.yml").write_text(

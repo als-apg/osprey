@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS, ClaudeCodeModelResolver
+from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS, ClaudeCodeModelResolver
 from osprey.models.provider_registry import (
     _BUILTIN_PROVIDERS,
     PROVIDER_API_KEYS,
@@ -183,7 +183,7 @@ class TestEndToEndThroughLoadProviderSpec:
     """The on-disk path: config.yml override reaches the spec, ${VAR} included."""
 
     def test_config_yml_override_reaches_env_block(self, tmp_path):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         (tmp_path / "config.yml").write_text(
             "api:\n"
@@ -197,7 +197,7 @@ class TestEndToEndThroughLoadProviderSpec:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_env_placeholder_in_builtin_override_is_expanded(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("FACILITY_GATEWAY_URL", raising=False)
         (tmp_path / "config.yml").write_text(
@@ -222,7 +222,7 @@ class TestEndToEndThroughLoadProviderSpec:
         hostname. Driven through the synthetic built-in, since a provider that
         ships an endpoint of its own falls back to it instead.
         """
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setitem(
             CLAUDE_CODE_PROVIDERS, GATEWAY_WITHOUT_ENDPOINT, GATEWAY_WITHOUT_ENDPOINT_ENTRY
@@ -247,7 +247,7 @@ class TestEndToEndThroughLoadProviderSpec:
         another, so ``${VAR}`` there is the render's contract with its runtime.
         Only the paths that are about to call the gateway refuse.
         """
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
         (tmp_path / "config.yml").write_text(
@@ -264,7 +264,7 @@ class TestEndToEndThroughLoadProviderSpec:
 
     def test_unexported_placeholder_leaves_a_builtin_url_in_charge(self, tmp_path, monkeypatch):
         """Blanking happens before the fallback chain, not instead of it."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("FACILITY_GATEWAY_URL", raising=False)
         (tmp_path / "config.yml").write_text(
@@ -431,7 +431,7 @@ class TestOverrideReachesTheRuntimePath:
 
     def test_process_env_overrides_the_baked_config(self, tmp_path, monkeypatch):
         """The production mechanism: the value arrives in the container's env."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
         monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
@@ -440,7 +440,7 @@ class TestOverrideReachesTheRuntimePath:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_project_dotenv_overrides_the_baked_config(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
         (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
@@ -450,7 +450,7 @@ class TestOverrideReachesTheRuntimePath:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_baked_config_stands_when_nothing_overrides_it(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
         (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
@@ -461,7 +461,7 @@ class TestOverrideReachesTheRuntimePath:
     def test_the_catalog_placeholder_resolves_once_the_variable_is_exported(
         self, tmp_path, monkeypatch
     ):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
         (tmp_path / "config.yml").write_text(

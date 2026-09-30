@@ -1928,8 +1928,8 @@ def _render_project(
     Returns:
         The rendered project directory.
     """
+    from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.build.build_tiers import tier_mode_conflict
-    from osprey.build.claude_code_resolver import load_provider_spec
     from osprey.deployment.reach import reach_errors
     from osprey.services.virtual_accelerator.manifest.build import (
         prepare_project_manifest,
@@ -2449,7 +2449,7 @@ def _warn_model_facts(spec: Any, reported: set[str]) -> None:
             (:attr:`_SharedRenderInputs.model_facts_reported`). A fact in it is
             logged at DEBUG instead of repeated by every render pass.
     """
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         ALIAS_SUBSTITUTION_REMEDY,
         DROPPED_ALIAS_KEY_REMEDY,
         alias_substitution,

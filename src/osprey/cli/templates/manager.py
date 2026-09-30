@@ -342,7 +342,7 @@ class TemplateManager:
             cc_cfg = cc_config
             ctx["facility_permissions"] = cc_config.get("permissions", {})
             # Model provider resolution for init-time rendering
-            from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+            from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
             from osprey.build.claude_code_telemetry import openobserve_published_port
 
             api_providers = rendered_config.get("api", {}).get("providers", {})

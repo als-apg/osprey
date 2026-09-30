@@ -103,7 +103,7 @@ def _snapshot_managed_env() -> dict[str, str | None]:
     Taken *before* the repo ``.env`` is overlaid, so it is the record of what
     the operator's shell — and nothing else — had to say about the backend.
     """
-    from osprey.build.claude_code_resolver import MANAGED_ENV_VARS
+    from osprey.agent_runner.provider_env import MANAGED_ENV_VARS
 
     return {var: os.environ.get(var) for var in MANAGED_ENV_VARS}
 
@@ -332,7 +332,7 @@ def chat(
     import yaml
 
     from osprey.agent_runner.launcher import build_claude_launch_argv, build_session_argv
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
         inject_provider_env,

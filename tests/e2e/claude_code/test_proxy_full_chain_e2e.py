@@ -19,7 +19,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from osprey.build.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
+from osprey.agent_runner.provider_env import ClaudeCodeModelResolver, inject_provider_env
 from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
 from osprey.models.spend_attribution import declared_header_names
 

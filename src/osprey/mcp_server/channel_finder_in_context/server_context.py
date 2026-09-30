@@ -113,7 +113,7 @@ class ChannelFinderICContext:
             self._subagent_model_id = ic_model
             self._subagent_provider = ic_provider if ic_provider else cc_config.get("provider", "")
         else:
-            from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+            from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
 
             api_providers = self._raw_config.get("api", {}).get("providers", {})
             # Model-id reader only (consumes default_model_id); a telemetry

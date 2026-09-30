@@ -183,7 +183,7 @@ def _inject_provider_env_once() -> None:
     # provider variable would silently redirect the worker's agent to a backend
     # the project did not configure. Refuse to start — checked before the try
     # below so the broad except cannot swallow the refusal.
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
     )
@@ -196,7 +196,7 @@ def _inject_provider_env_once() -> None:
         )
 
     try:
-        from osprey.build.claude_code_resolver import inject_provider_env, load_provider_spec
+        from osprey.agent_runner.provider_env import inject_provider_env, load_provider_spec
         from osprey.build.claude_code_telemetry import TelemetryConfigError
 
         # Read the spec from the render (the directory holding that config.yml)
