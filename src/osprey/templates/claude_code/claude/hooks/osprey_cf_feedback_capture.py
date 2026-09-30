@@ -50,6 +50,7 @@ import json
 import os
 import sys
 import tempfile
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import get_hook_input, get_repo_root, log_hook, repo_agent_data_root
@@ -128,8 +129,10 @@ try:
     if isinstance(tool_response, dict):
         if "row_count" in tool_response:
             graph_envelope = tool_response
-            total = tool_response.get("row_count")
-            if not isinstance(total, int) or isinstance(total, bool):
+            row_count = tool_response.get("row_count")
+            if isinstance(row_count, int) and not isinstance(row_count, bool):
+                total = row_count
+            else:
                 rows = tool_response.get("rows")
                 total = len(rows) if isinstance(rows, list) else 0
         else:
@@ -282,7 +285,7 @@ try:
             fcntl.flock(lf, fcntl.LOCK_EX)
             try:
                 # Load existing data
-                data = {"version": 1, "items": {}}
+                data: dict[str, Any] = {"version": 1, "items": {}}
                 if os.path.exists(store_path):
                     try:
                         with open(store_path) as f:
