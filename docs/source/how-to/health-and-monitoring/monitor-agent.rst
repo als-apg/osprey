@@ -103,7 +103,7 @@ Keys:
 Set the endpoint in your profile's ``.env`` — the build derives the project's
 from it — then run the agent as usual:
 
-.. code-block:: bash
+.. code-block:: text
 
    # .env
    OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com
