@@ -142,29 +142,33 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The seventeenth move, and control-assistant's family alone: the root
     # preset turns on the full tool-call record (`audit.tool_call.*`), which
     # the five `extends` children inherit; the other three stand still.
-    "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
+    # The eighteenth move, and every preset: each states
+    # `simulation.models: null`, the served-model list, whose null serves every
+    # model in the facility file as the absent key does, so a rebuilt project
+    # behaves identically; the digest moves because the preset now states it.
+    "ariel-standalone": ("sha256:9fbc997534efda793cd7812ff4eb5b66e8269c493375b37cd0c7dc06a6638206"),
     "channel-finder-standalone": (
-        "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
+        "sha256:e7ad4d3ebc1edd2eb8f1ed48862e7c8048b23f49d475ba71f7e82c3989bb984b"
     ),
     "control-assistant": (
-        "sha256:f053c6de8fd9497d272a068a03f8174b9ed9c1d9c21c6fb800ef60b641a2f3ce"
+        "sha256:66edca767dd862765c594ec53d0d205124bcb3a9ccecd97a8df3312f3a5ef997"
     ),
     "control-assistant-admin": (
-        "sha256:b27fb8d6fe3d79ba8ff5febdb28ccb70cbc117e3d8717b825002daa608694c57"
+        "sha256:6c776b08508ac382b4f0f521e7bcf4a895f385793fe183a7f7b39fdb66478628"
     ),
     "control-assistant-knowledge": (
-        "sha256:53265269ecd689a2355c8c5bd892e68d022e0de03186ab4338104a805c54a6d0"
+        "sha256:cd8b3b2c5e04795c61155a0bd531427c28fcd3589b44193608d7cc853645c6e5"
     ),
     "control-assistant-logbook": (
-        "sha256:cffa27c611273350222d9a3e064002435c36f670f7db8d383d94639002726437"
+        "sha256:067b0f8e3db7c181d60a343fda488d5b8747d5173596849a982c1a97418de912"
     ),
     "control-assistant-readonly": (
-        "sha256:251d61c019a064f0b5d3386d7744c2a68c35ca929f61caa9bd1cd1418b4f532a"
+        "sha256:d57a63a12676a7e332abbec09f63580966e4a87ae7ca8a68003734ebc2afbdba"
     ),
     "control-assistant-readwrite": (
-        "sha256:88d62d2fdd672b4bf16d30ae9c72294e4b64f63a0819cdc0bc0e0be71a5746b6"
+        "sha256:4ab0beb9c0dc4e13828a4e0b0be3ee935eac0ae9546b3deb57848c19f3259d84"
     ),
-    "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
+    "hello-world": ("sha256:b0778bfa09e22de1c9504d57f214e36cb58b4923402627b617ecb8e26d720d44"),
 }
 
 

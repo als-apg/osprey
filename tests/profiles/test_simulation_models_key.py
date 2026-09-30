@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
@@ -21,6 +23,9 @@ _DEMO_FACILITY = (
     Path(__file__).resolve().parents[2]
     / "src/osprey/templates/apps/control_assistant/data/facility"
 )
+
+#: The four shipped presets every all-templates key must appear in.
+_PRESETS = ("hello-world", "ariel-standalone", "channel-finder-standalone", "control-assistant")
 
 
 @pytest.fixture(scope="module")
@@ -66,3 +71,10 @@ def test_a_value_that_is_not_a_list_of_names_stops(demo: dict[str, Any], models:
         resolve_served(_config(models), demo)
     assert excinfo.value.kind == "profile-invalid"
     assert excinfo.value.record_id == "simulation.models"
+
+
+@pytest.mark.parametrize("preset", _PRESETS)
+def test_every_preset_spells_the_key_as_null(preset: str) -> None:
+    config = _expand_dotted(resolve_build_document(None, preset).profile.config)
+    assert "models" in config.get("simulation", {})
+    assert config["simulation"]["models"] is None

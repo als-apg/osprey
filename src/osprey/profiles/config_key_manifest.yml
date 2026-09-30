@@ -860,6 +860,14 @@ keys:
       .claude/hooks/hook_debug.jsonl, which is what the web terminal's Safety
       panel hook feed reads; false writes neither.
 
+  # ── Simulation ──────────────────────────────────────────────────────
+  simulation: {evidence: 'rendered_config\.get\("simulation"\)', default: {}}
+  simulation.models:
+    all-templates: true
+    evidence: 'requested = simulation\.get\("models"\)'
+    note: null or absent = every model in the facility file; [texture] and [] = no physics
+    default: null
+
   # ── Control system ──────────────────────────────────────────────────
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
   control_system.type:
@@ -2957,7 +2965,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 346
+  expected_union_size: 348
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
