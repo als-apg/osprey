@@ -581,6 +581,17 @@ class TestPersistedAnchor:
 
         assert persisted_scenario_anchor(config, root) == later
 
+    def test_a_single_name_state_file_is_not_read(self, tmp_path):
+        from osprey.simulation.engine import resolve_state_dir
+
+        root = _write_project(tmp_path / "proj", None, password=None)
+        config = yaml.safe_load((root / "config.yml").read_text())
+        state_dir = resolve_state_dir(config, root)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "active_scenario").write_text("anchor=2026-01-01T00:00:00+00:00\nburst\n")
+
+        assert persisted_scenario_anchor(config, root) is None
+
 
 class TestComposedEvents:
     def test_the_active_set_s_scripts_are_composed(self, tmp_path):
