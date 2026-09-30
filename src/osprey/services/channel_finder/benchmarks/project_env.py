@@ -1,10 +1,11 @@
-"""A benchmarked project's secrets and providers.
+"""A benchmarked project's configuration, secrets and providers.
 
 A benchmark acts on a project directory it is handed, so it reads that
-project's ``.env`` and ``api.providers`` rather than the ambient
-configuration of whatever directory it happens to run from.
+project's ``config.yml``, ``.env`` and ``api.providers`` rather than the
+ambient configuration of whatever directory it happens to run from.
 
 Public API:
+    project_config        — the project's ``config.yml`` as a mapping
     project_dotenv        — the project's ``.env`` as a mapping
     project_env           — the process environment over the project's ``.env``
     expand_api_providers  — ``api.providers`` with ``${VAR}`` references expanded
@@ -17,7 +18,40 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+from osprey.services.channel_finder.core.exceptions import ConfigurationError
 from osprey_connectors.config import resolve_env_vars
+
+
+def project_config(project_dir: Path) -> dict[str, Any] | None:
+    """Read the project's ``config.yml`` as written, with no ``${VAR}`` expanded.
+
+    Args:
+        project_dir: The benchmarked project's directory.
+
+    Returns:
+        The file's mapping; ``{}`` for an empty file; ``None`` when there is no
+        file, so each caller answers a missing configuration its own way.
+
+    Raises:
+        ConfigurationError: When the file does not parse as YAML or parses to
+            something other than a mapping; the message names the path.
+    """
+    config_path = project_dir / "config.yml"
+    if not config_path.is_file():
+        return None
+    try:
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"{config_path} is not valid YAML: {exc}") from exc
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        raise ConfigurationError(
+            f"{config_path} holds a {type(loaded).__name__}, not a mapping of config keys."
+        )
+    return loaded
 
 
 def project_dotenv(project_dir: Path) -> dict[str, str]:
