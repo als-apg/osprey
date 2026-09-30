@@ -8,18 +8,19 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Twelve parts of that file are gathered here — the facility this deployment
-belongs to (``facility:``), the diagnostic suite (``health:``), the browser
-UI's documentation and feedback settings (``web:``), the artifact gallery's own
+The parts of that file gathered here are the facility this deployment belongs
+to (``facility:``), the diagnostic suite (``health:``), the browser UI's
+documentation and feedback settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
-(``python_executor:``), the full tool-call record (``audit.tool_call:``), the
-links from an answer to a logbook entry (``ariel.entry_url_template``), how
-much of each logbook entry the agent reads (``ariel.entry_text``), the
-signals the agent exports (``claude_code.telemetry.signals``), the collector
-token the agent sends (``claude_code.telemetry.auth.token_env``), the Phoebus
-display bridge (``phoebus:``), and the deployment keys that decide which
-container image each service runs and how ``${VAR}`` placeholders in the
-compose files are filled in. Settings that only
+(``python_executor:``), where screenshots are written (``screen_capture:``), the
+full tool-call record (``audit.tool_call:``), the links from an answer to a
+logbook entry (``ariel.entry_url_template``), how much of each logbook entry
+the agent reads (``ariel.entry_text``), the signals the agent exports
+(``claude_code.telemetry.signals``), the collector token the agent sends
+(``claude_code.telemetry.auth.token_env``), the Phoebus display bridge
+(``phoebus:``), and the deployment keys that decide which container image each
+service runs and how ``${VAR}`` placeholders in the compose files are filled
+in. Settings that only
 ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
