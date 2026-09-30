@@ -522,6 +522,55 @@ or from the ``end_user`` and ``request_tags`` columns of ``/spend/logs``. Both
 need the gateway to run with a database (virtual keys enabled); a stateless
 LiteLLM ignores the headers.
 
+.. _managed-policy-settings:
+
+Managed Policy Settings
+-----------------------
+
+Claude Code reads managed policy settings that an administrator installs for
+the whole machine. Their ``env`` block outranks everything a deployment sets,
+including the provider OSPREY configures.
+
+Before ``osprey chat``, the Web Terminal or the dispatch worker starts the
+agent, OSPREY reads the provider variables in that block (the ``ANTHROPIC_*``
+and ``CLAUDE_CODE_*`` variables that choose the endpoint, key, model or
+backend) and compares each one with the value the agent is launched with. An
+equal value is fine. A different value, or a variable the deployment does not
+set, refuses the start and names both values. The launched value is the
+provider's endpoint without a trailing ``/v1``, or, for a provider behind the
+translation proxy (see *Protocol Translation* above), the local proxy address,
+whose port changes at every launch. A policy can therefore only agree with a
+proxied provider by leaving ``ANTHROPIC_BASE_URL`` out.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 45
+
+   * - Platform
+     - Policy directory
+   * - macOS
+     - ``/Library/Application Support/ClaudeCode/``
+   * - Linux
+     - ``/etc/claude-code/``
+   * - Windows
+     - ``C:\Program Files\ClaudeCode\``
+
+Each directory holds ``managed-settings.json`` plus ``managed-settings.d/*.json``
+fragments, read in name order, with a later fragment winning and files whose
+names start with a dot ignored. See Claude Code's `settings reference
+<https://code.claude.com/docs/en/settings>`_ for the policy format.
+
+A policy that agrees with a native gateway provider whose ``base_url`` is
+``https://gateway.example.org/v1``:
+
+.. code-block:: json
+
+   {
+     "env": {
+       "ANTHROPIC_BASE_URL": "https://gateway.example.org"
+     }
+   }
+
 Verifying Connectivity
 ----------------------
 
