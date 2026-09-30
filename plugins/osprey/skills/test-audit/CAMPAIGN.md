@@ -103,8 +103,8 @@ sanctioned isolation seam without replacing the isolation. Register moved suites
 in CI routing and inventories (ci.yml path lists, the import-time WHITELIST,
 matrix_e2e_config.json, markers) and keep test_ci_workflow_wiring.py green.
 Add a `changelog.d/<ref>.internal.md` fragment when src/ or packages/ changes.
-There are no shrink-only line-cap baselines; refresh scripts/mypy_baseline.json
-with `--update` only if deletions leave stale entries. Put durable
+There are no shrink-only line-cap baselines and no list of tolerated
+type-check errors: the type check must report zero. Put durable
 test-ownership rules in tests/README.md or a scoped tracked README, drawn from
 mistakes this campaign actually found; untracked local instruction files do
 not reach other contributors.
