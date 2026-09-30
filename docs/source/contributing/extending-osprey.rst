@@ -300,3 +300,45 @@ pins that a facility without a lattice boots with no accelerator-physics
 imports on the path at all, and ``tests/va/test_pyat_ring_model.py`` covers
 the shipped ring model. How to deploy a replacement is in
 :ref:`va-serving-your-own-model`.
+
+.. _extending-agent-harness:
+
+Agent harness
+-------------
+
+The agent harness is not a seam. Osprey ships one harness, Claude Code, and
+there is no configuration key or base class for choosing another. What the
+codebase keeps instead is a boundary: the code specific to Claude Code lives in
+one package, ``src/osprey/agent_runner/``, and the rest of the framework reaches
+the agent through it. That package owns:
+
+- the Agent SDK calls. ``osprey.agent_runner.run_query`` and
+  ``osprey.agent_runner.stream_query`` run one prompt,
+  ``osprey.agent_runner.agent_session`` holds a conversation of many turns, and
+  each hands its caller the plain event records of
+  ``osprey.agent_runner.events`` rather than SDK types;
+- the command line that starts the CLI: its program name, its flags and the
+  resolution of its bare name (``src/osprey/agent_runner/launcher.py``);
+- the provider and model environment the agent is launched with
+  (``src/osprey/agent_runner/provider_env.py``);
+- the first-run state the CLI expects in ``.claude.json``, and the suffix that
+  names each user's state volume (``src/osprey/agent_runner/claude_state.py``);
+- the catalog of files a build writes for the CLI
+  (``src/osprey/agent_runner/build_artifacts/``);
+- the built-in tool names every deny list is made of
+  (``src/osprey/agent_runner/tool_names.py``), and the permission hook and
+  callback of a dispatched run (``src/osprey/agent_runner/tool_policy.py``).
+
+The templates a build renders for the CLI --- settings, hooks, rules, agents and
+skills --- are Claude Code's own file formats and stay with the other templates,
+in ``src/osprey/templates/claude_code/``. The deny list in the rendered settings
+comes from ``src/osprey/agent_runner/tool_names.py``.
+
+A lint holds the boundary. Ruff's banned-api rule (``TID251``, configured in
+``pyproject.toml``) refuses an import of ``claude_agent_sdk`` anywhere in
+``src/`` or ``packages/`` outside the adapter, and the unit suite refuses the
+same import, including the dynamic imports ruff cannot see. No module is exempt
+by name. Tests and developer scripts sit outside the shipped trees and drive the
+SDK directly. New code that needs the agent calls the adapter; a Claude-specific
+need the adapter does not meet yet is added to the adapter, not written inline
+where it is needed. Pinning test: ``tests/test_harness_fence.py``.
