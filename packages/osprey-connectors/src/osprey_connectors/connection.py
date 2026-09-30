@@ -22,8 +22,9 @@ Three invariants hold for every consumer:
 - No setting turns certificate verification off. ``tls.ca_bundle`` only changes
   which CA is trusted, for this endpoint.
 
-:func:`read_connection_settings` is pure: it reads neither the environment nor
-a file, so a build-time check can call it. The environment and the CA file are
+:func:`read_connection_settings` and :func:`read_credential_env_names` are
+pure: they read neither the environment nor a file, so a build-time check can
+call them. The environment and the CA file are
 touched only by :meth:`ConnectionSettings.resolve_credential` and
 :meth:`ConnectionSettings.ssl_context`, when a connection is made.
 """
@@ -224,6 +225,45 @@ def read_connection_settings(
         login=_read_auth(block.get("auth"), where, logins, unsupported_because, extra_auth_keys),
         ca_bundle=_read_tls(block.get("tls"), where, tls, unsupported_because),
     )
+
+
+def read_credential_env_names(
+    block: Mapping[str, Any] | None, *, where: str
+) -> tuple[tuple[str, Any], ...]:
+    """The credential variables a block names under ``auth:``, with the key naming each.
+
+    Returns ``(dotted key, name as written)`` pairs, ``auth.token_env`` before
+    ``auth.password_env``. A username is not a secret and is never reported. The
+    names are not checked as variable names and other ``auth:`` keys are not
+    checked at all: :func:`read_connection_settings` refuses those when the
+    connector reads the block. Only a flat spelling outside ``auth:`` counts
+    for nothing here. The call reads no environment and no file.
+
+    Args:
+        block: The settings mapping; None or ``{}`` names no variable.
+        where: The block's dotted key, named in every message.
+
+    Raises:
+        ValueError: The block or its ``auth:`` is not a mapping, or ``auth:``
+            names two logins.
+    """
+    if block is None:
+        return ()
+    if not isinstance(block, Mapping):
+        raise ValueError(f"`{where}` must be a mapping, got {type(block).__name__}")
+    auth = block.get("auth")
+    if auth is None:
+        return ()
+    if not isinstance(auth, Mapping):
+        raise ValueError(
+            f"`{where}.auth` must be a mapping of `token_env`, or `username` and `password_env`"
+        )
+    if "token_env" in auth and ("username" in auth or "password_env" in auth):
+        raise ValueError(
+            f"`{where}.auth` names two logins: use `token_env`, or `username` and "
+            "`password_env`, not both"
+        )
+    return tuple((f"auth.{key}", auth[key]) for key in ("token_env", "password_env") if key in auth)
 
 
 def _read_url(value: Any, where: str) -> str | None:

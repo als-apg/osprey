@@ -4754,17 +4754,18 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 
 
 # ---------------------------------------------------------------------------
-# Archiver connector -> per-user store password
+# Archiver connector -> per-user credential variables
 #
 # `osprey up` mints the archiver store's password into the deploy `.env` under
 # the name the connector block reads (`archiver.<type>.auth.password_env`, which the
-# control-assistant preset spells MONGO_ROOT_PASSWORD). The agent inside a web
-# terminal authenticates with exactly that variable, and `.env.users` excludes
-# service tokens by design -- so a container that is not handed it per-user
+# control-assistant preset spells MONGO_ROOT_PASSWORD); an archiver behind a
+# bearer token names its variable under `auth.token_env`. The agent inside a web
+# terminal authenticates with exactly those variables, and `.env.users` excludes
+# service tokens by design -- so a container that is not handed them per-user
 # reports "Environment variable 'MONGO_ROOT_PASSWORD' is not set" on every
 # archiver read, while the single-user host path (which reads the whole `.env`)
-# works. The grant carries the configured NAME, so a facility-run store under
-# another variable is granted the same way.
+# works. The grant carries the configured NAMES, so a facility-run store under
+# other variables is granted the same way.
 # ---------------------------------------------------------------------------
 
 _ARCHIVER_PASSWORD_LINE = "MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}"
@@ -4778,7 +4779,7 @@ def test_archiver_persona_gets_the_store_password() -> None:
     compose = yaml.safe_load(
         render_web_terminals(
             _events_persona_config(),
-            archiver_password_personas={"readwrite": "MONGO_ROOT_PASSWORD"},
+            archiver_credential_personas={"readwrite": ("MONGO_ROOT_PASSWORD",)},
         )["docker-compose.web.yml"]
     )
 
@@ -4791,7 +4792,8 @@ def test_archiver_grant_carries_the_configured_variable_name() -> None:
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(), archiver_password_personas={"readwrite": "FACILITY_DB_PW"}
+            _events_persona_config(),
+            archiver_credential_personas={"readwrite": ("FACILITY_DB_PW",)},
         )["docker-compose.web.yml"]
     )
 
@@ -4801,13 +4803,13 @@ def test_archiver_grant_carries_the_configured_variable_name() -> None:
     assert not any("MONGO_ROOT_PASSWORD" in line for line in alice_env)
 
 
-def test_persona_without_an_archiver_password_gets_none() -> None:
-    """A persona whose archiver reads no password needs no store credential."""
+def test_persona_without_an_archiver_credential_gets_none() -> None:
+    """A persona whose archiver names no credential variable gets no line."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
             _events_persona_config(),
-            archiver_password_personas={"readwrite": "MONGO_ROOT_PASSWORD"},
+            archiver_credential_personas={"readwrite": ("MONGO_ROOT_PASSWORD",)},
         )["docker-compose.web.yml"]
     )
 
@@ -4837,7 +4839,10 @@ def test_persona_less_roster_entry_is_answered_from_the_deploy_config() -> None:
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     config["archiver"] = {
         "type": "mongodb_archiver",
-        "mongodb_archiver": {"host": "localhost", "auth": {"password_env": "MONGO_ROOT_PASSWORD"}},
+        "mongodb_archiver": {
+            "host": "localhost",
+            "auth": {"username": "root", "password_env": "MONGO_ROOT_PASSWORD", "source": "admin"},
+        },
     }
 
     # Act
@@ -4845,6 +4850,55 @@ def test_persona_less_roster_entry_is_answered_from_the_deploy_config() -> None:
 
     # Assert
     assert _ARCHIVER_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_persona_less_roster_entry_gets_the_bearer_token_variable() -> None:
+    """A deploy config whose archiver names a bearer token hands that variable to
+    every user of a roster without personas."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["archiver"] = {
+        "type": "epics_archiver",
+        "epics_archiver": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
+    }
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    for name, service in compose["services"].items():
+        if name.startswith("web-"):
+            assert "ARCHIVER_TOKEN=${ARCHIVER_TOKEN:-}" in service["environment"]
+
+
+def test_archiver_grant_emits_one_line_per_named_variable() -> None:
+    """Every variable the persona's archiver names reaches its container, in order."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(),
+            archiver_credential_personas={"readwrite": ("ARCHIVER_TOKEN", "OTHER_PW")},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    token = alice_env.index("ARCHIVER_TOKEN=${ARCHIVER_TOKEN:-}")
+    assert alice_env.index("OTHER_PW=${OTHER_PW:-}") == token + 1
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("ARCHIVER_TOKEN" in line or "OTHER_PW" in line for line in bob_env)
+
+
+def test_archiver_grant_for_one_variable_renders_unchanged() -> None:
+    """One named variable renders as one line in place, with no blank line added."""
+    # Act
+    text = render_web_terminals(
+        _events_persona_config(),
+        archiver_credential_personas={"readwrite": ("MONGO_ROOT_PASSWORD",)},
+    )["docker-compose.web.yml"]
+
+    # Assert
+    assert text.count("      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}\n    volumes:\n") == 1
 
 
 def test_entitled_persona_gets_the_launch_token() -> None:

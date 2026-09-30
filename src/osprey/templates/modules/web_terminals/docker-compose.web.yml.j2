@@ -1329,13 +1329,13 @@ services:
          string. #}
       - GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}
 {%- endif %}
-{%- if svc.archiver_password_env %}
-      {#- The archiver store's password, for a persona whose archiver connector
-         authenticates with one. The consumer is the connector inside this
+      {#- The archiver's credential variables, for a persona whose archiver
+         connector authenticates. The consumer is the connector inside this
          container — the `control_system` MCP server's archiver tools and the
          Python executor's `read_archiver` both open it — and it reads the
-         variable its own `archiver.<type>.password_env` names, which is why
-         this line carries a per-persona NAME rather than a fixed one: the
+         variables its own block names under `auth:` (`auth.token_env`, or
+         `auth.password_env`), one line per name, which is why these lines
+         carry per-persona NAMES rather than fixed ones: the
          control-assistant preset spells it MONGO_ROOT_PASSWORD (minted by
          `osprey up`), a facility-run store may spell it anything.
 
@@ -1349,8 +1349,9 @@ services:
          connector exactly as an unset one is — "Environment variable '…' is
          not set" — so a deploy that never minted it fails where it is visible
          rather than half-authenticating. #}
-      - {{ svc.archiver_password_env }}={{ "${" ~ svc.archiver_password_env ~ ":-}" }}
-{%- endif %}
+{%- for archiver_env in svc.archiver_credential_envs %}
+      - {{ archiver_env }}={{ "${" ~ archiver_env ~ ":-}" }}
+{%- endfor %}
     volumes:
       - {{ svc.claude_config_volume }}:/data/claude-config
       {#- Mount target comes from render.py's _container_agent_data_dir, which
