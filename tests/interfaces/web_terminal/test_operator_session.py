@@ -1421,6 +1421,8 @@ class TestOperatorChatLaunchParity:
             cwd="/tmp",
             env=options.env,
             setting_sources=["project"],
+            mcp_servers="/tmp/.mcp.json",
+            strict_mcp_config=True,
             **identity,
         )
         assert options.env["PATH"] == "/usr/bin"

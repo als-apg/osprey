@@ -107,7 +107,13 @@ class TestResolveWebShellCommand:
         """
         cmd = _resolve_web_shell_command({}, None, {})
 
-        assert cmd == ["/abs/claude", "--setting-sources", "project"]
+        assert cmd == [
+            "/abs/claude",
+            "--setting-sources",
+            "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
+        ]
         mock_resolve.assert_called_once_with("claude")
 
     @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/claude")
@@ -121,6 +127,8 @@ class TestResolveWebShellCommand:
             "@anthropic-ai/claude-code@2.1.146",
             "--setting-sources",
             "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
         ]
         mock_resolve.assert_not_called()
 

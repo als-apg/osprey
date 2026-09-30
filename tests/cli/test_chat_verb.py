@@ -185,7 +185,13 @@ class TestLaunch:
         # build/ IS the rendered project, and the agent CLI reads its working
         # directory as the project root.
         assert launches[0].cwd == build.resolve()
-        assert launches[0].argv == ["claude", "--setting-sources", "project"]
+        assert launches[0].argv == [
+            "claude",
+            "--setting-sources",
+            "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
+        ]
 
     def test_exit_code_is_the_agent_process_exit_code(self, runner, monkeypatch, lifecycle_repo):
         stub_build(lifecycle_repo)
@@ -237,8 +243,14 @@ class TestFlags:
 
         assert result.exit_code == 0
         argv = launches[0].argv
-        assert argv[:3] == ["claude", "--setting-sources", "project"]
-        assert argv[3:] == ["--resume", "abc123", "--print", "--effort", "high"]
+        assert argv[:5] == [
+            "claude",
+            "--setting-sources",
+            "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
+        ]
+        assert argv[5:] == ["--resume", "abc123", "--print", "--effort", "high"]
 
     def test_prompt_is_passed_as_the_opening_message(self, runner, launches, lifecycle_repo):
         stub_build(lifecycle_repo)
@@ -314,7 +326,13 @@ class TestFlags:
         result = runner.invoke(chat, ["--repo", str(lifecycle_repo), "--no-pin"])
 
         assert result.exit_code == 0
-        assert launches[0].argv == ["claude", "--setting-sources", "project"]
+        assert launches[0].argv == [
+            "claude",
+            "--setting-sources",
+            "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
+        ]
 
 
 #: The opening of the DRIFT verdict's own message, which ``chat`` prints

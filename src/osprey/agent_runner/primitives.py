@@ -58,6 +58,7 @@ from osprey.agent_runner.events import (
     ToolUseEvent,
     translate_message,
 )
+from osprey.agent_runner.launcher import RENDERED_MCP_CONFIG
 from osprey.infrastructure.proxy.lifecycle import start_proxy
 
 logger = logging.getLogger(__name__)
@@ -664,7 +665,10 @@ def build_agent_options(
         provider: Overrides ``claude_code.provider`` while the builder routes
             the run — used by cross-provider sweeps.
         mcp_servers: MCP servers to load: a name → config mapping, or the path
-            of an ``.mcp.json`` file. ``None`` leaves the project's own.
+            of an ``.mcp.json`` file — exactly those servers. ``None`` means
+            the rendered ``.mcp.json`` when the project settings layer loads;
+            no server otherwise. Every run is strict: no plugin, connector,
+            user- or local-scope server loads beside the ones named here.
         session_id: The id to give a new transcript.
         resume: The id of an existing transcript to continue.
         can_use_tool: Callback the CLI asks before each tool use it has not been
@@ -727,6 +731,18 @@ def build_agent_options(
             )
             run_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
+    sources: list[SettingSource] = ["project"] if setting_sources is None else list(setting_sources)
+    run_mcp_servers: dict[str, McpServerConfig] | str
+    if mcp_servers is None:
+        # Absolute, because the SDK hands the path straight to the CLI. An explicit
+        # config loads even when the project layer does not, so a run that skips
+        # that layer gets no server rather than the project's.
+        run_mcp_servers = str(project_dir / RENDERED_MCP_CONFIG) if "project" in sources else {}
+    elif isinstance(mcp_servers, Path):
+        run_mcp_servers = str(mcp_servers)
+    else:
+        run_mcp_servers = dict(mcp_servers)
+
     options = ClaudeAgentOptions(
         model=resolved_model,
         cwd=str(project_dir),
@@ -734,7 +750,9 @@ def build_agent_options(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         env=run_env,
-        setting_sources=["project"] if setting_sources is None else setting_sources,
+        setting_sources=sources,
+        mcp_servers=run_mcp_servers,
+        strict_mcp_config=True,
         disallowed_tools=list(disallowed_tools),
         allowed_tools=list(allowed_tools),
         system_prompt=system_prompt,
@@ -743,10 +761,6 @@ def build_agent_options(
         can_use_tool=can_use_tool,
         stderr=stderr,
     )
-    if mcp_servers is not None:
-        options.mcp_servers = (
-            str(mcp_servers) if isinstance(mcp_servers, Path) else dict(mcp_servers)
-        )
     if pre_tool_use_hooks:
         options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}
     return options
@@ -907,7 +921,7 @@ def expected_mcp_servers(project_dir: Path) -> set[str]:
     """The MCP server names a project declares in ``.mcp.json`` — the set the
     readiness barrier waits for. Returns an empty set if the file is unreadable."""
     try:
-        cfg = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
+        cfg = json.loads((project_dir / RENDERED_MCP_CONFIG).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
     return set(cfg.get("mcpServers", {}).keys())

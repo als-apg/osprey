@@ -330,6 +330,7 @@ class TestRunSdkQueryOnTheRunner:
             allowed_tools=["mcp__channel-finder__*"],
             setting_sources=[],
             disallowed_tools=[],
+            strict_mcp_config=True,
         )
         harness.sdk_env.assert_called_once_with(project, provider="p")
 
