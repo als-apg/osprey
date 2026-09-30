@@ -33,12 +33,14 @@ from tests.facility._batches import BATCHES, CURRENT_BATCH
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Tracked trees the sweep reads: tests (``tests/e2e`` included), scripts, docs,
-#: the rendered templates and the deployment code and images.
+#: the rendered templates, the profile presets and catalogs, and the deployment
+#: code and images.
 SCAN_ROOTS: tuple[str, ...] = (
     "docker",
     "docs",
     "scripts",
     "src/osprey/deployment",
+    "src/osprey/profiles",
     "src/osprey/templates",
     "tests",
 )
@@ -217,6 +219,8 @@ def test_planted_token_is_flagged_where_swept(tmp_path: Path) -> None:
             "tests/e2e/test_planted.py": "from x import retired_name\n",
             "docs/source/page.rst": "Set ``RETIRED_ENV``.\n",
             "src/osprey/templates/app.j2": "{{ retired_name }}\n",
+            "src/osprey/profiles/presets/demo.yml": "retired_name: 1\n",
+            "src/osprey/profiles/config_key_manifest.yml": "- retired_name\n",
             "src/osprey/cli/main.py": "retired_name = 1\n",
             "changelog.d/1.removed.md": "Removed retired_name.\n",
             "CHANGELOG.md": "retired_name\n",
@@ -227,6 +231,7 @@ def test_planted_token_is_flagged_where_swept(tmp_path: Path) -> None:
     )
     assert scan(root, ["retired_name", "RETIRED_ENV"]) == [
         "docs/source/page.rst:1:RETIRED_ENV",
+        "src/osprey/profiles/presets/demo.yml:1:retired_name",
         "src/osprey/templates/app.j2:1:retired_name",
         "tests/e2e/test_planted.py:1:retired_name",
     ]
