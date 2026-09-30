@@ -55,6 +55,7 @@ from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
 from osprey.interfaces.bluesky_web.read_proxy import (
     LANE_QUERY_PARAM,
     UNKNOWN_LANE_BODY,
+    forwarded_query_params,
     resolve_lane_bridge_url,
 )
 from osprey.utils.http_proxy import HOP_BY_HOP
@@ -87,17 +88,11 @@ async def _relay(request: Request, method: str) -> JSONResponse:
         content = await request.body()
         headers = {"content-type": request.headers.get("content-type", "application/json")}
 
-    # multi_items(), not a dict: repeated query keys are preserved exactly as
-    # they arrived. The lane addresses the sidecar and is stripped.
-    params = httpx.QueryParams(
-        [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
-    )
-
     try:
         response = await client.request(
             method,
             f"{bridge_url}/draft",
-            params=params,
+            params=forwarded_query_params(request),
             content=content,
             headers=headers,
         )

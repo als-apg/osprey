@@ -62,6 +62,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     switch_capable,
 )
 from osprey_connectors import control_context
+from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import configured_targets, target_writes_enabled
 
@@ -210,14 +211,7 @@ class MCPServerConfig:
 
     def _section(self, key: str) -> dict[str, Any]:
         """Read the section at ``key`` as a mapping; empty reads as ``{}``."""
-        value = self.raw.get(key)
-        if value is None:
-            return {}
-        if isinstance(value, dict):
-            return value
-        raise ValueError(
-            f"'{key}' in {self.config_path} must be a mapping, got {type(value).__name__}"
-        )
+        return mapping_or_empty(self.raw.get(key), key, self.config_path)
 
     @property
     def control_system(self) -> dict[str, Any]:
