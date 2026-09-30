@@ -676,9 +676,8 @@ function stopFastPolling() {
  *
  * One subscription, and api.js shares one socket per URL across the page's
  * modules, so the chip adds no connection of its own to the browser's per-host
- * cap. Its own subscription rather than a seam through panel-manager,
- * following session.js's `wireActivityStrip`: the chip must work on a page
- * where no panel workspace ever boots.
+ * cap. Its own subscription rather than a seam through panel-manager: the
+ * chip must work on a page where no panel workspace ever boots.
  */
 function subscribeRefetchHints() {
   return createEventSource('/api/files/events', {
