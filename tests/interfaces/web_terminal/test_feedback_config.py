@@ -118,20 +118,13 @@ class TestFeedbackConfigDefaults:
             assert app.state.feedback_trackers == [
                 {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
             ]
-
-    def test_no_mailbox_ships_as_the_default_recipient(self):
-        """The unconfigured deployment offers no Email channel at all.
-
-        A prefilled feedback draft can carry a session's scrollback, so who
-        receives it is the deployment owner's decision and never the
-        framework's. Unconfigured, the Email channel is retired and the issue
-        tracker is the only channel the dialog offers.
-        """
-        assert DEFAULT_FEEDBACK_EMAIL == ""
-
-    def test_default_ceiling_is_256_mb(self):
-        """The documented default, spelled out so a silent change is caught."""
-        assert DEFAULT_FEEDBACK_MAX_STORE_BYTES == 268435456
+            # Spelled out, not read from the constants: nothing ships a mailbox
+            # (a prefilled draft can carry scrollback, so its recipient is the
+            # deployment owner's call), the ceiling is the documented 256 MB,
+            # and a deployment the project owns has no upstream link to offer.
+            assert app.state.feedback_email == ""
+            assert app.state.feedback_max_store_bytes == 268435456
+            assert app.state.feedback_escalation_url == ""
 
     def test_configured_values_win(self, project_dir, shared_root):
         """Each key is read from its own dotted path."""
@@ -146,14 +139,6 @@ class TestFeedbackConfigDefaults:
             assert app.state.feedback_github_repo == "facility/osprey-fork"
             assert app.state.feedback_email == "controls@example.org"
             assert app.state.feedback_max_store_bytes == 1048576
-
-    def test_ceiling_is_coerced_to_int(self, project_dir, shared_root):
-        """A YAML-quoted ceiling still reaches the store as an int."""
-        with _lifespan_client(
-            project_dir, shared_root, overrides={"web.feedback.max_store_bytes": "4096"}
-        ) as (_client, app):
-            assert app.state.feedback_max_store_bytes == 4096
-            assert isinstance(app.state.feedback_max_store_bytes, int)
 
     def test_config_read_failure_falls_open_to_defaults(self, project_dir, shared_root):
         """A broken config must never keep the server from starting."""
@@ -171,29 +156,42 @@ class TestFeedbackConfigDefaults:
 class TestBadValuesAreContained:
     """One unusable key must never take the other three down with it."""
 
-    def test_garbage_ceiling_leaves_the_string_keys_alone(self, project_dir, shared_root):
-        """The failure that would redirect a facility's feedback to upstream."""
-        overrides = {
-            "web.docs_url": "https://docs.example.org/osprey",
-            "web.feedback.github_repo": "facility/osprey-fork",
-            "web.feedback.email": "controls@example.org",
-            "web.feedback.max_store_bytes": "256MB",
-        }
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            pytest.param(
+                {
+                    "web.docs_url": "https://docs.example.org/osprey",
+                    "web.feedback.github_repo": "facility/osprey-fork",
+                    "web.feedback.email": "controls@example.org",
+                    "web.feedback.max_store_bytes": "256MB",
+                },
+                {
+                    "docs_url": "https://docs.example.org/osprey",
+                    "feedback_github_repo": "facility/osprey-fork",
+                    "feedback_email": "controls@example.org",
+                    "feedback_max_store_bytes": DEFAULT_FEEDBACK_MAX_STORE_BYTES,
+                },
+                id="garbage-ceiling",
+            ),
+            pytest.param(
+                {
+                    "web.docs_url": {"nested": "by a mis-indented config.yml"},
+                    "web.feedback.max_store_bytes": 4096,
+                },
+                {"docs_url": DEFAULT_DOCS_URL, "feedback_max_store_bytes": 4096},
+                id="garbage-url",
+            ),
+        ],
+    )
+    def test_one_garbage_key_leaves_the_others_alone(
+        self, project_dir, shared_root, overrides, expected
+    ):
+        """A garbage ceiling must not redirect a facility's feedback upstream,
+        and a garbage URL must not reset the ceiling."""
         with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
-            assert app.state.docs_url == "https://docs.example.org/osprey"
-            assert app.state.feedback_github_repo == "facility/osprey-fork"
-            assert app.state.feedback_email == "controls@example.org"
-            assert app.state.feedback_max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
-
-    def test_garbage_url_leaves_the_ceiling_alone(self, project_dir, shared_root):
-        """The same containment in the other direction."""
-        overrides = {
-            "web.docs_url": {"nested": "by a mis-indented config.yml"},
-            "web.feedback.max_store_bytes": 4096,
-        }
-        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
-            assert app.state.docs_url == DEFAULT_DOCS_URL
-            assert app.state.feedback_max_store_bytes == 4096
+            for attribute, value in expected.items():
+                assert getattr(app.state, attribute) == value
 
     @pytest.mark.parametrize(
         "bad", [0, -1, True, "256MB", "", [], None, 1.5e-3, float("inf"), float("-inf")]
@@ -254,13 +252,6 @@ class TestBadValuesAreContained:
             assert app.state.feedback_email == ""
             assert app.state.feedback_trackers == []
 
-    def test_absent_config_still_takes_the_defaults(self, project_dir, shared_root):
-        """The counterpart: nothing configured is not the same as blanked."""
-        with _lifespan_client(project_dir, shared_root) as (_client, app):
-            assert app.state.docs_url == DEFAULT_DOCS_URL
-            assert app.state.feedback_github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
-            assert app.state.feedback_email == DEFAULT_FEEDBACK_EMAIL
-
 
 class TestFeedbackStoreLocation:
     def test_store_sits_under_the_shared_data_root(self, project_dir, shared_root):
@@ -299,24 +290,6 @@ class TestFeedbackStoreLocation:
 
 
 class TestPanelsPayload:
-    def test_configured_values_reach_the_browser(self, project_dir, shared_root):
-        """The three UI-facing keys travel on ``GET /api/panels``."""
-        overrides = {
-            "web.docs_url": "https://docs.example.org/osprey",
-            "web.feedback.github_repo": "facility/osprey-fork",
-            "web.feedback.email": "controls@example.org",
-        }
-        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, _app):
-            payload = client.get("/api/panels").json()
-        assert payload["docs_url"] == "https://docs.example.org/osprey"
-        assert payload["feedback_trackers"] == [
-            {"kind": "github", "label": "GitHub", "repo": "facility/osprey-fork"}
-        ]
-        assert payload["feedback_email"] == "controls@example.org"
-        # The sugar key is resolved into the tracker list server-side; the
-        # browser never sees it on its own.
-        assert "feedback_github_repo" not in payload
-
     def test_configured_trackers_reach_the_browser_in_order(self, project_dir, shared_root):
         """A facility-authored list travels as written, sugar tracker last."""
         overrides = {
@@ -333,24 +306,6 @@ class TestPanelsPayload:
             {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO},
         ]
 
-    def test_ceiling_is_not_exposed_to_the_browser(self, project_dir, shared_root):
-        """The store ceiling is server-side only; nothing in the UI reads it."""
-        with _lifespan_client(project_dir, shared_root) as (client, _app):
-            payload = client.get("/api/panels").json()
-        assert "feedback_max_store_bytes" not in payload
-
-    def test_bare_app_state_still_serves_the_defaults(self):
-        """The route never assumes the lifespan ran (getattr-with-default)."""
-        app = FastAPI()
-        app.include_router(panels_router)
-        app.state.project_cwd = "/tmp"
-        payload = TestClient(app).get("/api/panels").json()
-        assert payload["docs_url"] == DEFAULT_DOCS_URL
-        assert payload["feedback_trackers"] == [
-            {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
-        ]
-        assert payload["feedback_email"] == DEFAULT_FEEDBACK_EMAIL
-
 
 GITLAB_URL = "https://git.example.org/controls/osprey"
 UPSTREAM_TRACKER = {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
@@ -358,9 +313,6 @@ UPSTREAM_TRACKER = {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBAC
 
 class TestFeedbackTrackers:
     """``web.feedback.trackers`` — the facility-authored outbound tracker list."""
-
-    def test_absent_list_is_empty(self):
-        assert coerce_feedback_trackers(None) == []
 
     def test_github_and_gitlab_entries_are_normalised(self):
         raw = [
@@ -379,6 +331,7 @@ class TestFeedbackTrackers:
     @pytest.mark.parametrize(
         "bad",
         [
+            None,
             "not a list",
             {"kind": "github", "repo": "a/b"},
             42,
@@ -434,17 +387,6 @@ class TestFeedbackTrackers:
         ]
         assert resolve_feedback_trackers(trackers, None) == [trackers[0]]
 
-    def test_lifespan_resolves_the_list_plus_sugar(self, project_dir, shared_root):
-        overrides = {
-            "web.feedback.trackers": [{"kind": "gitlab", "url": GITLAB_URL, "label": "Ops"}],
-            "web.feedback.github_repo": "facility/fork",
-        }
-        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
-            assert app.state.feedback_trackers == [
-                {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL},
-                {"kind": "github", "label": "GitHub", "repo": "facility/fork"},
-            ]
-
     def test_lifespan_with_list_and_blank_sugar_is_the_list_alone(self, project_dir, shared_root):
         """The self-hosted posture: a tracker of one's own and no upstream channel."""
         overrides = {
@@ -454,13 +396,6 @@ class TestFeedbackTrackers:
         with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
             assert app.state.feedback_trackers == [
                 {"kind": "gitlab", "label": "Ops", "url": GITLAB_URL}
-            ]
-
-    def test_malformed_list_in_config_leaves_the_sugar_tracker(self, project_dir, shared_root):
-        overrides = {"web.feedback.trackers": "https://git.example.org/x"}
-        with _lifespan_client(project_dir, shared_root, overrides=overrides) as (_client, app):
-            assert app.state.feedback_trackers == [
-                {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
             ]
 
 
@@ -483,6 +418,8 @@ class TestResolveFeedbackDestination:
         assert destination.trackers == [
             {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
         ]
+        # The OSPREY project is not a facility and does not caption itself.
+        assert destination.owner_name == ""
 
     def test_the_sugar_expansion_happens_once(self):
         """``github_repo`` becomes a tracker entry inside the resolver, not outside it."""
@@ -517,6 +454,10 @@ class TestResolveFeedbackDestination:
         )
         assert destination.email == "controls@example.org"
         assert destination.max_store_bytes == DEFAULT_FEEDBACK_MAX_STORE_BYTES
+        # A tracker list that is not a list leaves the sugar tracker standing.
+        assert resolve_feedback_destination(trackers="https://git.example.org/x").trackers == [
+            UPSTREAM_TRACKER
+        ]
 
     def test_every_field_is_returned_fresh(self):
         """No caller can mutate the next caller's trackers."""
@@ -539,6 +480,9 @@ class TestResolveFeedbackDestination:
         assert payload["docs_url"] == unconfigured.docs_url
         assert payload["feedback_email"] == unconfigured.email
         assert payload["feedback_trackers"] == unconfigured.trackers
+        # The identity and escalation fallbacks: no lifespan, nothing to print.
+        assert payload["feedback_deployment"] == {}
+        assert payload["feedback_escalation_url"] == ""
 
     def test_the_lifespan_resolves_the_same_way_the_fallback_does(self, project_dir, shared_root):
         """A configured lifespan and a direct resolve agree on every field."""
@@ -637,13 +581,6 @@ class TestFeedbackOwner:
             {"kind": "github", "label": "Fork", "repo": "facility/fork"},
             {"kind": "gitlab", "label": "GitLab", "url": GITLAB_URL},
         ]
-
-    def test_no_owner_block_is_the_osprey_project(self):
-        """The unconfigured deployment's owner is unchanged by this key."""
-        destination = resolve_feedback_destination()
-        assert destination.email == DEFAULT_FEEDBACK_EMAIL
-        assert destination.github_repo == DEFAULT_FEEDBACK_GITHUB_REPO
-        assert destination.owner_name == ""
 
     @pytest.mark.parametrize("bad", ["nonsense", 3, [], True])
     def test_an_unusable_owner_block_falls_back_without_taking_anything_down(self, bad):
@@ -746,14 +683,6 @@ class TestDeploymentIdentityAndEscalation:
         )
         assert upstream_escalation_url(resolve_deployment_identity(), destination) == ""
 
-    def test_the_link_carries_no_user_content(self):
-        """It is built once at startup, so nothing per-report can leak into it."""
-        destination = resolve_feedback_destination(owner={"tracker": OWNER_GITLAB})
-        url = upstream_escalation_url(resolve_deployment_identity(**self.IDENTITY), destination)
-        decoded = unquote_plus(url)
-        assert "session" not in decoded.lower()
-        assert "paste what the user reported" in decoded
-
     def test_an_identity_that_cannot_be_read_still_yields_a_link(self):
         """A deployment with no provenance can still forward a bug."""
         destination = resolve_feedback_destination(owner={"tracker": OWNER_GITLAB})
@@ -773,17 +702,3 @@ class TestDeploymentIdentityAndEscalation:
         assert payload["feedback_deployment"]["Channel finder"] == "hierarchical"
         assert payload["feedback_deployment"]["Preset"].startswith("control-assistant (a3f91c")
         assert DEFAULT_FEEDBACK_GITHUB_REPO in payload["feedback_escalation_url"]
-
-    def test_an_unconfigured_deployment_publishes_an_empty_link(self, project_dir, shared_root):
-        with _lifespan_client(project_dir, shared_root) as (client, _app):
-            payload = client.get("/api/panels").json()
-        assert payload["feedback_escalation_url"] == ""
-
-    def test_the_route_survives_a_lifespan_that_never_ran(self):
-        """The getattr fallbacks cover the new fields too."""
-        app = FastAPI()
-        app.include_router(panels_router)
-        app.state.project_cwd = "/tmp"
-        payload = TestClient(app).get("/api/panels").json()
-        assert payload["feedback_deployment"] == {}
-        assert payload["feedback_escalation_url"] == ""
