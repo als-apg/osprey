@@ -20,6 +20,7 @@ import yaml
 
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
+from osprey.facility.validate import run_stages
 from tests.facility.test_word_ratchet import OUTSIDE_FORMAT_FILES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -122,6 +123,12 @@ def test_a_setpoint_pairs_with_its_family_monitor(spear3: Path) -> None:
     assert channels[setpoint]["on"] == {"device": "StorageRing/HCM_1"}
     assert channels[monitor]["role"] == "readback"
     assert "pair" not in channels[monitor]
+
+
+def test_the_imported_tree_loads_with_its_mapping_beside_the_records(spear3: Path) -> None:
+    report = run_stages(spear3, project_name="demo")
+    assert [e.format_message() for e in report.errors if "is not a layer file" in e.detail] == []
+    assert report.failed != "load"
 
 
 def test_response_export_is_copied_byte_for_byte(spear3: Path) -> None:

@@ -12,7 +12,8 @@ The tree the loader reads::
     scenarios/<name>.yaml     {overrides?, faults?, archiver?, logbook?}
     measurement/<model>.yaml  {kinds, groups?, instruments?, <step/settle keys>}
     imported/<layer>/         places, devices, channels, groups and models files
-                              written by one importer
+                              written by one importer, beside the layer's own
+                              files (mapping.yaml), which the build never reads
 
 ``records/`` and ``models.yaml`` merge as the layer ``authored``; each directory
 under ``imported/`` is the layer of that name. A layer writes only the fields
@@ -39,6 +40,7 @@ from osprey.facility.errors import FacilityBuildError
 __all__ = [
     "AUTHORED",
     "COMPUTED_SLOTS",
+    "LAYER_OWN_FILES",
     "RECORD_FILES",
     "LoadResult",
     "SourceRecord",
@@ -57,6 +59,10 @@ RECORD_FILES: dict[str, str] = {
     "channels.yaml": "channel",
     "groups.yaml": "group",
 }
+
+#: The files a layer keeps for itself under its directory: a layer's own
+#: decisions file is read by that layer's importer, never by the build.
+LAYER_OWN_FILES: frozenset[str] = frozenset({"mapping.yaml"})
 
 #: The slots the build alone writes, per record kind.
 COMPUTED_SLOTS: dict[str, frozenset[str]] = {
@@ -332,6 +338,8 @@ class _Reader:
             )
             return
         for path in sorted(layer_dir.glob("*.yaml")):
+            if path.name in LAYER_OWN_FILES:
+                continue
             if path.name not in RECORD_FILES and path.name != "models.yaml":
                 self._path_error(self._rel(path), "is not a layer file", "remove or rename it")
         self._read_layer(layer, layer_dir, layer_dir / "models.yaml")

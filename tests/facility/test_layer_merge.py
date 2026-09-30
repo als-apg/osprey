@@ -144,6 +144,21 @@ class TestSourcesLoad:
         assert (err.kind, err.record_id) == ("source-invalid", "imported/authored")
         assert err.sources == ("imported/authored",)
 
+    def test_unknown_file_under_a_layer_is_not_a_layer_file(self, tmp_path: Path) -> None:
+        err = _one(_load_errors(tmp_path, {"imported/mml/extra.yaml": [{"id": "Q1"}]}))
+        assert (err.kind, err.record_id) == ("source-invalid", "imported/mml/extra.yaml")
+        assert "is not a layer file" in err.detail
+
+    def test_a_layer_keeps_its_own_decisions_file(self, tmp_path: Path) -> None:
+        errors = _load_errors(
+            tmp_path,
+            {
+                "imported/mml/mapping.yaml": {"models": {}},
+                "imported/mml/devices.yaml": [{"id": "Q1"}],
+            },
+        )
+        assert [e.format_message() for e in errors] == []
+
     def test_id_twice_in_one_layer_is_layer_duplicate(self, tmp_path: Path) -> None:
         rows = [{"id": "Q1"}, {"id": "Q1", "class": "Quad"}]
         err = _one(_load_errors(tmp_path, {"imported/mml/devices.yaml": rows}))
