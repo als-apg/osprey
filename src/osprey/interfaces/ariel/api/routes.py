@@ -256,8 +256,9 @@ async def get_capabilities(request: Request) -> dict:
     configuration keys added; if that service is missing the database really
     is down and ``_require_service`` raises 503 as it does everywhere else.
     An app whose state carries no configuration fields at all answers with the
-    normal payload. The payload names the zone every entry timestamp in this
-    API is rendered in, so the page can read those times in it.
+    normal payload, with ``config_panel_enabled`` False. The payload names the
+    zone every entry timestamp in this API is rendered in, so the page can read
+    those times in it.
     """
     from osprey.interfaces.ariel.app import CONFIG_STATUS_INVALID, CONFIG_STATUS_WARNING
     from osprey.services.ariel_search.capabilities import get_capabilities as _get_caps
