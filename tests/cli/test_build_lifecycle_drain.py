@@ -15,6 +15,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -324,3 +325,46 @@ def test_stop_drain_returns_promptly_when_the_reader_cannot_be_unblocked(
     release.set()
     reader.join(timeout=_DEADLINE)
     assert not reader.is_alive()
+
+
+@pytest.mark.usefixtures("reporter")
+def test_a_timed_out_step_is_silenced_before_it_is_killed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The kill is the decision, so the drain is silenced before it, not after.
+
+    A flag set only after the reap leaves a window between the kill and the
+    set in which a line from a process the step left behind still prints; on a
+    slow enough host that window is as wide as the scheduler makes it.
+    """
+    order: list[str] = []
+
+    class _RecordedEvent(threading.Event):
+        def set(self) -> None:
+            order.append("silenced")
+            super().set()
+
+    class _OutlivesItsGrace(subprocess.Popen[str]):
+        def wait(self, timeout: float | None = None) -> int:
+            if timeout is None or self.poll() is not None:
+                return super().wait()
+            raise subprocess.TimeoutExpired(self.args, timeout)
+
+        def kill(self) -> None:
+            order.append("killed")
+            super().kill()
+
+    monkeypatch.setattr(
+        build_lifecycle,
+        "threading",
+        SimpleNamespace(Event=_RecordedEvent, Thread=threading.Thread),
+    )
+    run = _script_cmd(tmp_path / "hangs.py", "import time\ntime.sleep(30)\n")
+    steps = [LifecycleStep(name="stream decided", run=run, timeout=1, stream=True)]
+
+    with patch_subprocess("osprey.cli.build_lifecycle", popen=_OutlivesItsGrace):
+        with pytest.raises(BuildProfileError, match="stream decided"):
+            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+    assert order.index("silenced") < order.index("killed"), order
+    assert _drain_threads() == []

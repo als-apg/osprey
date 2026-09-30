@@ -183,7 +183,9 @@ def _drain_stdout(stdout: IO[str], stop: threading.Event) -> None:
 
     Args:
         stdout: The child's piped stdout, in text mode.
-        stop: Set by :func:`_stop_drain` once the step's result is decided.
+        stop: Set once the step's result is decided: before the kill for a
+            step that outlived its exit grace, and by :func:`_stop_drain`
+            otherwise.
     """
     try:
         while not stop.is_set():
@@ -213,7 +215,9 @@ def _stop_drain(reader: threading.Thread, stop: threading.Event, stdout: IO[str]
     The flag alone would not do either, since a reader blocked in a read that
     never returns never sees it. Together they bound the thread's life at
     ``_DRAIN_SHUTDOWN_SECONDS`` and, whether or not it ever ends, guarantee it
-    emits nothing once its step has been reported.
+    emits nothing once its step has been reported. A caller that killed the
+    step has already set the flag before the kill, and setting it again here
+    is harmless.
 
     Args:
         reader: The drain thread for the step that just finished.
@@ -345,6 +349,9 @@ def _run_lifecycle_phase(
                 try:
                     proc.wait(timeout=_EXIT_GRACE_SECONDS)
                 except subprocess.TimeoutExpired:
+                    # Killing the step decides it, so its reader is silenced first: nothing
+                    # the step leaves behind on the inherited pipe prints once the kill starts.
+                    stop_drain.set()
                     proc.kill()
                     proc.wait()
                 # The step is decided: retire its reader before the result line
