@@ -38,12 +38,12 @@ from typing import Any
 import yaml
 
 
-def _load_records() -> Any:
-    """``_records.py`` beside this file, under a name no other module takes."""
-    name = "facility_demo__records"
+def _load_sibling(stem: str) -> Any:
+    """``<stem>.py`` beside this file, under a name no other module takes."""
+    name = f"facility_demo_{stem}"
     if name in sys.modules:
         return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name("_records.py"))
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f"{stem}.py"))
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -51,7 +51,11 @@ def _load_records() -> Any:
     return module
 
 
-_records = _load_records()
+_records = _load_sibling("_records")
+_limits = _load_sibling("_limits")
+_models = _load_sibling("_models")
+_measurement = _load_sibling("_measurement")
+_seeds = _load_sibling("_seeds")
 
 
 class _Dumper(yaml.SafeDumper):
@@ -79,25 +83,6 @@ def dump(document: Any) -> str:
         default_flow_style=False,
         width=2**16,
     )
-
-
-def _load_sibling(stem: str) -> Any:
-    """``<stem>.py`` beside this file, under a name no other module takes."""
-    name = f"facility_demo_{stem}"
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(f"{stem}.py"))
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_limits = _load_sibling("_limits")
-_models = _load_sibling("_models")
-_measurement = _load_sibling("_measurement")
-_seeds = _load_sibling("_seeds")
 
 
 def files(records: Any) -> dict[str, str]:

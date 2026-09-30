@@ -18,11 +18,14 @@ from typing import Any
 import pytest
 
 from osprey.facility.sources import load_sources, read_yaml
-from tests.facility.test_generator_records import generated, generated_files, generator
+from tests.facility.test_generator_records import (
+    CA_DATA,
+    VA_BINDINGS,
+    generated,
+    generated_files,
+    generator,
+)
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CA_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
-VA_BINDINGS = CA_DATA / "simulation/va_bindings.json"
 SR_DECK = CA_DATA / "facility/decks/SR.json"
 
 OPTICS = {
