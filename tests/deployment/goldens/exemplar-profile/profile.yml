@@ -892,14 +892,16 @@ env:
     # would put a CI credential into `.env.example` as a deployment secret.
 
 # ── Deployment coordinates ───────────────────────────────────────────────────
-# Where this deployment is built, pushed, and run. Read only by the scaffolding
-# verb (`osprey scaffold ci`), never by the build: nothing here changes what the
-# agent is, only where it lands.
+# Where this deployment is built, pushed, and run. `osprey scaffold ci` renders
+# the pipeline from this block, and the build writes `image_source` (and, in
+# registry mode, `registry.url`) into the rendered config for the web tier:
+# nothing here changes what the agent is, only where it lands.
 deploy:
   # CI platform whose pipeline `osprey scaffold ci` renders.
   ci: gitlab
   # Where the pipeline pushes images. Host-and-path, no scheme — it appears
-  # verbatim in an image name.
+  # verbatim in an image name. In registry mode, this is also where the host
+  # pulls the terminal images from.
   registry:
     url: registry.example.org/accelerator/demo-facility
     token_env_var: DEMO_REGISTRY_TOKEN

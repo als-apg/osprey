@@ -180,7 +180,9 @@ Neither pair reaches the other's images. ``images.registry`` does not move the
 web images, and ``registry.url`` does not move the service images. A
 deployment that mirrors everything sets both pairs, and sets them to the same
 place — that is the one case where the divergence costs you a line of config
-rather than nothing.
+rather than nothing. A profile with a ``deploy:`` block in registry mode does
+not write ``registry.url`` itself, because the build fills it from
+``deploy.registry.url`` (see :ref:`multi-user-registry-images`).
 
 Whether the web tier pulls those images or builds them on the deploy host is a
 third, separate setting: ``modules.web_terminals.image_source``

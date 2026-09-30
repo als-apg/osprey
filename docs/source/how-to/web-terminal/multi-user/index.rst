@@ -448,13 +448,12 @@ It is the only namespace: two deployments that share a registry keep their
 images apart by giving ``registry.url`` different paths.
 There is no per-persona ``image:`` key.
 
-This ``registry.url`` is not the ``deploy.registry.url`` of the profile's
-``deploy:`` block.
-The build copies ``deploy.image_source`` into the rendered config, but not the
-registry.
-Set it in the profile's ``config:`` block
-(``osprey set config.registry.url=<path>``), usually to the same path as
-``deploy.registry.url``.
+When the profile has a ``deploy:`` block in registry mode, the build writes
+``deploy.registry.url`` into this ``registry.url``, so the registry is named once.
+Setting ``registry.url`` in the profile's ``config:`` block
+(``osprey set config.registry.url=<path>``) points the terminal images somewhere
+else, and that value wins.
+A profile with no ``deploy:`` block sets it there.
 
 The scaffolded pipeline builds only the facility's own service images, not
 these, so the facility's pipeline must push them.
