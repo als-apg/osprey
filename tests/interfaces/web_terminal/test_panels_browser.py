@@ -64,6 +64,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
+import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import AsyncMock, patch
@@ -110,12 +111,16 @@ _CUSTOM_DATA_VIZ: dict = {
 
 
 @contextmanager
-def _stub_backend():
+def _stub_backend(hits: list[str] | None = None):
     """Serve 200 on every path, for a custom panel that must become healthy.
 
     Panels with a ``healthEndpoint`` are the only ones that reach the
     auto-activate branch in ``pollHealth``, and that branch needs a real
     unhealthy→healthy transition — so it needs a real backend to poll.
+
+    Args:
+        hits: When given, every request path the stub answers is appended to
+            it, so a caller can prove a health poll really reached the stub.
 
     Yields:
         base URL of the stub, e.g. ``"http://127.0.0.1:54321"``.
@@ -123,6 +128,8 @@ def _stub_backend():
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if hits is not None:
+                hits.append(self.path)
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -457,18 +464,6 @@ def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
         source.drag_to(target, **kwargs)
     finally:
         page.evaluate(shield, "auto")
-
-
-def _reset_dock_layout(page: Page) -> None:
-    """Invoke the exported resetDockLayout() on the live dock module singleton.
-
-    A dynamic import of the same module URL app.js already loaded returns the same
-    cached instance, so this drives the real DockviewApi — the seam a "Reset
-    layout" control binds to.
-    """
-    page.evaluate(
-        "async () => { const m = await import('/static/js/dock-workspace.js'); m.resetDockLayout(); }"
-    )
 
 
 def _dock_locked(page: Page) -> bool:
@@ -1181,15 +1176,78 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
         page.close()
 
 
+# Hold an HTML5 drag of one service tab over three targets and report what
+# dockview painted. The drag starts on the source tab's real dragstart handler
+# (dockview records the panel being dragged there). The first target is the
+# terminal group's right-edge band: an accepted split, so dockview paints its
+# `.dv-drop-target-selection` overlay — the proof that the synthetic drag is
+# one dockview recognises at all. The other two are the stacking geometries
+# on the target service tile: its tab title (the old restack gesture) and the
+# centre of its content. The stacking veto (dock-workspace.js
+# wireStackingVeto) must keep the overlay from painting on either, and the
+# drop dispatched on the title must not move anything. Each target is held
+# with repeated dragovers for a fixed budget, because dockview resolves its
+# overlay only after a dragover has been processed. Events go to the element
+# under the pointer, as a real drag would deliver them: dockview's tab drop
+# target does not answer events dispatched on the outer `.dv-tab`.
+_TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
+    const tabOf = (label) => [...document.querySelectorAll('.dv-tab')].find(t =>
+        t.querySelector(`.tile-tab[aria-label="${label}"]`));
+    const src = tabOf(source);
+    const dst = tabOf(target);
+    const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
+        g.querySelector('.terminal-header'));
+    if (!src || !dst || !term) return { error: 'missing tab or terminal group' };
+    const dt = new DataTransfer();
+    src.dispatchEvent(new DragEvent('dragstart',
+        { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const overlay = () => !!document.querySelector('.dv-drop-target-selection');
+    const hold = async (el, x, y) => {
+        const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
+                       clientX: x, clientY: y };
+        el.dispatchEvent(new DragEvent('dragenter', opts));
+        let painted = false;
+        const deadline = performance.now() + 600;
+        while (performance.now() < deadline) {
+            el.dispatchEvent(new DragEvent('dragover', opts));
+            await new Promise((res) => setTimeout(res, 50));
+            painted = painted || overlay();
+        }
+        return { painted, opts };
+    };
+    const content = term.querySelector('.dv-content-container');
+    const c = content.getBoundingClientRect();
+    const ex = c.right - 5, ey = c.top + c.height / 2;
+    const edgeEl = document.elementFromPoint(ex, ey) ?? content;
+    const edge = await hold(edgeEl, ex, ey);
+    edgeEl.dispatchEvent(new DragEvent('dragleave', edge.opts));
+    await new Promise((res) => setTimeout(res, 100));
+    const clearedAfterEdge = !overlay();
+    const at = async (el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const hit = document.elementFromPoint(x, y) ?? el;
+        return { hit, ...(await hold(hit, x, y)) };
+    };
+    const centre = await at(dst.closest('.dv-groupview').querySelector('.dv-content-container'));
+    centre.hit.dispatchEvent(new DragEvent('dragleave', centre.opts));
+    await new Promise((res) => setTimeout(res, 100));
+    const title = await at(dst.querySelector('.tile-tab-title'));
+    title.hit.dispatchEvent(new DragEvent('drop', title.opts));
+    src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+    return { edgePainted: edge.painted, clearedAfterEdge,
+             centrePainted: centre.painted, titlePainted: title.painted };
+}"""
+
+
 def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
     """A drop that would stack two panels into one tile is vetoed.
 
-    One panel per tile: dropping the data-viz tab onto the artifacts tile's tab
-    bar (the old restack gesture) is rejected by the onWillShowOverlay veto —
-    the arrangement is unchanged, every tile still holds exactly one panel.
-    A missed synthetic drop would also leave the arrangement unchanged, so this
-    can pass trivially on a contended runner — the veto wiring itself is a
-    one-line dockview event handler, and the unit suites pin the rest.
+    One panel per tile: dragging the data-viz tab onto the artifacts tile's tab
+    (the old restack gesture) or its centre never paints a drop target, and
+    the drop leaves every tile holding exactly one panel. The same drag held
+    over the terminal's right edge DOES paint one, so a drag dockview never
+    recognised cannot pass as a veto.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1206,19 +1264,23 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
         before = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in before), before
 
-        # Act — try to restack: drag the data-viz tab onto the artifacts tab.
-        _drag_with_dock_shield(
-            page, _service_tab(page, "DATA VIZ"), _service_tab(page, "WORKSPACE")
-        )
-        page.wait_for_timeout(700)
+        # Act — the restack gesture, with an accepted edge target as contrast.
+        probe = page.evaluate(_TAB_DRAG_PROBE_JS, {"source": "DATA VIZ", "target": "WORKSPACE"})
+        assert "error" not in probe, probe
+        assert probe["edgePainted"] is True, f"dockview never recognised the drag: {probe}"
+        assert probe["clearedAfterEdge"] is True, probe
+        assert probe["centrePainted"] is False, f"a tile centre painted a drop overlay: {probe}"
+        assert probe["titlePainted"] is False, f"a tab title painted a drop overlay: {probe}"
+        page.wait_for_timeout(500)
 
         # Assert — vetoed: no group holds two tabs, arrangement unchanged.
         after = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in after), (
             f"a drop stacked two panels into one tile: {after}"
         )
-        shared = [g for g in after if "DATA VIZ" in g["tabs"] and "WORKSPACE" in g["tabs"]]
-        assert not shared, after
+        assert sorted(t for g in after for t in g["tabs"]) == sorted(
+            t for g in before for t in g["tabs"]
+        ), (before, after)
 
         page.close()
 
@@ -1226,61 +1288,6 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
 # ===========================================================================
 # Group 4 — Layout persistence keyed by project_key
 # ===========================================================================
-
-
-def test_layout_persists_across_reload(tmp_path, chromium_browser):
-    """An expert arrangement survives a reload (keyed by project_key).
-
-    Drag the native terminal to the far-left; after a reload the terminal is
-    still leftmost — the persisted layout was restored over the default.
-    """
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _live_server(
-        workspace,
-        enabled_panels={"artifacts"},
-        custom_panels=[],
-        project_cwd=str(workspace),
-    ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
-
-        # Default order is workspace/services left, terminal on the right.
-        groups = _dock_groups(page)
-        term_before = next(g for g in groups if g["tabs"] == ["SESSION"])
-        assert term_before["x"] == max(g["x"] for g in groups), groups
-
-        # Act — drag the terminal to the far-left of the first group.
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
-        first_group = page.locator(".dv-groupview").first
-        fb = first_group.bounding_box()
-        _drag_with_dock_shield(
-            page,
-            _terminal_tab(page),
-            first_group,
-            target_position={"x": 8, "y": fb["height"] / 2},
-        )
-        page.wait_for_function(
-            """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => g.querySelector('.terminal-header'));
-                return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
-            timeout=5_000,
-        )
-        # Let the debounced persist write flush (schedulePersist ~150ms).
-        page.wait_for_timeout(500)
-
-        # Reload; the arrangement must be restored.
-        page.reload(wait_until="domcontentloaded")
-        expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-        page.wait_for_timeout(1_500)
-
-        groups = _dock_groups(page)
-        term_after = next(g for g in groups if g["tabs"] == ["SESSION"])
-        assert term_after["x"] == min(g["x"] for g in groups), (
-            f"terminal did not stay leftmost after reload: {groups}"
-        )
-
-        page.close()
 
 
 def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
@@ -1357,12 +1364,36 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         page.close()
 
 
-def test_reset_restores_default_layout(tmp_path, chromium_browser):
-    """resetDockLayout() clears a custom arrangement back to the default.
+def _reset_layout_from_palette(page: Page) -> None:
+    """Run "Reset layout" from the command palette, as an operator would."""
+    _open_palette(page)
+    _palette_query(page, "reset layout")
+    row = _palette_row(page, "Reset layout")
+    expect(row).to_have_count(1, timeout=5_000)
+    row.click()
+    expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
 
-    Rearrange (terminal → left), then reset: the grid returns to the default
-    split (service tile left, terminal right) and the reset survives a
-    reload (the stored value is the default, not the discarded custom one).
+
+def _reset_layout_from_terminal_menu(page: Page) -> None:
+    """Run "Reset layout" from the terminal tile header's right-click menu."""
+    page.locator(".tile-tab-terminal .terminal-label").click(button="right")
+    expect(_context_menu(page)).to_have_count(1, timeout=5_000)
+    _menu_row(page, "Reset layout").click()
+    expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [_reset_layout_from_palette, _reset_layout_from_terminal_menu],
+    ids=["palette", "terminal-menu"],
+)
+def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
+    """The "Reset layout" control clears a custom arrangement back to the default.
+
+    Offered in the command palette and on the terminal tile's menu. Rearrange
+    (terminal → left), then reset: the grid returns to the default split
+    (service tile left, terminal right) and the reset survives a reload (the
+    stored value is the default, not the discarded custom one).
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1384,12 +1415,23 @@ def test_reset_restores_default_layout(tmp_path, chromium_browser):
             first_group,
             target_position={"x": 8, "y": fb["height"] / 2},
         )
-        page.wait_for_timeout(600)
-
-        # Act — reset.
-        _reset_dock_layout(page)
+        # The custom arrangement really landed — a reset from the default would
+        # prove nothing.
         page.wait_for_function(
-            "() => document.querySelectorAll('.dv-groupview').length === 2", timeout=5_000
+            """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
+                const term = gs.find(g => g.querySelector('.terminal-header'));
+                return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
+            timeout=5_000,
+        )
+        page.wait_for_timeout(500)
+
+        # Act — reset through the operator's control.
+        reset(page)
+        page.wait_for_function(
+            """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
+                const term = gs.find(g => g.querySelector('.terminal-header'));
+                return gs.length === 2 && term && Math.max(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
+            timeout=5_000,
         )
 
         # Assert — default: the service tab-stack on the left, terminal right.
@@ -1751,23 +1793,6 @@ def test_add_menu_url_row_hidden_when_disabled(tmp_path, chromium_browser):
         page.close()
 
 
-def test_add_menu_url_row_shown_when_enabled(tmp_path, chromium_browser):
-    """With allow_runtime_panels on, the "+" menu offers the URL input."""
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _live_server(
-        workspace,
-        enabled_panels={"artifacts"},
-        custom_panels=[],
-        allow_runtime=True,
-    ) as (base_url, _app):
-        page = _open_page(chromium_browser, base_url)
-        page.locator("#panel-add-btn").click()
-        expect(page.locator('.panel-add-menu input[name="url"]')).to_be_visible(timeout=5_000)
-        page.close()
-
-
 def test_add_menu_registers_url_panel(tmp_path, chromium_browser):
     """Filling the URL form and clicking Add appends a new rail entry.
 
@@ -1891,7 +1916,8 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _stub_backend() as backend_url:
+    hits: list[str] = []
+    with _stub_backend(hits) as backend_url:
         hidden_panel = {
             "id": "data-viz",
             "label": "DATA VIZ",
@@ -1911,10 +1937,15 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
 
-            # Give the async init + health poll time to (wrongly) surface it —
-            # data-viz's poll against the live stub goes healthy in this window,
-            # which is exactly the transition the buggy fallback keyed on.
-            page.wait_for_timeout(3_000)
+            # The premise: data-viz's health poll really reaches the live stub
+            # and goes healthy, which is the transition the buggy fallback
+            # keyed on. Without a hit the negatives below could not fail.
+            deadline = time.monotonic() + 10.0
+            while not any(h.endswith("/health") for h in hits):
+                assert time.monotonic() < deadline, f"no health poll reached the stub: {hits}"
+                page.wait_for_timeout(100)
+            # One settle after the healthy answer for a wrong surface to land.
+            page.wait_for_timeout(1_000)
 
             # A non-member has NO rail entry at all (no dimmed placeholder),
             # and its healthy transition must not have docked or activated it.
@@ -3065,15 +3096,19 @@ def _wait_for_ariel_ready(page: Page) -> None:
 
     The palette builds its rows once per open (palette.js re-renders per open,
     not per keystroke), so an open that outruns ARIEL's config fetch is missing
-    the ARIEL rows for as long as it stays open — no amount of typing brings
-    them back. The rail entry sheds ``.disabled`` in the same settle that
-    publishes the URL (initPanel → assumeHealthy), so waiting on the class is
-    waiting on the rows' precondition. Every test that opens the palette and
-    expects an ARIEL row must pass through here first.
+    the ARIEL rows — the popout row in particular — for as long as it stays
+    open, and no amount of typing brings them back. The rail entry sheds
+    ``.disabled`` (a CSS class, not the HTML attribute: panel-rail.js
+    ``setEntryEnabled``) in the same settle that publishes the URL (initPanel →
+    assumeHealthy), so waiting on the class is waiting on the rows'
+    precondition. In isolation that takes well under a second; at the tail of a
+    long single-process browser run it can exceed the palette's own 5 s budget,
+    hence the wider wait here. Every test that opens the palette and expects an
+    ARIEL row must pass through here first.
     """
     expect(
         page.locator('button.panel-rail-button[data-panel-id="ariel"]:not(.disabled)')
-    ).to_be_attached(timeout=10_000)
+    ).to_be_attached(timeout=15_000)
 
 
 def _palette_input(page: Page):
@@ -3107,23 +3142,6 @@ def _open_palette(page: Page, *, hotkey: bool = False) -> None:
     else:
         page.locator("#command-palette-btn").click()
     expect(page.locator(_PALETTE_OVERLAY)).to_be_visible(timeout=5_000)
-
-
-def _wait_for_panel_rows(page: Page) -> None:
-    """Wait until the rail's ARIEL entry is usable before opening the palette.
-
-    The ARIEL rows — and the popout row in particular — exist only once the
-    panel-config fetch has resolved (``getPanelStandaloneUrl`` answers null
-    until then). In isolation that takes well under a second; at the tail of a
-    long single-process browser run it can exceed the palette's own 5 s budget.
-    Waiting on the rail entry, which the same fetch enables, anchors the palette
-    assertions to the state they actually depend on instead of to a timer. The
-    rail signals availability with the ``disabled`` CSS class, not the HTML
-    attribute (panel-rail.js ``setEntryEnabled``), so this waits on the class.
-    """
-    expect(
-        page.locator('button.panel-rail-button[data-panel-id="ariel"]:not(.disabled)')
-    ).to_be_attached(timeout=15_000)
 
 
 def _palette_query(page: Page, query: str) -> None:
@@ -3168,7 +3186,7 @@ def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path,
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
 
-        _wait_for_panel_rows(page)
+        _wait_for_ariel_ready(page)
         _open_palette(page, hotkey=True)
 
         # Real focus, not merely a rendered overlay. The diagnostic carries the
@@ -3253,8 +3271,6 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
-
-        _wait_for_panel_rows(page)
         _open_palette(page)
         _palette_query(page, "logbook")
 
@@ -3280,8 +3296,6 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
-
-        _wait_for_panel_rows(page)
         _open_palette(page)
         _palette_query(page, "ariel window")
         row = _palette_row(page, "Open ARIEL in a new window")
