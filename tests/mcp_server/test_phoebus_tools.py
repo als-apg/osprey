@@ -42,6 +42,19 @@ def _register_panels(tmp_path, monkeypatch, panels, filename="config.yml"):
     return config_file
 
 
+@pytest.fixture
+def drive_offered(tmp_path, monkeypatch):
+    """Point OSPREY_CONFIG at a config whose ``phoebus.agent_access`` is ``read_write``.
+
+    The drive tests exercise a deployment that offers the drive; the switch
+    itself is tested in ``test_phoebus_agent_access.py``.
+    """
+    config_file = tmp_path / "drive_offered.yml"
+    config_file.write_text(yaml.dump({"phoebus": {"agent_access": "read_write"}}))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    return config_file
+
+
 # ── list_displays ──────────────────────────────────────────────────────────
 async def test_list_displays_success():
     displays = [{"name": "demo", "ready": True, "active": True}]
@@ -161,6 +174,7 @@ async def test_snapshot_store_failure_still_names_the_file(tmp_path):
 
 
 # ── drive ──────────────────────────────────────────────────────────────────
+@pytest.mark.usefixtures("drive_offered")
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -174,6 +188,7 @@ async def test_drive_validation(kwargs):
         await _fn("phoebus_drive")(**kwargs)
 
 
+@pytest.mark.usefixtures("drive_offered")
 async def test_drive_success():
     with patch(
         f"{_MOD}._http_post_drive",
@@ -192,6 +207,7 @@ async def test_drive_success():
     assert data["status"] == "success" and data["fired"] is True
 
 
+@pytest.mark.usefixtures("drive_offered")
 async def test_drive_type_lowercases_and_forwards_value():
     with patch(
         f"{_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
@@ -201,6 +217,7 @@ async def test_drive_type_lowercases_and_forwards_value():
     assert payload["verb"] == "type" and payload["mode"] == "semantic" and payload["value"] == "42"
 
 
+@pytest.mark.usefixtures("drive_offered")
 async def test_drive_rejected():
     with patch(
         f"{_MOD}._http_post_drive", return_value=(400, {"error": "Unknown verb 'x'", "status": 400})
@@ -210,6 +227,7 @@ async def test_drive_rejected():
     assert "Unknown verb" in ctx["envelope"]["error_message"]
 
 
+@pytest.mark.usefixtures("drive_offered")
 async def test_drive_unreachable():
     with patch(f"{_MOD}._http_post_drive", side_effect=urllib.error.URLError("refused")):
         with assert_raises_error(error_type="phoebus_unreachable"):
@@ -577,6 +595,7 @@ async def test_perceive_with_handle():
     assert data["display"] == "handle:d-1"
 
 
+@pytest.mark.usefixtures("drive_offered")
 async def test_drive_with_handle_passes_through():
     """handle:<id> is forwarded unchanged in the drive payload."""
     with patch(
@@ -590,6 +609,7 @@ async def test_drive_with_handle_passes_through():
     assert data["status"] == "success" and data["fired"] is True
 
 
+@pytest.mark.usefixtures("drive_offered")
 async def test_drive_validation_still_enforced_with_handle():
     """drive verb/mode validation is enforced even when display is a handle string."""
     with assert_raises_error(error_type="validation_error"):
@@ -605,6 +625,7 @@ _REQUIRE_HANDLE_CASES = [
 ]
 
 
+@pytest.mark.usefixtures("drive_offered")
 @pytest.mark.parametrize("tool_name,kwargs", _REQUIRE_HANDLE_CASES)
 async def test_require_handle_env_rejects_implicit_active(tool_name, kwargs, monkeypatch):
     """PHOEBUS_REQUIRE_HANDLE=1 rejects the implicit 'active' fallback on all four tools.
@@ -672,6 +693,7 @@ async def test_require_handle_snapshot_with_handle_succeeds(tmp_path, monkeypatc
     assert extract_response_dict(result)["status"] == "success"
 
 
+@pytest.mark.usefixtures("drive_offered")
 async def test_require_handle_drive_with_handle_succeeds(monkeypatch):
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")
     with patch(

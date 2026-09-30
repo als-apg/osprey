@@ -2330,6 +2330,8 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
     cc = config.setdefault("claude_code", {})
     cc.setdefault("servers", {})["phoebus2"] = {"extends": "phoebus"}
     cc["permissions"] = {"remove_ask": ["mcp__phoebus2__phoebus_drive"]}
+    # The warning exists only while the drive is offered.
+    config["phoebus"] = {"agent_access": "read_write"}
 
     with caplog.at_level(logging.WARNING):
         claude_code.build_claude_code_context(

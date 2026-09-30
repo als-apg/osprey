@@ -104,7 +104,7 @@ Then re-enter `/setup-mode` to verify the fix.
 {% endif %}| `graph` | Facility knowledge-graph queries (read-only Cypher against the graphdb store) | {% if "graph" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 | `osprey_facility_knowledge` | Facility knowledge bundle: concept index, concept read, full-text search, concept drafting | {% if "osprey_facility_knowledge" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 | `bluesky` | Bluesky plan authoring, queue control and run data | {% if "bluesky" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
-| `phoebus` | Phoebus display bridge: open, perceive, drive | {% if "phoebus" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `phoebus` | Phoebus display bridge: open, perceive{% if phoebus_agent_access == "read_write" %}, drive{% endif %} | {% if "phoebus" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 | `health` | Deployment health checks | {% if "health" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 
 ### Required Environment Variables

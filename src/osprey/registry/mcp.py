@@ -17,6 +17,7 @@ from pathlib import Path
 from osprey import bluesky_tool_names as bsky
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEMPLATE
 from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey.utils.identity import IDENTITY_ENV_LADDER
 from osprey.utils.owner_header import OWNER_HEADER
@@ -280,10 +281,12 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # switch ahead of the approval gate, like every other write path.
         # The panel itself carries no target binding, so the check is keyed
         # the same way channel_write's is: the control-context record.
-        permissions_ask=["phoebus_drive"],
+        # The drive is offered only under ``phoebus.agent_access: read_write``;
+        # resolve_servers withholds it otherwise.
+        permissions_ask=[DRIVE_TOOL],
         hooks_pre=[
             HookRule(
-                matcher="mcp__phoebus__phoebus_drive",
+                matcher=f"mcp__{SERVER_TEMPLATE}__{DRIVE_TOOL}",
                 hooks=[_WRITES_CHECK, _APPROVAL],
             ),
         ],
@@ -1313,6 +1316,10 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
         ``None`` for stdio), headers (request headers for URL servers, empty
         for stdio), command, args, env, permissions_allow, permissions_ask,
         fixed_allow, hooks_pre, hooks_post, is_custom.
+
+    A context without ``phoebus_agent_access`` resolves as ``read``: the
+    ``phoebus`` server and its ``extends`` clones come back without
+    ``phoebus_drive`` in their permission lists.
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -1389,11 +1396,38 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
             if custom is not None:
                 servers[name] = custom
 
+    # ── Phoebus agent access ──────────────────────────────────
+    _withhold_phoebus_drive(servers, ctx.get("phoebus_agent_access", READ))
+
     # ── Build output dicts ────────────────────────────────────
     result = []
     for sdef in servers.values():
         result.append(_server_to_dict(sdef, ctx))
     return result
+
+
+def _withhold_phoebus_drive(servers: dict[str, ServerDefinition], access: str) -> None:
+    """Remove ``phoebus_drive`` from the phoebus permission lists unless access is read_write.
+
+    Applies to the ``phoebus`` server and every ``extends: phoebus`` clone.
+    It works on ``resolve_servers``'s deep copies, never on
+    ``FRAMEWORK_SERVERS``, because the headless read-only floor reads the
+    pristine template. The drive's ``hooks_pre`` rule stays: a matcher offers
+    nothing, and ``hook_config.json``'s ``write_tools`` must keep matching the
+    registry floor. It runs after clones are built because
+    ``build_extended_server``'s ask-union guard re-adds the tool to every clone.
+
+    Args:
+        servers: Resolved server definitions, keyed by name; edited in place.
+        access: The ``phoebus_agent_access`` context value.
+    """
+    if access == READ_WRITE:
+        return
+    for name, sdef in servers.items():
+        if (sdef.extends_of or name) != SERVER_TEMPLATE:
+            continue
+        sdef.permissions_ask = [t for t in sdef.permissions_ask if t != DRIVE_TOOL]
+        sdef.permissions_allow = [t for t in sdef.permissions_allow if t != DRIVE_TOOL]
 
 
 # Extends-clone names are spliced into regex hook matchers, exact permission

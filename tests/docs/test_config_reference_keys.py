@@ -241,6 +241,7 @@ def test_the_phoebus_rows_are_swept() -> None:
         "phoebus.port",
         "phoebus.panels",
         "phoebus.require_handle",
+        "phoebus.agent_access",
         "phoebus.archiver_url",
         "phoebus.plot_dir",
         "phoebus.snapshot_dir",
