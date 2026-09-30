@@ -419,11 +419,10 @@ def chat(
         # The repo root, not the render: `.env` is the durable SECRETS zone and
         # deliberately does not live in the disposable build output.
         #
-        # `os.environ` is a MutableMapping rather than a dict, and handing over
-        # the real one is the point — the overlay mutates the environment this
-        # process will hand to the agent.
+        # Handing over the real `os.environ` is the point — the overlay mutates
+        # the environment this process will hand to the agent.
         injected = inject_provider_env(
-            os.environ,  # type: ignore[arg-type]
+            os.environ,
             spec,
             project_dir=repo_root,
         )
