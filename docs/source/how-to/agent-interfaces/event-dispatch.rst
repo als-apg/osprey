@@ -488,13 +488,14 @@ loads.
         - The PV to monitor.
       * - ``threshold``
         - ``0.0``
-        - The value a crossing is measured against, a number.
+        - The value a crossing is measured against, a finite number.
       * - ``edge``
         - ``rising``
         - ``rising``, ``falling`` or ``both``.
       * - ``cool_down_sec``
         - ``60.0``
-        - The fewest seconds between two fires of this trigger, a number.
+        - The fewest seconds between two fires of this trigger, a number zero or
+          greater.
 
    - The first value after connecting is recorded and never fires.
    - ``rising`` means the previous value was below the threshold and the new
@@ -502,8 +503,10 @@ loads.
    - The cool-down counts from the last fire, so the first fire is never held
      back.
    - A value that is not a number is ignored with a warning.
-   - A trigger with no ``pv``, or with an ``edge`` outside the three, is not
-     armed; the dispatcher logs a warning naming it, and its siblings still arm.
+   - A trigger with no ``pv``, an ``edge`` outside the three, or a
+     ``threshold`` or ``cool_down_sec`` that is not such a number is not armed;
+     the dispatcher logs a warning naming it and the value, and its siblings
+     still arm. A blank value takes the default.
    - The payload carries ``source``, ``pv``, ``value``, ``previous_value``,
      ``threshold``, ``edge`` and ``timestamp``.
 
