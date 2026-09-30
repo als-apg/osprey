@@ -89,6 +89,10 @@ DEMO_TRANSCRIPT_PATH = Path(__file__).parent / "demo_transcript.txt"
 #: so it must not collide with any real agent/tool output.
 TRANSCRIPT_SENTINEL = "__OSPREY_SHEET_READY__"
 
+#: The fake session's one user line, which the Simple view's chat replays when
+#: it resumes the demo session.
+DEMO_OPENING_PROMPT = "Plot the storage ring beam current over the last hour."
+
 #: Visible-column budget for a transcript line: the terminal card is ~370px, so
 #: lines wider than this wrap and break the mockup-faithful layout.
 MAX_CARD_LINE_WIDTH = 40
@@ -641,7 +645,7 @@ def _fake_session_line() -> str:
             "type": "user",
             "message": {
                 "role": "user",
-                "content": "Plot the storage ring beam current over the last hour.",
+                "content": DEMO_OPENING_PROMPT,
             },
             "sessionId": DEMO_SESSION_ID,
             "timestamp": _DEMO_UPDATED_ISO,
@@ -664,38 +668,59 @@ def _write_fake_session(session_dir: Path) -> Path:
     return path
 
 
-def _wait_for_session_ready(page, mode: str | None) -> None:
-    """Block until the resumed session has reached the terminal chrome.
+def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
+    """Block until the resumed demo session is shown in the view the mode renders.
 
-    Expert renders the session hex into ``#terminal-label`` (``Session 3f9a1c72``),
-    so it waits for that exact hex — the strong assertion that the hub confirmed
-    the id this harness asked it to resume, unchanged from the theme-only
-    renderer.
+    Expert (and ``None``) waits for :data:`TRANSCRIPT_SENTINEL` in
+    ``.xterm-rows`` (xterm's DOM renderer keeps the text there; its appearance
+    implies the PTY spawned), then for ``DEMO_SESSION_ID[:8]`` in
+    ``#terminal-label``, the proof that the hub confirmed the id this harness
+    asked it to resume.
 
-    Simple mode's shell density pass (Task 5.4) hides ``#terminal-label`` and
-    surfaces a ``Connected`` state in a sibling ``.terminal-label-simple`` span,
-    so keying the wait on hex *visibility* would be unreliable. But the JS still
-    writes ``Session <hex>`` into the (now hidden) ``#terminal-label`` on
-    ``session_info`` in both modes, so Simple keys off that same write via
-    ``textContent`` — which is populated regardless of CSS visibility — detected
-    as the label moving off its static ``Session`` placeholder. That proves the
-    confirmation arrived without depending on the Simple ``Connected`` chrome,
-    and never weakens the Expert hex wait.
+    Simple waits once, for the operator chat's replay of
+    :data:`DEMO_OPENING_PROMPT`. The Simple view never connects the terminal, so
+    neither ``.xterm-rows`` nor ``#terminal-label`` moves there. The chat replays
+    the transcript of the key it resumed, and only ``DEMO_SESSION_ID``'s record
+    carries that line, so this one wait proves both the transcript and the id.
+
+    Args:
+        page: The Playwright page showing the hub.
+        mode: The UI mode, which names the view that shows the session.
+        variant: The variant being captured, named in the error.
+
+    Raises:
+        RuntimeError: The session did not appear within :data:`_NAV_TIMEOUT_MS`.
     """
-    if mode == "simple":
-        page.wait_for_function(
-            "() => { const l = document.getElementById('terminal-label');"
-            " if (!l) return false; const t = (l.textContent || '').trim();"
-            " return t !== '' && t !== 'Session'; }",
-            timeout=_NAV_TIMEOUT_MS,
-        )
-    else:
-        page.wait_for_function(
-            "(h) => { const l = document.getElementById('terminal-label');"
-            " return !!l && (l.textContent || '').includes(h); }",
-            arg=DEMO_SESSION_ID[:8],
-            timeout=_NAV_TIMEOUT_MS,
-        )
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    view = "operator chat" if mode == "simple" else "terminal"
+    try:
+        if mode == "simple":
+            page.wait_for_function(
+                "(p) => Array.from(document.querySelectorAll("
+                "'.op-messages .op-entry.operator .op-entry-body'))"
+                ".some((b) => (b.textContent || '').trim() === p)",
+                arg=DEMO_OPENING_PROMPT,
+                timeout=_NAV_TIMEOUT_MS,
+            )
+        else:
+            page.wait_for_function(
+                "(s) => { const r = document.querySelector('.xterm-rows');"
+                " return !!r && (r.textContent || '').includes(s); }",
+                arg=TRANSCRIPT_SENTINEL,
+                timeout=_NAV_TIMEOUT_MS,
+            )
+            page.wait_for_function(
+                "(h) => { const l = document.getElementById('terminal-label');"
+                " return !!l && (l.textContent || '').includes(h); }",
+                arg=DEMO_SESSION_ID[:8],
+                timeout=_NAV_TIMEOUT_MS,
+            )
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError(
+            f"hub {variant}: the resumed session did not appear in the {view} within "
+            f"{_NAV_TIMEOUT_MS // 1000} s; no image was written."
+        ) from exc
 
 
 def _plot_row_selector(mode: str | None) -> str:
@@ -1052,7 +1077,8 @@ def capture_hub_view(
         stage: A :data:`STAGES` key the page is driven into before the shot.
 
     The view is shot only with its plot drawn; a plot that never draws raises
-    :class:`RuntimeError` instead of writing *dest*.
+    :class:`RuntimeError` instead of writing *dest*. A resumed session that never
+    appears in the active view raises :class:`RuntimeError` without writing *dest*.
     """
     # Publish the fake session BEFORE the page loads. The terminal's session id
     # has to be DEMO_SESSION_ID — the seeded artifacts are tagged with it and
@@ -1097,19 +1123,8 @@ def capture_hub_view(
             wait_until="domcontentloaded",
             timeout=_NAV_TIMEOUT_MS,
         )
-        # Wait for the canned transcript's sentinel to land in the terminal
-        # (xterm's DOM renderer keeps the text in .xterm-rows). This also
-        # implies the PTY has spawned.
-        page.wait_for_function(
-            "(s) => { const r = document.querySelector('.xterm-rows');"
-            " return !!r && (r.textContent || '').includes(s); }",
-            arg=TRANSCRIPT_SENTINEL,
-            timeout=_NAV_TIMEOUT_MS,
-        )
-
-        # Wait for the confirmed id to reach the header (Expert: the hex;
-        # Simple: the Task 5.4 "Connected" state — see _wait_for_session_ready).
-        _wait_for_session_ready(page, mode)
+        # Wait for the resumed demo session in whichever view the mode shows.
+        _wait_for_resumed_session(page, mode, variant=variant)
 
         # Guard against a transcript that wraps at the real fitted width.
         fitted_cols = _read_fitted_cols(page)
