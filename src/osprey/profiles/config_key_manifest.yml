@@ -681,9 +681,9 @@ keys:
     rendered: false
     evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
     note: >-
-      OSPREY-built image. The VA image is large and platform-sensitive, so a
-      published multi-arch pin here is the usual way to skip the local build.
-      The compose template reaches it through `svc = services[instance_key]`
+      OSPREY-built image. Naming any image other than `osprey_images.va`
+      renders the instance with no `build:` block, so compose runs that image
+      as named instead of building the VA recipe under its name. The compose template reaches it through `svc = services[instance_key]`
       because the baseline VA and the live stand-in render from the one
       fragment, so the evidence anchors on that alias rather than on the dotted
       path — the alias is what a rename would have to touch. Same shape as
@@ -767,8 +767,9 @@ keys:
       purpose: one compose fragment renders both instances through
       `svc = services[instance_key]`, so there is one `svc.image` read and no
       per-instance reader to anchor on separately. Both instances also share
-      the OSPREY_VA_IMAGE override, and instance 1 alone owns the `build:`
-      stanza — two services building one tag would race.
+      the OSPREY_VA_IMAGE override, and the first instance whose own image is
+      `osprey_images.va` owns the `build:` stanza — two services building one
+      tag would race.
     default: derived
     default_note: osprey_images.va — the stand-in runs the VA image
   services.qmd.image:

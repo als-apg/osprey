@@ -44,10 +44,12 @@
 {%- set instance_keys = ['virtual_accelerator'] -%}
 {%- if 'live_standin' in deployed_services %}{% set _ = instance_keys.append('live_standin') %}{% endif -%}
 # The virtual-accelerator service owns the PyAT-backed EPICS soft-IOC (see
-# src/osprey/services/virtual_accelerator/). `osprey up` builds its
-# image locally on first run; subsequent runs reuse the local tag. To use a
-# prebuilt/published image instead, set OSPREY_VA_IMAGE (e.g.
-# OSPREY_VA_IMAGE=my-registry/osprey-va:dev).
+# src/osprey/services/virtual_accelerator/). Its image is built from the
+# Dockerfile beside this file unless services.virtual_accelerator.image names a
+# different image, which this file then runs as named with no build.
+# OSPREY_VA_IMAGE names one for a single shell (e.g.
+# OSPREY_VA_IMAGE=my-registry/osprey-va:dev), and a start that reads it builds
+# nothing for this service.
 # Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
@@ -76,10 +78,21 @@
 # THIS DEPLOYMENT RENDERS TWO INSTANCES. `virtual-accelerator` is the machine
 # this project runs against; `live-standin` stands in for the live target, so
 # a session can rehearse against that machine's shape without touching it. They
-# are one image built once, on distinct Channel Access ports, reading the same
+# run one image, built at most once, on distinct Channel Access ports, reading the same
 # model and the same active scenarios — what differs is the BPM perturbation
 # the stand-in carries (VA_STANDIN_BPM_ERRORS below).
 {%- endif %}
+{#- The BUILDER instance: the first, in render order, whose own image is the one
+    OSPREY builds (unset, or equal to `osprey_images.va`). A null block reads
+    as unset, so it keeps its build. None qualifies when every instance names
+    another image, and then nothing here builds. -#}
+{%- set builder = namespace(key=none) %}
+{%- for candidate in instance_keys %}
+{%- if builder.key is none and (not services[candidate].image or services[candidate].image == osprey_images.va) %}
+{%- set builder.key = candidate %}
+{%- endif %}
+{%- endfor %}
+{%- set builder_key = builder.key %}
 
 services:
 {%- for instance_key in instance_keys %}
@@ -126,11 +139,14 @@ services:
   {{ instance }}:
     image: ${OSPREY_VA_IMAGE:-{{ svc.image | default(osprey_images.va) }}}
     platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
-{#- INSTANCE 1 ONLY owns the build: every instance runs the SAME image off the
-    same tag, and two services building one tag race each other. Compose builds
-    every buildable service before it creates any container, so the stand-in's
-    image is on the host by the time it is needed. #}
-{%- if instance_key == 'virtual_accelerator' %}
+{#- ONE instance owns the build, the first whose own image is the one OSPREY
+    builds: two services building one tag race each other. An instance naming
+    any other image carries no build, so compose pulls and runs it as named
+    instead of building this Dockerfile under a name the operator chose for
+    something else. Compose builds every buildable service before it creates
+    any container, so the other instance's image is on the host by the time it
+    is needed. #}
+{%- if instance_key == builder_key %}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
