@@ -142,7 +142,8 @@ def resolve_authorization_roles(web_terminals: Any) -> dict[str, str]:
     """
     from osprey.deployment.web_terminals.render import _authorization_context
 
-    return _authorization_context(as_dict(web_terminals))["authorization_roles"]
+    roles: dict[str, str] = _authorization_context(as_dict(web_terminals))["authorization_roles"]
+    return roles
 
 
 def effective_persona(

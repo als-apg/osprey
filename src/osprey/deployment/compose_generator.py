@@ -20,8 +20,10 @@ import re
 import shutil
 import stat
 import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
@@ -316,7 +318,7 @@ def env_chain_names(repo_root):
     return [path.name for path in dotenv.chain_files(Path(repo_root))]
 
 
-def compose_env_file_args(repo_root):
+def compose_env_file_args(repo_root: str | Path) -> list[str]:
     """One ``--env-file`` flag per env-chain file at *repo_root*, in chain order.
 
     ``--env-file`` decides which values compose substitutes into every
@@ -360,7 +362,7 @@ def compose_env_file_args(repo_root):
         )
         return []
 
-    args = []
+    args: list[str] = []
     for env_file in chain:
         args.extend(("--env-file", str(env_file)))
     return args
@@ -483,7 +485,13 @@ def _labels_override_file(root, document):
     return subset
 
 
-def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None, provider=None):
+def compose_base_cmd(
+    runtime_cmd: Sequence[str],
+    compose_files: Sequence[str | Path],
+    repo_root: str | Path,
+    env_file_args: Sequence[str] | None = None,
+    provider: ComposeProvider | None = None,
+) -> list[str]:
     """Pin a compose argv to one deployment repo, before any subcommand.
 
     The single spelling of the invocation contract (TR-3). Every compose
@@ -1053,7 +1061,9 @@ def configured_ariel_mirror_path(config):
     return None
 
 
-def resolve_ariel_mirror_dir(config, repo_root=None):
+def resolve_ariel_mirror_dir(
+    config: Mapping[str, Any], repo_root: str | Path | None = None
+) -> Path | None:
     """The ARIEL qmd mirror on the host, or ``None`` when no export writes one.
 
     The mirror counterpart of :func:`resolve_facility_bundle_dir`, anchored the
@@ -2290,7 +2300,9 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
 SHARED_CORPUS_DIR_MODE = 0o2770
 
 
-def resolve_facility_bundle_dir(config, repo_root=None):
+def resolve_facility_bundle_dir(
+    config: Mapping[str, Any], repo_root: str | Path | None = None
+) -> Path | None:
     """The deployment's facility-knowledge bundle on the host, or ``None``.
 
     One reader for ``facility_knowledge.bundle_path``, so the directory that is

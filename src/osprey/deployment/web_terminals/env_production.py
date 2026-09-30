@@ -855,10 +855,10 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
         var, has_default = reference
         return var, needs_endpoint and not has_default
 
-    var = provider_base_url_env(provider)
-    if not var:
+    fallback = provider_base_url_env(provider)
+    if not fallback:
         return None
-    return var, needs_endpoint and not declared
+    return fallback, needs_endpoint and not declared
 
 
 def required_provider_endpoint_var(cfg: dict) -> str | None:
