@@ -13,8 +13,8 @@ looked in the wrong place" and not "no controls server for this session".
 So the spawning surface resolves the root once and stamps it as
 ``OSPREY_AGENT_DATA_ROOT``, and everything below prefers it.
 
-Three properties are pinned here, and the first is the one that makes the other
-two mean anything:
+Three properties are pinned here, and the first is the one that makes the others
+mean anything:
 
 * **Co-stamp.** ``OSPREY_AGENT_DATA_ROOT`` travels with ``OSPREY_POSTURE_SESSION``
   and never without it, at BOTH spawn surfaces. The key names whose posture
@@ -23,20 +23,29 @@ two mean anything:
   the hook's fail-closed rules are written on the assumption that the halves
   arrive together.
 * **Survival.** The stamp has to reach the processes that read it, which sit
-  behind two deliberate scrubs: ``ConnectorHostManager.child_env()`` (drops the
-  EPICS family) and ``scrub_sandbox_child_env`` (drops credentials and the
-  web-terminal address book). Both are allow-by-default, so this is a
-  regression pin rather than a new guarantee: the day one of them grows a
-  prefix rule, the connector-host child or the execution sandbox silently
-  starts resolving a different directory from its own parent.
-* **Absence is the old behaviour, exactly.** With the variable unset —
-  a CLI run, a dispatch worker, a controls server outside any web session, and
-  every test that patches ``target_state.resolve_shared_data_root`` — the
-  derivation is untouched.
+  behind two deliberate scrubs. ``ConnectorHostManager.child_env()`` drops the
+  EPICS family and is otherwise allow-by-default, so its test here is a
+  regression pin: the day it grows a prefix rule, the connector-host child
+  silently resolves a different directory from its parent. The execution
+  sandbox's ``scrub_sandbox_child_env`` is an allowlist, pinned name by name in
+  its own suite.
+* **Provenance, and never a posture.** ``OSPREY_POSTURE_SOURCE`` rides with
+  the pair and names where the posture decision came from — ``live`` for a
+  key the posture route can address, ``spawn`` for a minted operator key,
+  ``process`` for a chat key it cannot — stamped by the call site, never
+  derived from the posture value. No seam stamps ``OSPREY_EXECUTION_MODE``:
+  the narrowing is per target and read live from the record, so the spawn
+  environment is the same whatever the record says, and a flip lands on a
+  running child instead of respawning it.
+
+The record's directory is pinned against ``target_state``'s own derivation in
+``tests/mcp_server/test_target_state.py``.
 """
 
 from __future__ import annotations
 
+import ast
+import inspect
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -46,6 +55,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.operator_session import (
@@ -56,25 +66,26 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
     resolve_agent_data_root,
 )
+from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
+from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
-from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 from osprey_connectors import posture_store
-from osprey_connectors.identity import acting_identity
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
 CHAT_ID = "cccccccc-1111-2222-3333-444444444444"
 OPERATOR_KEY = "operator-deadbeef"
 
+EXECUTION_MODE_ENV = "OSPREY_EXECUTION_MODE"
+
 POSTURE_SANDBOX = websocket_routes.POSTURE_SANDBOX
 POSTURE_WRITES = websocket_routes.POSTURE_WRITES
 
 
 # --------------------------------------------------------------------------- #
-# Harness (mirrors tests/interfaces/web_terminal/test_posture_source_pin.py)
+# Harness
 # --------------------------------------------------------------------------- #
 
 
@@ -214,12 +225,16 @@ class TestTheStampTravelsWithTheSessionKey:
         env = _pty_env(client, claude_session_id, telemetry_session_id)
         assert env[POSTURE_SESSION_ENV] == (claude_session_id or telemetry_session_id)
         assert env[OSPREY_AGENT_DATA_ROOT] == str(shared_root)
+        # A PTY pool key is always one the posture route can address, so every
+        # spawn shape says ``live`` and the fingerprinted marker never churns.
+        assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
 
     def test_pty_spawn_with_no_key_stamps_neither(self, client):
         """No key to name means no posture to read: the root would say nothing."""
         env = _pty_env(client, None, None)
         assert POSTURE_SESSION_ENV not in env
         assert OSPREY_AGENT_DATA_ROOT not in env
+        assert POSTURE_SOURCE_ENV not in env
 
     @pytest.mark.parametrize(
         ("session_key", "posture_source"),
@@ -238,6 +253,7 @@ class TestTheStampTravelsWithTheSessionKey:
         env = _sdk_env(client, None)
         assert POSTURE_SESSION_ENV not in env
         assert OSPREY_AGENT_DATA_ROOT not in env
+        assert POSTURE_SOURCE_ENV not in env
 
     def test_sdk_spawn_stamps_both_even_without_an_app(self, client, shared_root):
         """*app* is the store's handle, not the root's: the root reads config.
@@ -266,8 +282,9 @@ class TestTheStampTravelsWithTheSessionKey:
 
         for env in (pty, sdk):
             assert env[OSPREY_AGENT_DATA_ROOT] == str(shared_root)
-            assert POSTURE_SESSION_ENV in env
-            assert POSTURE_SOURCE_ENV in env
+            assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
+        assert pty[POSTURE_SESSION_ENV] == SESSION_A
+        assert sdk[POSTURE_SESSION_ENV] == CHAT_ID
 
     def test_neither_surface_ever_stamps_one_half(self, client):
         """The property itself, over every shape either surface can produce."""
@@ -319,17 +336,21 @@ class TestTheStampTravelsWithTheSessionKey:
 
 @pytest.fixture
 def stamped_env(monkeypatch):
-    """A process environment carrying the pair, plus a scrub canary."""
+    """A process environment carrying the pair, plus an EPICS scrub canary."""
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "/deployments/als/var/agent_data")
     monkeypatch.setenv(POSTURE_SESSION_ENV, SESSION_A)
     monkeypatch.setenv(POSTURE_SOURCE_ENV, POSTURE_SOURCE_LIVE)
     monkeypatch.setenv("EPICS_CA_ADDR_LIST", "10.0.0.1")
-    monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "canary")
     return os.environ
 
 
 class TestTheStampSurvivesEveryScrub:
-    """The readers sit behind two deliberate narrowings; both must let it past."""
+    """The connector-host child's EPICS scrub must let the pair past.
+
+    The execution sandbox's allowlist is the other scrub; its own suite,
+    ``tests/mcp_server/test_sandbox_child_env_allowlist.py``, pins both names
+    on it.
+    """
 
     def test_connector_host_child_keeps_the_pair(self, stamped_env):
         """The connector-host child reads the store per write. It also has the
@@ -347,65 +368,195 @@ class TestTheStampSurvivesEveryScrub:
         assert child[POSTURE_SESSION_ENV] == SESSION_A
         assert "EPICS_CA_ADDR_LIST" not in child, "the EPICS scrub is what this env proves"
 
-    def test_execution_sandbox_keeps_the_pair(self, stamped_env):
-        """The executor's sandbox re-reads the state file before every write."""
-        scrubbed = scrub_sandbox_child_env(stamped_env)
-
-        assert scrubbed[OSPREY_AGENT_DATA_ROOT] == stamped_env[OSPREY_AGENT_DATA_ROOT]
-        assert scrubbed[POSTURE_SESSION_ENV] == SESSION_A
-        assert "OSPREY_TERMINAL_SECRET" not in scrubbed, "the credential scrub still runs"
-
 
 # --------------------------------------------------------------------------- #
-# The writer prefers the same anchor
+# Provenance: which source each spawn site stamps
 # --------------------------------------------------------------------------- #
 
 
-class TestStateDirPrefersTheStamp:
-    """One resolution rule for the writer and every reader of its directory."""
+def _builder_calls(module) -> list[ast.Call]:
+    """Every ``build_operator_child_env(...)`` call in *module*'s source."""
+    tree = ast.parse(Path(inspect.getsourcefile(module)).read_text(encoding="utf-8"))
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "build_operator_child_env"
+    ]
 
-    def test_the_stamp_wins_over_the_config_derivation(self, tmp_path, monkeypatch):
-        stamped = tmp_path / "stamped"
-        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
 
-        assert target_state.state_dir() == (
-            stamped / target_state.STATE_DIR_NAME / acting_identity()
+def _resolve_source(node: ast.expr, module) -> tuple:
+    """Every literal source *node* can evaluate to.
+
+    Resolves the spellings a call site may use: a bare string, the
+    module-level constant (``POSTURE_SOURCE_LIVE``) looked up in *module*'s
+    namespace, and a conditional between two of those. The conditional is what
+    the chat site needs — its key is caller-supplied, so it says ``live`` only
+    for one the posture surface can actually address — and both arms are
+    returned so the pin covers each. Anything else (a lookup, a call, a value
+    derived from the posture) is refused here rather than silently admitted.
+    """
+    if isinstance(node, ast.Constant):
+        return (node.value,)
+    if isinstance(node, ast.Name):
+        return (getattr(module, node.id),)
+    if isinstance(node, ast.IfExp):
+        return _resolve_source(node.body, module) + _resolve_source(node.orelse, module)
+    raise AssertionError("posture_source is passed as a computed expression, not a literal source")
+
+
+def _keyword_values(call: ast.Call, name: str, module) -> tuple:
+    """The sources keyword *name* can be called with, or ``()`` if not passed."""
+    for kw in call.keywords:
+        if kw.arg == name:
+            return _resolve_source(kw.value, module)
+    return ()
+
+
+def _keyword_condition(call: ast.Call, name: str) -> ast.expr | None:
+    """The test of keyword *name*'s conditional, or ``None`` if it is not one."""
+    for kw in call.keywords:
+        if kw.arg == name and isinstance(kw.value, ast.IfExp):
+            return kw.value.test
+    return None
+
+
+class TestPostureSource:
+    """Every builder call site names its own ``posture_source``, and the builder stamps it.
+
+    A default that a call site is allowed to fall through would put the
+    envelope's provenance field one refactor away from being wrong in silence,
+    so the pin is on the call sites and not only on the signature.
+    """
+
+    def test_chat_site_passes_live_or_process(self):
+        calls = _builder_calls(chat_routes)
+        assert len(calls) == 1, "chat.py should spawn its SDK child in exactly one place"
+        assert set(_keyword_values(calls[0], "posture_source", chat_routes)) == {
+            POSTURE_SOURCE_LIVE,
+            POSTURE_SOURCE_PROCESS,
+        }
+
+    def test_the_chat_sites_choice_is_the_key_grammar(self):
+        """What the chat site branches on, pinned as well as what it passes.
+
+        ``live`` claims a store keeps answering for this key, so the only
+        honest condition is whether the posture surface can address the key at
+        all. Branching on anything else — the posture value above all — would
+        put a provenance in the ledger that means nothing.
+        """
+        condition = _keyword_condition(_builder_calls(chat_routes)[0], "posture_source")
+        assert condition is not None, "the chat site no longer chooses its source"
+        names = {node.id for node in ast.walk(condition) if isinstance(node, ast.Name)}
+        assert "is_posture_key" in names
+
+    def test_operator_site_passes_spawn(self):
+        calls = _builder_calls(websocket_routes)
+        assert len(calls) == 1, "websocket.py should spawn its SDK child in exactly one place"
+        assert _keyword_values(calls[0], "posture_source", websocket_routes) == (
+            POSTURE_SOURCE_SPAWN,
         )
 
-    def test_the_server_report_lands_under_the_stamped_root(self, tmp_path, monkeypatch):
-        """Not just the directory: what a reader globs for is under it too."""
-        stamped = tmp_path / "stamped"
-        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(stamped))
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
+    def test_every_builder_call_site_is_explicit(self):
+        """No in-tree caller relies on the parameter's default."""
+        for module in (chat_routes, websocket_routes):
+            for call in _builder_calls(module):
+                assert _keyword_values(call, "posture_source", module), (
+                    f"{module.__name__} calls the builder without an explicit posture_source"
+                )
 
-        target_state.write_server_record(server_pid=4321)
+    @pytest.mark.parametrize("posture", [POSTURE_SANDBOX, POSTURE_WRITES, None])
+    def test_sdk_markers_and_no_execution_mode(
+        self, client, shared_root, write_control_context, posture
+    ):
+        """A narrowed deployment is stamped, not sandboxed at spawn.
 
-        directory = stamped / target_state.STATE_DIR_NAME / acting_identity()
-        written = list(directory.glob(target_state.REPORT_FILE_GLOB))
-        assert [p.name for p in written] == ["server_4321.json"]
-        assert target_state.read(4321)["server_pid"] == 4321
-        assert not (tmp_path / "config").exists(), "the config derivation was consulted"
-
-    def test_unset_is_the_old_derivation_exactly(self, tmp_path, monkeypatch):
-        """The pin every existing test in this tree leans on: with no stamp,
-        patching ``target_state.resolve_shared_data_root`` still decides the
-        directory, unchanged and unconsulted by anything else.
+        The narrowing is in the record; the child is handed the key and the
+        root it reads that record out of, and nothing else. Stamping
+        ``OSPREY_EXECUTION_MODE`` here would sandbox EVERY target for the
+        session, which is the one thing a per-target narrowing must not do —
+        and a run under a record nobody narrowed was still *checked*.
         """
-        monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+        if posture is not None:
+            _seed_posture(write_control_context, shared_root, posture)
+        env = _sdk_env(client, CHAT_ID)
 
-        identity_dir = tmp_path / target_state.STATE_DIR_NAME / acting_identity()
-        assert target_state.state_dir() == identity_dir
-        assert target_state.report_file_path(99) == identity_dir / "server_99.json"
+        assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
+        assert env[POSTURE_SESSION_ENV] == CHAT_ID
+        assert EXECUTION_MODE_ENV not in env
 
-    def test_an_empty_stamp_is_no_stamp(self, tmp_path, monkeypatch):
-        """``env=""`` is how a shell spells "unset" by accident; an empty root
-        would resolve to the process CWD, which is nobody's agent-data root.
+    @pytest.mark.parametrize("posture", [POSTURE_SANDBOX, POSTURE_WRITES])
+    def test_operator_spawn_key_is_stamped_spawn(
+        self, client, shared_root, write_control_context, posture
+    ):
+        """The operator's minted key says ``spawn``, whatever the record narrows."""
+        _seed_posture(write_control_context, shared_root, posture)
+        env = _sdk_env(client, OPERATOR_KEY, posture_source=POSTURE_SOURCE_SPAWN)
+
+        assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_SPAWN
+        assert env[POSTURE_SESSION_ENV] == OPERATOR_KEY
+        assert EXECUTION_MODE_ENV not in env
+
+    def test_source_outside_the_closed_set_is_refused(self, client):
+        with pytest.raises(ValueError):
+            _sdk_env(client, CHAT_ID, posture_source="sandbox")
+
+
+class TestNoExecutionMode:
+    """Neither seam reads the record to build the env: a flip churns no pool."""
+
+    @pytest.mark.parametrize("posture", [POSTURE_SANDBOX, POSTURE_WRITES])
+    def test_neither_seam_carries_an_execution_mode(
+        self, client, shared_root, write_control_context, posture
+    ):
+        _seed_posture(write_control_context, shared_root, posture)
+
+        assert EXECUTION_MODE_ENV not in _pty_env(client, SESSION_A, SESSION_A)
+        assert EXECUTION_MODE_ENV not in _sdk_env(client, SESSION_A)
+
+    def test_neither_seam_reads_the_record_to_build_the_env(
+        self, client, shared_root, write_control_context
+    ):
+        """Spawning under a narrowing and without one produce the same overlay.
+
+        That equality is what lets a flip land on a running child instead of
+        killing it.
         """
-        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "")
-        monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+        _seed_posture(write_control_context, shared_root, POSTURE_WRITES)
+        unnarrowed = _pty_env(client, SESSION_A)
+        _seed_posture(write_control_context, shared_root, POSTURE_SANDBOX)
+        narrowed = _pty_env(client, SESSION_A)
 
-        assert target_state.state_dir() == (
-            tmp_path / target_state.STATE_DIR_NAME / acting_identity()
-        )
+        assert narrowed == unnarrowed
+
+
+class TestPoolFingerprint:
+    """The session marker is identity, the source marker is behaviour."""
+
+    def test_posture_source_is_still_fingerprinted(self):
+        """Deny-list discipline: a new name counts unless it is listed."""
+        base = {"OSPREY_WEB_UX": "expert"}
+        assert env_fingerprint(
+            {**base, POSTURE_SOURCE_ENV: POSTURE_SOURCE_LIVE}
+        ) != env_fingerprint({**base, POSTURE_SOURCE_ENV: POSTURE_SOURCE_SPAWN})
+
+    def test_a_moved_session_marker_does_not_respawn_a_live_child(self, client):
+        """Two spawn shapes whose marker differs fingerprint identically.
+
+        ``_build_extra_env`` computes ``OSPREY_POSTURE_SESSION`` from the pool
+        key, so two calls that resolve different keys export different values.
+        Excluding the *name* from the fingerprint is what keeps that from
+        killing a live child — and a child that is not killed keeps exporting
+        the key it spawned under, because its environment was fixed at
+        ``execvp`` time and no server-side rewrite can reach it.
+
+        Stabilising the export would be the wrong fix: a genuine respawn under
+        a new key *must* export the new key, or every record the fresh child
+        emits is misfiled under a dead one.
+        """
+        before = _pty_env(client, None, SESSION_A)
+        after = _pty_env(client, SESSION_B, SESSION_A)
+
+        assert before[POSTURE_SESSION_ENV] != after[POSTURE_SESSION_ENV]
+        assert env_fingerprint(before) == env_fingerprint(after)

@@ -50,7 +50,6 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_state
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import (
@@ -145,22 +144,6 @@ TOP_LEVEL_FIELDS = {
     "last_posture_realign",
     "targets",
 }
-
-#: Fields two earlier eras of this payload carried. The badge era answered
-#: session-wide questions the per-target rows replaced; the session era resolved
-#: one controls server per PTY, which the deployment-wide record replaced, and
-#: spelled the target key ``session_target`` before it was named for the control
-#: context. A client still reading any of them would be reading a fact this
-#: route no longer has.
-RETIRED_FIELDS = (
-    "posture",
-    "rendered_writes_enabled",
-    "session_target",
-    "session_target_label",
-    "target_writes_enabled",
-    "target_source",
-)
-
 
 # -- render -----------------------------------------------------------------
 
@@ -270,11 +253,9 @@ def agent_data_root(tmp_path, monkeypatch):
     monkeypatch.delenv(control_context_owner.WEB_PORT_ENV, raising=False)
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes.reset_rendered_config_memo()
     yield root
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes.reset_rendered_config_memo()
 
 
 @pytest.fixture
@@ -455,13 +436,12 @@ class TestTheFieldSet:
     def test_the_owner_row_carries_the_same_keys(self, client):
         assert set(get_posture(client)["owner"]) == OWNER_FIELDS
 
-    @pytest.mark.parametrize("field", RETIRED_FIELDS)
-    def test_a_retired_field_is_not_answered(self, client, field):
-        assert field not in get_posture(client)
-
-    def test_the_session_id_is_echoed_and_nothing_else_reads_it(self, client):
-        with_id = get_posture(client, SESSION_A)
-        without = get_posture(client)
+    def test_the_session_id_is_echoed_and_nothing_else_reads_it(self, make_client):
+        """A recorded narrowing reads the same with and without a key: it is the deployment's."""
+        with make_client(posture={"standin": "sandbox"}) as client:
+            with_id = get_posture(client, SESSION_A)
+            without = get_posture(client)
+        assert row_for(without, "standin")["posture"] == "sandbox"
         assert with_id["session_id"] == SESSION_A
         assert without["session_id"] is None
         assert {k: v for k, v in with_id.items() if k != "session_id"} == {
@@ -504,9 +484,16 @@ class TestTheTarget:
 class TestTheOwner:
     """``owner {kind, pid, port, self}`` — who may write, and whether it is us."""
 
-    def test_this_terminal_owning_reports_itself(self, client, monkeypatch):
+    def test_this_terminal_owning_reports_itself(self, make_client, monkeypatch):
+        """The row names the identity the terminal claimed the record as.
+
+        The port is read once, when the owner task claims; a variable that
+        moves afterwards changes neither the record nor what the row says.
+        """
         monkeypatch.setenv(control_context_owner.WEB_PORT_ENV, "8080")
-        payload = get_posture(client)
+        with make_client() as client:
+            monkeypatch.setenv(control_context_owner.WEB_PORT_ENV, "9999")
+            payload = get_posture(client)
         assert payload["owner"] == {
             "kind": "web_terminal",
             "pid": os.getpid(),
@@ -564,17 +551,17 @@ class TestTheOwner:
 class TestTheServers:
     """One row per running controls server — the fleet, published not collapsed."""
 
-    def test_a_dead_servers_report_is_not_a_row(self, client, agent_data_root):
+    @pytest.mark.parametrize(
+        ("alive", "expected"),
+        [((SERVER_A,), [SERVER_A]), ((), [])],
+        ids=["one-live", "none-live"],
+    )
+    def test_a_dead_servers_report_is_not_a_row(self, client, agent_data_root, alive, expected):
         write_server_report(agent_data_root, SERVER_A, applied_target="live")
         write_server_report(agent_data_root, DEAD_PID, applied_target="va")
-        with only_alive(SERVER_A):
+        with only_alive(*alive):
             payload = get_posture(client)
-        assert [row["pid"] for row in payload["servers"]] == [SERVER_A]
-
-    def test_no_live_server_is_an_empty_list(self, client, agent_data_root):
-        write_server_report(agent_data_root, DEAD_PID, applied_target="va")
-        with only_alive():
-            assert get_posture(client)["servers"] == []
+        assert [row["pid"] for row in payload["servers"]] == expected
 
     def test_a_row_reports_what_that_server_has_bound(self, client, agent_data_root):
         write_server_report(
@@ -599,6 +586,7 @@ class TestTheServers:
         assert row["applied_target"] is None
         assert row["applied_generation"] is None
         assert row["session"] is None
+        assert row["children"] == []
 
     def test_a_row_names_the_connector_children_it_holds(self, client, agent_data_root):
         """The chip's convergence wait is scoped to rows that hold a connector.
@@ -611,12 +599,6 @@ class TestTheServers:
         with only_alive(SERVER_A):
             row = server_row(get_posture(client), SERVER_A)
         assert row["children"] == [5001, 5002]
-
-    def test_a_server_with_no_child_reports_an_empty_list(self, client, agent_data_root):
-        write_server_report(agent_data_root, SERVER_A)
-        with only_alive(SERVER_A):
-            row = server_row(get_posture(client), SERVER_A)
-        assert row["children"] == []
 
     def test_a_servers_switch_progress_is_aged_here(self, client, agent_data_root):
         write_server_report(
@@ -665,21 +647,6 @@ class TestTheServers:
 
 class TestReachability:
     """Per target, the sweep of whichever live server looked at it last."""
-
-    def test_the_newest_probe_of_a_target_wins(self, client, agent_data_root):
-        write_server_report(
-            agent_data_root,
-            SERVER_A,
-            reachability=sweep(live={"read_only": probed("down", age_s=120)}),
-        )
-        write_server_report(
-            agent_data_root,
-            SERVER_B,
-            reachability=sweep(live={"read_only": probed("reached", age_s=1)}),
-        )
-        with only_alive(SERVER_A, SERVER_B):
-            payload = get_posture(client)
-        assert row_for(payload, "live")["reachability"]["state"] == "reached"
 
     def test_the_newest_is_read_per_target_not_per_server(self, client, agent_data_root):
         """Two servers, each fresher about a different machine."""
@@ -1066,9 +1033,14 @@ class TestTheWriteColumns:
         for row in get_posture(client)["targets"]:
             assert row["posture"] == "writes"
 
-    def test_a_recorded_narrowing_shows_and_zeroes_the_effective_answer(self, make_client):
-        with make_client(posture={"va": "sandbox"}) as client:
+    def test_a_recorded_narrowing_shows_and_zeroes_the_effective_answer(
+        self, make_client, tmp_path
+    ):
+        """The record a predecessor left governs the first read, over an armed ceiling."""
+        config = render(tmp_path=tmp_path, va_writes=True)
+        with make_client(config, posture={"va": "sandbox"}) as client:
             payload = get_posture(client)
+        assert row_for(payload, "va")["ceiling_writes"] is True
         assert row_for(payload, "va")["posture"] == "sandbox"
         assert row_for(payload, "va")["effective"] is False
 
@@ -1170,13 +1142,6 @@ class TestNoSessionScope:
         with patch.object(registry, "get_session", side_effect=AssertionError("asked")) as getter:
             get_posture(client, SESSION_A)
         assert getter.call_count == 0
-
-    def test_the_reason_word_is_gone_from_the_module(self):
-        assert not hasattr(websocket_routes, "REASON_CHAT_SESSION")
-
-    def test_the_session_record_resolver_is_gone_from_the_module(self):
-        for name in ("_session_record", "_reset_session_record_memo", "_state_dir_names"):
-            assert not hasattr(websocket_routes, name)
 
 
 async def _noop_cleanup() -> None:

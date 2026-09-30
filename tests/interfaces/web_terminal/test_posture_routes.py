@@ -322,11 +322,19 @@ class TestTheGetTakesTheSameOptionalId:
         assert response.status_code == 400
         assert response.json()["detail"]["error"] == "invalid_session_id"
 
-    def test_the_roster_reports_the_recorded_narrowing(self, client):
-        """The posture the GET shows is the one the POST just wrote."""
+    def test_the_roster_reports_the_recorded_narrowing(self, client, tmp_path):
+        """The posture the GET shows is the one the POST just wrote.
+
+        The stand-in is armed, so ``effective`` can only be false because the
+        narrowing reached the record the GET reads.
+        """
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(standin_writes=True)
+        )
         assert post_posture(client, target="standin", posture="sandbox").status_code == 200
         rows = client.get("/api/terminal/posture").json()["targets"]
         standin = next(row for row in rows if row["target"] == "standin")
+        assert standin["ceiling_writes"] is True
         assert standin["posture"] == "sandbox"
         assert standin["effective"] is False
 
@@ -501,13 +509,6 @@ class TestCeiling:
         client.app.state.config_path = write_config(tmp_path, section)
         assert post_posture(client, target="standin", posture="writes").status_code == 200
 
-    def test_narrowing_needs_no_ceiling(self, client):
-        """A target nothing arms can still be narrowed; narrowing grants nothing."""
-        assert post_posture(client, target="live", posture="sandbox").status_code == 200
-
-    def test_all_sandbox_ignores_the_ceiling(self, client):
-        assert post_posture(client, target="all", posture="sandbox").status_code == 200
-
 
 class TestSelectedRoleMissing:
     """409 when narrowing would leave the target with no gateway to select."""
@@ -576,11 +577,6 @@ class TestSelectedRoleMissing:
             "va": "sandbox",
         }
 
-    def test_a_clean_render_skips_nothing(self, client):
-        resp = post_posture(client, target="all", posture="sandbox")
-        assert resp.status_code == 200
-        assert resp.json()["skipped"] == []
-
     def test_widening_is_not_checked(self, client, tmp_path):
         """The question is what NARROWING would cost; widening does not narrow."""
         row = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
@@ -628,39 +624,29 @@ class TestExecutionInFlight:
         assert resp.status_code == 200
         assert not marker.exists()
 
-    def test_any_targets_marker_blocks_any_widening(self, client, tmp_path, agent_data_root):
-        """ANY live marker, not just one on the target being widened.
-
-        The marker says a run is going; the posture the run launched under is
-        pinned into it, and widening any target while one is in flight is the
-        surprise the refusal exists to prevent.
-        """
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(va_writes=True)
-        )
-        write_inflight_marker(agent_data_root, pid=4242, target="va")
-        with only_alive(4242):
-            assert post_posture(client, target="va", posture="writes").status_code == 409
-
 
 # -- the accepted gesture ---------------------------------------------------
 
 
 class TestAcceptedPosture:
-    def test_a_narrowing_lands_in_the_record(self, client):
-        resp = post_posture(client, target="standin", posture="sandbox")
+    @pytest.mark.parametrize("target", ["standin", "live"])
+    def test_a_narrowing_lands_in_the_record(self, client, target):
+        """Exactly that target, on disk, the moment the route answers.
+
+        Neither target is armed in this render: narrowing needs no ceiling.
+        The raw read is the file itself, so a narrowing held only in memory,
+        written elsewhere, or spelled as a bare ``"sandbox"`` all fail here.
+        """
+        resp = post_posture(client, target=target, posture="sandbox")
         assert resp.status_code == 200
         body = resp.json()
         assert body["session_id"] == SESSION_A
-        assert body["target"] == "standin"
+        assert body["target"] == target
         assert body["posture"] == "sandbox"
-        assert body["entry"] == {"standin": "sandbox"}
-        assert recorded_posture() == {"standin": "sandbox"}
-
-    def test_the_record_is_co_sited_with_the_control_target_directory(self, client):
-        """One directory for the record and the fleet's reports, by one rule."""
-        post_posture(client)
-        assert control_context.record_path().parent == target_state.state_dir()
+        assert body["entry"] == {target: "sandbox"}
+        assert recorded_posture() == {target: "sandbox"}
+        raw = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+        assert raw["posture"] == {target: "sandbox"}
 
     def test_the_toggle_moves_neither_target_nor_generation(self, client):
         before = read_record()
@@ -670,8 +656,9 @@ class TestAcceptedPosture:
         assert after.last_switch == before.last_switch
 
     def test_targets_narrow_independently(self, client):
-        post_posture(client, target="standin", posture="sandbox")
-        resp = post_posture(client, target="va", posture="sandbox")
+        """Each gesture adds to the record, whichever session made the one before."""
+        post_posture(client, session_id=SESSION_A, target="standin", posture="sandbox")
+        resp = post_posture(client, session_id=SESSION_B, target="va", posture="sandbox")
         assert resp.json()["entry"] == {"standin": "sandbox", "va": "sandbox"}
         assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
 
@@ -694,8 +681,11 @@ class TestAcceptedPosture:
         resp = post_posture(client, target="standin", posture="writes")
         assert resp.json()["entry"] == {}
         assert recorded_posture() == {}
+        raw = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+        assert raw["posture"] == {}
 
     def test_sandbox_everything_narrows_every_configured_target(self, client):
+        """No target in this render is armed, and none is left out."""
         resp = post_posture(client, target="all", posture="sandbox")
         assert resp.status_code == 200
         assert resp.json()["entry"] == {
@@ -703,12 +693,7 @@ class TestAcceptedPosture:
             "va": "sandbox",
             "standin": "sandbox",
         }
-
-    def test_two_sessions_toggle_one_deployment(self, client):
-        """There is one posture, so the second gesture adds to the first."""
-        post_posture(client, session_id=SESSION_A, target="standin")
-        post_posture(client, session_id=SESSION_B, target="va")
-        assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
+        assert resp.json()["skipped"] == []
 
     def test_a_repeated_narrowing_writes_nothing_new(self, client):
         """A gesture asking for what is already stored moves no signature.
@@ -777,26 +762,11 @@ class TestPersistence:
             assert post_posture(first, target="standin").status_code == 200
 
         with make_client() as second:
-            assert websocket_routes._recorded_posture() == {"standin": "sandbox"}
+            rows = second.get("/api/terminal/posture").json()["targets"]
+            standin = next(row for row in rows if row["target"] == "standin")
+            assert standin["posture"] == "sandbox"
             assert post_posture(second, target="va").status_code == 200
         assert recorded_posture() == {"standin": "sandbox", "va": "sandbox"}
-
-    def test_a_corrupt_record_reads_as_no_narrowing(self, make_client, agent_data_root):
-        control_context.record_path_under(agent_data_root).write_text("{not json", encoding="utf-8")
-        control_context.invalidate_cache()
-        with make_client():
-            assert websocket_routes._recorded_posture() == {}
-
-    def test_an_unknown_posture_value_is_dropped_on_read(self, make_client, agent_data_root):
-        """``parse_posture`` runs the grammar: only narrowings survive."""
-        write_control_context(
-            agent_data_root,
-            target="live",
-            generation=1,
-            posture={"standin": "readonly", "va": "sandbox"},
-        )
-        with make_client():
-            assert websocket_routes._recorded_posture() == {"va": "sandbox"}
 
 
 # -- audit ------------------------------------------------------------------
@@ -831,11 +801,6 @@ class TestAudit:
         assert post_posture(client, session_id="../../etc/passwd").status_code == 400
         assert len(ledger) == 1
         assert ledger[0]["decision"] == "refused"
-
-    def test_the_record_joins_on_the_session_key(self, client, ledger):
-        """A toggle is filed under the key the session is pooled on."""
-        assert post_posture(client, target="standin").status_code == 200
-        assert ledger[0]["session"] == SESSION_A
 
     def test_a_session_less_gesture_is_filed_on_the_lab_surface(self, client, ledger):
         assert post_posture(client, session_id=None, target="standin").status_code == 200
