@@ -12,7 +12,6 @@ from __future__ import annotations
 import importlib.util
 import json
 from functools import cache
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -20,13 +19,13 @@ from osprey.facility.sources import slot_names
 from tests.facility.test_cf_view_parity import load_golden
 from tests.facility.test_generator_records import (
     GENERATOR,
+    REPO_ROOT,
     generated,
     generated_files,
     records_by_id,
     wired_devices,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 LIMITS_MODULE = REPO_ROOT / "scripts" / "facility_demo" / "_limits.py"
 
 #: The three records, as the file states them.

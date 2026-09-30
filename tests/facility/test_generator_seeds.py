@@ -19,10 +19,15 @@ from typing import Any
 
 import pytest
 
-from tests.facility.test_generator_records import generated, generated_files, generator
+from tests.facility.test_generator_records import (
+    CA_DATA,
+    REPO_ROOT,
+    generated,
+    generated_files,
+    generator,
+    records_by_id,
+)
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CA_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 MACHINE_JSON = CA_DATA / "simulation/machine.json"
 SR_DECK = CA_DATA / "facility/decks/SR.json"
 GOLDEN = REPO_ROOT / "tests/facility/golden"
@@ -72,7 +77,7 @@ def seeds() -> dict[str, dict[str, Any]]:
 
 def channels() -> dict[str, dict[str, Any]]:
     """The generated channel records keyed by id."""
-    return {c["id"]: c for c in generated("records/channels.yaml")}
+    return records_by_id("channel")
 
 
 @cache
