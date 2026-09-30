@@ -51,7 +51,7 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors import yaml_loader
-from osprey_connectors.connection import read_credential_env_names
+from osprey_connectors.connection import ENV_NAME_RE, read_credential_env_names
 from osprey_connectors.types import (
     archiver_settings_key,
     baseline_target,
@@ -612,11 +612,6 @@ def config_needs_graphdb_password(config: Any) -> bool:
     return as_dict(servers.get("graph")).get("enabled", True) is not False
 
 
-#: What a credential variable name must look like to be emitted into a compose
-#: ``environment:`` line verbatim. Anything else is refused rather than rendered.
-_ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
 def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
     """The variables ``config``'s archiver connector authenticates with, in order.
 
@@ -654,7 +649,7 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
         if not isinstance(raw, str) or not raw.strip():
             continue
         name = raw.strip()
-        if not _ENV_VAR_NAME_RE.match(name):
+        if not ENV_NAME_RE.match(name):
             raise ValueError(
                 f"{where}.{key} must name an environment variable (letters, digits and "
                 f"underscores, not starting with a digit), got {name!r}"
