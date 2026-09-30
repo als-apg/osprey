@@ -7,6 +7,7 @@
  * server-derived value routed into markup here is escaped through `esc`.
  */
 
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { esc } from './utils.js';
 
 /**
@@ -170,21 +171,18 @@ export function _parseSelections(text) {
 }
 
 /**
- * Format an ISO timestamp as a compact local "Mon D, HH:MM" string.
+ * Format an ISO timestamp as a compact "Mon D, HH:MM" on the facility clock
+ * stamped on the page. An unparseable value is shown as written, escaped,
+ * since every caller routes the result into markup.
  * @param {string} [isoStr]
  * @returns {string}
  */
 export function _formatTime(isoStr) {
   if (!isoStr) return '';
-  try {
-    const d = new Date(isoStr);
-    return d.toLocaleString(undefined, {
-      month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
-  } catch {
-    return isoStr;
-  }
+  return (
+    formatFacilityTime(isoStr, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ||
+    esc(isoStr)
+  );
 }
 
 /**
