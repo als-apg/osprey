@@ -1169,7 +1169,7 @@ def test_every_ignored_file_has_a_host__mutation_a_host_that_only_ignores_the_fi
 
 def test_every_ignored_file_has_a_host__mutation_an_unhosted_ignore_is_reported() -> None:
     """A new ignore with no host anywhere must come back named, not swallowed
-    by the two entries that do have one."""
+    by the entries that do have one."""
     mutated = copy.deepcopy(_load_workflow())
     orphan = "tests/integration/test_nothing_else_runs_this.py"
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
@@ -1179,6 +1179,19 @@ def test_every_ignored_file_has_a_host__mutation_an_unhosted_ignore_is_reported(
     assert orphan in ignored, "the appended ignore did not reach the scan"
     unhosted = [path for path in ignored if not _unconditional_hosts(mutated, path)]
     assert unhosted == [orphan]
+
+
+#: The module that builds every shipped preset.
+PRESET_BUILD_TEST_FILE = "tests/integration/test_preset_build.py"
+
+
+def test_the_preset_build_runs_in_the_static_job_and_not_in_the_unit_lane(
+    workflow: dict[str, Any],
+) -> None:
+    """Every preset is built once per event, by the Tier 0 static job, rather
+    than once per cell of the unit lane's matrix."""
+    assert PRESET_BUILD_TEST_FILE in _unit_lane_ignored_files(workflow)
+    assert _unconditional_hosts(workflow, PRESET_BUILD_TEST_FILE) == [PARSE_ONLY_JOB]
 
 
 # ---------------------------------------------------------------------------
