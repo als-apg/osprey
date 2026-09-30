@@ -8,7 +8,6 @@ Date: 2026-07-01
 """
 
 import asyncio
-import math
 import secrets
 from collections.abc import Callable
 from datetime import datetime
@@ -23,16 +22,12 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     values_match,
 )
+from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
+from osprey_connectors.types import DOOCS
 
 logger = get_logger("doocs_connector")
-
-#: Seconds an ENS lookup, a property read or a property set is given by default.
-DEFAULT_TIMEOUT_S = 5.0
-
-#: The doocs block's key for that bound.
-TIMEOUT_KEY = "timeout_s"
 
 
 class DOOCSConnector(ControlSystemConnector):
@@ -59,7 +54,8 @@ class DOOCSConnector(ControlSystemConnector):
 
         Raises:
             ImportError: If doocs4py is not installed
-            ValueError: If ``timeout_s`` is not a positive, finite number
+            ValueError: If the block still carries ``timeout``, or if
+                ``timeout_s`` is not a positive, finite number
             ConnectionError: If the ENS does not answer
         """
         # Import doocs4py here and give clear error if not installed
@@ -71,18 +67,7 @@ class DOOCSConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
-        timeout_s = config.get(TIMEOUT_KEY, DEFAULT_TIMEOUT_S)
-        if (
-            isinstance(timeout_s, bool)
-            or not isinstance(timeout_s, int | float)
-            or not math.isfinite(timeout_s)
-            or timeout_s <= 0
-        ):
-            raise ValueError(
-                f"control_system.connector.doocs.{TIMEOUT_KEY} must be a positive number "
-                f"of seconds, got {timeout_s!r}"
-            )
-        self._timeout_s = float(timeout_s)
+        self._timeout_s = call_timeout_s(config, DOOCS)
 
         # Initialize limits validator for automatic validation and confirm policy
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
