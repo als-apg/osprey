@@ -473,3 +473,95 @@ class TestRunValidation:
         rc = run_validation(database=str(p), console=console)
         assert rc == 0
         assert "In Context" in _text(console)
+
+
+_HIERARCHICAL_DB = {
+    "hierarchy": {
+        "levels": [
+            {"name": "system", "type": "tree"},
+            {"name": "signal", "type": "tree"},
+        ],
+        "naming_pattern": "{system}:{signal}",
+    },
+    "tree": {"SR": {"X": {}}},
+}
+
+
+class TestRunValidationPipelineOverride:
+    """``--pipeline X`` without ``--database`` validates X's configured database file.
+
+    The file is ``channel_finder.pipelines.X.database.path``, read as X; neither
+    ``pipeline_mode`` nor graph detection chooses it, and an unset key is refused
+    by name.
+    """
+
+    def _config(self, monkeypatch, tmp_path: Path, cf_config: dict) -> None:
+        import osprey.utils.config as config_mod
+        import osprey.utils.workspace as workspace_mod
+
+        monkeypatch.setattr(
+            config_mod, "load_config", lambda *a, **k: {"channel_finder": cf_config}
+        )
+        monkeypatch.setattr(workspace_mod, "resolve_path", lambda s: tmp_path / s)
+
+    def test_override_validates_the_named_pipelines_database(self, tmp_path, monkeypatch):
+        _write(tmp_path / "ctx.json", {"channels": []})
+        _write(tmp_path / "hier.json", _HIERARCHICAL_DB)
+        self._config(
+            monkeypatch,
+            tmp_path,
+            {
+                "pipeline_mode": "in_context",
+                "pipelines": {
+                    "in_context": {"database": {"path": "ctx.json"}},
+                    "hierarchical": {"database": {"path": "hier.json"}},
+                },
+            },
+        )
+        console = _capture_console()
+
+        rc = run_validation(pipeline="hierarchical", console=console)
+
+        text = _text(console)
+        assert rc == 0
+        assert str(tmp_path / "hier.json") in text
+        assert "ctx.json" not in text
+        assert "Hierarchical" in text
+
+    def test_override_without_its_database_refuses_naming_the_key(self, tmp_path, monkeypatch):
+        _write(
+            tmp_path / "ctx.json",
+            {"channels": [{"channel": "A:B", "address": "A:B", "description": "d"}]},
+        )
+        self._config(
+            monkeypatch,
+            tmp_path,
+            {"pipelines": {"in_context": {"database": {"path": "ctx.json"}}}},
+        )
+        console = _capture_console()
+
+        rc = run_validation(pipeline="middle_layer", console=console)
+
+        text = " ".join(_text(console).split())
+        assert rc == 1
+        assert "channel_finder.pipelines.middle_layer.database.path" in text
+        assert "Database Path" not in text
+
+    def test_override_on_a_graph_project_reads_the_named_database(self, tmp_path, monkeypatch):
+        _write(tmp_path / "hier.json", _HIERARCHICAL_DB)
+        self._config(
+            monkeypatch,
+            tmp_path,
+            {
+                "pipeline_mode": "graph",
+                "pipelines": {"hierarchical": {"database": {"path": "hier.json"}}},
+            },
+        )
+        console = _capture_console()
+
+        rc = run_validation(pipeline="hierarchical", console=console)
+
+        text = _text(console)
+        assert rc == 0
+        assert "Graph Paradigm" not in text
+        assert str(tmp_path / "hier.json") in text

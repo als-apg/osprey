@@ -867,8 +867,11 @@ Options: ``--project PATH``, ``-v, --verbose``
    device numbering does not start at one.
 
 ``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
-   Validate a channel database JSON file. The paradigm is auto-detected from the
-   project's config; ``--pipeline`` overrides that.
+   Validate a channel database JSON file. ``--pipeline`` names the paradigm: the
+   file is read as that paradigm, and without ``--database`` it is the one at
+   ``channel_finder.pipelines.<pipeline>.database.path`` --- the command refuses,
+   naming that key, when it is unset. Without ``--pipeline`` the paradigm is
+   auto-detected from the project's config.
 
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
