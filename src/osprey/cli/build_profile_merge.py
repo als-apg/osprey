@@ -729,7 +729,8 @@ def resolve_profile_document(
             of a persona delta is missing or is not a YAML mapping, or if
             ``extends`` resolution fails.
         FacilityBuildError: ``profile-invalid`` when a persona delta names
-            ``data:``; every persona shares the root profile's facility tree.
+            ``data:`` (every persona shares the root profile's facility tree)
+            or sets ``simulation.models`` on a VA-baselined persona.
     """
     root_dir, is_persona_delta = resolve_profile_root(profile_path)
     normalized = dict(raw)
@@ -809,12 +810,17 @@ def resolve_profile_document(
     # ``extends:`` of its own (rejected above), and _resolve_extends would
     # consume its ``exclude:`` against its own layer instead of against the
     # root, silently dropping the exclusion.
-    return finish(
-        merge_persona_delta(
-            root_resolved, normalized, artifacts=artifacts, shadow_candidates=shadowed
-        ),
-        True,
+    merged = merge_persona_delta(
+        root_resolved, normalized, artifacts=artifacts, shadow_candidates=shadowed
     )
+    from .build_profile_load import persona_served_models_error
+
+    served_error = persona_served_models_error(
+        normalized, merged, f"{PERSONA_DIRNAME}/{profile_path.name}"
+    )
+    if served_error is not None:
+        raise served_error
+    return finish(merged, True)
 
 
 # ---------------------------------------------------------------------------

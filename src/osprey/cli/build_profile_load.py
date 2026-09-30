@@ -21,15 +21,22 @@ from typing import Any
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.errors import BuildProfileError
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.served import SIMULATION_MODELS_KEY
 from osprey.port_layout import (
     DEFAULT_PORT_BASE,
     PORT_BASE_CONFIG_KEY,
     default_port,
     resolve_port_base,
 )
-from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
+from osprey_connectors.types import (
+    SET_CONTROL_SYSTEM_TYPES,
+    TARGET_STANDIN,
+    TARGET_VA,
+    baseline_target,
+)
 
-from .build_profile_archiver import parse_va_archiver_block
+from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
 from .build_profile_deploy import parse_deploy_block
 from .build_profile_document import (
     _normalize_empty_collections,
@@ -781,6 +788,49 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
         )
     config[CONNECTOR_CONFIG_KEY] = value
     return raw
+
+
+def persona_served_models_error(
+    delta: Mapping[str, Any], resolved: Mapping[str, Any], delta_rel: str
+) -> FacilityBuildError | None:
+    """Refuse a persona's served-model list on a VA-baselined persona.
+
+    A persona's ``simulation.models`` selects what its in-process mock runs. A
+    persona whose baseline target is a VA instance (``va`` or ``standin``) is
+    served by the deployment's container, which serves one list: the
+    deployment render's. A list in the delta would silently not apply.
+
+    Args:
+        delta: The persona delta as read, before the merge.
+        resolved: The delta merged over its root profile.
+        delta_rel: The delta's path relative to the profile root.
+
+    Returns:
+        The ``profile-invalid`` stop, or ``None`` when the delta leaves the key
+        alone or the persona's baseline target is not a VA instance.
+    """
+    simulation = _expand_dotted(delta.get("config")).get("simulation")
+    if not (isinstance(simulation, dict) and "models" in simulation):
+        return None
+    control_system = _expand_dotted(resolved.get("config")).get("control_system")
+    section = dict(control_system) if isinstance(control_system, dict) else {}
+    shorthand = resolved.get(CONNECTOR_PROFILE_KEY)
+    if isinstance(shorthand, str) and shorthand.strip():
+        section["type"] = shorthand.strip()
+    target = baseline_target(section)
+    if target not in (TARGET_VA, TARGET_STANDIN):
+        return None
+    return FacilityBuildError(
+        "profile-invalid",
+        delta_rel,
+        [delta_rel],
+        f"remove `{SIMULATION_MODELS_KEY}` from {delta_rel}",
+        record_kind="path",
+        detail=(
+            f"a persona on the `{target}` target sets `{SIMULATION_MODELS_KEY}`, and that "
+            f"target serves the deployment's list"
+        ),
+    )
 
 
 def _apply_port_base_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
