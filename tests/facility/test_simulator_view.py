@@ -136,6 +136,32 @@ def test_two_mock_personas_differing_only_in_the_key_render_different_lists(
     assert rendered["physics"] != rendered["plain"]
 
 
+def test_an_omitted_view_is_named_on_stderr_alone(
+    tmp_path: Path,
+    built_control_assistant: BuiltProject,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from osprey.facility import views
+
+    stub = views.View(
+        name="stub",
+        path="stub",
+        written_when=lambda _inputs: False,
+        reason="stub.enabled",
+        write=lambda _root, _inputs: pytest.fail("an omitted view is never written"),
+    )
+    monkeypatch.setattr(views, "VIEWS", (*views.VIEWS, stub))
+
+    render_dir = _render(tmp_path, built_control_assistant, {})
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "view stub not written: stub.enabled" in captured.err
+    assert not (render_dir / "data" / "stub").exists()
+    assert (render_dir / SERVED).is_file()
+
+
 def test_validate_names_an_unknown_served_model(
     tmp_path: Path, built_control_assistant: BuiltProject
 ) -> None:
