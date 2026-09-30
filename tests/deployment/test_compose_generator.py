@@ -7028,7 +7028,7 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
 # "every interface" is every interface the MACHINE has rather than every
 # interface of a private compose network.
 #
-# The digest label is the one deliberate change to today's bytes. It carries
+# The digest label is the one label the templates write themselves. It carries
 # the fingerprint of the env chain the deploy read, so an edit to `.env`
 # changes the service definition and the container is recreated; without it the
 # runtime would leave the old environment running. It is unconditional — every

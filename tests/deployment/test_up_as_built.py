@@ -1429,14 +1429,12 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
     reads as unlabelled, never as skipped.
 
     Enumerated from the rendered documents, never filtered by what already
-    carries the label. An earlier version of this test collected the files
-    containing ``REPO_ID_LABEL`` and asserted things about those, which made it
-    structurally incapable of noticing a service that had no label at all —
-    and two of them (``bluesky-redis`` and ``tiled``, the only services whose
-    templates carried no ``labels:`` block to append to) went unlabelled
-    exactly that way. An unlabelled container is not cosmetic: ``down``'s
-    label-driven fallback would leave a Redis and a Tiled server running while
-    the operator believed the stack was down.
+    carries the label. A test that starts from the files containing
+    ``REPO_ID_LABEL`` cannot notice a service with no label at all, and the
+    services whose templates carry no ``labels:`` block to append to are
+    exactly the ones at risk. An unlabelled container is not cosmetic:
+    ``down``'s label-driven fallback leaves its server running while the
+    operator believes the stack is down.
     """
     import yaml
 
