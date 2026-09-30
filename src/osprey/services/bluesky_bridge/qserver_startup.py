@@ -188,12 +188,13 @@ def build_connector_config(control_system_type: str) -> dict[str, Any]:
     (``REASON_UNSUPPORTED_CONNECTOR`` in
     :mod:`osprey.services.bluesky_bridge.queue_backend`).
     """
+    from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY
     from osprey_connectors.types import CHANNEL_ACCESS_TYPES
 
     if control_system_type in CHANNEL_ACCESS_TYPES:
         return {
             "type": control_system_type,
-            "connector": {control_system_type: {"timeout": 5.0}},
+            "connector": {control_system_type: {TIMEOUT_KEY: DEFAULT_TIMEOUT_S}},
         }
     return {"type": control_system_type, "connector": {control_system_type: {}}}
 

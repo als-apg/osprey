@@ -64,7 +64,7 @@ DEPLOYMENT_WIDE_ALLOW_UNLISTED_KEY = "control_system.limits_checking.allow_unlis
 
 def _epics_block(**overrides: Any) -> dict[str, Any]:
     block = {
-        "timeout": 5.0,
+        "timeout_s": 5.0,
         "probe_channel": "LIVE:PROBE:CHANNEL",
         "gateways": {
             "read_only": {
@@ -85,7 +85,7 @@ def _epics_block(**overrides: Any) -> dict[str, Any]:
 
 def _va_block(**overrides: Any) -> dict[str, Any]:
     block = {
-        "timeout": 5.0,
+        "timeout_s": 5.0,
         "probe_channel": "VA:PROBE:CHANNEL",
         "gateways": {
             "read_only": {"address": "localhost", "port": 5074, "use_name_server": True},
@@ -99,7 +99,7 @@ def _va_block(**overrides: Any) -> dict[str, Any]:
 def _standin_block(**overrides: Any) -> dict[str, Any]:
     """The stand-in's own connector block, dialling the co-deployed soft IOC."""
     block = {
-        "timeout": 5.0,
+        "timeout_s": 5.0,
         "probe_channel": "STANDIN:PROBE:CHANNEL",
         "gateways": {
             "read_only": {
@@ -259,7 +259,7 @@ def test_a_connector_the_switch_cannot_dial_is_refused_by_name() -> None:
     protocol rather than about a key nobody filled in."""
     config = _config(
         control_system_type=UNSWITCHABLE_TYPE,
-        connector={UNSWITCHABLE_TYPE: {"timeout": 5.0}, VA_TYPE: _va_block()},
+        connector={UNSWITCHABLE_TYPE: {"timeout_s": 5.0}, VA_TYPE: _va_block()},
     )
 
     verdict = _eligibility(config, LIVE)
@@ -293,7 +293,7 @@ def test_coming_home_to_a_connector_the_switch_cannot_dial_is_not_refused() -> N
     leg over the protocol would strand the session on the simulator."""
     config = _config(
         control_system_type=UNSWITCHABLE_TYPE,
-        connector={UNSWITCHABLE_TYPE: {"timeout": 5.0}, VA_TYPE: _va_block()},
+        connector={UNSWITCHABLE_TYPE: {"timeout_s": 5.0}, VA_TYPE: _va_block()},
     )
 
     assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True

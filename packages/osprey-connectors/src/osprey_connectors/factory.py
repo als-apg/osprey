@@ -205,7 +205,7 @@ class ConnectorFactory:
             >>>     'type': 'epics',
             >>>     'connector': {
             >>>         'epics': {
-            >>>             'timeout': 5.0,
+            >>>             'timeout_s': 5.0,
             >>>             'gateways': {'read_only': {...}}
             >>>         }
             >>>     }
@@ -248,7 +248,7 @@ class ConnectorFactory:
             >>>     'type': 'epics_archiver',
             >>>     'settings': {
             >>>         'url': 'https://archiver.example.org:8443',
-            >>>         'timeout': 60
+            >>>         'timeout_s': 60
             >>>     }
             >>> }
             >>> connector = await ConnectorFactory.create_archiver_connector(config)
