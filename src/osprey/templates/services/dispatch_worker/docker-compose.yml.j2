@@ -343,6 +343,14 @@ services:
       # compose_generator byte for byte from the packaged source. Read-only:
       # the entrypoint runs it as root, so nothing inside may edit it.
       - ./build/services/dispatch_worker/control_identity.py:{{ control_identity_container_path }}:ro
+      {#- The CA file the selected archiver block names under `tls.ca_bundle`,
+         read-only at the same path, so the key names one file here and on the host. #}
+{%- for ca_bundle in connection_ca_bundles | default([]) %}
+      - type: bind
+        source: {{ ca_bundle | replace("$", "$$") | tojson }}
+        target: {{ ca_bundle | replace("$", "$$") | tojson }}
+        read_only: true
+{%- endfor %}
 {{- net.network(services.dispatch_worker) }}
 {#- The probe runs INSIDE this container, so `localhost` is right in both modes
     -- its own loopback on the compose bridge, the host's under `host` -- and

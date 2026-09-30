@@ -10773,6 +10773,147 @@ def test_both_render_paths_stage_the_control_identity_module(
     assert (out_dir / "docker-compose.yml").is_file()
 
 
+# ---------------------------------------------------------------------------
+# A connection block's CA file, mounted into the containers that read the block
+#
+# A dispatch worker opens the SELECTED archiver block, the archive recorder
+# always opens `archiver.mongodb_archiver`; each gets the file its block names
+# under `tls.ca_bundle` bind-mounted read-only at the same path.
+# ---------------------------------------------------------------------------
+
+
+def _site_ca(tmp_path: Path) -> str:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n", encoding="utf-8")
+    return str(ca)
+
+
+def _ca_mount(path: str) -> dict:
+    return {"type": "bind", "source": path, "target": path, "read_only": True}
+
+
+def _ca_volumes(service: dict, path: str) -> list:
+    return [v for v in service["volumes"] if isinstance(v, dict) and v.get("source") == path]
+
+
+def test_connection_ca_bundles_mounts_the_workers_selected_archiver_ca(tmp_path: Path) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    ca = _site_ca(tmp_path)
+    block = {"url": "https://a.example", "tls": {"ca_bundle": ca}}
+    selected = {"archiver": {"type": "epics_archiver", "epics_archiver": block}}
+    unselected = {"archiver": {"type": "mock_archiver", "epics_archiver": block}}
+
+    assert _connection_ca_bundles(selected, "services/dispatch_worker") == [ca]
+    assert _connection_ca_bundles(unselected, "services/dispatch_worker") == []
+
+
+@pytest.mark.parametrize("archiver_type", ["mongodb_archiver", "mock_archiver", None])
+def test_connection_ca_bundles_mounts_the_recorders_store_ca(
+    tmp_path: Path, archiver_type: str | None
+) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    ca = _site_ca(tmp_path)
+    config = {
+        "archiver": {
+            "type": archiver_type,
+            "mongodb_archiver": {"host": "localhost", "tls": {"ca_bundle": ca}},
+        }
+    }
+
+    assert _connection_ca_bundles(config, "services/archiver_recorder") == [ca]
+
+
+@pytest.mark.parametrize("source_dir", ["services/bluesky", "services/mongodb"])
+def test_connection_ca_bundles_is_empty_for_other_services(tmp_path: Path, source_dir: str) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    block = {"host": "localhost", "tls": {"ca_bundle": _site_ca(tmp_path)}}
+    config = {"archiver": {"type": "mongodb_archiver", "mongodb_archiver": block}}
+
+    assert _connection_ca_bundles(config, source_dir) == []
+
+
+def test_recorder_block_key_is_the_recorders_own() -> None:
+    from osprey.services.archiver_recorder import config as recorder_config
+
+    assert "archiver.mongodb_archiver" == ".".join(recorder_config._CONNECTION_PREFIX)
+
+
+def test_dispatch_worker_mounts_the_ca_read_only_at_the_same_path() -> None:
+    ca = "/etc/ssl/certs/site-ca.pem"
+    services = {
+        "virtual_accelerator": {"port": 5064},
+        "event_dispatcher": {"port": 10010},
+        "dispatch_worker": {"worker_count": 2, "workspace_mode": "isolated"},
+    }
+
+    rendered = _render_service_template(
+        "dispatch_worker/docker-compose.yml.j2",
+        "proj-a",
+        services=services,
+        connection_ca_bundles=[ca],
+    )
+
+    workers = _dispatch_worker_services(rendered)
+    assert sorted(workers) == ["dispatch-worker-1", "dispatch-worker-2"]
+    for body in workers.values():
+        assert _ca_volumes(body, ca) == [_ca_mount(ca)]
+
+
+@pytest.mark.parametrize("va_co_deployed", [True, False])
+def test_recorder_mounts_the_ca_read_only_at_the_same_path(va_co_deployed: bool) -> None:
+    ca = "/etc/ssl/certs/site-ca.pem"
+    deployed = ["mongodb", "archiver_recorder"]
+    if va_co_deployed:
+        deployed.append("virtual_accelerator")
+
+    rendered = _render_service_template(
+        _RECORDER_TEMPLATE, "proj-a", deployed_services=deployed, connection_ca_bundles=[ca]
+    )
+
+    recorder = yaml.safe_load(rendered)["services"]["archiver-recorder"]
+    assert _ca_volumes(recorder, ca) == [_ca_mount(ca)]
+
+
+@pytest.mark.parametrize("entry_point", ["full", "incremental"])
+def test_both_render_paths_carry_the_ca_bundles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_point: str
+) -> None:
+    from osprey.deployment.compose_generator import (
+        _incremental_setup_build_dir,
+        setup_build_dir,
+    )
+
+    ca = _site_ca(tmp_path)
+    repo = tmp_path / "repo"
+    service_dir = repo / "services" / "dispatch_worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text(
+        "{{ connection_ca_bundles | tojson }}\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(repo)
+    config = {
+        "build_dir": "./build",
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "archiver": {
+            "type": "epics_archiver",
+            "epics_archiver": {"url": "https://a.example", "tls": {"ca_bundle": ca}},
+        },
+    }
+    template = "services/dispatch_worker/docker-compose.yml.j2"
+    out_dir = repo / "build" / "services" / "dispatch_worker"
+    if entry_point == "full":
+        setup_build_dir(template, config, {})
+    else:
+        out_dir.mkdir(parents=True)
+        _incremental_setup_build_dir(template, config, {}, str(out_dir))
+
+    assert json.loads((out_dir / "docker-compose.yml").read_text(encoding="utf-8")) == [ca]
+
+
 def test_inject_project_metadata_carries_control_identity_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

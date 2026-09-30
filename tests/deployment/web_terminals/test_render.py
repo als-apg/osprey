@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import difflib
 import re
 from pathlib import Path
 from typing import Any
@@ -4993,6 +4994,96 @@ def test_archiver_grant_for_one_variable_renders_unchanged() -> None:
 
     # Assert
     assert text.count("      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}\n    volumes:\n") == 1
+
+
+# ---------------------------------------------------------------------------
+# Archiver connector -> the CA file its block names, mounted per user
+#
+# A connection block's `tls.ca_bundle` names a host file. Each web terminal
+# whose archiver block names one gets that file bind-mounted read-only at the
+# same path, so the key names one file on the host and in the container.
+# ---------------------------------------------------------------------------
+
+_SITE_CA = "/etc/ssl/certs/site-ca.pem"
+
+
+def _ca_mounts(service: dict[str, Any]) -> list[dict[str, Any]]:
+    return [v for v in service.get("volumes", []) if isinstance(v, dict)]
+
+
+def test_archiver_ca_bundle_is_mounted_read_only_at_the_same_path() -> None:
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(),
+            archiver_ca_bundle_personas={"readwrite": (_SITE_CA,)},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    services = compose["services"]
+    assert _ca_mounts(services["web-alice"]) == [
+        {"type": "bind", "source": _SITE_CA, "target": _SITE_CA, "read_only": True}
+    ]
+    assert _ca_mounts(services["web-bob"]) == []
+
+
+def test_persona_less_roster_entry_mounts_the_deploy_ca_bundle() -> None:
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG), archiver_ca_bundles=(_SITE_CA,))[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    users = {n: s for n, s in compose["services"].items() if n.startswith("web-")}
+    assert users
+    for service in users.values():
+        assert _ca_mounts(service) == [
+            {"type": "bind", "source": _SITE_CA, "target": _SITE_CA, "read_only": True}
+        ]
+
+
+def test_render_without_ca_bundles_emits_no_mount() -> None:
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in compose["services"].values():
+        assert _ca_mounts(service) == []
+
+
+def test_ca_bundle_mount_carries_any_path() -> None:
+    """A colon, ` #` or `$` in the path is carried whole; `$` is escaped for compose."""
+    odd = "/c/odd dir #1/ca$X:1.pem"
+
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_persona_config(), archiver_ca_bundle_personas={"readwrite": (odd,)}
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    (mount,) = _ca_mounts(compose["services"]["web-alice"])
+    assert mount["source"] == mount["target"] == "/c/odd dir #1/ca$$X:1.pem"
+    assert mount["read_only"] is True
+
+
+def test_ca_bundle_mount_does_not_move_the_other_lines() -> None:
+    # Act
+    without = render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    with_mount = render_web_terminals(
+        _events_persona_config(), archiver_ca_bundle_personas={"readwrite": (_SITE_CA,)}
+    )["docker-compose.web.yml"]
+
+    # Assert
+    diff = list(difflib.ndiff(without.splitlines(), with_mount.splitlines()))
+    assert [line for line in diff if line.startswith("- ")] == []
+    assert len([line for line in diff if line.startswith("+ ")]) == 4
 
 
 def test_entitled_persona_gets_the_launch_token() -> None:

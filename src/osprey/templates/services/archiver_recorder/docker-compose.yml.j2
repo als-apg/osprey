@@ -251,6 +251,14 @@ services:
       # sides. The recorder only reads the channel manifest from here; it never
       # writes into the build-owned data tree.
       - ./build/data/simulation:/data/simulation:ro
+      {#- The CA file `archiver.mongodb_archiver.tls.ca_bundle` names, read-only
+          at the same path, so the key names one file here and on the host. #}
+{%- for ca_bundle in connection_ca_bundles | default([]) %}
+      - type: bind
+        source: {{ ca_bundle | replace("$", "$$") | tojson }}
+        target: {{ ca_bundle | replace("$", "$$") | tojson }}
+        read_only: true
+{%- endfor %}
     networks:
       - osprey-network
 
