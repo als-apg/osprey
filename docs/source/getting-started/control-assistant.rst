@@ -376,12 +376,12 @@ and ``config.archiver.type`` the archiver that records it;
 each needs.
 
 The archive this tutorial deploys is a *simulated* machine's history, which is
-not what you want against hardware — so the archiver moves to your facility's
-appliance at the same time as the control system, and the recorded store is
-dropped. All three lines are needed. The build refuses a facility baseline that
-still carries a ``va_archiver:`` block, because that store would be served as
-the real machine's past. It does not check the archiver line: without it the
-agent stays pointed at the MongoDB store you just dropped.
+not what you want against hardware — so the agent's archiver switches to the
+one your facility runs at the same time as the control system, and the recorded
+store is dropped. All three lines are needed. The build refuses a facility
+baseline that still carries a ``va_archiver:`` block, because that store would
+be served as the real machine's past. It does not check the archiver line:
+without it the agent stays pointed at the MongoDB store you just dropped.
 
 Because these are build-time inputs, re-render the agent's artifacts and
 relaunch:
