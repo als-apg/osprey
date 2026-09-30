@@ -27,6 +27,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -178,23 +179,7 @@ def _inject_provider_env_once() -> None:
         logger.warning("No config.yml at %s — skipping provider env injection", config_path)
         return
 
-    # Managed (enterprise) policy settings outrank the process environment and
-    # setting_sources=["project"] alike, so a policy `env` block setting a
-    # provider variable would silently redirect the worker's agent to a backend
-    # the project did not configure. Refuse to start — checked before the try
-    # below so the broad except cannot swallow the refusal.
-    from osprey.agent_runner.provider_env import (
-        detect_managed_policy_conflicts,
-        format_managed_policy_conflicts,
-    )
-
-    policy_conflicts = detect_managed_policy_conflicts()
-    if policy_conflicts:
-        raise RuntimeError(
-            "Refusing to start the dispatch worker.\n"
-            + format_managed_policy_conflicts(policy_conflicts)
-        )
-
+    launch_env: Mapping[str, str] = {}
     try:
         from osprey.agent_runner.provider_env import inject_provider_env, load_provider_spec
         from osprey.build.claude_code_telemetry import TelemetryConfigError
@@ -246,10 +231,30 @@ def _inject_provider_env_once() -> None:
                 )
                 os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
                 logger.info("Translation proxy on :%d (provider=%s)", port, spec.provider)
+            launch_env = os.environ
         else:
             logger.warning("No provider configured in config.yml")
     except Exception:
         logger.exception("Failed to inject provider env from config.yml")
+
+    # Managed (enterprise) policy settings outrank the process environment and
+    # setting_sources=["project"] alike, so a policy value that differs from the
+    # deployment's would silently redirect the worker's agent. The check reads
+    # the finished environment, translation-proxy loopback included, and sits
+    # outside the try above so the broad except cannot swallow the refusal. A
+    # worker with no provider, or one whose injection failed, compares against
+    # nothing, so every policy provider key refuses.
+    from osprey.agent_runner.provider_env import (
+        detect_managed_policy_conflicts,
+        format_managed_policy_conflicts,
+    )
+
+    policy_conflicts = detect_managed_policy_conflicts(launch_env)
+    if policy_conflicts:
+        raise RuntimeError(
+            "Refusing to start the dispatch worker.\n"
+            + format_managed_policy_conflicts(policy_conflicts)
+        )
 
 
 @asynccontextmanager

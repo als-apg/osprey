@@ -2306,17 +2306,7 @@ def _create_lifespan(
             telemetry_creds_are_store_issued,
         )
 
-        # Managed (enterprise) policy settings outrank the process environment
-        # and --setting-sources project alike, so a policy `env` block setting a
-        # provider variable would silently redirect the operator-facing terminal
-        # to a backend the project did not configure. Refuse to start.
-        _policy_conflicts = detect_managed_policy_conflicts()
-        if _policy_conflicts:
-            raise RuntimeError(
-                "Refusing to start the Web Terminal.\n"
-                + format_managed_policy_conflicts(_policy_conflicts)
-            )
-
+        _spec = None
         if app.state.config_path:
             from osprey.utils.workspace import repo_root_for_config
 
@@ -2386,6 +2376,21 @@ def _create_lifespan(
                         proxy_port,
                         _spec.upstream_base_url,
                     )
+
+        # Managed (enterprise) policy settings outrank the process environment
+        # and --setting-sources project alike, so a policy value that differs
+        # from the deployment's would silently redirect the operator-facing
+        # terminal. The check reads the finished environment, translation-proxy
+        # loopback included, because that is what the terminal's agent would
+        # otherwise run on. A server with no provider compares against nothing,
+        # so every policy provider key refuses. A refusal here leaves only the
+        # proxy daemon thread behind, which exits with the process.
+        _policy_conflicts = detect_managed_policy_conflicts(os.environ if _spec else {})
+        if _policy_conflicts:
+            raise RuntimeError(
+                "Refusing to start the Web Terminal.\n"
+                + format_managed_policy_conflicts(_policy_conflicts)
+            )
 
         # The watcher's default follows the deployment's CONFIGURED agent-data
         # root, anchored on the repo. Never a cwd-relative literal: state lives
