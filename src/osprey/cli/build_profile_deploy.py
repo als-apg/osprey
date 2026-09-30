@@ -82,6 +82,11 @@ WEB_TERMINALS_CONFIG_PATH = "modules.web_terminals"
 #: The leaf inside it that ``deploy.image_source`` owns.
 IMAGE_SOURCE_CONFIG_KEY = f"{WEB_TERMINALS_CONFIG_PATH}.image_source"
 
+#: The top-level rendered key the web tier names its terminal images from. In
+#: registry mode the build fills it from ``deploy.registry.url`` when the
+#: profile's ``config:`` block names none.
+REGISTRY_URL_CONFIG_KEY = "registry.url"
+
 _KNOWN_DEPLOY_KEYS = frozenset(
     {"ci", "ci_image_prefix", "registry", "host", "image_source", "external_projects"}
 )
@@ -231,6 +236,32 @@ def config_image_source_spelling(config: Any) -> str | None:
     return None
 
 
+def config_registry_url_spelling(config: Any) -> str | None:
+    """How a profile's ``config:`` block spells ``registry.url``, if it does.
+
+    Any spelling counts as the facility's own value, and that value wins over
+    the deploy block's: it is kept, not refused. A ``registry:`` key whose value
+    is not a mapping (``null`` or a scalar) is the facility's own statement
+    about the whole section, so it counts too; a ``registry:`` mapping without
+    ``url`` does not.
+
+    Returns:
+        The ``config:`` spelling that names the key, for a caller that reports
+        it, or ``None`` when the block names it nowhere.
+    """
+    if not isinstance(config, dict):
+        return None
+    if REGISTRY_URL_CONFIG_KEY in config:
+        return REGISTRY_URL_CONFIG_KEY
+    if "registry" in config:
+        section = config["registry"]
+        if not isinstance(section, dict):
+            return "registry"
+        if "url" in section:
+            return "registry: url"
+    return None
+
+
 def declares_web_terminals(config: Any) -> bool:
     """Whether a profile's ``config:`` block configures the web-terminal stack.
 
@@ -254,10 +285,17 @@ def declares_web_terminals(config: Any) -> bool:
 def deploy_config_overrides(deploy: DeployConfig | None, config: Any) -> dict[str, Any]:
     """The ``config:`` entries the ``deploy:`` block contributes to the render.
 
-    Today that is one entry: ``image_source``. The deploy block is where a
-    facility says how its host gets images, and the multi-user web stack reads
-    that answer from ``modules.web_terminals.image_source`` — so the build
-    writes it there rather than making the facility say the same thing twice.
+    Two entries, each with its own rule:
+
+    - ``image_source`` always goes in. The deploy block is where a facility
+      says how its host gets images, and the multi-user web stack reads that
+      answer from ``modules.web_terminals.image_source``; a ``config:`` spelling
+      of it is refused at parse time.
+    - ``registry.url`` goes in only in registry mode, and only when ``config:``
+      names none (:func:`config_registry_url_spelling`). The deploy block's
+      registry is where the host pulls from, so it is the registry the web tier
+      names its images from; a facility that points the web tier elsewhere
+      keeps its own value.
 
     Emitted only when the profile actually configures the web-terminal stack;
     for everything else the deploy block's answer has no rendered home yet and
@@ -270,7 +308,14 @@ def deploy_config_overrides(deploy: DeployConfig | None, config: Any) -> dict[st
     """
     if deploy is None or not declares_web_terminals(config):
         return {}
-    return {IMAGE_SOURCE_CONFIG_KEY: deploy.image_source}
+    overrides: dict[str, Any] = {IMAGE_SOURCE_CONFIG_KEY: deploy.image_source}
+    if (
+        deploy.image_source == "registry"
+        and deploy.registry is not None
+        and config_registry_url_spelling(config) is None
+    ):
+        overrides[REGISTRY_URL_CONFIG_KEY] = deploy.registry.url
+    return overrides
 
 
 def deploy_aware_config_errors(
@@ -284,7 +329,9 @@ def deploy_aware_config_errors(
     block therefore judges a profile on a view no deployment ever runs — a
     facility that correctly states ``image_source: local`` once, in the deploy
     block, would be told its (defaulted) ``registry`` mode is missing a
-    ``registry.url`` it does not need.
+    ``registry.url`` it does not need. A registry-mode deploy block also
+    supplies ``registry.url``, so a facility that names its registry once in
+    ``deploy.registry.url`` is not told the URL is missing.
 
     So the lint runs on the merged view, and this function is where the merge
     and the lint are paired. Both command surfaces that gate on the lint
