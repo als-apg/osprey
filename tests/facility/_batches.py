@@ -34,4 +34,4 @@ BATCHES: tuple[str, ...] = (
     "12",
 )
 
-CURRENT_BATCH: int = BATCHES.index("1a")
+CURRENT_BATCH: int = BATCHES.index("1b")
