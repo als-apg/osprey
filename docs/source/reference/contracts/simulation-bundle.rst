@@ -447,9 +447,8 @@ message names.
    * - Bad ``days_ago``
      - ``Scenario '<name>' logbook entry '<id>': 'days_ago' must be a
        non-negative integer``
-   * - Bad ``time``; the message names ``at_time``, whose rules ``time``
-       shares
-     - ``Scenario '<name>' logbook entry '<id>': event key 'at_time'``
+   * - Bad ``time``
+     - ``Scenario '<name>' logbook entry '<id>': 'when.time'``
    * - ``author``, ``title`` or ``text`` not a string
      - ``Scenario '<name>' logbook entry '<id>': '<key>' must be a string``
    * - ``tags`` or ``categories`` not a list of strings
