@@ -22,6 +22,9 @@ from osprey.agent_runner.launcher import (
 
 _RESOLVER = "osprey.utils.shell_resolver.resolve_shell_command"
 
+#: The MCP isolation every launch argv ends with.
+_MCP = ["--strict-mcp-config", "--mcp-config=.mcp.json"]
+
 
 class TestBuildClaudeLaunchArgv:
     """Test argv construction from a ``claude_code`` config dict.
@@ -35,11 +38,16 @@ class TestBuildClaudeLaunchArgv:
     """
 
     def test_no_pin_returns_bare_claude(self):
-        assert build_claude_launch_argv({}) == ["claude", "--setting-sources", "project"]
+        assert build_claude_launch_argv({}) == ["claude", "--setting-sources", "project", *_MCP]
 
     def test_unrelated_keys_do_not_trigger_pin(self):
         cc_config = {"provider": "anthropic", "default_model": "claude-haiku-4-5"}
-        assert build_claude_launch_argv(cc_config) == ["claude", "--setting-sources", "project"]
+        assert build_claude_launch_argv(cc_config) == [
+            "claude",
+            "--setting-sources",
+            "project",
+            *_MCP,
+        ]
 
     def test_pinned_returns_npx_invocation(self):
         assert build_claude_launch_argv({"cli_version": "2.1.146"}) == [
@@ -48,6 +56,8 @@ class TestBuildClaudeLaunchArgv:
             "@anthropic-ai/claude-code@2.1.146",
             "--setting-sources",
             "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
         ]
 
     def test_pinned_strips_whitespace(self):
@@ -57,19 +67,21 @@ class TestBuildClaudeLaunchArgv:
             "@anthropic-ai/claude-code@2.1.146",
             "--setting-sources",
             "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
         ]
 
     def test_setting_sources_always_emitted(self):
         """Both the pinned and unpinned prefixes end with the isolation flag."""
         for cc_config in ({}, {"cli_version": "2.1.146"}):
             argv = build_claude_launch_argv(cc_config)
-            assert argv[-2:] == ["--setting-sources", "project"]
+            assert argv[-4:] == ["--setting-sources", "project", *_MCP]
 
     def test_no_pin_flag_forces_bare_claude_but_keeps_isolation(self):
         """``no_pin=True`` ignores a configured pin (matching ``osprey claude
         chat --no-pin``) yet still restricts setting sources to project scope."""
         argv = build_claude_launch_argv({"cli_version": "2.1.146"}, no_pin=True)
-        assert argv == ["claude", "--setting-sources", "project"]
+        assert argv == ["claude", "--setting-sources", "project", *_MCP]
 
     def test_empty_string_pin_raises(self):
         with pytest.raises(ValueError, match="non-empty"):
@@ -89,7 +101,41 @@ class TestBuildClaudeLaunchArgv:
             "claude",
             "--setting-sources",
             "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
         ]
+
+
+class TestMcpIsolation:
+    """Every launch loads the rendered ``.mcp.json`` and no other MCP server source."""
+
+    @pytest.mark.parametrize(
+        "cc_config,kwargs",
+        [
+            ({}, {}),
+            ({"cli_version": "2.1.267"}, {}),
+            ({"cli_version": "2.1.267"}, {"no_pin": True}),
+        ],
+        ids=["unpinned", "pinned", "no-pin"],
+    )
+    def test_every_launch_argv_loads_only_the_rendered_config(self, cc_config, kwargs):
+        argv = build_claude_launch_argv(cc_config, **kwargs)
+        assert argv[-4:] == [
+            "--setting-sources",
+            "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
+        ]
+
+    def test_the_config_path_is_one_token(self):
+        """``--mcp-config`` takes several values: a bare flag would swallow a trailing prompt."""
+        for cc_config in ({}, {"cli_version": "2.1.267"}):
+            assert "--mcp-config" not in build_claude_launch_argv(cc_config)
+
+    def test_a_trailing_prompt_follows_the_config_token(self):
+        argv = build_session_argv(build_claude_launch_argv({}), print_mode=True, prompt="hi")
+        assert argv[-2:] == ["--print", "hi"]
+        assert argv.index("--mcp-config=.mcp.json") < argv.index("--print")
 
 
 class TestParseClaudeVersion:
@@ -118,7 +164,7 @@ class TestResolveCliName:
     def test_bare_name_is_resolved_and_flags_kept(self):
         with patch(_RESOLVER, return_value="/abs/claude") as resolver:
             argv = resolve_cli_name(build_claude_launch_argv({}))
-        assert argv == ["/abs/claude", "--setting-sources", "project"]
+        assert argv == ["/abs/claude", "--setting-sources", "project", *_MCP]
         resolver.assert_called_once_with("claude")
 
     def test_pinned_prefix_is_left_to_path_lookup(self):
@@ -148,8 +194,8 @@ class TestResolveCliName:
         assert build_claude_launch_argv({})[0] == CLI_NAME == "claude"
 
 
-_PREFIX = ["claude", "--setting-sources", "project"]
-_PINNED = ["npx", "-y", "@anthropic-ai/claude-code@2.1.146", "--setting-sources", "project"]
+_PREFIX = ["claude", "--setting-sources", "project", *_MCP]
+_PINNED = ["npx", "-y", "@anthropic-ai/claude-code@2.1.146", "--setting-sources", "project", *_MCP]
 
 
 class TestBuildSessionArgv:
@@ -192,9 +238,9 @@ class TestBuildSessionArgv:
                 [*_PREFIX, "--print", "hello"],
             ),
             (
-                ["/abs/claude", "--setting-sources", "project"],
+                ["/abs/claude", "--setting-sources", "project", *_MCP],
                 {"resume_id": "r"},
-                ["/abs/claude", "--setting-sources", "project", "--resume", "r"],
+                ["/abs/claude", "--setting-sources", "project", *_MCP, "--resume", "r"],
             ),
         ],
         ids=["new-session-effort", "pinned-resume", "chat", "no-pin-print", "resolved-pty"],

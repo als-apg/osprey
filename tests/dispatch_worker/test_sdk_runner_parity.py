@@ -203,6 +203,8 @@ async def test_the_agent_options_are_the_ones_dispatch_always_built(monkeypatch,
         max_turns=7,
         setting_sources=["project"],
         session_id=sid,
+        mcp_servers=str(render_dir / ".mcp.json"),
+        strict_mcp_config=True,
     )
     assert sorted(options.env) == _ENV_KEYS
 

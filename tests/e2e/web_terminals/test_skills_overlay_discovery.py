@@ -236,6 +236,9 @@ def test_project_scope_skill_is_live_under_setting_sources_project(tmp_path: Pat
         "osprey-proj-probe",
         "Project-scope marker skill; token OSPREY_PROJ_PROBE_XYZ.",
     )
+    # The launch flags load only the rendered .mcp.json and the CLI refuses a project
+    # without one, so the probe renders an empty config as a built project would.
+    (project_dir / ".mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
 
     skills = _discovered_skills(
         config_dir=config_dir,
@@ -263,6 +266,9 @@ def test_user_scope_skill_is_inert_under_setting_sources_project(tmp_path: Path)
     config_dir = tmp_path / "config"
     project_dir = tmp_path / "project"
     project_dir.mkdir()
+    # The launch flags load only the rendered .mcp.json and the CLI refuses a project
+    # without one, so the probe renders an empty config as a built project would.
+    (project_dir / ".mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
     _write_skill(
         config_dir / "skills",
         "osprey-user-probe",

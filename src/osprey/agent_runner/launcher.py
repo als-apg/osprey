@@ -37,6 +37,10 @@ _VERSION_RE = re.compile(r"\b(\d+\.\d+\.\d+(?:[-+.][0-9A-Za-z.-]+)?)\b")
 #: argv builder and the argv reader below cannot drift apart.
 _CLI_PACKAGE = "@anthropic-ai/claude-code"
 
+#: The MCP server config the build renders at the project root, and the only
+#: one an agent launch loads.
+RENDERED_MCP_CONFIG = ".mcp.json"
+
 #: Directory inside the Agent SDK package that holds its own CLI binary.
 _BUNDLED_DIRNAME = "_bundled"
 
@@ -56,6 +60,15 @@ _VERSION_PROBE_TIMEOUT_S = 5.0
 # launch paths (agent_runner.primitives, dispatch_worker.sdk_runner) already
 # pass setting_sources=["project"]; this keeps the subprocess paths consistent.
 _SETTING_SOURCES_ARGS = ["--setting-sources", "project"]
+
+# Load only the MCP servers the build rendered. ``--strict-mcp-config`` makes the
+# named config the only MCP source, so plugin servers (``--plugin-dir``, settings,
+# managed), claude.ai connectors and user- or local-scope servers never load. The
+# path is relative because every launch runs with the project root as its working
+# directory, and it is the file the CLI reads from there anyway. The ``=`` form is
+# required: ``--mcp-config`` takes several values and would swallow a trailing
+# opening message as a second config file.
+_MCP_ISOLATION_ARGS = ["--strict-mcp-config", f"--mcp-config={RENDERED_MCP_CONFIG}"]
 
 # The conversation flags :func:`build_session_argv` appends to a launch prefix.
 _RESUME_FLAG = "--resume"
@@ -82,13 +95,15 @@ def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[s
         cc_config: The ``claude_code`` block from ``config.yml`` (may be empty).
         no_pin: When ``True``, ignore any ``cli_version`` pin and launch the
             globally installed ``claude`` (mirrors ``osprey chat --no-pin``).
-            The ``--setting-sources`` restriction is applied
-            regardless, so provider isolation cannot be opted out of.
+            The ``--setting-sources`` restriction and the MCP restriction are
+            applied regardless, so neither provider isolation nor MCP isolation
+            can be opted out of.
 
     Returns:
-        ``["claude", "--setting-sources", "project"]`` when no version is pinned,
-        otherwise the ``npx -y @anthropic-ai/claude-code@<version>`` prefix with
-        the same ``--setting-sources`` suffix.
+        ``["claude", "--setting-sources", "project", "--strict-mcp-config",
+        "--mcp-config=.mcp.json"]`` when no version is pinned, otherwise the
+        ``npx -y @anthropic-ai/claude-code@<version>`` prefix with the same
+        suffix.
 
     Raises:
         ValueError: If ``cli_version`` is present but empty/whitespace (only
@@ -104,7 +119,7 @@ def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[s
         )
     else:
         base = ["npx", "-y", f"{_CLI_PACKAGE}@{cli_version.strip()}"]
-    return base + _SETTING_SOURCES_ARGS
+    return base + _SETTING_SOURCES_ARGS + _MCP_ISOLATION_ARGS
 
 
 def resolve_cli_name(argv: Sequence[str]) -> list[str]:

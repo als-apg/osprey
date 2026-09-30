@@ -656,9 +656,7 @@ class TestBuildAgentOptions:
         return stubs
 
     @pytest.mark.usefixtures("routing")
-    def test_defaults_build_exactly_the_options_osprey_query_always_got(
-        self, tmp_path: Path
-    ) -> None:
+    def test_defaults_build_exactly_the_options_osprey_query_gets(self, tmp_path: Path) -> None:
         from claude_agent_sdk import ClaudeAgentOptions
 
         options = primitives.build_agent_options(tmp_path, disallowed_tools=["Write"])
@@ -672,7 +670,61 @@ class TestBuildAgentOptions:
             env=dict(self._ROUTED_ENV),
             setting_sources=["project"],
             disallowed_tools=["Write"],
+            mcp_servers=str(tmp_path / ".mcp.json"),
+            strict_mcp_config=True,
         )
+
+    @pytest.mark.parametrize("setting_sources", [None, ["project"], []], ids=repr)
+    @pytest.mark.parametrize(
+        "mcp_servers",
+        [None, {"cf": {"command": "cf-mcp"}}, Path("/p/.mcp.json")],
+        ids=["default", "mapping", "path"],
+    )
+    @pytest.mark.usefixtures("routing")
+    def test_every_run_is_strict_about_mcp_servers(
+        self, tmp_path: Path, setting_sources: Any, mcp_servers: Any
+    ) -> None:
+        options = primitives.build_agent_options(
+            tmp_path,
+            disallowed_tools=[],
+            setting_sources=setting_sources,
+            mcp_servers=mcp_servers,
+        )
+
+        assert options.strict_mcp_config is True
+
+    @pytest.mark.usefixtures("routing")
+    def test_the_project_layer_loads_the_rendered_config(self, tmp_path: Path) -> None:
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[])
+
+        assert options.mcp_servers == str(tmp_path / ".mcp.json")
+
+    @pytest.mark.usefixtures("routing")
+    def test_a_run_without_the_project_layer_loads_no_server(self, tmp_path: Path) -> None:
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[], setting_sources=[])
+
+        assert options.mcp_servers == {}
+
+    @pytest.mark.parametrize("setting_sources", [None, []], ids=repr)
+    @pytest.mark.usefixtures("routing")
+    def test_caller_named_servers_replace_the_rendered_config(
+        self, tmp_path: Path, setting_sources: Any
+    ) -> None:
+        servers = {"cf": {"command": "cf-mcp"}}
+        config = tmp_path / "elsewhere" / "servers.json"
+
+        from_mapping = primitives.build_agent_options(
+            tmp_path,
+            disallowed_tools=[],
+            setting_sources=setting_sources,
+            mcp_servers=servers,  # type: ignore[arg-type]
+        )
+        from_path = primitives.build_agent_options(
+            tmp_path, disallowed_tools=[], setting_sources=setting_sources, mcp_servers=config
+        )
+
+        assert from_mapping.mcp_servers == servers
+        assert from_path.mcp_servers == str(config)
 
     @pytest.mark.parametrize(
         ("kwargs", "field_name", "expected"),
