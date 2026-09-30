@@ -103,7 +103,7 @@ def _require_config_panel(request: Request) -> None:
     The refusal names the key, so an operator who meets it knows which switch
     produced it rather than suspecting a broken deployment. When the panel is
     closed because the config file could not be read, the refusal names that
-    file instead.
+    file and the fix instead.
 
     Args:
         request: Incoming request carrying ``app.state``.
@@ -114,10 +114,9 @@ def _require_config_panel(request: Request) -> None:
     if not getattr(request.app.state, "config_panel_enabled", True):
         unreadable = getattr(request.app.state, "config_unreadable_path", None)
         if unreadable:
-            raise HTTPException(
-                status_code=403,
-                detail=f"the Config panel is closed because {unreadable} could not be read",
-            )
+            from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+
+            raise HTTPException(status_code=403, detail=unreadable_config_refusal(unreadable))
         raise HTTPException(
             status_code=403,
             detail=(

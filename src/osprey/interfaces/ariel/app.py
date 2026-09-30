@@ -300,9 +300,9 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         config_errors = [str(e)]
 
     if gates.config_unreadable_path is not None:
-        config_errors.insert(
-            0, f"{gates.config_unreadable_path} could not be read, so the Config panel is closed"
-        )
+        from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+
+        config_errors.insert(0, unreadable_config_refusal(gates.config_unreadable_path))
 
     # A test-double config is not a list — only a real list counts as
     # vocabulary errors, so the classification cannot misfire on one.

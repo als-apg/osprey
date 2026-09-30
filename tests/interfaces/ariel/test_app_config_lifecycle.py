@@ -23,6 +23,8 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+
 DSN = "postgresql://user:pass@localhost:5432/ariel"
 
 VALID_VOCABULARY = """
@@ -472,7 +474,7 @@ def test_an_unreadable_config_closes_the_panel_through_the_lifespan(
 
     assert app.state.config_panel_enabled is False
     assert app.state.config_unreadable_path == config_file
-    assert str(config_file) in app.state.config_errors[0]
+    assert app.state.config_errors[0] == unreadable_config_refusal(config_file)
 
 
 def test_an_unreadable_config_refuses_the_settings_editor(tmp_path: Path, service_double, caplog):
@@ -496,5 +498,5 @@ def test_an_unreadable_config_refuses_the_settings_editor(tmp_path: Path, servic
 
     for response in responses:
         assert response.status_code == 403
-        assert str(config_file) in response.json()["detail"]
+        assert response.json()["detail"] == unreadable_config_refusal(config_file)
     assert config_file.read_bytes() == before

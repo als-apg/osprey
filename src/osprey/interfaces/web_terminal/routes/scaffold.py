@@ -62,7 +62,7 @@ def _require_scaffold_writes(request: Request) -> None:
     not authoring it, and a tier that cannot edit still has to be able to look.
 
     When writes are closed because the config file could not be read, the
-    refusal names that file.
+    refusal names that file and the fix.
 
     Args:
         request: Incoming request carrying ``app.state``.
@@ -73,10 +73,9 @@ def _require_scaffold_writes(request: Request) -> None:
     if not getattr(request.app.state, "scaffold_write_enabled", True):
         unreadable = getattr(request.app.state, "config_unreadable_path", None)
         if unreadable:
-            raise HTTPException(
-                status_code=403,
-                detail=f"scaffold writes are closed because {unreadable} could not be read",
-            )
+            from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+
+            raise HTTPException(status_code=403, detail=unreadable_config_refusal(unreadable))
         raise HTTPException(
             status_code=403,
             detail=(

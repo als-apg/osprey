@@ -1154,7 +1154,8 @@ def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
     the default through :func:`coerce_config_flag`.
 
     Both keys are read in one pass, so one file gives one answer for both
-    gates and a failure is reported once.
+    gates and a failure is reported once. A surface refusing because the file
+    could not be read words it with :func:`unreadable_config_refusal`.
 
     Args:
         config_path: The config file this surface resolved, or ``None``.
@@ -1183,6 +1184,22 @@ def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
         coerce_config_flag("web.config_panel.enabled", panel_raw, True),
         coerce_config_flag("web.scaffold_gallery.write_enabled", scaffold_raw, True),
     )
+
+
+def unreadable_config_refusal(path: str | Path) -> str:
+    """The refusal every surface gives when an existing config file could not be read.
+
+    It names the file and the fix. The privilege gates are resolved once at
+    startup, so restarting the server after the file is fixed is what reopens
+    them.
+
+    Args:
+        path: The config file that exists but could not be read.
+
+    Returns:
+        The refusal sentence, naming the file and the fix.
+    """
+    return f"{path} could not be read; fix it and restart the server"
 
 
 def coerce_config_flag(key: str, value: object, default: bool) -> bool:
