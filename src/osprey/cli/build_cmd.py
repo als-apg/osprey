@@ -2322,8 +2322,8 @@ def _render_project(
         # manifest so both are taken over a render that already carries them.
         from osprey.facility.render import render_facility_outputs
 
-        render_facility_outputs(render_dir, shared.facility, rendered)
-        progress("  ✓ Wrote the facility file")
+        render_facility_outputs(render_dir, shared.facility, rendered, data_root / "facility")
+        progress("  ✓ Wrote the facility file and its views")
 
         # The graph paradigm's roster, explorer and keyword tool all read the
         # search index rather than the corpus, so a graph-mode render that ships
