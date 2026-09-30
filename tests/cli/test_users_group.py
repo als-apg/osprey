@@ -853,7 +853,8 @@ class TestProfileRosterWrite:
         assert result.exit_code != 0
         flat = _flat(result.output)
         assert mocks["decommission_user"].called
-        assert "WAS removed" in flat
+        assert "alice is off the deployed roster" in flat
+        assert "Done: the container and volumes were removed." in flat
         assert "Read-only file system" in flat
         assert "still lists alice" in flat
         assert "osprey users remove alice" in flat  # the converging remedy
@@ -873,7 +874,93 @@ class TestProfileRosterWrite:
 
         assert result.exit_code != 0
         assert mocks["decommission_user"].called, "the engine ran, so the workspace is gone"
-        assert "WAS removed" in _flat(result.output)
+        assert "alice is off the deployed roster" in _flat(result.output)
+
+    def test_a_failed_profile_write_names_the_volumes_the_runtime_kept(
+        self, cli_runner, tmp_path, monkeypatch
+    ):
+        """The engine already reported the kept volume.
+
+        So the block about the unwritten profile must name it rather than
+        contradict it.
+        """
+        repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
+        monkeypatch.chdir(repo_root)
+        monkeypatch.setattr(
+            "osprey.cli.users_cmd._drop_user_from_profile_roster",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("Read-only file system")),
+        )
+
+        patcher, mocks = _fake_web_terminals()
+        mocks["decommission_user"].side_effect = RemovalIncompleteError(
+            [("volume 'demo_alice-agent-data'", "volume is in use")]
+        )
+        with patcher:
+            result = cli_runner.invoke(users, ["remove", "alice", "--purge", "-y"])
+
+        assert result.exit_code == 1
+        flat = _flat(result.output)
+        assert (
+            "Not done: volume 'demo_alice-agent-data' is still on the host: volume is in use"
+            in flat
+        )
+        assert "volumes were removed" not in flat
+        assert "every volume not listed below" in flat
+        assert "osprey users prune --purge" in flat
+        assert "still lists alice" in flat
+        assert "osprey users remove alice" in flat
+
+    @pytest.mark.parametrize(
+        ("flags", "done"),
+        [
+            ([], "The volumes were kept, as no --archive or --purge was given."),
+            (["--archive", "-y"], "the volumes were archived and removed"),
+            (["--purge", "-y"], "Done: the container and volumes were removed."),
+        ],
+        ids=["kept-by-default", "archive", "purge"],
+    )
+    def test_a_failed_profile_write_says_what_became_of_the_volumes(
+        self, cli_runner, tmp_path, monkeypatch, flags, done
+    ):
+        """The block names the volume policy this run applied, not a fixed claim."""
+        repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
+        monkeypatch.chdir(repo_root)
+        monkeypatch.setattr(
+            "osprey.cli.users_cmd._drop_user_from_profile_roster",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("Read-only file system")),
+        )
+
+        patcher, _mocks = _fake_web_terminals()
+        with patcher:
+            result = cli_runner.invoke(users, ["remove", "alice", *flags])
+
+        assert result.exit_code == 1
+        assert done in _flat(result.output)
+        if not flags:
+            assert "volumes were removed" not in _flat(result.output)
+
+    def test_a_failed_profile_write_on_a_re_run_claims_no_removal(
+        self, cli_runner, tmp_path, monkeypatch
+    ):
+        """A re-run skips the engine, so it removed nothing from the runtime."""
+        repo_root = _make_repo(
+            tmp_path, _config([{"name": "bob", "index": 1}]), profile=PROFILE_WITH_ROSTER
+        )
+        monkeypatch.chdir(repo_root)
+        monkeypatch.setattr(
+            "osprey.cli.users_cmd._drop_user_from_profile_roster",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("Read-only file system")),
+        )
+
+        patcher, mocks = _fake_web_terminals()
+        with patcher:
+            result = cli_runner.invoke(users, ["remove", "alice"])
+
+        assert result.exit_code == 1
+        assert not mocks["decommission_user"].called
+        flat = _flat(result.output)
+        assert "was removed" not in flat
+        assert "an earlier run already took alice off the deployed roster" in flat
 
     def test_expanding_a_bare_roster_says_why_the_file_gained_lines(
         self, cli_runner, tmp_path, monkeypatch
