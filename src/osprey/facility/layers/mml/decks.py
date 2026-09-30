@@ -65,16 +65,29 @@ voltage answered for a deck that holds its cavity is refused, and so is a
 cavity to build with no voltage answered: a cavity built without one
 accelerates nothing.
 
+What the model is served is the addressed deck with two more changes,
+:func:`served_deck`: every cavity passes the beam on ``RFCavityPass``, so a
+deck saved with its cavity switched off moves in six dimensions, and every
+element a corrector family owns carries ``PolynomA`` and ``PolynomB`` zeroed at
+``max(MaxOrder + 1, len)``, so a kick is the only field it applies and the pass
+method reads a polynomial as wide as its order. :func:`write_deck` saves it as
+pyAT's JSON under ``imported/mml/decks/<model>.json`` without the ``at_version``
+key, so an unchanged deck is rewritten byte for byte whatever pyAT wrote it.
+
 pyAT is imported inside the functions that need it.
 """
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
+import json
 import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
 from osprey.facility.layers.mml.mapping import (
@@ -86,17 +99,24 @@ from osprey.facility.layers.mml.mapping import (
 )
 
 __all__ = [
+    "AT_VERSION_KEY",
     "CARRIED_FIELDS",
+    "CAVITY_PASS",
+    "DECKS_DIR",
     "FREQUENCY",
     "MONITOR",
     "OWNER_RANK",
     "HARMONIC_KEY",
+    "KICK",
     "Addressing",
     "BuiltCavity",
     "ElementBinding",
     "ElementSlice",
     "ServedMarker",
     "address_elements",
+    "deck_text",
+    "served_deck",
+    "write_deck",
 ]
 
 #: The rank token of a family whose engine block reads an orbit axis.
@@ -105,10 +125,13 @@ MONITOR = "monitor"
 #: The engine attribute of the family that drives the deck's cavity.
 FREQUENCY = "Frequency"
 
+#: The engine attribute of a corrector family.
+KICK = "KickAngle"
+
 #: What a family claims on an element, the strongest claim first: a monitor by
 #: the axis it reads, every other family by the engine attribute it writes, so
 #: a normal multipole outranks the skew one wound on the same body.
-OWNER_RANK: tuple[str, ...] = (MONITOR, "PolynomB", "PolynomA", "KickAngle", FREQUENCY)
+OWNER_RANK: tuple[str, ...] = (MONITOR, "PolynomB", "PolynomA", KICK, FREQUENCY)
 
 #: What an element carries that neither the marker nor the monitor class
 #: implies: the apertures the beam is lost against and the transformations the
@@ -118,6 +141,15 @@ CARRIED_FIELDS: tuple[str, ...] = ("EApertures", "RApertures", "T1", "T2", "R1",
 
 #: The accelerator-data key stating how many buckets the deck holds.
 HARMONIC_KEY = "HarmonicNumber"
+
+#: The pass method every served cavity runs on.
+CAVITY_PASS = "RFCavityPass"
+
+#: Where the layer's decks live, relative to ``data/facility/``.
+DECKS_DIR = "imported/mml/decks"
+
+#: The key pyAT stamps its own version into, dropped from every written deck.
+AT_VERSION_KEY = "at_version"
 
 
 @dataclass(frozen=True)
@@ -712,3 +744,76 @@ def _number(value: Any) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def served_deck(addressing: Addressing) -> Any:
+    """Return the addressed deck as the model is served it.
+
+    Every cavity passes the beam on :data:`CAVITY_PASS`, and every element a
+    corrector family owns carries ``PolynomA`` and ``PolynomB`` zeroed at
+    ``max(MaxOrder + 1, len)`` of each. The addressed deck is left as it was.
+
+    Args:
+        addressing: What :func:`address_elements` returned.
+
+    Returns:
+        A new ``at.Lattice`` carrying the addressed deck's properties.
+    """
+    import at
+
+    elements = [element.deepcopy() for element in addressing.deck]
+    for element in elements:
+        if isinstance(element, at.RFCavity):
+            element.PassMethod = CAVITY_PASS
+    for position, owner in addressing.owners.items():
+        bindings = addressing.bindings.get(owner, ())
+        if bindings and bindings[0].engine.attribute == KICK:
+            _zero_polynomials(elements[position])
+    return at.Lattice(elements, **addressing.deck.attrs)
+
+
+def _zero_polynomials(element: Any) -> None:
+    """Zero a corrector's polynomials, each as wide as its order and what it carries."""
+    import numpy as np
+
+    order = int(getattr(element, "MaxOrder", 0)) + 1
+    for name in ("PolynomA", "PolynomB"):
+        carried = getattr(element, name, None)
+        width = max(order, 0 if carried is None else len(carried))
+        setattr(element, name, np.zeros(width))
+
+
+def deck_text(deck: Any) -> str:
+    """Render a deck as pyAT's JSON without the :data:`AT_VERSION_KEY` key.
+
+    Args:
+        deck: An ``at.Lattice``.
+
+    Returns:
+        The two-space-indented document, ending in a newline.
+    """
+    import at
+
+    rendered = io.StringIO()
+    with contextlib.redirect_stdout(rendered):
+        at.save_json(deck)
+    document = json.loads(rendered.getvalue())
+    document.pop(AT_VERSION_KEY, None)
+    return json.dumps(document, indent=2) + "\n"
+
+
+def write_deck(deck: Any, facility_dir: Path, model: str) -> Path:
+    """Write one model's deck under :data:`DECKS_DIR`.
+
+    Args:
+        deck: The deck to write, as :func:`served_deck` returned it.
+        facility_dir: The ``data/facility`` directory.
+        model: The model's name, which names the file.
+
+    Returns:
+        The file written, ``<facility_dir>/imported/mml/decks/<model>.json``.
+    """
+    path = facility_dir / DECKS_DIR / f"{model}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(deck_text(deck), encoding="utf-8")
+    return path
