@@ -20,6 +20,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import (
     IMAGE_SOURCE_CONFIG_KEY,
+    REGISTRY_URL_CONFIG_KEY,
     config_image_source_spelling,
     declares_web_terminals,
     deploy_config_overrides,
@@ -97,7 +98,10 @@ def test_the_registry_default_is_propagated_just_as_explicitly() -> None:
     deploy = _parsed(DEPLOY_BLOCK)
     config = {"modules.web_terminals": dict(WEB_TERMINALS)}
 
-    assert deploy_config_overrides(deploy, config) == {IMAGE_SOURCE_CONFIG_KEY: "registry"}
+    assert deploy_config_overrides(deploy, config) == {
+        IMAGE_SOURCE_CONFIG_KEY: "registry",
+        REGISTRY_URL_CONFIG_KEY: DEPLOY_BLOCK["registry"]["url"],
+    }
 
 
 def test_a_profile_with_no_deploy_block_contributes_nothing() -> None:

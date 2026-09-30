@@ -2119,17 +2119,20 @@ def _render_project(
 
         # What the deploy, va_archiver, virtual_accelerator and layout blocks
         # contribute to the rendered config, applied with the profile's own
-        # `config:` entries in one pass. Derived keys the profile also spells are
-        # rejected at validation, so winning here can never silently overwrite a
-        # facility's own value.
+        # `config:` entries in one pass.
         #
-        # `layout` is the one exception, and it is the opposite rule: it is
-        # FILL-IF-ABSENT, not refuse-if-spelled. A host port is the facility's to
-        # move — `services.<name>.port` is the documented override — so the fill
-        # only supplies the layout's number for a service block the profile
-        # deploys and left without one, and a spelled port is skipped rather than
-        # refused. It is listed first so that a block below, which does own its
-        # keys, still wins if the two ever name one key.
+        # Two entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
+        # `layout`'s host ports: a host port is the facility's to move —
+        # `services.<name>.port` is the documented override — so the fill only
+        # supplies the layout's number for a service block the profile deploys
+        # and left without one, and a spelled port is skipped rather than
+        # refused. The other is the deploy block's `registry.url`, filled only
+        # when `config:` names none, because a facility may point the web tier
+        # at a registry other than the one CI pushes to. Every other derived key
+        # the profile also spells is rejected at validation, so winning here can
+        # never silently overwrite a facility's own value. `layout` is listed
+        # first so that a block below, which does own its keys, still wins if
+        # the two ever name one key.
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
