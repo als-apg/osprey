@@ -14,10 +14,14 @@ starts a server by hand sits outside it, which is why access to the host is part
 boundary.
 
 The checks are the first gate, not the only one. There are four ways a value reaches a
-machine --- a single channel write, Python the agent wrote, a Bluesky plan, and a notebook
-cell --- and each has gates of its own below the checks. Two of them can also be driven by a
-person, from the BLUESKY panel or a Jupyter cell, and a person's action goes through none of
-the checks. All four end at the same connector and leave the same audit record.
+machine through the connector --- a single channel write, Python the agent wrote, a Bluesky
+plan, and a notebook cell --- and each has gates of its own below the checks. Two of them can
+also be driven by a person, from the BLUESKY panel or a Jupyter cell, and a person's action
+goes through none of the checks. All four end at the same connector and leave the same audit
+record. A deployment that enables the ``phoebus`` server and sets
+``phoebus.agent_access: read_write`` has a fifth: ``phoebus_drive`` passes the checks and then
+the Phoebus product writes the value through its own connections, not through the connector
+--- see :ref:`A Phoebus drive <architecture-safety-chain-phoebus-drive>`.
 
 A write also carries a name --- whose write it is. Narrowing a machine to read-only is
 that person's decision about their own writes, so the name decides which narrowing a write
@@ -30,18 +34,18 @@ this page, says where the name comes from and what it does not cover.
 The checks
 ==========
 
-They run in this order; a channel write meets all three, a Python run and a plan meet the
-first and the last:
+They run in this order; a channel write meets all three; a Python run, a plan and a Phoebus
+drive meet the first and the last:
 
 1. **Are writes switched on?** (``osprey_writes_check``) --- the kill switch. It refuses any
    write when writes are switched off for the machine the deployment points at ---
    ``control_system.connector.<type>.writes_enabled`` in ``config.yml``, or the
    ``control_system.writes_enabled`` a type without that key inherits --- and when the person
    who asked has narrowed that machine to read-only from their own terminal. It applies to channel
-   writes, read-write Python runs, and queueing or starting a plan. Where no machine may be
-   written at all, channel writes and plan queueing are switched off outright rather than
-   refused call by call, and a Python run is always asked. Stopping a plan is never switched
-   off.
+   writes, Phoebus drives, read-write Python runs, and queueing or starting a plan. Where no
+   machine may be written at all, channel writes, Phoebus drives and plan queueing are switched
+   off outright rather than refused call by call, and a Python run is always asked. Stopping a
+   plan is never switched off.
 
 2. **Is the value within limits?** (``osprey_limits``) --- checks a channel write against the
    limits database: that the channel is in it, that it may be written, and the allowed range.
@@ -150,10 +154,13 @@ would change it. The agent may edit notebooks only in the ``notebooks`` and ``ar
 folders under the agent-data root, held there by a file-write guard that protects the host's
 files, not the machine. See :doc:`/how-to/web-terminal/notebooks`.
 
+.. _architecture-safety-chain-shared:
+
 What every path shares
 ======================
 
-**The connector.** Every path ends at the connector, the last step before the machine. On
+**The connector.** Each of the four paths ends at the connector, the last step before the
+machine. On
 every write it asks the deployment's records one question --- may this person write to this
 machine right now --- and gets back one of three answers:
 
@@ -187,6 +194,39 @@ call that was allowed, is written down as one line under ``var/audit/`` in the d
 repository, by the check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See :ref:`reference-audit-trail`.
+
+.. _architecture-safety-chain-phoebus-drive:
+
+A Phoebus drive
+===============
+
+With the ``phoebus`` server enabled and ``phoebus.agent_access: read_write`` set (both off
+unless a deployment switches them on), ``phoebus_drive`` clicks a control or types a value into
+a widget of a display open in a running Phoebus product. Under the default, ``read``, the agent
+is not offered the tool and the server refuses a call to it. The call passes the kill switch
+and the approval prompt, like the other tool paths, and is refused while the control target is
+switched away from the deployment's baseline, because the Phoebus product stays connected to
+the baseline machine. The narrowing is judged once, when the call passes the kill switch.
+``phoebus.agent_access`` is all or nothing, because a panel runs whatever its widgets are wired
+to; finer control belongs to the EPICS gateway or access security the Phoebus product connects
+through.
+
+Below the checks, OSPREY does not write the value. The Phoebus agent bridge performs the drive
+inside the Phoebus process, and the product writes through its own channel connections in both
+modes: synthetic, the default, fires the widget's GUI event so the display's own confirm
+dialogs, enable rules and scripts run; semantic writes a typed value straight to the widget's
+channel. So none of :ref:`what every path shares <architecture-safety-chain-shared>` reaches
+the value: the limits check does not see it, neither at the ``osprey_limits`` hook nor at a
+connector; no connector asks the narrowing records at write time; and nothing reads the
+channel back.
+
+The audit trail records the call as it records any tool call: one line naming
+``phoebus_drive``, who called it, the posture in force and the decision. With
+``audit.tool_call.enabled`` on (:ref:`config-audit-tool-call`), a second record carries the
+widget, verb, mode and value the call was given and the bridge's answer. Neither names the
+channel written, because the bridge decides which channel a widget writes. See
+:doc:`/how-to/control-systems/phoebus-bridge` for the configuration and for the displays a
+drive is fit for.
 
 .. _architecture-safety-chain-owner:
 
