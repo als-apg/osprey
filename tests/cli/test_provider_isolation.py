@@ -22,6 +22,7 @@ from osprey.agent_runner.provider_env import (
     ClaudeCodeModelSpec,
     ManagedPolicyConflict,
     detect_managed_policy_conflicts,
+    format_managed_policy_conflicts,
     inject_provider_env,
     load_provider_spec,
     provider_auth_secret_env,
@@ -475,6 +476,71 @@ class TestManagedPolicyConflicts:
         self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}})
 
         assert detect_managed_policy_conflicts(env, [policy]) == []
+
+
+class TestManagedPolicyRefusal:
+    """The refusal names both values and a remedy the policy's owner can follow."""
+
+    _SOURCE = "/etc/claude-code/managed-settings.json"
+
+    def test_refusal_names_the_policy_and_the_deployment_value(self):
+        message = format_managed_policy_conflicts(
+            [
+                ManagedPolicyConflict(
+                    "ANTHROPIC_BASE_URL",
+                    "https://elsewhere.example.org",
+                    "https://gateway.example.org",
+                    self._SOURCE,
+                )
+            ]
+        )
+
+        assert "https://elsewhere.example.org" in message
+        assert "https://gateway.example.org" in message
+        assert self._SOURCE in message
+
+    def test_refusal_says_not_set_for_a_key_the_deployment_leaves_unset(self):
+        message = format_managed_policy_conflicts(
+            [ManagedPolicyConflict("CLAUDE_CODE_USE_BEDROCK", "1", None, self._SOURCE)]
+        )
+
+        assert "not set" in message
+
+    def test_refusal_marks_the_translation_proxy_loopback(self):
+        message = format_managed_policy_conflicts(
+            [
+                ManagedPolicyConflict(
+                    "ANTHROPIC_BASE_URL",
+                    "https://argo.example",
+                    "http://127.0.0.1:7777",
+                    self._SOURCE,
+                )
+            ]
+        )
+
+        assert "http://127.0.0.1:7777" in message
+        assert "local translation proxy" in message
+
+    def test_refusal_never_prints_a_credential(self):
+        message = format_managed_policy_conflicts(
+            [
+                ManagedPolicyConflict(
+                    "ANTHROPIC_AUTH_TOKEN", "sk-policy-secret", "sk-deploy-secret", self._SOURCE
+                )
+            ]
+        )
+
+        assert "sk-policy-secret" not in message
+        assert "sk-deploy-secret" not in message
+        assert "not shown" in message
+
+    def test_refusal_names_a_remedy_that_can_be_followed(self):
+        message = format_managed_policy_conflicts(
+            [ManagedPolicyConflict("ANTHROPIC_MODEL", "m", None, self._SOURCE)]
+        )
+
+        assert "Remove these keys from the policy file" in message
+        assert "reconcile" not in message
 
 
 # ── Chat command provider isolation ──────────────────────────────
