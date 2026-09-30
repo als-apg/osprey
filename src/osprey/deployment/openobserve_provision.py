@@ -50,9 +50,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 
+from osprey.build.claude_code_telemetry import openobserve_published_port
 from osprey.cli import output
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
-from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -83,9 +83,10 @@ HARVEST_BANNER = "Harvested OpenObserve ingest token (osprey up)"
 
 # Store address defaults, mirroring the openobserve compose template and the
 # health category that probes the same endpoint. There is no port default here:
-# an unset ``services.openobserve.port`` means the store sits at the layout's
-# ``openobserve`` slot, which moves with this project's own ``port_base`` and so
-# can only be read off the config in hand (see :func:`store_base_url`).
+# the port comes from
+# :func:`osprey.build.claude_code_telemetry.openobserve_published_port`, the one
+# derivation every reader of the store's address calls, so a default here would
+# be a second one (see :func:`store_base_url`).
 _DEFAULT_ORG = "default"
 
 #: Readiness budget. The store answered ``/healthz`` about a second after start
@@ -173,10 +174,10 @@ def store_deployed(config: Mapping[str, Any]) -> bool:
 def store_base_url(config: Mapping[str, Any]) -> str:
     """The store's host address, as this deploy publishes it.
 
-    Read exactly the way the ``openobserve`` health category reads it, so the
-    provisioner and the health row can never disagree about which store they are
-    talking about — including the port an unset key falls back to, which is the
-    layout's ``openobserve`` slot at *this* project's base. A second deployment
+    The port is
+    :func:`~osprey.build.claude_code_telemetry.openobserve_published_port`: the
+    same derivation the agent's exporter, ``osprey health`` and the service
+    template's key read, so no two of them can name different stores. A second deployment
     on the same host runs its store inside its own block, so a fixed default
     here would send the harvest at the neighbour's store and mint the ingest
     account in a machine this deploy does not own.
@@ -191,13 +192,13 @@ def store_base_url(config: Mapping[str, Any]) -> str:
 
     Raises:
         ValueError: ``deployment.port_base`` is set to a base no block can
-            start at (:func:`~osprey.port_layout.resolve_port_base`).
+            start at (:func:`~osprey.port_layout.resolve_port_base`), or
+            ``services.openobserve.port`` is not an integer
+            (:class:`~osprey.build.claude_code_telemetry.TelemetryConfigError`,
+            which is a :class:`ValueError`).
     """
-    services = config.get("services") or {}
-    settings = services.get(SERVICE) or {}
     bind = (config.get("deployment") or {}).get("bind_address", DEFAULT_BIND_ADDRESS)
-    port = settings.get("port", default_port("openobserve", base=resolve_port_base(config)))
-    return f"http://{dial_address(bind)}:{port}"
+    return f"http://{dial_address(bind)}:{openobserve_published_port(config)}"
 
 
 def store_org(config: Mapping[str, Any]) -> str:
@@ -676,7 +677,13 @@ def provision_ingest_identity(
         )
 
     token = _effective_value(INGEST_TOKEN_VAR, on_disk).strip()
-    base_url = store_base_url(config)
+    try:
+        base_url = store_base_url(config)
+    except ValueError as exc:
+        return _degraded(
+            str(exc),
+            "Set services.openobserve.port to an integer port and run `osprey build`.",
+        )
     org = store_org(config)
 
     with httpx.Client(timeout=REQUEST_TIMEOUT_S, transport=transport) as client:

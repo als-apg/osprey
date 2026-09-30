@@ -43,6 +43,7 @@ from typing import Any
 import httpx
 import pytest
 
+from osprey.build.claude_code_telemetry import TelemetryConfigError, openobserve_published_port
 from osprey.deployment import openobserve_provision as provision
 from osprey.deployment.reset import MINTED_ENV_BANNERS
 from osprey.utils.dotenv import parse_dotenv_file
@@ -895,7 +896,7 @@ def test_the_organization_is_resolved_the_way_the_agent_resolves_it():
 
 @pytest.mark.usefixtures("env_file")
 def test_the_address_is_the_one_this_deploy_publishes():
-    """Read the way the health category reads it, so the two cannot disagree."""
+    """The port is the one derivation every reader of the key calls."""
     config = {
         **CONFIG,
         "services": {"openobserve": {"port": 15080}},
@@ -905,6 +906,38 @@ def test_the_address_is_the_one_this_deploy_publishes():
     assert provision.store_base_url(config) == "http://127.0.0.1:15080"
     assert provision.store_base_url(CONFIG) == "http://127.0.0.1:5080"
     assert provision.store_org(CONFIG) == "default"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        CONFIG,
+        {**CONFIG, "services": {"openobserve": {}}, "deployment": {"port_base": 20000}},
+        {**CONFIG, "services": {"openobserve": {"port": 15080}}},
+    ],
+    ids=["configured", "moved-base", "moved-port"],
+)
+def test_the_address_port_is_openobserve_published_port(config):
+    """The agent's exporter dials this derivation, so the provisioner dials it too."""
+    assert provision.store_base_url(config) == (
+        f"http://127.0.0.1:{openobserve_published_port(config)}"
+    )
+
+
+def test_a_port_that_is_not_an_integer_is_refused_by_name():
+    with pytest.raises(TelemetryConfigError, match=r"services\.openobserve\.port"):
+        provision.store_base_url({**CONFIG, "services": {"openobserve": {"port": "abc"}}})
+
+
+def test_an_unreadable_port_degrades_the_provisioning(env_file):
+    """A port that cannot be read is a warning, not an exception out of the start."""
+    store = FakeStore()
+
+    outcome = run(store, env_file, {**CONFIG, "services": {"openobserve": {"port": "abc"}}})
+
+    assert outcome.action == "failed"
+    assert "services.openobserve.port" in outcome.problem
+    assert store.calls == []
 
 
 def test_an_ingest_account_with_no_name_is_reported(tmp_path):
