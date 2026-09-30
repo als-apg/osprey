@@ -15,12 +15,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
-from osprey.cli.init_cmd import init
 from osprey.facility.render import FACILITY_FILE
 from osprey.utils.workspace import BUILD_DIR_NAME
+from tests._builds import init_project, run_build
 
 pytestmark = pytest.mark.slow
 
@@ -37,11 +35,9 @@ def test_nine_presets_ship() -> None:
 
 @pytest.mark.parametrize("preset", PRESETS)
 def test_preset_builds(preset: str, tmp_path: Path) -> None:
-    repo = tmp_path / "demo"
-    result = CliRunner().invoke(init, [str(repo), "--preset", preset, "--no-git"])
-    assert result.exit_code == 0, result.output
+    repo = init_project(tmp_path, preset, "demo")
 
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps"])
+    result = run_build(repo)
 
     assert result.exit_code == 0, result.output
     assert (repo / BUILD_DIR_NAME / FACILITY_FILE).is_file()
