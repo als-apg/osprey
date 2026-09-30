@@ -46,6 +46,7 @@ from osprey.interfaces.web_terminal.app import (
     coerce_config_flag,
     create_app,
     register_scaffold_conflict_handlers,
+    unreadable_config_refusal,
 )
 from osprey.interfaces.web_terminal.routes import router as full_router
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
@@ -390,7 +391,7 @@ def test_lifespan_closes_writes_on_an_unreadable_config(workspace_dir):
         assert client.app.state.scaffold_write_enabled is False
         response = client.post("/api/scaffold/create", json={"category": "rules", "name": "x"})
         assert response.status_code == 403
-        assert str(resolved) in response.json()["detail"]
+        assert response.json()["detail"] == unreadable_config_refusal(resolved)
         # Reading is not authoring, so the list route still answers.
         assert client.get("/api/scaffold").status_code == 200
     finally:

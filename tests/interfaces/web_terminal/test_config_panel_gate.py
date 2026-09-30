@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import deque
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -50,6 +51,7 @@ from osprey.interfaces.web_terminal.app import (
     coerce_config_flag,
     create_app,
     resolve_privilege_gates,
+    unreadable_config_refusal,
 )
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
@@ -174,9 +176,7 @@ class TestDisabledRefusesEveryVerb:
                 response = send()
                 assert response.status_code == 403, f"{label} returned {response.status_code}"
                 detail = response.json()["detail"]
-                assert detail == (
-                    f"the Config panel is closed because {unreadable} could not be read"
-                ), f"{label}: {detail!r}"
+                assert detail == unreadable_config_refusal(unreadable), f"{label}: {detail!r}"
 
 
 class TestGateRunsFirst:
@@ -474,6 +474,12 @@ class TestResolvePrivilegeGates:
         assert str(config_file) in message
         assert "Config panel" in message
         assert "scaffold gallery" in message
+
+    def test_the_unreadable_refusal_names_the_file_and_the_fix(self):
+        assert (
+            unreadable_config_refusal(Path("/srv/p/config.yml"))
+            == "/srv/p/config.yml could not be read; fix it and restart the server"
+        )
 
     def test_an_uninterpretable_value_still_takes_the_default(self, tmp_path, caplog):
         config_file = self._write(tmp_path, {"nested": 1})
