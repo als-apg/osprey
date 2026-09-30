@@ -632,3 +632,75 @@ def test_a_non_cron_trigger_is_not_read_for_a_schedule(tmp_path):
     _, triggers = load_triggers(path)
 
     assert triggers[0].schedule is None
+
+
+@pytest.mark.parametrize(
+    ("field_name", "line"),
+    [
+        ("action", "action: do it"),
+        ("on_error", "on_error: retry"),
+        ("source_config", 'source_config: "interval_sec: 60"'),
+        ("source_config", "source_config: [60]"),
+    ],
+    ids=["action", "on_error", "source_config-string", "source_config-list"],
+)
+def test_a_trigger_part_that_is_not_a_mapping_is_refused_by_name(tmp_path, field_name, line):
+    parts = {
+        "action": "action: {prompt: tick}",
+        "on_error": "on_error: {action: drop}",
+        "source_config": "source_config: {interval_sec: 60}",
+    }
+    parts[field_name] = line
+    body = "\n".join(f"    {p}" for p in parts.values())
+    path = write_yaml(
+        tmp_path,
+        f"triggers:\n  - name: beam-loss\n    source: cron\n{body}\n",
+    )
+
+    with pytest.raises(ValueError, match=f"'beam-loss' field '{field_name}' must be a mapping"):
+        load_triggers(path)
+
+
+def test_a_trigger_entry_that_is_not_a_mapping_is_refused_by_index(tmp_path):
+    path = write_yaml(tmp_path, "triggers: [beam-loss]\n")
+
+    with pytest.raises(ValueError, match="index 0"):
+        load_triggers(path)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "content"),
+    [
+        ("dispatcher", "dispatcher: x\ntriggers: []\n"),
+        ("triggers", "triggers: {a: 1}\n"),
+        ("triggers", "triggers: x\n"),
+    ],
+    ids=["dispatcher", "triggers-mapping", "triggers-string"],
+)
+def test_a_misshapen_dispatcher_or_triggers_block_is_refused(tmp_path, field_name, content):
+    path = write_yaml(tmp_path, content)
+
+    with pytest.raises(ValueError, match=f"field '{field_name}' must be"):
+        load_triggers(path)
+
+
+def test_a_blank_source_config_is_empty(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: tick
+            source: cron
+            source_config:
+            action:
+              prompt: "tick"
+          - name: watch
+            source: epics_ca
+            source_config:
+            action:
+              prompt: "watch"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert [t.source_config for t in triggers] == [{}, {}]

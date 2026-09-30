@@ -12,7 +12,7 @@ import pytest
 from osprey.dispatch.clock_schedule import parse_clock_schedule
 from osprey.dispatch.pool import QueueFullError
 from osprey.dispatch.sources.cron import CronSource
-from osprey.dispatch.trigger_config import TriggerConfig
+from osprey.dispatch.trigger_config import TriggerConfig, load_triggers
 
 
 def _make_trigger(name: str, interval_sec=None) -> TriggerConfig:
@@ -387,3 +387,29 @@ async def test_the_facility_zone_comes_from_system_timezone(monkeypatch, tmp_pat
     assert any(
         "morning" in r.getMessage() and "Europe/Berlin" in r.getMessage() for r in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_start_arms_the_valid_triggers_of_a_loaded_mixed_list(tmp_path, caplog):
+    path = tmp_path / "triggers.yml"
+    path.write_text(
+        "triggers:\n"
+        "  - {name: hourly, source: cron, action: {prompt: tick},"
+        " source_config: {interval_sec: 60}}\n"
+        "  - {name: whenever, source: cron, action: {prompt: tick},"
+        " source_config: {interval_sec: soon}}\n"
+        "  - {name: morning, source: cron, action: {prompt: tick},"
+        ' source_config: {at: ["07:45"]}}\n'
+    )
+    _, triggers = load_triggers(str(path))
+    source = CronSource(zone=ZoneInfo("UTC"))
+
+    with caplog.at_level(logging.WARNING, logger="osprey.dispatch.sources.cron"):
+        await source.start(triggers, _RecordingCallback())
+    try:
+        assert len(source._tasks) == 2
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "whenever" in warnings[0].getMessage()
+    finally:
+        await source.stop()

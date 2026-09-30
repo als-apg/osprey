@@ -374,8 +374,10 @@ Trigger sources
 ---------------
 
 A trigger's ``source:`` names what fires it, and its optional
-``source_config:`` mapping carries that source's own settings. Three sources
-ship. A ``source:`` that no installed source registers is logged when the
+``source_config:`` mapping carries that source's own settings. A
+``source_config`` that is not a mapping, like an ``action`` or ``on_error``
+that is not one, stops the triggers file from loading, with an error naming
+the trigger; a blank one is empty. Three sources ship. A ``source:`` that no installed source registers is logged when the
 dispatcher starts, and its triggers are skipped while the rest of the file
 loads.
 

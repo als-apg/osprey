@@ -247,6 +247,23 @@ def test_gchat_bridge_unparseable_triggers_file_reports_parse_failure(
     assert "gchat_bridge.trigger cannot be checked" in str(exc.value)
 
 
+def test_gchat_bridge_triggers_file_with_a_non_mapping_part_reports_parse_failure(
+    tmp_path: Path,
+) -> None:
+    """A trigger whose action is not a mapping surfaces as the same legible
+    'fix that file first' error, naming the trigger."""
+    (tmp_path / "triggers.yml").write_text(
+        "dispatcher:\n  dispatch_target: x\ntriggers:\n"
+        "  - name: beam-loss\n    source: webhook\n    action: do it\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(BuildProfileError) as exc:
+        _bridge_profile().validate(tmp_path)
+    message = str(exc.value)
+    assert "gchat_bridge.trigger cannot be checked" in message
+    assert "beam-loss" in message
+
+
 # ── both bridges at once ─────────────────────────────────────────────────────
 
 
