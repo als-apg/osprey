@@ -37,3 +37,25 @@ def test_the_interactive_floor_renders_in_this_order():
         "mcp__plugin_*",
         "mcp__claude_ai_*",
     )
+
+
+@pytest.mark.parametrize(
+    ("server", "namespace"),
+    [
+        ("plugin", "mcp__plugin_*"),
+        ("plugin_x", "mcp__plugin_*"),
+        ("plugin.x", "mcp__plugin_*"),
+        ("claude_ai", "mcp__claude_ai_*"),
+        ("claude_ai_Gmail", "mcp__claude_ai_*"),
+        ("Plugin_x", None),
+        ("pluginx", None),
+        ("claude_aix", None),
+        ("claude-ai_x", None),
+        ("controls", None),
+        ("channel-finder", None),
+    ],
+)
+def test_foreign_mcp_namespace(server, namespace):
+    """The agent CLI's own outcomes: it maps every character outside
+    ``[A-Za-z0-9_-]`` to ``_`` and matches deny globs case-sensitively by prefix."""
+    assert tool_names.foreign_mcp_namespace(server) == namespace

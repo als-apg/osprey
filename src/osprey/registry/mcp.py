@@ -1400,8 +1400,20 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     _withhold_phoebus_drive(servers, ctx.get("phoebus_agent_access", READ))
 
     # ── Build output dicts ────────────────────────────────────
+    # Every launch denies the plugin and connector tool namespaces, so a server
+    # named into one would connect with no usable tool; refuse it instead.
+    from osprey.agent_runner.tool_names import foreign_mcp_namespace
+
     result = []
     for sdef in servers.values():
+        if sdef.default_enabled:
+            namespace = foreign_mcp_namespace(sdef.name)
+            if namespace is not None:
+                raise ValueError(
+                    f"MCP server '{sdef.name}' puts its tools under '{namespace}', which every "
+                    "agent launch denies (that namespace belongs to Claude Code plugins or "
+                    "claude.ai connectors). Rename the server in the profile's mcp_servers:."
+                )
         result.append(_server_to_dict(sdef, ctx))
     return result
 
