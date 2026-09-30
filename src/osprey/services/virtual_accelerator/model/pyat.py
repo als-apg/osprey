@@ -566,7 +566,7 @@ class PyATRingModel(LUMEPyATModel):
 
         # lume's ActionVariable is a union of hinting stubs in lume/actions.py
         # (ReadOnlyActionVariable, WritableActionVariable) that no variable class inherits.
-        variables: list[ActionVariable[PyATSimulator]] = [*catalog.values(), *faults, *optics]  # type: ignore[list-item]  # lume's ActionVariable names hinting stubs no variable class inherits
+        variables: list[ActionVariable[PyATSimulator]] = [*catalog.values(), *faults, *optics]  # type: ignore[list-item]
         try:
             super().__init__(
                 simulator=PyATSimulator(ring, element_misalignments=element_misalignments),
