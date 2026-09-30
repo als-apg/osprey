@@ -13,6 +13,13 @@ import time
 import pytest
 
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
+from tests.interfaces.web_terminal._pty_child import (
+    CHILD_HANG_CEILING,
+    SENTINEL,
+    read_answer,
+    wait_for_exit,
+    wait_for_report,
+)
 
 #: How long a real shell may take to answer under a loaded parallel run.
 READ_TIMEOUT_S = 15.0
@@ -139,6 +146,53 @@ class TestPtySession:
             assert marker.exists(), "SIGWINCH was not delivered to the child process"
         finally:
             session.terminate()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
+class TestPtyChildWaits:
+    def test_read_answer_returns_the_executed_answer(self):
+        session = PtySession("/bin/sh")
+        session.start()
+        try:
+            output = read_answer(session, b'echo left_""right')
+            assert b"left_right" in output
+            assert SENTINEL in output
+            assert output.index(b"left_right") < output.rindex(SENTINEL)
+        finally:
+            session.terminate()
+
+    def test_read_answer_fails_on_a_dead_child_naming_its_exit_code(self):
+        session = PtySession(["/bin/sh", "-c", "exit 3"])
+        session.start()
+        try:
+            wait_for_exit(session)
+            with pytest.raises(AssertionError, match=r"exited with code 3 before answering"):
+                read_answer(session, b"echo hi")
+        finally:
+            session.terminate()
+
+    def test_wait_for_report_fails_on_a_dead_reporter(self, tmp_path):
+        session = PtySession(["/bin/sh", "-c", "exit 4"])
+        session.start()
+        try:
+            wait_for_exit(session)
+            with pytest.raises(AssertionError, match=r"exited with code 4 with 0 of 1 line"):
+                wait_for_report(tmp_path / "never.txt", 1, session)
+        finally:
+            session.terminate()
+
+    def test_wait_for_report_accepts_a_line_written_just_before_exit(self, tmp_path):
+        report = tmp_path / "report.txt"
+        session = PtySession(["/bin/sh", "-c", f'printf "x\\n" >> "{report}"'])
+        session.start()
+        try:
+            wait_for_exit(session)
+            assert wait_for_report(report, 1, session) == ["x"]
+        finally:
+            session.terminate()
+
+    def test_hang_ceiling_sits_below_the_per_test_timeout(self):
+        assert CHILD_HANG_CEILING < 300
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
