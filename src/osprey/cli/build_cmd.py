@@ -93,6 +93,7 @@ from .build_lifecycle import (
 from .build_limits_check import limits_database_errors
 from .build_persistence import (
     FACILITY_RULE_NAME,
+    FACILITY_RULE_RELPATH,
     _apply_config_overrides,
     _apply_conventions,
     _persist_artifact_server,
@@ -1888,6 +1889,7 @@ def _render_project(
     progress: Any,
     extra_known: Sequence[str] = (),
     injected_out: list[str] | None = None,
+    repair: bool = True,
 ) -> Path:
     """Render one resolved profile into ``<output_dir>/<project_name>``.
 
@@ -1938,6 +1940,11 @@ def _render_project(
             caller names the ONE pass whose set it reports (``deployment`` does
             not identify it — the deployment's container copy renders with it
             set too).
+        repair: Whether the render may write into the profile: rescue the
+            facility description into ``rules/`` and seed a
+            ``web-terminal-context/<user>/`` directory for each roster user
+            without one. ``False`` renders from the profile as it stands and
+            writes nothing outside ``output_dir``.
 
     Returns:
         The rendered project directory.
@@ -2026,17 +2033,20 @@ def _render_project(
     # re-rendered. Gated on the selection: a profile that does not select the
     # facility rule has no description to keep.
     if FACILITY_RULE_NAME in effective_artifacts.get("rules", []):
-        moved = ensure_profile_facility_rule(
-            repo_root,
-            build_dir=shared.build_dir,
-            enabled_agents=effective_artifacts.get("agents", []),
-        )
-        if moved:
-            _report_fact(moved)
-        # Rendering it into build/ as well would give the operator two files
-        # and no way to tell which one the deployment reads; the convention
-        # copy below carries the profile's in.
-        context["profile_owns_facility_rule"] = True
+        if repair:
+            moved = ensure_profile_facility_rule(
+                repo_root,
+                build_dir=shared.build_dir,
+                enabled_agents=effective_artifacts.get("agents", []),
+            )
+            if moved:
+                _report_fact(moved)
+            # Rendering it into build/ as well would give the operator two files
+            # and no way to tell which one the deployment reads; the convention
+            # copy below carries the profile's in.
+            context["profile_owns_facility_rule"] = True
+        else:
+            context["profile_owns_facility_rule"] = (repo_root / FACILITY_RULE_RELPATH).is_file()
 
     # Prepared before the render (which prunes the tiers/ subtree the paradigm
     # databases live in) and written after it, so the decision is settled before
@@ -2284,7 +2294,7 @@ def _render_project(
         applied = _apply_conventions(
             repo_root,
             render_dir,
-            _resolve_context_roster(render_dir),
+            _resolve_context_roster(render_dir) if repair else None,
             extra_known=[
                 *_profile_known_root_entries(build_profile, profile_path),
                 *extra_known,
