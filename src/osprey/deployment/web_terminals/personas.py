@@ -2678,6 +2678,32 @@ def _persona_ref_by_name(
     return refs
 
 
+#: The refusal both the lint (``web_terminals.registry_mode_missing_url``) and
+#: the render raise for registry mode with no ``registry.url``.
+REGISTRY_MODE_MISSING_URL: str = (
+    "modules.web_terminals.image_source is 'registry' (the default) but registry.url is not "
+    "set, so no web-terminal image can be named; set the profile's deploy.registry.url, or "
+    "registry.url in its config: block"
+)
+
+
+def configured_registry_url(registry_cfg: Any) -> str:
+    """Return the top-level ``registry.url`` every registry-mode image is named under.
+
+    Args:
+        registry_cfg: The top-level ``registry`` section, in any shape.
+
+    Returns:
+        ``registry_cfg["url"]`` when the section is a mapping and the value is a
+        string; empty when the section, the key or a string value is missing.
+    """
+    if isinstance(registry_cfg, dict):
+        url = registry_cfg.get("url")
+        if isinstance(url, str):
+            return url
+    return ""
+
+
 def resolve_personas(
     web_terminals: dict[str, Any],
     registry_cfg: dict[str, Any],
@@ -2736,6 +2762,10 @@ def resolve_personas(
       clear of the dispatch worker's ``<project>:local`` tag;
       ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
+
+    The resolution stays total: an empty ``registry_url`` still yields a
+    leading-slash image name, and :func:`render_web_terminals` is where registry
+    mode without one is refused.
 
     Args:
         web_terminals: The already-dict-coerced ``modules.web_terminals`` section
@@ -2801,11 +2831,7 @@ def resolve_personas(
     image_source = effective_image_source(web_terminals)
     image_tag = resolve_image_tag(web_terminals)
 
-    registry_url = ""
-    if isinstance(registry_cfg, dict):
-        url = registry_cfg.get("url")
-        if isinstance(url, str):
-            registry_url = url
+    registry_url = configured_registry_url(registry_cfg)
 
     # The role table behind every entry's binding. Under `strict` an incoherent
     # `authorization` stanza stops the render here rather than resolving a

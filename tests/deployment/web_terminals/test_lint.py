@@ -35,6 +35,7 @@ _OVERRIDE_PORT_BASE = 20000
 
 _CLEAN_CONFIG = {
     "facility": {"prefix": "test"},
+    "registry": {"url": "registry.example.org/demo"},
     "services": {
         "openobserve": {"port": 5080},
         "postgresql": {"port_host": 5432},
@@ -1438,7 +1439,8 @@ def test_lint_unknown_image_source_is_an_error() -> None:
 def test_lint_registry_mode_without_registry_url_is_an_error() -> None:
     """`image_source: registry` (the default) needs registry.url to pull images."""
     # Arrange
-    config = _persona_config()  # image_source unset -> registry; no registry.url
+    config = _persona_config()
+    del config["registry"]  # image_source unset -> registry
 
     # Act
     findings = lint_web_terminals(config)
@@ -1461,9 +1463,25 @@ def test_lint_registry_mode_with_registry_url_reports_no_missing_url_error() -> 
     assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
 
 
-def test_lint_no_persona_catalog_does_not_require_registry_url() -> None:
-    """Zero-migration path: a config with no personas catalog at all never
-    triggers the registry.url coherence check, even with zero registry.url."""
+def test_lint_no_persona_catalog_still_requires_registry_url() -> None:
+    """With no catalog every user pulls `<registry.url>/web-terminal:<tag>`, so
+    the refusal is the same as with a catalog."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    del config["registry"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    missing = [f for f in _errors(findings) if f.code == "web_terminals.registry_mode_missing_url"]
+    assert len(missing) == 1
+    assert "registry.url" in missing[0].message
+    assert "deploy.registry.url" in missing[0].message
+
+
+def test_lint_no_persona_catalog_with_registry_url_reports_no_missing_url_error() -> None:
+    """A no-catalog config that sets registry.url carries no coherence error."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
 
@@ -1471,8 +1489,7 @@ def test_lint_no_persona_catalog_does_not_require_registry_url() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    errors = _errors(findings)
-    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
+    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in findings)
 
 
 def test_lint_local_mode_with_registry_url_is_a_warning() -> None:

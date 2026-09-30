@@ -46,8 +46,7 @@ WEB_TERMINALS: dict[str, Any] = {
     "users": ["operator"],
 }
 
-#: The same stack with a persona catalog, which is what makes the lint's
-#: registry-coherence check apply.
+#: The same stack with a persona catalog.
 WEB_TERMINALS_CATALOG: dict[str, Any] = {
     **WEB_TERMINALS,
     "default_persona": "readwrite",

@@ -869,6 +869,7 @@ def _web_terminals_repo(root: Path, *, users=("alice", "bob")) -> Path:
     config = {
         "facility": {"name": "Demo Light Source", "prefix": "dls"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
+        "registry": {"url": "registry.example.org/demo"},
         "modules": {
             "web_terminals": {
                 "enabled": True,

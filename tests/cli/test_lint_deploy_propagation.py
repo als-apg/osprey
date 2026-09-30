@@ -52,9 +52,8 @@ POSTURE_FLOOR: dict[str, Any] = {
     "hooks.debug": False,
 }
 
-#: A roster that stands up the persona stack — which is what makes the
-#: mode-coherence check apply at all (a config with no catalog resolves through
-#: the pre-catalog path and is never asked about ``registry.url``).
+#: A roster that stands up the persona stack. Registry mode names every
+#: web-terminal image under ``registry.url``, with or without a catalog.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
