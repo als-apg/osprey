@@ -993,13 +993,10 @@ def test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them():
     gate would clear a persona that still holds the tool. So the subset relationship
     is pinned rather than left to be noticed."""
     assert set(OPEN_MODE_EGRESS_TOOLS) <= set(DENY_DEFAULTS)
-    # And it is a STRICT subset on purpose: `Edit` writes files and the context7
-    # server reaches a documentation host, neither of which is a route back to
-    # this deployment's own terminals.
-    assert set(DENY_DEFAULTS) - set(OPEN_MODE_EGRESS_TOOLS) == {
-        "Edit",
-        "mcp__plugin_context7_context7__*",
-    }
+    # And it is a STRICT subset on purpose: `Edit` writes files, and a claude.ai
+    # connector runs in the provider's cloud rather than on this host, so neither
+    # is a route back to this deployment's own terminals.
+    assert set(DENY_DEFAULTS) - set(OPEN_MODE_EGRESS_TOOLS) == {"Edit", "mcp__claude_ai_*"}
 
 
 def test_open_mode_refuses_a_persona_that_may_run_a_shell(tmp_path):
@@ -1118,17 +1115,17 @@ def test_open_mode_reads_the_settings_artifact_once_per_offender(tmp_path, monke
     assert len(reads) == 1
 
 
-def test_open_mode_refuses_a_persona_that_denies_one_playwright_tool_by_name(tmp_path):
+def test_open_mode_refuses_a_persona_that_denies_only_the_playwright_plugin(tmp_path):
     """The near miss that looks safe. The artifact is compared by EXACT entry, so
-    a persona denying `...__browser_navigate` still ships every other browser
-    tool — and any of them reaches a neighbour's terminal just as well. The
-    refusal names the wildcard, which is the entry that actually closes it."""
-    wildcard = "mcp__plugin_playwright_playwright__*"
+    a persona denying the Playwright plugin's tools still ships every other
+    plugin's server — and any of them reaches a neighbour's terminal just as
+    well. The refusal names the namespace entry, which is the one that closes it."""
+    wildcard = "mcp__plugin_*"
     config = _open_roster_config(
         tmp_path,
         deny=[
             *_without(wildcard),
-            "mcp__plugin_playwright_playwright__browser_navigate",
+            "mcp__plugin_playwright_playwright__*",
         ],
     )
 

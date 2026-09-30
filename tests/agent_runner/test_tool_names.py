@@ -34,6 +34,6 @@ def test_the_interactive_floor_renders_in_this_order():
         "Edit",
         "WebFetch",
         "WebSearch",
-        "mcp__plugin_playwright_playwright__*",
-        "mcp__plugin_context7_context7__*",
+        "mcp__plugin_*",
+        "mcp__claude_ai_*",
     )

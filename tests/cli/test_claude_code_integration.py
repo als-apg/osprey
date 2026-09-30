@@ -1496,8 +1496,8 @@ class TestFacilityPermissions:
         "Edit",
         "WebFetch",
         "WebSearch",
-        "mcp__plugin_playwright_playwright__*",
-        "mcp__plugin_context7_context7__*",
+        "mcp__plugin_*",
+        "mcp__claude_ai_*",
     ]
 
     def _settings(self, tmp_path, permissions_config):

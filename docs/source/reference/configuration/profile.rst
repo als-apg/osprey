@@ -551,7 +551,8 @@ Tool permissions
 ================
 
 By default OSPREY blocks a handful of general-purpose tools — ``Bash``,
-``Edit``, ``WebFetch``, ``WebSearch``, and the Playwright/Context7 plugins — so a
+``Edit``, ``WebFetch``, ``WebSearch``, and every Claude Code plugin's and
+claude.ai connector's MCP tools (``mcp__plugin_*``, ``mcp__claude_ai_*``) — so a
 stock control-operator agent cannot shell out or browse the web. These defaults
 are overridable per facility from ``config:``, using dotted keys:
 

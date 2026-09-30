@@ -3023,9 +3023,8 @@ def settings_json_denies(project_dir: Any, tools: Iterable[str]) -> bool:
 
     Matching is by **exact entry**, never by tool-name resolution: a scoped deny
     (``Bash(rm:*)``) constrains one command family and leaves the tool otherwise
-    usable, and a wildcard entry such as
-    ``mcp__plugin_playwright_playwright__*`` is compared as the literal string
-    the artifact carries. Callers therefore spell each tool exactly as
+    usable, and a wildcard entry such as ``mcp__plugin_*`` is compared as
+    the literal string the artifact carries. Callers therefore spell each tool exactly as
     :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS` spells it, which is
     what the ``settings.json.j2`` template writes.
 

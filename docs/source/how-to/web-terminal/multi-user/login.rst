@@ -70,7 +70,7 @@ inside the deployment can reach nginx back:
 
 ``osprey up`` refuses to start an open deployment unless every persona's
 ``.claude/settings.json`` denies ``Bash``, ``WebFetch``, ``WebSearch`` and
-``mcp__plugin_playwright_playwright__*`` (``osprey scaffold web-terminals
+``mcp__plugin_*`` (``osprey scaffold web-terminals
 lint`` reports the same, as ``web_terminals.open_mode_egress``). All four are
 in OSPREY's deny defaults, so a refusal means a persona lifted one — put it
 back in that persona's ``config:`` block and rebuild. The python executor's

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
-from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
+from osprey.agent_runner.tool_names import FOREIGN_MCP_NAMESPACES, READ_ONLY_DENIED_BUILTINS
 from osprey.bluesky_tool_names import DESTRUCTIVE_MARKERS
 
 logger = logging.getLogger(__name__)
@@ -285,6 +285,8 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
     * :data:`~osprey.agent_runner.tool_names.READ_ONLY_DENIED_BUILTINS` —
       built-in ``Bash`` (arbitrary shell, incl. hardware writes via ``caput``),
       ``Write``, ``Edit``, etc.
+    * :data:`~osprey.agent_runner.tool_names.FOREIGN_MCP_NAMESPACES` — every
+      Claude Code plugin's and claude.ai connector's MCP tools.
     * :func:`load_write_tools` — the project's hardware-write kill-switch tools
       (facility-custom writes included, fail-closed fallback).
     * :func:`_registry_side_effect_tools` — every framework server's
@@ -305,6 +307,7 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
     result = load_write_tools(project_dir)
     for tool in (
         *READ_ONLY_DENIED_BUILTINS,
+        *FOREIGN_MCP_NAMESPACES,
         *_registry_side_effect_tools(),
         *_custom_server_side_effect_tools(project_dir),
     ):

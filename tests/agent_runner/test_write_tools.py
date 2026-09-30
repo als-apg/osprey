@@ -704,12 +704,13 @@ def test_python_server_registers_only_execute_tools_we_block(tmp_path: Path) -> 
         )
 
 
-def test_read_only_denied_builtins_cover_interactive_deny_defaults() -> None:
-    """Drift guard: every built-in (non-mcp) tool OSPREY denies interactively
-    (DENY_DEFAULTS, rendered into settings.json's permissions.deny) must also be
-    in the headless read-only floor — the headless path must never be more
-    permissive than interactive, since its permission/deny layer is inert under
-    bypassPermissions.
+def test_read_only_denied_builtins_cover_interactive_deny_defaults(tmp_path: Path) -> None:
+    """Drift guard: every entry OSPREY denies interactively (DENY_DEFAULTS,
+    rendered into settings.json's permissions.deny) must also be in the headless
+    read-only floor — the headless path must never be more permissive than
+    interactive, since its permission/deny layer is inert under
+    bypassPermissions. Built-in entries live in READ_ONLY_DENIED_BUILTINS; the
+    ``mcp__`` entries reach the floor through read_only_disallowed_tools.
 
     Reads the constant the renderer itself consumes rather than regex-parsing
     the Jinja source: the template now takes the list from the render context,
@@ -717,8 +718,6 @@ def test_read_only_denied_builtins_cover_interactive_deny_defaults() -> None:
     """
     from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
-    # Built-in tools are the non-mcp__ entries (mcp__ entries are plugin/facility
-    # servers, absent from a built project's query path).
     builtin_denies = [d for d in DENY_DEFAULTS if not d.startswith("mcp__")]
     assert builtin_denies, "expected at least one built-in tool in DENY_DEFAULTS"
     for tool in builtin_denies:
@@ -727,6 +726,32 @@ def test_read_only_denied_builtins_cover_interactive_deny_defaults() -> None:
             f"READ_ONLY_DENIED_BUILTINS — the headless read-only floor would be more "
             f"permissive than the interactive policy"
         )
+
+    mcp_denies = [d for d in DENY_DEFAULTS if d.startswith("mcp__")]
+    assert mcp_denies, "expected at least one mcp__ entry in DENY_DEFAULTS"
+    headless = set(read_only_disallowed_tools(tmp_path))
+    for entry in mcp_denies:
+        assert entry in headless, (
+            f"{entry!r} is denied interactively (DENY_DEFAULTS) but missing from "
+            f"read_only_disallowed_tools — the headless read-only floor would be more "
+            f"permissive than the interactive policy"
+        )
+
+
+def test_every_floor_names_every_foreign_mcp_namespace(tmp_path: Path) -> None:
+    """The plugin and connector namespaces are the second line behind the strict
+    MCP launch, so no floor may drop them: not the interactive deny, not the
+    dispatch denylist, not the headless read-only set."""
+    from osprey.agent_runner.tool_names import (
+        DENY_DEFAULTS,
+        DISPATCH_DENIED_TOOLS,
+        FOREIGN_MCP_NAMESPACES,
+    )
+
+    namespaces = set(FOREIGN_MCP_NAMESPACES)
+    assert namespaces <= set(DENY_DEFAULTS)
+    assert namespaces <= set(DISPATCH_DENIED_TOOLS)
+    assert namespaces <= set(read_only_disallowed_tools(tmp_path))
 
 
 def test_deny_defaults_reaches_the_render_context() -> None:

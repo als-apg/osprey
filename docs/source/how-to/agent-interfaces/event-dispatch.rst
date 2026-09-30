@@ -354,7 +354,7 @@ Authoring Triggers
 
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,
-   the Playwright browser tools, all shell tools (``Bash``, ``TaskOutput``,
+   every plugin's and claude.ai connector's MCP tools, all shell tools (``Bash``, ``TaskOutput``,
    ``TaskStop``, ``Monitor``), the tools that fire or schedule jobs
    (``Workflow``, ``CronCreate``, ``ScheduleWakeup``, and the dispatcher's own
    ``manual_fire``), ``SendMessage`` and ``EnterWorktree``. This sits on top of

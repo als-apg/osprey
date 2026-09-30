@@ -199,6 +199,22 @@ def test_is_denied_matrix(tool, expected):
     assert dispatch_api._is_denied(tool) is expected
 
 
+@pytest.mark.parametrize(
+    ("tool", "expected"),
+    [
+        ("mcp__plugin_anything_srv__x", True),
+        ("mcp__plugin_playwright_playwright__browser_click", True),
+        ("mcp__claude_ai_Gmail__search", True),
+        ("mcp__controls__channel_read", False),
+        ("mcp__pluginx__ping", False),
+    ],
+)
+def test_plugin_and_connector_tools_are_denied(tool, expected):
+    """Every plugin server's and claude.ai connector's tools are refused; a server
+    whose name only resembles the namespace is not."""
+    assert dispatch_api._is_denied(tool) is expected
+
+
 @pytest.mark.parametrize("entry", sorted(DISPATCH_DENIED_TOOLS))
 def test_the_worker_denies_every_entry_of_the_dispatch_floor(entry):
     """The worker reads the shared dispatch floor, not a copy of it."""
