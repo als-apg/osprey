@@ -22,7 +22,11 @@ What is written, relative to ``data/facility/``:
   token; same-named families of several exports are one group whose members
   are the union of theirs.
 * ``imported/mml/models.yaml``: one ``pyat`` model per imported system, named
-  by the mapping.
+  by the mapping. A transport line (``state.is_transport`` of the export's
+  ``<stem>.model.json``, else ``MachineType: Transport`` in its AD) runs
+  ``solve: single_pass`` from the ``twiss_in`` of the first element of its
+  deck that carries ``TwissData``; a transport line without one stops the
+  import (``mapping-undecided``).
 * ``imported/mml/<model>.response.json``: the export's ``<stem>.response.json``
   copied byte for byte.
 
@@ -32,8 +36,8 @@ unchanged import rewrites the same bytes. The layer directory holds what the
 latest import carried: a response export of a model this import does not
 carry is removed.
 
-The export loaders pull numpy and scipy, so each is imported inside the
-function that needs it.
+The export loaders pull numpy and scipy and the deck reader pulls pyAT, so
+each is imported inside the function that needs it.
 """
 
 from __future__ import annotations
@@ -60,6 +64,8 @@ if TYPE_CHECKING:  # the export services stay out of the import graph
 __all__ = [
     "ENGINE",
     "LAYER_DIR",
+    "MODEL_SUFFIX",
+    "TRANSPORT",
     "Exports",
     "import_mml",
     "read_exports",
@@ -72,8 +78,22 @@ LAYER_DIR = "imported/mml"
 #: The engine every imported model runs on: an MML deck is a pyAT lattice.
 ENGINE = "pyat"
 
+#: File-name suffix of the Middle Layer model's own answers beside an export.
+MODEL_SUFFIX = ".model.json"
+
+#: The AD ``MachineType`` of a transport line.
+TRANSPORT = "Transport"
+
 #: File-name suffix of a model's copied response export under the layer.
 _RESPONSE_SUFFIX = ".response.json"
+
+#: The ``twiss_in`` keys pyAT reads, each from its ``TwissData`` spelling.
+_TWISS_KEYS: tuple[tuple[str, str], ...] = (
+    ("beta", "beta"),
+    ("alpha", "alpha"),
+    ("dispersion", "Dispersion"),
+    ("closed_orbit", "ClosedOrbit"),
+)
 
 _SETPOINT = "setpoint"
 
@@ -87,12 +107,16 @@ class Exports:
         ad: Each system's accelerator data.
         va: Each system's sampled model facts (``<stem>.va.json``).
         responses: Each system's response export (``<stem>.response.json``).
+        states: Each system's ``state`` block of ``<stem>.model.json``.
+        decks: Each system's saved deck (``<stem>.lattice.mat``).
     """
 
     ao: dict[str, Any]
     ad: dict[str, Any] = field(default_factory=dict)
     va: dict[str, Any] = field(default_factory=dict)
     responses: dict[str, Path] = field(default_factory=dict)
+    states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    decks: dict[str, Path] = field(default_factory=dict)
 
     @property
     def systems(self) -> list[str]:
@@ -107,7 +131,8 @@ def read_exports(paths: Sequence[Path]) -> Exports:
 
     Each path is an export's AO (``<stem>.ao.json``, any family-keyed JSON, or
     a ``.mat`` export). The siblings of an export carrying exactly one system
-    are found by its stem: ``.va.json`` and ``.response.json``.
+    are found by its stem: ``.va.json``, ``.response.json``, ``.model.json``
+    and ``.lattice.mat``.
 
     Args:
         paths: The exports, in the order their systems are imported.
@@ -122,6 +147,7 @@ def read_exports(paths: Sequence[Path]) -> Exports:
 
     from osprey.services.mml.loaders.json_any import (
         AO_SUFFIX,
+        LATTICE_SUFFIX,
         RESPONSE_SUFFIX,
         VA_SUFFIX,
         load_json,
@@ -157,6 +183,14 @@ def read_exports(paths: Sequence[Path]) -> Exports:
         response = paired_sibling(loaded.source, RESPONSE_SUFFIX)
         if response is not None:
             exports.responses[system] = response
+        model = paired_sibling(loaded.source, MODEL_SUFFIX)
+        if model is not None:
+            state = load_sibling(model).get("state")
+            if isinstance(state, dict):
+                exports.states[system] = state
+        deck = paired_sibling(loaded.source, LATTICE_SUFFIX)
+        if deck is not None:
+            exports.decks[system] = deck
     return exports
 
 
@@ -197,7 +231,7 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
 
     Raises:
         ImportStop: ``mapping-undecided`` for a system or family the mapping
-            does not name.
+            does not name, or a transport line without initial twiss.
     """
     from osprey.services.mml.judgments import judged_family_views
 
@@ -225,7 +259,7 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
                 devices[device_id] = {"id": device_id, **device}
             _channels(view, ids, mapping, roles, channels)
             _group(groups, token, mapping, view.raw_name, ids)
-        models.append({"name": model, "engine": ENGINE})
+        models.append(_model(exports, system, model))
 
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
@@ -351,7 +385,55 @@ def _group(
     group["members"] = sorted({*group["members"], *ids})
 
 
-# -- responses ----------------------------------------------------------------
+# -- models -------------------------------------------------------------------
+
+
+def _is_transport(exports: Exports, system: str) -> bool:
+    """Whether a system is a transport line: its model state says so, else its AD does."""
+    stated = exports.states.get(system, {}).get("is_transport")
+    if stated is not None:
+        return bool(stated)
+    ad = exports.ad.get(system)
+    return isinstance(ad, dict) and _text(ad.get("MachineType")) == TRANSPORT
+
+
+def _model(exports: Exports, system: str, name: str) -> dict[str, Any]:
+    model: dict[str, Any] = {"name": name, "engine": ENGINE}
+    if _is_transport(exports, system):
+        deck = exports.decks.get(system)
+        twiss = _twiss_in(deck) if deck is not None else None
+        if twiss is None:
+            raise ImportStop("mapping-undecided", [f"{name}: transport line without initial twiss"])
+        model["settings"] = {ENGINE: {"solve": "single_pass", "twiss_in": twiss}}
+    return model
+
+
+def _twiss_field(data: Any, name: str) -> Any:
+    if isinstance(data, dict):
+        return data.get(name)
+    names = getattr(getattr(data, "dtype", None), "names", None)
+    if names is not None and name in names:
+        return data[name]
+    return getattr(data, name, None)
+
+
+def _twiss_in(deck: Path) -> dict[str, list[float]] | None:
+    """pyAT's ``twiss_in`` from the first deck element carrying ``TwissData``."""
+    import numpy as np
+
+    from osprey.services.mml.loaders.mat import load_lattice
+
+    for element in load_lattice(deck):
+        data = getattr(element, "TwissData", None)
+        if data is None:
+            continue
+        twiss: dict[str, list[float]] = {}
+        for key, stated in _TWISS_KEYS:
+            value = _twiss_field(data, stated)
+            if value is not None:
+                twiss[key] = [float(item) for item in np.ravel(np.asarray(value, dtype=float))]
+        return twiss
+    return None
 
 
 def _copy_responses(exports: Exports, mapping: Mapping, layer: Path) -> list[Path]:

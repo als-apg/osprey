@@ -203,3 +203,59 @@ def test_an_unnamed_system_stops_the_import(tmp_path: Path) -> None:
     assert stop.value.format_message() == (
         "import mml: mapping-undecided: models.StorageRing: the export carries it"
     )
+
+
+def _ltb_copy(tmp_path: Path, *, model_json: bool = True, deck: bool = True) -> Path:
+    """The nsls2 LTB export copied alone, with or without its model file and deck."""
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    for source in sorted((FIXTURES / "nsls2").glob("nsls2.ltb.*")):
+        if source.name.endswith(".model.json") and not model_json:
+            continue
+        if source.name.endswith(".lattice.mat") and not deck:
+            continue
+        shutil.copyfile(source, exports / source.name)
+    return exports / "nsls2.ltb.ao.json"
+
+
+def test_transport_from_the_model_file_runs_single_pass_from_the_deck_twiss(
+    tmp_path: Path,
+) -> None:
+    facility = _import(tmp_path, "nsls2")
+    models = _by_id(_rows(facility, "models.yaml"), "name")
+    assert models["LTB"] == {
+        "name": "LTB",
+        "engine": "pyat",
+        "settings": {"pyat": {"solve": "single_pass", "twiss_in": _LTB_TWISS}},
+    }
+    assert models["StorageRing"] == {"name": "StorageRing", "engine": "pyat"}
+
+
+def test_transport_from_the_machine_type_without_a_model_file(tmp_path: Path) -> None:
+    export = _ltb_copy(tmp_path, model_json=False)
+    facility = _facility(tmp_path, "nsls2")
+    import_mml([export], facility)
+    (model,) = _rows(facility, "models.yaml")
+    assert model["settings"] == {"pyat": {"solve": "single_pass", "twiss_in": _LTB_TWISS}}
+
+
+def test_the_model_file_decides_over_the_machine_type(tmp_path: Path) -> None:
+    export = _ltb_copy(tmp_path)
+    model_file = export.with_name("nsls2.ltb.model.json")
+    document = json.loads(model_file.read_text(encoding="utf-8"))
+    document["state"]["is_transport"] = 0
+    model_file.write_text(json.dumps(document), encoding="utf-8")
+    facility = _facility(tmp_path, "nsls2")
+    import_mml([export], facility)
+    assert _rows(facility, "models.yaml") == [{"name": "LTB", "engine": "pyat"}]
+
+
+def test_a_transport_line_without_initial_twiss_stops(tmp_path: Path) -> None:
+    export = _ltb_copy(tmp_path, deck=False)
+    facility = _facility(tmp_path, "nsls2")
+    with pytest.raises(ImportStop) as stop:
+        import_mml([export], facility)
+    assert stop.value.format_message() == (
+        "import mml: mapping-undecided: LTB: transport line without initial twiss"
+    )
+    assert not (facility / LAYER_DIR / "models.yaml").exists()
