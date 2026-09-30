@@ -42,8 +42,9 @@ _sleep = time.sleep
 
 # When a port is genuinely unbindable on first check, it may be a predecessor
 # that is still shutting down after a restart. Wait a bounded grace period for
-# it to release the port so we can bind (own) it ourselves rather than trusting
-# a possibly-dying external responder. See issue #327. A socket left in
+# it to release the port so we can bind (own) it ourselves. A dying responder
+# can still answer /health, and counting it as this launcher's server would
+# report a panel as available that nothing will serve. A socket left in
 # TIME_WAIT is *bindable* (the probe mirrors uvicorn's ``SO_REUSEADDR``), so it
 # never reaches this loop and never delays startup.
 _PORT_RELEASE_GRACE_ATTEMPTS = 5
@@ -598,7 +599,7 @@ class ServerLauncher:
         # Brief health-check to verify *our* server came up. Liveness is checked
         # first: if the thread has exited (e.g. the bind failed in a TOCTOU race
         # with another process), a /health 200 would be a foreign responder, not
-        # ours — trusting it would recreate the #327 false positive.
+        # ours — and a foreign responder never counts as this launcher's server.
         for _attempt in range(3):
             _sleep(0.5)
             if not t.is_alive():
