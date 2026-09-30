@@ -2463,7 +2463,8 @@ def _auth_throttle_problems(web_terminals: dict[str, Any]) -> list[str]:
     The one reader of the block, shared by the render refusal and the lint
     rule. A non-mapping ``auth`` is :func:`_auth_tls_context`'s and lint's
     ``invalid_auth_stanza`` concern, and an absent or empty ``throttle`` is the
-    documented default; both give no problem. A key outside
+    documented default and a key written with no value takes its own default;
+    neither gives a problem. A key outside
     :data:`AUTH_THROTTLE_KEYS` is a problem, so a misspelt key is never ignored.
     Values are judged by the throttle's own
     :func:`~osprey.services.auth_sidecar.throttle.throttle_problems`, with the
@@ -2489,23 +2490,36 @@ def _auth_throttle_problems(web_terminals: dict[str, Any]) -> list[str]:
         for key in throttle
         if key not in AUTH_THROTTLE_KEYS
     ]
+    authored = _authored_throttle(throttle)
     parameters: dict[str, Any] = dict(THROTTLE_DEFAULTS)
+    parameters.update(authored)
     key_for = {parameter: key for key, parameter in AUTH_THROTTLE_KEYS.items()}
-    for key, parameter in AUTH_THROTTLE_KEYS.items():
-        if key in throttle:
-            parameters[parameter] = throttle[key]
     for parameter, reason in throttle_problems(**parameters).items():
         key = key_for[parameter]
-        suffix = "" if key in throttle else " (default)"
+        suffix = "" if parameter in authored else " (default)"
         problems.append(f"{_AUTH_THROTTLE_PATH}.{key} {parameters[parameter]!r}{suffix} {reason}")
     return problems
+
+
+def _authored_throttle(throttle: dict[str, Any]) -> dict[str, Any]:
+    """The throttle parameters written with a value, keyed by ``AttemptThrottle`` keyword.
+
+    A key written with no value is unset and takes the sidecar's default, exactly
+    as a blank ``OSPREY_AUTH_THROTTLE_*`` variable does.
+    """
+    return {
+        parameter: throttle[key]
+        for key, parameter in AUTH_THROTTLE_KEYS.items()
+        if throttle.get(key) is not None
+    }
 
 
 def _auth_throttle_context(web_terminals: dict[str, Any]) -> dict[str, int | float]:
     """The authored login-throttle parameters, keyed by ``AttemptThrottle`` keyword.
 
-    Only the keys the deployment wrote: an unset key emits no env line, so the
-    sidecar's own default applies and the default lives in one place.
+    Only the keys the deployment wrote a value for: an absent key and a key with
+    no value both emit no env line, so the sidecar's own default applies and the
+    default lives in one place.
 
     Raises:
         ValueError: If :func:`_auth_throttle_problems` names anything. The
@@ -2520,10 +2534,7 @@ def _auth_throttle_context(web_terminals: dict[str, Any]) -> dict[str, int | flo
             + ". Failed logins are slowed by these settings, so a value the login "
             "throttle cannot be built with is refused rather than replaced."
         )
-    throttle = as_dict(as_dict(web_terminals.get("auth")).get("throttle"))
-    return {
-        parameter: throttle[key] for key, parameter in AUTH_THROTTLE_KEYS.items() if key in throttle
-    }
+    return _authored_throttle(as_dict(as_dict(web_terminals.get("auth")).get("throttle")))
 
 
 def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:

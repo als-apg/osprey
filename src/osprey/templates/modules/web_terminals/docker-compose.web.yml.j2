@@ -248,8 +248,9 @@
       -> OSPREY_AUTH_THROTTLE_{INITIAL_DELAY,MULTIPLIER,MAX_DELAY,FORGET_AFTER}
       (sidecar only). The login throttle parameters the deployment authored
       under `auth.throttle`, keyed by throttle parameter; render has already
-      refused any value the throttle cannot be built with. An unset key emits
-      nothing and the sidecar's own default applies.
+      refused any value the throttle cannot be built with. An unset key — absent,
+      or written with no value — emits nothing and the sidecar's own default
+      applies.
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
       `<facility_prefix>-assistant-auth:local` is referenced instead — the

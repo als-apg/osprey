@@ -848,6 +848,8 @@ The four keys and their defaults:
            max_delay_s: 30
            forget_after_s: 300
 
+A key you leave out, or write with no value, takes its default.
+
 ``osprey build`` enforces these rules: ``initial_delay_s`` greater than zero,
 ``multiplier`` at least 1, ``max_delay_s`` at least ``initial_delay_s``, and
 ``forget_after_s`` not negative. It refuses any other value, and any key
