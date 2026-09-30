@@ -76,6 +76,7 @@ from osprey.deployment.web_terminals.render import (
     _external_origin,
     _port_int,
     _scope_list,
+    _tls_enabled,
     deployment_origin,
 )
 from osprey.docs_links import INSTALL_DOCS_URL
@@ -892,14 +893,15 @@ def _check_port_overlap(
     # sidecar) must not reserve the TLS listener or the sidecar port against
     # ordinary configs.
     #
-    # The TLS listener is read straight off the raw stanza rather than through
-    # `_auth_context`: that context is None for a config whose `auth.method`
-    # names no method, and a port this deployment's nginx will bind belongs in
-    # the collision set whether or not the auth stanza parses. `_port_int`
-    # resolves it the way render does, so an unusable `tls.port` reserves the
-    # default nginx will actually listen on rather than a port nothing binds.
-    tls = as_dict(web_terminals.get("tls"))
-    if bool(tls.get("enabled", False)):
+    # `tls.enabled` is read through render's `_tls_enabled`, the same reader
+    # `_auth_tls_context` uses, rather than through `_auth_context`: that context
+    # is None for a config whose `auth.method` names no method, and a port this
+    # deployment's nginx will bind belongs in the collision set whether or not
+    # the auth stanza parses. `_port_int` resolves it the way render does, so an
+    # unusable `tls.port` reserves the default nginx will actually listen on
+    # rather than a port nothing binds.
+    if _tls_enabled(web_terminals):
+        tls = as_dict(web_terminals.get("tls"))
         entries.append((_port_int(tls.get("port"), TLS_LISTEN_PORT), "web_terminals.tls.port"))
     # The deployment's own base, the same one the port families above were
     # allocated at: a sidecar port resolved at the layout default would land in
