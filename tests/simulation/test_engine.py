@@ -38,6 +38,13 @@ class TestMachineFileLoading:
         with pytest.raises(FileNotFoundError):
             SimulationEngine.from_file(tmp_path / "missing.json")
 
+    def test_invalid_json_names_the_file(self, tmp_path):
+        path = tmp_path / "machine.json"
+        path.write_text("{")
+        with pytest.raises(ValueError, match="is not valid JSON") as info:
+            SimulationEngine.from_file(path)
+        assert str(path) in str(info.value)
+
     def test_nominal_injected_when_absent(self, machine_dict, make_machine_file):
         del machine_dict["scenarios"]
         engine = SimulationEngine.from_file(make_machine_file(machine_dict))

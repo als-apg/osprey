@@ -8,8 +8,9 @@ validation that turns the decoded JSON into that model. All schema errors
 here at load time, so the runtime :class:`~osprey_connectors.simulation.engine.SimulationEngine`
 can assume a well-formed model.
 
-:func:`parse_machine` is the single entry point; the engine calls it once at
-construction and consumes the returned :class:`ParsedMachine`.
+:func:`read_machine_json` decodes the file, and :func:`parse_machine` is the
+single entry point that validates it; the engine calls it once at construction
+and consumes the returned :class:`ParsedMachine`.
 """
 
 import ast
@@ -176,6 +177,20 @@ class ParsedMachine:
     description: str
     channels: dict[str, SimChannel]
     scenarios: dict[str, Scenario]
+
+
+def read_machine_json(machine_path: Path) -> Any:
+    """Decode a bundle's ``machine.json``.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the file is not valid JSON; the message names the file
+            and the decoder's position.
+    """
+    try:
+        return json.loads(machine_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Machine file {machine_path} is not valid JSON: {exc}") from exc
 
 
 def parse_machine(machine: Any, machine_path: Path) -> ParsedMachine:

@@ -596,6 +596,14 @@ class TestComposedEvents:
         with pytest.raises(ValueError, match="Unknown scenario"):
             active_archiver_events(root / "data" / "simulation" / "machine.json", ["nope"])
 
+    def test_a_machine_file_that_is_not_json_is_refused_by_name(self, tmp_path):
+        root = _write_project(tmp_path / "proj", None, password=None)
+        machine = root / "data" / "simulation" / "machine.json"
+        machine.write_text("{")
+
+        with pytest.raises(ValueError, match="Machine file .* is not valid JSON"):
+            active_archiver_events(machine, ["nominal"])
+
 
 # ---------------------------------------------------------------------------
 # The rewrite itself

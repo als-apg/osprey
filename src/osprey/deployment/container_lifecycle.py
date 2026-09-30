@@ -5051,6 +5051,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         load_manifest_file,
     )
     from osprey.simulation.engine import SimulationEngine, resolve_state_dir
+    from osprey.simulation.machine import read_machine_json
     from osprey_connectors.simulation.engine import resolve_simulation_file
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
@@ -5089,7 +5090,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         # the rebased levels to every other reader of the same file.
         resolved = machine_path.expanduser().resolve()
         engine = SimulationEngine(
-            json.loads(resolved.read_text()),
+            read_machine_json(resolved),
             resolved,
             state_dir=Path(state_dir).expanduser().resolve(),
             baselines=baselines,

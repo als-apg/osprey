@@ -23,7 +23,6 @@ legacy single-name ``active_scenario`` file is still read (one-element list)
 for backward compatibility, but writes always target ``active_scenarios``.
 """
 
-import json
 import os
 import time
 from collections.abc import Mapping, Sequence
@@ -45,6 +44,7 @@ from osprey_connectors.simulation.machine import (
     SimChannel,
     TextureSpec,
     parse_machine,
+    read_machine_json,
 )
 from osprey_connectors.simulation.series import (
     apply_events,
@@ -308,9 +308,7 @@ class SimulationEngine:
         cached = cls._cache.get(cache_key)
         if cached is not None and cached[0] == mtime_ns:
             return cached[1]
-        with open(resolved) as f:
-            machine = json.load(f)
-        engine = cls(machine, resolved, state_dir=resolved_state_dir)
+        engine = cls(read_machine_json(resolved), resolved, state_dir=resolved_state_dir)
         cls._cache[cache_key] = (mtime_ns, engine)
         logger.debug(
             f"Simulation engine loaded: {engine.name!r} ({len(engine._channels)} channels)"
