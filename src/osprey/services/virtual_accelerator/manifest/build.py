@@ -1047,15 +1047,8 @@ def _prepare_graph_manifest(roster, paths: ManifestPaths) -> PreparedManifest | 
             source_corpus=roster.source.for_display(),
         )
     except (json.JSONDecodeError, KeyError, OSError, loaders.ManifestFileError) as exc:
-        culprit = _first_unreadable_source(paths)
-        detail = (
-            f"{culprit} is not readable as JSON"
-            if culprit is not None
-            else f"{type(exc).__name__}: {exc}"
-        )
-        raise BuildProfileError(
-            f"virtual-accelerator channel manifest could not be built from the "
-            f"data tree {paths.data_root}: {detail}. Repair the file."
+        raise _unreadable_source_refusal(
+            paths, exc, tree=f"the data tree {paths.data_root}"
         ) from exc
 
     return PreparedManifest(manifest=manifest, limits_source=paths.channel_limits)
@@ -1177,25 +1170,15 @@ def prepare_project_manifest(
     except CorruptChannelSourcesError as exc:
         logger.warning(
             "Virtual-accelerator manifest not generated from %s: %s. Repair the "
-            "file(s), or remove them from the tree: a build deploying a virtual "
-            "accelerator refuses rather than serving a channel set this project "
-            "did not describe.",
+            "file(s): a build deploying a virtual accelerator refuses rather than "
+            "serving a channel set this project did not describe.",
             data_root,
             exc,
         )
         return None
     except (json.JSONDecodeError, KeyError, OSError, loaders.ManifestFileError) as exc:
-        culprit = _first_unreadable_source(paths)
-        detail = (
-            f"{culprit} is not readable as JSON"
-            if culprit is not None
-            else f"{type(exc).__name__}: {exc}"
-        )
-        raise BuildProfileError(
-            f"virtual-accelerator channel manifest could not be built from the "
-            f"data tree {data_root} at tier {tier}: {detail}. Repair the file, "
-            f"or remove it from the tree so the manifest is built from the "
-            f"databases that are left."
+        raise _unreadable_source_refusal(
+            paths, exc, tree=f"the data tree {data_root} at tier {tier}"
         ) from exc
 
     if not manifest["channels"]:
@@ -1334,6 +1317,38 @@ def _first_unreadable_source(paths: ManifestPaths) -> Path | None:
         except (json.JSONDecodeError, OSError):
             return path
     return None
+
+
+def _unreadable_source_refusal(
+    paths: ManifestPaths, exc: Exception, *, tree: str
+) -> BuildProfileError:
+    """Turn a failed read of a per-tree source into the build's refusal.
+
+    Everything that fails here is a source the build cannot go without: the
+    scenario seed or the machine-state list. A staged paradigm database never
+    reaches this point, because one that cannot be read degrades into a
+    recorded corrupt source instead (see :func:`_paradigm_addresses`). So
+    repairing the file is the only remedy, and the refusal names no other:
+    removing the file turns this refusal into a "missing" one, not a manifest.
+
+    Args:
+        paths: The data tree the build read.
+        exc: What the read raised.
+        tree: The tree as the refusal names it.
+
+    Returns:
+        The refusal, for the caller to raise from ``exc``.
+    """
+    culprit = _first_unreadable_source(paths)
+    detail = (
+        f"{culprit} is not readable as JSON"
+        if culprit is not None
+        else f"{type(exc).__name__}: {exc}"
+    )
+    return BuildProfileError(
+        f"virtual-accelerator channel manifest could not be built from {tree}: "
+        f"{detail}. Repair the file: the manifest is not built without it."
+    )
 
 
 def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -> Path:
