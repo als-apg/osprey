@@ -2295,6 +2295,86 @@ def clear_staged_service_site_ca(
                 logger.warning("Could not remove the staged site CA %s", staged)
 
 
+#: A rendered ``image:`` whose value compose substitutes: ``${NAME:-default}``.
+_IMAGE_OVERRIDE_LINE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*):-(?P<default>[^}]*)\}")
+
+
+class ComposeBuildSelection(NamedTuple):
+    """Which buildable compose services a start builds, and which it holds out.
+
+    Attributes:
+        build: Every service carrying a ``build:`` mapping that is not held, in
+            ``-f`` then document order.
+        held: Service -> (variable, image) for each buildable service whose
+            image an environment override names instead.
+    """
+
+    build: tuple[str, ...]
+    held: dict[str, tuple[str, str]]
+
+
+def _compose_build_selection(
+    compose_files: Sequence[str | Path], repo_root: Path | str, env: Mapping[str, str]
+) -> ComposeBuildSelection:
+    """Split the buildable services of the rendered documents into built and held.
+
+    A start builds a service only when the image that service will run is the
+    one its ``build:`` block produces. Compose tags a build with the service's
+    ``image:``, so a service whose ``image`` is ``${NAME:-default}`` and whose
+    ``NAME`` the start environment sets to anything other than ``default`` is
+    held: building it would write OSPREY's recipe under the override's name.
+
+    The override is compared with the RENDERED default, never with image names
+    re-resolved from config: the image axes are read from the environment at
+    render time, so a start in another shell would re-resolve a different
+    default. The rendered default and ``env`` — the environment the start hands
+    compose — are the two values compose itself combines.
+
+    An empty value is unset (that is what ``:-`` means to compose), a literal
+    image or a ``${NAME:?...}`` line is never held, and a service without
+    ``build:`` is in neither field. Unreadable or malformed documents are
+    skipped.
+
+    Args:
+        compose_files: The rendered compose documents handed to compose, each
+            repo-relative or absolute.
+        repo_root: The pinned compose project directory relative entries
+            resolve against.
+        env: The environment the start hands compose.
+
+    Returns:
+        The services to build and the services held out, with their override.
+    """
+    root = Path(repo_root)
+    build: list[str] = []
+    held: dict[str, tuple[str, str]] = {}
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        path = path if path.is_absolute() else root / path
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(document, Mapping):
+            continue
+        services = document.get("services")
+        if not isinstance(services, Mapping):
+            continue
+        for name, service in services.items():
+            if not isinstance(service, Mapping) or not isinstance(service.get("build"), Mapping):
+                continue
+            image = service.get("image")
+            match = _IMAGE_OVERRIDE_LINE.fullmatch(image) if isinstance(image, str) else None
+            if match is not None:
+                override = env.get(match["name"], "")
+                if override and override != match["default"]:
+                    held[str(name)] = (match["name"], override)
+                    continue
+            if str(name) not in build:
+                build.append(str(name))
+    return ComposeBuildSelection(build=tuple(build), held=held)
+
+
 #: Env-var spellings for "on" and "off", matching the other framework switches.
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSY = {"0", "false", "no", "off"}
@@ -6292,7 +6372,10 @@ def _start_stack(
     site CA staged into each service build context is cleared before the
     hand-off rather than after the build, which is where the detached shape
     clears it. A detached start returns, and leaves the builds to compose's
-    implicit build-on-up.
+    implicit build-on-up — unless an ``OSPREY_<SERVICE>_IMAGE`` override holds
+    a buildable service out of the build (:func:`_compose_build_selection`):
+    then it builds the others in a step of its own too, and every start ups
+    with ``--no-build``.
 
     Args:
         config: Loaded deploy config.
@@ -6678,14 +6761,19 @@ def _start_stack(
     _report_step("cleared stopped containers")
 
     prebuilt = _resolve_prebuilt_images(config)
+    selection = _compose_build_selection(compose_files, repo_root, env)
     # Whether the image builds run as a step of this process rather than being
     # left to compose's implicit build-on-up. A host that declares its images
     # prebuilt builds nothing at all. Otherwise `--dev` builds because compose
     # reuses the cached tag for a wheel that has just been re-baked, and an
     # attached start builds because the `up` below replaces this process:
     # anything that has to happen once the images are built would have no
-    # process left to happen in.
-    builds_here = not prebuilt and (dev_mode or not detached)
+    # process left to happen in. A held service makes even a detached start
+    # build in its own step: compose's implicit build-on-up is the one build
+    # that cannot be told to leave a service out, and an overridden image
+    # missing from the host would otherwise be built from OSPREY's recipe under
+    # the override's name.
+    builds_here = not prebuilt and (dev_mode or not detached or bool(selection.held))
     if dev_mode and prebuilt:
         # Nothing to build: the tags are expected to be on the host already, and
         # the `up --no-build` below runs against them. A tag that is in fact
@@ -6702,21 +6790,28 @@ def _start_stack(
         # checkout into a fresh wheel on every run, and compose reuses the cached
         # image tag (e.g. <project>-dispatch:local) unless it is rebuilt. An
         # attached start builds because it is the last moment it can: the `up`
-        # below hands the terminal to compose and never returns.
-        build_cmd = base_cmd + ["build"]
-        logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
-        # Watched for the duration of the build and no longer: the live view
-        # (and its heartbeats) must go quiet the moment compose returns, before
-        # the closing step line below.
-        with (report := compose_build_step_reporter()):
-            run_captured(
-                build_cmd,
-                env=run_env,
-                spool_name="compose-build",
-                repo_root=repo_root,
-                on_line=report,
-            )
-        _report_step("service images built")
+        # below hands the terminal to compose and never returns. A service an
+        # override holds is named out of the build rather than built under the
+        # override's name.
+        for service, (variable, image) in selection.held.items():
+            _report_fact(f"{service} runs {image} ({variable}); not built")
+        if not selection.held or selection.build:
+            build_cmd = base_cmd + ["build"]
+            if selection.held:
+                build_cmd += list(selection.build)
+            logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
+            # Watched for the duration of the build and no longer: the live view
+            # (and its heartbeats) must go quiet the moment compose returns,
+            # before the closing step line below.
+            with (report := compose_build_step_reporter()):
+                run_captured(
+                    build_cmd,
+                    env=run_env,
+                    spool_name="compose-build",
+                    repo_root=repo_root,
+                    on_line=report,
+                )
+            _report_step("service images built")
         # The images have read the bundle; a context keeps no copy of it
         # between deploys.
         clear_staged_service_site_ca(compose_files, repo_root)
@@ -6730,8 +6825,9 @@ def _start_stack(
     cmd = base_cmd + ["up", "--remove-orphans"]
     if builds_here or prebuilt:
         # Compose's implicit build-on-up is suppressed wherever the images are
-        # already resolved — this process built them in the step above, or the host
-        # says they arrived prebuilt. On a prebuilt host that is the whole of what
+        # already resolved — this process built them in the step above (which
+        # includes a detached start with a service an override holds), or the
+        # host says they arrived prebuilt. On a prebuilt host that is the whole of what
         # the switch has to suppress: without it a pull-only mirror deploy would
         # answer a missing tag by building a locally-tagged impostor from the
         # template's `build:` block instead of failing on the image that never
