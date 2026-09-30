@@ -59,7 +59,8 @@ The server has eight tools, one per bridge operation:
        display.
 
 The seven tools other than ``phoebus_drive`` read displays or open them and
-run without a prompt. ``phoebus_drive`` is always asked.
+run without a prompt. ``phoebus_drive`` is offered only under
+``phoebus.agent_access: read_write``, and then it is always asked.
 
 Before you start
 ================
@@ -172,15 +173,23 @@ bridge URL in its ``env:``. ``phoebus2`` is only an example name:
      claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
 
 The clone reads the same ``phoebus.*`` keys as the first instance, so only the
-URL tells the two apart. Its ``phoebus_drive`` is asked like the original's.
+URL tells the two apart. Its ``phoebus_drive`` is offered and asked like the original's.
 
 What guards a drive
 ===================
 
-Every ``phoebus_drive`` passes the writes kill switch and then the approval
-prompt, and it is refused while the control target is switched away from the
-deployment's baseline (:doc:`switch-control-target`). A drive does not pass
-through a connector: the bridge performs it inside the Phoebus process,
+The agent is offered ``phoebus_drive`` only where the build profile sets
+``phoebus.agent_access: read_write``. Under the default, ``read``, the tool is
+left out of the agent's tool list and permissions, and the server refuses a
+call to it by the key's name. Under ``read_write`` every drive passes the
+writes kill switch (``control_system.writes_enabled``) and then the approval
+prompt, is refused while the control target is switched away from the
+deployment's baseline (:doc:`switch-control-target`), and is audited as a tool
+call. The key is all or nothing, because a panel runs whatever its widgets are
+wired to, so finer control --- per panel, widget, channel or mode --- belongs to
+the EPICS gateway or access security the Phoebus product connects through.
+
+A drive does not pass through a connector: the bridge performs it inside the Phoebus process,
 through that product's own PV connections. Synthetic mode, the default, runs
 the display's confirm dialogs and enable rules; semantic mode bypasses them. So
 OSPREY's channel-limits check does not apply to a drive, in either mode. Keep
