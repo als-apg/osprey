@@ -72,11 +72,10 @@ def _check_reviewer_provider(project_dir: Path) -> None:
     """Confirm the audited project names a provider the reviewer can run on.
 
     The reviewer runs on the audited project's own provider: its endpoint,
-    auth and model ids come from the project's ``config.yml``. Hand-building
-    the run left the agent to fall through to ambient ``ANTHROPIC_*``
-    variables, so an audit of a gateway-fronted deployment ran against
-    whatever endpoint the operator's shell happened to hold — or nothing at
-    all.
+    auth and model ids come from the project's ``config.yml``, never from
+    ambient ``ANTHROPIC_*`` variables, so an audit of a gateway-fronted
+    deployment runs against that gateway and not whatever endpoint the
+    operator's shell happens to hold.
 
     This resolves the project's provider env and starts nothing. The runner
     resolves the provider again when it builds the agent options
