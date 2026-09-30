@@ -51,6 +51,10 @@ class TriggerConfig:
         surface_prompt: Optional free-text fragment appended to the agent's
             system prompt at run time. ``None`` when ``action.surface_prompt``
             is absent.
+        surface_tools: Optional keep-list of tool names narrowing
+            ``action.allowed_tools`` at run time. ``None`` when
+            ``action.surface_tools`` is absent or blank; an empty list narrows
+            nothing.
         max_turns: Optional per-trigger ceiling on agentic turns. ``None`` when
             ``action.max_turns`` is absent, in which case the worker applies
             the deployment's own ``dispatch.max_turns``.
@@ -65,6 +69,7 @@ class TriggerConfig:
     source_config: dict[str, Any] = field(default_factory=dict)
     surface: str | None = None
     surface_prompt: str | None = None
+    surface_tools: list[str] | None = None
     max_turns: int | None = None
     schedule: ClockSchedule | None = None
 
@@ -101,6 +106,17 @@ def _parse_trigger(raw: Any, index: int) -> TriggerConfig:
     surface_prompt = action.get("surface_prompt")
     if surface_prompt is not None and not isinstance(surface_prompt, str):
         raise ValueError(f"Trigger '{name}' field 'action.surface_prompt' must be a string")
+
+    surface_tools_raw = action.get("surface_tools")
+    surface_tools: list[str] | None = None
+    if surface_tools_raw is not None:
+        if not isinstance(surface_tools_raw, list) or not all(
+            isinstance(tool, str) for tool in surface_tools_raw
+        ):
+            raise ValueError(
+                f"Trigger '{name}' field 'action.surface_tools' must be a list of strings"
+            )
+        surface_tools = list(surface_tools_raw)
 
     # The worker refuses an unusable ceiling with a 422 at dispatch time, which
     # is the moment an event fires — long after this file was authored — so the
@@ -165,6 +181,7 @@ def _parse_trigger(raw: Any, index: int) -> TriggerConfig:
         source_config=source_config,
         surface=surface,
         surface_prompt=surface_prompt,
+        surface_tools=surface_tools,
         max_turns=max_turns,
         schedule=schedule,
     )

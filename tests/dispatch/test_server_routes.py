@@ -557,6 +557,7 @@ async def test_dispatch_with_policy_forwards_surface_tools(monkeypatch):
             "allowed_tools": ["read_pv"],
             "surface_tools": ["read_pv", "mcp__osprey_workspace__list_files"],
         },
+        surface_tools=["read_pv", "mcp__osprey_workspace__list_files"],
     )
     await reg.register(trig)
     await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")

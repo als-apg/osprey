@@ -704,3 +704,52 @@ def test_a_blank_source_config_is_empty(tmp_path):
     _, triggers = load_triggers(path)
 
     assert [t.source_config for t in triggers] == [{}, {}]
+
+
+def _surface_tools_yaml(line: str) -> str:
+    return (
+        "triggers:\n"
+        "  - name: deploy-bot\n"
+        "    source: webhook\n"
+        "    action:\n"
+        "      prompt: handle it\n"
+        "      allowed_tools: [read_pv]\n"
+        f"{line}"
+    )
+
+
+def test_surface_tools_is_parsed_when_present(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        _surface_tools_yaml("      surface_tools: [read_pv, mcp__osprey_workspace__list_files]\n"),
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface_tools == ["read_pv", "mcp__osprey_workspace__list_files"]
+
+
+@pytest.mark.parametrize("line", ["", "      surface_tools:\n"], ids=["absent", "blank"])
+def test_surface_tools_is_none_when_absent_or_blank(tmp_path, line):
+    path = write_yaml(tmp_path, _surface_tools_yaml(line))
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface_tools is None
+
+
+def test_an_empty_surface_tools_loads_and_narrows_nothing(tmp_path):
+    path = write_yaml(tmp_path, _surface_tools_yaml("      surface_tools: []\n"))
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface_tools == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["get_pv", "5", "{a: 1}", "[get_pv, 1]"],
+    ids=["string", "number", "mapping", "list-with-non-string"],
+)
+def test_a_surface_tools_that_is_not_a_list_of_strings_is_refused(tmp_path, value):
+    path = write_yaml(tmp_path, _surface_tools_yaml(f"      surface_tools: {value}\n"))
+
+    with pytest.raises(ValueError, match="'deploy-bot' field 'action.surface_tools'"):
+        load_triggers(path)

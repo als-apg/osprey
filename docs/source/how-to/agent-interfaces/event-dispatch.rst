@@ -349,7 +349,8 @@ Authoring Triggers
    a string. ``action.surface_tools`` is a list of tool names that narrows
    ``allowed_tools`` to the ones it also names. It can only remove a tool, never
    add one, and the worker's denylist applies either way. Left out or empty, the
-   run gets ``allowed_tools`` as written.
+   run gets ``allowed_tools`` as written. The dispatcher refuses the triggers
+   file at load if it is not a list of tool names.
 
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,
