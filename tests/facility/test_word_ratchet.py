@@ -35,7 +35,12 @@ SCAN_PATHS: tuple[str, ...] = (
     "scripts/facility_demo",
 )
 
+#: The MATLAB Middle Layer exporter the mml layer ships: MATLAB source written
+#: in the Middle Layer's own words (``THERING``, "the ring"), an outside format.
+OUTSIDE_FORMAT_FILES: tuple[str, ...] = ("src/osprey/facility/layers/mml/mml_export.m",)
+
 EXCLUDED: tuple[str, ...] = (
+    *OUTSIDE_FORMAT_FILES,
     "**/templates/apps/*/data/**",
     "**/data/facility/**",
     "**/static/**/vendor/**",
@@ -253,6 +258,22 @@ def test_no_entry_lies_under_a_clean_path() -> None:
 
 
 # --- the scan ---------------------------------------------------------------------
+
+
+def test_the_exporter_is_the_only_excluded_file_under_the_facility_package() -> None:
+    def listed(*excludes: str) -> set[str]:
+        """The tracked non-empty files under the package the scan's pathspec keeps."""
+        pathspec = ["src/osprey/facility", *(f":(exclude,glob){glob}" for glob in excludes)]
+        result = subprocess.run(
+            ["git", "grep", "-l", "-z", "-a", "-e", "", "--", *pathspec],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return set(filter(None, result.stdout.split("\0")))
+
+    assert listed() - listed(*EXCLUDED) == set(OUTSIDE_FORMAT_FILES)
 
 
 def test_scan_covers_the_facility_scripts() -> None:

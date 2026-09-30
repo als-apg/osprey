@@ -39,7 +39,7 @@ from osprey.services.mml.systems import resolve_system
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MML_DIR = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data" / "mml"
-EXPORTER = MML_DIR / "mml_export.m"
+EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
 README = MML_DIR / "README.md"
 PAIRED_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mml" / "paired" / "quokka.ring.ao.json"
 
