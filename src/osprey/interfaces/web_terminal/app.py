@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
-import math
 import os
 import shlex
 from collections import deque
@@ -81,6 +80,7 @@ from osprey.profiles.web_panels import (
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 from osprey.utils.config import get_facility_timezone
+from osprey.utils.seconds import positive_seconds
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -166,14 +166,9 @@ def resolve_sidecar_ready_timeout(value: object) -> float:
     """
     if value is None:
         return DEFAULT_SIDECAR_READY_TIMEOUT_S
-    if not isinstance(value, bool):
-        try:
-            seconds = float(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError, OverflowError):
-            pass
-        else:
-            if math.isfinite(seconds) and seconds > 0:
-                return seconds
+    seconds = positive_seconds(value)
+    if seconds is not None:
+        return seconds
     logger.warning(
         "%s is %r, not a positive number of seconds; using %s s",
         SIDECAR_READY_TIMEOUT_KEY,

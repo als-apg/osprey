@@ -1266,7 +1266,18 @@ class TestSidecarReadyTimeout:
         assert self._warnings_naming_the_key(caplog) == []
 
     @pytest.mark.parametrize(
-        "value", [0, -5, True, "soon", float("nan"), float("inf"), [60]], ids=repr
+        "value",
+        [
+            0,
+            -5,
+            True,
+            "soon",
+            float("nan"),
+            float("inf"),
+            [60],
+            pytest.param(10**400, id="10**400"),
+        ],
+        ids=repr,
     )
     def test_an_unusable_value_is_refused_by_name(
         self, workspace_dir, ready_sidecar, caplog, value

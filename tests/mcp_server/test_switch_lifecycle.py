@@ -1709,7 +1709,10 @@ class TestConfigDerivedFacts:
             == 0.5
         )
 
-    @pytest.mark.parametrize("value", ["soon", 0, -1, True, float("nan"), float("inf")])
+    @pytest.mark.parametrize(
+        "value",
+        ["soon", 0, -1, True, float("nan"), float("inf"), pytest.param(10**400, id="10**400")],
+    )
     async def test_a_probe_timeout_that_is_not_a_positive_number_falls_back(
         self, make_manager, caplog, value
     ):
