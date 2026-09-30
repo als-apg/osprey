@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import textwrap
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -28,9 +29,16 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.runtime")
 
-#: How long each detection probe (``<runtime> compose version``, ``<runtime> ps``)
-#: may take before the runtime is treated as not answering.
-_DETECTION_PROBE_TIMEOUT = 5
+#: How long a runtime probe may go unanswered before OSPREY says it is still
+#: waiting. A runtime normally answers in well under a second; past this the
+#: operator is told what the verb is waiting on instead of watching a silent step.
+_RUNTIME_ANSWER_NOTICE_S = 5
+
+#: The hang guard. A runtime that answers at all (a Docker Desktop VM resuming, a
+#: host under heavy load) answers inside it; it exists only so a wedged runtime
+#: cannot hold a verb forever, and reaching it is reported as "did not answer",
+#: never as a verdict on whether the runtime runs.
+_RUNTIME_ANSWER_CEILING_S = 120
 
 #: Memoized detections, keyed on the runtimes a call would probe — which folds in
 #: both ``CONTAINER_RUNTIME`` and the config's ``container_runtime``. Keying on
@@ -63,29 +71,133 @@ def _runtimes_to_try(config: Mapping[str, Any] | None) -> tuple[str, ...]:
     return ("docker", "podman")
 
 
-def _probe_runtime(runtime: str) -> str | None:
+def _await_runtime_answer(
+    argv: Sequence[str], *, text: bool = False
+) -> subprocess.CompletedProcess[Any]:
+    """Run a runtime probe and wait for its answer, announcing a long wait.
+
+    Runs ``argv`` with ``capture_output=True``, ``text=text`` and
+    ``timeout=_RUNTIME_ANSWER_CEILING_S``. If no answer has come after
+    ``_RUNTIME_ANSWER_NOTICE_S``, a warning says what the call is still waiting
+    on. The notice timer is cancelled and joined before this returns, so no
+    notice prints after the answer and no timer thread outlives the call.
+
+    Args:
+        argv: The runtime command to run, e.g. ``["docker", "ps"]``.
+        text: Decode the captured streams as text.
+
+    Returns:
+        The completed process, whatever its exit code.
+
+    Raises:
+        subprocess.TimeoutExpired: The runtime did not answer within the hang
+            guard; ``subprocess.run`` has killed the child.
+        OSError: The command could not be started.
+    """
+    shown = " ".join(str(part) for part in argv)
+    notice = threading.Timer(
+        _RUNTIME_ANSWER_NOTICE_S,
+        logger.warning,
+        args=(
+            "Still waiting for `%s` to answer (gives up after %ss).",
+            shown,
+            _RUNTIME_ANSWER_CEILING_S,
+        ),
+    )
+    notice.name = "runtime-answer-notice"
+    notice.daemon = True
+    notice.start()
+    try:
+        return subprocess.run(
+            list(argv), capture_output=True, text=text, timeout=_RUNTIME_ANSWER_CEILING_S
+        )
+    finally:
+        notice.cancel()
+        notice.join()
+
+
+class _ProbeOutcome(StrEnum):
+    """How a runtime probe failed."""
+
+    EXITED = "exited"  #: The runtime answered with a non-zero exit.
+    NO_ANSWER = "no-answer"  #: The hang guard was reached.
+    NOT_EXECUTABLE = "not-executable"  #: The binary could not be started.
+
+
+@dataclass(frozen=True)
+class _ProbeFailure:
+    """Why a runtime cannot serve a compose invocation.
+
+    Attributes:
+        outcome: How the probe failed.
+        reason: One clause naming the probe and what it did, worded for the
+            fall-through warning and the refusal.
+    """
+
+    outcome: _ProbeOutcome
+    reason: str
+
+
+def _probe_runtime(runtime: str) -> _ProbeFailure | None:
     """Why ``runtime`` cannot serve a compose invocation, or ``None`` when it can.
 
     Two probes: ``<runtime> compose version`` (a compose implementation is
     reachable through it) and ``<runtime> ps`` (its daemon answers — a docker
     CLI with no daemon behind it passes the first and fails the second). The
-    reason is worded for the warning that names a skipped runtime, so it says
-    which probe failed and how.
+    verdict is the runtime's own answer; the only clock is the hang guard, and
+    reaching it is reported as no answer, never as a stopped runtime.
     """
     try:
-        version = subprocess.run(
-            [runtime, "compose", "version"], capture_output=True, timeout=_DETECTION_PROBE_TIMEOUT
-        )
+        version = _await_runtime_answer([runtime, "compose", "version"])
         if version.returncode != 0:
-            return f"`{runtime} compose version` exited {version.returncode}"
-        ps = subprocess.run([runtime, "ps"], capture_output=True, timeout=_DETECTION_PROBE_TIMEOUT)
+            return _ProbeFailure(
+                _ProbeOutcome.EXITED,
+                f"`{runtime} compose version` exited {version.returncode}",
+            )
+        ps = _await_runtime_answer([runtime, "ps"])
         if ps.returncode != 0:
-            return f"`{runtime} ps` exited {ps.returncode}"
+            return _ProbeFailure(_ProbeOutcome.EXITED, f"`{runtime} ps` exited {ps.returncode}")
         return None
     except subprocess.TimeoutExpired as e:
-        return f"`{' '.join(str(part) for part in e.cmd)}` timed out after {e.timeout:g}s"
+        return _ProbeFailure(
+            _ProbeOutcome.NO_ANSWER,
+            f"`{' '.join(str(part) for part in e.cmd)}` did not answer within {e.timeout:g}s",
+        )
     except FileNotFoundError:
-        return f"`{runtime}` is on PATH but could not be executed"
+        return _ProbeFailure(
+            _ProbeOutcome.NOT_EXECUTABLE, f"`{runtime}` is on PATH but could not be executed"
+        )
+
+
+def _no_usable_runtime_message(skipped: Sequence[tuple[str, _ProbeFailure]]) -> str:
+    """The refusal for installed runtimes that were probed and could not serve.
+
+    Names only the runtimes that were probed, in probe order, each with what
+    its probe did. The "not running" help attaches only to a runtime that
+    answered with a non-zero exit.
+    """
+    outcomes = {failure.outcome for _, failure in skipped}
+    if outcomes == {_ProbeOutcome.EXITED}:
+        header = "Container runtime installed but not running:"
+    elif outcomes == {_ProbeOutcome.NO_ANSWER}:
+        header = "Container runtime installed but did not answer:"
+    else:
+        header = "No installed container runtime is usable:"
+
+    blocks = [header]
+    for runtime, failure in skipped:
+        if failure.outcome is _ProbeOutcome.EXITED:
+            help_text = (
+                _get_docker_not_running_message()
+                if runtime == "docker"
+                else _get_podman_not_running_message()
+            )
+            blocks.append(f"{failure.reason}.\n\n{help_text}")
+        else:
+            blocks.append(
+                f"{failure.reason}. Run `{runtime} ps` to see whether it answers, then retry."
+            )
+    return "\n\n".join(blocks)
 
 
 def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
@@ -117,19 +229,19 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
     # podman on one slow `docker ps` is a decision the operator has to be able
     # to see — a lifecycle verb served by the other runtime cannot see the
     # containers it was asked about, and reports a running stack as stopped.
-    skipped: list[tuple[str, str]] = []
+    skipped: list[tuple[str, _ProbeFailure]] = []
     for runtime in candidates:
         if not shutil.which(runtime):
             continue
 
-        why = _probe_runtime(runtime)
-        if why is not None:
-            skipped.append((runtime, why))
+        failure = _probe_runtime(runtime)
+        if failure is not None:
+            skipped.append((runtime, failure))
             continue
 
         cmd = [runtime, "compose"]
         _runtime_cmd_cache[candidates] = cmd
-        for other, reason in skipped:
+        for other, failure in skipped:
             logger.warning(
                 "container_runtime: auto chose %s after skipping %s — %s is installed but %s. "
                 "Containers running under %s are not visible from %s; if this deployment's "
@@ -137,7 +249,7 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
                 runtime,
                 other,
                 other,
-                reason,
+                failure.reason,
                 other,
                 runtime,
                 other,
@@ -145,7 +257,12 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
             )
         return cmd.copy()
 
-    # No runtime found - check if any are installed but not running
+    # A runtime was probed and could not serve: say what each probe did, and
+    # name no runtime this call did not probe.
+    if skipped:
+        raise RuntimeError(_no_usable_runtime_message(skipped))
+
+    # Nothing was probed - check if any are installed but not running
     docker_installed = shutil.which("docker") is not None
     podman_installed = shutil.which("podman") is not None
 
@@ -210,10 +327,6 @@ class ComposeProvider(StrEnum):
 #: because it is what EPEL 8 ships stock (EPEL 9 ships 1.5.0), so facilities on
 #: distribution packages are covered without building anything from source.
 PODMAN_COMPOSE_MIN_VERSION: tuple[int, ...] = (1, 0, 6)
-
-#: Timeout for the banner probe. Generous compared to the runtime detection
-#: probes because ``podman compose version`` starts a Python provider process.
-_PROVIDER_PROBE_TIMEOUT = 15
 
 #: ``podman-compose version 1.0.6``, however it is embedded in the surrounding
 #: dispatcher chatter. Requires the literal hyphenated name, so the docker
@@ -300,7 +413,8 @@ def detect_compose_provider(
 
     Anything else fails closed rather than guessing: an unrecognized banner, a
     podman-compose older than :data:`PODMAN_COMPOSE_MIN_VERSION`, a Compose v1,
-    or a probe that could not be run at all. Guessing would mean emitting an
+    or a probe that could not be run at all or did not answer within the hang
+    guard. Guessing would mean emitting an
     argv the provider silently mis-parses, which surfaces much later as a
     deploy that came up against the wrong files.
 
@@ -329,16 +443,11 @@ def detect_compose_provider(
         return cached
 
     try:
-        result = subprocess.run(
-            [*base, "version"],
-            capture_output=True,
-            text=True,
-            timeout=_PROVIDER_PROBE_TIMEOUT,
-        )
+        result = _await_runtime_answer([*base, "version"], text=True)
     except subprocess.TimeoutExpired as exc:
         raise UnsupportedComposeProviderError(
             _unsupported_provider_message(
-                base, f"the version probe timed out after {_PROVIDER_PROBE_TIMEOUT}s", ""
+                base, f"`{' '.join(base)} version` did not answer within {exc.timeout:g}s", ""
             )
         ) from exc
     except OSError as exc:
@@ -642,13 +751,15 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
         Tuple of (is_running: bool, error_message: str)
         If running: (True, "")
         If not running: (False, helpful error message)
+        If ``<runtime> ps`` does not answer within the hang guard: (False, a
+        message saying it did not answer, never that the runtime is not running)
     """
     try:
         cmd = get_runtime_command(config)
         runtime = cmd[0]  # 'docker' or 'podman'
 
         # Try a simple ps command to verify daemon is accessible
-        result = subprocess.run([runtime, "ps"], capture_output=True, text=True, timeout=5)
+        result = _await_runtime_answer([runtime, "ps"], text=True)
 
         if result.returncode == 0:
             return True, ""
@@ -663,16 +774,13 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
             return False, _get_podman_not_running_message()
 
         # Generic error
-        return False, f"{runtime.capitalize()} is installed but not responding:\n{result.stderr}"
+        return False, f"`{runtime} ps` exited {result.returncode}:\n{result.stderr}"
 
-    except subprocess.TimeoutExpired:
-        runtime = "container runtime"
-        try:
-            cmd = get_runtime_command(config)
-            runtime = cmd[0]
-        except Exception:
-            pass  # Best-effort runtime name detection for error message
-        return False, f"{runtime.capitalize()} command timed out. The service may not be running."
+    except subprocess.TimeoutExpired as exc:
+        return False, (
+            f"`{runtime} ps` did not answer within {exc.timeout:g}s. "
+            f"Run `{runtime} ps` to see whether it answers, then retry."
+        )
     except RuntimeError as e:
         # No runtime found at all
         return False, str(e)
