@@ -51,7 +51,7 @@ def _emit_json_document(payload: object) -> None:
 def _load_ariel_config() -> dict:
     """Load ARIEL config dict, raising SystemExit if missing."""
     config_dict = get_config_value("ariel", {})
-    if not config_dict:
+    if not isinstance(config_dict, dict) or not config_dict:
         output.fail(
             "ARIEL is not configured in config.yml",
             None,
