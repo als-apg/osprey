@@ -987,6 +987,8 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         ("facility.json", "`data/facility/`"),
         ("data/facility/records/devices.yaml", "`data/facility/`"),
         ("data/facility/decks/SR.json", "`data/facility/`"),
+        ("data/simulator/served_models.json", "`data/facility/`"),
+        ("data/simulator/decks/SR.json", "`data/facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
@@ -1006,6 +1008,7 @@ def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str
         "docs/runbook.md",
         "data/facility.json",
         "data/simulation/channel_manifest.json.bak",
+        "data/simulator_notes.md",
         "notebooks/analysis.ipynb",
     ],
 )
