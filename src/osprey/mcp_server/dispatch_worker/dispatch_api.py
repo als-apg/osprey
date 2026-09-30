@@ -671,7 +671,27 @@ def _attributed(record: dict[str, Any], owner: str | None) -> dict[str, Any]:
     return record
 
 
+def _record_terminal(
+    run_id: str, accepted: Mapping[str, Any], outcome: dict[str, Any], owner: str | None
+) -> dict[str, Any]:
+    """Store and persist a run's terminal record, and return it.
+
+    A terminal record is the run's accepted record with the outcome laid over
+    it, so the fields stamped when the run was accepted (``created_at``,
+    ``prompt``, ``owner``) survive every outcome; the outcome's keys win. This
+    is the one place ``_run_dispatch_task`` stores and persists a terminal
+    record.
+    """
+    record = _attributed({**accepted, **outcome}, owner)
+    _runs[run_id] = record
+    _persist_run(run_id, record)
+    return record
+
+
 async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
+    # The record dispatch() wrote, taken before the first await so every terminal
+    # record is built on it even if the sweep or the store cap replaces the entry.
+    accepted = dict(_runs.get(run_id) or {})
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     _queues[run_id] = queue
 
@@ -706,7 +726,6 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             timeout=DISPATCH_TIMEOUT_SEC,
         )
         result["completed_at"] = time.time()
-        result["prompt"] = request.prompt
         # Descriptors of the artifacts this run produced (created-by tag), for
         # consumers that republish them (see the /artifacts routes). Render-free:
         # computed once at completion from the store tag and persisted with the
@@ -715,9 +734,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # Caller-supplied inputs ingested for this run, kept separate from the
         # agent's produced ``artifacts`` (both read the same created-by store tag).
         result["input_artifacts"] = describe_run_input_artifacts(run_id)
-        _attributed(result, request.owner)
-        _runs[run_id] = result
-        _persist_run(run_id, result)
+        result = _record_terminal(run_id, accepted, result, request.owner)
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
     except TimeoutError:
         logger.error("Dispatch %s timed out after %ds", run_id, DISPATCH_TIMEOUT_SEC)
@@ -727,9 +744,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             failure_class.FAILURE_INFRASTRUCTURE,
             extra={"duration_sec": DISPATCH_TIMEOUT_SEC},
         )
-        _attributed(err_result, request.owner)
-        _runs[run_id] = err_result
-        _persist_run(run_id, err_result)
+        _record_terminal(run_id, accepted, err_result, request.owner)
         await queue.put({"type": "error", "message": f"Timed out after {DISPATCH_TIMEOUT_SEC}s"})
     except asyncio.CancelledError:
         existing = _runs.get(run_id)
@@ -757,9 +772,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             failure_class.FAILURE_RUN,
             extra={"cancelled": True},
         )
-        _attributed(err_result, request.owner)
-        _runs[run_id] = err_result
-        _persist_run(run_id, err_result)
+        _record_terminal(run_id, accepted, err_result, request.owner)
         try:
             await queue.put({"type": "error", "message": "cancelled by user"})
         except Exception:
@@ -775,9 +788,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # structurally an infrastructure fault (hence the literal class rather
         # than routing through classify_exception).
         err_result = _build_stamped_error(run_id, str(exc), failure_class.FAILURE_INFRASTRUCTURE)
-        _attributed(err_result, request.owner)
-        _runs[run_id] = err_result
-        _persist_run(run_id, err_result)
+        _record_terminal(run_id, accepted, err_result, request.owner)
         await queue.put({"type": "error", "message": str(exc)})
     finally:
         _tasks.pop(run_id, None)
