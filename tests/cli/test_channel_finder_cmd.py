@@ -473,8 +473,8 @@ class TestBuildDatabaseOutputAnchoring:
         assert (profile_dir / "als-data" / "processed" / "channel_database.json").exists()
         assert not (profile_dir / "other-data" / "processed").exists()
 
-    def test_a_persona_delta_may_override_the_roots_data_tree(self, runner, tmp_path):
-        """The delta wins the merge, so a ``data:`` it names is the one that counts."""
+    def test_a_persona_delta_naming_data_is_refused(self, runner, tmp_path):
+        """Every persona shares the root's facility tree, so a delta may not name one."""
         profile_dir = tmp_path / "my-profile"
         _make_profile(profile_dir)
         (profile_dir / "persona-data").mkdir()
@@ -489,8 +489,13 @@ class TestBuildDatabaseOutputAnchoring:
             ["--project", str(project), "build-database", "--csv", str(csv_file)],
         )
 
-        assert result.exit_code == 0
-        assert (profile_dir / "persona-data" / "processed" / "channel_database.json").exists()
+        assert result.exit_code == 1
+        assert result.stderr == (
+            "facility: profile-invalid: path personas/reader.yml — a persona delta names "
+            "`data:`, and every persona shares the facility tree the root profile.yml's "
+            "`data:` names; fix: remove `data:` from personas/reader.yml\n"
+        )
+        assert not (profile_dir / "persona-data" / "processed").exists()
         assert not (profile_dir / "data" / "processed").exists()
 
     def test_help_documents_the_staleness_sequence(self, runner):

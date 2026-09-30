@@ -728,6 +728,8 @@ def resolve_profile_document(
         BuildProfileError: If a persona delta declares ``extends``, if the root
             of a persona delta is missing or is not a YAML mapping, or if
             ``extends`` resolution fails.
+        FacilityBuildError: ``profile-invalid`` when a persona delta names
+            ``data:``; every persona shares the root profile's facility tree.
     """
     root_dir, is_persona_delta = resolve_profile_root(profile_path)
     normalized = dict(raw)
@@ -774,6 +776,22 @@ def resolve_profile_document(
             f"it — that is what makes it a delta — so a second base would be ambiguous. "
             f"Remove the 'extends' key; to change what the whole stack inherits, edit "
             f"{root_dir / ROOT_PROFILE_FILENAME} instead."
+        )
+
+    if "data" in normalized:
+        from osprey.facility.errors import FacilityBuildError
+
+        delta_rel = f"{PERSONA_DIRNAME}/{profile_path.name}"
+        raise FacilityBuildError(
+            "profile-invalid",
+            delta_rel,
+            [delta_rel],
+            f"remove `data:` from {delta_rel}",
+            record_kind="path",
+            detail=(
+                f"a persona delta names `data:`, and every persona shares the facility tree "
+                f"the root {ROOT_PROFILE_FILENAME}'s `data:` names"
+            ),
         )
 
     root_path = root_dir / ROOT_PROFILE_FILENAME
