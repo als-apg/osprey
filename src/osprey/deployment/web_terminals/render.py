@@ -2174,7 +2174,7 @@ def _build_groups(
     ``"Terminals"`` heading on the section that keeps the ungrouped users, so a
     deployment that splits its roster can name both halves. Sections other than
     the default never carry ``variant``, so a config that declares no
-    ``landing_group`` anywhere renders byte-identically to before.
+    ``landing_group`` anywhere renders the default section alone.
 
     ``names: hidden`` on a ``{type: "users"}`` entry replaces its default
     section's cards with one sign-in item, so the page carries no roster name.
