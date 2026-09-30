@@ -105,7 +105,6 @@ import asyncio
 import contextlib
 import copy
 import logging
-import math
 import os
 import signal
 import subprocess
@@ -132,6 +131,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     endpoint_is_live_standin,
     verify_child_report,
 )
+from osprey.utils.seconds import positive_seconds
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
@@ -1991,7 +1991,7 @@ class ConnectorHostManager:
         value = self._target_switch_value(PROBE_TIMEOUT_KEY)
         if value is None:
             return DEFAULT_PROBE_TIMEOUT_S
-        seconds = _positive_seconds(value)
+        seconds = positive_seconds(value)
         if seconds is not None:
             return seconds
         logger.warning(
@@ -2002,17 +2002,6 @@ class ConnectorHostManager:
             DEFAULT_PROBE_TIMEOUT_S,
         )
         return DEFAULT_PROBE_TIMEOUT_S
-
-
-def _positive_seconds(value: Any) -> float | None:
-    """*value* as a positive, finite number of seconds, or ``None`` when it is not one."""
-    if isinstance(value, bool):
-        return None
-    try:
-        seconds = float(value)
-    except (TypeError, ValueError):
-        return None
-    return seconds if math.isfinite(seconds) and seconds > 0 else None
 
 
 def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:
