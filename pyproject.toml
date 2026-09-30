@@ -668,6 +668,7 @@ select = [
     "ARG001",  # unused function argument
     "ARG002",  # unused method argument
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
+    "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
 ]
 ignore = [
     "E501",  # line too long, handled by formatter
@@ -680,6 +681,11 @@ ignore = [
 # its name is never a claim that something is read.
 ignore-variadic-names = true
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# The harness adapter, src/osprey/agent_runner/, is the one package that imports
+# the agent SDK. Every other module reaches the agent through it.
+"claude_agent_sdk".msg = "reach the agent through osprey.agent_runner, the one package that imports the SDK"
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
@@ -687,6 +693,11 @@ ignore-variadic-names = true
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
+# The agent SDK ban covers the shipped trees, src/ and packages/. Inside them the
+# harness adapter is where the SDK is imported; outside them, tests and developer
+# scripts drive the SDK directly.
+"!{src,packages}/**" = ["TID251"]
+"src/osprey/agent_runner/**" = ["TID251"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]
