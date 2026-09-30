@@ -20,6 +20,7 @@ from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
     base_ports_from_config,
+    resolve_nginx_port,
 )
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
@@ -985,6 +986,54 @@ def test_deployment_origin_reads_scheme_and_host_off_a_configured_external_origi
     assert origin == DeploymentOrigin(
         origin="https://Terminals.Example.org:8443",
         scheme="https",
+        host="terminals.example.org",
+    )
+
+
+@pytest.mark.parametrize(
+    ("tls_port", "expected_scheme", "expected_suffix"),
+    [
+        pytest.param(None, "http", None, id="plain-http"),
+        pytest.param(TLS_LISTEN_PORT, "https", "", id="tls-443"),
+        pytest.param(_ALT_TLS_PORT, "https", f":{_ALT_TLS_PORT}", id="tls-alt-port"),
+    ],
+)
+def test_a_derived_origin_keeps_the_fqdn_spelling_and_reads_its_parts_off_it(
+    tls_port: int | None, expected_scheme: str, expected_suffix: str | None
+) -> None:
+    """The derived origin keeps ``deploy.fqdn``'s spelling, its scheme follows
+    ``tls.enabled``, and its host is the fqdn lower-cased."""
+    # Arrange
+    config = _with_fqdn("Ops.Example.org")
+    if tls_port is not None:
+        config["modules"]["web_terminals"]["tls"] = copy.deepcopy(
+            _tls_config(port=tls_port)["modules"]["web_terminals"]["tls"]
+        )
+    suffix = f":{resolve_nginx_port(config)}" if expected_suffix is None else expected_suffix
+
+    # Act
+    origin = deployment_origin(config)
+
+    # Assert
+    assert origin == DeploymentOrigin(
+        origin=f"{expected_scheme}://Ops.Example.org{suffix}",
+        scheme=expected_scheme,
+        host="ops.example.org",
+    )
+
+
+def test_deployment_origin_reads_an_http_scheme_off_a_configured_external_origin() -> None:
+    """A configured http origin carries the http scheme it names."""
+    # Arrange
+    config = _with_external_origin(_MULTI_USER_CONFIG, "http://Terminals.Example.org:8080")
+
+    # Act
+    origin = deployment_origin(config)
+
+    # Assert
+    assert origin == DeploymentOrigin(
+        origin="http://Terminals.Example.org:8080",
+        scheme="http",
         host="terminals.example.org",
     )
 

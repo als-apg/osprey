@@ -15,7 +15,7 @@ from osprey.deployment.web_terminals.lint import (
     lint_web_terminals,
     profile_config_errors,
 )
-from osprey.deployment.web_terminals.render import TLS_LISTEN_PORT
+from osprey.deployment.web_terminals.render import TLS_LISTEN_PORT, _auth_tls_context
 from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import (
     _MAX_PORT,
@@ -3248,6 +3248,26 @@ def test_lint_unusable_tls_port_reserves_the_port_render_falls_back_to() -> None
     overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
     assert any(f"Port {TLS_LISTEN_PORT} " in f.message for f in overlap_findings)
     assert any("web_terminals.tls.port" in f.message for f in overlap_findings)
+
+
+@pytest.mark.parametrize("enabled", [True, False, None, 1, 0, "yes", ""])
+def test_lint_reserves_the_tls_port_exactly_when_render_reads_tls_as_enabled(
+    enabled: object,
+) -> None:
+    """The collision set and the render agree about what `tls.enabled` means,
+    truthy non-bools included."""
+    # Arrange
+    config = _tls_config({"port": 8443})
+    config["modules"]["web_terminals"]["tls"]["enabled"] = enabled
+    config["services"]["conflicting"] = {"port": 8443}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    reserved = any("web_terminals.tls.port" in f.message for f in overlap_findings)
+    assert reserved is _auth_tls_context(config["modules"]["web_terminals"])["tls_enabled"]
 
 
 def test_lint_auth_without_tls_is_an_error() -> None:

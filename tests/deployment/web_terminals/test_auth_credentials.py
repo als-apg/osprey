@@ -18,6 +18,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     SESSION_SECRET_VAR,
     STATE_SECRET_VAR,
     TERMINAL_SECRET_VAR_PREFIX,
+    SeededLoginsReport,
     ensure_auth_credentials,
     ensure_auth_session_secrets,
     ensure_terminal_secrets,
@@ -53,6 +54,9 @@ running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
 
 BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
 """A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
+#: Bytes `parse_dotenv_file` cannot decode, so reading them raises.
+_UNREADABLE_DOTENV = b"\xff\xfe not a dotenv file"
 
 
 class Echo:
@@ -1575,3 +1579,51 @@ def test_an_unreadable_env_auth_stays_advisory(tmp_path: Path) -> None:
     (tmp_path / AUTH_ENV_FILENAME).write_bytes(b"\xff\xfe not a dotenv file")
 
     assert seeded_logins(tmp_path, ["alice"]) == [("alice", "alice")]
+
+
+# ---------------------------------------------------------------------------
+# Advisory dotenv reads: absent and unreadable both read as empty
+# ---------------------------------------------------------------------------
+
+
+def test_an_unreadable_env_prints_no_seeded_login(tmp_path: Path) -> None:
+    """With no readable plaintext there is no candidate, so the report is empty."""
+    # Arrange
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / ".env").write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    report = seeded_logins_report(tmp_path, ["alice"])
+
+    # Assert
+    assert report == SeededLoginsReport()
+
+
+def test_seeded_password_users_reads_an_unreadable_env_auth_as_holding_no_hashes(
+    tmp_path: Path,
+) -> None:
+    """With no hash to contradict it, the `.env` value decides."""
+    # Arrange
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / AUTH_ENV_FILENAME).write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    users = seeded_password_users(tmp_path, ["alice"])
+
+    # Assert
+    assert users == ("alice",)
+
+
+def test_seeded_password_users_reads_an_unreadable_env_as_setting_nothing(
+    tmp_path: Path,
+) -> None:
+    """An unreadable `.env` sets no password, so no user is still on the seed."""
+    # Arrange
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / ".env").write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    users = seeded_password_users(tmp_path, ["alice"])
+
+    # Assert
+    assert users == ()
