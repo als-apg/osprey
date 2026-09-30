@@ -1,0 +1,1 @@
+Add the mml layer's importer, `osprey.facility.layers.mml.importer`, which writes an MML export's devices, channels, groups and models as record sources under `imported/mml/` and copies each export's response matrix beside them; no command runs it yet. `osprey mml map --check` and `osprey mml emit` read the packaged device classes from the facility vocabulary.
