@@ -15,7 +15,13 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.layers.mml.decks import Addressing, address_elements
+from osprey.facility.layers.mml.decks import (
+    DECKS_DIR,
+    Addressing,
+    address_elements,
+    served_deck,
+    write_deck,
+)
 from osprey.facility.layers.mml.mapping import (
     EngineBlock,
     ImportStop,
@@ -169,6 +175,56 @@ def test_the_deck_passed_in_is_left_as_it_was() -> None:
     assert [element.FamName for element in deck] == before
 
 
+def test_the_served_deck_moves_in_six_dimensions(addressed: Addressing) -> None:
+    served = served_deck(addressed)
+    assert served.is_6d
+    cavities = [e for e in served if isinstance(e, at.RFCavity)]
+    assert cavities
+    assert {cavity.PassMethod for cavity in cavities} == {"RFCavityPass"}
+
+
+def test_every_wired_corrector_is_served_zeroed_polynomials(addressed: Addressing) -> None:
+    served = served_deck(addressed)
+    correctors = {
+        piece.position
+        for bindings in addressed.bindings.values()
+        for binding in bindings
+        if binding.engine.attribute == "KickAngle"
+        for piece in binding.slices
+        if addressed.owners[piece.position] == piece.owner == binding.family
+    }
+    assert correctors
+    for position in correctors:
+        element = served[position]
+        width = int(element.MaxOrder) + 1
+        for name in ("PolynomA", "PolynomB"):
+            assert list(getattr(element, name)) == [0.0] * width, (position, name)
+
+
+def test_serving_leaves_the_addressed_deck_as_it_was(addressed: Addressing) -> None:
+    before = [(e.FamName, e.PassMethod) for e in addressed.deck]
+    served_deck(addressed)
+    assert [(e.FamName, e.PassMethod) for e in addressed.deck] == before
+
+
+def test_the_written_deck_reads_back_served(addressed: Addressing, tmp_path: Path) -> None:
+    path = write_deck(served_deck(addressed), tmp_path, "StorageRing")
+    assert path == tmp_path / DECKS_DIR / "StorageRing.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert "at_version" not in document
+    read = at.load_lattice(str(path))
+    assert read.is_6d
+    names = Counter(element.FamName for element in read)
+    assert sorted(name for name in _wired(addressed) if names[name] != 1) == []
+
+
+def test_writing_a_deck_twice_writes_the_same_bytes(tmp_path: Path) -> None:
+    model, deck, va, ad = _fixture(*STORAGE[0])
+    served = served_deck(address_elements(model, deck, va, ad))
+    first = write_deck(served, tmp_path, "StorageRing").read_bytes()
+    assert write_deck(served, tmp_path, "StorageRing").read_bytes() == first
+
+
 # --- small decks --------------------------------------------------------------------
 
 
@@ -244,6 +300,34 @@ def test_a_split_device_names_each_piece_by_its_stated_slot() -> None:
         ("QF_2_1_1", 1),
         ("QF_2_1_3", 3),
     ]
+
+
+def test_a_corrector_is_served_polynomials_as_wide_as_it_carries() -> None:
+    corrector = at.Corrector("C", 0.1, [0.0, 0.0], PolynomB=[0.0, 0.5, 0.2], MaxOrder=1)
+    deck = _deck(at.Drift("D", 1.0), corrector)
+    va = {"families": {"HCM": _family("Setpoint", [2], [[1, 1]])}}
+    model = _model(HCM=EngineBlock(attribute="KickAngle", index=0))
+    served = served_deck(address_elements(model, deck, va))
+    assert list(served[1].PolynomB) == [0.0, 0.0, 0.0]
+    assert list(served[1].PolynomA) == [0.0, 0.0]
+
+
+def test_a_corrector_winding_leaves_the_magnet_it_is_wound_on_alone() -> None:
+    sextupole = at.Sextupole("S", 0.2, 1.5)
+    deck = _deck(at.Drift("D", 1.0), sextupole)
+    va = {
+        "families": {
+            "HCM": _family("Setpoint", [2], [[1, 1]]),
+            "SX": _family("Setpoint", [2], [[1, 1]]),
+        }
+    }
+    model = _model(
+        HCM=EngineBlock(attribute="KickAngle", index=0),
+        SX=EngineBlock(attribute="PolynomB", index=2),
+    )
+    served = served_deck(address_elements(model, deck, va))
+    assert served[1].FamName == "SX_1_1"
+    assert served[1].PolynomB[2] == 1.5
 
 
 def test_a_repeated_monitor_nothing_reads_is_served_as_a_marker() -> None:
