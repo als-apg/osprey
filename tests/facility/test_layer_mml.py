@@ -18,7 +18,13 @@ import pytest
 import yaml
 
 from osprey.facility.combine import CombineResult, combine
-from osprey.facility.layers.mml.importer import LAYER_DIR, Exports, import_mml, write_records
+from osprey.facility.layers.mml.importer import (
+    LAYER_DIR,
+    Exports,
+    MappingProblems,
+    import_mml,
+    write_records,
+)
 from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     FieldRole,
@@ -424,3 +430,13 @@ def test_the_imported_transfer_line_conflicts_with_authored_twiss(
 
     assert (error.kind, error.record_kind, error.record_id) == ("layer-conflict", "model", "LTB")
     assert error.detail.startswith("`settings` differs:")
+
+
+def test_an_exported_family_the_mapping_leaves_out_writes_no_record(tmp_path: Path) -> None:
+    document = _document()
+    del document["families"]["S"]
+    del document["directions"]["S.Setpoint"]
+    facility = tmp_path / "data" / "facility"
+    with pytest.raises(MappingProblems, match="families: leaves out the exported family S"):
+        write_records(Exports(ao=_export()), parse_mapping(document), facility)
+    assert not facility.exists()

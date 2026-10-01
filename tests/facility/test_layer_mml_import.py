@@ -246,24 +246,26 @@ def test_an_unnamed_system_stops_the_import(tmp_path: Path) -> None:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     document["models"]["Other"] = document["models"].pop("StorageRing")
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-    with pytest.raises(ImportStop) as stop:
+    with pytest.raises(MappingProblems) as stop:
         import_mml([FIXTURES / "spear3" / "spear3.storagering.ao.json"], facility)
-    assert stop.value.format_message() == (
-        "import mml: mapping-undecided: models.StorageRing: the export carries it"
-    )
+    assert [str(problem) for problem in stop.value.problems] == [
+        "models.Other: Other is no exported system",
+        "models: leaves out the exported system StorageRing",
+    ]
 
 
-def _ltb_copy(tmp_path: Path, *, model_json: bool = True, deck: bool = True) -> Path:
-    """The nsls2 LTB export copied alone, with or without its model file and deck."""
+def _nsls2_copy(tmp_path: Path, *, model_json: bool = True, deck: bool = True) -> list[Path]:
+    """Both nsls2 exports copied, the LTB one with or without its model file and deck."""
     exports = tmp_path / "exports"
     exports.mkdir()
-    for source in sorted((FIXTURES / "nsls2").glob("nsls2.ltb.*")):
-        if source.name.endswith(".model.json") and not model_json:
-            continue
-        if source.name.endswith(".lattice.mat") and not deck:
-            continue
-        shutil.copyfile(source, exports / source.name)
-    return exports / "nsls2.ltb.ao.json"
+    for stem in TREES["nsls2"]:
+        for source in sorted((FIXTURES / "nsls2").glob(f"{stem}.*")):
+            if stem == "nsls2.ltb" and source.name.endswith(".model.json") and not model_json:
+                continue
+            if stem == "nsls2.ltb" and source.name.endswith(".lattice.mat") and not deck:
+                continue
+            shutil.copyfile(source, exports / source.name)
+    return [exports / f"{stem}.ao.json" for stem in TREES["nsls2"]]
 
 
 def test_transport_from_the_model_file_runs_single_pass_from_the_deck_twiss(
@@ -286,22 +288,22 @@ def test_transport_from_the_model_file_runs_single_pass_from_the_deck_twiss(
 
 
 def test_transport_from_the_machine_type_without_a_model_file(tmp_path: Path) -> None:
-    export = _ltb_copy(tmp_path, model_json=False)
+    exports = _nsls2_copy(tmp_path, model_json=False)
     facility = _facility(tmp_path, "nsls2")
-    import_mml([export], facility)
-    (model,) = _rows(facility, "models.yaml")
+    import_mml(exports, facility)
+    model = _by_id(_rows(facility, "models.yaml"), "name")["LTB"]
     assert model["settings"] == {"pyat": {"solve": "single_pass", "twiss_in": _LTB_TWISS}}
 
 
 def test_the_model_file_decides_over_the_machine_type(tmp_path: Path) -> None:
-    export = _ltb_copy(tmp_path)
-    model_file = export.with_name("nsls2.ltb.model.json")
+    exports = _nsls2_copy(tmp_path)
+    model_file = exports[0].with_name("nsls2.ltb.model.json")
     document = json.loads(model_file.read_text(encoding="utf-8"))
     document["state"]["is_transport"] = 0
     model_file.write_text(json.dumps(document), encoding="utf-8")
     facility = _facility(tmp_path, "nsls2")
-    import_mml([export], facility)
-    (model,) = _rows(facility, "models.yaml")
+    import_mml(exports, facility)
+    model = _by_id(_rows(facility, "models.yaml"), "name")["LTB"]
     assert _stated(model) == {
         "name": "LTB",
         "engine": "pyat",
@@ -310,10 +312,10 @@ def test_the_model_file_decides_over_the_machine_type(tmp_path: Path) -> None:
 
 
 def test_a_transport_line_without_initial_twiss_stops(tmp_path: Path) -> None:
-    export = _ltb_copy(tmp_path, deck=False)
+    exports = _nsls2_copy(tmp_path, deck=False)
     facility = _facility(tmp_path, "nsls2")
     with pytest.raises(ImportStop) as stop:
-        import_mml([export], facility)
+        import_mml(exports, facility)
     assert stop.value.format_message() == (
         "import mml: mapping-undecided: LTB: transport line without initial twiss"
     )
