@@ -79,7 +79,9 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable, Iterator
+import textwrap
+from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Mapping as Map
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Literal, TypeGuard, overload
@@ -117,6 +119,7 @@ __all__ = [
     "WiringFamily",
     "check_mapping",
     "draft_mapping",
+    "draft_text",
     "dump_mapping",
     "field_roles",
     "judgment_key",
@@ -1660,13 +1663,14 @@ def _field_prose(name: str, views: list[Any]) -> str:
     return prose + "."
 
 
-def _draft_family(raw: str, views: list[Any]) -> dict[str, Any]:
+def _draft_family(raw: str, views: list[Any], devices: Any = None) -> dict[str, Any]:
     channels = sum(view.channel_count for view in views)
     native = next((view.description for view in views if view.description is not None), None)
     entry: dict[str, Any] = {}
     if channels > 0:
         entry["branch"] = None
         entry["class"] = raw
+        entry["devices"] = devices
     entry["aliases"] = [raw]
     if native is not None:
         entry["description"], entry["provenance"] = native[0].strip(), IMPORTED
@@ -1689,6 +1693,66 @@ def _draft_family(raw: str, views: list[Any]) -> dict[str, Any]:
             fields[name] = {"description": _field_prose(name, views), "provenance": DERIVED}
     entry["fields"] = fields
     return entry
+
+
+def _draft_devices(
+    views: dict[str, list[Any]], models: dict[str, str], imported: list[Any]
+) -> tuple[dict[str, Any], dict[str, list[str]]]:
+    """Propose how the devices of every family that carries a channel are identified.
+
+    ``names`` where the export names every device of the family in every
+    system carrying it; ``{same_as: <family>}`` where exactly one such family
+    binds, in each of those systems, the other axis of the same addresses;
+    else ``address``.
+
+    Args:
+        views: Every family's views, one per system carrying it, in import
+            order.
+        models: The model each system is drafted as, keyed by raw token, in
+            import order.
+        imported: Every view, in the order an import reads them.
+
+    Returns:
+        Each family's ``devices`` value as it is written, and the ids each
+        ``address`` answer yields, both keyed by raw family.
+    """
+    from osprey.facility.layers.mml.identity import axis_twins, device_ids, stated_ids
+
+    systems = list(models)
+    carried = {
+        raw: [view for view in found if view.channel_count > 0] for raw, found in views.items()
+    }
+    carried = {raw: found for raw, found in carried.items() if found}
+    named = [
+        raw
+        for raw, found in carried.items()
+        if all(None not in stated_ids(view, systems, models) for view in found)
+    ]
+
+    def twin(raw: str, other: str) -> bool:
+        theirs = {view.system: view for view in carried[other]}
+        return all(
+            view.system in theirs and axis_twins(view, theirs[view.system]) for view in carried[raw]
+        )
+
+    answers: dict[str, DeviceIdentity] = {}
+    for raw in carried:
+        if raw in named:
+            answers[raw] = "names"
+            continue
+        twins = [other for other in named if twin(raw, other)]
+        answers[raw] = SameAs(twins[0]) if len(twins) == 1 else "address"
+
+    ordered = [view for view in imported if view.channel_count > 0]
+    yielded: dict[str, list[str]] = {}
+    for view, ids in zip(ordered, device_ids(ordered, models, answers), strict=True):
+        if answers[view.raw_name] == "address":
+            yielded.setdefault(view.raw_name, []).extend(ids)
+    written = {
+        raw: {"same_as": answer.family} if isinstance(answer, SameAs) else answer
+        for raw, answer in answers.items()
+    }
+    return written, yielded
 
 
 def _draft_judgments(views: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
@@ -1778,7 +1842,9 @@ def draft_mapping(ao: dict, ad: dict | None = None, va: dict | None = None) -> d
     Every slot the export has a fact for is filled and the rest left ``null``:
     identity from ``AD.Machine`` (no block without it); one model per system,
     keyed by its raw token and named by it folded to PN_LOCAL; families merged
-    across systems, each class pre-filled with the raw token; directions from
+    across systems, each class pre-filled with the raw token and each
+    ``devices`` proposed from the names and addresses the export states;
+    directions from
     the export's own vote (``derived``); the judgment slots the export pends;
     and, for a system whose sampled model facts are given, the wiring its
     families' lattice types imply.
@@ -1794,6 +1860,13 @@ def draft_mapping(ao: dict, ad: dict | None = None, va: dict | None = None) -> d
         The document as plain dicts in the order it is written; it parses with
         :func:`parse_mapping`.
     """
+    return _draft(ao, ad, va)[0]
+
+
+def _draft(
+    ao: dict, ad: dict | None, va: dict | None
+) -> tuple[dict[str, Any], dict[str, list[str]]]:
+    """The draft document and the ids each of its ``address`` answers yields."""
     from osprey.facility import fold_code
     from osprey.services.mml.directions import vote_directions
     from osprey.services.mml.family import family_views
@@ -1801,8 +1874,10 @@ def draft_mapping(ao: dict, ad: dict | None = None, va: dict | None = None) -> d
     order = _system_order(ao)
     views: dict[str, list[Any]] = {}
     models: dict[str, dict[str, Any]] = {}
+    imported: list[Any] = []
     for raw in order:
         carried = list(family_views(raw, ao[raw]))
+        imported.extend(carried)
         for view in carried:
             views.setdefault(view.raw_name, []).append(view)
         description, provenance = _model_prose(raw, ao[raw], _block(ad, raw))
@@ -1816,7 +1891,11 @@ def draft_mapping(ao: dict, ad: dict | None = None, va: dict | None = None) -> d
             model["wiring"] = wiring
         models[raw] = model
 
-    families = {raw: _draft_family(raw, carried) for raw, carried in views.items()}
+    names = {raw: model["name"] for raw, model in models.items()}
+    devices, yielded = _draft_devices(views, names, imported)
+    families = {
+        raw: _draft_family(raw, carried, devices.get(raw)) for raw, carried in views.items()
+    }
     votes = vote_directions(ao)
     directions: dict[str, dict[str, Any]] = {}
     for raw, entry in families.items():
@@ -1839,7 +1918,60 @@ def draft_mapping(ao: dict, ad: dict | None = None, va: dict | None = None) -> d
     judgments = _draft_judgments(views)
     if judgments:
         document["judgments"] = judgments
-    return document
+    return document, yielded
+
+
+#: The line of a family block that answers its devices by address.
+_ADDRESS_LINE = "    devices: address"
+
+#: The page width the mapping is written to.
+_WIDTH = 100
+
+
+def _annotate(text: str, yielded: Map[str, Sequence[str]]) -> str:
+    """Write, under each family's ``devices: address`` line, the ids it yields."""
+    import yaml
+
+    lines: list[str] = []
+    inside = False
+    family: str | None = None
+    for line in text.splitlines():
+        lines.append(line)
+        if not line.startswith((" ", "-")):
+            inside = line == "families:"
+        elif not inside:
+            continue
+        elif line.startswith("  ") and not line.startswith("   "):
+            key = yaml.safe_load(line)
+            family = str(next(iter(key))) if isinstance(key, dict) and len(key) == 1 else None
+        elif line == _ADDRESS_LINE and family is not None and yielded.get(family):
+            lines.extend(
+                textwrap.wrap(
+                    ", ".join(yielded[family]),
+                    width=_WIDTH,
+                    initial_indent="    # ",
+                    subsequent_indent="    # ",
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                )
+            )
+    return "\n".join(lines) + "\n"
+
+
+def draft_text(ao: dict, ad: dict | None = None, va: dict | None = None) -> str:
+    """The draft mapping as it is written to an absent mapping file.
+
+    Args:
+        ao: The merged export, as handed to :func:`draft_mapping`.
+        ad: Accelerator data keyed by system, or ``None``.
+        va: Each system's sampled model facts, keyed by system, or ``None``.
+
+    Returns:
+        :func:`draft_mapping`'s document as YAML, with a comment under every
+        ``devices: address`` listing the device ids the answer yields.
+    """
+    document, yielded = _draft(ao, ad, va)
+    return _annotate(dump_mapping(document), yielded)
 
 
 def dump_mapping(document: dict[str, Any]) -> str:
@@ -1881,7 +2013,7 @@ def load_or_draft(
     path = facility_dir / MAPPING_FILE
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(dump_mapping(draft_mapping(ao, ad, va)), encoding="utf-8")
+        path.write_text(draft_text(ao, ad, va), encoding="utf-8")
         raise ImportStop("mapping-draft", [f"{MAPPING_FILE} written; review it, then re-run"])
     mapping = read_mapping(path)
     require_decided(mapping, ao)
