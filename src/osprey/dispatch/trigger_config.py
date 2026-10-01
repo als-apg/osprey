@@ -45,6 +45,9 @@ class TriggerConfig:
         on_error: Error-handling policy (action/max_retries/backoff_sec).
         source_config: Source-specific settings, always a mapping (a blank or
             absent ``source_config`` is empty).
+        allowed_tools: Tool names the dispatched run may use, always a list (an
+            absent or blank ``action.allowed_tools`` is empty). ``surface_tools``
+            can only narrow it.
         surface: Optional label naming the UI/output surface the triggered
             agent run is associated with (e.g. a dashboard or channel name).
             ``None`` when ``action.surface`` is absent.
@@ -67,6 +70,7 @@ class TriggerConfig:
     action: dict[str, Any]
     on_error: dict[str, Any] = field(default_factory=lambda: dict(_DEFAULT_ON_ERROR))
     source_config: dict[str, Any] = field(default_factory=dict)
+    allowed_tools: list[str] = field(default_factory=list)
     surface: str | None = None
     surface_prompt: str | None = None
     surface_tools: list[str] | None = None
@@ -130,21 +134,27 @@ def _parse_trigger(raw: Any, index: int) -> TriggerConfig:
             f"Trigger '{name}' field 'action.max_turns' must be an integer >= 1 (got {max_turns!r})"
         )
 
-    # The worker's denylist blocks the dispatcher's firing tool at run time, but
-    # that refusal lands when an event fires. Naming any dispatcher tool here is
-    # an author asking for a recursion that will never run, so the file is where
-    # it is caught — and the message names both the trigger and the tool.
-    allowed_tools = action.get("allowed_tools") or []
-    if isinstance(allowed_tools, str):
-        allowed_tools = [allowed_tools]
-    if isinstance(allowed_tools, (list, tuple)):
-        for tool in allowed_tools:
-            if isinstance(tool, str) and tool.startswith(_DISPATCHER_TOOL_PREFIX):
-                raise ValueError(
-                    f"Trigger '{name}' field 'action.allowed_tools' names the event "
-                    f"dispatcher's own tool '{tool}'; a dispatch job may not fire "
-                    f"dispatch jobs, so no '{_DISPATCHER_TOOL_PREFIX}' tool is allowed"
-                )
+    # The worker refuses an ``allowed_tools`` that is not a list of tool names
+    # when an event fires, so its shape is checked here, where the author wrote
+    # it. A dispatch job may not fire dispatch jobs, so naming a dispatcher tool
+    # is refused here too, and the message names both the trigger and the tool.
+    allowed_tools_raw = action.get("allowed_tools")
+    allowed_tools: list[str] = []
+    if allowed_tools_raw is not None:
+        if not isinstance(allowed_tools_raw, list) or not all(
+            isinstance(tool, str) for tool in allowed_tools_raw
+        ):
+            raise ValueError(
+                f"Trigger '{name}' field 'action.allowed_tools' must be a list of strings"
+            )
+        allowed_tools = list(allowed_tools_raw)
+    for tool in allowed_tools:
+        if tool.startswith(_DISPATCHER_TOOL_PREFIX):
+            raise ValueError(
+                f"Trigger '{name}' field 'action.allowed_tools' names the event "
+                f"dispatcher's own tool '{tool}'; a dispatch job may not fire "
+                f"dispatch jobs, so no '{_DISPATCHER_TOOL_PREFIX}' tool is allowed"
+            )
 
     on_error_raw = raw.get("on_error")
     if on_error_raw is None:
@@ -179,6 +189,7 @@ def _parse_trigger(raw: Any, index: int) -> TriggerConfig:
         action=action,
         on_error=on_error,
         source_config=source_config,
+        allowed_tools=allowed_tools,
         surface=surface,
         surface_prompt=surface_prompt,
         surface_tools=surface_tools,

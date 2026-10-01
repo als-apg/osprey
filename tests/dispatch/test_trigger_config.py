@@ -506,29 +506,6 @@ def test_a_trigger_naming_a_dispatcher_tool_is_refused_at_load(tmp_path, tool):
     assert tool in message
 
 
-def test_a_trigger_naming_a_dispatcher_tool_as_a_bare_string_is_refused(tmp_path):
-    """``allowed_tools`` written as one scalar is still read as a tool name."""
-    yaml_content = """\
-        dispatcher:
-          dispatch_target: http://localhost:8010/dispatch
-
-        triggers:
-          - name: scalar-trigger
-            source: webhook
-            action:
-              prompt: "Handle event"
-              allowed_tools: mcp__event_dispatcher__manual_fire
-    """
-    path = write_yaml(tmp_path, yaml_content)
-
-    with pytest.raises(ValueError) as excinfo:
-        load_triggers(path)
-
-    message = str(excinfo.value)
-    assert "scalar-trigger" in message
-    assert "mcp__event_dispatcher__manual_fire" in message
-
-
 def test_a_tool_that_merely_mentions_the_dispatcher_elsewhere_is_allowed(tmp_path):
     """Only the server prefix is refused, not any name containing it."""
     yaml_content = """\
@@ -704,6 +681,62 @@ def test_a_blank_source_config_is_empty(tmp_path):
     _, triggers = load_triggers(path)
 
     assert [t.source_config for t in triggers] == [{}, {}]
+
+
+def _allowed_tools_yaml(line: str) -> str:
+    return (
+        "triggers:\n"
+        "  - name: tool-bot\n"
+        "    source: webhook\n"
+        "    action:\n"
+        "      prompt: handle it\n"
+        f"{line}"
+    )
+
+
+def test_allowed_tools_is_parsed_onto_the_trigger(tmp_path):
+    path = write_yaml(tmp_path, VALID_WEBHOOK_YAML)
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].allowed_tools == ["get_pv", "archiver_query"]
+
+
+@pytest.mark.parametrize("line", ["", "      allowed_tools:\n"], ids=["absent", "blank"])
+def test_allowed_tools_is_empty_when_absent_or_blank(tmp_path, line):
+    path = write_yaml(tmp_path, _allowed_tools_yaml(line))
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].allowed_tools == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "get_pv",
+        "mcp__event_dispatcher__manual_fire",
+        "5",
+        "true",
+        "{a: 1}",
+        "[get_pv, 1]",
+        "[[a]]",
+    ],
+    ids=[
+        "string",
+        "dispatcher-tool-string",
+        "number",
+        "bool",
+        "mapping",
+        "list-with-non-string",
+        "nested-list",
+    ],
+)
+def test_an_allowed_tools_that_is_not_a_list_of_strings_is_refused(tmp_path, value):
+    path = write_yaml(tmp_path, _allowed_tools_yaml(f"      allowed_tools: {value}\n"))
+
+    with pytest.raises(
+        ValueError, match="'tool-bot' field 'action.allowed_tools' must be a list of strings"
+    ):
+        load_triggers(path)
 
 
 def _surface_tools_yaml(line: str) -> str:
