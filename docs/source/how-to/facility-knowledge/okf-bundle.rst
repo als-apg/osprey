@@ -314,6 +314,12 @@ Working with a Bundle
          ``--force`` overwrites existing stubs.  Omit it to protect hand-edited
          documents.
 
+      Each stub carries a ``device_id`` key in its frontmatter. Under
+      ``data/facility/knowledge``, that key links the page to a facility device:
+      ``osprey build`` warns, once per page, when the value is no device id in
+      ``facility.json``, and goes on building. A page without the key is not
+      linked and never warns.
+
       **seed-graph** — loads the same kind of TTL file into the deployed graph
       store.  The two seeding verbs are worth telling apart: **seed-graph seeds
       the deployed graph store; seed-from-ttl builds an OKF document bundle.**
