@@ -77,6 +77,7 @@ The importer's stops are :class:`ImportStop`: one line each, prefixed
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import textwrap
@@ -902,8 +903,12 @@ _ANSWER_SHARED = "answer keep_all or name each group's owner"
 _ANSWER_DEVICES = "write names, address, a list of names or {same_as: <family>}"
 
 
+@functools.cache
 def _vocabulary() -> dict[str, str | None]:
-    """The vocabulary's device classes, each mapped to its parent (the root to None)."""
+    """The vocabulary's device classes, each mapped to its parent (the root to None).
+
+    The returned mapping is shared and read-only.
+    """
     import json
     from importlib import resources
 
