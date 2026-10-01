@@ -95,6 +95,7 @@ from osprey.deployment.web_terminals.provision import (
     deploy_up_web_terminals,
     preflight_web_terminals,
 )
+from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import config_anchored_at, load_project_config
 from osprey.utils.dotenv import (
@@ -3412,45 +3413,45 @@ def _preflight_pinned_overrides(repo_root: Path | str) -> list[str]:
     )
 
 
-#: The proxy names the web-terminal stack is handed from the chain, in their
-#: lowercase spelling — the one curl honours and site documentation hands out.
-_LOWERCASE_PROXY_NAMES = ("http_proxy", "https_proxy", "no_proxy")
+#: The lowercase spelling of each proxy name the web-terminal stack is handed:
+#: the one curl honours and site documentation hands out.
+_LOWERCASE_PROXY_NAMES = tuple(name.lower() for name in PROXY_ENV_NAMES)
 
 
 def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tuple[str, str]]:
     """Warn (never rewrite) when the chain spells a proxy name the web stack cannot see.
 
-    Every container in the web-terminal stack — the login service and each
-    per-user terminal — receives exactly three names from the chain,
-    ``HTTP_PROXY``, ``HTTPS_PROXY`` and ``NO_PROXY``, interpolated one by one
-    into its compose ``environment:``. Neither reads the chain wholesale: the
-    login service's ``env_file`` is ``.env.auth``, and a terminal's is
-    ``.env.users``, a closed allowlist. A chain spelling one of them in
-    lowercase therefore misses the whole stack, and nothing notices: the stack
-    starts, the health check is green, and the outbound calls fail. ``no_proxy``
-    is the sharp case — a lowercase bypass list beside an uppercase proxy hands
-    a container a proxy with no exceptions, and an on-site host is then asked
-    for through a relay that refuses internal addresses.
+    Every container in the web-terminal stack, the login service and each
+    per-user terminal, is handed ``HTTP_PROXY``, ``HTTPS_PROXY`` and
+    ``NO_PROXY`` from the chain, each under that name and its lowercase twin,
+    both interpolated from the UPPERCASE name. Neither reads the chain
+    wholesale: the login service's ``env_file`` is ``.env.auth``, and a
+    terminal's is ``.env.users``, a closed allowlist. A value the chain holds
+    only under the lowercase name therefore reaches no container of the stack
+    under either spelling, and nothing notices: the stack starts, the health
+    check is green, and the outbound calls fail. ``no_proxy`` is the sharp case:
+    a lowercase bypass list beside an uppercase proxy hands a container a proxy
+    with no exceptions, and an on-site host is then asked for through a relay
+    that refuses internal addresses.
 
-    Passing the lowercase names through as well is not the fix: ``${var:-}``
-    renders an empty lowercase name beside a set uppercase one on every host
-    that sets only uppercase, and ``urllib.request.getproxies_environment``
-    pops a scheme whose lowercase spelling is present and empty. So the
-    uppercase-only passthrough stays, and this is the check the rule was
-    missing — at the one moment the operator can still fix it.
+    Reading the lowercase names from the chain as well is not the fix: two
+    chain names for one setting can disagree, and one container would then be
+    handed two proxies for the same scheme. The twin is derived from the
+    uppercase name, and this is the check that says so at the one moment the
+    operator can still fix it.
 
     Advisory, and the value is left as written, on the same grounds as
     ``_warn_on_invalid_proxy_env`` in the resolver: a rename the operator did
     not make would surprise every other consumer of the name. Scoped to a
-    deployment that renders the web-terminal stack, because that is where the
-    three-name passthrough is the only delivery. **Names only, never values.**
+    deployment that renders the web-terminal stack, because that is where this
+    passthrough is the only delivery. **Names only, never values.**
 
     :param repo_root: The deployment repo holding the chain.
     :param config: The rendered config, for the web-terminal gate.
-    :return: ``(file, name)`` per lowercase name whose uppercase twin nothing
-        in the chain sets, naming the file that set it — the local file when
-        both do, since that is the line that wins. Empty when there is nothing
-        to say.
+    :return: ``(file, name)`` per lowercase name holding a value whose
+        uppercase twin holds none anywhere in the chain, naming the file that
+        set it (the local file when both do, since that is the line that wins).
+        Empty when there is nothing to say.
     """
     if not _web_terminals_enabled(config):
         return []
@@ -3464,15 +3465,16 @@ def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tup
 
     findings: list[tuple[str, str]] = []
     for lower in _LOWERCASE_PROXY_NAMES:
-        if lower not in chain or lower.upper() in chain:
+        if not chain.get(lower, "").strip() or chain.get(lower.upper(), "").strip():
             continue
         where = COMPOSE_ENV_FILENAME if lower in local else ENV_SHARED_FILENAME
         findings.append((where, lower))
         logger.warning(
-            "%s sets %s, and nothing in the chain sets %s. The web-terminal stack is "
-            "handed the three uppercase proxy names and nothing else, so its outbound "
-            "fetches will not see this value: the stack will start, and every call that "
-            "needs the proxy will fail. Rename it to %s. The value is left as written.",
+            "%s sets %s, and nothing in the chain gives %s a value. The web-terminal "
+            "stack is handed each proxy setting under both spellings, taken from the "
+            "uppercase name only, so its outbound fetches will not see this value: the "
+            "stack will start, and every call that needs the proxy will fail. Rename it "
+            "to %s. The value is left as written.",
             where,
             lower,
             lower.upper(),
@@ -6559,8 +6561,8 @@ def _start_stack(
     # doomed by a contradicted pin aborts having provisioned nothing.
     _preflight_pinned_overrides(repo_root)
     # Advisory sibling on the same chain: a proxy name spelled in lowercase
-    # misses the whole web-terminal stack, which is handed the uppercase three
-    # and nothing else. Warned here, beside the refusals that read the same two
+    # misses the whole web-terminal stack, which is handed each proxy setting
+    # from its uppercase name only. Warned here, beside the refusals that read the same two
     # files, so the file and the variable are named while the operator still
     # has them in front of them.
     _warn_lowercase_proxy_names(repo_root, config)

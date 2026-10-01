@@ -4429,9 +4429,10 @@ def test_a_pinned_worker_image_builds_nothing_under_either_axis(monkeypatch, axe
 # ---------------------------------------------------------------------------
 #
 # Every container in the web-terminal stack is handed HTTP_PROXY / HTTPS_PROXY /
-# NO_PROXY from the chain and nothing else — neither the login service nor a
-# per-user terminal reads the chain wholesale — so a lowercase spelling misses
-# all of them. The advisory names the file and the variable, never the value,
+# NO_PROXY under both spellings, both taken from the UPPERCASE chain name, and
+# nothing else from the chain — neither the login service nor a per-user
+# terminal reads it wholesale — so a value the chain holds only under the
+# lowercase name misses all of them. The advisory names the file and the variable, never the value,
 # and fires wherever that stack is rendered.
 
 
@@ -4533,8 +4534,8 @@ def test_the_advisory_is_scoped_to_a_deployment_that_renders_web_terminals(
 def test_the_advisory_fires_without_an_oidc_login_service(tmp_path, caplog, config):
     """The per-user terminals miss the lowercase spelling under every auth
     method, not only OIDC: the agent inside one reaches the model provider
-    whether or not a login service exists, and the terminal is handed the same
-    three uppercase names and nothing else."""
+    whether or not a login service exists, and the terminal is handed each
+    proxy setting from its uppercase name only."""
     repo = _chain_repo(tmp_path, shared="https_proxy=http://proxy.example.com:8080\n")
 
     with caplog.at_level(logging.WARNING):
@@ -4544,6 +4545,32 @@ def test_the_advisory_fires_without_an_oidc_login_service(tmp_path, caplog, conf
     assert "HTTPS_PROXY" in caplog.text
     # Names only, never values.
     assert "proxy.example.com" not in caplog.text
+
+
+def test_a_lowercase_name_beside_an_empty_uppercase_twin_is_named(tmp_path, caplog):
+    """An uppercase line with no value is no twin: the stack writes neither
+    spelling for it, so the lowercase value still reaches no container."""
+    repo = _chain_repo(
+        tmp_path,
+        shared="HTTPS_PROXY=\nhttps_proxy=http://proxy.example.com:8080\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config())
+
+    assert findings == [(".env.shared", "https_proxy")]
+    assert "proxy.example.com" not in caplog.text
+
+
+def test_an_empty_lowercase_name_is_not_named(tmp_path, caplog):
+    """A lowercase line with no value carries nothing the stack could miss."""
+    repo = _chain_repo(tmp_path, shared="no_proxy=\n")
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config())
+
+    assert findings == []
+    assert "no_proxy" not in caplog.text
 
 
 def test_a_repo_with_no_chain_files_is_silent(tmp_path):
