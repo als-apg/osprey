@@ -57,7 +57,17 @@ SELF_EXEMPT: tuple[str, ...] = (
 )
 
 #: Retired token -> the stage that deleted its last producer or reader.
-RETIRED: dict[str, str] = {}
+RETIRED: dict[str, str] = {
+    "DIRECTION_UNDERIVABLE": "2",
+    "GRAPH_MALFORMED": "2",
+    "GRAPH_NO_TTL": "2",
+    "GRAPH_SOURCE_PARADIGM": "2",
+    "assign_readbacks": "2",
+    "osprey.channel_roster.database": "2",
+    "pairing.py": "2",
+    "read_database_roster": "2",
+    "va_graph_deferred": "2",
+}
 
 _NAME_CHAR = "A-Za-z0-9_"
 
