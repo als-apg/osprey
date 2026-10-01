@@ -571,13 +571,13 @@ def _nominal_band(run: _Run) -> None:
         low, high = limit.get("min_value"), limit.get("max_value")
         if low is None or high is None or "linear" in seed(address):
             continue
+        value, files = nominal(address)
         if (
             channels[address].get("role") == "setpoint"
             and not low <= 0 <= high
             and address not in defaults
             and "nominal" not in seed(address)
         ):
-            _value, files = nominal(address)
             run.stop(
                 "seed-missing",
                 "channel",
@@ -587,7 +587,6 @@ def _nominal_band(run: _Run) -> None:
                 "add a nominal for it in data/facility/seeds.yaml",
             )
             continue
-        value, files = nominal(address)
         if value < low:
             side, bound = "`min_value`", low
         elif value > high:

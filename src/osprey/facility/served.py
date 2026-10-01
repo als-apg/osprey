@@ -50,9 +50,10 @@ def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, An
             names, or names a model the facility file does not hold.
     """
     physics = sorted({str(m["name"]) for m in facility.get("models", [])} - {TEXTURE})
+    known = [*physics, TEXTURE]
     simulation = rendered_config.get("simulation")
     if simulation is None:
-        return [*physics, TEXTURE]
+        return known
     if not isinstance(simulation, Mapping):
         raise _invalid(
             f"`simulation` is {simulation!r}, not a mapping",
@@ -60,13 +61,12 @@ def resolve_served(rendered_config: Mapping[str, Any], facility: Mapping[str, An
         )
     requested = simulation.get("models")
     if requested is None:
-        return [*physics, TEXTURE]
+        return known
     if not isinstance(requested, list) or not all(isinstance(n, str) for n in requested):
         raise _invalid(
             f"`{SIMULATION_MODELS_KEY}` is {requested!r}, not a list of model names",
             f"write `{SIMULATION_MODELS_KEY}` as a list of model names",
         )
-    known = [*physics, TEXTURE]
     unknown = sorted(set(requested) - set(known))
     if unknown:
         raise _invalid(
