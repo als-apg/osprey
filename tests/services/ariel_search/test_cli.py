@@ -671,6 +671,43 @@ class TestSyncCommand:
         assert "osprey up" in result.stderr
 
 
+class TestEnhanceCommand:
+    """Tests for the ariel enhance command."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI runner."""
+        return CliRunner()
+
+    def test_enhance_reports_the_completion_line_once(self, runner, monkeypatch):
+        """The completion line run_enhance reports is printed once, not repeated."""
+        from unittest.mock import patch
+
+        from osprey.services.ariel_search.cli_operations import EnhanceResult
+
+        mock_config = {"database": {"uri": "postgresql://localhost/test"}}
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+
+        async def fake_run_enhance(*_args, progress=None):
+            progress(
+                "Enhancement complete: 2 entries, 2 succeeded, 0 failed, "
+                "0 set aside after 3 failed attempts"
+            )
+            return EnhanceResult(entries_processed=2, module_names=["text_embedding"])
+
+        with patch(
+            "osprey.services.ariel_search.cli_operations.run_enhance",
+            new=fake_run_enhance,
+        ):
+            result = runner.invoke(ariel_group, ["enhance"])
+
+        assert result.exit_code == 0, result.output
+        assert result.output.count("Enhancement complete") == 1
+
+
 class TestSearchResultRendering:
     """Direct (non-RAG) search modes must surface found entries to the CLI user.
 
