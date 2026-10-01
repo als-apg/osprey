@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from osprey.dispatch.clock_schedule import ClockSchedule, next_fire, previous_fire
 from osprey.dispatch.pool import QueueFullError
+from osprey.utils.seconds import positive_seconds
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -98,19 +99,16 @@ class CronSource:
                 )
                 self._tasks.append(task)
                 continue
-            interval = trigger.source_config.get("interval_sec")
-            if (
-                not isinstance(interval, (int, float))
-                or isinstance(interval, bool)
-                or interval <= 0
-            ):
+            raw_interval = trigger.source_config.get("interval_sec")
+            interval = positive_seconds(raw_interval)
+            if interval is None:
                 logger.warning(
                     "Cron trigger '%s' has neither a valid 'interval_sec' (%r) nor 'at'; skipping",
                     trigger.name,
-                    interval,
+                    raw_interval,
                 )
                 continue
-            task = asyncio.create_task(self._run_loop(trigger, float(interval), fire_callback))
+            task = asyncio.create_task(self._run_loop(trigger, interval, fire_callback))
             self._tasks.append(task)
         logger.info("Cron source started with %d task(s)", len(self._tasks))
 
