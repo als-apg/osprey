@@ -412,11 +412,11 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
 
     Names both spellings the operator needs — the catalog value to write and the
     file it has to resolve to — from one place, so the several ways an entry can
-    be wrong cannot end up recommending different fixes. Ends by linking the
-    installer's page (:data:`PREDATES_DELTA_REMEDY`), because the operator most likely to read this is
-    one whose project predates the persona-delta layout: they have a variant
-    build in some older shape and need it converted, which is a bigger job than
-    editing one catalog value.
+    be wrong cannot end up recommending different fixes. Ends with
+    :data:`PREDATES_DELTA_REMEDY`, which links the installer's page, because the
+    operator most likely to read this is one whose project predates the
+    persona-delta layout: they have a variant build in some older shape and
+    need it converted, which is a bigger job than editing one catalog value.
     """
     reference = _canonical_delta_reference(persona_name)
     delta = profile_root / reference

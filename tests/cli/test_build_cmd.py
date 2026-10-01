@@ -2373,8 +2373,8 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
     ctx = claude_code.build_claude_code_context(
         manager.template_root, manager.jinja_env, project, config
     )
-    # Drop every framework hook, so the widened memory-guard's
-    # 'Write|NotebookEdit' PreToolUse matcher is no longer rendered.
+    # Drop every framework hook, so the memory-guard's 'Write|NotebookEdit'
+    # PreToolUse matcher is not rendered.
     ctx["selected_hooks"] = []
 
     with pytest.raises(claude_code.BuildProfileError) as excinfo:

@@ -42,7 +42,7 @@ _REWRITE_ROW = """
 
 
 def _recleaned(raw_text: str, subject: str | None) -> tuple[str, str | None]:
-    """Recompute a stored row's text and subject as the adapter now stores them.
+    """Recompute a stored row's text and subject as the adapter stores them.
 
     Text that starts with its subject and a blank line is split, cleaned per
     part and merged again; text equal to its subject is the cleaned subject;

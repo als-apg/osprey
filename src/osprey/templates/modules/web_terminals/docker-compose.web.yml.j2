@@ -757,12 +757,12 @@ services:
          empty entry overrides whatever the container runtime injects itself,
          so a setting with no value is written under neither spelling: the
          deploy resolves which of the three hold a value where compose reads
-         them (artifacts.proxy_env_names_with_a_value) before this render. No CA-bundle variable
-         joins them, and none is needed: a site CA is BAKED INTO the sidecar
-         image from `images.site_ca`, and the image sets `SSL_CERT_FILE` and
-         `REQUESTS_CA_BUNDLE` itself to the merged bundle it installs into. A
-         path named here instead could name a file the container does not
-         have, which crashes httpx at client construction. #}
+         them (artifacts.proxy_env_names_with_a_value) before this render. No
+         CA-bundle variable joins them, and none is needed: a site CA is BAKED
+         INTO the sidecar image from `images.site_ca`, and the image sets
+         `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` itself to the merged bundle
+         it installs into. A path named here instead could name a file the
+         container does not have, which crashes httpx at client construction. #}
 {%- for proxy_env in proxy_env_names %}
       - {{ proxy_env }}={{ "${" ~ proxy_env ~ ":-}" }}
       - {{ proxy_env | lower }}={{ "${" ~ proxy_env ~ ":-}" }}
