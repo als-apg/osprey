@@ -4,7 +4,8 @@
 place levels, each device class with its count, aliases and families, each
 model with whether the render serves it, and the channel count) and
 ``facility_facts.md`` (the same facts as one page) into each render's
-``data/``. A render without the file is read as a facility with no sources.
+``data/``. The agent context reads the name and the facts from that file, and
+reads a render without one as a facility with no sources.
 """
 
 from __future__ import annotations
@@ -14,7 +15,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import yaml
 
+from osprey.cli.templates import claude_code
+from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.compute import flatten_aliases
@@ -24,6 +28,7 @@ from osprey.facility.views.facts import (
     FACTS_FILE,
     FACTS_PAGE,
     FACTS_SCHEMA,
+    FACTS_TEMPLATE,
     facts_document,
     hook_measurement,
     read_facts,
@@ -48,6 +53,20 @@ ZERO_MODELS = [{"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": Non
 def _built_facts(built: BuiltProject) -> dict[str, Any]:
     facts: dict[str, Any] = json.loads((built.build_dir / FACTS).read_bytes())
     return facts
+
+
+def _context(render_root: Path, config: dict[str, Any]) -> dict[str, Any]:
+    manager = TemplateManager()
+    return claude_code.build_claude_code_context(
+        manager.template_root, manager.jinja_env, render_root, config
+    )
+
+
+def _rendered_config(built: BuiltProject) -> dict[str, Any]:
+    config: dict[str, Any] = yaml.safe_load(
+        (built.build_dir / "config.yml").read_text(encoding="utf-8")
+    )
+    return config
 
 
 # --- the written files ---------------------------------------------------------------
@@ -215,7 +234,60 @@ def test_a_facts_file_missing_a_key_is_read_as_zero_sources(tmp_path: Path) -> N
     )
 
 
-# --- the measurement block -----------------------------------------------------------
+# --- the agent context ---------------------------------------------------------------
+
+
+def test_an_unbuilt_project_context_carries_the_zero_source_facts(tmp_path: Path) -> None:
+    ctx = _context(tmp_path, {"project_name": "lab", "facility": {"name": "Configured"}})
+
+    assert ctx["facility_facts"] == zero_source_facts(
+        {"code": "lab", "name": "lab", "description": None}
+    )
+    assert ctx["facility_name"] == "lab"
+    assert ctx["pyaml_view_present"] is False
+    assert ctx["measurement"] == {}
+
+
+def test_the_built_context_reads_the_written_facts(built_control_assistant: BuiltProject) -> None:
+    facts = _built_facts(built_control_assistant)
+
+    ctx = _context(built_control_assistant.build_dir, _rendered_config(built_control_assistant))
+
+    assert ctx["facility_facts"] == facts
+    assert ctx["facility_name"] == facts["identity"]["name"]
+    assert ctx["pyaml_view_present"] is False
+    assert ctx["measurement"] == {}
+
+
+def test_the_context_renders_the_builds_page_byte_for_byte(
+    built_control_assistant: BuiltProject,
+) -> None:
+    manager = TemplateManager()
+    ctx = claude_code.build_claude_code_context(
+        manager.template_root,
+        manager.jinja_env,
+        built_control_assistant.build_dir,
+        _rendered_config(built_control_assistant),
+    )
+
+    rendered = manager.jinja_env.get_template(FACTS_TEMPLATE).render(**ctx)
+
+    assert rendered.encode("utf-8") == (built_control_assistant.build_dir / PAGE).read_bytes()
+
+
+def test_a_dry_run_regeneration_after_the_build_changes_no_file(
+    built_control_assistant: BuiltProject,
+) -> None:
+    from osprey.deployment.status_display import _artifact_drift
+
+    drift = _artifact_drift(
+        built_control_assistant.repo,
+        built_control_assistant.build_dir,
+        _rendered_config(built_control_assistant),
+    )
+
+    assert drift is not None
+    assert drift["changed"] == []
 
 
 def test_the_measurement_block_names_each_measurement_view() -> None:

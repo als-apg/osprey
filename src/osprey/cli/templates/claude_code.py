@@ -29,7 +29,6 @@ from osprey.cli.templates._rendering import render_template
 from osprey.errors import BuildProfileError
 from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
 from osprey.utils.config import resolve_env_vars
-from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -628,6 +627,13 @@ def build_claude_code_context(
     # Derive feature flags from artifact selections
     selected_hooks = artifacts.get("hooks", [])
 
+    # What the build wrote about this render's facility. A render with no facts
+    # file is read as a facility with no sources, so the name, the facts and
+    # the measurement block always come from the one reader.
+    from osprey.facility.views.facts import hook_measurement, read_facts
+
+    facility_facts = read_facts(project_dir, project_name)
+
     ctx = {
         "project_name": project_name,
         "package_name": package_name,
@@ -654,7 +660,10 @@ def build_claude_code_context(
         ),
         "preset": preset,
         "claude_md_template": claude_md_template,
-        "facility_name": resolve_facility_name(config, project_name),
+        "facility_name": facility_facts["identity"]["name"],
+        "facility_facts": facility_facts,
+        "pyaml_view_present": bool(facility_facts["measurement_models"]),
+        "measurement": hook_measurement(facility_facts),
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
         "selected_hooks": selected_hooks,
     }

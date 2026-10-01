@@ -1,11 +1,13 @@
-"""Facility-identity resolution: `facility.name` is canonical.
+"""Facility-name resolution.
 
-`facility.name` is the key every other reader already consults — the three
-channel-finder server contexts and the web-terminal landing render. These tests
-pin the build path onto the same key, with the older top-level `facility_name`
-kept working as a fallback, and the project name as the last resort.
+`resolve_facility_name` reads `facility.name`, then the top-level
+`facility_name`, then its default. The build path reads neither key: the agent
+context and the prompts rendered from it carry the name the render root
+reports, which is its facility file's identity, or the project name where the
+render holds no facility file.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -13,7 +15,7 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_identity, resolve_facility_name
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -112,21 +114,38 @@ def test_non_mapping_facility_value_is_tolerated():
 # ---------------------------------------------------------------------------
 
 
+def _write_facility_file(render_root: Path, identity: dict) -> None:
+    document = {"schema": "osprey.facility.facility/1", "identity": identity}
+    (render_root / "facility.json").write_text(json.dumps(document), encoding="utf-8")
+
+
 @pytest.mark.parametrize(
-    ("config", "expected"),
+    "config",
     [
-        ({"project_name": "demo", "facility": {"name": "Canonical LS"}}, "Canonical LS"),
-        ({"project_name": "demo", "facility_name": "Legacy LS"}, "Legacy LS"),
-        ({"project_name": "demo"}, "demo"),
+        {"project_name": "demo", "facility": {"name": "Canonical LS"}},
+        {"project_name": "demo", "facility_name": "Legacy LS"},
+        {"project_name": "demo"},
     ],
-    ids=["facility.name", "legacy facility_name", "neither -> project name"],
+    ids=["facility.name", "legacy facility_name", "neither"],
 )
-def test_claude_code_context_resolves_facility_name(tmp_path, config, expected):
+def test_claude_code_context_without_a_facility_file_carries_the_project_name(tmp_path, config):
     manager = TemplateManager()
     ctx = claude_code.build_claude_code_context(
         manager.template_root, manager.jinja_env, tmp_path, config
     )
-    assert ctx["facility_name"] == expected
+    assert ctx["facility_name"] == facility_identity(tmp_path, "demo")["name"] == "demo"
+
+
+def test_claude_code_context_carries_the_facility_file_name(tmp_path):
+    _write_facility_file(tmp_path, {"code": "cls", "name": "Canonical LS"})
+    manager = TemplateManager()
+    ctx = claude_code.build_claude_code_context(
+        manager.template_root,
+        manager.jinja_env,
+        tmp_path,
+        {"project_name": "demo", "facility": {"name": "Configured LS"}},
+    )
+    assert ctx["facility_name"] == "Canonical LS"
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +168,7 @@ def _channel_finder_prompt(project_dir: Path) -> str:
 
 @pytest.fixture(scope="module")
 def channel_finder_project(tmp_path_factory) -> Path:
-    """A channel-finder build — the path most at risk of shadowing the config value."""
+    """A channel-finder render with no facility file."""
     out_dir = tmp_path_factory.mktemp("cf_facility")
     return _create_project(
         TemplateManager(),
@@ -160,33 +179,20 @@ def channel_finder_project(tmp_path_factory) -> Path:
     )
 
 
-def test_channel_finder_build_uses_the_config_name_not_the_project_name(channel_finder_project):
-    """The bundle ships a facility name; the prompt must carry it, not `cf-facility`."""
+def test_channel_finder_build_uses_the_name_the_render_root_reports(channel_finder_project):
+    """The prompt carries the render root's name, whatever the config's keys say."""
     config = yaml.safe_load((channel_finder_project / "config.yml").read_text(encoding="utf-8"))
-    # The bundle ships the canonical `facility.name`; read it the way every
-    # production reader does so this stays about the value reaching the prompt
-    # rather than about which of the two spellings the template happens to use.
-    shipped = config["facility"]["name"]
-    assert shipped == resolve_facility_name(config, "cf-facility")
-    assert shipped and shipped != "cf-facility"
+    configured = config["facility"]["name"]
+    reported = facility_identity(channel_finder_project, "cf-facility")["name"]
+    assert configured and configured != reported
 
     prompt = _channel_finder_prompt(channel_finder_project)
-    assert _PROMPT_SENTENCE.format(shipped) in prompt
-    assert _PROMPT_SENTENCE.format("cf-facility") not in prompt
+    assert _PROMPT_SENTENCE.format(reported) in prompt
+    assert _PROMPT_SENTENCE.format(configured) not in prompt
 
 
-@pytest.mark.parametrize(
-    ("facility_block", "expected"),
-    [
-        ({"facility": {"name": "Regenerated LS"}}, "Regenerated LS"),
-        ({"facility_name": "Regenerated Legacy LS"}, "Regenerated Legacy LS"),
-    ],
-    ids=["facility.name", "legacy facility_name"],
-)
-def test_regenerated_prompts_pick_up_the_edited_facility_name(
-    tmp_path_factory, facility_block, expected
-):
-    """Editing config.yml and regenerating rewrites the prompts through both keys."""
+def test_regenerated_prompts_pick_up_the_facility_file_name(tmp_path_factory):
+    """Regenerating a render root that holds a facility file rewrites the prompts with its name."""
     out_dir = tmp_path_factory.mktemp("regen_facility")
     manager = TemplateManager()
     project_dir = _create_project(
@@ -196,15 +202,11 @@ def test_regenerated_prompts_pick_up_the_edited_facility_name(
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
     )
+    assert _PROMPT_SENTENCE.format("regen-facility") in _channel_finder_prompt(project_dir)
 
-    config_path = project_dir / "config.yml"
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    config.pop("facility_name", None)
-    config.pop("facility", None)
-    config.update(facility_block)
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    _write_facility_file(project_dir, {"code": "rls", "name": "Regenerated LS"})
 
     manager.regenerate_claude_code(project_dir)
     prompt = _channel_finder_prompt(project_dir)
-    assert _PROMPT_SENTENCE.format(expected) in prompt
+    assert _PROMPT_SENTENCE.format("Regenerated LS") in prompt
     assert _PROMPT_SENTENCE.format("regen-facility") not in prompt
