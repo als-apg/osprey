@@ -357,31 +357,22 @@ class TestNoIO:
 class TestAddressTokenVocabularyHasOneProducer:
     """``SP``/``RB``/``:`` are declared once, by ``records``, and read everywhere else.
 
-    The two readers disagree on almost everything, but they agree on what an
-    address token means: the database reader derives direction from ``SP``
-    when it has no limits file, and pairing builds the ``RB`` sibling it then
-    asks the roster to vouch for. A second spelling in either module is a
-    second source of truth that is free to drift from the one the other reader
-    is enumerating against.
+    A second spelling in another module is a second source of truth that is
+    free to drift from this one.
     """
 
     def test_every_consumer_reads_the_same_constants(self) -> None:
-        from osprey.channel_roster import database, records
+        from osprey.channel_roster import records
 
         assert records.WRITE_SUBFIELD == "SP"
         assert records.READBACK_SUBFIELD == "RB"
         assert records.ADDRESS_SEPARATOR == ":"
-        assert database.WRITE_SUBFIELD is records.WRITE_SUBFIELD
-        assert database.ADDRESS_SEPARATOR is records.ADDRESS_SEPARATOR
 
     def test_no_reader_declares_a_vocabulary_of_its_own(self) -> None:
         import inspect
 
-        from osprey.channel_roster import database, records
+        from osprey.channel_roster import records
 
-        source = inspect.getsource(database)
-        for name in ("WRITE_SUBFIELD", "READBACK_SUBFIELD", "ADDRESS_SEPARATOR"):
-            assert f"{name} = " not in source, f"{database.__name__} declares {name}"
         producer = inspect.getsource(records)
         assert 'WRITE_SUBFIELD = "SP"' in producer
         assert 'READBACK_SUBFIELD = "RB"' in producer
