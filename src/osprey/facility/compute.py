@@ -20,8 +20,9 @@ resolve or that overlaps another at its level (``span-invalid``), an imported
 place that contradicts its span (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
 (``wiring-conflict``), a declared ``texture`` model or a channel on a status
-address (``model-conflict``), and a nominal outside its limits band
-(``seed-invalid``); a wired element missing from its deck is ``engine-invalid``
+address (``model-conflict``), a nominal outside its limits band
+(``seed-invalid``), and an unseeded setpoint whose limits band excludes 0
+(``seed-missing``); a wired element missing from its deck is ``engine-invalid``
 naming the wiring record. ``texture`` is then listed last among the models.
 
 A span is half open, ``[from_marker, to_marker)``; with no ``to_marker`` it
@@ -569,6 +570,22 @@ def _nominal_band(run: _Run) -> None:
         address = str(limit["address"])
         low, high = limit.get("min_value"), limit.get("max_value")
         if low is None or high is None or "linear" in seed(address):
+            continue
+        if (
+            channels[address].get("role") == "setpoint"
+            and not low <= 0 <= high
+            and address not in defaults
+            and "nominal" not in seed(address)
+        ):
+            _value, files = nominal(address)
+            run.stop(
+                "seed-missing",
+                "channel",
+                address,
+                sorted({*files, _LIMITS_FILE}),
+                f"limits band [{low:g}, {high:g}] excludes 0 and the channel has no seed",
+                "add simulation.nominal in records/channels.yaml",
+            )
             continue
         value, files = nominal(address)
         if value < low:
