@@ -339,6 +339,66 @@ class TestRunReembed:
         # A NULL raw_text is embedded as the empty string, not None.
         assert call["texts"] == [""]
 
+    async def test_a_long_entry_is_cut_to_the_configured_model_limit(
+        self, monkeypatch, fake_pool_factory, fake_embedding_provider
+    ):
+        pool = fake_pool_factory(
+            rows_for={
+                _SELECT_ENTRIES: [("E1", "x" * 100)],
+                f"SELECT 1 FROM {_TABLE}": [],
+            }
+        )
+        repo = _reembed_repo(tables=[_embedding_table(_TABLE)], entry_count=1)
+        _patch_service(monkeypatch, _StubService(repo, pool))
+        _patch_embedding_provider(monkeypatch, fake_embedding_provider)
+        config = {
+            **_DB,
+            "enhancement_modules": {
+                "text_embedding": {
+                    "models": [{"name": _MODEL, "dimension": 4, "max_input_tokens": 40}]
+                }
+            },
+        }
+
+        result = await ops.run_reembed(
+            config,
+            model=_MODEL,
+            dimension=4,
+            batch_size=10,
+            dry_run=False,
+            force=False,
+            progress=None,
+        )
+
+        assert result.processed == 1
+        assert fake_embedding_provider.calls[0]["texts"] == ["x" * 32]
+
+    async def test_an_unlisted_model_is_cut_to_the_default_limit(
+        self, monkeypatch, fake_pool_factory, fake_embedding_provider
+    ):
+        pool = fake_pool_factory(
+            rows_for={
+                _SELECT_ENTRIES: [("E1", "x" * 1000)],
+                f"SELECT 1 FROM {_TABLE}": [],
+            }
+        )
+        repo = _reembed_repo(tables=[_embedding_table(_TABLE)], entry_count=1)
+        _patch_service(monkeypatch, _StubService(repo, pool))
+        _patch_embedding_provider(monkeypatch, fake_embedding_provider)
+
+        result = await ops.run_reembed(
+            dict(_DB),
+            model=_MODEL,
+            dimension=4,
+            batch_size=10,
+            dry_run=False,
+            force=False,
+            progress=None,
+        )
+
+        assert result.processed == 1
+        assert fake_embedding_provider.calls[0]["texts"] == ["x" * 504]
+
 
 # ---------------------------------------------------------------------------
 # _embed_batch

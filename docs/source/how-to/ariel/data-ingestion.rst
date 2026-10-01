@@ -158,6 +158,15 @@ The built-in enhancement modules:
                models:
                  - name: nomic-embed-text
                    dimension: 768
+                   max_input_tokens: 2048
+
+      ``max_input_tokens`` is the input window, in tokens, that the embedding
+      server applies to the model. ``ollama show nomic-embed-text`` prints it as
+      ``context length 2048``; the ``num_ctx 8192`` it also prints is clamped to
+      that. A longer entry is cut so its start is embedded, and the cut is logged
+      with the entry's id. The cut counts UTF-8 bytes, one per token, so it fits
+      device names, numbers and non-Latin script, which tokenize far more densely
+      than prose. A model listed without the key is cut to 512 tokens.
 
       The vector index over those tables is an HNSW index. It takes no sizing
       parameter, so there is nothing about it to author per deployment.
