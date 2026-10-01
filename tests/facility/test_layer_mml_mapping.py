@@ -24,6 +24,7 @@ from osprey.facility.layers.mml.mapping import (
     WiringFamily,
     check_mapping,
     draft_mapping,
+    draft_text,
     dump_mapping,
     field_roles,
     load_or_draft,
@@ -896,6 +897,111 @@ class TestDraft:
             "BPMx": {"rows_beyond_devices": {"Monitor": {"BPM:SUM": None}}}
         }
 
+    def test_a_family_naming_every_device_is_identified_by_names(self) -> None:
+        ao = _export()
+        ao["SR"]["QF"]["CommonNames"] = ["QF1", "QF2", "QF3", "QF4"]
+        families = draft_mapping(ao)["families"]
+        assert families["QF"]["devices"] == "names"
+        assert list(families["QF"])[:3] == ["branch", "class", "devices"]
+
+    def test_a_family_naming_no_device_is_identified_by_address(self) -> None:
+        ao = _export()
+        ao["SR"]["QF"]["CommonNames"] = ["QF1", "QF2", "", "QF4"]
+        families = draft_mapping(ao)["families"]
+        assert families["QF"]["devices"] == "address"
+        assert families["BPMx"]["devices"] == "address"
+
+    def test_a_family_without_channels_takes_no_devices_slot(self) -> None:
+        ao = _export()
+        ao["SR"]["Screen"] = {"DeviceList": [[1, 1]], "CommonNames": ["Screen1"]}
+        assert "devices" not in draft_mapping(ao)["families"]["Screen"]
+
+    def test_the_other_axis_of_one_named_family_is_the_same_devices(self) -> None:
+        ao = _export()
+        ao["SR"]["BPMx"]["CommonNames"] = ["BPM1", "BPM2"]
+        ao["SR"]["BPMy"] = {
+            "DeviceList": [[1, 1], [1, 2]],
+            "Monitor": {"ChannelNames": ["BPM1:Y", "BPM2:Y"]},
+        }
+        families = draft_mapping(ao)["families"]
+        assert families["BPMx"]["devices"] == "names"
+        assert families["BPMy"]["devices"] == {"same_as": "BPMx"}
+
+    def test_two_named_twins_leave_the_family_to_its_addresses(self) -> None:
+        ao = _export()
+        ao["SR"]["BPMx"]["CommonNames"] = ["BPM1", "BPM2"]
+        ao["SR"]["BPMy"] = {
+            "DeviceList": [[1, 1], [1, 2]],
+            "Monitor": {"ChannelNames": ["BPM1:Y", "BPM2:Y"]},
+        }
+        ao["SR"]["Spare"] = copy.deepcopy(ao["SR"]["BPMx"])
+        assert draft_mapping(ao)["families"]["BPMy"]["devices"] == "address"
+
+    def test_a_twin_in_one_system_only_is_not_the_same_devices(self) -> None:
+        ao = _export()
+        ao["SR"]["BPMx"]["CommonNames"] = ["BPM1", "BPM2"]
+        ao["SR"]["BPMy"] = {
+            "DeviceList": [[1, 1], [1, 2]],
+            "Monitor": {"ChannelNames": ["BPM1:Y", "BPM2:Y"]},
+        }
+        ao["TL"] = {"BPMy": {"DeviceList": [[1, 1]], "Monitor": {"ChannelNames": ["TL1:Y"]}}}
+        ao["_import_order"] = ["SR", "TL"]
+        assert draft_mapping(ao)["families"]["BPMy"]["devices"] == "address"
+
+    def test_the_draft_as_written_lists_the_ids_each_address_answer_yields(self) -> None:
+        ao = _export()
+        ao["SR"]["QF"]["CommonNames"] = ["QF1", "QF2", "QF3", "QF4"]
+        ao["SR"]["BPMx"]["Monitor"]["ChannelNames"] = ["SR:BPM1:X", "SR:BPM2:X"]
+        text = draft_text(ao)
+        assert yaml.safe_load(text) == draft_mapping(ao)
+        lines = text.splitlines()
+        at = lines.index("    devices: address")
+        assert lines[at + 1] == "    # SR/BPM1, SR/BPM2"
+        assert [line for line in lines if line.lstrip().startswith("#")] == [lines[at + 1]]
+
+    def test_a_long_id_comment_wraps_at_the_page_width(self) -> None:
+        ao = _export()
+        count = 40
+        ao["SR"]["BPMx"] = {
+            "DeviceList": [[1, n] for n in range(1, count + 1)],
+            "Monitor": {"ChannelNames": [f"SR:BPM{n}:X" for n in range(1, count + 1)]},
+        }
+        lines = draft_text(ao).splitlines()
+        comment = [line for line in lines if line.startswith("    # SR/BPM")]
+        assert len(comment) > 1
+        assert all(len(line) <= 100 for line in comment)
+        ids = ", ".join(line.removeprefix("    # ") for line in comment).replace(",,", ",")
+        assert ids.split(", ") == [f"SR/BPM{n}" for n in range(1, count + 1)]
+
+    def test_the_nsls2_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
+        from tests.facility.test_fixture_mappings import _export as fixture_export
+
+        ao, ad, va = fixture_export("nsls2")
+        drafted = draft_mapping(ao, ad, va)["families"]
+        reviewed = read_mapping(FIXTURES / "nsls2" / MAPPING_FILE).families
+        assert drafted["BPMy"]["devices"] == {"same_as": "BPMx"}
+        assert {raw for raw, family in drafted.items() if family.get("devices") == "address"} == {
+            "RF",
+            "TUNE",
+            "DCCT",
+        }
+        answered = parse_mapping(draft_mapping(ao, ad, va)).families
+        assert {raw: family.devices for raw, family in answered.items()} == {
+            raw: family.devices for raw, family in reviewed.items()
+        }
+
+    def test_the_spear3_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
+        from tests.facility.test_fixture_mappings import _export as fixture_export
+
+        ao, ad, va = fixture_export("spear3")
+        drafted = parse_mapping(draft_mapping(ao, ad, va)).families
+        reviewed = read_mapping(FIXTURES / "spear3" / MAPPING_FILE).families
+        assert {raw: family.devices for raw, family in drafted.items()} == {
+            raw: family.devices for raw, family in reviewed.items()
+        }
+        text = draft_text(ao, ad, va)
+        assert "    # StorageRing/VG01_AM1, " in text
+
     def test_the_dump_is_deterministic_and_round_trips(self) -> None:
         document = draft_mapping(_typed_export(), va=_va())
         text = dump_mapping(document)
@@ -929,8 +1035,9 @@ class TestLoadOrDraft:
             "import mml: mapping-draft: imported/mml/mapping.yaml written; review it, then re-run"
         )
         written = tmp_path / MAPPING_FILE
-        assert written.read_text(encoding="utf-8") == dump_mapping(
-            draft_mapping(_typed_export(), va=_va())
+        assert written.read_text(encoding="utf-8") == draft_text(_typed_export(), va=_va())
+        assert yaml.safe_load(written.read_text(encoding="utf-8")) == draft_mapping(
+            _typed_export(), va=_va()
         )
 
     def test_a_present_mapping_is_read_and_must_be_decided(self, tmp_path: Path) -> None:
