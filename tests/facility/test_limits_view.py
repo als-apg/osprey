@@ -206,3 +206,80 @@ class TestTheCorrectorSetpointHasNoRecord:
         with pytest.raises(ChannelLimitsViolationError) as refusal:
             validator.validate(CORR, 5.5)
         assert refusal.value.violation_type == "MAX_EXCEEDED"
+
+
+# --- the database path -------------------------------------------------------------
+
+DATABASE_KEY = "control_system.limits_checking.database_path"
+
+
+def _injected(tmp_path: Path, control_system: dict[str, Any] | None) -> dict[str, Any]:
+    """A render's config after the build has derived the database path."""
+    import yaml
+
+    from osprey.cli.build_injectors import _inject_limits_database
+
+    config: dict[str, Any] = {"project_name": "demo"}
+    if control_system is not None:
+        config["control_system"] = control_system
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    _inject_limits_database(tmp_path)
+    rendered: dict[str, Any] = yaml.safe_load((tmp_path / "config.yml").read_text(encoding="utf-8"))
+    return rendered
+
+
+class TestTheBuildDerivesTheDatabasePath:
+    def test_a_limits_block_gains_the_view_path(self, tmp_path: Path) -> None:
+        rendered = _injected(tmp_path, {"limits_checking": {"enabled": True, "mode": "optional"}})
+
+        assert rendered["control_system"]["limits_checking"] == {
+            "enabled": True,
+            "mode": "optional",
+            "database_path": LIMITS,
+        }
+
+    def test_a_per_type_block_gains_the_deployment_wide_path(self, tmp_path: Path) -> None:
+        block = {"enabled": True, "mode": "exclusive"}
+
+        rendered = _injected(tmp_path, {"connector": {"epics": {"limits_checking": dict(block)}}})
+
+        assert rendered["control_system"]["limits_checking"] == {"database_path": LIMITS}
+        assert rendered["control_system"]["connector"]["epics"]["limits_checking"] == block
+
+    def test_a_stated_path_is_kept(self, tmp_path: Path) -> None:
+        block = {"enabled": True, "mode": "optional", "database_path": "/srv/limits.json"}
+
+        rendered = _injected(tmp_path, {"limits_checking": dict(block)})
+
+        assert rendered["control_system"]["limits_checking"] == block
+
+    @pytest.mark.parametrize("control_system", [None, {"type": "mock"}])
+    def test_a_config_stating_no_limits_block_gains_nothing(
+        self, tmp_path: Path, control_system: dict[str, Any] | None
+    ) -> None:
+        rendered = _injected(tmp_path, control_system)
+
+        assert "limits_checking" not in (rendered.get("control_system") or {})
+
+    @pytest.mark.parametrize(
+        "preset",
+        ["ariel-standalone", "channel-finder-standalone", "control-assistant", "hello-world"],
+    )
+    def test_no_preset_states_the_path(self, preset: str) -> None:
+        from osprey.cli.build_profile import resolve_build_profile
+
+        profile, _preset_dir = resolve_build_profile(None, preset=preset)
+
+        assert DATABASE_KEY not in profile.config
+
+    @pytest.mark.slow
+    @pytest.mark.xdist_group("built_control_assistant")
+    def test_the_built_render_names_the_view(self, built_control_assistant: BuiltProject) -> None:
+        import yaml
+
+        config = yaml.safe_load(
+            (built_control_assistant.build_dir / "config.yml").read_text(encoding="utf-8")
+        )
+
+        assert config["control_system"]["limits_checking"]["database_path"] == LIMITS
+        assert (built_control_assistant.build_dir / LIMITS).is_file()

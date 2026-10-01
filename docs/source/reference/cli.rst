@@ -981,7 +981,8 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    Four more inputs decide details:
 
    ``--limits``
-      ``control_system.limits_checking.database_path``. This file is what tells
+      ``control_system.limits_checking.database_path``, which ``osprey build``
+      sets to the render's ``data/channel_limits.json``. This file is what tells
       a readback from a setpoint, so the corpus and the write-safety layer agree
       on which channels are written. With no limits file configured the address
       grammar decides instead — a ``:SP`` subfield writes, everything else

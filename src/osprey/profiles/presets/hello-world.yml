@@ -137,12 +137,9 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # The SECOND guard: every write is checked against the channel-limits file
-  # below (per-channel min/max and writable flags).
+  # The SECOND guard: every write is checked against the records in
+  # data/facility/limits.yaml (per-channel min/max and writable flags).
   control_system.limits_checking.enabled: true
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
   # `optional` = channels in the limits file are held to their limits, every
   # other channel is written with no limits. `exclusive` = only channels in
   # the file can be written.

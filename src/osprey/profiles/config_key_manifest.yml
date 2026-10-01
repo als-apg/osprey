@@ -928,6 +928,7 @@ keys:
     default_note: >-
       an unstated leaf is not False — it means the deployment configured no limits checking, and the write paths fail closed
   control_system.limits_checking.database_path:
+    rendered: false
     evidence: 'config_lookup\(LIMITS_DATABASE_CONFIG_KEY, None\)'
     note: >-
       Deliberately NOT per connector type: a deployment mounts one limits
@@ -938,7 +939,9 @@ keys:
       startup gate, the roster, the knowledge graph) resolves through; the key
       is spelled once, as `LIMITS_DATABASE_CONFIG_KEY` beside it in
       `limits_validator.py`, and that call is the anchor.
-    default: null
+    default: derived
+    default_note: >-
+      the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile does not state it
   control_system.limits_checking.mode:
     evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
@@ -3275,7 +3278,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 348
+  expected_union_size: 347
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
