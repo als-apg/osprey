@@ -465,7 +465,7 @@ class TestPlainTextMigration:
 
             after = await read()
 
-            for entry_id in ("20001", "20002", "20003", "20004"):
+            for entry_id in ("20001", "20002", "20003", "20004", "20007", "20008"):
                 raw_text, status, updated_at = after[stored_id(entry_id)]
                 assert raw_text == adapter._convert_entry(rows[entry_id])["raw_text"]
                 assert status == {}

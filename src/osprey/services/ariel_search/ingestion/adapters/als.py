@@ -102,6 +102,13 @@ _HREF = re.compile(r"""href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.IGNOR
 _TRAILING_SPACE = re.compile(r"[ \t]+\n")
 _BLANK_RUN = re.compile(r"\n{3,}")
 _MAX_DECODE_PASSES = 3
+# The logbook's escaping: a backslash run before a quote mark, or a doubled backslash.
+_BACKSLASH_ESCAPE = re.compile(r"""\\+(['"])|\\{2,}""")
+
+
+def _unescape_backslashes(match: re.Match[str]) -> str:
+    """Return the quote mark an escape run guards, or else one backslash."""
+    return match.group(1) or "\\"
 
 
 def _end_with_newlines(out: list[str], newlines: int) -> None:
@@ -169,9 +176,15 @@ def clean_als_text(text: str) -> str:
 
     Invariants:
 
-    * Text with neither ``&`` nor ``<`` is returned unchanged, as the same object.
+    * Text with no ``&``, no ``<``, no backslash before a quote mark and no
+      doubled backslash is returned unchanged, as the same object.
     * HTML entities are decoded until the text stops changing, at most three
       passes, so text the logbook encoded twice decodes fully.
+    * After decoding, the logbook's backslash escaping is undone. A run of
+      backslashes before ``'`` or ``"`` becomes that quote mark, so ``\\'``,
+      ``\\"`` and an encoded ``\\&quot;`` each become one plain quote. Any other
+      run of two or more backslashes becomes one backslash. A single backslash
+      before any other character is kept.
     * A ``<![CDATA[...]]>`` wrapper is replaced by its content.
     * Decoded text with no allow-listed tag and no comment only has non-breaking
       spaces replaced by spaces; a plain ``<`` or ``&`` stays, and so do line
@@ -189,13 +202,14 @@ def clean_als_text(text: str) -> str:
     Returns:
         The field as plain text.
     """
-    if not text or ("&" not in text and "<" not in text):
+    if not text or ("&" not in text and "<" not in text and not _BACKSLASH_ESCAPE.search(text)):
         return text
     for _ in range(_MAX_DECODE_PASSES):
         decoded = html.unescape(text)
         if decoded == text:
             break
         text = decoded
+    text = _BACKSLASH_ESCAPE.sub(_unescape_backslashes, text)
     text = _CDATA.sub(r"\1", text)
     if not _TAG.search(text):
         return text.replace("\xa0", " ")
