@@ -38,5 +38,37 @@ PENDING_REWORDING: frozenset[TextKey] = frozenset(
         ("channel_finder_graph", "search_channels", "description"),
         ("ariel", "keyword_search", "description"),
         ("ariel_search", "keyword_search", "description"),
+        ("control_system", "archiver_read", "inputSchema/properties/channels/description"),
+        ("control_system", "channel_read", "inputSchema/properties/channels/description"),
+        ("graph", "example_queries", "description"),
+        ("graph", "read_cypher", "description"),
+        ("phoebus", "phoebus_open_databrowser", "description"),
+        ("phoebus", "phoebus_open_databrowser", "inputSchema/properties/channels/description"),
+        ("phoebus", "phoebus_perceive", "description"),
     }
 )
+
+#: Agent-facing texts that still carry ``RATCHET_WORD``, tagged like the file
+#: ratchet's allowlist with the stage that rewords them.
+RATCHET_PENDING: dict[TextKey, str] = {
+    (
+        "channel_finder_hierarchical",
+        "build_channels",
+        "inputSchema/properties/selections/description",
+    ): "rename:12",
+    (
+        "channel_finder_hierarchical",
+        "get_options",
+        "inputSchema/properties/level/description",
+    ): "rename:12",
+    (
+        "channel_finder_hierarchical",
+        "get_options",
+        "inputSchema/properties/selections/description",
+    ): "rename:12",
+    (
+        "channel_finder_middle_layer",
+        "list_families",
+        "inputSchema/properties/system/description",
+    ): "rename:12",
+}
