@@ -160,8 +160,10 @@ def _mml_seeded(path: Path) -> bool:
     """Whether a file opens with the header line the mml layer seeds files under."""
     from osprey.facility.layers.mml.seed import HEADER
 
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    return bool(lines) and lines[0] == HEADER
+    # Only the newline ends the first line: str.splitlines would also end it at
+    # a form feed or a Unicode line separator and pass a line that runs on.
+    first = path.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
+    return first == HEADER
 
 
 def _authored_record_sources(facility_dir: Path) -> list[Path]:
