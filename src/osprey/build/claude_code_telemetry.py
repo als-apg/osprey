@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from osprey.port_layout import default_port, resolve_port_base
+from osprey_connectors.connection import ENV_NAME_RE
 
 # OTEL / Claude Code telemetry vars the resolver may inject into the env block.
 #
@@ -243,10 +244,6 @@ def telemetry_creds_are_store_issued(exc: ObservabilityCredentialError) -> bool:
 #: the credential *value* the check refused, never to a rendered message, so the
 #: names it yields are exactly the ones the config asked for.
 _CREDENTIAL_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}")
-
-#: The spelling ``claude_code.telemetry.auth.token_env`` must have: the NAME of
-#: the variable holding the collector's bearer token, never a value.
-_ENV_VAR_NAME_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
 
 #: Characters a bearer token may not carry: each would split or corrupt the
 #: comma-joined ``OTEL_EXPORTER_OTLP_HEADERS`` list the exporter and the
@@ -480,7 +477,7 @@ def telemetry_auth_token_env(telemetry_cfg: Mapping[str, Any]) -> str | None:
             "bearer token named by claude_code.telemetry.auth.token_env."
         )
     token_env = auth["token_env"]
-    if not isinstance(token_env, str) or not _ENV_VAR_NAME_RE.match(token_env):
+    if not isinstance(token_env, str) or not ENV_NAME_RE.match(token_env):
         raise TelemetryConfigError(
             "claude_code.telemetry.auth.token_env names the environment variable "
             "that holds the collector's bearer token; it holds a name, not a "

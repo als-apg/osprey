@@ -111,6 +111,12 @@ def test_the_bind_env_checker_wants_a_variable_name() -> None:
     )
 
 
+def test_the_bind_env_checker_refuses_a_trailing_newline() -> None:
+    (message,) = bind_env_errors("SITE_BIND\n", "services.site_poller.bind_env")
+
+    assert message.startswith("services.site_poller.bind_env must name the environment variable")
+
+
 # --- validation, both authoring surfaces ----------------------------------
 
 

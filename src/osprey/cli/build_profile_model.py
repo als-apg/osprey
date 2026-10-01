@@ -36,6 +36,7 @@ from osprey.errors import BuildProfileError
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey_connectors.connection import ENV_NAME_RE
 
 from .build_profile_archiver import (
     VAArchiverConfig,
@@ -47,7 +48,6 @@ from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
 from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
 from .build_profile_schema import (
-    _ENV_VAR_RE,
     SECOND_LANE_PORT_STRIDE,
     BlueskyConfig,
     BlueskyWebConfig,
@@ -1513,7 +1513,7 @@ class BuildProfile:
 
         # Validate env var names
         for var in self.env.required:
-            if not _ENV_VAR_RE.match(var):
+            if not ENV_NAME_RE.match(var):
                 errors.append(f"Invalid env var name: {var}")
 
         # `pinned` names the same kind of thing as `required` and is held to the
@@ -1526,7 +1526,7 @@ class BuildProfile:
             errors.append(f"env.pinned must be a list of env var names (got {spelled})")
         else:
             for var in self.env.pinned:
-                if not isinstance(var, str) or not _ENV_VAR_RE.match(var):
+                if not isinstance(var, str) or not ENV_NAME_RE.match(var):
                     errors.append(f"Invalid env.pinned var name: {var!r}")
 
         # Validate env file path
@@ -1778,7 +1778,7 @@ class BuildProfile:
                             "insecure_plaintext: true acknowledging its control socket is "
                             "unencrypted"
                         )
-                elif not _ENV_VAR_RE.match(ext.zmq_public_key_env):
+                elif not ENV_NAME_RE.match(ext.zmq_public_key_env):
                     errors.append(
                         "bluesky.external.zmq_public_key_env must be an environment variable "
                         f"name (got {ext.zmq_public_key_env!r})"
@@ -1789,7 +1789,7 @@ class BuildProfile:
                             "bluesky.external.tiled_api_key_env without tiled_uri names a key "
                             "for a Tiled this profile never dials — set tiled_uri or drop it"
                         )
-                    elif not _ENV_VAR_RE.match(ext.tiled_api_key_env):
+                    elif not ENV_NAME_RE.match(ext.tiled_api_key_env):
                         errors.append(
                             "bluesky.external.tiled_api_key_env must be an environment variable "
                             f"name (got {ext.tiled_api_key_env!r})"
