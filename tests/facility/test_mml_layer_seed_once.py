@@ -641,9 +641,68 @@ def test_a_facility_block_beside_an_identity_file_is_reported_and_left(
 #: The devices each tree's build stops on while ``classes.yaml`` is not seeded.
 UNKNOWN_CLASS_DEVICES = {"spear3": 130, "nsls2": 32}
 
+#: The setpoints each tree's build starts outside the band its export states,
+#: each with the edge that widens its limits record to hold the build's
+#: operating point. A wired setpoint starts where its calibration puts the
+#: deck's strength. For spear3 that is the nominal the export states, outside
+#: the export's own ``Range``. For nsls2 it is the export's nominal with the
+#: other sign: the export states these quadrupoles' currents positive and
+#: inside the band, the deck holds them at a negative strength and their
+#: curve has a positive gain.
+WIDENED: dict[str, dict[str, tuple[str, float]]] = {
+    "spear3": {
+        "09S-QD1:CurrSetpt": ("min_value", -60.0),
+        "MS1-BDMT:CurrSetpt": ("max_value", 600.0),
+    },
+    "nsls2": {
+        f"LTB-MG{{Quad:{number}}}I:Sp1-SP": ("min_value", -100.0)
+        for number in (1, 3, 4, 6, 9, 11, 14)
+    },
+}
+
+
+def _widen(facility: Path, edges: dict[str, tuple[str, float]]) -> None:
+    """Apply the ``seed-invalid`` remedy: widen each named limits record by hand."""
+    path = facility / "limits.yaml"
+    document = _load(path)
+    for row in document["records"]:
+        if row["address"] in edges:
+            key, value = edges[row["address"]]
+            row[key] = value
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+
+def test_a_transport_quadrupole_stops_on_its_export_nominal_with_the_other_sign(
+    tmp_path: Path,
+) -> None:
+    facility = _import(tmp_path, "nsls2")
+    ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
+    va = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.va.json").read_text(encoding="utf-8"))
+    addresses = [address.strip() for address in ao["Q"]["Setpoint"]["ChannelNames"]]
+    stated = dict(
+        zip(addresses, va["families"]["Q"]["nominals"]["Setpoint"]["values"], strict=True)
+    )
+    low, high = ao["Q"]["Setpoint"]["Range"]
+    models = _load(facility / LAYER_DIR / "models.yaml")
+    gains = {
+        record["address"]: record["calibration"]["curve"]["linear"]["gain"]
+        for model in models
+        for record in model.get("wiring", [])
+        if record["address"] in WIDENED["nsls2"]
+    }
+
+    report = run_stages(facility, project_name="demo", later=LATER_STAGES)
+
+    stops = {error.record_id: error.format_message() for error in report.errors}
+    assert set(stops) == set(WIDENED["nsls2"])
+    for address, message in stops.items():
+        assert low <= stated[address] <= high, address
+        assert gains[address] > 0, address
+        assert f"nominal {-stated[address]:g} lies below" in message, address
+
 
 @pytest.mark.parametrize("name", BUILT)
-def test_the_build_stops_on_unknown_classes_until_they_are_seeded(
+def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_widened(
     name: str, tmp_path: Path
 ) -> None:
     facility = _facility(tmp_path, name)
@@ -659,5 +718,17 @@ def test_the_build_stops_on_unknown_classes_until_they_are_seeded(
     import_mml(_sources(name), facility)
 
     seeded = run_stages(facility, project_name="demo", later=LATER_STAGES)
-    assert "class-unknown" not in {error.kind for error in seeded.errors}
-    assert seeded.failed not in ("load", "combine", "schema", "references", "records")
+    assert sorted((error.kind, error.record_kind, error.record_id) for error in seeded.errors) == [
+        ("seed-invalid", "channel", address) for address in sorted(WIDENED[name])
+    ]
+    for error in seeded.errors:
+        assert "limits.yaml" in error.sources, error.record_id
+        assert "widen the limits record" in error.remedy, error.record_id
+    with pytest.raises(FacilityBuildError):
+        build_facility(facility, project_name="demo")
+
+    _widen(facility, WIDENED[name])
+
+    document = build_facility(facility, project_name="demo")
+    assert document is not None
+    assert not run_stages(facility, project_name="demo", later=LATER_STAGES).errors
