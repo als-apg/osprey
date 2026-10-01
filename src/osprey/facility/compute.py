@@ -584,7 +584,7 @@ def _nominal_band(run: _Run) -> None:
                 address,
                 sorted({*files, _LIMITS_FILE}),
                 f"limits band [{low:g}, {high:g}] excludes 0 and the channel has no seed",
-                "add simulation.nominal in records/channels.yaml",
+                "add a nominal for it in data/facility/seeds.yaml",
             )
             continue
         value, files = nominal(address)
