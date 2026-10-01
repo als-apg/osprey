@@ -1569,8 +1569,8 @@ def _report_va_manifest_outcome(
         tier: The build-resolved tier whose channel databases were expanded.
         prepared: The prepared manifest, or ``None`` when the tree backs none.
         config: The rendered project configuration, when this render prepared
-            its manifest through the graph source -- what the refusal resolves
-            the corpus from, so a graph-mode gap is reported as the corpus's
+            its manifest through the roster -- what the refusal resolves the
+            facility file from, so its gap is reported as the facility file's
             rather than as absent database files.
 
     Raises:
@@ -1587,9 +1587,9 @@ def _report_va_manifest_outcome(
 
     if prepared is None:
         if config is not None:
-            # The graph was consulted, so the tier-database framing is the
-            # wrong sentence: the reason names the corpus (or the per-tree
-            # file) that left this accelerator nothing to serve.
+            # The roster was consulted, so the tier-database framing is the
+            # wrong sentence: the reason names the facility file (or the
+            # per-tree file) that left this accelerator nothing to serve.
             raise BuildProfileError(
                 f"this deployment runs a virtual accelerator, but no channel manifest "
                 f"could be built from its data tree {data_root}: "
@@ -1610,18 +1610,18 @@ def _report_va_manifest_outcome(
     metadata = prepared.manifest["_metadata"]
     # The roster's source as an operator names it: the facility file, by its
     # file name.
-    graph_source = metadata.get("source_corpus")
+    facility_source = metadata.get("source_corpus")
     absent = metadata["absent_paradigms"]
     novel = metadata["machine_json_novel_addresses"]
     from_databases = metadata["total_channels"] - len(novel)
     # The tree is named by what it is rather than by its absolute path: the
     # operator is being told what the accelerator will serve, not sent to a
     # path they would have to retype.
-    if graph_source is not None:
+    if facility_source is not None:
         # The one source that is not a channel database.
         line = (
             f"Virtual-accelerator channel set built from this project's facility file "
-            f"({graph_source}): {from_databases} channel(s)"
+            f"({facility_source}): {from_databases} channel(s)"
         )
     else:
         fed = _named_in_prose(metadata["source_paradigms"])
@@ -1636,7 +1636,7 @@ def _report_va_manifest_outcome(
         # that exist nowhere else.
         line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
     line += "."
-    if graph_source is not None and metadata["setpoint_count"]:
+    if facility_source is not None and metadata["setpoint_count"]:
         # The pairs the facility file states are the only channels an
         # accelerator built from it can echo a write on, and the operator
         # driving one should know which count that is.
@@ -1676,7 +1676,7 @@ def _report_va_manifest_outcome(
     }
     if degraded:
         unclassified_reason = metadata.get("unclassified_reason")
-        if graph_source is not None:
+        if facility_source is not None:
             lead_in = " The facility file carries no hierarchy identity keys, so"
         elif "hierarchical" not in metadata["source_paradigms"]:
             lead_in = " Without a hierarchical database the channels carry no identity keys, so"
@@ -3132,7 +3132,7 @@ def _served_lattice(data_root: Path, manifest_path: Path) -> str:
     manifest has to record that a bindings document claimed its pyat-coupled
     partition (``_metadata.partition_source``), because a channel set nothing
     coupled reaches no model however many files sit beside it -- that is the
-    case a knowledge-graph roster produces, which states readback pairs and no
+    case the facility file produces, which states readback pairs and no
     bindings at all. And both model files have to be in the published tree --
     the bindings document and the lattice it names -- because
     what has to be true at boot is that the model files are in the directory

@@ -1484,7 +1484,7 @@ def _cold_roster_cache():
     channel_roster._roster_cache.clear()
 
 
-class TestGraphSourcedManifest:
+class TestRosterSourcedManifest:
     """A graph-mode tree gets its channel set from the facility file."""
 
     def test_every_channel_record_becomes_a_channel_both_directions(self, tmp_path):
