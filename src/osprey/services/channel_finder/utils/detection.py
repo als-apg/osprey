@@ -70,11 +70,14 @@ def detect_pipeline_config(config: dict) -> tuple[str | None, dict | None]:
         )
 
     # Explicit pipeline_mode takes priority
-    if pipeline_mode is not None and configured_database(config, pipeline_mode).get("path"):
-        return pipeline_mode, configured_database(config, pipeline_mode)
+    if pipeline_mode is not None:
+        database = configured_database(config, pipeline_mode)
+        if database.get("path"):
+            return pipeline_mode, database
 
     # Auto-detect from available pipeline configs
     for paradigm in ("middle_layer", "hierarchical", "in_context"):
-        if configured_database(config, paradigm).get("path"):
-            return paradigm, configured_database(config, paradigm)
+        database = configured_database(config, paradigm)
+        if database.get("path"):
+            return paradigm, database
     return None, None
