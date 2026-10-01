@@ -164,6 +164,27 @@ class TestResolutionChain:
 
         assert get_running_version() == "2026.6.2"
 
+    def test_the_probe_deadline_only_cuts_off_a_hang(self, tmp_path, monkeypatch):
+        """A describe that takes seconds on a loaded host still answers from git.
+
+        The fallback below the probe is stale in a source checkout, so the
+        deadline is sized to cut off a hung git, never a slow one.
+        """
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=1)
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+
+        real_run = subprocess.run
+        deadlines = []
+
+        def _recording_run(*args, **kwargs):
+            deadlines.append(kwargs.get("timeout"))
+            return real_run(*args, **kwargs)
+
+        monkeypatch.setattr(version_module.subprocess, "run", _recording_run)
+
+        get_running_version()
+        assert deadlines == [30]
+
     def test_shallow_clone_without_tags_falls_through(self, tmp_path, monkeypatch):
         repo = tmp_path / "osprey"
         repo.mkdir()
