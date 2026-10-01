@@ -43,11 +43,11 @@ export const CONFIG_UNREADABLE_NOTICE_ID = 'config-unreadable-notice';
 /**
  * Remove the Config drawer tab when the deployment has gated it off.
  *
- * Absence of the flag means ENABLED, matching the server's own default
- * (`getattr(app.state, "config_panel_enabled", True)`): only an explicit
- * `false` withdraws the tab. A null payload — a failed or hung `/api/panels`
- * — likewise leaves the page as it is; a read that never landed is not a
- * statement about the deployment's posture.
+ * Only an explicit `false` withdraws the tab. `/api/panels` always sends the
+ * flag, so a payload without it is not a panels response and says nothing
+ * about the deployment's posture. Neither does a null payload (a failed or
+ * hung `/api/panels`), because a read that never landed is not a statement
+ * either.
  *
  * @param {any} panelsPayload - the `GET /api/panels` response, or null.
  * @returns {boolean} true when the tab was present and has been removed.

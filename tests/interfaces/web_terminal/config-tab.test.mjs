@@ -171,7 +171,7 @@ describe('applyConfigTabGate', () => {
 
   test.each([
     ['config_panel_enabled true', { config_panel_enabled: true }],
-    // Absent means enabled, mirroring the server's own default.
+    // A payload without the key is not an /api/panels response, which always sends the flag.
     ['a payload without the key', { enabled: ['artifacts'], visible: [] }],
     // A failed or hung /api/panels is not a statement about the posture.
     ['a null payload', null],

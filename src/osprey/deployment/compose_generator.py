@@ -1451,10 +1451,10 @@ def resolve_image_defaults(config):
     returned here — a deployment that named an image outright is naming a
     complete reference, which no stack-wide prefix or tag may edit.
 
-    Derived once for the whole render rather than per template, so the eight
-    images cannot drift onto different tags, and exposed as a function so the
-    lifecycle code that has to predict the worker's tag before compose runs
-    reads the same answer instead of restating the rule.
+    Derived once for the whole render rather than per template, so the
+    OSPREY-built images cannot drift onto different tags, and exposed as a
+    function so the lifecycle code that has to predict the worker's tag before
+    compose runs reads the same answer instead of restating the rule.
 
     :param config: Configuration dictionary.
     :type config: dict
@@ -2022,9 +2022,9 @@ def _inject_project_metadata(config):
 
     # What each OSPREY-built service falls back to when nothing named its image,
     # with the registry and tag axes already applied
-    # (:func:`resolve_image_defaults`). Injected as one mapping so the eight
-    # image lines read a value rather than each restating how a name is built,
-    # and so a stack cannot end up half on the registry and half on ``:local``.
+    # (:func:`resolve_image_defaults`). Injected as one mapping so every image
+    # line reads a value rather than restating how a name is built, and so a
+    # stack cannot end up half on the registry and half on ``:local``.
     config_with_labels["osprey_images"] = image_defaults = resolve_image_defaults(config)
 
     # Default the dispatch worker's image to the project image that
