@@ -56,7 +56,13 @@ _SOURCE_ROOT = Path(__file__).resolve().parents[2]
 #: claiming to be a release and pinning against a version that does not exist.
 _UNKNOWN_VERSION = "0.0.0+unknown"
 
-_GIT_TIMEOUT_SECONDS = 2
+#: Deadline on the ``git describe`` probe. It exists to survive a hung git, not to
+#: rate a slow one: the probe only runs in an OSPREY source checkout, where git is
+#: the one source naming the commit actually running, and a timeout falls back to a
+#: stamp stale by every commit since the last rebuild. The describe costs a fraction
+#: of a second of CPU, but its wall time on a loaded host runs to seconds, so the
+#: bound sits far above any working git and below a hang.
+_GIT_TIMEOUT_SECONDS = 30
 
 
 def _anchored_at_osprey_source() -> bool:
