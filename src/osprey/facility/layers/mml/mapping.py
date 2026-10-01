@@ -1581,6 +1581,14 @@ def _text(value: Any) -> str | None:
     return None
 
 
+def _number(value: Any) -> float | None:
+    """A finite number as a float, or ``None``; an export spells a non-finite one as text."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
 def _plural(count: int, word: str) -> str:
     return f"{count} {word}" if count == 1 else f"{count} {word}s"
 

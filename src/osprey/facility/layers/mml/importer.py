@@ -80,10 +80,12 @@ from osprey.facility.layers.mml.mapping import (
     Mapping,
     OwnerMap,
     Problem,
+    _text,
     check_mapping,
     field_roles,
     load_or_draft,
 )
+from osprey.facility.response_check import RESPONSE_SUFFIX
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
     from osprey.services.mml.family import FamilyView, FieldView
@@ -112,9 +114,6 @@ MODEL_SUFFIX = ".model.json"
 
 #: The AD ``MachineType`` of a transport line.
 TRANSPORT = "Transport"
-
-#: File-name suffix of a model's copied response export under the layer.
-_RESPONSE_SUFFIX = ".response.json"
 
 #: The ``twiss_in`` keys pyAT reads, each from its ``TwissData`` spelling.
 _TWISS_KEYS: tuple[tuple[str, str], ...] = (
@@ -430,10 +429,6 @@ def _model_name(mapping: Mapping, system: str) -> str:
     return mapping.models[system].name
 
 
-def _text(value: Any) -> str | None:
-    return value.strip() if isinstance(value, str) and value.strip() else None
-
-
 def _integer(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -699,10 +694,10 @@ def _copy_responses(exports: Exports, mapping: Mapping, layer: Path) -> list[Pat
         source = exports.responses.get(system)
         if source is None:
             continue
-        target = layer / f"{_model_name(mapping, system)}{_RESPONSE_SUFFIX}"
+        target = layer / f"{_model_name(mapping, system)}{RESPONSE_SUFFIX}"
         shutil.copyfile(source, target)
         copied.append(target)
-    for stale in sorted(layer.glob(f"*{_RESPONSE_SUFFIX}")):
+    for stale in sorted(layer.glob(f"*{RESPONSE_SUFFIX}")):
         if stale not in copied:
             stale.unlink()
     return copied

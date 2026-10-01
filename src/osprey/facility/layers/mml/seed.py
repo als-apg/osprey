@@ -32,16 +32,18 @@ is reported and left as it is.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.facility.layers.mml.decks import FREQUENCY
 from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     Mapping,
     Model,
+    _number,
+    _text,
     dump_mapping,
     field_roles,
 )
@@ -108,9 +110,6 @@ _GROUP_ENGINES: tuple[tuple[str, tuple[str, int]], ...] = (
     ("quad", ("PolynomB", 1)),
     ("sext", ("PolynomB", 2)),
 )
-
-#: The engine attribute of the family whose setpoint is the ``rf`` instrument.
-_RF_ATTRIBUTE = "Frequency"
 
 
 @dataclass
@@ -236,18 +235,6 @@ def _claims(views: Iterable[FamilyView], mapping: Mapping) -> dict[str, _Claim]:
                     view, fld, tuple(positions), None if role is None else role.role
                 )
     return claims
-
-
-def _text(value: Any) -> str | None:
-    return value.strip() if isinstance(value, str) and value.strip() else None
-
-
-def _number(value: Any) -> float | None:
-    """A finite number as a float, or ``None``; an export spells a non-finite one as text."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) else None
 
 
 # -- limits -------------------------------------------------------------------
@@ -426,7 +413,7 @@ def _measurement(
     frequency = sorted(
         str(record["address"])
         for record in entry.get("wiring") or ()
-        if (record.get("engine") or {}).get("attribute") == _RF_ATTRIBUTE
+        if (record.get("engine") or {}).get("attribute") == FREQUENCY
         and claims.get(str(record["address"])) is not None
         and claims[str(record["address"])].role == _SETPOINT
     )
