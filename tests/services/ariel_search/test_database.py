@@ -4,6 +4,7 @@ Note: These tests run without psycopg installed by testing only the
 migration logic and configuration parts that don't require database access.
 """
 
+import json
 import logging
 from pathlib import Path
 
@@ -34,6 +35,14 @@ from osprey.services.ariel_search.enhancement.text_embedding.migration import (
     create_vector_index_sql,
     legacy_vector_index_name,
     vector_index_name,
+)
+from osprey.services.ariel_search.ingestion.adapters.als import ALS_SOURCE_SYSTEM
+from osprey.services.ariel_search.ingestion.adapters.als_text_migration import (
+    ALSPlainTextMigration,
+)
+
+ENCODED_OLOG_ENTRIES = (
+    Path(__file__).parents[2] / "fixtures" / "ariel" / "als_olog_encoded_entries.jsonl"
 )
 
 
@@ -461,6 +470,7 @@ class TestMigrationRunnerLogic:
         assert "keyword_search_fts_index" in names
         assert "semantic_processor_search_index" in names
         assert "qmd_resync_index" in names
+        assert "als_logbook_plain_text" in names
 
     def test_core_migration_instantiation(self) -> None:
         """Core migration can be instantiated directly."""
@@ -818,7 +828,12 @@ class TestGetEnabledMigrations:
         """Only the always-run migrations load when no module is enabled."""
         names = [m.name for m in make_runner()._get_enabled_migrations()]
 
-        assert names == ["core_schema", "keyword_search_fts_index", "attachment_files"]
+        assert names == [
+            "core_schema",
+            "keyword_search_fts_index",
+            "attachment_files",
+            "als_logbook_plain_text",
+        ]
 
     def test_unimportable_migration_is_skipped_with_warning(self, monkeypatch, caplog) -> None:
         """A migration whose module is gone must not break the whole run."""
@@ -1343,3 +1358,94 @@ class TestTextEmbeddingHnswIndexMigrationDDL:
         assert ddl_conn.sql == [
             f"DROP INDEX IF EXISTS {vector_index_name('text_embeddings_model_a')}"
         ]
+
+
+def _stored_olog_row(entry_id: str) -> tuple[str, str, str | None]:
+    """A fixture row as ``(entry_id, raw_text, subject)``, stored verbatim before cleaning."""
+    rows = [json.loads(line) for line in ENCODED_OLOG_ENTRIES.read_text().splitlines() if line]
+    row = next(r for r in rows if r["id"] == entry_id)
+    subject, details = row["subject"], row["details"]
+    raw_text = f"{subject}\n\n{details}" if subject and details else subject or details
+    return entry_id, raw_text, subject or None
+
+
+_SELECT_STORED = "SELECT entry_id, raw_text"
+
+
+class TestPlainTextMigration:
+    """The one-off rewrite of stored ``als_logbook`` rows as plain text."""
+
+    def test_identity(self) -> None:
+        migration = ALSPlainTextMigration()
+
+        assert migration.name == "als_logbook_plain_text"
+        assert migration.depends_on == ["core_schema"]
+
+    async def test_selects_only_rows_the_cleaner_can_change(self, ddl_conn) -> None:
+        """One select, filtered by source system and by the cleaner's fast path."""
+        await ALSPlainTextMigration().up(ddl_conn)
+
+        [(sql, params)] = ddl_conn.recorder.matching(_SELECT_STORED)
+        assert params == [ALS_SOURCE_SYSTEM]
+        assert "source_system = %s" in sql
+        assert "raw_text ~ '[&<]'" in sql
+
+    async def test_changed_row_is_rewritten_and_requeued(self, ddl_conn) -> None:
+        """A changed row gets its plain text and an empty enhancement status."""
+        ddl_conn.recorder.rows_for = {_SELECT_STORED: [_stored_olog_row("20001")]}
+
+        await ALSPlainTextMigration().up(ddl_conn)
+
+        [(sql, params)] = ddl_conn.recorder.matching("UPDATE enhanced_entries")
+        assert params == [
+            "Booster injection retuned\n\nInjection retuned\nComplete\nBeam back at 500 mA",
+            "Booster injection retuned",
+            "20001",
+        ]
+        assert "enhancement_status = '{}'::jsonb" in sql
+
+    async def test_entity_encoded_subject_is_rewritten_in_metadata(self, ddl_conn) -> None:
+        """The subject in metadata is cleaned along with the text."""
+        ddl_conn.recorder.rows_for = {_SELECT_STORED: [_stored_olog_row("20003")]}
+
+        await ALSPlainTextMigration().up(ddl_conn)
+
+        [(_sql, params)] = ddl_conn.recorder.matching("UPDATE enhanced_entries")
+        assert params[0].startswith("Vacuum & RF checks\n\nSteps:")
+        assert params[1] == "Vacuum & RF checks"
+
+    async def test_row_that_does_not_change_is_not_updated(self, ddl_conn) -> None:
+        """Plain text matched by the select stays as stored."""
+        ddl_conn.recorder.rows_for = {_SELECT_STORED: [_stored_olog_row("20005")]}
+
+        await ALSPlainTextMigration().up(ddl_conn)
+
+        assert ddl_conn.recorder.matching("UPDATE") == []
+
+    async def test_row_that_is_empty_without_markup_is_left_and_reported(
+        self, ddl_conn, caplog
+    ) -> None:
+        """A row with no text once its markup is gone is left as stored and counted."""
+        caplog.set_level(logging.WARNING, logger="ariel")
+        ddl_conn.recorder.rows_for = {_SELECT_STORED: [_stored_olog_row("20006")]}
+
+        await ALSPlainTextMigration().up(ddl_conn)
+
+        assert ddl_conn.recorder.matching("UPDATE") == []
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("1 " in message and "left as stored" in message for message in warnings)
+
+    async def test_overridden_subject_falls_back_to_the_whole_text(self, ddl_conn) -> None:
+        """A subject that does not prefix the text is cleaned apart from it."""
+        ddl_conn.recorder.rows_for = {
+            _SELECT_STORED: [("7", "Body&lt;br /&gt;line two", "Explicit &amp; set")]
+        }
+
+        await ALSPlainTextMigration().up(ddl_conn)
+
+        [(_sql, params)] = ddl_conn.recorder.matching("UPDATE enhanced_entries")
+        assert params == ["Body\nline two", "Explicit & set", "7"]
+
+    async def test_down_is_one_way(self, ddl_conn) -> None:
+        with pytest.raises(NotImplementedError, match="als_logbook_plain_text"):
+            await ALSPlainTextMigration().down(ddl_conn)
