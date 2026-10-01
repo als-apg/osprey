@@ -15,9 +15,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
+from osprey.mcp_server.channel_finder_common import (
+    _config_path,
+    load_cf_config,
+    resolve_cf_path,
+)
 from osprey.mcp_server.config_values import positive_int
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_identity
 
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
@@ -96,7 +100,9 @@ class ChannelFinderMLContext:
             logger=logger,
         )
 
-        self._facility_name = resolve_facility_name(self._raw_config, "control system")
+        identity = facility_identity(_config_path().parent, self._raw_config.get("project_name"))
+        if identity is not None:
+            self._facility_name = identity["name"]
 
         self._initialized = True
         logger.info("ChannelFinderMLContext: initialized")
@@ -118,7 +124,7 @@ class ChannelFinderMLContext:
 
     @property
     def facility_name(self) -> str:
-        """Facility name from config (e.g. 'Example Research Facility')."""
+        """The facility's display name: the facility file's, else the project name."""
         return self._facility_name
 
     @property
