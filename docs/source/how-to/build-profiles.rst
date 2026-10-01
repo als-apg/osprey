@@ -953,9 +953,10 @@ the text everyone starts from (see :ref:`profile-context-baseline`).
 another channel owns. The message names the channel, and the exact move where
 one exists.
 
-**"Profile has N unrecognized top-level entry/entries"** — a warning, not an
-error: a directory in the profile that nothing copies. Usually a typo of a
-convention directory name.
+**"Repo root has N unrecognized top-level entry/entries"** — a warning, not an
+error: an entry no channel renders into the project. Usually a typo of a
+convention directory name. A container image still carries it, as part of the
+repository's source.
 
 **"Unknown profile key(s): 'overlay'"** — a profile has no ``overlay``
 section. Move the files into the convention directory that matches what they

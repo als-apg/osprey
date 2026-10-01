@@ -294,13 +294,15 @@ REPO_CLAUDE_CODE_ENTRIES: frozenset[str] = frozenset(
 )
 
 #: Repo-root entries that are neither convention directories nor typos — the
-#: four-zone layout in full, plus every convention source. The repo root *is*
-#: the profile root, so a deployment's own generated zones are entries this
-#: module has to recognize rather than warn about (SC-9).
+#: four-zone layout in full, the repo's own Claude Code files, and every
+#: convention source. The repo root *is* the profile root, so a deployment's
+#: own generated zones and its developer files are entries this module has to
+#: recognize rather than warn about (SC-9).
 KNOWN_ROOT_ENTRIES: frozenset[str] = (
     _SOURCE_ZONE_ENTRIES
     | _SECRETS_ZONE_ENTRIES
     | _GENERATED_ZONE_ENTRIES
+    | REPO_CLAUDE_CODE_ENTRIES
     | frozenset(CONVENTION_SOURCES)
 )
 
@@ -1524,8 +1526,9 @@ def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()
     directory (``ioc/``, ``nginx/``) sitting beside ``profile.yml``. Under the
     four-zone layout the repo root *is* the profile root, so there is nowhere
     to nest such a directory away to — the remedy is to move it into the
-    channel that carries it, or to accept that nothing copies it, which for
-    repo-local material is the correct outcome. The two causes read identically
+    channel that carries it, or to accept that it stays out of the render and
+    travels in the container images as source, which for repo-local material is
+    the correct outcome. The two causes read identically
     from here — one entry or twenty, all unknown — so the message names both
     remedies rather than guessing which one applies.
     """
@@ -1533,7 +1536,7 @@ def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()
     if unknown:
         logger.warning(
             "  Repo root has %d unrecognized top-level entry/entries: %s\n"
-            "     Nothing copies them into the build — check for a typo.\n"
+            "     Nothing renders them into the project — check for a typo.\n"
             "     Convention directories: %s\n"
             "     %s is the repo root and the profile root at once: profile.yml and\n"
             "     the material it names sit here, beside the generated %s/ and %s/\n"
@@ -1542,7 +1545,8 @@ def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()
             "     If an entry is meant to reach the deployment, move it into the\n"
             "     channel that carries it — a convention directory above, or %s/ for\n"
             "     a verbatim copy. If it is repo-local material the deployment does\n"
-            "     not need, leaving it here costs nothing but this warning.",
+            "     not need, it stays out of the rendered project, but every\n"
+            "     container image carries it as part of the repo's source.",
             len(unknown),
             ", ".join(unknown),
             ", ".join(f"{name}/" for name in CONVENTION_SOURCES),
