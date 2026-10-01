@@ -51,6 +51,16 @@ REMEDY_NO_CONFIG_FILE = "set CONFIG_FILE to this deployment's config.yml, then r
 _CONTAINER_CONFIG_PATH = Path("/app/config.yml")
 REMEDY_NAMED_KEY = "fix the named key in config.yml and restart"
 
+#: ``/health`` messages. Fixed sentences: the page answers without a
+#: credential, so it never carries a driver's error text, which can name the
+#: store's host, port or login. ``osprey ariel status`` and the signed-in
+#: ``/api/status`` carry the error itself.
+HEALTH_OK = "ARIEL service healthy"
+HEALTH_NO_SERVICE = "Database unavailable — drafts, UI, and settings work"
+HEALTH_STORE_NOT_ANSWERING = (
+    "Database is not answering status queries; run osprey ariel status for the error"
+)
+
 
 def _find_config_file(config_path: str | Path | None) -> Path | None:
     """Return the config file this panel reads, without reading it.
@@ -489,6 +499,8 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     """
     from osprey.interfaces.ariel.api.drafts import draft_router
     from osprey.interfaces.ariel.api.routes import router as api_router
+    from osprey.interfaces.ariel.api.schemas import HealthFacts, HealthResponse
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
     app = FastAPI(
         title="ARIEL Search Interface",
@@ -505,23 +517,37 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         """Serve main index.html."""
         return FileResponse(STATIC_DIR / "index.html")
 
-    @app.get("/health")
-    async def health():
-        """Simple health check endpoint."""
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        """Report liveness and the status facts that are safe without a credential."""
         config_status = getattr(app.state, "config_status", None)
         service = getattr(app.state, "ariel_service", None)
-        if service is not None:
-            healthy, message = await service.health_check()
-            return {
-                "status": "healthy" if healthy else "degraded",
-                "message": message,
-                "config_status": config_status,
-            }
-        return {
-            "status": "degraded",
-            "message": "Database unavailable — drafts, UI, and settings work",
-            "config_status": config_status,
-        }
+        if service is None:
+            return HealthResponse(
+                status="degraded",
+                message=HEALTH_NO_SERVICE,
+                config_status=config_status,
+            )
+        try:
+            entry_count = await service.repository.count_entries()
+            last_ingestion = await service.repository.get_last_ingestion()
+        except DatabaseQueryError:
+            return HealthResponse(
+                status="degraded",
+                message=HEALTH_STORE_NOT_ANSWERING,
+                config_status=config_status,
+            )
+        return HealthResponse(
+            status="healthy",
+            message=HEALTH_OK,
+            config_status=config_status,
+            service=HealthFacts(
+                entry_count=entry_count,
+                last_ingestion=last_ingestion,
+                enabled_search_modules=service.config.get_enabled_search_modules(),
+                enabled_enhancement_modules=service.config.get_enabled_enhancement_modules(),
+            ),
+        )
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 

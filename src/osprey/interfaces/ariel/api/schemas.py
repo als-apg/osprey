@@ -4,7 +4,7 @@ Request and response models for the ARIEL search interface.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -138,6 +138,33 @@ class EmbeddingTableStatus(BaseModel):
     entry_count: int
     dimension: int | None = None
     is_active: bool = False
+
+
+class HealthFacts(BaseModel):
+    """The status facts the open ``/health`` page carries.
+
+    An allow-list: a status fact reaches the page only by being declared here.
+    Nothing that names the store's address, its login or its schema belongs on
+    it, because the page answers without a credential.
+    """
+
+    entry_count: int
+    last_ingestion: datetime | None = None
+    enabled_search_modules: list[str]
+    enabled_enhancement_modules: list[str]
+
+
+class HealthResponse(BaseModel):
+    """The open ``/health`` page.
+
+    ``service`` is ``None`` when the panel has no search service or the store
+    did not answer; the other fields are always present.
+    """
+
+    status: Literal["healthy", "degraded"]
+    message: str
+    config_status: str | None = None
+    service: HealthFacts | None = None
 
 
 class StatusResponse(BaseModel):
