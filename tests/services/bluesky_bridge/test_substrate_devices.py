@@ -25,7 +25,6 @@ pairing the roster did not make.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 
@@ -44,12 +43,12 @@ from osprey.services.bluesky_bridge.substrate_devices import (
     devices_document,
     write_devices_file,
 )
+from tests._facility_file import write_demo_facility_file
 
-#: What the shipped demo corpus holds, pinned alongside
-#: ``tests/channel_roster/test_facade.py`` and
-#: ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.
+#: What the shipped demo tree holds, pinned alongside
+#: ``tests/channel_roster/test_facade.py``.
 DEMO_WRITES = 396
-DEMO_READS = 2512
+DEMO_READS = 2516
 
 _SOURCE = RosterSource(kind=RosterSourceKind.GRAPH, path=Path("/data/demo_machine.ttl"))
 
@@ -209,30 +208,13 @@ class TestTheShippedDemoRoster:
         channel_roster._roster_cache.clear()
 
     @pytest.fixture
-    def demo_config(self, tmp_path: Path) -> Iterator[dict[str, Any]]:
-        from tests._graph_index import build_demo_index
-
-        resource = (
-            files("osprey.templates")
-            .joinpath("apps")
-            .joinpath("control_assistant")
-            .joinpath("data")
-            .joinpath("demo_machine.ttl")
-        )
-        # The roster reads the search index, not the corpus. The packaged
-        # template directory is not a render, so the index goes to tmp_path
-        # and the config names it rather than deriving one beside the source.
-        index = build_demo_index(tmp_path / "graph.duckdb")
-        with as_file(resource) as path:
-            yield {
-                "config_dir": str(path.parent),
-                "channel_finder": {"pipeline_mode": "graph"},
-                "services": {"graphdb": {"ttl_path": path.name, "index_path": str(index)}},
-            }
+    def demo_config(self, tmp_path: Path) -> dict[str, Any]:
+        """A graph-mode render holding the shipped demo tree's facility file."""
+        write_demo_facility_file(tmp_path)
+        return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """396 settables / 2512 readables -- the numbers the feature exists for.
-        The build that read the write-limits projection reported 144/144."""
+        """396 settables / 2516 readables: every channel the demo tree holds."""
         result = registered_channels(demo_config)
 
         document = devices_document(result.records)
