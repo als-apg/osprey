@@ -136,6 +136,20 @@ def test_a_setpoint_pairs_with_its_family_monitor(spear3: Path) -> None:
     assert "pair" not in channels[monitor]
 
 
+def test_an_address_a_write_field_names_is_a_setpoint_whichever_field_named_it_first(
+    spear3: Path,
+) -> None:
+    ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
+    family = ao["RF"]
+    address = family["Setpoint"]["ChannelNames"].strip()
+    assert family["Monitor"]["ChannelNames"].strip() == address
+    assert list(family).index("Monitor") < list(family).index("Setpoint")
+    channel = _by_id(_rows(spear3, "channels.yaml"))[address]
+    assert channel["role"] == "setpoint"
+    assert "pair" not in channel
+    assert list(channel) == ["id", "on", "role", "unit", "description"]
+
+
 def test_the_imported_tree_loads_with_its_mapping_beside_the_records(spear3: Path) -> None:
     report = run_stages(spear3, project_name="demo")
     assert [e.format_message() for e in report.errors if "is not a layer file" in e.detail] == []

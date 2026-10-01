@@ -19,9 +19,10 @@ What is written, relative to ``data/facility/``:
 * ``imported/mml/channels.yaml``: one channel per address, ``on`` the one
   device that binds it, or, bound by several, naming each in ``endpoint_of``
   and ``on`` none; its ``role`` follows the field's direction
-  (:func:`~osprey.facility.layers.mml.mapping.field_roles`) and a setpoint
-  that reads back through its family's ``Monitor`` names that device's
-  ``Monitor`` address as its ``pair``.
+  (:func:`~osprey.facility.layers.mml.mapping.field_roles`): an address any
+  ``write`` field names is a setpoint, whichever field named it first. A
+  setpoint that reads back through its family's ``Monitor`` names that
+  device's ``Monitor`` address as its ``pair``.
 * ``imported/mml/groups.yaml``: one group per family, id the family's mapped
   token; same-named families of several exports are one group whose members
   are the union of theirs.
@@ -115,6 +116,9 @@ _TWISS_KEYS: tuple[tuple[str, str], ...] = (
 )
 
 _SETPOINT = "setpoint"
+
+#: The keys of a channel record, in the order they are written.
+_CHANNEL_KEYS = ("id", "endpoint_of", "on", "role", "pair", "unit", "description")
 
 
 @dataclass
@@ -453,7 +457,10 @@ def _channels(
     """Add one channel per address of one family that no earlier family wrote.
 
     An address one device binds is ``on`` it; an address several devices bind
-    names each in ``endpoint_of`` and belongs to no device.
+    names each in ``endpoint_of`` and belongs to no device. An address a
+    ``write`` field names is a setpoint: when an earlier field wrote its
+    channel as anything else, the channel takes the setpoint role and its
+    pair and keeps the rest.
     """
     family = mapping.families[view.raw_name]
     for fld in view.fields.values():
@@ -465,7 +472,19 @@ def _channels(
             pairs = paired.slots(key) if paired is not None and key in paired.keys else []
             for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
                 address = _text(slot)
-                if address is None or address in channels:
+                if address is None:
+                    continue
+                writes = role is not None and role.role == _SETPOINT
+                pair = _text(pairs[index]) if index < len(pairs) else None
+                found = channels.get(address)
+                if found is not None:
+                    if writes and found.get("role") != _SETPOINT:
+                        found["role"] = _SETPOINT
+                        if pair is not None and pair != address:
+                            found["pair"] = pair
+                        channels[address] = {
+                            key: found[key] for key in _CHANNEL_KEYS if key in found
+                        }
                     continue
                 channel: dict[str, Any] = {"id": address}
                 bound = owners.get(address, [ids[index]])
@@ -475,8 +494,7 @@ def _channels(
                     channel["on"] = {"device": bound[0]}
                 if role is not None:
                     channel["role"] = role.role
-                    pair = _text(pairs[index]) if index < len(pairs) else None
-                    if role.role == _SETPOINT and pair is not None and pair != address:
+                    if writes and pair is not None and pair != address:
                         channel["pair"] = pair
                 unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
                 if unit is not None:

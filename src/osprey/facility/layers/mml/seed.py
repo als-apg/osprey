@@ -207,17 +207,25 @@ def seed_once(
 
 
 def _claims(views: Iterable[FamilyView], mapping: Mapping) -> dict[str, _Claim]:
-    """Each address under the first family field that names it, as its channel record is."""
+    """Each address under the family field its channel record takes its role from.
+
+    That is the first field that names it, or, when a ``write`` field names an
+    address an earlier field did not write, that ``write`` field.
+    """
     roles = field_roles(mapping)
     claims: dict[str, _Claim] = {}
     for view in views:
         for fld in view.fields.values():
             role = roles.get(f"{view.raw_name}.{fld.name}")
+            writes = role is not None and role.role == _SETPOINT
             found: dict[str, list[int]] = {}
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
                     address = _text(slot)
-                    if address is None or address in claims:
+                    if address is None:
+                        continue
+                    held = claims.get(address)
+                    if held is not None and (not writes or held.role == _SETPOINT):
                         continue
                     positions = found.setdefault(address, [])
                     if index not in positions:

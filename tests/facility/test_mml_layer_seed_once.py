@@ -3,7 +3,8 @@
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
 under the tree's new-format mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
-over the imported tree.
+over the imported tree, and the writable case runs the old command chain over
+the same exports.
 """
 
 from __future__ import annotations
@@ -220,6 +221,53 @@ def test_every_wired_setpoint_is_writable_inside_its_band(imported: Path) -> Non
     assert writable == wired
     for address in wired:
         assert limits[address]["min_value"] <= limits[address]["max_value"], address
+
+
+def _emitted_setpoints(root: Path, tree: str) -> set[str]:
+    """Run the old chain over a tree's exports and return the setpoints it binds.
+
+    A monitor binding carries the address it serves under the same key, so the
+    setpoints are the bindings of every other kind.
+    """
+    pytest.importorskip("linkml_runtime")
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    def run(*args: str) -> None:
+        result = CliRunner().invoke(cli, [*args, "--repo", str(root)], catch_exceptions=False)
+        assert result.exit_code == 0, f"osprey {' '.join(args)}:\n{result.output}"
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+    run("mml", "import", *(str(source) for source in _sources(tree)))
+    run("mml", "map", "--init")
+    shutil.copy(FIXTURES / tree / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
+    run("mml", "emit")
+    document = json.loads((root / "data" / "simulation" / "va_bindings.json").read_text())
+    return {
+        binding["setpoint_address"]
+        for binding in document["bindings"]
+        if binding["element"] is not None and binding["kind"] != "monitor"
+    }
+
+
+def test_the_writable_set_is_the_setpoints_the_old_chain_binds(
+    spear3: Path, tmp_path: Path
+) -> None:
+    writable = {address for address, row in _limits(spear3).items() if row.get("writable") is True}
+    assert writable == _emitted_setpoints(tmp_path / "old", "spear3")
+    assert len(writable) == 299
+
+
+def test_a_setpoint_an_earlier_read_field_named_is_writable_inside_its_band(spear3: Path) -> None:
+    assert _roles(spear3)["SPEAR:RFFreqSetpt"] == "setpoint"
+    assert _limits(spear3)["SPEAR:RFFreqSetpt"] == {
+        "address": "SPEAR:RFFreqSetpt",
+        "min_value": 0.0,
+        "max_value": 2500.0,
+        "writable": True,
+    }
 
 
 def test_an_unwired_setpoint_carries_its_band_only(synthetic: Path) -> None:
