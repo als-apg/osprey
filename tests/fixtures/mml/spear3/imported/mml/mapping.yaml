@@ -135,6 +135,7 @@ section_order:
 families:
   BPMx:
     class: BeamPositionMonitor
+    devices: names
     aliases:
     - BPMx
     description: 'The 117 storage-ring beam position monitors, horizontal plane: position readback and
@@ -150,6 +151,7 @@ families:
         provenance: stated
   BPMy:
     class: BeamPositionMonitor
+    devices: names
     aliases:
     - BPMy
     description: 'The 117 storage-ring beam position monitors, vertical plane: position readback and desired
@@ -165,6 +167,7 @@ families:
         provenance: stated
   LTBBPMx:
     class: BeamPositionMonitor
+    devices: names
     aliases:
     - LTBBPMx
     description: The five linac-to-booster transfer line BPMs, horizontal plane.
@@ -179,6 +182,7 @@ families:
         provenance: stated
   LTBBPMy:
     class: BeamPositionMonitor
+    devices: names
     aliases:
     - LTBBPMy
     description: The five linac-to-booster transfer line BPMs, vertical plane.
@@ -193,6 +197,7 @@ families:
         provenance: stated
   BTSBPMx:
     class: BeamPositionMonitor
+    devices: names
     aliases:
     - BTSBPMx
     description: The nine booster-to-storage-ring transfer line BPMs, horizontal plane.
@@ -207,6 +212,7 @@ families:
         provenance: stated
   BTSBPMy:
     class: BeamPositionMonitor
+    devices: names
     aliases:
     - BTSBPMy
     description: The nine booster-to-storage-ring transfer line BPMs, vertical plane.
@@ -221,6 +227,7 @@ families:
         provenance: stated
   HCM:
     class: HCorrector
+    devices: names
     aliases:
     - HCM
     description: The 78 horizontal orbit correctors (76 with channels), with current readback and setpoint.
@@ -235,6 +242,7 @@ families:
         provenance: stated
   VCM:
     class: VCorrector
+    devices: names
     aliases:
     - VCM
     description: The 78 vertical orbit correctors (74 with channels), with current readback and setpoint.
@@ -250,6 +258,7 @@ families:
   HCMCurrReference:
     branch: Corrector
     class: CorrectorCurrentReference
+    devices: names
     aliases:
     - HCMCurrReference
     description: Reference current of the four sector-12 horizontal correctors that serve beamline 5.
@@ -262,6 +271,7 @@ families:
   VCMCurrReference:
     branch: Corrector
     class: CorrectorCurrentReference
+    devices: names
     aliases:
     - VCMCurrReference
     description: Reference current of the four sector-12 vertical correctors that serve beamline 5.
@@ -273,6 +283,7 @@ families:
         provenance: stated
   BEND:
     class: Dipole
+    devices: names
     aliases:
     - BEND
     description: The 36 main dipoles on one supply string, with current readback, immediate setpoint and
@@ -292,6 +303,7 @@ families:
   BDM:
     branch: Corrector
     class: BendTrim
+    devices: names
     aliases:
     - BDM
     description: Trim windings on the main dipole string, tagged as corrector, bend and multipole-corrector
@@ -307,6 +319,7 @@ families:
         provenance: stated
   CD:
     class: Dipole
+    devices: names
     aliases:
     - CD
     description: The four sector-9 dipole correctors (CD), tagged bend and corrector in the Middle Layer,
@@ -325,6 +338,7 @@ families:
         provenance: stated
   QF:
     class: Quadrupole
+    devices: names
     aliases:
     - QF
     description: The 28 arc focusing quadrupoles QF on one supply string.
@@ -342,6 +356,7 @@ families:
         provenance: stated
   QD:
     class: Quadrupole
+    devices: names
     aliases:
     - QD
     description: The 28 arc defocusing quadrupoles QD on one supply string.
@@ -359,6 +374,7 @@ families:
         provenance: stated
   QFC:
     class: Quadrupole
+    devices: names
     aliases:
     - QFC
     description: The 14 arc quadrupoles QFC on one supply string.
@@ -376,6 +392,7 @@ families:
         provenance: stated
   QDX:
     class: Quadrupole
+    devices: names
     aliases:
     - QDX
     description: The four matching quadrupoles QDX in the east and west straights.
@@ -393,6 +410,7 @@ families:
         provenance: stated
   QFX:
     class: Quadrupole
+    devices: names
     aliases:
     - QFX
     description: The four matching quadrupoles QFX in the east and west straights.
@@ -410,6 +428,7 @@ families:
         provenance: stated
   QDY:
     class: Quadrupole
+    devices: names
     aliases:
     - QDY
     description: The four matching quadrupoles QDY in the east and west straights.
@@ -427,6 +446,7 @@ families:
         provenance: stated
   QFY:
     class: Quadrupole
+    devices: names
     aliases:
     - QFY
     description: The four matching quadrupoles QFY in the east and west straights.
@@ -444,6 +464,7 @@ families:
         provenance: stated
   QDZ:
     class: Quadrupole
+    devices: names
     aliases:
     - QDZ
     description: The four matching quadrupoles QDZ in the east and west straights.
@@ -461,6 +482,7 @@ families:
         provenance: stated
   QFZ:
     class: Quadrupole
+    devices: names
     aliases:
     - QFZ
     description: The four matching quadrupoles QFZ in the east and west straights.
@@ -478,6 +500,7 @@ families:
         provenance: stated
   Q9S:
     class: Quadrupole
+    devices: names
     aliases:
     - Q9S
     description: The three sector-9 QF quadrupoles on individual supplies.
@@ -495,6 +518,7 @@ families:
         provenance: stated
   SF:
     class: Sextupole
+    devices: names
     aliases:
     - SF
     description: The 28 arc focusing sextupoles SF on one supply string; chromaticity correctors.
@@ -512,6 +536,7 @@ families:
         provenance: stated
   SD:
     class: Sextupole
+    devices: names
     aliases:
     - SD
     description: The 28 arc defocusing sextupoles SD on one supply string; chromaticity correctors.
@@ -529,6 +554,7 @@ families:
         provenance: stated
   SFM:
     class: Sextupole
+    devices: names
     aliases:
     - SFM
     description: The eight matching-cell sextupoles SFM; chromaticity correctors.
@@ -546,6 +572,7 @@ families:
         provenance: stated
   SDM:
     class: Sextupole
+    devices: names
     aliases:
     - SDM
     description: The eight matching-cell sextupoles SDM; chromaticity correctors.
@@ -564,6 +591,7 @@ families:
   SkewQuad:
     branch: Quadrupole
     class: SkewQuadrupole
+    devices: names
     aliases:
     - SkewQuad
     description: The 72 skew quadrupole windings on the sextupoles, used for coupling correction.
@@ -579,6 +607,7 @@ families:
   KickerAmp:
     branch: Magnet
     class: InjectionKicker
+    devices: names
     aliases:
     - KickerAmp
     description: Injection kicker pulser amplitude for the three kickers, in DAC units.
@@ -594,6 +623,7 @@ families:
   KickerDelay:
     branch: Magnet
     class: InjectionKicker
+    devices: names
     aliases:
     - KickerDelay
     description: Injection kicker pulse delay for the three kickers.
@@ -608,6 +638,7 @@ families:
         provenance: stated
   RF:
     class: RadioFrequency
+    devices: names
     aliases:
     - RF
     description: 'The RF station: ring frequency, cavity voltage, station phase and klystron power, each
@@ -645,6 +676,7 @@ families:
   TUNE:
     branch: Instrumentation
     class: TuneMonitor
+    devices: names
     aliases:
     - TUNE
     description: The tune measurement, read as the measured fractional tunes on one broadcast channel.
@@ -656,6 +688,7 @@ families:
         provenance: stated
   DCCT:
     class: BeamCurrentMonitor
+    devices: names
     aliases:
     - DCCT
     description: The DCCT, read as the averaged stored-beam current.
@@ -668,6 +701,7 @@ families:
   ShuntCurrent:
     branch: Instrumentation
     class: QuadrupoleShunt
+    devices: names
     aliases:
     - ShuntCurrent
     description: Shunt current of the quadrupole measurement shunt system (QMS).
@@ -683,6 +717,7 @@ families:
   ShuntRelay:
     branch: Instrumentation
     class: QuadrupoleShunt
+    devices: names
     aliases:
     - ShuntRelay
     description: Channel select relay of the quadrupole measurement shunt system (QMS), addressed by quadrupole
@@ -699,6 +734,7 @@ families:
   MachineParameters:
     branch: Instrumentation
     class: MachineStatus
+    devices: names
     aliases:
     - MachineParameters
     description: Machine status words such as the beam status, exposed as four monitor and setpoint pairs.
@@ -714,6 +750,7 @@ families:
   Septum:
     branch: Magnet
     class: InjectionSeptum
+    devices: names
     aliases:
     - Septum
     description: The injection septum, driven as the last BTS bend, with current readback and setpoint.
@@ -728,6 +765,7 @@ families:
         provenance: stated
   IonGauge:
     class: Gauge
+    devices: address
     aliases:
     - IonGauge
     description: The 55 ion gauges, read as vacuum pressure.
@@ -739,6 +777,7 @@ families:
         provenance: stated
   IonPump:
     class: Pump
+    devices: address
     aliases:
     - IonPump
     description: The 28 ion pumps, read as pump current.
@@ -751,6 +790,7 @@ families:
   BLOpen:
     branch: Instrumentation
     class: BeamlineMonitor
+    devices: names
     aliases:
     - BLOpen
     description: Open state of each of the 11 beamlines.
@@ -763,6 +803,7 @@ families:
   BLSum:
     branch: Instrumentation
     class: BeamlineMonitor
+    devices: names
     aliases:
     - BLSum
     description: Beamline BPM sum signal for each of the 11 beamlines.
@@ -775,6 +816,7 @@ families:
   BLErr:
     branch: Instrumentation
     class: BeamlineMonitor
+    devices: names
     aliases:
     - BLErr
     description: Beamline BPM vertical error signal for each of the 11 beamlines.
@@ -787,6 +829,7 @@ families:
   BPLD:
     branch: Instrumentation
     class: OrbitInterlock
+    devices: names
     aliases:
     - BPLD
     description: 'Orbit-interlock beam position limit detectors: the state of each of the 18 interlock

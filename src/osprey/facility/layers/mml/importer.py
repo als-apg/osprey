@@ -10,8 +10,9 @@ What is written, relative to ``data/facility/``:
 * ``imported/mml/devices.yaml``: one device per device of a family that
   carries a channel, its id and the slots it stands for resolved by the
   identity model (:mod:`~osprey.facility.layers.mml.identity`): the export's
-  ``CommonNames`` entry at the slot's position, slots naming one device being
-  one record; typed by the mapping's family ``class`` (the nearest class
+  ``CommonNames`` entry at the slot's position, or what the mapping's
+  ``devices`` answer says where the export names none, slots naming one
+  device being one record; typed by the mapping's family ``class`` (the nearest class
   every such family's class descends from); its ``names`` carry the export's
   ``CommonNames`` slot and its ``attributes`` the export's ``DeviceList`` row
   and ``ElementList`` slot, each only when the family states one per device.
@@ -220,8 +221,9 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
     Raises:
         ImportStop: ``mapping-draft`` when the mapping was absent and a draft
             was written; ``mapping-undecided`` while a slot it needs is
-            undecided; ``export-invalid`` or ``reference-missing`` from the
-            wiring pass.
+            undecided; ``mapping-invalid`` for a ``devices`` answer the
+            export cannot carry; ``export-invalid`` or ``reference-missing``
+            from the wiring pass.
         MappingError: The mapping has the wrong structure.
     """
     exports = read_exports(paths)
@@ -245,7 +247,9 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
 
     Raises:
         ImportStop: ``mapping-undecided`` for a system or family the mapping
-            does not name, or a transport line without initial twiss;
+            does not name, a family whose devices it leaves unidentified, or
+            a transport line without initial twiss; ``mapping-invalid`` for a
+            ``devices`` answer the export cannot carry;
             ``export-invalid`` or ``reference-missing`` from the wiring pass.
         MappingError: The mapping answers a cavity voltage for a deck that
             holds its cavity.
@@ -275,7 +279,12 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
             views.append(view)
         models.append(_model(exports, system, systems[system]))
 
-    ids = device_ids(views, systems)
+    answered = {
+        raw: family.devices
+        for raw, family in mapping.families.items()
+        if family.devices is not None
+    }
+    ids = device_ids(views, systems, answered)
     owners = endpoints(views, ids)
     branches = {name: branch.parent for name, branch in mapping.branches.items()}
     devices: dict[str, dict[str, Any]] = {}

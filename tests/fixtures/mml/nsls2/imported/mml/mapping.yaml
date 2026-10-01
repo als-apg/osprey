@@ -136,6 +136,7 @@ section_order:
 families:
   BPMx:
     class: BeamPositionMonitor
+    devices: names
     aliases:
     - BPMx
     description: 'Horizontal beam position monitors: 180 in the storage ring (position, turn-by-turn)
@@ -154,6 +155,8 @@ families:
         provenance: stated
   BPMy:
     class: BeamPositionMonitor
+    devices:
+      same_as: BPMx
     aliases:
     - BPMy
     description: 'Vertical beam position monitors: 180 in the storage ring (position, turn-by-turn) and
@@ -172,6 +175,7 @@ families:
         provenance: stated
   HCM:
     class: HCorrector
+    devices: names
     aliases:
     - HCM
     description: 'Horizontal orbit correctors: 180 in the storage ring with current and integrated-kick
@@ -199,6 +203,7 @@ families:
         provenance: stated
   VCM:
     class: VCorrector
+    devices: names
     aliases:
     - VCM
     description: 'Vertical orbit correctors: 180 in the storage ring with current and integrated-kick
@@ -226,6 +231,7 @@ families:
         provenance: stated
   QH1:
     class: Quadrupole
+    devices: names
     aliases:
     - QH1
     description: High-beta straight quadrupoles QH1, one per cell; tune correctors.
@@ -246,6 +252,7 @@ families:
         provenance: stated
   QH2:
     class: Quadrupole
+    devices: names
     aliases:
     - QH2
     description: High-beta straight quadrupoles QH2, one per cell; tune correctors.
@@ -266,6 +273,7 @@ families:
         provenance: stated
   QH3:
     class: Quadrupole
+    devices: names
     aliases:
     - QH3
     description: High-beta straight quadrupoles QH3, one per cell; tune correctors.
@@ -286,6 +294,7 @@ families:
         provenance: stated
   QL1:
     class: Quadrupole
+    devices: names
     aliases:
     - QL1
     description: Low-beta straight quadrupoles QL1, one per cell; tune correctors.
@@ -306,6 +315,7 @@ families:
         provenance: stated
   QL2:
     class: Quadrupole
+    devices: names
     aliases:
     - QL2
     description: Low-beta straight quadrupoles QL2, one per cell; tune correctors.
@@ -326,6 +336,7 @@ families:
         provenance: stated
   QL3:
     class: Quadrupole
+    devices: names
     aliases:
     - QL3
     description: Low-beta straight quadrupoles QL3, one per cell; tune correctors.
@@ -346,6 +357,7 @@ families:
         provenance: stated
   QM1:
     class: Quadrupole
+    devices: names
     aliases:
     - QM1
     description: Arc quadrupoles QM1, two per cell; dispersion correctors.
@@ -366,6 +378,7 @@ families:
         provenance: stated
   QM2:
     class: Quadrupole
+    devices: names
     aliases:
     - QM2
     description: Arc quadrupoles QM2, two per cell; dispersion correctors.
@@ -386,6 +399,7 @@ families:
         provenance: stated
   SM1:
     class: Sextupole
+    devices: names
     aliases:
     - SM1
     description: Arc sextupoles SM1, two per cell; chromaticity correctors.
@@ -408,6 +422,7 @@ families:
         provenance: stated
   SM2:
     class: Sextupole
+    devices: names
     aliases:
     - SM2
     description: Arc sextupoles SM2, one per cell; chromaticity correctors.
@@ -430,6 +445,7 @@ families:
         provenance: stated
   SH1:
     class: Sextupole
+    devices: names
     aliases:
     - SH1
     description: Harmonic sextupoles SH1 in the high-beta straights, one per cell.
@@ -452,6 +468,7 @@ families:
         provenance: stated
   SH3:
     class: Sextupole
+    devices: names
     aliases:
     - SH3
     description: Harmonic sextupoles SH3 in the high-beta straights, one per cell.
@@ -474,6 +491,7 @@ families:
         provenance: stated
   SH4:
     class: Sextupole
+    devices: names
     aliases:
     - SH4
     description: Harmonic sextupoles SH4 in the high-beta straights, one per cell.
@@ -496,6 +514,7 @@ families:
         provenance: stated
   SL1:
     class: Sextupole
+    devices: names
     aliases:
     - SL1
     description: Harmonic sextupoles SL1 in the low-beta straights, one per cell.
@@ -518,6 +537,7 @@ families:
         provenance: stated
   SL2:
     class: Sextupole
+    devices: names
     aliases:
     - SL2
     description: Harmonic sextupoles SL2 in the low-beta straights, one per cell.
@@ -540,6 +560,7 @@ families:
         provenance: stated
   SL3:
     class: Sextupole
+    devices: names
     aliases:
     - SL3
     description: Harmonic sextupoles SL3 in the low-beta straights, one per cell.
@@ -563,6 +584,7 @@ families:
   SQ:
     branch: Quadrupole
     class: SkewQuadrupole
+    devices: names
     aliases:
     - SQ
     description: Skew quadrupole windings, two per cell, used for coupling correction.
@@ -577,6 +599,7 @@ families:
         provenance: stated
   BEND:
     class: Dipole
+    devices: names
     aliases:
     - BEND
     description: 'Main dipoles: the storage-ring bend string (one supply per pair of cells) and the four
@@ -599,6 +622,7 @@ families:
         provenance: stated
   RF:
     class: RadioFrequency
+    devices: address
     aliases:
     - RF
     description: The storage-ring RF master oscillator, exposed as its frequency readback and setpoint.
@@ -614,6 +638,7 @@ families:
   TUNE:
     branch: Instrumentation
     class: TuneMonitor
+    devices: address
     aliases:
     - TUNE
     description: The tune measurement system, read as the horizontal and vertical betatron tunes.
@@ -625,6 +650,7 @@ families:
         provenance: stated
   DCCT:
     class: BeamCurrentMonitor
+    devices: address
     aliases:
     - DCCT
     description: The storage-ring DCCT, read as the averaged stored-beam current.
@@ -642,6 +668,7 @@ families:
         provenance: stated
   Q:
     class: Quadrupole
+    devices: names
     aliases:
     - Q
     description: The 15 LTB quadrupoles, each with a current readback and setpoint, an on/off control

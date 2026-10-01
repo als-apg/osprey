@@ -22,8 +22,8 @@ judgment the export pends, and what each model wires. The document shape is::
             voltage: <volts>  # optional; a Frequency family's cavity voltage
     section_order: [<model name>, ...]
     branches: {<class>: {parent, description}}            # optional
-    families: {<raw family>: {rename?, branch?, class?, aliases, description,
-                              provenance, channels, fields}}
+    families: {<raw family>: {rename?, branch?, class?, devices?, aliases,
+                              description, provenance, channels, fields}}
     directions: {<raw family>.<field>: {direction: read | write | null,
                                         provenance, override?}}
     judgments: {<raw family>: {rows_beyond_devices?, unbound_devices?,
@@ -36,6 +36,15 @@ every slot a reviewer decides, so a freshly written draft parses;
 :func:`require_decided` refuses the import while any such slot is still
 ``null`` (``import mml: mapping-undecided``).
 
+A family's ``devices`` says which device each of its slots is, the one thing
+an export may leave unstated: ``names`` (the export's ``CommonNames`` by
+position), a list of local names (one per device), ``address`` (each slot
+named by the device segment of its address) or ``{same_as: <raw family>}``
+(slot ``i`` is the device slot ``i`` of the named family is). A family
+without the key is identified by ``names``; the import stops
+(``mapping-undecided``) where the export names no device for one of its
+slots, and (``mapping-invalid``) where an answer does not fit the export.
+
 Every channel's role follows from its field's direction (:func:`field_roles`):
 ``write`` is a setpoint, ``read`` a readback, and a family's ``Setpoint`` field
 reads back through its ``Monitor`` field when the family has both; every other
@@ -44,7 +53,8 @@ direction is ``write`` is a setpoint of its own and pairs with nothing.
 
 :func:`check_mapping` checks meaning: identity and model names are PN_LOCAL,
 ``section_order`` lists every model once, classes and branches resolve against
-the vocabulary, every direction and wiring family names a field the mapping
+the vocabulary, a ``devices`` answer names another family or one-word device
+names, every direction and wiring family names a field the mapping
 describes, and -- given the export -- the mapping names exactly the export's
 systems and families, gives every channel-bearing field a direction, a
 ``stated`` direction agrees with the export's own vote unless ``override``, and
@@ -56,7 +66,10 @@ name the family can take.
 When the file is absent, :func:`load_or_draft` writes a draft built from the
 export by :func:`draft_mapping` and stops the import
 (``import mml: mapping-draft``), so the reviewer edits one stable file rather
-than writing it from scratch.
+than writing it from scratch. The draft proposes every family's ``devices``:
+``names`` where the export names every device, ``same_as`` where exactly one
+such family binds the other axis of the same addresses, else ``address`` with
+the ids it yields in a comment beneath.
 
 The importer's stops are :class:`ImportStop`: one line each, prefixed
 ``import mml: <problem>:``, exit status 1.
@@ -65,6 +78,7 @@ The importer's stops are :class:`ImportStop`: one line each, prefixed
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,6 +90,7 @@ __all__ = [
     "CALIBRATION_KINDS",
     "MAPPING_FILE",
     "DIRECTION_VALUES",
+    "DeviceIdentity",
     "ENGINE_AXES",
     "ROWS_BEYOND_KIND",
     "SHARED_KIND",
@@ -95,6 +110,7 @@ __all__ = [
     "Model",
     "OwnerMap",
     "RowAnswer",
+    "SameAs",
     "SharedAnswer",
     "Problem",
     "UnboundAnswer",
@@ -123,6 +139,9 @@ ENGINE_AXES: frozenset[str] = frozenset({"x", "y"})
 
 #: Where the mapping lives, relative to ``data/facility/``.
 MAPPING_FILE = "imported/mml/mapping.yaml"
+
+#: A device's local name, the part of its id after ``<model>/``.
+_LOCAL_NAME = re.compile(r"[0-9A-Za-z_]+")
 
 #: The document spelling of each judgment kind.
 ROWS_BEYOND_KIND = "rows_beyond_devices"
@@ -252,12 +271,25 @@ class Field:
 
 
 @dataclass(frozen=True)
+class SameAs:
+    """The ``{same_as: <raw family>}`` answer: each slot is the named family's device."""
+
+    family: str
+
+
+#: How a family's devices are identified: by the export's names, by address,
+#: by the mapping's own list of local names, or as another family's devices.
+DeviceIdentity = Literal["names", "address"] | tuple[str, ...] | SameAs
+
+
+@dataclass(frozen=True)
 class Family:
     """One family, keyed in the document by its raw export token.
 
     ``class_`` (``class`` in the document) is a vocabulary class or a new one;
     ``branch`` is the class a new one extends. A family with no channels
-    carries neither key.
+    carries neither key. ``devices`` is ``None`` both when the key is left
+    out and when it is ``null``; ``devices_present`` tells the two apart.
     """
 
     raw: str
@@ -269,6 +301,8 @@ class Family:
     provenance: str
     channels: int
     fields: dict[str, Field]
+    devices: DeviceIdentity | None = None
+    devices_present: bool = False
 
 
 @dataclass(frozen=True)
@@ -467,7 +501,8 @@ _WIRING_OPTIONAL = frozenset({"voltage"})
 _ENGINE_KEYS = frozenset({"attribute", "index", "axis"})
 _BRANCH_KEYS = frozenset({"parent", "description"})
 _FAMILY_REQUIRED = frozenset({"aliases", "description", "provenance", "channels", "fields"})
-_FAMILY_OPTIONAL = frozenset({"rename", "branch", "class"})
+_FAMILY_OPTIONAL = frozenset({"rename", "branch", "class", "devices"})
+_SAME_AS_KEYS = frozenset({"same_as"})
 _FIELD_KEYS = frozenset({"description", "provenance"})
 _DIRECTION_REQUIRED = frozenset({"direction", "provenance"})
 _DIRECTION_OPTIONAL = frozenset({"override"})
@@ -588,6 +623,32 @@ def _channels(body: dict, path: str) -> int:
     return int(value)
 
 
+def _devices(body: dict, path: str) -> DeviceIdentity | None:
+    key = f"{path}.devices"
+    value = body.get("devices")
+    if value is None:
+        return None
+    if isinstance(value, list):
+        names = _str_list(value, key)
+        if not names:
+            raise MappingError(key, "must name at least one device")
+        for index, name in enumerate(names):
+            if not name.strip():
+                raise MappingError(f"{key}[{index}]", "must name a device, got an empty string")
+        return names
+    if isinstance(value, dict):
+        _keys(value, key, _SAME_AS_KEYS, _NONE)
+        return SameAs(family=_str(value, "same_as", key, nullable=False))
+    if value == "names":
+        return "names"
+    if value == "address":
+        return "address"
+    raise MappingError(
+        key,
+        f"must be names, address, a list of names, a same_as: entry or null, got {_shown(value)}",
+    )
+
+
 def _families(value: Any) -> dict[str, Family]:
     families: dict[str, Family] = {}
     for raw, body, path in _entries(value, "families"):
@@ -602,6 +663,8 @@ def _families(value: Any) -> dict[str, Family]:
             provenance=_str(body, "provenance", path, nullable=False),
             channels=_channels(body, path),
             fields=_fields(body["fields"], f"{path}.fields"),
+            devices=_devices(body, path),
+            devices_present="devices" in body,
         )
     return families
 
@@ -833,6 +896,7 @@ _DESCRIBE = "describe it"
 _ANSWER_ROW = "answer drop, device or {field: <name>}"
 _ANSWER_UNBOUND = "answer drop or keep"
 _ANSWER_SHARED = "answer keep_all or name each group's owner"
+_ANSWER_DEVICES = "write names, address, a list of names or {same_as: <family>}"
 
 
 def _vocabulary() -> dict[str, str | None]:
@@ -856,7 +920,8 @@ def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
     description; a wiring family's ``element_field``, ``engine`` or
     ``calibration``; the ``class`` of a family with channels, and its
     ``branch`` unless the class is a vocabulary class or a declared branch; a
-    direction; and every judgment answer the document carries.
+    family's ``devices`` when the key is written; a direction; and every
+    judgment answer the document carries.
 
     Args:
         mapping: The parsed mapping.
@@ -890,6 +955,8 @@ def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
                 found.append((f"{path}.class", "name the device class"))
             elif family.branch is None and family.class_ not in known:
                 found.append((f"{path}.branch", "name the class it extends"))
+        if family.devices_present and family.devices is None:
+            found.append((f"{path}.devices", _ANSWER_DEVICES))
         if family.description is None:
             found.append((f"{path}.description", _DESCRIBE))
         for name, fld in family.fields.items():
@@ -1037,6 +1104,23 @@ def _family_classes(mapping: Mapping) -> Iterator[Problem]:
             yield Problem(f"{path}.branch", _unknown_class(branch))
 
 
+def _family_devices(mapping: Mapping) -> Iterator[Problem]:
+    for raw, family in mapping.families.items():
+        key = f"families.{raw}.devices"
+        answer = family.devices
+        if isinstance(answer, SameAs):
+            if answer.family == raw:
+                yield Problem(key, f"{raw} cannot take its devices from itself")
+            elif answer.family not in mapping.families:
+                yield Problem(key, f"{answer.family} is no family")
+        elif isinstance(answer, tuple):
+            for index, name in enumerate(answer):
+                if _LOCAL_NAME.fullmatch(name) is None:
+                    yield Problem(
+                        f"{key}[{index}]", f"{name!r} is not one word of letters, digits and _"
+                    )
+
+
 def _declared_branches(mapping: Mapping) -> Iterator[Problem]:
     vocabulary = _vocabulary()
     for name, branch in mapping.branches.items():
@@ -1097,6 +1181,7 @@ _RULES: tuple[Callable[[Mapping], Iterator[Problem]], ...] = (
     _section_order,
     _family_tokens,
     _family_classes,
+    _family_devices,
     _declared_branches,
     _direction_fields,
     _wiring_fields,
