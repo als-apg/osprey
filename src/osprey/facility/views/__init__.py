@@ -46,7 +46,8 @@ class View:
 
     Attributes:
         name: The view's name.
-        path: The view's directory, relative to the render's ``data/``.
+        path: The view's directory, relative to the render's ``data/``; ``.``
+            is ``data/`` itself.
         written_when: Whether a render carries the view.
         reason: The config key or model fact ``written_when`` reads, named when
             the view is not written.
@@ -97,6 +98,12 @@ def _write_simulator(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_simulator_view(root, inputs)
 
 
+def _write_limits(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.limits import write_limits_view
+
+    return write_limits_view(root, inputs)
+
+
 #: Every view, in the order a render writes them.
 VIEWS: tuple[View, ...] = (
     View(
@@ -105,5 +112,12 @@ VIEWS: tuple[View, ...] = (
         written_when=_always,
         reason="always written",
         write=_write_simulator,
+    ),
+    View(
+        name="limits",
+        path=".",
+        written_when=_always,
+        reason="always written",
+        write=_write_limits,
     ),
 )

@@ -33,6 +33,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.xdist_group("built_control_assistant
 SERVED = "data/simulator/served_models.json"
 ADDRESSES = "data/simulator/addresses.json"
 DECK = "data/simulator/decks/SR.json"
+LIMITS = "data/channel_limits.json"
 
 
 def _render(
@@ -44,10 +45,12 @@ def _render(
     return render_dir
 
 
-def test_every_render_writes_the_three_files(built_control_assistant: BuiltProject) -> None:
+def test_every_render_writes_the_simulator_files_beside_the_limits(
+    built_control_assistant: BuiltProject,
+) -> None:
     assert built_control_assistant.outputs
     for outputs in built_control_assistant.outputs:
-        assert sorted(outputs.files) == sorted([FACILITY_FILE, ADDRESSES, DECK, SERVED])
+        assert sorted(outputs.files) == sorted([FACILITY_FILE, ADDRESSES, DECK, SERVED, LIMITS])
 
 
 def test_addresses_are_the_facility_file_channels_and_the_served_status(
