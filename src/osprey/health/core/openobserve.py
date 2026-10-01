@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from osprey.build.claude_code_telemetry import openobserve_published_port
+from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_REMEDY, openobserve_published_port
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
 from osprey.health.models import CheckResult, Status
 
@@ -80,7 +80,7 @@ def openobserve(
                 CATEGORY,
                 Status.WARNING,
                 str(exc),
-                details="Set services.openobserve.port to an integer port and run `osprey build`.",
+                details=OPENOBSERVE_PORT_REMEDY,
             )
         else:
             healthz = await _check_healthz(bind, port, transport)

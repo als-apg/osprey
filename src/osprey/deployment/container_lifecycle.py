@@ -2237,6 +2237,26 @@ def clear_staged_site_ca(cmd: Sequence[str], context_dir: Path | str) -> None:
         logger.warning("Could not remove the staged site CA %s", staged)
 
 
+def rendered_compose_services(path: Path) -> Mapping[Any, Any] | None:
+    """The ``services`` mapping of one rendered compose document.
+
+    Args:
+        path: The rendered compose document.
+
+    Returns:
+        The mapping, or ``None`` when the file cannot be read, does not parse as
+        YAML, or holds no ``services`` mapping.
+    """
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(document, Mapping):
+        return None
+    services = document.get("services")
+    return services if isinstance(services, Mapping) else None
+
+
 def clear_staged_service_site_ca(
     compose_files: Sequence[str | Path], repo_root: Path | str
 ) -> None:
@@ -2260,17 +2280,10 @@ def clear_staged_service_site_ca(
     root = Path(repo_root)
     for compose_file in compose_files:
         path = Path(compose_file)
-        path = path if path.is_absolute() else root / path
-        try:
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
+        services = rendered_compose_services(path if path.is_absolute() else root / path)
+        if services is None:
             # A cleanup step is never what fails a deploy that otherwise
             # succeeded, so an unreadable or malformed document is skipped.
-            continue
-        if not isinstance(document, Mapping):
-            continue
-        services = document.get("services")
-        if not isinstance(services, Mapping):
             continue
         for service in services.values():
             # Guarded at every level: a hand-edited document must not raise
@@ -2312,6 +2325,24 @@ class ComposeBuildSelection(NamedTuple):
     build: tuple[str, ...]
     held: dict[str, tuple[str, str]]
 
+    def held_facts(self) -> list[str]:
+        """One line per held service, naming the image it runs instead of a build."""
+        return [
+            f"{service} runs {image} ({variable}); not built"
+            for service, (variable, image) in self.held.items()
+        ]
+
+    def build_targets(self) -> list[str] | None:
+        """The service names a ``compose build`` names, or ``None`` when nothing is built.
+
+        Empty when no service is held, so the build covers every buildable
+        service; the services still built when one is held; ``None`` when every
+        buildable service is held.
+        """
+        if not self.held:
+            return []
+        return list(self.build) if self.build else None
+
 
 def _compose_build_selection(
     compose_files: Sequence[str | Path], repo_root: Path | str, env: Mapping[str, str]
@@ -2350,15 +2381,8 @@ def _compose_build_selection(
     held: dict[str, tuple[str, str]] = {}
     for compose_file in compose_files:
         path = Path(compose_file)
-        path = path if path.is_absolute() else root / path
-        try:
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
-            continue
-        if not isinstance(document, Mapping):
-            continue
-        services = document.get("services")
-        if not isinstance(services, Mapping):
+        services = rendered_compose_services(path if path.is_absolute() else root / path)
+        if services is None:
             continue
         for name, service in services.items():
             if not isinstance(service, Mapping) or not isinstance(service.get("build"), Mapping):
@@ -4603,6 +4627,7 @@ def _preflight_store_address(config, compose_files):
     :raises RuntimeError: If the store's port cannot be read, or the compose
         file publishes the store on a different host port
     """
+    from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_REMEDY
     from osprey.deployment import openobserve_provision
 
     if not openobserve_provision.store_deployed(config):
@@ -4615,7 +4640,7 @@ def _preflight_store_address(config, compose_files):
         output.fail(
             "The telemetry store's host port cannot be read",
             str(exc),
-            "Set services.openobserve.port to an integer port and run `osprey build`.",
+            OPENOBSERVE_PORT_REMEDY,
         )
         raise RuntimeError("telemetry store port preflight failed (see report above)") from exc
     if mismatch is None:
@@ -6844,12 +6869,11 @@ def _start_stack(
         # below hands the terminal to compose and never returns. A service an
         # override holds is named out of the build rather than built under the
         # override's name.
-        for service, (variable, image) in selection.held.items():
-            _report_fact(f"{service} runs {image} ({variable}); not built")
-        if not selection.held or selection.build:
-            build_cmd = base_cmd + ["build"]
-            if selection.held:
-                build_cmd += list(selection.build)
+        for fact in selection.held_facts():
+            _report_fact(fact)
+        build_targets = selection.build_targets()
+        if build_targets is not None:
+            build_cmd = base_cmd + ["build", *build_targets]
             logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
             # Watched for the duration of the build and no longer: the live view
             # (and its heartbeats) must go quiet the moment compose returns,
