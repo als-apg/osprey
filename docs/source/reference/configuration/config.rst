@@ -682,8 +682,9 @@ Customize returns a user to.
 An item this deployment cannot show leaves the arrangement before it is served:
 ``system-health`` without the SYSTEM panel in ``web_panels``, ``bluesky-queue``
 without the Bluesky panel, ``identity`` with neither a terminal user nor an
-``app_name``. ``osprey build`` and ``osprey validate`` name each such entry you
-wrote, and the server logs the same line at start-up.
+``app_name``, ``control-target`` where ``web.control_target_picker`` is
+``false``. The server logs each such entry you wrote at start-up, and
+``osprey build`` and ``osprey validate`` name the two that need a panel.
 
 An item that needs an option takes a mapping instead of a bare name, for
 example ``- {type: clock, options: {zone: utc, format: 12h}}`` or
@@ -721,6 +722,26 @@ rendered. An option the item does not take, or a value it does not accept
 (``zone: UTC`` rather than ``utc``, a ``width`` past ``2000``), is reported the
 same way and dropped; the item keeps its default for that option. Twenty items
 per bar is the ceiling, and extras past it are dropped.
+
+.. _config-control-target-picker:
+
+The control-target picker
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   web:
+     control_target_picker: true
+
+The title bar's control-target chip names the machine this terminal stands on
+and opens the popover that switches it. The default is ``true``. Set it to
+``false`` only for a terminal that reaches no machine: no control-system tool
+server and no JUPYTER panel.
+
+The setting changes what the page shows, not what the agent may do. With it
+off, the ``control-target`` item is left out of every arrangement this terminal
+serves and is not offered in Customize. A value that is not a boolean is
+reported in the log and ``true`` is used.
 
 .. _config-file-watch-reconcile:
 

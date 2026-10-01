@@ -213,6 +213,9 @@ config:
   # rail's Tour control and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
+  # Whether the title bar offers the control-target picker. `false` only for
+  # a persona that reaches no machine.
+  # web.control_target_picker: true
   # Whether the web Config panel may edit this deployment's config.yml and
   # .claude/ setup files. `false` withdraws the panel's whole server surface
   # (every /api/config verb answers 403), not just its tab: these files are what

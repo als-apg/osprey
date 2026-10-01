@@ -30,19 +30,26 @@ from osprey.interfaces.web_terminal.app import (
     MAX_BAR_ITEMS_PER_HOST,
     _load_bar_items,
     bar_availability_context,
+    control_target_picker_available,
     effective_bar_layout,
     renderable_bar_layout,
 )
 
 #: A deployment that can show every gated item.
 _OFFERS_EVERYTHING = bar_availability_context(
-    identity_available=True, bluesky_available=True, system_health_available=True
+    identity_available=True,
+    bluesky_available=True,
+    system_health_available=True,
+    control_target_available=True,
 )
 
 #: A single-user deployment without the SYSTEM panel or the Bluesky bridge: the
 #: shape the shipped default degrades on.
 _BARE = bar_availability_context(
-    identity_available=False, bluesky_available=False, system_health_available=False
+    identity_available=False,
+    bluesky_available=False,
+    system_health_available=False,
+    control_target_available=True,
 )
 
 
@@ -402,3 +409,53 @@ class TestUnrenderableItemsLeaveTheDefault:
         assert layout["rev"] == 0
         assert layout["version"] == BAR_LAYOUT_VERSION
         assert _types(source["status"]) == ["space", "system-health", "clock"]
+
+
+class TestControlTargetPickerSetting:
+    """``web.control_target_picker``: on unless the config says ``false``."""
+
+    @pytest.mark.parametrize(
+        ("web", "expected"),
+        [
+            ({}, True),
+            ({"control_target_picker": True}, True),
+            ({"control_target_picker": False}, False),
+            ({"control_target_picker": "false"}, False),
+        ],
+    )
+    def test_reads_the_web_key(self, tmp_path, web, expected):
+        path = tmp_path / "config.yml"
+        path.write_text(yaml.safe_dump({"web": web}), encoding="utf-8")
+
+        assert control_target_picker_available(path) is expected
+
+    def test_a_value_that_is_not_a_boolean_keeps_the_picker(self, tmp_path, caplog):
+        path = tmp_path / "config.yml"
+        path.write_text(yaml.safe_dump({"web": {"control_target_picker": 3}}), encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING):
+            assert control_target_picker_available(path) is True
+        assert "web.control_target_picker" in caplog.text
+
+    def test_an_unreadable_config_keeps_the_picker(self, tmp_path, caplog):
+        path = tmp_path / "config.yml"
+        path.write_text("web: [unclosed", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING):
+            assert control_target_picker_available(path) is True
+        assert "web.control_target_picker" in caplog.text
+
+    def test_an_authored_entry_is_dropped_and_named(self, tmp_path, caplog):
+        path = _write_config(tmp_path, {"header": ["logo", "control-target"]})
+        context = bar_availability_context(
+            identity_available=True,
+            bluesky_available=True,
+            system_health_available=True,
+            control_target_available=False,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            layout = _load_bar_items(path, context=context)
+
+        assert _types(layout["header"]) == ["logo"]
+        assert "web.control_target_picker" in caplog.text

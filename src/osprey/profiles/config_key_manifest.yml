@@ -2494,6 +2494,15 @@ keys:
       four presets because `once` is what a first deployment wants and a
       rendered value would only repeat the default.
     default: once
+  web.control_target_picker:
+    rendered: false
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"control_target_picker"\s*\)'
+    note: >-
+      Whether the title bar offers the control-target picker (the chip and its
+      switching popover). Display only: it grants and removes no access.
+      Commented in the four root presets. A value that is not a boolean, or a
+      file that cannot be read, keeps the default.
+    default: true
   web.file_watch_reconcile_interval_s:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'

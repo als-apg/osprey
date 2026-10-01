@@ -993,6 +993,9 @@ config:
   # rail's Tour control and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
+  # Whether the title bar offers the control-target picker. `false` only for
+  # a persona that reaches no machine.
+  # web.control_target_picker: true
   # Target of the Documentation button. Point it at a locally hosted copy of
   # the docs when the control room has no route to the public site. Commented
   # rather than shipped live: a rendered value would put the OSPREY project's

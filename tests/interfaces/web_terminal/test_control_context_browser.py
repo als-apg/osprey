@@ -764,3 +764,35 @@ def test_the_machine_already_held_is_offered_no_switch_and_pends_nothing(
             assert page.locator(CHIP_STATE).inner_text() == settled_state
         finally:
             page.close()
+
+
+def test_a_terminal_with_the_picker_off_mounts_no_chip(tmp_path, monkeypatch, chromium_browser):
+    """``web.control_target_picker: false`` leaves the title bar with no picker.
+
+    The catalog gate alone is not enough: with no ``control-target`` shell on
+    the page, ``initControlTargetChip`` falls back to ``.header-actions``, which
+    the header always renders, so ``app.js`` asks the stamped context too. The
+    proof is the page itself: no chip, no popover anchor, no shell, and not one
+    read of the posture route.
+    """
+    with _chip_hub(tmp_path, monkeypatch) as (base_url, app, _root):
+        app.state.control_target_picker_available = False
+        page = chromium_browser.new_page()
+        posture_reads: list[str] = []
+        page.on(
+            "request",
+            lambda request: (
+                posture_reads.append(request.url)
+                if "/api/terminal/posture" in request.url
+                else None
+            ),
+        )
+        try:
+            page.goto(base_url, wait_until="load")
+            expect(page.locator('[data-bar-item="search"]')).to_have_count(1, timeout=TIMEOUT)
+            expect(page.locator(CHIP)).to_have_count(0)
+            expect(page.locator(".ctc-anchor")).to_have_count(0)
+            expect(page.locator('[data-bar-item="control-target"]')).to_have_count(0)
+            assert posture_reads == []
+        finally:
+            page.close()
