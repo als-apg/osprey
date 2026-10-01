@@ -22,32 +22,14 @@ wording changes.
 import asyncio
 import importlib
 import pkgutil
-import re
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
+from tests._vocabulary import PENDING_REWORDING, PROTOCOL_WORDS
+
 _VARIANTS = ("in_context", "middle_layer", "hierarchical", "graph")
-
-# Case-sensitive on purpose: lowercase ``epics`` names a connector type in config
-# text, and the bare demo ring name ``SR`` without a colon is not a match.
-PROTOCOL_WORDS = re.compile(r"\bPVs?\b|\bEPICS\b|SR:")
-
-# Phrases that still name a protocol word; an entry leaves when its wording changes.
-PENDING_REWORDING: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        (
-            "channel_finder_in_context",
-            "ask_channels",
-            "inputSchema/properties/question/description",
-        ),
-        ("channel_finder_graph", "read_cypher", "description"),
-        ("channel_finder_graph", "search_channels", "description"),
-        ("ariel", "keyword_search", "description"),
-        ("ariel_search", "keyword_search", "description"),
-    }
-)
 
 SERVERS = tuple(f"channel_finder_{v}" for v in _VARIANTS) + ("ariel", "ariel_search")
 

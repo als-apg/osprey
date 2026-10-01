@@ -20,13 +20,13 @@ from pathlib import Path
 
 import pytest
 
+from tests._vocabulary import RATCHET_WORD
 from tests.facility._batches import BATCHES, CURRENT_BATCH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: The word, case-insensitive on its own and as a snake_case part; the
-#: capitalised camelCase part (``PyATRingModel``) is matched case-sensitively.
-PATTERN = r"(?i:\bring\b|_ring\b|\bring_)|Ring(?=[A-Z_])"
+#: The word the scan matches, shared with the agent-facing guard.
+PATTERN = RATCHET_WORD
 
 SCAN_PATHS: tuple[str, ...] = (
     "src",
