@@ -2769,7 +2769,7 @@ def configured_registry_url(registry_cfg: Any) -> str:
 def resolve_personas(
     web_terminals: dict[str, Any],
     registry_cfg: dict[str, Any],
-    facility_prefix: str,
+    project_name: str,
     *,
     strict: bool = True,
 ) -> list[dict[str, Any]]:
@@ -2794,12 +2794,12 @@ def resolve_personas(
     ``modules.web_terminals.image_tag`` (``<tag>`` below, default ``latest``);
     local ``:local`` images are unaffected by that field:
 
-    * **No persona in effect** (``persona`` is ``None``): the facility defaults —
+    * **No persona in effect** (``persona`` is ``None``): the project defaults —
       ``image`` is ``<registry_url>/web-terminal:<tag>`` (unsuffixed, the same
       string the compose template names directly whenever ``<tag>`` is its
       ``latest`` default),
-      ``project`` and ``container_project_dir`` are ``<facility_prefix>-assistant``
-      / ``/app/<facility_prefix>-assistant``. This is the zero-migration path: a
+      ``project`` and ``container_project_dir`` are ``<project_name>-assistant``
+      / ``/app/<project_name>-assistant``. This is the zero-migration path: a
       config with no ``personas`` catalog at all resolves every entry here.
     * **Default persona** (resolved ``persona`` equals ``default_persona``, and
       a catalog entry exists for it): registry mode keeps the same un-suffixed
@@ -2808,9 +2808,9 @@ def resolve_personas(
       builds ``<persona.project>:local`` like every other persona.
       ``container_project_dir`` is ``/app/<project>`` from the catalog entry,
       exactly as for any other persona: the image is built FROM that project, so
-      pinning the directory to the facility default would name a path that
+      pinning the directory to the project default would name a path that
       image does not have. A catalog that gives the default persona a project
-      other than ``<facility_prefix>-assistant`` therefore moves where its
+      other than ``<project_name>-assistant`` therefore moves where its
       users' agent-data volume mounts — the volume itself is unchanged and
       keeps its contents, but they are no longer at the path the container
       reads.
@@ -2820,7 +2820,7 @@ def resolve_personas(
       persona image is tagged by its render alone, since the persona name
       contributes nothing to the image beyond the tag; a catalog entry with
       no ``project`` of its own falls back to the legacy
-      ``<facility_prefix>-assistant-<persona>:local``, whose suffix keeps it
+      ``<project_name>-assistant-<persona>:local``, whose suffix keeps it
       clear of the dispatch worker's ``<project>:local`` tag;
       ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
@@ -2834,8 +2834,9 @@ def resolve_personas(
             (``users``, ``personas``, ``default_persona``, ``image_source``).
         registry_cfg: The already-dict-coerced top-level ``registry`` section
             (only ``url`` is read).
-        facility_prefix: ``facility.prefix``, used for the zero-migration /
-            default-persona project dir and image (``<prefix>-assistant``).
+        project_name: The project name ``resolve_project_name()`` returns, used
+            for the zero-migration / default-persona project dir and image
+            (``<project_name>-assistant``).
         strict: When ``True`` (render/build/seed callers), an unresolvable
             persona reference — an explicit or inherited ``persona:`` naming a
             catalog entry that doesn't exist, or ``image_source: local`` with no
@@ -2922,8 +2923,8 @@ def resolve_personas(
             "configured"
         )
 
-    default_project = f"{facility_prefix}-assistant"
-    default_container_dir = f"/app/{facility_prefix}-assistant"
+    default_project = f"{project_name}-assistant"
+    default_container_dir = f"/app/{project_name}-assistant"
     default_image = f"{registry_url}/web-terminal:{image_tag}"
 
     def _with_optional_fields(entry: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
@@ -3041,7 +3042,7 @@ def resolve_personas(
             # share a `project` across different renders, and none may take
             # the deployment's own name, which the dispatch worker's
             # `<project>:local` tag occupies. Only the legacy entry WITHOUT
-            # its own `project` (resolved to the facility default above)
+            # its own `project` (resolved to the project default above)
             # keeps the `-<persona>` suffix: it has no render name of its own
             # to be distinct by, so the suffix is what keeps it clear of the
             # worker tag.
