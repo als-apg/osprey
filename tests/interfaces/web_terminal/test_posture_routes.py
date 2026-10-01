@@ -1,8 +1,8 @@
 """Tests for ``POST /api/terminal/posture`` — the operator's write-posture toggle.
 
 The posture is the operator's per-target sandbox toggle, and it belongs to the
-**deployment**: one control context, one ``posture`` field in its record, read
-live by every write-time gate. There is no per-session store behind it any
+**login identity**: one control context, one ``posture`` field in its record,
+read live by every write-time gate. There is no per-session store behind it any
 more, so a ``session_id`` names who made the gesture and decides nothing about
 what the gesture does.
 

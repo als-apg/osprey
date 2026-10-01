@@ -2773,7 +2773,7 @@ def _create_lifespan(
         reaper_task = asyncio.create_task(_reap_idle_chats())
 
         # ── Control-context ownership ──
-        # This deployment keeps one control context, and it has one writer: the
+        # This login keeps one control context, and it has one writer: the
         # web terminal whenever there is one, a controls server otherwise. The
         # claim is made here and renewed once a second, because the owner is
         # also who answers the switch requests other processes file. Fail-open

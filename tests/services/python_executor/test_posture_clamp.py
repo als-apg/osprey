@@ -244,7 +244,7 @@ def test_a_narrowed_target_refusal_names_that_target(session, _audit_zone):
     envelope = _envelope(exc_info)
     message = envelope["error_message"]
     assert "'live' control target" in message
-    assert "applies deployment-wide" in message
+    assert "applies to every session of this login" in message
     assert "This terminal session is in the sandbox posture" not in message
     assert "Turn writes back on for 'live' from the control-target chip in the header" in " ".join(
         envelope["suggestions"]

@@ -639,7 +639,8 @@ def _chip_reason(control_target: str | None, *, deployment_arms: bool) -> str:
         # denied as the gate.
         return f"{narrowing}. The store answered narrowing."
     return (
-        f"{narrowing}; applies deployment-wide. {remedy} if the write is intended; "
+        f"{narrowing}; applies to every session of this login. {remedy} if the write "
+        "is intended; "
         "config.yml is not the gate here. The store answered narrowing."
     )
 

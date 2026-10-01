@@ -259,7 +259,7 @@ def _refuse_narrowed_posture(target: str | None, *, details: dict | None = None)
     make_error(
         "safety_error",
         f"Writes are off for the '{target}' control target — turned off from the "
-        "control-target chip in the header; applies deployment-wide.",
+        "control-target chip in the header; applies to every session of this login.",
         [
             readonly_suggestion,
             f"Turn writes back on for '{target}' from the control-target chip in "
