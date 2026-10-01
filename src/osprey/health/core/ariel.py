@@ -8,15 +8,19 @@ therefore keyed on a top-level ``ariel`` config block. The category stays a vali
 contributes no rows (a silent skip), so a minimal build shows no ARIEL tile at
 all.
 
-When configured the category issues a single ``GET /api/status`` request against
+When configured the category issues a single ``GET /health`` request against
 the address the panel actually binds —
 :func:`osprey.registry.web.resolve_web_server_address` for ``"ariel"``, the one
 derivation the panel launcher itself is bound to — and derives every row from
-that one response:
+that one response. ``/health`` is the panel's one page the sign-in gate leaves
+open, and it carries the status facts this category reports, so the probe needs
+no credential; the gated ``/api/status`` is never asked.
 
 * ``ariel_status`` — the interface is reachable (``ok`` with ``latency_ms``);
-  ``warning`` when the store reports itself unhealthy, and — as the sole row —
-  ``warning`` when the interface is unreachable (the request is not repeated);
+  ``warning`` when the page reports ``degraded``, its sentence in ``details``.
+  The status row is the sole row when the interface is unreachable (the
+  request is not repeated) and when the page carries no ``service`` facts
+  (the panel runs without its search service, or the store did not answer);
 * ``ariel_entries`` — the logbook entry count as ``value`` (e.g. ``"48,291
   entries"``); ``warning`` when it is zero or absent;
 * ``ariel_last_ingestion`` — the age of the last successful ingestion as a
@@ -69,7 +73,7 @@ CATEGORY = "ariel"
 #: one the launcher binds for it.
 _REGISTRY_KEY = "ariel"
 
-_STATUS_TIMEOUT_S = 5.0
+_HEALTH_TIMEOUT_S = 5.0
 
 
 def ariel(
@@ -87,7 +91,8 @@ def ariel(
         context: Health runtime. Unused — ARIEL is probed over HTTP, no
             control-system connector is needed.
         transport: Optional httpx transport for dependency injection in tests
-            (e.g. :class:`httpx.MockTransport`); ``None`` uses httpx's default.
+            (e.g. :class:`httpx.ASGITransport` around the real panel app);
+            ``None`` uses httpx's default.
 
     Returns:
         A no-argument async callable returning the category's check results.
@@ -114,27 +119,28 @@ def ariel(
                     details=str(exc),
                 )
             ]
-        url = f"http://{host}:{port}/api/status"
+        url = f"http://{host}:{port}/health"
 
-        status_row, payload = await _fetch_status(url, transport)
-        if payload is None:
-            # Unreachable or unusable response: the status row carries the
-            # diagnostic and no further rows can be derived.
+        status_row, payload = await _fetch_health(url, transport)
+        facts = payload.get("service") if payload is not None else None
+        if not isinstance(facts, dict):
+            # Unreachable, unusable, or no status facts to report: the status
+            # row carries the diagnostic and no further rows can be derived.
             return [status_row]
 
         return [
             status_row,
-            _entries_row(payload),
-            _last_ingestion_row(payload, ariel_block),
+            _entries_row(facts),
+            _last_ingestion_row(facts, ariel_block),
             _modules_row(
                 "ariel_search_modules",
-                payload.get("enabled_search_modules"),
+                facts.get("enabled_search_modules"),
                 noun="search",
                 warn_when_empty=True,
             ),
             _modules_row(
                 "ariel_enhancement_modules",
-                payload.get("enabled_enhancement_modules"),
+                facts.get("enabled_enhancement_modules"),
                 noun="enhancement",
                 warn_when_empty=False,
             ),
@@ -143,19 +149,19 @@ def ariel(
     return _run
 
 
-async def _fetch_status(
+async def _fetch_health(
     url: str, transport: httpx.AsyncBaseTransport | None
 ) -> tuple[CheckResult, dict[str, Any] | None]:
-    """Issue the single ``GET /api/status`` call and build the ``ariel_status`` row.
+    """Issue the single ``GET /health`` call and build the ``ariel_status`` row.
 
-    Returns ``(row, payload)``. ``payload`` is the parsed status body on a usable
+    Returns ``(row, payload)``. ``payload`` is the parsed page body on a usable
     HTTP 200, or ``None`` when the interface is unreachable, answered non-200, or
     returned a body that is not a JSON object — in which case the row is a
     ``warning`` and the caller emits it alone.
     """
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=_STATUS_TIMEOUT_S, transport=transport) as client:
+        async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT_S, transport=transport) as client:
             resp = await client.get(url)
     except (httpx.HTTPError, OSError) as exc:
         return (
@@ -185,7 +191,7 @@ async def _fetch_status(
                 "ariel_status",
                 CATEGORY,
                 Status.WARNING,
-                f"/api/status returned HTTP {resp.status_code}",
+                f"/health returned HTTP {resp.status_code}",
                 latency_ms=latency_ms,
                 details=str(detail) if detail else "",
             ),
@@ -202,33 +208,31 @@ async def _fetch_status(
                 "ariel_status",
                 CATEGORY,
                 Status.WARNING,
-                f"/api/status returned a non-JSON body ({url})",
+                f"/health returned a non-JSON body ({url})",
                 latency_ms=latency_ms,
             ),
             None,
         )
 
-    if payload.get("healthy", True):
+    if payload.get("status") == "healthy":
         row = CheckResult(
             "ariel_status", CATEGORY, Status.OK, f"ARIEL reachable ({url})", latency_ms=latency_ms
         )
     else:
-        errors = payload.get("errors") or []
-        detail = "; ".join(str(e) for e in errors) if errors else ""
         row = CheckResult(
             "ariel_status",
             CATEGORY,
             Status.WARNING,
-            "ARIEL is reachable but reports unhealthy",
+            "ARIEL is reachable but reports degraded",
             latency_ms=latency_ms,
-            details=detail,
+            details=str(payload.get("message") or ""),
         )
     return row, payload
 
 
-def _entries_row(payload: dict[str, Any]) -> CheckResult:
+def _entries_row(facts: dict[str, Any]) -> CheckResult:
     """Report the logbook entry count; ``warning`` when zero or absent."""
-    count = payload.get("entry_count")
+    count = facts.get("entry_count")
     if not isinstance(count, int) or count <= 0:
         return CheckResult(
             "ariel_entries",
@@ -245,11 +249,11 @@ def _entries_row(payload: dict[str, Any]) -> CheckResult:
     )
 
 
-def _last_ingestion_row(payload: dict[str, Any], ariel_block: Mapping[str, Any]) -> CheckResult:
+def _last_ingestion_row(facts: dict[str, Any], ariel_block: Mapping[str, Any]) -> CheckResult:
     """Report the age of the last ingestion; ``warning`` when never run or stale.
 
     Args:
-        payload: The parsed ``/api/status`` body.
+        facts: The ``service`` object of the parsed ``/health`` body.
         ariel_block: The top-level ``ariel`` config block, read for the
             ``ingestion`` cadence that defines the staleness threshold.
 
@@ -258,7 +262,7 @@ def _last_ingestion_row(payload: dict[str, Any], ariel_block: Mapping[str, Any])
         ``ariel.ingestion`` is configured — without it the facility's cadence is
         unknown, so a stale-but-present timestamp stays ``ok``.
     """
-    raw = payload.get("last_ingestion")
+    raw = facts.get("last_ingestion")
     if not raw:
         return CheckResult(
             "ariel_last_ingestion",
